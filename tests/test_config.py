@@ -5,8 +5,8 @@ import pytest
 
 _rundir = pathlib.Path(__file__).parent
 if not str(_rundir.parent) in sys.path:
-    sys.path.insert(0, str(_rundir.parent / "util" ) )
-import config
+    sys.path.insert(0, str(_rundir.parent ) )
+from util import config
 
 # A note about pytest: Things aren't completely sandboxed.  When I call
 # config.Config.get(), it selts Config._default, and that carries over
