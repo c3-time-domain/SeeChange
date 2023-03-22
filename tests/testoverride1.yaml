@@ -1,0 +1,13 @@
+mainlist2:
+  - override1
+  - override2
+
+override1list1:
+  - 1_1override1
+  - 1_1override2
+
+override1list2:
+  - 1_2override1
+  - 1_2override2
+
+mainscalar2: override2

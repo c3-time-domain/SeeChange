@@ -1,0 +1,22 @@
+preload1dict1:
+   preload1_1val1: 1_1val1
+   preload1_1val2: 1_1val2
+
+preload1dict2:
+   preload1_2val1: 1_2val1
+   preload1_2val2: 1_2val2
+
+preload1list1:
+   - 1_1val0
+   - 1_1val1
+   - 1_1val2
+
+preload1list2:
+   - 1_2val0
+   - 1_2val1
+
+preload1scalar1: 1scalar1
+
+preload1scalar2: 1scalar2
+
+preload1scalar3: 1scalar3

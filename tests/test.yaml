@@ -1,0 +1,61 @@
+preloads:
+  - testpreload1.yaml
+  - testpreload2.yaml
+augments:
+  - testaugment1.yaml
+  - testaugment2.yaml
+overrides:
+  - testoverride1.yaml
+  - testoverride2.yaml
+
+preload1dict1:
+  preload2_1val2: main1val2
+  main1val3: main1val3
+
+maindict:
+  mainval1: val1
+  mainval2: val2
+
+preload1scalar3: main3
+
+preload1list1:
+  - main1
+
+mainlist1:
+  - main1
+  - main2
+  - main3
+
+mainlist2:
+  - main1
+  - main2
+  - main3
+
+mainscalar1: main1
+mainscalar2: main2
+mainscalar3: main3
+mainnull: null
+
+nest:
+  nest1:
+    - nest1a:
+        val: foo
+    - 42
+  nest2:
+    val: bar
+
+settest:
+  list:
+    - a
+    - b
+  dict:
+    key1: val1
+    key2: val2
+  dict2:
+    key1: 2val1
+    key2: 2val2
+  scalar: thing
+  scalar2: foobar
+
+clonetest1: orig
+clonetest2: orig

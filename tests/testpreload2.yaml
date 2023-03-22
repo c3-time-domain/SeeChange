@@ -1,0 +1,14 @@
+preload1dict1:
+   preload1_1val1: 2_1val1
+   preload2_1val2: 2_1val2
+   preload2_1val3: 2_1val3
+
+preload1dict2: 2scalar1
+
+preload1list1:
+  - 2_1val0
+  - 2_1val1
+  - 2_2val2
+
+preload1scalar1: 2scalar1
+preload2scalar2: 2scalar2

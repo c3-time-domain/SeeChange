@@ -1,0 +1,7 @@
+preload1dict1:
+   augment1val1: a1_1val1
+
+mainlist1:
+  - aug1
+
+mainscalar1: aug1
