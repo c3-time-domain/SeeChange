@@ -19,8 +19,8 @@ jobs:
 
       - name: Make /var/lib/docker world read/writeable
         run: |
-          sudo mkdir /var/lib/docker
-          sudo chmod 777 /var/lib/docker
+          sudo mkdir -p /var/lib/docker
+          sudo chmod -R 777 /var/lib/docker
 
       - name: Restore cached /var/lib/docker
         id: cache-docker-restore
