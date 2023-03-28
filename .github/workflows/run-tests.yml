@@ -28,7 +28,7 @@ jobs:
           --health-retries 5
 
       seechange-postgres:
-        image: rknop/seechange-postgres
+        image: 'docker/postgres/Dockerfile'
         env:
           POSTGRES_DATA_DIR: /var/lib/postgresql/data
         ports:
