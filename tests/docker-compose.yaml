@@ -1,23 +1,22 @@
-version: "3.2"
+version: "3.3"
 services:
-  seechange-postgres:
+  seechange_postgres:
     image: rknop/seechange-postgres
     build: ../docker/postgres
     environment:
       POSTGRES_DATA_DIR: /var/lib/postgresql/data
-
-  postgres:
-    image: postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: netcat -w 1 localhost 5432 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
 
   runtests:
     image: rknop/seechange
     build: ../docker/application
     depends_on:
-      - "postgres"
-      - "seechange-postgres"
+      seechange_postgres:
+         condition: service_healthy
     volumes:
       - type: bind
         source: ..

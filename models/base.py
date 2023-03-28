@@ -26,7 +26,8 @@ DATA_TEMP = os.path.join(CODE_ROOT, "DATA_TEMP")
 
 # TODO: check with Rob if he has a preferred way of doing this
 # create database here:
-url = "postgresql://postgres:postgres@postgres:5432/seechange"
+# url = "postgresql://postgres:postgres@postgres:5432/seechange"
+url = "postgresql://postgres:fragile@seechange_postgres:5432/seechange"
 engine = sa.create_engine(url, future=True)
 if not database_exists(engine.url):
     create_database(engine.url)

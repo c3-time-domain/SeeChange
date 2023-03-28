@@ -15,7 +15,7 @@ WORKDIR /build
 # RUN.
 RUN apt-get update && apt-get -y upgrade && \
   apt-get -y install \
-    make git gcc postgresql-13 postgresql-client-13 postgresql-13-postgis \
+    make git gcc netcat postgresql-13 postgresql-client-13 postgresql-13-postgis \
     postgresql-server-dev-13 pgtop libssl-dev libreadline-dev zlib1g-dev tmux && \
   git clone https://github.com/segasai/q3c.git && \
   cd q3c && \

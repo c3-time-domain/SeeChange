@@ -6,7 +6,7 @@ import psycopg2.extras
 
 @pytest.fixture(scope='module')
 def db_con_and_cursor():
-    host = 'seechange-postgres'
+    host = 'seechange_postgres'
     port = 5432
     user = 'postgres'
     password = 'fragile'

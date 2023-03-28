@@ -27,3 +27,12 @@ It is useful to get familiar with the naming convention for different pieces of 
   These include flux+errors, magnitude+errors, centroid positions, spot width, etc. 
 - `Provenance`: A table containing the code version and critical parameters that are unique to this version of the data. 
   Each data product above must link back to a provenance row, so we can recreate the conditions that produced this data. 
+
+## Development notes
+
+### Tests
+
+To run the tests on your local system in an environment that approximates how they'll be run on github, cd into `tests` and run
+   `docker compose build`
+   `docker compose run runtests`
+(You must have the "docker compose CLI plugin" installed for this to work.)  At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  (The output you see to the screen should tell you the same information.)  This will take a long time the first time you do it, as it has to build the docker images, but after that, it should be fast (unless the Dockerfile has changed for either image).
