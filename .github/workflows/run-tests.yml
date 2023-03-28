@@ -11,11 +11,18 @@ jobs:
     name: build docker images
     runs-on: ubuntu-latest
     env:
-      COMPOSE_FILE: ./tests/docker-compose.yaml
+      COMPOSE_FILE: tests/docker-compose.yaml
 
     steps:
       - name: Build images
         run: docker-compose build
+
+      - name: Cache Local Images
+        id: local-images
+        uses: actions/cache@v3
+        with:
+          path: /var/lib/docker
+          key: local-docker-directory
 
       - name: Run tests
         run: docker-compose run runtests
