@@ -9,7 +9,7 @@ if not str(_rundir.parent) in sys.path:
 from util import config
 
 # A note about pytest: Things aren't completely sandboxed.  When I call
-# config.Config.get(), it selts Config._default, and that carries over
+# config.Config.get(), it sets Config._default, and that carries over
 # from one test to the next even if the call wasn't in a fixture with
 # class scope.  (The tests below are ordered with this in mind.)
 
