@@ -10,8 +10,9 @@ jobs:
   tests:
     name: build docker images
     runs-on: ubuntu-latest
-    env:
-      COMPOSE_FILE: tests/docker-compose.yaml
+#    env:
+#      COMPOSE_FILE: tests/docker-compose.yaml
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
