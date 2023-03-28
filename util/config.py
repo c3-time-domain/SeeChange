@@ -430,6 +430,15 @@ class Config:
             See value() for more information
 
         value: str, int, float, list, or dict
+
+        structpass: some object with a ".struct" field
+           Used internally when the Config object is building it's own
+           _data field; don't use externally
+
+        appendlists: bool, default False
+           If true and if field is a pre-existing list, then value is
+           appended to the list.  Otherwise, value replaces the
+           pre-existing field if there is one.
             
         Does not save to disk.  Follows the standard rules docuemnted in
         "augment" and "override"; if appendlists is True, uses
