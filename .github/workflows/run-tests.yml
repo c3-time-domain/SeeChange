@@ -10,40 +10,40 @@ jobs:
   tests:
     name: build docker images
     runs-on: ubuntu-latest
-#    env:
-#      COMPOSE_FILE: tests/docker-compose.yaml
+    env:
+      COMPOSE_FILE: tests/docker-compose.yaml
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v2
 
-      - name: Make /var/lib/docker world read/writeable
-        run: |
-          sudo mkdir /var/lib/docker
-          sudo chmod 777 /var/lib/docker
+    - name: Make /var/lib/docker world read/writeable
+      run: |
+        sudo mkdir /var/lib/docker
+        sudo chmod 777 /var/lib/docker
 
-      - name: Restore cached /var/lib/docker
-        id: cache-docker-restore
-        uses: actions/cache/restore@v3
-        with:
-          path: /var/lib/docker
-          key: local-docker-directory
+    - name: Restore cached /var/lib/docker
+      id: cache-docker-restore
+      uses: actions/cache/restore@v3
+      with:
+        path: /var/lib/docker
+        key: local-docker-directory
 
-      - name: Build images
-        run: docker-compose build
+    - name: Build images
+      run: docker-compose build
 
-       -name: Make sure /var/lib/docker is world read/writeable
-        run: sudo chmod -R 777 /var/lib/docker
+     -name: Make sure /var/lib/docker is world read/writeable
+      run: sudo chmod -R 777 /var/lib/docker
 
-      - name: Cache /var/lib/docker
-        id: cache-docker-save
-        uses: actions/cache/save@v3
-        with:
-          path: /var/lib/docker
-          key: local-docker-directory
+    - name: Cache /var/lib/docker
+      id: cache-docker-save
+      uses: actions/cache/save@v3
+      with:
+        path: /var/lib/docker
+        key: local-docker-directory
 
-      - name: Run tests
-        run: docker-compose run runtests
+    - name: Run tests
+      run: docker-compose run runtests
 
 
 
