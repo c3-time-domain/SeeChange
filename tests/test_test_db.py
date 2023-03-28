@@ -16,7 +16,7 @@ def db():
     yield con
     con.close()
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def cursor( db ):
     cursor = db.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
     yield cursor
