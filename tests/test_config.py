@@ -60,8 +60,8 @@ class TestConfig:
         assert cfg.value('mainscalar3') == 'override2'
 
         assert cfg.value('mainnull') is None
-        with pytest.raises( ValueError ):
-            print( f"config value notdefined is {cfg.value('notdefined')}" )
+        with pytest.raises( ValueError, match='Error getting field' ):
+            cfg.value('notdefined')
 
     def test_override(self, cfg):
         assert cfg.value( 'override1list1.0' ) == '1_1override1'
