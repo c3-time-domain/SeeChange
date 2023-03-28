@@ -159,7 +159,7 @@ class Config:
         """Returns a config object.
 
         Will call "get" on the passed configfile, but will *not* return
-        the singleton object for that config file.  RAther, will make a
+        the singleton object for that config file.  Rather, will make a
         deep copy of it, and return that.  That gives you a config file
         that you can muck about with to your heart's content without
         worrying about messing things up elsewhere.
