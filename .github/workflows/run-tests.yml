@@ -32,7 +32,7 @@ jobs:
         env:
           POSTGRES_DATA_DIR: /var/lib/postgresql/data
         ports:
-          - 5432:5433
+          - 5433:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
