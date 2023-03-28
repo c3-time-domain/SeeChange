@@ -1,0 +1,26 @@
+version: "3.2"
+services:
+  seechange-postgres:
+    image: rknop/seechange-postgres
+    build: ../docker/postgres
+    environment:
+      POSTGRES_DATA_DIR: /var/lib/postgresql/data
+
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+  runtests:
+    image: rknop/seechange
+    build: ../docker/application
+    depends_on:
+      - "postgres"
+      - "seechange-postgres"
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    entrypoint: [ "pytest", "-v", "/seechange/tests/", ]
+#    entrypoint: [ "pytest", "-v", "--noconftest", "/seechange/tests/test_test_db.py", ]

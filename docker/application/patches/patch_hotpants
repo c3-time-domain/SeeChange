@@ -1,0 +1,247 @@
+diff --git a/defaults.h b/defaults.h
+index 92962a1..e00d95f 100644
+--- a/defaults.h
++++ b/defaults.h
+@@ -1,3 +1,6 @@
++#ifndef DEFAULTS_H_
++#define DEFAULTS_H_
++
+ #define D  if (1);
+ #define DD if (0);
+ 
+@@ -79,3 +82,5 @@
+ #define D_VERBOSE       1       /* levels of verbosity, 0, 1, 2 */
+ #define D_CONVVAR       0       /* instead of convolving noise, convolve variance.  ker vs ker**2 */
+ #define D_USEPCA        0       /* use input basis functions for kernel; derived from PCA */
++
++#endif
+diff --git a/define_globals.h b/define_globals.h
+new file mode 100644
+index 0000000..318ce59
+--- /dev/null
++++ b/define_globals.h
+@@ -0,0 +1,60 @@
++/* Global variables defined extern in globals.h that need to be made concrete */
++char      *template, *image, *outim;
++
++float     tUThresh, tUKThresh, tLThresh, tGain, tRdnoise, iUThresh, iUKThresh, iLThresh, iGain, iRdnoise;
++char      *tNoiseIm, *iNoiseIm, *tMaskIm, *iMaskIm, *kernelImIn, *kernelImOut, *outMask;
++float     tPedestal, iPedestal;
++int       hwKernel;
++float     kerFitThresh, scaleFitThresh, minFracGoodStamps;
++float     kfSpreadMask1, kfSpreadMask2;
++int       gdXmin, gdXmax, gdYmin, gdYmax;
++int       nRegX, nRegY;
++char      *regFile;
++char      *regKeyWord;
++int       numRegKeyWord;
++int       nStampY, nStampX, useFullSS;
++int       nKSStamps, hwKSStamp;
++char      *sstampFile;
++int       findSSC;
++int       kerOrder, bgOrder;
++float     statSig, kerSigReject, kerFracMask;
++char      *forceConvolve, *photNormalize, *figMerit;
++int       sameConv, rescaleOK;
++float     fillVal, fillValNoise;
++char      *effFile, *noiseImage, *sigmaImage, *convImage;
++int       doSum, inclNoiseImage, inclSigmaImage, inclConvImage, noClobber;
++int       doKerInfo, outShort, outNShort;
++float     outBzero, outBscale, outNiBzero, outNiBscale;
++int       convolveVariance;
++int       usePCA, fwKernelPCA;
++float     **PCA;
++
++/* GLOBAL VARS NOT SET ON COMMAND LINE */
++int       ngauss, *deg_fixe;
++float     *sigma_gauss;
++
++int       rPixX, rPixY;
++int       nStamps, nS, nCompKer, nC;
++
++int       nComp, nCompBG, nBGVectors, nCompTotal;
++
++int       fwKernel, fwStamp, hwStamp, fwKSStamp, kcStep, *indx;
++int       cmpFile;
++float     *temp, *temp2;
++double    *check_stack,*filter_x,*filter_y,**kernel_vec;
++double    **wxy,*kernel_coeffs,*kernel,**check_mat,*check_vec;
++char      version[32];
++
++/* REGION SIZED */
++int       *mRData;   /* bad input data mask */
++
++/* armin */
++/* a dummy varialbe to do some testing */
++int        dummy;
++/* verbose for debugging */
++int        verbose;
++/* cmp file stuff */
++char       xyfilename[1000];
++int        savexyflag;
++float      *xcmp,*ycmp;
++int        Ncmp;
+diff --git a/extractkern.c b/extractkern.c
+index 9857930..ac32559 100644
+--- a/extractkern.c
++++ b/extractkern.c
+@@ -7,6 +7,7 @@
+ #include<fitsio.h>
+ 
+ #include "globals.h"
++#include "define_globals.h"
+ 
+ #define max(x,y) x>y?x:y
+ #define min(x,y) x<y?x:y
+diff --git a/functions.h b/functions.h
+index ec4c90f..2aee93a 100644
+--- a/functions.h
++++ b/functions.h
+@@ -1,3 +1,6 @@
++#ifndef FUNCTIONS_H_
++#define FUNCTIONS_H_
++
+ #include <fitsio.h>
+ 
+ /* Alard.c */
+@@ -97,3 +100,5 @@ int          jtdotri(int, int, double *, double [], double [], double, float *,
+ void         jtsprinkle(int, int, double *, double, double, double, double,
+ 			double, float, float *, int []);
+ */
++
++#endif
+diff --git a/globals.h b/globals.h
+index 194e4bf..e3e8fb5 100644
+--- a/globals.h
++++ b/globals.h
+@@ -1,3 +1,6 @@
++#ifndef GLOBALS_H_
++#define GLOBALS_H_
++
+ typedef struct
+ {
+    int       x0,y0;       /* origin of stamp in region coords*/
+@@ -24,62 +27,64 @@ typedef struct
+ } stamp_struct;
+ 
+ /* GLOBAL VARS POSSIBLY SET ON COMMAND LINE */
+-char      *template, *image, *outim;
++extern char      *template, *image, *outim;
+ 
+-float     tUThresh, tUKThresh, tLThresh, tGain, tRdnoise, iUThresh, iUKThresh, iLThresh, iGain, iRdnoise;
+-char      *tNoiseIm, *iNoiseIm, *tMaskIm, *iMaskIm, *kernelImIn, *kernelImOut, *outMask;
+-float     tPedestal, iPedestal;
+-int       hwKernel;
+-float     kerFitThresh, scaleFitThresh, minFracGoodStamps;
+-float     kfSpreadMask1, kfSpreadMask2;
+-int       gdXmin, gdXmax, gdYmin, gdYmax;
+-int       nRegX, nRegY;
+-char      *regFile;
+-char      *regKeyWord;
+-int       numRegKeyWord;
+-int       nStampY, nStampX, useFullSS;
+-int       nKSStamps, hwKSStamp;
+-char      *sstampFile;
+-int       findSSC;
+-int       kerOrder, bgOrder;
+-float     statSig, kerSigReject, kerFracMask;
+-char      *forceConvolve, *photNormalize, *figMerit;
+-int       sameConv, rescaleOK;
+-float     fillVal, fillValNoise;
+-char      *effFile, *noiseImage, *sigmaImage, *convImage;
+-int       doSum, inclNoiseImage, inclSigmaImage, inclConvImage, noClobber;
+-int       doKerInfo, outShort, outNShort;
+-float     outBzero, outBscale, outNiBzero, outNiBscale;
+-int       convolveVariance;
+-int       usePCA, fwKernelPCA;
+-float     **PCA;
++extern float     tUThresh, tUKThresh, tLThresh, tGain, tRdnoise, iUThresh, iUKThresh, iLThresh, iGain, iRdnoise;
++extern char      *tNoiseIm, *iNoiseIm, *tMaskIm, *iMaskIm, *kernelImIn, *kernelImOut, *outMask;
++extern float     tPedestal, iPedestal;
++extern int       hwKernel;
++extern float     kerFitThresh, scaleFitThresh, minFracGoodStamps;
++extern float     kfSpreadMask1, kfSpreadMask2;
++extern int       gdXmin, gdXmax, gdYmin, gdYmax;
++extern int       nRegX, nRegY;
++extern char      *regFile;
++extern char      *regKeyWord;
++extern int       numRegKeyWord;
++extern int       nStampY, nStampX, useFullSS;
++extern int       nKSStamps, hwKSStamp;
++extern char      *sstampFile;
++extern int       findSSC;
++extern int       kerOrder, bgOrder;
++extern float     statSig, kerSigReject, kerFracMask;
++extern char      *forceConvolve, *photNormalize, *figMerit;
++extern int       sameConv, rescaleOK;
++extern float     fillVal, fillValNoise;
++extern char      *effFile, *noiseImage, *sigmaImage, *convImage;
++extern int       doSum, inclNoiseImage, inclSigmaImage, inclConvImage, noClobber;
++extern int       doKerInfo, outShort, outNShort;
++extern float     outBzero, outBscale, outNiBzero, outNiBscale;
++extern int       convolveVariance;
++extern int       usePCA, fwKernelPCA;
++extern float     **PCA;
+ 
+ /* GLOBAL VARS NOT SET ON COMMAND LINE */
+-int       ngauss, *deg_fixe;
+-float     *sigma_gauss;
++extern int       ngauss, *deg_fixe;
++extern float     *sigma_gauss;
+ 
+-int       rPixX, rPixY;
+-int       nStamps, nS, nCompKer, nC;
++extern int       rPixX, rPixY;
++extern int       nStamps, nS, nCompKer, nC;
+ 
+-int       nComp, nCompBG, nBGVectors, nCompTotal;
++extern int       nComp, nCompBG, nBGVectors, nCompTotal;
+ 
+-int       fwKernel, fwStamp, hwStamp, fwKSStamp, kcStep, *indx;
+-int       cmpFile;
+-float     *temp, *temp2;
+-double    *check_stack,*filter_x,*filter_y,**kernel_vec;
+-double    **wxy,*kernel_coeffs,*kernel,**check_mat,*check_vec;
+-char      version[32];
++extern int       fwKernel, fwStamp, hwStamp, fwKSStamp, kcStep, *indx;
++extern int       cmpFile;
++extern float     *temp, *temp2;
++extern double    *check_stack,*filter_x,*filter_y,**kernel_vec;
++extern double    **wxy,*kernel_coeffs,*kernel,**check_mat,*check_vec;
++extern char      version[32];
+ 
+ /* REGION SIZED */
+-int       *mRData;   /* bad input data mask */
++extern int       *mRData;   /* bad input data mask */
+ 
+ /* armin */
+ /* a dummy varialbe to do some testing */
+-int        dummy;
++extern int        dummy;
+ /* verbose for debugging */
+-int        verbose;
++extern int        verbose;
+ /* cmp file stuff */
+-char       xyfilename[1000];
+-int        savexyflag;
+-float      *xcmp,*ycmp;
+-int        Ncmp;
++extern char       xyfilename[1000];
++extern int        savexyflag;
++extern float      *xcmp,*ycmp;
++extern int        Ncmp;
++
++#endif
+diff --git a/main.c b/main.c
+index 2d8d44c..2d1303a 100644
+--- a/main.c
++++ b/main.c
+@@ -12,6 +12,8 @@
+ #include "globals.h"
+ #include "functions.h"
+ 
++#include "define_globals.h"
++
+ int main(int argc,char *argv[]) {
+     int         i,j,k,l,m;                              /* generic indices */
+     char        scrStr[SCRLEN];                         /* scratch string */
