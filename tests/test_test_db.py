@@ -7,7 +7,7 @@ import psycopg2.extras
 @pytest.fixture(scope='module')
 def db():
     host = 'seechange-postgres'
-    port = 5432
+    port = 5433
     user = 'postgres'
     password = 'fragile'
     dbname = 'seechange'
