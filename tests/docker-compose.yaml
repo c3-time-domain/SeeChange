@@ -22,5 +22,5 @@ services:
       - type: bind
         source: ..
         target: /seechange
+    working_dir: /seechange
     entrypoint: [ "pytest", "-v", "/seechange/tests/", ]
-#    entrypoint: [ "pytest", "-v", "--noconftest", "/seechange/tests/test_test_db.py", ]

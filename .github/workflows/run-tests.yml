@@ -17,12 +17,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Restore cached /var/lib/docker
+        id: cache-docker-restore
+        uses: actions/cache/restore@v3
+        with:
+          path: /var/lib/docker
+          key: local-docker-directory
+
       - name: Build images
         run: docker-compose build
 
-      - name: Cache Local Images
-        id: local-images
-        uses: actions/cache@v3
+      - name: Cache /var/lib/docker
+        id: cache-docker-save
+        uses: actions/cache/save@v3
         with:
           path: /var/lib/docker
           key: local-docker-directory
