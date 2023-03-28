@@ -23,6 +23,7 @@ packaging==23.0
 pandas==1.5.3
 Pillow==9.4.0
 pluggy==1.0.0
+psycopg2==2.9.5
 py-cpuinfo==9.0.0
 pyerfa==2.0.0.2
 pyparsing==3.0.9
