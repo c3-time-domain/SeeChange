@@ -20,7 +20,7 @@ class TestConfig:
     @pytest.mark.skipif( os.getenv("SEECHANGE_CONFIG") is None, reason="Set SEECHANGE_CONFIG to test this" )
     def test_default_default( self ):
         cfg = config.Config.get()
-        assert cfg._path == pathlib.Path( os.getenv("CURVEBALL_CONFIG") )
+        assert cfg._path == pathlib.Path( os.getenv("SEECHANGE_CONFIG") )
 
     def test_set_default( self ):
         cfg = config.Config.get( _rundir / 'test.yaml', setdefault=True )
@@ -60,7 +60,7 @@ class TestConfig:
         assert cfg.value('mainscalar3') == 'override2'
 
         assert cfg.value('mainnull') is None
-        with pytest.raises( ValueError, match='Error getting field' ):
+        with pytest.raises( ValueError, match="Field.*doesn't exist" ):
             cfg.value('notdefined')
 
     def test_override(self, cfg):
@@ -89,15 +89,15 @@ class TestConfig:
         assert cfg.value( 'nest.nest1.0.nest1a.val' ) == 'foo'
 
     def test_set(self, cfg):
-        with pytest.raises( TypeError ):
+        with pytest.raises( TypeError, match="Tried to add a non-integer field to a list." ):
             cfg.set_value( 'settest.list.notanumber', 'kitten', appendlists=True )
-        with pytest.raises( TypeError ):
+        with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
             cfg.set_value( 'settest.0', 'puppy' )
-        with pytest.raises( TypeError ):
+        with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
             cfg.set_value( 'settest.0.subset', 'bunny' )
-        with pytest.raises( TypeError ):
+        with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
             cfg.set_value( 'settest.dict.0', 'iguana' )
-        with pytest.raises( TypeError ):
+        with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
             cfg.set_value( 'settest.dict.2.something', 'tarantula' )
 
         cfg.set_value( 'settest.list.0', 'mouse', appendlists=True )

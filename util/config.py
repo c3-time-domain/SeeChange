@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import sys
 import os
 import logging
@@ -98,13 +95,45 @@ class Config:
 
     @staticmethod
     def init( configfile=None, logger=logging.getLogger("main"), dirmap={} ):
-        """Initialize configuration globally for process."""
+        """Initialize configuration globally for process.
+
+        Parameters
+        ----------
+        configfile : str or pathlib.Path, default None
+            If None, will set the config file to os.getenv("SEECHANGE_CONFIG")
+
+        logger: logging object, default: getLogger("main")
+        
+        dirmap: dict of { str: str }
+            An ugly hack for changing the directories of imported files; see the static function dirmap.
+
+        """
 
         Config.get( configfile, logger=logger, dirmap=dirmap )
 
     @staticmethod
     def get( configfile=None, reread=False, logger=logging.getLogger("main"), dirmap={}, setdefault=False ):
         """Returns a Config object.
+
+        Paramaeters
+        -----------
+        configfile : str or Pathlib.Path, default None
+            The config file to read (if it hasn't been read before, or
+            if reread is True).  If None, will return the default config
+            context for the current session (which is the one from the
+            first call to either get() or init().
+
+        reread : bool, default False
+            If True, reread the config file even if it has been read before.
+
+        dirmap: dict of { str: str }
+            See the dirmap static function
+
+        logger : a logging object, default getLogger("main")
+
+        Returns
+        -------
+            Config object
 
         Config objects are stored as an array of singletons.  That is,
         if you pass a config file that has been passed before in the
@@ -148,6 +177,31 @@ class Config:
 
     @staticmethod
     def dirmap( filename, dirmap ):
+        """Map directories in while reading the config file.
+
+        Parameters
+        ----------
+        filename : str
+            A filename from the config file that starts with a directory that might be remapped
+
+        dirmap : dict of { str: str }
+
+        Returns
+        -------
+        str
+            Potentially modified filename
+
+        If the beginning of the string filename matches any of the keys
+        of dirmap, that part of the string will be replaced with the
+        value of the dict at that key.
+
+        This is kind of an ugly hack, but it was there so that I could
+        use the same config files both inside and outside a container,
+        with dirmap being used to tell the current session where
+        in-container config files can really be found.
+
+        """
+
         for olddir, newdir in dirmap.items():
             if filename[0:len(olddir)] == olddir:
                 filename = f"{newdir}{filename[len(olddir):]}"
@@ -158,6 +212,20 @@ class Config:
     def clone( configfile=None, reread=False, logger=logging.getLogger("main"), dirmap={} ):
         """Returns a config object.
 
+        Parameters
+        ----------
+        configfile: str or Path, default None
+        
+        reread: bool
+
+        logger: a logging object, default getLogger("main")
+
+        dirmap: dict of str: str
+
+        Returns
+        -------
+            Config object
+        
         Will call "get" on the passed configfile, but will *not* return
         the singleton object for that config file.  Rather, will make a
         deep copy of it, and return that.  That gives you a config file
@@ -169,7 +237,22 @@ class Config:
 
 
     def __init__( self, configfile, clone=None, logger=logging.getLogger("main"), dirmap={} ):
-        """Don't call this, call static method Config.get() or Config.clone()"""
+        """Don't call this, call static method Config.get() or Config.clone()
+        
+        Parameters
+        ----------
+        configfile : str or Path
+
+        clone : Config object, default None
+
+        logger : logging object, default getLogger("main")
+
+        dirmap : dict of { str: str }
+
+        If clone is not None, return a deep copy of that.  Otherwise,
+        see get() for definition of the parameters.
+
+        """
 
         self.logger = logger
         if clone is not None:
@@ -207,7 +290,13 @@ class Config:
             raise e
 
     def augment( self, augmentfile, dirmap={} ):
-        """Read file (or path) augmentfile and augment config data.
+        """Read file (or path) augmentfile and augment config data.  Intended for internal use only.
+
+        Parameters
+        ----------
+        augmentfile: str or Path
+
+        dirmap: dict of { str: str }
 
         * If the old and new items have different types (scalar vs. list
           vs. dict), the new value replaces the old value.
@@ -228,8 +317,13 @@ class Config:
         self._data = Config.merge_trees( self._data, augment, augment=True )
 
     def override( self, overridefile, dirmap=dirmap ):
-        """Read file (or path) overridefile and override config data.
+        """Read file (or path) overridefile and override config data.  Intended for internal use only.
 
+        Parameters
+        ----------
+        augmentfile: str or Path
+
+        dirmap: dict of { str: str }
         * If the old and new items have different types (scalar vs. list
           vs. dict), the new value replaces the old value.
 
@@ -250,6 +344,19 @@ class Config:
 
     def value( self, field, struct=None ):
         """Get a value from the config structure.
+
+        Parameters
+        ----------
+        field: str
+            See below
+
+        struct: dict, default None
+            If passed, use this dictionary in place of the object's own
+            config dictionary.  Avoid use.
+
+        Returns
+        -------
+        int, float, str, list, or dict
 
         For trees, separate fields by periods.  If there is
         an array somewhere in the tree, then the array index
@@ -278,6 +385,7 @@ class Config:
         You can also specify a branch to get back the rest of the
         subtree; for instance configobj.value( "dict1.dict2" ) would
         return the dictionary { "sub1": "2level1", "sub2": "2level2" }.
+
         """
 
         if struct is None:
@@ -316,6 +424,13 @@ class Config:
     def set_value( self, field, value, structpass=None, appendlists=False ):
         """Set a value in the singleton for the current session.
 
+        Parameters
+        ----------
+        field: str
+            See value() for more information
+
+        value: str, int, float, list, or dict
+            
         Does not save to disk.  Follows the standard rules docuemnted in
         "augment" and "override"; if appendlists is True, uses
         "augment", else "override".  Will create the whole hierarchy if
@@ -379,19 +494,28 @@ class Config:
                     structpass.struct[curfield] = structchuck.struct
                 else:
                     if isinstance( structpass.struct, dict ):
-                        raise TypeError( "Tried to add an integer field to a dict" )
+                        raise TypeError( "Tried to add an integer field to a dict." )
                     structchuck.struct = {} if nextifield is None else []
                     self.set_value( ".".join(fields[1:]), value, structchuck, appendlists=appendlists )
                     structpass.struct = [ structchuck.struct ]
 
     @classmethod
     def _fieldsep( cls, field ):
-        """Parses a period-separated config specifier string.
-        Returns:
+        """Parses a period-separated config specifier string.  Internal use only.
+
+        Parameters
+        ----------
+        field: str
+            A field specifier to parse
+
+        Returns
+        -------
+        tuple with 4 elements: fields, isleav, curfield, ifield.
           fields : list of the hierarchy (e.g. "val1.val2.val3" returns ["val1","val2","val3"])
           isleaf : True if len(fields) is 1, otherwise false
           curfield : The first element of the field (val1 in the example above)
           ifield : None if curfield is not an integer, otherwise the integer value of curfield
+
         """
         fields = field.split( "." )
         isleaf = ( len(fields) == 1 )
@@ -404,7 +528,21 @@ class Config:
 
     @staticmethod
     def merge_trees( left, right, augment=False ):
-        """Internal usage, do not call."""
+        """Internal usage, do not call.
+
+        Parameters
+        ----------
+        left: dict
+
+        right: dict
+
+        augment: bool
+
+        Merge two config trees, with the right dict overriding the left
+        dict using the rules described in the documentation of the
+        Config class.
+
+        """
 
         if isinstance( left, list ):
             if not isinstance( right, list ) or ( not augment ):
@@ -425,8 +563,3 @@ class Config:
             return newdict
         else:
             return copy.deepcopy( right )
-
-
-
-if __name__ == "__main__":
-    main()
