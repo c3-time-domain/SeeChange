@@ -19,6 +19,7 @@ jobs:
 
       - name: Make /var/lib/docker world read/writeable
         run: |
+          sudo rm -rf /var/lib/docker
           sudo mkdir -p /var/lib/docker
           sudo chmod -R 777 /var/lib/docker
 
