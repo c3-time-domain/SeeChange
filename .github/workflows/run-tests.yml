@@ -6,15 +6,13 @@ on:
       - docker
   pull_request:
   workflow_dispatch:
-  
-env:
-  REGISTRY: ghcr.io
 
 jobs:
   tests:
     name: run tests in docker image
     runs-on: ubuntu-latest
     env:
+      REGISTRY: gchr.io
       COMPOSE_FILE: tests/docker-compose.yaml
 
     steps:

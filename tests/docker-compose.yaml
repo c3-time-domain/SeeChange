@@ -1,7 +1,7 @@
 version: "3.3"
 services:
   seechange_postgres:
-    image: gchr.io/seechange/seechange--postgres
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
     build: ../docker/postgres
     environment:
       POSTGRES_DATA_DIR: /var/lib/postgresql/data
@@ -12,7 +12,7 @@ services:
       retries: 5
 
   runtests:
-    image: gchr.io/seechange/seechange
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
     build: ../docker/application
     depends_on:
       seechange_postgres:
