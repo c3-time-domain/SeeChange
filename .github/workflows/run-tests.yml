@@ -26,8 +26,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull or build/push images
-        run: docker compose pull || ( docker compose build --progress=plain && docker compose push )
+      - name: Pull docker images from gchr.io repository
+        run: docker compose pull || echo "Failed to pull images, will build."
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Push docker images to gchr.io repository
+        run: docker compose push
 
       - name: Run tests
         run: docker compose run runtests
