@@ -36,3 +36,7 @@ To run the tests on your local system in an environment that approximates how th
    `docker compose build`
    `docker compose run runtests`
 (You must have the "docker compose CLI plugin" installed for this to work.)  At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  (The output you see to the screen should tell you the same information.)  This will take a long time the first time you do it, as it has to build the docker images, but after that, it should be fast (unless the Dockerfile has changed for either image).
+
+After the test is complete, run
+    `docker compose down`
+(otherwise, the postgres container will still be running).

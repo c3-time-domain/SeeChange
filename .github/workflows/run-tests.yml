@@ -30,7 +30,7 @@ jobs:
           key: local-docker-directory
 
       - name: Build images
-        run: docker-compose build
+        run: docker compose build
 
       - name: Make sure /var/lib/docker is world read/writeable
         run: sudo chmod -R 777 /var/lib/docker
@@ -43,7 +43,7 @@ jobs:
           key: local-docker-directory
 
       - name: Run tests
-        run: docker-compose run runtests
+        run: docker compose run runtests
 
 
 
