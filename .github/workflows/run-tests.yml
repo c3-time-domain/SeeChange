@@ -27,7 +27,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull or build/push images
-        run: docker compose build --progress=plain
+        run: docker compose pull || ( docker compose build --progress=plain && docker compose push )
 
       - name: Run tests
         run: docker compose run runtests
