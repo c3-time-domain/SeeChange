@@ -6,9 +6,12 @@ on:
       - docker
   pull_request:
 
+env:
+  REGISTRY: ghcr.io
+
 jobs:
   tests:
-    name: build docker images
+    name: run tests in docker image
     runs-on: ubuntu-latest
     env:
       COMPOSE_FILE: tests/docker-compose.yaml
@@ -17,31 +20,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Make /var/lib/docker world read/writeable
-        run: |
-          sudo rm -rf /var/lib/docker
-          sudo mkdir -p /var/lib/docker
-          sudo chmod -R 777 /var/lib/docker
-
-      - name: Restore cached /var/lib/docker
-        id: cache-docker-restore
-        uses: actions/cache/restore@v3
+      - name: Log into github container registry
+        uses: docker/login-action@v2
         with:
-          path: /var/lib/docker
-          key: local-docker-directory
+          registry: gchr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build images
-        run: docker compose build
-
-      - name: Make sure /var/lib/docker is world read/writeable
-        run: sudo chmod -R 777 /var/lib/docker
-
-      - name: Cache /var/lib/docker
-        id: cache-docker-save
-        uses: actions/cache/save@v3
-        with:
-          path: /var/lib/docker
-          key: local-docker-directory
+      - name: Pull or build images
+        run: docker compose pull || (( docker compose build && docker compose push )
 
       - name: Run tests
         run: docker compose run runtests
