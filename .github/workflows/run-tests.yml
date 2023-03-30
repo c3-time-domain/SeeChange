@@ -27,7 +27,7 @@ jobs:
 
       # I haven't yet figured out a way to get github actions to
       # pull from and push to a registry.  (I've tried a LOT
-      # of different things, and have a forumq uestion in.)
+      # of different things, and have a forum question in.)
       #
       # So, for now, we have to rebuild the docker image every time
       # we run a test, which is profligate and slow, but it's what
