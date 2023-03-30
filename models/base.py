@@ -13,33 +13,12 @@ import util.config as config
 utcnow = func.timezone("UTC", func.current_timestamp())
 
 
-# Don't run Config.init() on package initialization to avoid
-# setting the default config just from the import
-_cfg = None
-
 # this is the root SeeChange folder
 CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 
-# this is where the data lives
-# (could be changed for, e.g., new external drive)
-DATA_ROOT = None
-DATA_TEMP = None
-
 _engine = None
 _Session = None
-
-def load_default_config():
-    global DATA_ROOT, DATA_TEMP, _cfg
-
-    if _cfg is None:
-        _cfg = config.Config.get()
-        DATA_ROOT = _cfg.value( "path.seechange_data" )
-        if DATA_ROOT is None:  # TODO: should also check if folder exists?
-            DATA_ROOT = os.path.join(CODE_ROOT, "output")
-
-        DATA_TEMP = _cfg.value( "path.data_temp" )
-        if DATA_TEMP is None:
-            DATA_TEMP = os.path.join(CODE_ROOT, "DATA_TEMP")
+    
         
 @contextmanager
 def SmartSession(input_session=None):
@@ -56,9 +35,9 @@ def SmartSession(input_session=None):
     # open a new session and close it when outer scope is done
     if input_session is None:
         if _Session is None:
-            load_default_config()
-            url = ( f'{_cfg.value("db.engine")}://{_cfg.value("db.user")}:{_cfg.value("db.password")}'
-                    f'@{_cfg.value("db.host")}:{_cfg.value("db.port")}/{_cfg.value("db.database")}' )
+            cfg = config.Config.get()
+            url = ( f'{cfg.value("db.engine")}://{cfg.value("db.user")}:{cfg.value("db.password")}'
+                    f'@{cfg.value("db.host")}:{cfg.value("db.port")}/{cfg.value("db.database")}' )
             engine = sa.create_engine( url, future=True, poolclass=sa.pool.NullPool )
             
             _Session = sessionmaker(bind=engine, expire_on_commit=True)
@@ -78,11 +57,12 @@ def SmartSession(input_session=None):
 
 def safe_mkdir(path):
 
+    cfg = config.Config.get()
     allowed_dirs = [
-        DATA_ROOT,
-        os.path.join(CODE_ROOT, "results"),
-        os.path.join(CODE_ROOT, "catalogs"),
-        DATA_TEMP,
+        cfg.value('path.data_root'),
+        os.path.join(_CODE_ROOT, "results"),
+        os.path.join(_CODE_ROOT, "catalogs"),
+        cfg.value('path.data_temp'),
     ]
 
     ok = False
