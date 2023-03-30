@@ -23,7 +23,8 @@ RUN DEBIAN_FRONTEND="nonintearctive" TZ="US/Pacific" \
       autoconf \
       automake \
       build-essential \
-      cmake lsb-release \
+      cmake \
+      lsb-release \
       curl \
       emacs-nox \
       fitsverify \
@@ -161,40 +162,13 @@ RUN pip install \
       astro-datalab==2.20.1 \
       astropy==5.2.1 \
       astroquery==0.4.6 \
-      attrs==22.2.0 \
-      blosc2==2.0.0 \
-      bs4==0.0.1 \
-      certifi==2022.12.7 \
-      charset-normalizer==3.1.0 \
-      contourpy==1.0.7 \
-      cycler==0.11.0 \
-      Cython==0.29.33 \
-      fastavro==1.7.1 \
       fitsio==0.9.12 \
-      fonttools==4.39.2 \
-      galsim==2.4.7 \
       gitdb==4.0.10 \
       GitPython==3.1.31 \
-      greenlet==2.0.2 \
-      idna==3.4 \
-      image_registration==0.2.6 \
-      importlib-resources==5.12.0 \
-      iniconfig==2.0.0 \
-      kafka-python==2.0.2 \
-      kiwisolver==1.4.4 \
-      matplotlib==3.7.1 \
-      msgpack==1.0.5 \
-      numexpr==2.8.4 \
       numpy==1.24.2 \
-      packaging==23.0 \
       pandas==1.5.3 \
       photutils==1.6.0 \
-      Pillow==9.4.0 \
-      pluggy==1.0.0 \
       psycopg2==2.9.5 \
-      py-cpuinfo==9.0.0 \
-      pyerfa==2.0.0.2 \
-      pyparsing==2.4.7 \
       pytest==7.2.2 \
       python-dateutil==2.8.2 \
       pytz==2022.7.1 \
@@ -202,21 +176,52 @@ RUN pip install \
       requests==2.28.2 \
       scipy==1.10.1 \
       simplejson==3.18.3 \
-      smmap==5.0.0 \
-      sncosmo==2.9.0 \
       sqlalchemy==2.0.7 \
       sqlalchemy-utils==0.40.0 \
-      tables==3.7.0 \
-      tensorflow==2.11.0 \
-      tomli==2.0.1 \
-      typing-extensions==4.5.0 \
       urllib3==1.26.15 \
-      zipp==3.15.0 \
    && rm -rf /home/seechange/.cache/pip
 
-# Other pip packages I removed from above
-#      mpi4py==3.1.4 \
+# Other pip packages I removed from above that were
+# previously there in the list, but that as of now
+# the codebase doesn't use.  Certainly some of these
+# will need to get added back in as we import more
+# code from lensgrinder.
+#      attrs==22.2.0 \
 #      avro==1.11.1 \
+#      blosc2==2.0.0 \
+#      bs4==0.0.1 \
+#      certifi==2022.12.7 \
+#      charset-normalizer==3.1.0 \
+#      contourpy==1.0.7 \
+#      cycler==0.11.0 \
+#      Cython==0.29.33 \
+#      fastavro==1.7.1 \
+#      fonttools==4.39.2 \
+#      galsim==2.4.7 \
+#      greenlet==2.0.2 \
+#      idna==3.4 \
+#      image_registration==0.2.6 \
+#      importlib-resources==5.12.0 \
+#      iniconfig==2.0.0 \
+#      kafka-python==2.0.2 \
+#      kiwisolver==1.4.4 \
+#      matplotlib==3.7.1 \
+#      mpi4py==3.1.4 \
+#      msgpack==1.0.5 \
+#      numexpr==2.8.4 \
+#      packaging==23.0 \
+#      Pillow==9.4.0 \
+#      pluggy==1.0.0 \
+#      py-cpuinfo==9.0.0 \
+#      pyerfa==2.0.0.2 \
+#      pyparsing==2.4.7 \
+#      smmap==5.0.0 \
+#      sncosmo==2.9.0 \
+#      tables==3.7.0 \
+#      tensorflow==2.11.0 \
+#      tomli==2.0.1 \
+#      typing-extensions==4.5.0 \
+#      zipp==3.15.0 \
 
 
 # A gratuitous command so that the container will persist
