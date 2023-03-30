@@ -1,0 +1,34 @@
+version: "3.3"
+services:
+  seechange_postgres:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
+    build: ../docker/postgres
+    volumes:
+      - seechange-postgres-dbdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DATA_DIR: /var/lib/postgresql/data
+    healthcheck:
+      test: netcat -w 1 localhost 5432 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  # Put a database migration in here
+      
+  seechange:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+    build: ../docker/application
+    depends_on:
+      seechange_postgres:
+         condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    working_dir: /seechange
+    user: "${USERID}:${GROUPID}"
+    # A hack to keep the image up
+    entrypoint: [ "tail", "-f", "/etc/issue" ]
+
+volumes:
+  seechange-postgres-dbdata:

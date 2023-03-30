@@ -45,3 +45,47 @@ After the test is complete, run
     docker compose down
 ```
 (otherwise, the postgres container will still be running).
+
+### Development shell -- local database
+
+To create a database on your local machine and get a development shell in which to run code, cd into the `devshell` directory and run
+```
+   USERID=<UID> GROUPID=<GID> docker compose up -d
+```
+replacing `<UID>` with your uid, and `<GID>` with your GID.  You can avoid typing this all the time by creating a file `.env` in the `devshell` directory with contents
+```
+  USERID=<UID>
+  GROUPID=<GID>
+```
+again replacing `<UID>` and `<GID>` with the right things.
+
+Once things are started, there will be two containers running, one for your database, one to which you can attach with a shell.  Do
+```
+   docker ps
+```
+to see what the created containers are named; in my experience, the shell container is always `devshell-seechange-1`.  You can then get a shell inside that environment with
+```
+   docker exec -it devshell-seechange-1 /bin/bash
+```
+and you're in.  (Put in the right name for the container if it's not devshell_seechange_1.)
+
+This docker image bind-mounts your seechange checkout (the parent directory of the `devshell` directory where you're working) at `/seechange`.  That means if you work in that directory, it's the same as working in the checkout.  If you edit something outside of the container, the differences will be immediately available inside the container (since it's the same physical filesystem).  This means there's no need to rebuild the container every time you change any bit of code.
+
+When you're done, exit the container, and run
+```
+  docker compose down
+```
+to stop and delete the container images.
+
+The `docker-compose.yaml` file in this directory defines a volume where postgres stores its data.  This means that every time you restart the enviornment, the database will still be as it was before.  This isn't what you want for running tests, but it's often what you want for development.  You can see what volumes are defined with
+```
+  docker volume list
+```
+In that list, you should see something that has name `devshell_seechange-postgres-dbdata`.  If you want to wipe this volume out and start with a fresh database, you can run
+```
+  docker volume rm devshell_seechange-postgres-dbdata
+```
+
+### Development shell -- using an external existing database
+
+TBD
