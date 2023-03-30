@@ -46,15 +46,6 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
 
-      # Temp fix I found on discussions somewhere that avoids
-      # buildx-cache growing out of hand
-      # github.com/docker/build-push-action/issues/252
-      # github.com/moby/buildkit/issues/1896
-      - name: move buildx cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-      
       - name: build and push application docker image
         uses: docker/build-push-action@v4
         with:
@@ -64,6 +55,10 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
           
+      # Temp fix I found on discussions somewhere that avoids
+      # buildx-cache growing out of hand
+      # github.com/docker/build-push-action/issues/252
+      # github.com/moby/buildkit/issues/1896
       - name: move buildx cache
         run: |
           rm -rf /tmp/.buildx-cache
