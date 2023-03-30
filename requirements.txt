@@ -1,3 +1,8 @@
+# NOTE -- this is no longer used in the tests.  It also has things not
+# used, and is missing some things used.  You can run using the docker
+# file build from docker/application.  See that Dockerfile for a list of
+# the pip packages installed.
+
 astropy==5.2.1
 attrs==22.2.0
 blosc2==2.0.0
