@@ -40,8 +40,7 @@ jobs:
       - name: build and push seechange-postgres docker image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: docker/postgres/Dockerfile
+          context: docker/postgres
           push: true
           tags: gchr.io/${{ github.repository_owner }}/seechange-postgres
           cache-from: type=local,src=/tmp/.buildx-cache
@@ -50,8 +49,7 @@ jobs:
       - name: build and push application docker image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: docker/application/Dockerfile
+          context: docker/application
           push: true
           tags: gchr.io/${{ github.repository_owner }}/seechange
           cache-from: type=local,src=/tmp/.buildx-cache
