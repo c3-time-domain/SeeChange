@@ -3,7 +3,7 @@ import uuid
 
 import sqlalchemy as sa
 
-from models.base import Session
+from models.base import SmartSession
 from models.provenance import CodeHash, CodeVersion, Provenance
 
 
@@ -18,14 +18,14 @@ def test_code_versions():
     assert len(cv.code_hashes[0].hash) == 40
 
     try:
-        with Session() as session:
+        with SmartSession() as session:
             session.add(cv)
             session.commit()
             cv_id = cv.id
             git_hash = cv.code_hashes[0].hash
             assert cv_id is not None
 
-        with Session() as session:
+        with SmartSession() as session:
             ch = session.scalars(sa.select(CodeHash).where(CodeHash.hash == git_hash)).first()
             cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.version == 'test_v0.0.1')).first()
             assert cv is not None
@@ -39,7 +39,7 @@ def test_code_versions():
             ch2 = CodeHash(old_hash)
         cv.code_hashes.append(ch2)
 
-        with Session() as session:
+        with SmartSession() as session:
             session.add(cv)
             session.commit()
 
@@ -50,10 +50,13 @@ def test_code_versions():
             assert cv.code_hashes[1].code_version_id == cv.id
 
         # check that we can remove commits and have that cascaded
-        with Session() as session:
+        with SmartSession() as session:
             session.add(cv)  # add it back into the new session
             session.delete(ch2)
             session.commit()
+            # This assertion failes with expire_on_commit=False in session creation; have to manually refresh
+            # assert len(cv.code_hashes) == 1
+            session.refresh(cv)
             assert len(cv.code_hashes) == 1
             assert cv.code_hashes[0].hash == git_hash
 
@@ -65,7 +68,7 @@ def test_code_versions():
             assert orphan_hash is None
 
     finally:
-        with Session() as session:
+        with SmartSession() as session:
             session.execute(sa.delete(CodeVersion).where(CodeVersion.version == 'test_v0.0.1'))
             session.commit()
 
@@ -90,7 +93,7 @@ def test_provenances(code_version):
 
     try:
 
-        with Session() as session:
+        with SmartSession() as session:
             p = Provenance(
                 process="test_process",
                 code_version=code_version,
@@ -125,12 +128,12 @@ def test_provenances(code_version):
             assert len(p2.unique_hash) == 64
             assert p2.unique_hash != hash
     finally:
-        with Session() as session:
+        with SmartSession() as session:
             session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2])))
             session.commit()
 
     # deleting the Provenance does not delete the CodeVersion!
-    with Session() as session:
+    with SmartSession() as session:
         cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == code_version.id)).first()
         assert cv is not None
 
@@ -146,7 +149,7 @@ def test_unique_provenance_hash(code_version):
 
     pid = None
     try:  # cleanup
-        with Session() as session:
+        with SmartSession() as session:
             session.add(p)
             session.commit()
             pid = p.id
@@ -172,7 +175,7 @@ def test_unique_provenance_hash(code_version):
 
     finally:
         if pid is not None:
-            with Session() as session:
+            with SmartSession() as session:
                 session.execute(sa.delete(Provenance).where(Provenance.id == pid))
                 session.commit()
 
@@ -181,7 +184,7 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
     new_ids = []
     fixture_ids = []
 
-    with Session() as session:
+    with SmartSession() as session:
         try:
             session.add(provenance_base)
             session.add(provenance_extra)

@@ -8,47 +8,61 @@ from sqlalchemy import func
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy_utils import database_exists, create_database
 
+import util.config as config
+
 utcnow = func.timezone("UTC", func.current_timestamp())
 
+
+# Don't run Config.init() on package initialization to avoid
+# setting the default config just from the import
+_cfg = None
 
 # this is the root SeeChange folder
 CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 
 # this is where the data lives
 # (could be changed for, e.g., new external drive)
-DATA_ROOT = os.getenv("SEECHANGE_DATA")
-if DATA_ROOT is None:  # TODO: should also check if folder exists?
-    DATA_ROOT = os.path.join(CODE_ROOT, "output")
+DATA_ROOT = None
+DATA_TEMP = None
 
-DATA_TEMP = os.path.join(CODE_ROOT, "DATA_TEMP")
+_engine = None
+_Session = None
 
-# to drop the database use: sudo -u postgres psql -c "DROP DATABASE seechange WITH(force)"
+def load_default_config():
+    global DATA_ROOT, DATA_TEMP, _cfg
 
-# TODO: check with Rob if he has a preferred way of doing this
-# create database here:
-# url = "postgresql://postgres:postgres@postgres:5432/seechange"
-url = "postgresql://postgres:fragile@seechange_postgres:5432/seechange"
-engine = sa.create_engine(url, future=True)
-if not database_exists(engine.url):
-    create_database(engine.url)
+    if _cfg is None:
+        _cfg = config.Config.get()
+        DATA_ROOT = _cfg.value( "path.seechange_data" )
+        if DATA_ROOT is None:  # TODO: should also check if folder exists?
+            DATA_ROOT = os.path.join(CODE_ROOT, "output")
 
-# TODO: we need to decide if we want to make expire_on_commit=False the default
-Session = sessionmaker(bind=engine, expire_on_commit=True)
-
-
+        DATA_TEMP = _cfg.value( "path.data_temp" )
+        if DATA_TEMP is None:
+            DATA_TEMP = os.path.join(CODE_ROOT, "DATA_TEMP")
+        
 @contextmanager
 def SmartSession(input_session=None):
     """
-    Retrun a Session() instance that may or may not
+    Return a Session() instance that may or may not
     be inside a context manager.
 
     If the input is already a session, just return that.
     If the input is None, create a session that would
     close at the end of the life of the calling scope.
     """
+    global _Session, _engine
+
     # open a new session and close it when outer scope is done
     if input_session is None:
-        with Session() as session:
+        if _Session is None:
+            load_default_config()
+            url = ( f'{_cfg.value("db.engine")}://{_cfg.value("db.user")}:{_cfg.value("db.password")}'
+                    f'@{_cfg.value("db.host")}:{_cfg.value("db.port")}/{_cfg.value("db.database")}' )
+            engine = sa.create_engine( url, future=True, poolclass=sa.pool.NullPool )
+            
+            _Session = sessionmaker(bind=engine, expire_on_commit=True)
+        with _Session() as session:
             yield session
 
     # return the input session with the same scope as given

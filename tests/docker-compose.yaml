@@ -1,4 +1,5 @@
 version: "3.3"
+
 services:
   seechange_postgres:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
@@ -11,12 +12,29 @@ services:
       timeout: 10s
       retries: 5
 
-  runtests:
+  setuptables:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
     build: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
     depends_on:
       seechange_postgres:
          condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    working_dir: /seechange
+    entrypoint: [ "alembic", "upgrade", "head" ]
+      
+  runtests:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+    build: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
+    depends_on:
+      setuptables:
+         condition: service_completed_successfully
     volumes:
       - type: bind
         source: ..

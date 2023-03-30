@@ -3,9 +3,13 @@ import uuid
 
 import sqlalchemy as sa
 
-from models.base import Session
+from models.base import SmartSession
 from models.provenance import CodeVersion, Provenance
 
+# @pytest.fixture(scope="session", autouse=True)
+# def init_database():
+#     with SmartSession() as session:
+#         pass
 
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
@@ -14,7 +18,7 @@ def code_version():
 
     yield cv
 
-    with Session() as session:
+    with SmartSession() as session:
         session.execute(sa.delete(CodeVersion).where(CodeVersion.version == 'test_v1.0.0'))
         session.commit()
 
@@ -28,14 +32,14 @@ def provenance_base(code_version):
         upstreams=[],
     )
 
-    with Session() as session:
+    with SmartSession() as session:
         session.add(p)
         session.commit()
         pid = p.id
 
     yield p
 
-    with Session() as session:
+    with SmartSession() as session:
         session.execute(sa.delete(Provenance).where(Provenance.id == pid))
         session.commit()
 
@@ -49,14 +53,14 @@ def provenance_extra(code_version, provenance_base):
         upstreams=[provenance_base],
     )
 
-    with Session() as session:
+    with SmartSession() as session:
         session.add(p)
         session.commit()
         pid = p.id
 
     yield p
 
-    with Session() as session:
+    with SmartSession() as session:
         session.execute(sa.delete(Provenance).where(Provenance.id == pid))
         session.commit()
 
