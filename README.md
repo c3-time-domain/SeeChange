@@ -67,7 +67,7 @@ to see what the created containers are named; in my experience, the shell contai
 ```
    docker exec -it devshell-seechange-1 /bin/bash
 ```
-and you're in.  (Put in the right name for the container if it's not devshell_seechange_1.)
+and you're in.  (Put in the right name for the container if it's not devshell-seechange-1.)
 
 This docker image bind-mounts your seechange checkout (the parent directory of the `devshell` directory where you're working) at `/seechange`.  That means if you work in that directory, it's the same as working in the checkout.  If you edit something outside of the container, the differences will be immediately available inside the container (since it's the same physical filesystem).  This means there's no need to rebuild the container every time you change any bit of code.
 
