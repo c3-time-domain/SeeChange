@@ -275,21 +275,21 @@ class Config:
                     del curfiledata[importfile]
 
             for preloadfile in imports['preloads']:
-                self.override( preloadfile, dirmap=dirmap )
+                self._override( preloadfile, dirmap=dirmap )
 
-            self._data = Config.merge_trees( self._data, curfiledata )
+            self._data = Config._merge_trees( self._data, curfiledata )
 
             for augmentfile in imports['augments']:
-                self.augment( augmentfile, dirmap=dirmap )
+                self._augment( augmentfile, dirmap=dirmap )
 
             for overridefile in imports['overrides']:
-                self.override( overridefile, dirmap=dirmap )
+                self._override( overridefile, dirmap=dirmap )
 
         except Exception as e:
             logger.exception( f'Exception trying to load config from {configfile}' )
             raise e
 
-    def augment( self, augmentfile, dirmap={} ):
+    def _augment( self, augmentfile, dirmap={} ):
         """Read file (or path) augmentfile and augment config data.  Intended for internal use only.
 
         Parameters
@@ -314,9 +314,9 @@ class Config:
         if not augmentpath.is_absolute():
             augmentpath = ( self._path.parent / augmentfile ).resolve()
         augment = Config( augmentpath, logger=self.logger, dirmap=dirmap )._data
-        self._data = Config.merge_trees( self._data, augment, augment=True )
+        self._data = Config._merge_trees( self._data, augment, augment=True )
 
-    def override( self, overridefile, dirmap=dirmap ):
+    def _override( self, overridefile, dirmap=dirmap ):
         """Read file (or path) overridefile and override config data.  Intended for internal use only.
 
         Parameters
@@ -340,7 +340,7 @@ class Config:
         if not overridepath.is_absolute():
             overridepath = ( self._path.parent / overridefile ).resolve()
         override = Config( overridepath, logger=self.logger, dirmap=dirmap )._data
-        self._data = Config.merge_trees( self._data, override )
+        self._data = Config._merge_trees( self._data, override )
 
     def value( self, field, struct=None ):
         """Get a value from the config structure.
@@ -536,7 +536,7 @@ class Config:
         return fields, isleaf, curfield, ifield
 
     @staticmethod
-    def merge_trees( left, right, augment=False ):
+    def _merge_trees( left, right, augment=False ):
         """Internal usage, do not call.
 
         Parameters
@@ -566,7 +566,7 @@ class Config:
             newdict = copy.deepcopy( left )
             for key, value in right.items():
                 if key in newdict:
-                    newdict[key] = Config.merge_trees( newdict[key], right[key], augment=augment )
+                    newdict[key] = Config._merge_trees( newdict[key], right[key], augment=augment )
                 else:
                     newdict[key] = copy.deepcopy( right[key] )
             return newdict

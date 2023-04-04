@@ -12,7 +12,7 @@ SHELL ["/bin/bash", "-c"]
 #   of the purposes of this Dockerfile, which is to be able to run on a
 #   bunch of different machines.  So, I'm punting on really doing ATLAS
 #   right here.
-# Note 2: the purge of some pythons below below is because there's a
+# Note 2: the purge of some pythons below is because there's a
 #  version confict with stuff installed later as a dependency by pip3.
 #  (Gotta love duelling package managers.)
 
