@@ -198,12 +198,6 @@ class Provenance(Base):
 
 
 
-# Delete these; database will be created 
-# CodeHash.metadata.create_all(engine)
-# CodeVersion.metadata.create_all(engine)
-# Provenance.metadata.create_all(engine)
-
-
 @event.listens_for(Provenance, "before_insert")
 def insert_new_dataset(mapper, connection, target):
     """

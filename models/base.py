@@ -60,8 +60,6 @@ def safe_mkdir(path):
     cfg = config.Config.get()
     allowed_dirs = [
         cfg.value('path.data_root'),
-        os.path.join(_CODE_ROOT, "results"),
-        os.path.join(_CODE_ROOT, "catalogs"),
         cfg.value('path.data_temp'),
     ]
 
