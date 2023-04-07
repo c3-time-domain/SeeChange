@@ -54,7 +54,7 @@ services:
           - type=local,src=/tmp/.buildx-cache
         cache-to:
           - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
-          - type=local,src=/tmp/.buildx-cache-new
+          - type=local,dest=/tmp/.buildx-cache-new
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
     depends_on:
