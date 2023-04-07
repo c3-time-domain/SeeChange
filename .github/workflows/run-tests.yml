@@ -36,8 +36,7 @@ jobs:
         with:
           workdir: tests
           load: true
-          files:
-            - docker-compose-github.yaml
+          files: docker-compose-github.yaml
             
       - name: run test
         run: |
