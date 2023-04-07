@@ -89,3 +89,20 @@ In that list, you should see something that has name `devshell_seechange-postgre
 ### Development shell -- using an external existing database
 
 TBD
+
+### Database migrations
+
+Database migrations are handled with alembic.
+
+If you've just created a database and want to initialize it with all the tables, run
+```
+  SEECHANGE_CONFIG=<configfile> alembic upgrade head
+```
+
+After editing any schema, you have to create new database migrations to apply them.  Do this by running something like:
+```
+  SEECHANGE_CONFIG=<configfile> alembic revision --autogenerate -m "<put a short comment here>"
+```
+The comment will go in the filename, so it should really be short.  Look out for any warnings, and review the created migration file before applying it (with `alembic upgrade head`).
+
+*NOTE:* Alembic doesn't properly handle q3c indices when autogenerating migrations. If you add any columns or tables that need to use a q3c index, you will need either to edit the migration by hand, or create a new migration (by running `alembic revision` without `--autogenerate`) and edit it by hand.

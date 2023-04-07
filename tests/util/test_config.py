@@ -14,6 +14,10 @@ from util import config
 # class scope.  (The tests below are ordered with this in mind.)
 
 class TestConfig:
+    # Nominally, this tests should pass even if SEECHANGE_CONFIG is not None.  However, because there
+    # are autouse fixtures in ../conftest.py, one of the side effects is that the config default
+    # gets set.
+    @pytest.mark.skipif( os.getenv("SEECHANGE_CONFIG") is not None, reason="Clear SEECHANGE_CONFIG to test this" )
     def test_no_default( self ):
         assert config.Config._default == None
 

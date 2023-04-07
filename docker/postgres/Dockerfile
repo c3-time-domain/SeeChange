@@ -3,9 +3,6 @@ MAINTAINER Rob Knop <raknop@lbl.gov>
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN mkdir /secrets
-RUN echo "replace_this" >> /secrets/postgres_password
-
 RUN mkdir /build
 WORKDIR /build
 
@@ -36,14 +33,6 @@ RUN locale-gen en_US.utf8
 
 RUN echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/13/main/pg_hba.conf
 COPY postgresql.conf /etc/postgresql/13/main/postgresql.conf
-
-# RUN echo "listen_addresses='*'" >> /etc/postgresql/13/main/postgresql.conf
-# RUN cat /etc/postgresql/13/main/postgresql.conf | \
-#        perl -pe "s{data_directory *= *'(.*)'(.*)}{data_directory = '/var/lib/postgresql/data'\2}" \
-#          > /etc/postgresql/13/main/postgresql.conf.new \
-#     && mv /etc/postgresql/13/main/postgresql.conf /etc/postgresql/13/main/postgresql.conf.old \
-#     && mv /etc/postgresql/13/main/postgresql.conf.new /etc/postgresql/13/main/postgresql.conf
-
 
 # Make sure this matches what is in the config file (created just above)
 # (There is some futzing about here to make sure the right permissions are
