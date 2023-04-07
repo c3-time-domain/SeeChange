@@ -18,23 +18,34 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v3
 
-      # - name: log into github container registry
-      #   uses: docker/login-action@v2
-      #   with:
-      #     registry: gchr.io
-      #     username: ${{ github.actor }}
-      #     password: ${{ secrets.GITHUB_TOKEN }}
+      - name: setup docker buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver: docker-container
 
-      # I haven't yet figured out a way to get github actions to
-      # pull from and push to a registry.  (I've tried a LOT
-      # of different things, and have a forum question in.)
-      #
-      # So, for now, we have to rebuild the docker image every time
-      # we run a test, which is profligate and slow, but it's what
-      # we're stuck with for now.  At least running the tests on
-      # your local checkout can be efficient.
-      
+      - name: cache docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-seechange-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-seechange-
+
+      - name: bake
+        uses: docker/bake-action@v2.3.0
+        with:
+          workdir: tests
+          load: true
+          files:
+            - docker-compose-github.yaml
+            
       - name: run test
         run: |
-          docker compose build
           docker compose run runtests
+
+      # Do this to avoid the cache continuously growing
+      - name: move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          
