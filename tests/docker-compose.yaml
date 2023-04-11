@@ -3,7 +3,15 @@ version: "3.3"
 services:
   seechange_postgres:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
-    build: ../docker/postgres
+    build:
+      context: ../docker/postgres
+      x-bake:
+        cache-from:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
+          - type=local,src=/tmp/.buildx-cache
+        cache-to:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
+          - type=local,dest=/tmp/.buildx-cache-new
     environment:
       POSTGRES_DATA_DIR: /var/lib/postgresql/data
     healthcheck:
@@ -14,7 +22,15 @@ services:
 
   setuptables:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
-    build: ../docker/application
+    build:
+      context: ../docker/application
+      x-bake:
+        cache-from:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,src=/tmp/.buildx-cache
+        cache-to:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,dest=/tmp/.buildx-cache-new
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
     depends_on:
@@ -29,7 +45,15 @@ services:
       
   runtests:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
-    build: ../docker/application
+    build:
+      context: ../docker/application
+      x-bake:
+        cache-from:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,src=/tmp/.buildx-cache
+        cache-to:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,dest=/tmp/.buildx-cache-new
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
     depends_on:

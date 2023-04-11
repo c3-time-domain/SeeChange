@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REGISTRY: gchr.io
-      COMPOSE_FILE: tests/docker-compose-github.yaml
+      COMPOSE_FILE: tests/docker-compose.yaml
 
     steps:
       - name: checkout code
@@ -43,7 +43,7 @@ jobs:
         with:
           workdir: tests
           load: true
-          files: docker-compose-github.yaml
+          files: docker-compose.yaml
             
       - name: run test
         run: |
