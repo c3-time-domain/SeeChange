@@ -30,13 +30,13 @@ jobs:
         with:
           driver: docker-container
 
-      - name: cache docker layers
-        uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-seechange-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-seechange-
+      # - name: cache docker layers
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: /tmp/.buildx-cache
+      #     key: ${{ runner.os }}-buildx-seechange-${{ github.sha }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-buildx-seechange-
 
       - name: bake
         uses: docker/bake-action@v2.3.0
@@ -44,14 +44,24 @@ jobs:
           workdir: tests
           load: true
           files: docker-compose.yaml
+          set: |
+            seechange_postgres.tags=ghcr.io/${{ github.repository_owner }}/seechange-postgres
+            seechange_postgres.cache-from=type=gha,scope=cached-seechange-postgres
+            seechange_postgres.cache-to=type=gha,scope=cached-seechange-postgres,mode=max
+            setuptables.tags=ghcr.io/${{ github.repository_owner }}/runtests
+            setuptables.cache-from=type=gha,scope=cached-seechange
+            setuptables.cache-to=type=gha,scope=cached-seechange,mode=max
+            runtests.tags=ghcr.io/${{ github.repository_owner }}/runtests
+            runtests.cache-from=type=gha,scope=cached-seechange
+            runtests.cache-to=type=gha,scope=cached-seechange,mode=max
             
       - name: run test
         run: |
           docker compose run runtests
 
-      # Do this to avoid the cache continuously growing
-      - name: move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+      # # Do this to avoid the cache continuously growing
+      # - name: move cache
+      #   run: |
+      #     rm -rf /tmp/.buildx-cache
+      #     mv /tmp/.buildx-cache-new /tmp/.buildx-cache
           
