@@ -30,14 +30,6 @@ jobs:
         with:
           driver: docker-container
 
-      # - name: cache docker layers
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: /tmp/.buildx-cache
-      #     key: ${{ runner.os }}-buildx-seechange-${{ github.sha }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-buildx-seechange-
-
       - name: bake
         uses: docker/bake-action@v2.3.0
         with:
@@ -58,10 +50,3 @@ jobs:
       - name: run test
         run: |
           docker compose run runtests
-
-      # # Do this to avoid the cache continuously growing
-      # - name: move cache
-      #   run: |
-      #     rm -rf /tmp/.buildx-cache
-      #     mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-          
