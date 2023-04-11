@@ -5,13 +5,13 @@ services:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
     build:
       context: ../docker/postgres
-      # x-bake:
-      #   cache-from:
-      #     - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
-      #     - type=local,src=/tmp/.buildx-cache
-      #   cache-to:
-      #     - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
-      #     - type=local,dest=/tmp/.buildx-cache-new
+      x-bake:
+        cache-from:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
+          - type=local,src=/tmp/.buildx-cache
+        cache-to:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
+          - type=local,dest=/tmp/.buildx-cache-new
           
     environment:
       POSTGRES_DATA_DIR: /var/lib/postgresql/data
@@ -25,13 +25,13 @@ services:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
     build:
       context: ../docker/application
-      # x-bake:
-      #   cache-from:
-      #     - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
-      #     - type=local,src=/tmp/.buildx-cache
-      #   cache-to:
-      #     - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
-      #     - type=local,dest=/tmp/.buildx-cache-new
+      x-bake:
+        cache-from:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,src=/tmp/.buildx-cache
+        cache-to:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,dest=/tmp/.buildx-cache-new
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
     depends_on:
@@ -48,13 +48,13 @@ services:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
     build:
       context: ../docker/application
-      # x-bake:
-      #   cache-from:
-      #     - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
-      #     - type=local,src=/tmp/.buildx-cache
-      #   cache-to:
-      #     - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
-      #     - type=local,dest=/tmp/.buildx-cache-new
+      x-bake:
+        cache-from:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,src=/tmp/.buildx-cache
+        cache-to:
+          - ghcr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+          - type=local,dest=/tmp/.buildx-cache-new
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
     depends_on:
