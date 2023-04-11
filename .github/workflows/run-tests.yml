@@ -42,6 +42,7 @@ jobs:
         uses: docker/bake-action@v2.3.0
         with:
           workdir: tests
+          push: false
           load: true
           files: docker-compose-github.yaml
             
