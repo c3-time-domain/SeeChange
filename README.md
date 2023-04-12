@@ -73,9 +73,9 @@ This docker image bind-mounts your seechange checkout (the parent directory of t
 
 When you're done, exit the container, and run
 ```
-  docker compose down
+  USERID=<UID> GROUPID=<GID> docker compose down
 ```
-to stop and delete the container images.
+to stop and delete the container images.  (If you created the `.env` file mentioned above, you don't need the USERID and GROUPID definitions, and can just type `docker compose down`.)
 
 The `docker-compose.yaml` file in this directory defines a volume where postgres stores its data.  This means that every time you restart the enviornment, the database will still be as it was before.  This isn't what you want for running tests, but it's often what you want for development.  You can see what volumes are defined with
 ```
