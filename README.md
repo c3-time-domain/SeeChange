@@ -32,13 +32,13 @@ It is useful to get familiar with the naming convention for different pieces of 
 
 ### Tests
 
-To run the tests on your local system in an environment that approximates how they'll be run on github, cd into `tests` and run
+To run the tests on your local system in an environment that approximates how they'll be run on github, cd into `tests` and run the following command (which requires the "docker compose CLI plugin" installed to work):
 ```
    export GITHUB_RESPOSITORY_OWNER=<yourname>
    docker compose build
-   docker compose run runtests
+   USERID=<uid> GROUIP=<gid> docker compose run runtests
 ```
-(You must have the "docker compose CLI plugin" installed for this to work.)  At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  (The output you see to the screen should tell you the same information.)  This will take a long time the first time you do it, as it has to build the docker images, but after that, it should be fast (unless the Dockerfile has changed for either image).  The variable GITHUB_RESPOSITORY_OWNER must be set to *something*; it only matters if you try to push or pull the images.  Try setting it to your github username, though if you really want to push and pull you're going to have to look up making tokens on github.  (The docker-compose.yaml file is written to run on github, which is why it includes this variable.)
+where you replace `<uid>` and `<gid>` with your own userid and groupid; if you don't do this, the tests will run, but various pycache files will get created in your checkout owned by root, which is annoying.  At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  (The output you see to the screen should tell you the same information.)  This will take a long time the first time you do it, as it has to build the docker images, but after that, it should be fast (unless the Dockerfile has changed for either image).  The variable GITHUB_RESPOSITORY_OWNER must be set to *something*; it only matters if you try to push or pull the images.  Try setting it to your github username, though if you really want to push and pull you're going to have to look up making tokens on github.  (The docker-compose.yaml file is written to run on github, which is why it includes this variable.)
 
 After the test is complete, run
 ```

@@ -28,7 +28,7 @@ services:
         source: ..
         target: /seechange
     working_dir: /seechange
-    user: "${USERID}:${GROUPID}"
+    user: "${USERID:?err}:${GROUPID:?err}"
     # A hack to keep the image up
     entrypoint: [ "tail", "-f", "/etc/issue" ]
 
