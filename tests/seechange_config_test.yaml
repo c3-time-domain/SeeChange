@@ -1,11 +1,2 @@
-path:
-  seechange_data: null
-  data_temp: null
-
-db:
-  engine: postgresql
-  user: postgres
-  password: fragile
-  host: seechange_postgres
-  port: 5432
-  database: seechange
+preloads:
+  - ../default_config.yaml
