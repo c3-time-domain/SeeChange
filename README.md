@@ -30,6 +30,13 @@ It is useful to get familiar with the naming convention for different pieces of 
 
 ## Development notes
 
+### Installing Docker
+
+At the moment, some of the things below will not work if you install Docker Desktop.  It has to do with permissions and bind-mounting system volumes; because of how Docker Desktop works, the files inside the container all end up owned as root, not as you, even if they are owned by you on your own filesystem.  Hopefully there's a way to fix this, but in the mean time, install Docker Engine instead of Docker Desktop; instructions are here:
+
+- Installing Dcker Engine : https://docs.docker.com/engine/install/
+- Setting up rootless mode (so you don't have to sudo everything) : https://docs.docker.com/engine/security/rootless/
+
 ### Tests
 
 To run the tests on your local system in an environment that approximates how they'll be run on github, cd into `tests` and run the following command (which requires the "docker compose CLI plugin" installed to work):
