@@ -12,6 +12,7 @@ from models.provenance import CodeHash, CodeVersion, Provenance
 # If the embedded object's Parameters doesn't have any of these
 # then that key is just skipped
 
+
 class Parameters:
     """
     Keep track of parameters for any of the pipeline classes.
@@ -115,13 +116,6 @@ class Parameters:
         self.__docstrings__ = {}
         self.__critical__ = {}
         self.__aliases__ = {}
-
-        self.code_version = self.add_par(
-            "code_version",
-            'v0.0.0',
-            str,
-            "Version of the code used to produce the output products.",
-        )
 
         self.verbose = self.add_par(
             "verbose", 0, int, "Level of verbosity (0=quiet).", critical=False
@@ -632,13 +626,18 @@ class Parameters:
         """
         raise NotImplementedError("Must be implemented in subclass.")
 
-    def get_provenance(self, prov_cache=None, session=None):
+    # TODO: seems like this is no longer used, instead call DataStore.get_provenance()
+    def get_provenance(self, code_version=None, prov_cache=None, session=None):
         """
         Get a Provenance object based on the parameters
         and code version.
 
         Parameters
         ----------
+        code_version: str
+            The version of the code that was used to generate
+            the provenance. If not given, will use the version
+            of the current code.
         prov_cache: dict
             A dictionary of Provenance objects, from which the relevant
             upstream ids can be retrieved. If not given, will be filled
@@ -667,7 +666,7 @@ class Parameters:
                 upstreams.append(upstream_prov)
 
             process = self.get_process_name()  # only works in subclasses!
-            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.name == self.code_version)).first()
+            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.name == code_version)).first()
             if cv is not None:
                 cv.update()  # update the current commit hash
 
@@ -679,7 +678,7 @@ class Parameters:
 
             if cv is None:
                 # TODO: should this generate a new code version? Should that be done manually?
-                raise ValueError(f'Cannot find code version "{self.code_version}" for process "{process}"')
+                raise ValueError(f'Cannot find code version "{code_version}" for process "{process}"')
 
             # now that we have a code version object we can make a provenance
             prov = Provenance(

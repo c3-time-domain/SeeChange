@@ -58,9 +58,9 @@ class Measurer:
         prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
 
         # try to find some measurements in memory or in the database:
-        ments = ds.get_measurements(prov, session=session)
+        measurements = ds.get_measurements(prov, session=session)
 
-        if ments is None:  # must create a new list of Measurements
+        if measurements is None:  # must create a new list of Measurements
 
             # use the latest source list in the data store,
             # or load using the provenance given in the
@@ -80,7 +80,13 @@ class Measurer:
             #  Commit the results to the database.
 
             # add the resulting list to the data store
-            ds.measurements = ments
+            if measurements.provenance is None:
+                measurements.provenance = prov
+            else:
+                if measurements.provenance.unique_hash != prov.unique_hash:
+                    raise ValueError('Provenance mismatch for measurements and provenance!')
+
+            ds.measurements = measurements
 
         # make sure this is returned to be used in the next step
         return ds

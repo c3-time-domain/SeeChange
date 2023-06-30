@@ -32,7 +32,7 @@ class ParsDetector(Parameters):
 
         self.override(kwargs)
 
-    def _get_process_name(self):
+    def get_process_name(self):
         if self.subtraction:
             return 'detection'
         else:
@@ -64,7 +64,7 @@ class Detector:
                 # or load using the provenance given in the
                 # data store's upstream_provs, or just use
                 # the most recent provenance for "subtraction"
-                image = ds.get_subtraction_image(session=session)
+                image = ds.get_subtraction(session=session)
 
                 if image is None:
                     raise ValueError(
@@ -72,7 +72,15 @@ class Detector:
                     )
 
                 detections = self.extract_sources(image)
+                detections.image = image
 
+                if detections.provenance is None:
+                    detections.provenance = prov
+                else:
+                    if detections.provenance.unique_hash != prov.unique_hash:
+                        raise ValueError('Provenance mismatch for detections and provenance!')
+
+            detections.is_sub = True
             ds.detections = detections
 
         else:  # regular image
@@ -89,6 +97,12 @@ class Detector:
                     raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
 
                 sources = self.extract_sources(image)
+                sources.image = image
+                if sources.provenance is None:
+                    sources.provenance = prov
+                else:
+                    if sources.provenance.unique_hash != prov.unique_hash:
+                        raise ValueError('Provenance mismatch for sources and provenance!')
 
             ds.sources = sources
 
@@ -102,3 +116,11 @@ class Detector:
         sources = SourceList()
 
         return sources
+
+
+if __name__ == '__main__':
+    from models.base import Session
+    from models.provenance import Provenance
+    session = Session()
+    source_lists = session.scalars(sa.select(SourceList)).all()
+    prov = session.scalars(sa.select(Provenance)).all()

@@ -11,6 +11,7 @@ from sqlalchemy.types import Enum
 
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 import util.config as config
 
@@ -48,7 +49,7 @@ def Session():
                f'@{cfg.value("db.host")}:{cfg.value("db.port")}/{cfg.value("db.database")}')
         _engine = sa.create_engine(url, future=True, poolclass=sa.pool.NullPool)
 
-        _Session = sessionmaker(bind=_engine, expire_on_commit=True)
+        _Session = sessionmaker(bind=_engine, expire_on_commit=False)
 
     session = _Session()
 
@@ -82,6 +83,38 @@ def SmartSession(input_session=None):
         raise TypeError(
             "input_session must be a sqlalchemy session or None"
         )
+
+
+def safe_merge(session, obj):
+    """
+    Only merge the object if it has a valid ID,
+    and if it does not exist on the session.
+    Otherwise, return the object itself.
+
+    Parameters
+    ----------
+    session: sqlalchemy.orm.session.Session
+        The session to use for the merge.
+    obj: SeeChangeBase
+        The object to merge.
+
+    Returns
+    -------
+    obj: SeeChangeBase
+        The merged object, or the unmerged object
+        if it is already on the session or if it
+        doesn't have an ID.
+    """
+    if obj is None:
+        return None
+
+    if obj.id is None:
+        return obj
+
+    if obj in session:
+        return obj
+
+    return session.merge(obj)
 
 
 class SeeChangeBase:
@@ -138,6 +171,52 @@ class SeeChangeBase:
         ]
 
         return attrs
+
+    def recursive_merge(self, session, done_list=None):
+        """
+        Recursively merge (using safe_merge) all the objects,
+        the parent objects (image, ref_image, new_image, etc.)
+        and the provenances of all of these, into the given session.
+
+        Parameters
+        ----------
+        session: sqlalchemy.orm.session.Session
+            The session to use for the merge.
+        done_list: list (optional)
+            A list of objects that have already been merged.
+
+        Returns
+        -------
+        SeeChangeBase
+            The merged object.
+        """
+        if done_list is None:
+            done_list = set()
+
+        if self in done_list:
+            return self
+
+        obj = safe_merge(session, self)
+        done_list.add(obj)
+
+        # only do the sub-properties if the object was already added to the session
+        attributes = ['provenance', 'exposure', 'image', 'ref_image', 'new_image', 'sub_image', 'source_list']
+
+        # recursively call this on the provenance and other parent objects
+        for att in attributes:
+            try:
+                sub_obj = getattr(self, att, None)
+                # go over lists:
+                if isinstance(sub_obj, list):
+                    setattr(obj, att, [o.recursive_merge(session, done_list=done_list) for o in sub_obj])
+
+                if isinstance(sub_obj, SeeChangeBase):
+                    setattr(obj, att, sub_obj.recursive_merge(session, done_list=done_list))
+
+            except DetachedInstanceError:
+                pass
+
+        return obj
 
 
 Base = declarative_base(cls=SeeChangeBase)
@@ -329,7 +408,7 @@ class FileOnDiskMixin:
 
         return filepath
 
-    def get_fullpath(self, download=True, as_list=False):
+    def get_fullpath(self, download=True, as_list=False, nofile=None):
         """
         Get the full path of the file, or list of full paths
         of files if filepath_extensions is not None.
@@ -360,6 +439,9 @@ class FileOnDiskMixin:
         as_list: bool
             Whether to return a list of filepaths, even if filepath_extensions=None.
             Default is False.
+        nofile: bool
+            Whether to check if the file exists on local disk.
+            Default is None, which means use the value of self.nofile.
 
         Returns
         -------
@@ -368,13 +450,16 @@ class FileOnDiskMixin:
         """
         if self.filepath_extensions is None:
             if as_list:
-                return [self._get_fullpath_single(download)]
+                return [self._get_fullpath_single(download=download, nofile=nofile)]
             else:
-                return self._get_fullpath_single(download)
+                return self._get_fullpath_single(download=download, nofile=nofile)
         else:
-            return [self._get_fullpath_single(download, ext) for ext in self.filepath_extensions]
+            return [
+                self._get_fullpath_single(download=download, ext=ext, nofile=nofile)
+                for ext in self.filepath_extensions
+            ]
 
-    def _get_fullpath_single(self, download=True, ext=None):
+    def _get_fullpath_single(self, download=True, ext=None, nofile=None):
         """
         Get the full path of a single file.
         Will follow the same logic as get_fullpath(),
@@ -388,13 +473,17 @@ class FileOnDiskMixin:
             Must have server_path defined. Default is True.
         ext: str
             Extension to add to the filepath. Default is None.
-
+        nofile: bool
+            Whether to check if the file exists on local disk.
+            Default is None, which means use the value of self.nofile.
         Returns
         -------
         str
             Full path to the file on local disk.
         """
-        if not self.nofile and self.local_path is None:
+        if nofile is None:
+            nofile = self.nofile
+        if not nofile and self.local_path is None:
             raise ValueError("Local path not defined!")
 
         fname = self.filepath
@@ -402,10 +491,10 @@ class FileOnDiskMixin:
             fname += ext
 
         fullname = os.path.join(self.local_path, fname)
-        if not self.nofile and not os.path.exists(fullname) and download and self.server_path is not None:
+        if not nofile and not os.path.exists(fullname) and download and self.server_path is not None:
             self._download_file(fname)
 
-        if not self.nofile and not os.path.exists(fullname):
+        if not nofile and not os.path.exists(fullname):
             raise FileNotFoundError(f"File {fullname} not found!")
 
         return fullname
@@ -438,7 +527,8 @@ class FileOnDiskMixin:
         """
         if self.filepath is None:
             return
-        for f in self.get_fullpath(as_list=True):
+        # get the filepath, but don't check if the file exists!
+        for f in self.get_fullpath(as_list=True, nofile=True):
             if os.path.exists(f):
                 os.remove(f)
                 if remove_folders:
@@ -459,6 +549,7 @@ class SpatiallyIndexed:
     """A mixin for tables that have ra and dec fields indexed via q3c."""
 
     ra = sa.Column(sa.Double, nullable=False, doc='Right ascension in degrees')
+
     dec = sa.Column(sa.Double, nullable=False, doc='Declination in degrees')
 
     gallat = sa.Column(sa.Double, index=True, doc="Galactic latitude of the target. ")

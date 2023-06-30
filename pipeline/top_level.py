@@ -2,13 +2,13 @@
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
-from pipeline.preprocessor import Preprocessor
-from pipeline.astrometry import Astrometry
-from pipeline.calibrator import Calibrator
-from pipeline.subtractor import Subtractor
-from pipeline.detector import Detector
-from pipeline.cutter import Cutter
-from pipeline.measurer import Measurer
+from pipeline.preprocessing import Preprocessor
+from pipeline.astro_cal import AstroCalibrator
+from pipeline.photo_cal import PhotCalibrator
+from pipeline.subtraction import Subtractor
+from pipeline.detection import Detector
+from pipeline.cutting import Cutter
+from pipeline.measurement import Measurer
 
 
 # should this come from db.py instead?
@@ -37,52 +37,53 @@ class Pipeline:
         self.pars.augment(kwargs.get('pipeline', {}))
 
         # dark/flat and sky subtraction tools
-        preprocessor_config = config.get('preprocessor', {})
-        preprocessor_config.update(kwargs.get('preprocessor', {}))
-        self.pars.add_defaults_to_dict(preprocessor_config)
-        self.preprocessor = Preprocessor(**preprocessor_config)
+        preprocessing_config = config.get('preprocessing', {})
+        preprocessing_config.update(kwargs.get('preprocessing', {}))
+        self.pars.add_defaults_to_dict(preprocessing_config)
+        self.preprocessor = Preprocessor(**preprocessing_config)
 
         # source detection ("extraction" for the regular image!)
-        extractor_config = config.get('extractor', {})
-        extractor_config.update(kwargs.get('extractor', {}))
-        self.pars.add_defaults_to_dict(extractor_config)
-        self.extractor = Detector(**extractor_config)
+        extraction_config = config.get('extraction', {})
+        extraction_config.update(kwargs.get('extraction', {}))
+        self.pars.add_defaults_to_dict(extraction_config)
+        self.extractor = Detector(**extraction_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometry_config = config.get('astrometry', {})
-        astrometry_config.update(kwargs.get('astrometry', {}))
-        self.pars.add_defaults_to_dict(astrometry_config)
-        self.astrometry = Astrometry(**astrometry_config)
+        astro_cal_config = config.get('astro_cal', {})
+        astro_cal_config.update(kwargs.get('astro_cal', {}))
+        self.pars.add_defaults_to_dict(astro_cal_config)
+        self.astro_cal = AstroCalibrator(**astro_cal_config)
 
         # photometric calibration:
-        calibrator_config = config.get('calibrator', {})
-        calibrator_config.update(kwargs.get('calibrator', {}))
-        self.pars.add_defaults_to_dict(calibrator_config)
-        self.calibrator = Calibrator(**calibrator_config)
+        photo_cal_config = config.get('photo_cal', {})
+        photo_cal_config.update(kwargs.get('photo_cal', {}))
+        self.pars.add_defaults_to_dict(photo_cal_config)
+        self.photo_cal = PhotCalibrator(**photo_cal_config)
 
         # reference fetching and image subtraction
-        subtractor_config = config.get('subtractor', {})
-        subtractor_config.update(kwargs.get('subtractor', {}))
-        self.pars.add_defaults_to_dict(subtractor_config)
-        self.subtractor = Subtractor(**subtractor_config)
+        subtraction_config = config.get('subtraction', {})
+        subtraction_config.update(kwargs.get('subtraction', {}))
+        self.pars.add_defaults_to_dict(subtraction_config)
+        self.subtractor = Subtractor(**subtraction_config)
 
         # source detection ("detection" for the subtracted image!)
-        detector_config = config.get('detector', {})
-        detector_config.update(kwargs.get('detector', {}))
-        self.pars.add_defaults_to_dict(detector_config)
-        self.detector = Detector(**detector_config)
+        detection_config = config.get('detection', {})
+        detection_config.update(kwargs.get('detection', {}))
+        self.pars.add_defaults_to_dict(detection_config)
+        self.detector = Detector(**detection_config)
+        self.detector.pars.subtraction = True
 
         # produce cutouts for detected sources:
-        cutter_config = config.get('cutter', {})
-        cutter_config.update(kwargs.get('cutter', {}))
-        self.pars.add_defaults_to_dict(cutter_config)
-        self.cutter = Cutter(**cutter_config)
+        cutting_config = config.get('cutting', {})
+        cutting_config.update(kwargs.get('cutting', {}))
+        self.pars.add_defaults_to_dict(cutting_config)
+        self.cutter = Cutter(**cutting_config)
 
         # measure photometry, analytical cuts, and deep learning models on the Cutouts:
-        measurer_config = config.get('measurer', {})
-        measurer_config.update(kwargs.get('extractor', {}))
-        self.pars.add_defaults_to_dict(measurer_config)
-        self.measurer = Measurer(**measurer_config)
+        measurement_config = config.get('measurement', {})
+        measurement_config.update(kwargs.get('extraction', {}))
+        self.pars.add_defaults_to_dict(measurement_config)
+        self.measurer = Measurer(**measurement_config)
 
     def run(self, *args, **kwargs):
         """
@@ -100,19 +101,19 @@ class Pipeline:
         ds = self.extractor.run(ds, session)
 
         # find astrometric solution, save WCS into Image object and FITS headers
-        ds = self.astrometry.run(ds, session)
+        ds = self.astro_cal.run(ds, session)
 
         # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
-        ds = self.calibrator.run(ds, session)
+        ds = self.photo_cal.run(ds, session)
 
         # fetch reference images and subtract them, save SubtractedImage objects to DB and disk
         ds = self.subtractor.run(ds, session)
 
-        # make cutouts of all the sources in the "detections" source list
-        ds = self.cutter.run(ds, session)
-
         # find sources, generate a source list for detections
         ds = self.detector.run(ds, session)
+
+        # make cutouts of all the sources in the "detections" source list
+        ds = self.cutter.run(ds, session)
 
         # extract photometry, analytical cuts, and deep learning models on the Cutouts:
         ds = self.measurer.run(ds, session)
@@ -127,3 +128,4 @@ class Pipeline:
         """
         with SmartSession() as session:
             self.run(session=session)
+

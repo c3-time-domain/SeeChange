@@ -3,6 +3,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.types import Enum
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from astropy.time import Time
 from astropy.wcs import WCS
@@ -30,7 +31,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
     __tablename__ = 'images'
 
     exposure_id = sa.Column(
-        sa.ForeignKey('exposures.id'),
+        sa.ForeignKey('exposures.id', ondelete='SET NULL'),
         nullable=True,
         index=True,
         doc=(
@@ -62,25 +63,71 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         )
     )
 
-
-    @property
-    def is_multi_image(self):
-        if self.exposure is not None:
-            return False
-        elif self.source_images is not None and len(self.source_images) > 0:
-            return True
-        else:
-            return None  # for new objects that have not defined either exposure or source_images
-
-    combine_method = sa.Column(
-        Enum("coadd", "subtraction", name='image_combine_method'),
+    ref_image_id = sa.Column(
+        sa.ForeignKey('images.id', ondelete="CASCADE"),
         nullable=True,
         index=True,
         doc=(
-            "Type of combination used to produce this multi-image object. "
-            "One of: coadd, subtraction. "
+            "ID of the reference image used to produce a difference image. "
+            "Only set for difference images. This usually refers to a coadd image. "
         )
     )
+
+    ref_image = orm.relationship(
+        'Image',
+        cascade='save-update, merge, refresh-expire, expunge',
+        primaryjoin='images.c.ref_image_id == images.c.id',
+        uselist=False,
+        remote_side='Image.id',
+        doc=(
+            "Reference image used to produce a difference image. "
+            "Only set for difference images. This usually refers to a coadd image. "
+        )
+    )
+
+    new_image_id = sa.Column(
+        sa.ForeignKey('images.id', ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        doc=(
+            "ID of the new image used to produce a difference image. "
+            "Only set for difference images. This usually refers to a regular image. "
+        )
+    )
+
+    new_image = orm.relationship(
+        'Image',
+        cascade='save-update, merge, refresh-expire, expunge',
+        primaryjoin='images.c.new_image_id == images.c.id',
+        uselist=False,
+        remote_side='Image.id',
+        doc=(
+            "New image used to produce a difference image. "
+            "Only set for difference images. This usually refers to a regular image. "
+        )
+    )
+
+    @property
+    def is_coadd(self):
+        try:
+            if self.source_images is not None and len(self.source_images) > 0:
+                return True
+        except DetachedInstanceError:
+            if not self.is_sub and self.exposure_id is None:
+                return True
+
+        return False
+
+    @property
+    def is_sub(self):
+        try:
+            if self.ref_image is not None and self.new_image is not None:
+                return True
+        except DetachedInstanceError:
+            if self.ref_image_id is not None and self.new_image_id is not None:
+                return True
+
+        return False
 
     type = sa.Column(
         im_type_enum,  # defined in models/exposure.py
@@ -106,6 +153,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
     provenance = orm.relationship(
         'Provenance',
         cascade='save-update, merge, refresh-expire, expunge',
+        lazy='selectin',
         doc=(
             "Provenance of this image. "
             "The provenance will contain a record of the code version"
@@ -133,6 +181,14 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
             "Multi-exposure images will have the MJD of the first exposure."
         )
     )
+
+    @property
+    def observation_time(self):
+        """Translation of the MJD column to datetime object."""
+        if self.mjd is None:
+            return None
+        else:
+            return Time(self.mjd, format='mjd').datetime
 
     @property
     def start_mjd(self):
@@ -332,6 +388,109 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         return new
 
+    @classmethod
+    def from_images(cls, images):
+        """
+        Create a new Image object from a list of other Image objects.
+        This is the first step in making a multi-image (usually a coadd).
+        The output image doesn't have any data, and is created with
+        nofile=True. It is up to the calling application to fill in the
+        data, flags, weight, etc. using the appropriate preprocessing tools.
+        After that, the data needs to be saved to file, and only then
+        can the new Image be added to the database.
+
+        Parameters
+        ----------
+        images: list of Image objects
+            The images to combine into a new Image object.
+
+        Returns
+        -------
+        output: Image
+            The new Image object. It would not have any data variables or filepath.
+        """
+        if len(images) < 1:
+            raise ValueError("Must provide at least one image to combine.")
+
+        output = Image(nofile=True)
+
+        # for each attribute, check that all the images have the same value
+        for att in ['section_id', 'instrument', 'telescope', 'type', 'filter', 'project', 'target']:
+            values = set([getattr(image, att) for image in images])
+            if len(values) != 1:
+                raise ValueError(f"Cannot combine images with different {att} values: {values}")
+            output.__setattr__(att, values.pop())
+        # TODO: should RA and Dec also be exactly the same??
+        output.ra = images[0].ra
+        output.dec = images[0].dec
+
+        # exposure time is usually added together
+        output.exp_time = sum([image.exp_time for image in images])
+
+        # start MJD and end MJD
+        output.mjd = min([image.mjd for image in images])
+        output.end_mjd = max([image.end_mjd for image in images])
+
+        # TODO: what about the header? should we combine them somehow?
+        output.header = images[0].header
+        output.raw_header = images[0].raw_header
+
+        output.source_images = images
+
+        # Note that "data" is not filled by this method, also the provenance is empty!
+        return output
+
+    @classmethod
+    def from_ref_and_new(cls, ref, new):
+        """
+        Create a new Image object from a reference Image object and a new Image object.
+        This is the first step in making a difference image.
+        The output image doesn't have any data, and is created with
+        nofile=True. It is up to the calling application to fill in the
+        data, flags, weight, etc. using the appropriate preprocessing tools.
+        After that, the data needs to be saved to file, and only then
+        can the new Image be added to the database.
+
+        Parameters
+        ----------
+        ref: Image object
+            The reference image to use.
+        new: Image object
+            The new image to use.
+
+        Returns
+        -------
+        output: Image
+            The new Image object. It would not have any data variables or filepath.
+        """
+        output = Image(nofile=True)
+
+        # for each attribute, check the two images have the same value
+        for att in ['section_id', 'instrument', 'telescope', 'type', 'filter', 'project', 'target']:
+            ref_value = getattr(ref, att)
+            new_value = getattr(new, att)
+
+            if att == 'section_id':
+                ref_value = str(ref_value)
+                new_value = str(new_value)
+            if ref_value != new_value:
+                raise ValueError(
+                    f"Cannot combine images with different {att} values: "
+                    f"{ref_value} and {new_value}. "
+                )
+            output.__setattr__(att, new_value)
+        # TODO: should RA and Dec also be exactly the same??
+
+        # get some more attributes from the new image
+        for att in ['exp_time', 'mjd', 'end_mjd', 'header', 'raw_header', 'ra', 'dec']:
+            output.__setattr__(att, getattr(new, att))
+
+        output.ref_image = ref
+        output.new_image = new
+
+        # Note that "data" is not filled by this method, also the provenance is empty!
+        return output
+
     @property
     def instrument_object(self):
         if self.instrument is not None:
@@ -346,18 +505,20 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     def __repr__(self):
 
+        type_str = self.type
+        if self.is_coadd:
+            type_str += " (coadd)"
+
+        if self.is_sub:
+            type_str += " (sub)"
+
         output = (
             f"Image(id: {self.id}, "
-            f"type: {self.type}, "
+            f"type: {type_str}, "
             f"exp: {self.exp_time}s, "
             f"filt: {self.filter}, "
             f"from: {self.instrument}/{self.telescope}"
         )
-
-        multi_type = str(self.combine_method) if self.is_multi_image else None
-
-        if multi_type is not None:
-            output += f", multi_type: {multi_type}"
 
         output += ")"
 
@@ -374,6 +535,9 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # TODO: we may want to get the naming convention from the config file
         #  in which case we will need to parse it somehow, e.g., using some blocks
         #  like <instrument>, <filter>, etc.
+
+        if self.provenance is None:
+            raise ValueError("Cannot invent filename for image without provenance.")
 
         t = Time(self.mjd, format='mjd', scale='utc').datetime
 
@@ -395,12 +559,13 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         dec_frac = int(dec_frac)
 
         section_id = self.section_id
-        prov_id = self.provenance_id
+        prov_hash = self.provenance.unique_hash
 
-        default_convention = "{short_name}_{date}_{time}_{section_id:02d}_{filter}_{prov_id:03d}"
+        default_convention = "{short_name}_{date}_{time}_{section_id}_{filter}_{prov_hash:.6s}"
 
         cfg = config.Config.get()
         name_convention = cfg.value('storage.images.name_convention', default=None)
+
         if name_convention is None:
             name_convention = default_convention
 
@@ -418,7 +583,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
             dec_int_pm=dec_int_pm,
             dec_frac=dec_frac,
             section_id=section_id,
-            prov_id=prov_id,
+            prov_hash=prov_hash,
         )
 
         return filename
@@ -438,8 +603,8 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         if self.data is None:
             raise RuntimeError("The image data is not loaded. Cannot save.")
 
-        if self.provenance_id is None:
-            raise RuntimeError("The image provenance_id is not set. Cannot save.")
+        if self.provenance is None:
+            raise RuntimeError("The image provenance is not set. Cannot save.")
 
         if filename is None:
             filename = self.invent_filename()

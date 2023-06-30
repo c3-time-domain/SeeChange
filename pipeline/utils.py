@@ -46,7 +46,10 @@ def get_latest_provenance(process_name, session=None):
     process_name: str
         Name of the process that created this provenance object.
         Examples can include: "calibration", "subtraction", "source extraction" or just "level1".
-    session: sqlalchemy.orm.session.Session or SmartSession
+    session: sqlalchemy.orm.session.Session
+        Session to use to query the database.
+        If not given, a new session will be created,
+        and will be closed at the end of the function.
 
     Returns
     -------

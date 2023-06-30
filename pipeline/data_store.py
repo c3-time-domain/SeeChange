@@ -1,14 +1,15 @@
 import sqlalchemy as sa
 
-from pipeline.utils import get_git_hash, get_latest_provenance, parse_session
+from pipeline.utils import get_latest_provenance, parse_session
 
-from models.base import SmartSession
-from models.provenance import CodeHash, CodeVersion, Provenance
+from models.base import SmartSession, FileOnDiskMixin, safe_merge
+from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
+from models.references import ReferenceEntry
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 
@@ -16,20 +17,20 @@ from models.measurements import Measurements
 UPSTREAM_NAMES = {
     'preprocessing': [],
     'extraction': ['preprocessing'],
-    'astrometry': ['extraction'],
-    'calibration': ['extraction', 'astrometry'],
-    'subtraction': ['preprocessing', 'extraction', 'astrometry', 'calibration'],
+    'astro_cal': ['extraction'],
+    'photo_cal': ['extraction', 'astro_cal'],
+    'subtraction': ['preprocessing', 'extraction', 'astro_cal', 'photo_cal'],
     'detection': ['subtraction'],
     'cutting': ['detection'],
-    'measurement': ['detection', 'calibration'],
+    'measurement': ['detection', 'photo_cal'],
 }
 
 UPSTREAM_OBJECTS = {
     'preprocessing': 'image',
     'coaddition': 'image',
     'extraction': 'sources',
-    'astrometry': 'wcs',
-    'calibration': 'zp',
+    'astro_cal': 'wcs',
+    'photo_cal': 'zp',
     'subtraction': 'sub_image',
     'detection': 'detections',
     'cutting': 'cutouts',
@@ -60,8 +61,8 @@ class DataStore:
         if len(args) == 1 and isinstance(args[0], DataStore):
             return args[0], None
         if (
-                len(args) == 2 and isinstance(args[0], DataStore)
-                and isinstance(args[1], (sa.orm.session.Session, SmartSession))
+                len(args) == 2 and isinstance(args[0], DataStore) and
+                (isinstance(args[1], sa.orm.session.Session) or args[1] is None)
         ):
             return args[0], args[1]
         else:
@@ -123,15 +124,12 @@ class DataStore:
             the function that received the session as one of the arguments.
             If no session is given, will return None.
         """
-        if len(args) == 0:
-            raise ValueError('Must provide at least one argument to DataStore constructor.')
-
         if len(args) == 1 and isinstance(args[0], DataStore):
             # if the only argument is a DataStore, copy it
             self.__dict__ = args[0].__dict__.copy()
             return
 
-        output_session = parse_session(*args, **kwargs)
+        args, kwargs, output_session = parse_session(*args, **kwargs)
 
         # remove any provenances from the args list
         for arg in args:
@@ -141,7 +139,9 @@ class DataStore:
 
         # parse the args list
         arg_types = [type(arg) for arg in args]
-        if arg_types == [int, int] or arg_types == [int, str]:  # exposure_id, section_id
+        if arg_types == []:  # no arguments, quietly skip
+            pass
+        elif arg_types == [int, int] or arg_types == [int, str]:  # exposure_id, section_id
             self.exposure_id, self.section_id = args
         elif arg_types == [int]:
             self.image_id = args[0]
@@ -179,58 +179,58 @@ class DataStore:
         """
         Check some of the inputs before saving them.
         """
+        if value is not None:
+            if key in ['exposure_id', 'image_id'] and not isinstance(value, int):
+                raise ValueError(f'{key} must be an integer, got {type(value)}')
 
-        if key in ['exposure_id', 'image_id'] and not isinstance(value, int):
-            raise ValueError(f'{key} must be an integer, got {type(value)}')
+            if key in ['section_id'] and not isinstance(value, (int, str)):
+                raise ValueError(f'{key} must be an integer or a string, got {type(value)}')
 
-        if key in ['section_id'] and not isinstance(value, (int, str)):
-            raise ValueError(f'{key} must be an integer or a string, got {type(value)}')
+            if key == 'image' and not isinstance(value, Image):
+                raise ValueError(f'image must be an Image object, got {type(value)}')
 
-        if key == 'image' and not isinstance(value, Image):
-            raise ValueError(f'image must be an Image object, got {type(value)}')
+            if key == 'sources' and not isinstance(value, SourceList):
+                raise ValueError(f'sources must be a SourceList object, got {type(value)}')
 
-        if key == 'sources' and not isinstance(value, SourceList):
-            raise ValueError(f'sources must be a SourceList object, got {type(value)}')
+            if key == 'wcs' and not isinstance(value, WorldCoordinates):
+                raise ValueError(f'WCS must be a WorldCoordinates object, got {type(value)}')
 
-        if key == 'wcs' and not isinstance(value, WorldCoordinates):
-            raise ValueError(f'WCS must be a WorldCoordinates object, got {type(value)}')
+            if key == 'zp' and not isinstance(value, ZeroPoint):
+                raise ValueError(f'ZP must be a ZeroPoint object, got {type(value)}')
 
-        if key == 'zp' and not isinstance(value, ZeroPoint):
-            raise ValueError(f'ZP must be a ZeroPoint object, got {type(value)}')
+            if key == 'ref_image' and not isinstance(value, Image):
+                raise ValueError(f'ref_image must be an Image object, got {type(value)}')
 
-        if key == 'ref_image' and not isinstance(value, Image):
-            raise ValueError(f'ref_image must be an Image object, got {type(value)}')
+            if key == 'sub_image' and not isinstance(value, Image):
+                raise ValueError(f'sub_image must be a Image object, got {type(value)}')
 
-        if key == 'sub_image' and not isinstance(value, Image):
-            raise ValueError(f'sub_image must be a Image object, got {type(value)}')
+            if key == 'detections' and not isinstance(value, SourceList):
+                raise ValueError(f'detections must be a SourceList object, got {type(value)}')
 
-        if key == 'detections' and not isinstance(value, SourceList):
-            raise ValueError(f'detections must be a SourceList object, got {type(value)}')
+            if key == 'cutouts' and not isinstance(value, list):
+                raise ValueError(f'cutouts must be a list of Cutout objects, got {type(value)}')
 
-        if key == 'cutouts' and not isinstance(value, list):
-            raise ValueError(f'cutouts must be a list of Cutout objects, got {type(value)}')
+            if key == 'cutouts' and not all([isinstance(c, Cutouts) for c in value]):
+                raise ValueError(f'cutouts must be a list of Cutouts objects, got list with {[type(c) for c in value]}')
 
-        if key == 'cutouts' and not all([isinstance(c, Cutouts) for c in value]):
-            raise ValueError(f'cutouts must be a list of Cutouts objects, got list with {[type(c) for c in value]}')
+            if key == 'measurements' and not isinstance(value, list):
+                raise ValueError(f'measurements must be a list of Measurements objects, got {type(value)}')
 
-        if key == 'measurements' and not isinstance(value, list):
-            raise ValueError(f'measurements must be a list of Measurements objects, got {type(value)}')
+            if key == 'measurements' and not all([isinstance(m, Measurements) for m in value]):
+                raise ValueError(
+                    f'measurements must be a list of Measurement objects, got list with {[type(m) for m in value]}'
+                )
 
-        if key == 'measurements' and not all([isinstance(m, Measurements) for m in value]):
-            raise ValueError(
-                f'measurements must be a list of Measurement objects, got list with {[type(m) for m in value]}'
-            )
+            if key == 'upstream_provs' and not isinstance(value, list):
+                raise ValueError(f'upstream_provs must be a list of Provenance objects, got {type(value)}')
 
-        if key == 'upstream_provs' and not isinstance(value, list):
-            raise ValueError(f'upstream_provs must be a list of Provenance objects, got {type(value)}')
+            if key == 'upstream_provs' and not all([isinstance(p, Provenance) for p in value]):
+                raise ValueError(
+                    f'upstream_provs must be a list of Provenance objects, got list with {[type(p) for p in value]}'
+                )
 
-        if key == 'upstream_provs' and not all([isinstance(p, Provenance) for p in value]):
-            raise ValueError(
-                f'upstream_provs must be a list of Provenance objects, got list with {[type(p) for p in value]}'
-            )
-
-        if key == 'session' and not isinstance(value, (sa.orm.session.Session, SmartSession)):
-            raise ValueError(f'Session must be a SQLAlchemy session or SmartSession, got {type(value)}')
+            if key == 'session' and not isinstance(value, (sa.orm.session.Session, SmartSession)):
+                raise ValueError(f'Session must be a SQLAlchemy session or SmartSession, got {type(value)}')
 
         super().__setattr__(key, value)
 
@@ -247,6 +247,13 @@ class DataStore:
     def get_provenance(self, process, pars_dict, upstream_provs=None, session=None):
         """
         Get the provenance for a given process.
+        Will try to find a provenance that matches the current code version
+        and the parameter dictionary, and if it doesn't find it,
+        it will create a new Provenance object.
+
+        This function should be called externally by applications
+        using the DataStore, to get the provenance for a given process,
+        or to make it if it doesn't exist.
 
         Parameters
         ----------
@@ -276,24 +283,23 @@ class DataStore:
         -------
         prov: Provenance
             The provenance for the given process.
-
         """
         if upstream_provs is None:
             upstream_provs = self.upstream_provs
 
         with SmartSession(session) as session:
-            # check if this code version exists
-            code_hash = session.scalars(sa.select(CodeHash).where(CodeHash.hash == get_git_hash())).first()
-            if code_hash is None:
-                raise ValueError('Cannot find code hash!')
+            code_version = Provenance.get_code_version(session=session)
+            if code_version is None:
+                # this "null" version should never be used in production
+                code_version = CodeVersion(version='v0.0.0')
+                code_version.update()  # try to add current git hash to version object
 
             # check if we can find the upstream provenances
             upstreams = []
-            for name in self.UPSTREAM_NAMES[process]:
-                obj = getattr(self, UPSTREAM_OBJECTS[name], None)
-
+            for name in UPSTREAM_NAMES[process]:
                 # first try to load an upstream that was given explicitly:
-                if name in [p.process for p in upstream_provs]:
+                obj = getattr(self, UPSTREAM_OBJECTS[name], None)
+                if upstream_provs is not None and name in [p.process for p in upstream_provs]:
                     prov = [p for p in upstream_provs if p.process == name][0]
 
                 # second, try to get a provenance from objects saved to the store:
@@ -311,10 +317,13 @@ class DataStore:
 
                 upstreams.append(prov)
 
+            if len(upstreams) != len(UPSTREAM_NAMES[process]):
+                raise ValueError(f'Could not find all upstream provenances for process {process}.')
+
             # we have a code version object and upstreams, we can make a provenance
             prov = Provenance(
                 process=process,
-                code_version=code_hash.code_version,
+                code_version=code_version,
                 parameters=pars_dict,
                 upstreams=upstreams,
             )
@@ -330,25 +339,36 @@ class DataStore:
 
         return prov
 
-    def _get_provenance_fallback(self, process, session=None):
+    def _get_provanance_for_an_upstream(self, process, session=None):
         """
         Get the provenance for a given process, without knowing
         the parameters or code version.
         This simply looks for a matching provenance in the upstream_provs
         attribute, and if it is not there, it will call the latest provenance
-        from the database.
+        (for that process) from the database.
+        This is used to get the provenance of upstream objects,
+        only when those objects are not found in the store.
+        Example: when looking for the upstream provenance of a
+        photo_cal process, the upstream process is preprocess,
+        so this function will look for the preprocess provenance.
+        If the ZP object is from the DB then there must be provenance
+        objects for the Image that was used to create it.
+        If the ZP was just created, the Image should also be
+        in memory even if the provenance is not on DB yet,
+        in which case this function should not be called.
 
         This will raise if no provenance can be found.
         """
         # see if it is in the upstream_provs
-        prov_list = [p for p in self.upstream_provs if p.process == process]
-        provenance = prov_list[0] if len(prov_list) > 0 else None
+        if self.upstream_provs is not None:
+            prov_list = [p for p in self.upstream_provs if p.process == process]
+            provenance = prov_list[0] if len(prov_list) > 0 else None
+        else:
+            provenance = None
 
         # try getting the latest from the database
         if provenance is None:  # check latest provenance
             provenance = get_latest_provenance(process, session=session)
-        if provenance is None:  # still can't find anything!
-            raise ValueError(f'Cannot find the "{process}" provenance!')
 
         return provenance
 
@@ -404,9 +424,10 @@ class DataStore:
             The image object, or None if no matching image is found.
 
         """
+        process_name = 'preprocessing'
         # we were explicitly asked for a specific image id:
         if self.image_id is not None:
-            if self.image is not None and isinstance(self.image, Image) and self.image.id == self.image_id:
+            if isinstance(self.image, Image) and self.image.id == self.image_id:
                 pass  # return self.image at the end of function...
             else:  # not found in local memory, get from DB
                 with SmartSession(session) as session:
@@ -418,33 +439,41 @@ class DataStore:
 
         # this option is for when we are not sure which image id we need
         elif self.exposure_id is not None and self.section_id is not None:
-
-            # must compare the image to the current provenance
-            if provenance is None:  # check if in upstream_provs/database
-                provenance = self._get_provenance_fallback('preprocessing', session=session)
-
+            # check if self.image is the correct image:
             if (
-                self.image is not None and isinstance(self.image, Image)
-                and self.image.exposure_id == self.exposure_id and self.image.section_id == str(self.section_id)
+                isinstance(self.image, Image) and self.image.exposure_id == self.exposure_id
+                    and self.image.section_id == str(self.section_id)
             ):
                 # make sure the image has the correct provenance
                 if self.image is not None:
                     if self.image.provenance is None:
                         raise ValueError('Image has no provenance!')
+                    if self.upstream_provs is not None:
+                        provenances = [p for p in self.upstream_provs if p.process == process_name]
+                    else:
+                        provenances = []
 
-                    # a mismatch of provenance and cached image:
-                    if self.image.provenance.unique_hash != provenance.unique_hash:
-                        self.image = None
+                    if len(provenances) > 1:
+                        raise ValueError(f'More than one "{process_name}" provenance found!')
+                    if len(provenances) == 1:
+                        # a mismatch of provenance and cached image:
+                        if self.image.provenance.unique_hash != provenances[0].unique_hash:
+                            self.image = None  # this must be an old image, get a new one
 
             if self.image is None:  # load from DB
-                with SmartSession(session) as session:
-                    self.image = session.scalars(
-                        sa.select(Image).where(
-                            Image.exposure_id == self.exposure_id,
-                            Image.section_id == str(self.section_id),
-                            Image.provenance.has(unique_hash=provenance.unique_hash)
-                        )
-                    ).first()
+                # this happens when the image is required as an upstream for another process (but isn't in memory)
+                if provenance is None:  # check if in upstream_provs/database
+                    provenance = self._get_provanance_for_an_upstream(process_name, session=session)
+
+                if provenance is not None:  # if we can't find a provenance, then we don't need to load from DB
+                    with SmartSession(session) as session:
+                        self.image = session.scalars(
+                            sa.select(Image).where(
+                                Image.exposure_id == self.exposure_id,
+                                Image.section_id == str(self.section_id),
+                                Image.provenance.has(unique_hash=provenance.unique_hash)
+                            )
+                        ).first()
 
         else:
             raise ValueError('Cannot get processed image without exposure_id and section_id or image_id!')
@@ -476,30 +505,40 @@ class DataStore:
             or None if no matching source list is found.
 
         """
-        # not in memory, look for it on the DB
+        process_name = 'extraction'
+        # if sources exists in memory, check the provenance is ok
         if self.sources is not None:
-
-            if provenance is None:  # check if in upstream_provs/database
-                provenance = self._get_provenance_fallback('extraction', session=session)
-
-            # make sure the wcs has the correct provenance
+            # make sure the sources object has the correct provenance
             if self.sources.provenance is None:
                 raise ValueError('SourceList has no provenance!')
 
-            # a mismatch of provenance and cached image:
-            if self.sources.provenance.unique_hash != provenance.unique_hash:
-                self.sources = None
+            if self.upstream_provs is not None:
+                provenances = [p for p in self.upstream_provs if p.process == process_name]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError(f'More than one {process_name} provenance found!')
+            if len(provenances) == 1:
+                # a mismatch of given provenance and self.sources' provenance:
+                if self.sources.provenance.unique_hash != provenances[0].unique_hash:
+                    self.sources = None  # this must be an old sources object, get a new one
 
+        # not in memory, look for it on the DB
         if self.sources is None:
-            with SmartSession(session) as session:
-                image = self.get_image(session=session)
-                self.sources = session.scalars(
-                    sa.select(SourceList).where(
-                        SourceList.image_id == image.id,
-                        SourceList.is_sub.is_(False),
-                        SourceList.provenance.has(unique_hash=provenance.unique_hash),
-                    )
-                ).first()
+            # this happens when the source list is required as an upstream for another process (but isn't in memory)
+            if provenance is None:  # check if in upstream_provs/database
+                provenance = self._get_provanance_for_an_upstream(process_name, session=session)
+
+            if provenance is not None:  # if we can't find a provenance, then we don't need to load from DB
+                with SmartSession(session) as session:
+                    image = self.get_image(session=session)
+                    self.sources = session.scalars(
+                        sa.select(SourceList).where(
+                            SourceList.image_id == image.id,
+                            SourceList.is_sub.is_(False),
+                            SourceList.provenance.has(unique_hash=provenance.unique_hash),
+                        )
+                    ).first()
 
         return self.sources
 
@@ -515,7 +554,7 @@ class DataStore:
             This provenance should be consistent with
             the current code version and critical parameters.
             If none is given, will use the latest provenance
-            for the "astrometry" process.
+            for the "astro_cal" process.
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will open a new session and close it at
@@ -527,28 +566,37 @@ class DataStore:
             The WCS object, or None if no matching WCS is found.
 
         """
+        process_name = 'astro_cal'
         # make sure the wcs has the correct provenance
         if self.wcs is not None:
-            if provenance is None:  # check if in upstream_provs/database
-                provenance = self._get_provenance_fallback('astrometry', session=session)
-
             if self.wcs.provenance is None:
                 raise ValueError('WorldCoordinates has no provenance!')
-
-            # a mismatch of provenance and cached image:
-            if self.wcs.provenance.unique_hash != provenance.unique_hash:
-                self.wcs = None
+            if self.upstream_provs is not None:
+                provenances = [p for p in self.upstream_provs if p.process == process_name]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError(f'More than one "{process_name}" provenance found!')
+            if len(provenances) == 1:
+                # a mismatch of provenance and cached wcs:
+                if self.wcs.provenance.unique_hash != provenances[0].unique_hash:
+                    self.wcs = None  # this must be an old wcs object, get a new one
 
         # not in memory, look for it on the DB
         if self.wcs is None:
             with SmartSession(session) as session:
-                sources = self.get_sources(session=session)
-                self.wcs = session.scalars(
-                    sa.select(WorldCoordinates).where(
-                        WorldCoordinates.source_list_id == sources.id,
-                        WorldCoordinates.provenance.has(unique_hash=provenance.unique_hash),
-                    )
-                ).first()
+                # this happens when the wcs is required as an upstream for another process (but isn't in memory)
+                if provenance is None:  # check if in upstream_provs/database
+                    provenance = self._get_provanance_for_an_upstream(process_name, session=session)
+
+                if provenance is not None:  # if None, it means we can't find it on the DB
+                    sources = self.get_sources(session=session)
+                    self.wcs = session.scalars(
+                        sa.select(WorldCoordinates).where(
+                            WorldCoordinates.source_list_id == sources.id,
+                            WorldCoordinates.provenance.has(unique_hash=provenance.unique_hash),
+                        )
+                    ).first()
 
         return self.wcs
 
@@ -564,7 +612,7 @@ class DataStore:
             This provenance should be consistent with
             the current code version and critical parameters.
             If none is given, will use the latest provenance
-            for the "calibration" process.
+            for the "photo_cal" process.
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will open a new session and close it at
@@ -574,32 +622,40 @@ class DataStore:
         -------
         wcs: ZeroPoint object
             The photometric calibration object, or None if no matching ZP is found.
-
         """
+        process_name = 'photo_cal'
         # make sure the zp has the correct provenance
         if self.zp is not None:
-            if provenance is None:  # check if in upstream_provs/database
-                provenance = self._get_provenance_fallback('calibration', session=session)
-
             if self.zp.provenance is None:
                 raise ValueError('ZeroPoint has no provenance!')
 
-            # a mismatch of provenance and cached image:
-            if self.zp.provenance.unique_hash != provenance.unique_hash:
-                self.zp = None
+            if self.upstream_provs is not None:
+                provenances = [p for p in self.upstream_provs if p.process == process_name]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError(f'More than one "{process_name}" provenance found!')
+            if len(provenances) == 1:
+                # a mismatch of provenance and cached zp:
+                if self.zp.provenance.unique_hash != provenances[0].unique_hash:
+                    self.zp = None  # this must be an old zp, get a new one
 
         # not in memory, look for it on the DB
         if self.zp is None:
             with SmartSession(session) as session:
                 sources = self.get_sources(session=session)
                 # TODO: do we also need the astrometric solution (to query for the ZP)?
+                # this happens when the wcs is required as an upstream for another process (but isn't in memory)
+                if provenance is None:  # check if in upstream_provs/database
+                    provenance = self._get_provanance_for_an_upstream(process_name, session=session)
 
-                self.zp = session.scalars(
-                    sa.select(ZeroPoint).where(
-                        ZeroPoint.source_list_id == sources.id,
-                        ZeroPoint.provenance.has(unique_hash=provenance.unique_hash),
-                    )
-                ).first()
+                if provenance is not None:  # if None, it means we can't find it on the DB
+                    self.zp = session.scalars(
+                        sa.select(ZeroPoint).where(
+                            ZeroPoint.source_list_id == sources.id,
+                            ZeroPoint.provenance.has(unique_hash=provenance.unique_hash),
+                        )
+                    ).first()
 
         return self.zp
 
@@ -610,7 +666,7 @@ class DataStore:
         Parameters
         ----------
         provenance: Provenance object
-            The provenance to use for the subtraction.
+            The provenance to use for the coaddition.
             This provenance should be consistent with
             the current code version and critical parameters.
             If none is given, will use the latest provenance
@@ -630,11 +686,27 @@ class DataStore:
 
             with SmartSession(session) as session:
                 image = self.get_image(session=session)
-                self.ref_image = session.scalars(
-                    sa.select(Image).where(
-                        # TODO: we need to figure out exactly how to match reference to image
+
+                ref_entry = session.scalars(
+                    sa.select(ReferenceEntry).where(
+                        sa.or_(
+                            ReferenceEntry.validity_start.is_(None),
+                            ReferenceEntry.validity_start <= image.observation_time
+                        ),
+                        sa.or_(
+                            ReferenceEntry.validity_end.is_(None),
+                            ReferenceEntry.validity_end >= image.observation_time
+                        ),
+                        ReferenceEntry.filter == image.filter,
+                        ReferenceEntry.target == image.target,
+                        ReferenceEntry.is_bad.is_(False),
                     )
                 ).first()
+
+                if ref_entry is None:
+                    raise ValueError(f'No reference image found for image {image.id}')
+
+                self.ref_image = ref_entry.image
 
         return self.ref_image
 
@@ -662,30 +734,40 @@ class DataStore:
             or None if no matching subtraction image is found.
 
         """
+        process_name = 'subtraction'
         # make sure the subtraction has the correct provenance
         if self.sub_image is not None:
-            if provenance is None:  # check if in upstream_provs/database
-                provenance = self._get_provenance_fallback('subtraction', session=session)
-
             if self.sub_image.provenance is None:
                 raise ValueError('Subtraction image has no provenance!')
-
-            # a mismatch of provenance and cached image:
-            if self.sub_image.provenance.unique_hash != provenance.unique_hash:
-                self.sub_image = None
+            if self.upstream_provs is not None:
+                provenances = [p for p in self.upstream_provs if p.process == process_name]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError(f'More than one "{process_name}" provenance found!')
+            if len(provenances) > 0:
+                # a mismatch of provenance and cached subtraction image:
+                if self.sub_image.provenance.unique_hash != provenances[0].unique_hash:
+                    self.sub_image = None  # this must be an old subtraction image, need to get a new one
 
         # not in memory, look for it on the DB
         if self.sub_image is None:
             with SmartSession(session) as session:
                 image = self.get_image(session=session)
                 ref = self.get_reference_image(session=session)
-                self.sub_image = session.scalars(
-                    sa.select(Image).where(
-                        Image.ref_id == ref.id,
-                        Image.new_id == image.id,
-                        Image.provenance.has(unique_hash=provenance.unique_hash),
-                    )
-                ).first()
+
+                # this happens when the subtraction is required as an upstream for another process (but isn't in memory)
+                if provenance is None:  # check if in upstream_provs/database
+                    provenance = self._get_provanance_for_an_upstream(process_name, session=session)
+
+                if provenance is not None:  # if None, it means we can't find it on the DB
+                    self.sub_image = session.scalars(
+                        sa.select(Image).where(
+                            Image.ref_image_id == ref.id,
+                            Image.new_image_id == image.id,
+                            Image.provenance.has(unique_hash=provenance.unique_hash),
+                        )
+                    ).first()
 
         return self.sub_image
 
@@ -701,7 +783,7 @@ class DataStore:
             This provenance should be consistent with
             the current code version and critical parameters.
             If none is given, will use the latest provenance
-            for the "extraction" process.
+            for the "detection" process.
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will open a new session and close it at
@@ -710,34 +792,44 @@ class DataStore:
         Returns
         -------
         sl: SourceList object
-            The list of sources for this image (the catalog),
+            The list of sources for this subtraction image (the catalog),
             or None if no matching source list is found.
 
         """
+        process_name = 'detection'
         # not in memory, look for it on the DB
         if self.detections is not None:
-
-            if provenance is None:  # check if in upstream_provs/database
-                provenance = self._get_provenance_fallback('detection', session=session)
-
             # make sure the wcs has the correct provenance
             if self.detections.provenance is None:
                 raise ValueError('SourceList has no provenance!')
 
-            # a mismatch of provenance and cached image:
-            if self.detections.provenance.unique_hash != provenance.unique_hash:
-                self.detections = None
+            if self.upstream_provs is not None:
+                provenances = [p for p in self.upstream_provs if p.process == process_name]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError(f'More than one "{process_name}" provenance found!')
+            if len(provenances) == 1:
+                # a mismatch of provenance and cached detections:
+                if self.detections.provenance.unique_hash != provenances[0].unique_hash:
+                    self.detections = None  # this must be an old detections object, need to get a new one
 
         if self.detections is None:
             with SmartSession(session) as session:
-                image = self.get_image(session=session)
-                self.detections = session.scalars(
-                    sa.select(SourceList).where(
-                        SourceList.image_id == image.id,
-                        SourceList.is_sub.is_(True),
-                        SourceList.provenance.has(unique_hash=provenance.unique_hash),
-                    )
-                ).first()
+                sub_image = self.get_subtraction(session=session)
+
+                # this happens when the wcs is required as an upstream for another process (but isn't in memory)
+                if provenance is None:  # check if in upstream_provs/database
+                    provenance = self._get_provanance_for_an_upstream(process_name, session=session)
+
+                if provenance is not None:  # if None, it means we can't find it on the DB
+                    self.detections = session.scalars(
+                        sa.select(SourceList).where(
+                            SourceList.image_id == sub_image.id,
+                            SourceList.is_sub.is_(True),
+                            SourceList.provenance.has(unique_hash=provenance.unique_hash),
+                        )
+                    ).first()
 
         return self.detections
 
@@ -764,29 +856,39 @@ class DataStore:
             The list of measurements, or None if no matching measurements are found.
 
         """
+        process_name = 'cutting'
         # make sure the cutouts have the correct provenance
         if self.cutouts is not None:
-            if provenance is None:
-                provenance = self._get_provenance_fallback('measurement', session=session)
-
             if any([c.provenance is None for c in self.cutouts]):
                 raise ValueError('One of the Cutouts has no provenance!')
 
-            # a mismatch of provenance and cached image:
-            if any([c.provenance.unique_hash != provenance.unique_hash for c in self.cutouts]):
-                self.cutouts = None
+            if self.upstream_provs is not None:
+                provenances = [p for p in self.upstream_provs if p.process == process_name]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError(f'More than one "{process_name}" provenance found!')
+            if len(provenances) == 1:
+                # a mismatch of provenance and cached cutouts:
+                if any([c.provenance.unique_hash != provenances[0].unique_hash for c in self.cutouts]):
+                    self.cutouts = None  # this must be an old cutouts list, need to get a new one
 
         # not in memory, look for it on the DB
         if self.cutouts is None:
             with SmartSession(session) as session:
-                image = self.get_subtraction(session=session)
+                sub_image = self.get_subtraction(session=session)
 
-                self.cutouts = session.scalars(
-                    sa.select(Cutouts).where(
-                        Cutouts.sub_image_id == image.id,
-                        Cutouts.provenance.has(unique_hash=provenance.unique_hash),
-                    )
-                ).all()
+                # this happens when the cutouts are required as an upstream for another process (but aren't in memory)
+                if provenance is None:
+                    provenance = self._get_provanance_for_an_upstream(process_name, session=session)
+
+                if provenance is not None:  # if None, it means we can't find it on the DB
+                    self.cutouts = session.scalars(
+                        sa.select(Cutouts).where(
+                            Cutouts.sub_image_id == sub_image.id,
+                            Cutouts.provenance.has(unique_hash=provenance.unique_hash),
+                        )
+                    ).all()
 
         return self.cutouts
 
@@ -813,28 +915,140 @@ class DataStore:
             The list of measurements, or None if no matching measurements are found.
 
         """
+        process_name = 'measurement'
         # make sure the measurements have the correct provenance
         if self.measurements is not None:
-            if provenance is None:
-                provenance = self._get_provenance_fallback('measurement', session=session)
-
             if any([m.provenance is None for m in self.measurements]):
                 raise ValueError('One of the Measurements has no provenance!')
 
-            # a mismatch of provenance and cached image:
-            if any([m.provenance.unique_hash != provenance.unique_hash for m in self.measurements]):
-                self.measurements = None
+            if self.upstream_provs is not None:
+                provenances = [p for p in self.upstream_provs if p.process == process_name]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError(f'More than one "{process_name}" provenance found!')
+            if len(provenances) == 1:
+                # a mismatch of provenance and cached image:
+                if any([m.provenance.unique_hash != provenances[0].unique_hash for m in self.measurements]):
+                    self.measurements = None
 
         # not in memory, look for it on the DB
         if self.measurements is None:
             with SmartSession(session) as session:
                 cutouts = self.get_cutouts(session=session)
                 cutout_ids = [c.id for c in cutouts]
-                self.measurements = session.scalars(
-                    sa.select(Measurements).where(
-                        Measurements.cutouts_id.in_(cutout_ids),
-                        Measurements.provenance.has(unique_hash=provenance.unique_hash),
-                    )
-                ).all()
+
+                # this happens when the measurements are required as an upstream (but aren't in memory)
+                if provenance is None:
+                    provenance = self._get_provanance_for_an_upstream(process_name, session=session)
+
+                if provenance is not None:  # if None, it means we can't find it on the DB
+                    self.measurements = session.scalars(
+                        sa.select(Measurements).where(
+                            Measurements.cutouts_id.in_(cutout_ids),
+                            Measurements.provenance.has(unique_hash=provenance.unique_hash),
+                        )
+                    ).all()
 
         return self.measurements
+
+    def get_all_data_products(self, output='dict'):
+        """
+        Get all the data products associated with this Exposure.
+        By default, this returns a dict with named entries.
+        If using output='list', will return a flattened list of all
+        objects, including lists (e.g., Cutouts will be concatenated,
+        no nested). Any None values will be removed.
+
+        Parameters
+        ----------
+        output: str, optional
+            The output format. Can be 'dict' or 'list'.
+            Default is 'dict'.
+
+        Returns
+        -------
+        data_products: dict or list
+            A dict with named entries, or a flattened list of all
+            objects, including lists (e.g., Cutouts will be concatenated,
+            no nested). Any None values will be removed.
+        """
+        attributes = ['exposure', 'image', 'sources', 'wcs', 'zp', 'sub_image', 'detections', 'cutouts', 'measurements']
+        result = {att: getattr(self, att) for att in attributes}
+        if output == 'dict':
+            return result
+        if output == 'list':
+            list_result = []
+            for k, v in result.items():
+                if isinstance(v, list):
+                    list_result.extend(v)
+                else:
+                    list_result.append(v)
+
+            return [v for v in list_result if v is not None]
+
+        else:
+            raise ValueError(f'Unknown output format: {output}')
+
+    def save_and_commit(self, session=None):
+        """
+        Go over all the data products and add them to the session.
+        If any of the data products are associated with a file on disk,
+        that would be saved as well.
+
+        Parameters
+        ----------
+        session: sqlalchemy.orm.session.Session or SmartSession
+            An optional session to use for the database query.
+            If not given, will open a new session and close it at
+            the end of the function.
+            Note that this method calls session.commit()
+        """
+        with SmartSession(session) as session:
+            autoflush_state = session.autoflush
+            try:
+                # session.autoflush = False
+                for obj in self.get_all_data_products(output='list'):
+                    # print(f'saving {obj} with provenance: {getattr(obj, "provenance", None)}')
+
+                    if isinstance(obj, FileOnDiskMixin):
+                        obj.save()
+
+                    obj = obj.recursive_merge(session)
+                    session.add(obj)
+
+                session.commit()
+            finally:
+                session.autoflush = autoflush_state
+
+    def delete_everything(self, session=None):
+        """
+        Delete everything associated with this sub-image.
+        All data products in the data store are removed from the DB,
+        and all files on disk are deleted.
+
+        Parameters
+        ----------
+        session: sqlalchemy.orm.session.Session or SmartSession
+            An optional session to use for the database query.
+            If not given, will open a new session and close it at
+            the end of the function.
+            Note that this method calls session.commit()
+        """
+        with SmartSession(session) as session:
+            autoflush_state = session.autoflush
+            try:
+                session.autoflush = False
+                for obj in self.get_all_data_products(output='list'):
+                    # if hasattr(obj, 'provenance'):
+                    #     print(f'Deleting {obj} with provenance= {obj.provenance}')
+                    obj = safe_merge(session, obj)
+                    if isinstance(obj, FileOnDiskMixin):
+                        obj.remove_data_from_disk()
+                    if obj in session:
+                        session.delete(obj)
+
+                session.commit()
+            finally:
+                session.autoflush = autoflush_state
+

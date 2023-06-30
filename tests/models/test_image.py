@@ -88,7 +88,7 @@ def test_image_no_null_values(provenance_base):
 def test_image_enum_values(demo_image, provenance_base):
     data_filename = None
     with SmartSession() as session:
-        demo_image.provenance_id = provenance_base.id
+        demo_image.provenance = provenance_base
         with pytest.raises(RuntimeError, match='The image data is not loaded. Cannot save.'):
             demo_image.save()
 
@@ -98,23 +98,6 @@ def test_image_enum_values(demo_image, provenance_base):
         assert os.path.exists(data_filename)
 
         try:
-            assert demo_image.combine_method is None
-
-            with pytest.raises(DataError, match='invalid input value for enum image_combine_method: "foo"'):
-                demo_image.combine_method = 'foo'
-                session.add(demo_image)
-                session.commit()
-            session.rollback()
-
-            for method in ['coadd', 'subtraction']:
-                demo_image.combine_method = method
-                session.add(demo_image)
-                session.commit()
-
-            demo_image.combine_method = 'subtraction'
-            session.add(demo_image)
-            session.commit()
-
             with pytest.raises(DataError, match='invalid input value for enum image_type: "foo"'):
                 demo_image.type = 'foo'
                 session.add(demo_image)
@@ -135,7 +118,7 @@ def test_image_enum_values(demo_image, provenance_base):
 
 
 def test_image_coordinates():
-    image = Image('foo.fits', ra=None, dec=None, nofile=True)
+    image = Image('coordinates.fits', ra=None, dec=None, nofile=True)
     assert image.ecllat is None
     assert image.ecllon is None
     assert image.gallat is None
@@ -144,13 +127,13 @@ def test_image_coordinates():
     with pytest.raises(ValueError, match='Object must have RA and Dec set'):
         image.calculate_coordinates()
 
-    image = Image('foo.fits', ra=123.4, dec=None, nofile=True)
+    image = Image('coordinates.fits', ra=123.4, dec=None, nofile=True)
     assert image.ecllat is None
     assert image.ecllon is None
     assert image.gallat is None
     assert image.gallon is None
 
-    image = Image('foo.fits', ra=123.4, dec=56.78, nofile=True)
+    image = Image('coordinates.fits', ra=123.4, dec=56.78, nofile=True)
     assert abs(image.ecllat - 35.846) < 0.01
     assert abs(image.ecllon - 111.838) < 0.01
     assert abs(image.gallat - 33.542) < 0.01
@@ -176,8 +159,8 @@ def test_image_from_exposure(exposure, provenance_base):
     assert im.telescope == exposure.telescope
     assert im.project == exposure.project
     assert im.target == exposure.target
-    assert im.combine_method is None
-    assert not im.is_multi_image
+    assert not im.is_coadd
+    assert not im.is_sub
     assert im.id is None  # need to commit to get IDs
     assert im.exposure_id is None  # need to commit to get IDs
     assert im.source_images == []
@@ -207,7 +190,7 @@ def test_image_from_exposure(exposure, provenance_base):
             session.rollback()
 
             # must add the filepath!
-            im.filepath = 'foo.fits'
+            im.filepath = 'foo_exposure.fits'
 
             session.add(im)
             session.commit()
@@ -244,29 +227,17 @@ def test_image_with_multiple_source_images(exposure, exposure2, provenance_base)
     # get a couple of images from exposure objects
     im1 = Image.from_exposure(exposure, section_id=0)
     im2 = Image.from_exposure(exposure2, section_id=0)
+    im2.filter = im1.filter
+    im2.target = im1.target
 
     im1.provenance = provenance_base
     im1.filepath = 'foo1.fits'
     im2.provenance = provenance_base
     im2.filepath = 'foo2.fits'
 
-    # make a new image from the two (we still don't have a coadd method for this)
-    im = Image(
-        exp_time=im1.exp_time + im2.exp_time,
-        mjd=im1.mjd,
-        end_mjd=im2.end_mjd,
-        filter=im1.filter,
-        instrument=im1.instrument,
-        telescope=im1.telescope,
-        project=im1.project,
-        target=im1.target,
-        combine_method='coadd',
-        section_id=im1.section_id,
-        ra=im1.ra,
-        dec=im1.dec,
-        filepath='foo.fits'
-    )
-    im.source_images = [im1, im2]
+    # make a coadd image from the two
+    im = Image.from_images([im1, im2])
+    im.filepath = 'foo.fits'
     im.provenance = provenance_base
 
     try:
@@ -280,7 +251,7 @@ def test_image_with_multiple_source_images(exposure, exposure2, provenance_base)
             im_id = im.id
             assert im_id is not None
             assert im.exposure_id is None
-            assert im.is_multi_image
+            assert im.is_coadd
             assert im.source_images == [im1, im2]
             assert np.isclose(im.mid_mjd, (im1.mjd + im2.mjd) / 2)
 
@@ -289,14 +260,81 @@ def test_image_with_multiple_source_images(exposure, exposure2, provenance_base)
             assert im1_id is not None
             assert im1.exposure_id is not None
             assert im1.exposure_id == exposure.id
-            assert not im1.is_multi_image
+            assert not im1.is_coadd
             assert im1.source_images == []
 
             im2_id = im2.id
             assert im2_id is not None
             assert im2.exposure_id is not None
             assert im2.exposure_id == exposure2.id
-            assert not im2.is_multi_image
+            assert not im2.is_coadd
+            assert im2.source_images == []
+
+    finally:  # make sure to clean up all images
+        for id_ in [im_id, im1_id, im2_id]:
+            if id_ is not None:
+                with SmartSession() as session:
+                    im = session.scalars(sa.select(Image).where(Image.id == id_)).first()
+                    session.delete(im)
+                    session.commit()
+
+
+def test_image_subtraction(exposure, exposure2, provenance_base):
+    exposure.update_instrument()
+    exposure2.update_instrument()
+
+    # make sure exposures are in chronological order...
+    if exposure.mjd > exposure2.mjd:
+        exposure, exposure2 = exposure2, exposure
+
+    # get a couple of images from exposure objects
+    im1 = Image.from_exposure(exposure, section_id=0)
+    im2 = Image.from_exposure(exposure2, section_id=0)
+    im2.filter = im1.filter
+    im2.target = im1.target
+
+    im1.provenance = provenance_base
+    im1.filepath = 'foo1.fits'
+    im2.provenance = provenance_base
+    im2.filepath = 'foo2.fits'
+
+    # make a coadd image from the two
+    im = Image.from_ref_and_new(im1, im2)
+    im.filepath = 'foo.fits'
+    im.provenance = provenance_base
+
+    try:
+        im_id = None
+        im1_id = None
+        im2_id = None
+        with SmartSession() as session:
+            session.add(im)
+            session.commit()
+
+            im_id = im.id
+            assert im_id is not None
+            assert im.exposure_id is None
+            assert im.is_sub
+            assert im.ref_image == im1
+            assert im.ref_image_id == im1.id
+            assert im.new_image == im2
+            assert im.new_image_id == im2.id
+            assert im.mjd == im2.mjd
+            assert im.exp_time == im2.exp_time
+
+            # make sure source images are pulled into the database too
+            im1_id = im1.id
+            assert im1_id is not None
+            assert im1.exposure_id is not None
+            assert im1.exposure_id == exposure.id
+            assert not im1.is_coadd
+            assert im1.source_images == []
+
+            im2_id = im2.id
+            assert im2_id is not None
+            assert im2.exposure_id is not None
+            assert im2.exposure_id == exposure2.id
+            assert not im2.is_coadd
             assert im2.source_images == []
 
     finally:  # make sure to clean up all images
@@ -310,12 +348,12 @@ def test_image_with_multiple_source_images(exposure, exposure2, provenance_base)
 
 def test_image_filename_conventions(demo_image, provenance_base):
     demo_image.data = np.float32(demo_image.raw_data)
-    demo_image.provenance_id = provenance_base.id
+    demo_image.provenance = provenance_base
 
     # use the naming convention in the config file
     demo_image.save()
 
-    assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d{2}_._\d{3}\.image\.fits', demo_image.get_fullpath()[0])
+    assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.image\.fits', demo_image.get_fullpath()[0])
     for f in demo_image.get_fullpath(as_list=True):
         assert os.path.isfile(f)
         os.remove(f)
@@ -327,7 +365,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
     try:
         cfg.set_value('storage.images.name_convention', None)
         demo_image.save()
-        assert re.search(r'Demo_\d{8}_\d{6}_\d{2}_._\d{3}\.image\.fits', demo_image.get_fullpath()[0])
+        assert re.search(r'Demo_\d{8}_\d{6}_\d+_.+_.{6}\.image\.fits', demo_image.get_fullpath()[0])
         for f in demo_image.get_fullpath(as_list=True):
             assert os.path.isfile(f)
             os.remove(f)
@@ -364,7 +402,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
 def test_image_multifile(demo_image, provenance_base):
     demo_image.data = np.float32(demo_image.raw_data)
     demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint32)
-    demo_image.provenance_id = provenance_base.id
+    demo_image.provenance = provenance_base
 
     cfg = config.Config.get()
     single_fileness = cfg.value('storage.images.single_file')  # store initial value
@@ -374,7 +412,7 @@ def test_image_multifile(demo_image, provenance_base):
         cfg.set_value('storage.images.single_file', True)
         demo_image.save()
 
-        assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d{2}_._\d{3}\.fits', demo_image.filepath)
+        assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.fits', demo_image.filepath)
 
         files = demo_image.get_fullpath(as_list=True)
         assert len(files) == 1
@@ -398,13 +436,13 @@ def test_image_multifile(demo_image, provenance_base):
         cfg.set_value('storage.images.single_file', False)
         demo_image.save()
 
-        assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d{2}_._\d{3}', demo_image.filepath)
+        assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}', demo_image.filepath)
         fullnames = demo_image.get_fullpath(as_list=True)
 
         assert len(fullnames) == 2
 
         assert os.path.isfile(fullnames[0])
-        assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d{2}_._\d{3}\.image\.fits', fullnames[0])
+        assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.image\.fits', fullnames[0])
         with fits.open(fullnames[0]) as hdul:
             assert len(hdul) == 1  # image data is saved on the primary HDU
             assert hdul[0].header['NAXIS'] == 2
@@ -412,7 +450,7 @@ def test_image_multifile(demo_image, provenance_base):
             assert np.array_equal(hdul[0].data, demo_image.data)
 
         assert os.path.isfile(fullnames[1])
-        assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d{2}_._\d{3}\.flags\.fits', fullnames[1])
+        assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.flags\.fits', fullnames[1])
         with fits.open(fullnames[1]) as hdul:
             assert len(hdul) == 1
             assert hdul[0].header['NAXIS'] == 2

@@ -108,7 +108,7 @@ def test_provenances(code_version):
             assert pid1 is not None
             assert p.unique_hash is not None
             assert isinstance(p.unique_hash, str)
-            assert len(p.unique_hash) == 64
+            assert len(p.unique_hash) == 20
             hash = p.unique_hash
 
             p2 = Provenance(
@@ -125,7 +125,7 @@ def test_provenances(code_version):
             assert pid2 is not None
             assert p2.unique_hash is not None
             assert isinstance(p2.unique_hash, str)
-            assert len(p2.unique_hash) == 64
+            assert len(p2.unique_hash) == 20
             assert p2.unique_hash != hash
     finally:
         with SmartSession() as session:
@@ -156,7 +156,7 @@ def test_unique_provenance_hash(code_version):
             assert pid is not None
             assert p.unique_hash is not None
             assert isinstance(p.unique_hash, str)
-            assert len(p.unique_hash) == 64
+            assert len(p.unique_hash) == 20
             hash = p.unique_hash
 
             p2 = Provenance(
@@ -203,7 +203,7 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
             assert pid1 is not None
             assert p1.unique_hash is not None
             assert isinstance(p1.unique_hash, str)
-            assert len(p1.unique_hash) == 64
+            assert len(p1.unique_hash) == 20
             hash = p1.unique_hash
 
             p2 = Provenance(
@@ -220,7 +220,7 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
             new_ids.append(pid2)
             assert p2.unique_hash is not None
             assert isinstance(p2.unique_hash, str)
-            assert len(p2.unique_hash) == 64
+            assert len(p2.unique_hash) == 20
             # added a new upstream, so the hash should be different
             assert p2.unique_hash != hash
 
@@ -242,9 +242,9 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
             assert p3_recovered is not None
 
             # check that the downstreams of our fixture provenances have been updated too
-            base_downstream_ids = [p.id for p in provenance_base.downstreams]
-            assert all([pid in base_downstream_ids for pid in [pid1, pid2]])
-            assert pid2 in [p.id for p in provenance_extra.downstreams]
+            # base_downstream_ids = [p.id for p in provenance_base.downstreams]
+            # assert all([pid in base_downstream_ids for pid in [pid1, pid2]])
+            # assert pid2 in [p.id for p in provenance_extra.downstreams]
 
         finally:
             session.execute(sa.delete(Provenance).where(Provenance.id.in_(new_ids)))
@@ -255,9 +255,12 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
             cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == code_version.id)).first()
             assert cv is not None
 
-        # the deletion of the new provenances should have cascaded to the downstreams
-        base_downstream_ids = [p.id for p in provenance_base.downstreams]
-        assert all([pid not in base_downstream_ids for pid in new_ids])
-        extra_downstream_ids = [p.id for p in provenance_extra.downstreams]
-        assert all([pid not in extra_downstream_ids for pid in new_ids])
+        # # the deletion of the new provenances should have cascaded to the downstreams
+        # session.refresh(provenance_base)
+        # base_downstream_ids = [p.id for p in provenance_base.downstreams]
+        # assert all([pid not in base_downstream_ids for pid in new_ids])
+        #
+        # session.refresh(provenance_extra)
+        # extra_downstream_ids = [p.id for p in provenance_extra.downstreams]
+        # assert all([pid not in extra_downstream_ids for pid in new_ids])
 

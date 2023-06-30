@@ -68,6 +68,12 @@ class Cutter:
             #  Commit the results to the database.
 
             # add the resulting list to the data store
+            if cutout_list.provenance is None:
+                cutout_list.provenance = prov
+            else:
+                if cutout_list.provenance.unique_hash != prov.unique_hash:
+                    raise ValueError('Provenance mismatch for cutout_list and provenance!')
+
             ds.cutouts = cutout_list
 
         # make sure this is returned to be used in the next step

@@ -78,7 +78,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_images_telescope'), 'images', ['telescope'], unique=False)
     op.create_index(op.f('ix_images_type'), 'images', ['type'], unique=False)
     op.create_foreign_key(None, 'images', 'provenances', ['provenance_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key(None, 'images', 'exposures', ['exposure_id'], ['id'])
+    op.create_foreign_key(None, 'images', 'exposures', ['exposure_id'], ['id'], ondelete='SET NULL')
     # ### end Alembic commands ###
 
 

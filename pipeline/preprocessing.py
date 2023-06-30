@@ -1,4 +1,4 @@
-
+import numpy as np
 import sqlalchemy as sa
 
 from models.base import SmartSession
@@ -48,13 +48,22 @@ class Preprocessor:
         if image is None:  # need to make new image
             exposure = ds.get_raw_exposure(session=session)
 
-            # TODO: get the CCD image from the exposure
-            image = Image(exposure_id=exposure.id, section_id=ds.section_id, provenance=ds.provenances['preprocessing'])
+            # get the CCD image from the exposure
+            image = Image.from_exposure(exposure, ds.section_id)
+            image.data = image.raw_data - np.median(image.raw_data)  # TODO: replace this!
 
         if image is None:
             raise ValueError('Image cannot be None at this point!')
 
-        # TODO: apply dark/flat/sky subtraction
+            # TODO: apply dark/flat/sky subtraction
+            #  right now this is just a placeholder:
+
+
+        if image.provenance is None:
+            image.provenance = prov
+        else:
+            if image.provenance.unique_hash != prov.unique_hash:
+                raise ValueError('Provenance mismatch for image and provenance!')
 
         ds.image = image
 

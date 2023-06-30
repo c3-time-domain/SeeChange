@@ -7,10 +7,14 @@ import numpy as np
 
 import sqlalchemy as sa
 
+from astropy.time import Time
+
 from models.base import SmartSession, CODE_ROOT
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
+from models.references import ReferenceEntry
+
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
@@ -18,8 +22,11 @@ def rnd_str(n):
 
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
-    cv = CodeVersion(version="test_v1.0.0")
-    cv.update()
+    with SmartSession() as session:
+        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.version == 'test_v1.0.0')).first()
+    if cv is None:
+        cv = CodeVersion(version="test_v1.0.0")
+        cv.update()
 
     yield cv
 
@@ -45,7 +52,7 @@ def provenance_base(code_version):
     yield p
 
     with SmartSession() as session:
-        session.execute(sa.delete(Provenance).where(Provenance.id == pid))
+        # session.execute(sa.delete(Provenance).where(Provenance.id == pid))
         session.commit()
 
 
@@ -77,7 +84,7 @@ def exposure_factory():
             f"Demo_test_{rnd_str(5)}.fits",
             section_id=0,
             exp_time=np.random.randint(1, 4) * 10,  # 10 to 40 seconds
-            mjd=np.random.uniform(58300, 58500),
+            mjd=np.random.uniform(58000, 58500),
             filter=np.random.choice(list('grizY')),
             ra=np.random.uniform(0, 360),
             dec=np.random.uniform(-90, 90),
@@ -108,6 +115,7 @@ def make_exposure_file(exposure):
 
         if fullname is not None and os.path.isfile(fullname):
             os.remove(fullname)
+
 
 @pytest.fixture
 def exposure(exposure_factory):
@@ -159,3 +167,72 @@ def demo_image(exposure):
             session.execute(sa.delete(Image).where(Image.id == im.id))
             session.commit()
         im.remove_data_from_disk(remove_folders=True)
+
+
+@pytest.fixture
+def reference_entry(exposure_factory, provenance_base, provenance_extra):
+    ref_entry = None
+    try:  # remove files and DB entries at the end
+        filter = np.random.choice(list('grizY'))
+        target = rnd_str(6)
+        ra = np.random.uniform(0, 360)
+        dec = np.random.uniform(-90, 90)
+        images = []
+
+        for i in range(5):
+            exp = exposure_factory()
+
+            exp.filter = filter
+            exp.target = target
+            exp.project = "coadd_test"
+            exp.ra = ra
+            exp.dec = dec
+
+            exp.update_instrument()
+            im = Image.from_exposure(exp, section_id=0)
+            im.data = im.raw_data - np.median(im.raw_data)
+            im.provenance = provenance_base
+            im.ra = ra
+            im.dec = dec
+            im.save()
+            images.append(im)
+
+        # TODO: replace with a "from_images" method?
+        ref = Image.from_images(images)
+        ref.data = np.mean(np.array([im.data for im in images]), axis=0)
+
+        provenance_extra.process = 'coaddition'
+        ref.provenance = provenance_extra
+        ref.save()
+
+        ref_entry = ReferenceEntry()
+        ref_entry.image = ref
+        ref_entry.validity_start = Time(50000, format='mjd', scale='utc').isot
+        ref_entry.validity_end = Time(58500, format='mjd', scale='utc').isot
+        ref_entry.section_id = 0
+        ref_entry.filter = filter
+        ref_entry.target = target
+
+        with SmartSession() as session:
+            session.add(ref_entry)
+            session.commit()
+
+        yield ref_entry
+
+    finally:  # cleanup
+        if ref_entry is not None:
+            with SmartSession() as session:
+                ref_entry = session.merge(ref_entry)
+                ref = ref_entry.image
+                for im in ref.source_images:
+                    exp = im.exposure
+                    exp.remove_data_from_disk()
+                    im.remove_data_from_disk()
+                    session.delete(exp)
+                    session.delete(im)
+                ref.remove_data_from_disk()
+                session.delete(ref)  # should also delete ref_entry
+
+                session.commit()
+
+
