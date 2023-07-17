@@ -43,7 +43,7 @@ class ParsMeasurer(Parameters):
 
 class Measurer:
     def __init__(self, **kwargs):
-        self.pars = ParsMeasurer()
+        self.pars = ParsMeasurer(**kwargs)
 
     def run(self, *args, **kwargs):
         """

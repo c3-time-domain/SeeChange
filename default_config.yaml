@@ -30,3 +30,36 @@ storage:
     # (in this example, the first six characters of the provenance unique hash)
     name_convention: "{ra_int:03d}/{short_name}_{date}_{time}_{section_id}_{filter}_{prov_hash:.6s}"
 
+# ======================================================================
+# Pipeline components
+#
+# For documentation on the parameters, see the Parameters subclass
+# in the file that defines each part of the pipeline
+
+pipeline: {}
+
+preprocessing:
+  use_sky_subtraction: True
+
+extraction: {}
+
+astro_cal:
+  cross_match_catalog: Gaia
+
+photo_cal:
+  cross_match_catalog: Gaia
+
+subtraction:
+  method: hotpants
+
+detection:
+  subtraction: false
+  threshold: 5.0
+
+cutting:
+  cutout_size: 20
+
+measurement:
+  photometry_method: aperture
+  aperture_radius: 3.0
+  real_bogus_version: null

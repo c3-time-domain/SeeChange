@@ -15,6 +15,7 @@ from models.exposure import Exposure
 from models.image import Image
 from models.references import ReferenceEntry
 
+from util.config import Config
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
@@ -235,4 +236,8 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
 
                 session.commit()
 
-
+@pytest.fixture
+def config_test():
+    # Make sure the environment is set as expected for tests
+    assert os.getenv( "SEECHANGE_CONFIG" ) == "/seechange/tests/seechange_config_test.yaml"
+    return Config.get( os.getenv("SEECHANGE_CONFIG") )

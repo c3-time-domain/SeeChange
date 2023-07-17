@@ -3,3 +3,6 @@ preloads:
 
 db:
   host: seechange_postgres
+
+subtraction:
+  method: testing_testing

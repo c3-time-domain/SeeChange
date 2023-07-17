@@ -26,7 +26,7 @@ class ParsPhotCalibrator(Parameters):
 
 class PhotCalibrator:
     def __init__(self, **kwargs):
-        self.pars = ParsPhotCalibrator()
+        self.pars = ParsPhotCalibrator(**kwargs)
 
     def run(self, *args, **kwargs):
         """

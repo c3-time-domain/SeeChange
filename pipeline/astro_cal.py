@@ -26,7 +26,7 @@ class ParsAstroCalibrator(Parameters):
 
 class AstroCalibrator:
     def __init__(self, **kwargs):
-        self.pars = ParsAstroCalibrator()
+        self.pars = ParsAstroCalibrator(**kwargs)
 
     def run(self, *args, **kwargs):
         """

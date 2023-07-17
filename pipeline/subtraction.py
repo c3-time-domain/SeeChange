@@ -11,11 +11,11 @@ from models.base import SmartSession
 class ParsSubtractor(Parameters):
     def __init__(self, **kwargs):
         super().__init__()
-        self.algorithm = self.add_par(
-            'algorithm',
+        self.method = self.add_par(
+            'method',
             'hotpants',
             str,
-            'Which algorithm to use. Possible values are: "hotpants", "zogy". '
+            'Which subtraction method to use. Possible values are: "hotpants", "zogy". '
         )
 
         self._enforce_no_new_attrs = True
@@ -28,7 +28,7 @@ class ParsSubtractor(Parameters):
 
 class Subtractor:
     def __init__(self, **kwargs):
-        self.pars = ParsSubtractor()
+        self.pars = ParsSubtractor(**kwargs)
 
         # TODO: add a reference cache here.
 
