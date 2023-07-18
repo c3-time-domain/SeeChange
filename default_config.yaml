@@ -30,3 +30,15 @@ storage:
     # (in this example, the first six characters of the provenance unique hash)
     name_convention: "{ra_int:03d}/{short_name}_{date}_{time}_{section_id}_{filter}_{prov_hash:.6s}"
 
+# ======================================================================
+# Archive:
+#
+# Set to null if there is no archive; otherwise, a dict
+# Subfields:
+#   url: the URL of the archive server, or null if archive is on the filesystem
+#   verify_cert: boolean, should we verify the SSL cert of the archive server
+#   path_base: the base of the collection on the archive server (a string unique to this dataset)
+#   read_dir: the directory to read from if the archive is on the local filesystem, or null
+#   write_dir: the directory to write to if the archive is on the local filesystem, or null
+
+archive: null

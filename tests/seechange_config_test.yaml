@@ -3,3 +3,11 @@ preloads:
 
 db:
   host: seechange_postgres
+
+archive:
+  url: http://archive:8080/
+  verify_cert: false
+  path_base: test/
+  read_dir: null
+  write_dir: null
+  token: insecure

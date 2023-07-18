@@ -1,5 +1,11 @@
+import sys
 import os
 import inspect
+import hashlib
+import pathlib
+import shutil
+import logging
+from uuid import UUID
 
 from contextlib import contextmanager
 
@@ -12,13 +18,22 @@ from sqlalchemy.types import Enum
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm.exc import DetachedInstanceError
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
 import util.config as config
+from util.archive import Archive
 
 utcnow = func.timezone("UTC", func.current_timestamp())
 
 im_format_enum = Enum("fits", "hdf5", name='image_format')
 
+_logger = logging.getLogger("main")
+if len(_logger.handlers) == 0:
+    _logout = logging.StreamHandler( sys.stdout )
+    _logger.addHandler( _logout )
+    _formatter = logging.Formatter( f'[%(asctime)s - %(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S' )
+    _logout.setFormatter( _formatter )
+    _logout.setLevel( logging.INFO )
 
 # this is the root SeeChange folder
 CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
@@ -144,6 +159,8 @@ class SeeChangeBase:
         doc="UTC time the object's row was last modified in the database.",
     )
 
+    type_annotation_map = { UUID: sqlUUID }
+    
     def __init__(self, **kwargs):
         self.from_db = False  # let users know this object was newly created
         for k, v in kwargs.items():
@@ -223,45 +240,68 @@ Base = declarative_base(cls=SeeChangeBase)
 
 
 class FileOnDiskMixin:
-    """
-    Mixin for objects that refer to files on disk.
+    """Mixin for objects that refer to files on disk.
 
-    Files are assumed to live in a remote server or on local disk.
-    The path to both these locations is configurable and not stored on DB!
-    Once the top level directory is set (locally and remotely),
-    the object's path relative to either of those is saved as "filepath".
+    Files are assumed to live on the local disk (underneath the
+    configured path.data_root), and optionally on a archive server
+    (configured through the subproperties of "archive" in the yaml
+    config file).  The property filepath is the path relative to the
+    root in both cases.
 
-    If multiple files need to be copied or loaded, we can also append
-    the array "filepath_extensions" to the filepath.
-    These could be actual extensions as in:
-    filepath = 'foo.fits' and filepath_extensions=['.bias', '.dark', '.flat']
-    or they could be just a different part of the filepath itself:
-    filepath = 'foo_' and filepath_extensions=['bias.fits.gz', 'dark.fits.gz', 'flat.fits.gz']
+    If there is a single file associated with this entry, then filepath
+    has the name of that file.  md5sum holds a checksum for the file,
+    *if* it has been correctly saved to the archive.  In this case,
+    filepath_extensions will be null
 
-    If the filepath_extensions array is null, will just load a single file.
-    If the filepath_extensions is an array, will load a list of files (even if length 1).
+    If there are multiple files associated with this entry, then
+    filepath is the beginning of the names of all the files.  Each entry
+    in filepath_extensions is then appended to filepath to get the
+    actual path of the file.  For example, if an image file has a the
+    image itself, an associated weight, and an associated mask, then
+    filepath might be "image" and filepath_extensions might be
+    [".fits.fz", ".mask.fits.fz", ".weight.fits.fz"] to indicate that
+    the three files image.fits.fz, image.mask.fits.fz, and
+    image.weight.fz are all associated with this entry.  When
+    filepath_extensions is non-null, md5sum should be null, and
+    md5sum_extensions is an array with the same length as
+    filepath_extensions.  (For extension files that have not yet been
+    saved to the archive, that element of the md5sum_etensions array is
+    null.)
+
+    Saving data:
+
+    Any object that implements this mixin must call this class' "save"
+    method in order to save the data to disk.  (This may be through
+    super() if the subclass has to do custom things.)  That save method
+    will save the to the local filestore (undreneath path.data_root),
+    and also save it to the archive.  Once a file is saved on the
+    archive, the md5sum (or md5sum_extensions) field in the database
+    record updated.  (If the file has not been saved to the archive,
+    then the md5sum and md5sum_extensions fields will be null.)
+
+    Loading data:
 
     When calling get_fullpath(), the object will first check if the file exists locally,
-    and then it will download it from server if missing.
-    If no remote server is defined in the config, this part is skipped.
+    and then it will import it from archive if missing (and if archive is defined).
     If you want to avoid downloading, use get_fullpath(download=False).
     If you want to always get a list of filepaths (even if filepath_extensions=None)
     use get_fullpath(as_list=True).
     If the file is missing locally, and downloading cannot proceed
-    (because no server address is defined, or because the download=False flag is used,
+    (because no archive is defined, or because the download=False flag is used,
     or because the file is missing from server), then the call to get_fullpath() will raise an exception.
 
-    After all the downloading is done and the file(s) exist locally,
-    the full path to the local file is returned.
-    It is then up to the inheriting object (e.g., the Exposure or Image)
-    to actually load the file from disk and figure out what to do with the data.
+    After all the pulling from the archive is done and the file(s) exist
+    locally, the full path to the local file is returned.  It is then up
+    to the inheriting object (e.g., the Exposure or Image) to actually
+    load the file from disk and figure out what to do with the data.
 
     The path to the local and server side data folders is saved
     in class variables, and must be initialized by the application
     when the app starts / when the config file is read.
+
     """
+
     cfg = config.Config.get()
-    server_path = cfg.value('path.server_data', None)
     local_path = cfg.value('path.data_root', None)
     if local_path is None:
         local_path = cfg.value('path.data_temp', None)
@@ -270,6 +310,15 @@ class FileOnDiskMixin:
     if not os.path.isdir(local_path):
         os.makedirs(local_path, exist_ok=True)
 
+    archive = cfg.value('archive', None)
+    if archive is not None:
+        archive = Archive( archive_url=cfg.value('archive.url'),
+                           path_base=cfg.value('archive.path_base'),
+                           token=cfg.value('archive.token'),
+                           verify_cert=cfg.value('archive.verify_cert'),
+                           local_read_dir=cfg.value('archive.read_dir'),
+                           local_write_dir=cfg.value('archive.write_dir') )
+        
     @classmethod
     def safe_mkdir(cls, path):
         if path is None or path == '':
@@ -309,16 +358,13 @@ class FileOnDiskMixin:
         nullable=False,
         index=True,
         unique=True,
-        doc="Filename and path (relative to the data root) for a raw exposure. "
+        doc="Base path (relative to the data root) for a stored file"
     )
 
     filepath_extensions = sa.Column(
         sa.ARRAY(sa.Text),
         nullable=True,
-        doc=(
-            "Filename extensions for raw exposure. "
-            "Can contain any part of the filepath that isn't shared between files. "
-        )
+        doc="If non-null, array of text appended to filepath to get actual saved filenames."
     )
 
     format = sa.Column(
@@ -326,6 +372,20 @@ class FileOnDiskMixin:
         nullable=False,
         default='fits',
         doc="Format of the file on disk. Should be fits or hdf5. "
+    )
+
+    md5sum = sa.Column(
+        sqlUUID(as_uuid=True),
+        nullable=True,
+        default=None,
+        doc = "md5sum of the file, provided by the archive server"
+    )
+
+    md5sum_extensions = sa.Column(
+        sa.ARRAY(sqlUUID(as_uuid=True)),
+        nullable=True,
+        default=None,
+        doc="md5sum of extension files; must have same number of elements as filepath_extensions"
     )
 
     def __init__(self, *args, **kwargs):
@@ -412,7 +472,7 @@ class FileOnDiskMixin:
         """
         Get the full path of the file, or list of full paths
         of files if filepath_extensions is not None.
-        If the server_path is defined, and download=True (default),
+        If the archive is defined, and download=True (default),
         the file will be downloaded from the server if missing.
         If the file is not found on server or locally, will
         raise a FileNotFoundError.
@@ -435,7 +495,7 @@ class FileOnDiskMixin:
         ----------
         download: bool
             Whether to download the file from server if missing.
-            Must have server_path defined. Default is True.
+            Must have archive defined. Default is True.
         as_list: bool
             Whether to return a list of filepaths, even if filepath_extensions=None.
             Default is False.
@@ -459,7 +519,7 @@ class FileOnDiskMixin:
                 for ext in self.filepath_extensions
             ]
 
-    def _get_fullpath_single(self, download=True, ext=None, nofile=None):
+    def _get_fullpath_single(self, download=True, ext=None, nofile=None, always_verify_md5=False):
         """
         Get the full path of a single file.
         Will follow the same logic as get_fullpath(),
@@ -470,7 +530,7 @@ class FileOnDiskMixin:
         ----------
         download: bool
             Whether to download the file from server if missing.
-            Must have server_path defined. Default is True.
+            Must have archive defined. Default is True.
         ext: str
             Extension to add to the filepath. Default is None.
         nofile: bool
@@ -487,33 +547,292 @@ class FileOnDiskMixin:
             raise ValueError("Local path not defined!")
 
         fname = self.filepath
-        if ext is not None:
+        md5sum = None
+        if ext is None:
+            md5sum = self.md5sum.hex if self.md5sum is not None else None
+        else:
+            found = False
+            try:
+                extdex = self.filepath_extensions.index( ext )
+            except ValueError:
+                raise ValueError(f"Unknown extension {ext} for {fname}" )
+            if (self.md5sum_extensions is None ) or ( extdex >= len(self.md5sum_extensions) ):
+                md5sum = None
+            else:
+                md5sum = self.md5sum_extensions[extdex]
+                md5sum = None if md5sum is None else md5sum.hex
             fname += ext
 
+        downloaded = False
         fullname = os.path.join(self.local_path, fname)
-        if not nofile and not os.path.exists(fullname) and download and self.server_path is not None:
-            self._download_file(fname)
+        if not nofile and not os.path.exists(fullname) and download and self.archive is not None:
+            if md5sum is None:
+                raise RuntimeError(f"Don't have md5sum in the database for {fname}, can't download")
+            self.archive.download( fname, fullname, verifymd5=True, clobbermismatch=False, mkdir=True )
+            downloaded = True
 
-        if not nofile and not os.path.exists(fullname):
-            raise FileNotFoundError(f"File {fullname} not found!")
-
+        if not nofile:
+            if not os.path.exists(fullname):
+                raise FileNotFoundError(f"File {fullname} not found!")
+            elif always_verify_md5 and not downloaded and m5sum is not None:
+                # self.archive.download will have already verified the md5sum
+                filemd5 = hashlib.md5()
+                with open(fullname, "rb") as ifp:
+                    filemd5.update(ifp.read())
+                localmd5 = md5.hexdigest()
+                if localmd5.hexdigest() != md5sum:
+                    raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
+                                      f"database value of {md5sum}" )
+        
         return fullname
 
-    def _download_file(self, filepath):
-        """
-        Search and download the file from a remote server.
-        The server_path must be defined on the class
-        (e.g., by setting a value for it from the config).
-        The download can be a simple copy from an address
-        (e.g., a join of server_path and filepath)
-        or it can be a more complicated request.
-        This depends on the exact configuration.
+    def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
+        """Save a file to disk, and to the archive.
+
+        Parametrs
+        ---------
+        data: bytes, string, or Path
+          The data to be saved
+        extension: string or None
+          The file extension
+        overwrite: bool
+          True to overwrite existing files (locally and on the archive).
+        exists_ok: bool
+          Ignored if overwrite is True.  Otherwise: if the file exists
+          on disk, and this is False, raise an exception.
+        verify_md5: bool
+          Used to modify both overwrite and exists_ok
+            LOCAL STORAGE
+               verify_md5 = True
+                  if overwrite = True, check file md5 before actually overwriting
+                  if overwrite = False
+                      if exists_ok = True, verify existing file
+               verify_md5 = False
+                  if overwrite = True, always overwrite the file
+                  if overwrite = False
+                      if exists_ok = True, assume existing file is right
+            ARCHIVE
+               verify_md5 = True
+                 If self.md5sum (or the appropriate entry in
+                 md5_extensions) matches the md5sum of the passed data,
+                 do not upload to the archive.  Otherwise, if overwrite
+                 is true, upload to the archive; if overwrite is false,
+                 raise an exception.
+               verify_md5 = False
+                 If self.md5sum (or the appropriate entry in
+                 md5_extensions) is not None, and overwrite is True,
+                 upload to the archive, overwriting what's there.
+                 Otherwise, assume that's what on the archive is right.
+        no_archive: bool
+          If True, do *not* save to the archive, only to the local filesystem.
+
+        If data is a "bytes" type, then it represents the relevant
+        binary data.  It will be written to the right place in the local
+        filestore (underneath path.data_root).
+
+        If data is a pathlib.Path or a string, then it represents a file
+        on disk.  In this case, if the file is already in the right
+        place underneath path.data_root, it is just left in place.
+        Otherwise, it is copied there.
+
+        Then, in either case, the file is uploaded to the archive (if
+        the class property archive is not None).  Once it's uploaded to
+        the archive, the object's md5sum is set.
+
+        If extension is not None, and it isn't already in the list of
+        filepath_extensions, it will be added.
+
+        Performance notes: if you call this with anything other than
+        overwrite=False, exists_ok=True, verify_md5=False, you may well
+        have redundant I/O.  You may have saved an image before, and
+        then (for instance) called
+        pipeline.data_store.save_and_commit(), which will at the very
+        least read things to verify that md5sums match.
+
+        Of course, not either using overwrite=True or verify_md5=True
+        could lead to silent bad data.
+
         """
 
-        # TODO: finish this
-        raise NotImplementedError('Downloading files from server is not yet implemented!')
+        # (This one is an ugly mess of if statements, done to avoid reading
+        # or writing files when not necessary since I/O tends to be much
+        # more expensive than processing.)
 
-    def remove_data_from_disk(self, remove_folders=True):
+        # First : figure out if this is an extension or not,
+        #   and make sure that's consistent with the object.
+        # If it is:
+        #   Find the index into the extensions array for
+        #   this extension, or append to the array if
+        #   it's a new extension that doesn't already exist.
+        #   Upon return, curextensions and extmd5s are lists with
+        #   extensions and md5sums of extension files
+        # else:
+        #   Upon return, curextensions and extmd5s are None
+
+        # We will either replace these with empty lists,
+        #  or make a copy (using list()).  The reason for this:
+        #  we don't want to muck about directly with the lists
+        #  in self, so that self doesn't get mucked up if
+        #  this function exceptions out.
+        curextensions = self.filepath_extensions
+        extmd5s = self.md5sum_extensions
+
+        extensiondex = None
+        if extension is None:
+            if curextensions is not None:
+                raise RuntimeError( "Tried to save a non-extension file, but this file has extensions" )
+            if extmd5s is not None:
+                raise RuntimeError( "Data integrity error; filepath_extensions is null, "
+                                    "but md5sum_extensions isn't." )
+        else:
+            if curextensions is None:
+                curextensions = []
+                extmd5s = []
+            else:
+                if extmd5s is None:
+                    raise RuntimeError( "Data integrity error; filepath_extensions is not null, "
+                                        "but md5sum_extensions is" )
+                curextensions = list(curextensions)
+                extmd5s = list(extmd5s)
+            if len(curextensions) != len(extmd5s):
+                raise RuntimeError( f"Data integrity error; len(md5sum_extensions)={len(md5sum_extensions)}, "
+
+                                    f"but len(filepath_extensions)={len(filepath_extensions)}" )
+            try:
+                extensiondex = curextensions.index( extension )
+            except ValueError:
+                curextensions.append( extension )
+                extmd5s.append( None )
+                extensiondex = len(curextensions) - 1
+
+        # relpath holds the path of the file relative to the data store root
+        # origmd5 holds the md5sum (hashlib.hash object) of the original file,
+        #   *unless* the original file is already the right file in the local file store
+        #   (in which case it's None)
+        # localpath holds the absolute path of where the file should be written in the local file store
+        relpath = pathlib.Path( self.filepath if extension is None else self.filepath + extension )
+        localpath = pathlib.Path( self.local_path ) / relpath
+        if isinstance( data, bytes ):
+            path = "passed data"
+        else:
+            if isinstance( data, str ):
+                path = pathlib.Path( data )
+            elif isinstance( data, pathlib.Path ):
+                path = data
+            else:
+                raise TypeError( f'data must be bytes, str, or Path, not {type(data)}' )
+            path = path.absolute()
+            data = None
+
+        alreadyinplace = False
+        mustwrite = False
+        origmd5 = None
+        if not localpath.exists():
+            mustwrite = True
+        else:
+            if not localpath.is_file():
+                raise RuntimeError( f"{localpath} exists but is not a file!" )
+            if localpath == path:
+                alreadyinplace = True
+                _logger.debug( f"FileOnDiskMixin.save: local file store path and original path are the same: {path}" )
+            else:
+                if ( not overwrite ) and ( not exists_ok ):
+                    raise FileExistsError( f"{localpath} already exists, cannot save." )
+                if verify_md5:
+                    origmd5 = hashlib.md5()
+                    if data is None:
+                        with open( path, "rb" ) as ifp:
+                            data = ifp.read()
+                    origmd5.update( data )
+                    localmd5 = hashlib.md5()
+                    with open( localpath, "rb" ) as ifp:
+                        localmd5.update( ifp.read() )
+                    if localmd5.hex_digest() != origmd5.hex_digest():
+                        if overwrite:
+                            _loger.debug( f"Existing {localpath} md5sum mismatch; overwriting." )
+                            mustwrite = True
+                        else:
+                            raise ValueError( f"{localpath} exists, but its md5sum {localmd5.hex_digest()} does not "
+                                              f"match md5sum of {path} {origmd5.hex_digest()}" )
+                else:
+                    if overwrite:
+                        _logger.debug( f"Overwriting {localpath}" )
+                        mustwrite = True
+                    elif exists_ok:
+                        _logger.debug( f"{localpath} already exists, not verifying md5 nor overwriting" )
+                    else:
+                        # raise FileExistsError( f"{localpath} already exists, not saving" )
+                        # Logically, should not be able to get here
+                        raise RuntimeError( "This should never happen" )
+            
+        if mustwrite and not alreadyinplace:
+            if data is None:
+                with open( path, "rb" ) as ifp:
+                    data = ifp.read()
+            if origmd5 is None
+                origmd5 = hashlib.md5()
+                origmd5.update( data )
+            with open( localpath, "wb" ) as ofp:
+                ofp.write( data )
+            # Verify written file
+            with open( localpath, "rb" ) as ifp:
+                writtenmd5 = hashlib.md5()
+                writtenmd5.update( ifp.read() )
+                if writtenmd5.hex_digest() != origmd5.hex_digest():
+                    raise RuntimeError( f"Error writing {localpath}; written file md5sum mismatches expected!" )
+
+        if no_archive:
+            if curextensions is not None:
+                self.filepath_extensions = curextensions
+                self.md5sum_extensions = extmd5s
+            return
+        
+        # The rest of this deals with the archive
+
+        archviemd5 = self.md5sum if extension is not None else extmd5s[extensiondex]
+
+        mustupload = False
+        if archivemd5 is None:
+            mustupload = True
+        else:
+            if not verify_md5:
+                if overwrite:
+                    _logger.debug( f"Uploading {self.filepath} to archive, overwriting existing file" )
+                    mustupload = True
+                else:
+                    _logger.debug( f"Assuming existing {self.filepath} on archive is correct" )
+            else:
+                if origmd5 is None:
+                    origmd5 = hashlib.md5()
+                    if data is None:
+                        with open( localpath, "rb" ) as ifp:
+                            data = ifp.read()
+                    origmd5.update( data )
+                if origmd5.hexdigest() == archivemd5.hex:
+                    _logger.debug( f"Archive md5sum for {self.filepath} matches saved data, not reuploading." )
+                else:
+                    if overwrite:
+                        _logger.debug( f"Archive md5sum for {self.filepath} doesn't match saved data, "
+                                       f"overwriting on archive." )
+                        mustupload = True
+                    else:
+                        raise ValueError( f"Archive md5sum for {self.filepath} does not match saved data!" )
+
+
+        if mustupload:
+            remmd5 = self.archive.upload( localpath, relpath.parent, relpath.name, overwrite=overwrite, md5=origmd5 )
+            remmd5 = UUID( remmd5 )
+            if curextensions is not None:
+                extmd5s[exteniondex] = remmd5
+                self.md5sum = None
+                self.filepath_extensions = curextensions
+                self.md5sum_extensions = extmd5s
+            else:
+                self.md5sum = remmd5
+
+
+    def remove_data_from_disk(self, remove_folders=True, purge_archive=False, session=None):
+
         """
         Delete the data from disk, if it exists.
         If remove_folders=True, will also remove any folders
@@ -524,6 +843,12 @@ class FileOnDiskMixin:
         remove_folders: bool
             If True, will remove any folders on the path to the files
             associated to this object, if they are empty.
+        purge_archive: bool
+            If True, will also remove these files from the archive.
+            Make this True when deleteing a file from the database. 
+            Make this False when you're just cleaning up local storage.
+        session: an sqlalchemy session, or None
+            Database session
         """
         if self.filepath is None:
             return
@@ -539,7 +864,19 @@ class FileOnDiskMixin:
                             os.rmdir(folder)
                         else:
                             break
-
+        if purge_archive:
+            if self.filepath_extensions is None:
+                self.archive.delete( self.filepath, okifmissing=True )
+            else:
+                for ext in self.filepath_extensions:
+                    self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
+            self.md5sum = None
+            if self.filepath_extensions is not None:
+                self.md5sum_extensions = [ None for i in range(len(self.filepath_extensions)) ]
+            # If this image is in the database, make sure the database is updated
+            with SmartSession(session) as smsess:
+                safe_merge( smsess, self )
+                smsess.commit()
 
 def safe_mkdir(path):
     FileOnDiskMixin.safe_mkdir(path)

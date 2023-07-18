@@ -293,6 +293,10 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
         If True, will use the extname to name the FITS extension, and save
         each array into the same file.
 
+    Returns
+    -------
+    The path to the file saved (or written to)
+
     """
     if single_file:
         if not filename.endswith('.fits'):
@@ -307,6 +311,7 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
                 hdu.header[k] = v
 
             hdul.append(hdu)
+        return filename
 
     else:  # multiple files
         hdu = fits.PrimaryHDU(data)
@@ -319,4 +324,4 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
 
         safe_mkdir(os.path.dirname(filename))
         hdul.writeto(full_name, overwrite=overwrite)
-
+        return full_name

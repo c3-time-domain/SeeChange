@@ -2,6 +2,7 @@ import os
 import pytest
 import uuid
 import wget
+import shutil
 
 import numpy as np
 
@@ -14,7 +15,8 @@ from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.references import ReferenceEntry
-
+from util import config
+from util.archive import Archive
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
@@ -166,7 +168,7 @@ def demo_image(exposure):
         if im.id is not None:
             session.execute(sa.delete(Image).where(Image.id == im.id))
             session.commit()
-        im.remove_data_from_disk(remove_folders=True)
+        im.remove_data_from_disk(remove_folders=True, purge_archive=True)
 
 
 @pytest.fixture
@@ -226,13 +228,32 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
                 ref = ref_entry.image
                 for im in ref.source_images:
                     exp = im.exposure
-                    exp.remove_data_from_disk()
-                    im.remove_data_from_disk()
+                    exp.remove_data_from_disk(purge_archive=True)
+                    im.remove_data_from_disk(purge_archive=True)
                     session.delete(exp)
                     session.delete(im)
-                ref.remove_data_from_disk()
+                ref.remove_data_from_disk(purge_archive=True)
                 session.delete(ref)  # should also delete ref_entry
 
                 session.commit()
 
 
+@pytest.fixture
+def archive():
+    cfg = config.Config.get()
+    if cfg.value('archive') is None:
+        raise ValueError( "archive in config is None" )
+    archive = Archive( archive_url=cfg.value('archive.url'),
+                       verify_cert=cfg.value('archive.verify_cert'),
+                       path_base=cfg.value('archive.path_base'),
+                       local_read_dir=cfg.value('archive.read_dir'),
+                       local_write_dir=cfg.value('archive.write_dir'),
+                       token=cfg.value('archive.token')
+                      )
+    yield archive
+
+    # To tear down, we need to blow away the archive server's directory.
+    # For the test suite, we've also mounted that directory locally, so
+    # we can do that
+    archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+    shutil.rmtree( archivebase )

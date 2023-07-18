@@ -990,19 +990,33 @@ class DataStore:
         else:
             raise ValueError(f'Unknown output format: {output}')
 
-    def save_and_commit(self, session=None):
-        """
-        Go over all the data products and add them to the session.
+    def save_and_commit(self, exists_ok=False, overwrite=True, no_archive=False, session=None):
+        """Go over all the data products and add them to the session.
         If any of the data products are associated with a file on disk,
         that would be saved as well.
 
         Parameters
         ----------
+        exists_ok: bool
+            Ignored if overwrite is True.  Otherwise, this indicates
+            what to do with the file exists on disk.  If exists_ok is
+            True, then the file is assumed to be right on disk (and on
+            the archive), and is not checked.  This is most efficient;
+            if the file has already been saved, I/O won't be wasted
+            saving it again and pushing it to the archive again.  If
+            exists_ok is False, raise an exception if the file exists
+            (and overwrite is False)
+        overwrite: bool
+            If True, will overwrite any existing files on disk.
+        no_archive: bool
+            If True, will not push files up to the archive, will only
+            save on local disk.
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will open a new session and close it at
             the end of the function.
             Note that this method calls session.commit()
+
         """
         with SmartSession(session) as session:
             autoflush_state = session.autoflush
@@ -1011,6 +1025,7 @@ class DataStore:
                 for obj in self.get_all_data_products(output='list'):
                     # print(f'saving {obj} with provenance: {getattr(obj, "provenance", None)}')
 
+                    # ...I think this will break if obj has extensions...
                     if isinstance(obj, FileOnDiskMixin):
                         obj.save()
 
@@ -1044,7 +1059,7 @@ class DataStore:
                     #     print(f'Deleting {obj} with provenance= {obj.provenance}')
                     obj = safe_merge(session, obj)
                     if isinstance(obj, FileOnDiskMixin):
-                        obj.remove_data_from_disk()
+                        obj.remove_data_from_disk( purge_archive=True )
                     if obj in session:
                         session.delete(obj)
 

@@ -1,6 +1,7 @@
 import os
 import pytest
 import re
+import hashlib
 
 import numpy as np
 
@@ -84,16 +85,151 @@ def test_image_no_null_values(provenance_base):
                 session.delete(exposure)
                 session.commit()
 
+def test_image_archive_singlefile(demo_image, provenance_base, archive):
+    demo_image.data = np.float32( demo_image.raw_data )
+    demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint16)
 
+    cfg = config.Config.get()
+    archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+    single_fileness = cfg.value( 'storage.images.single_file' )
+
+    try:
+        with SmartSession() as session:
+            demo_image.provenance = provenance_base
+
+            # Do single file first
+            cfg.set_value( 'storage.images.single_file', True )
+
+            # Make sure that the archive is *not* written when we tell it not to.
+            demo_image.save( no_archive=True )
+            assert demo_image.md5sum is None
+            with pytest.raises(FileNotFoundError):
+                ifp = open( f'{archivebase}{demo_image.filepath}', 'rb' )
+                ifp.close()
+            demo_image.remove_data_from_disk()
+
+            # Save to the archive, make sure it all worked
+            demo_image.save()
+            localmd5 = hashlib.md5()
+            with open( demo_image.get_fullpath( nofile=False ), 'rb' ) as ifp:
+                localmd5.update( ifp.read() )
+            assert localmd5.hexdigest() == demo_image.md5sum.hex
+            archivemd5 = hashlib.md5()
+            with open( f'{archivebase}{demo_image.filepath}', 'rb' ) as ifp:
+                archivemd5.update( ifp.read() )
+            assert archivemd5.hexdigest() == demo_image.md5sum.hex
+
+            # Make sure that we can download from the archive
+            demo_image.remove_data_from_disk( purge_archive=False )
+            with pytest.raises(FileNotFoundError):
+                assert isinstance( demo_image.get_fullpath( nofile=True ), str )
+                ifp = open( demo_image.get_fullpath( nofile=True ), "rb" )
+                ifp.close()
+            p = demo_image.get_fullpath( nofile=False )
+            localmd5 = hashlib.md5()
+            with open( demo_image.get_fullpath( nofile=False ), 'rb' ) as ifp:
+                localmd5.update( ifp.read() )
+            assert localmd5.hexdigest() == demo_image.md5sum.hex
+            
+            # Make sure that the md5sum is properly saved to the database
+            session.add( demo_image )
+            session.commit()
+            with SmartSession() as differentsession:
+                dbimage = differentsession.query(Image).filter(Image.id==demo_image.id)[0]
+                assert dbimage.md5sum.hex == demo_image.md5sum.hex
+
+            # Make sure we can purge the archive
+            demo_image.remove_data_from_disk( purge_archive=True )
+            with pytest.raises(FileNotFoundError):
+                ifp = open( f'{archivebase}{demo_image.filepath}', 'rb' )
+                ifp.close()
+            assert demo_image.md5sum is None
+            with SmartSession() as differentsession:
+                dbimage = differentsession.query(Image).filter(Image.id==demo_image.id)[0]
+                assert dbimage.md5sum is None
+
+    finally:
+        cfg.set_value( 'storage.images.single_file', single_fileness )
+
+
+def test_image_archive_multifile(demo_image, provenance_base, archive):
+    demo_image.data = np.float32( demo_image.raw_data )
+    demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint16)
+
+    cfg = config.Config.get()
+    archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+    single_fileness = cfg.value( 'storage.images.single_file' )
+
+    try:
+        with SmartSession() as session:
+            demo_image.provenance = provenance_base
+
+            # Now do multiple images
+            cfg.set_value( 'storage.images.single_file', False )
+
+            # Make sure that the archive is not written when we tell it not to
+            demo_image.save( no_archive=True )
+            localmd5s = {}
+            assert len( demo_image.get_fullpath( nofile=True ) ) == 2
+            for fullpath in demo_image.get_fullpath( nofile=True ):
+                localmd5s[fullpath] = hashlib.md5()
+                with open(fullpath, "rb") as ifp:
+                    localmd5s[fullpath].update(ifp.read())
+            assert demo_image.md5sum is None
+            assert demo_image.md5sum_extensions == [ None, None ]
+            demo_image.remove_data_from_disk()
+                    
+            # Save to the archive
+            demo_image.save()
+            for ext, fullpath, md5sum in zip( demo_image.filepath_extensions,
+                                              demo_image.get_fullpath( nofile=True ),
+                                              demo_image.md5sum_extensions ):
+                assert localmd5s[fullpath].hexdigest() == md5sum.hex
+                with open( fullpath, "rb" ) as ifp:
+                    m = hashlib.md5()
+                    m.update( ifp.read() )
+                    assert m.hexdigest() == localmd5s[fullpath].hexdigest()
+                with open( f'{archivebase}{demo_image.filepath}{ext}', 'rb' ) as ifp:
+                    m = hashlib.md5()
+                    m.update( ifp.read() )
+                    assert m.hexdigest() == localmd5s[fullpath].hexdigest()
+
+            # Make sure that we can download from the archive
+            demo_image.remove_data_from_disk( purge_archive=False )
+            fullpaths = demo_image.get_fullpath( nofile=True )
+            for fullpath in fullpaths:
+                with pytest.raises(FileNotFoundError):
+                    ifp = open( fullpath, "rb" )
+                    ifp.close()
+            newpaths = demo_image.get_fullpath( nofile=False )
+            assert newpaths == fullpaths
+            for fullpath in fullpaths:
+                with open( fullpath, "rb" ) as ifp:
+                    m = hashlib.md5()
+                    m.update( ifp.read() )
+                    assert m.hexdigest() == localmd5s[fullpath].hexdigest()
+
+            # Make sure that the md5sum is properly saved to the database
+            session.add( demo_image )
+            session.commit()
+            with SmartSession() as differentsession:
+                dbimage = differentsession.query(Image).filter(Image.id==demo_image.id)[0]
+                assert dbimage.md5sum is None
+                for fullpath, md5sum in zip( fullpaths, dbimage.md5sum_extensions ):
+                    assert localmd5s[fullpath].hexdigest() == md5sum.hex
+    finally:
+        cfg.set_value( 'storage.images.single_file', single_fileness )
+
+                
 def test_image_enum_values(demo_image, provenance_base):
     data_filename = None
     with SmartSession() as session:
         demo_image.provenance = provenance_base
         with pytest.raises(RuntimeError, match='The image data is not loaded. Cannot save.'):
-            demo_image.save()
+            demo_image.save( no_archive=True )
 
         demo_image.data = np.float32(demo_image.raw_data)
-        demo_image.save()
+        demo_image.save( no_archive=True )
         data_filename = demo_image.get_fullpath(as_list=True)[0]
         assert os.path.exists(data_filename)
 
@@ -351,7 +487,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
     demo_image.provenance = provenance_base
 
     # use the naming convention in the config file
-    demo_image.save()
+    demo_image.save( no_archive=True )
 
     assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.image\.fits', demo_image.get_fullpath()[0])
     for f in demo_image.get_fullpath(as_list=True):
@@ -364,7 +500,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
     convention = cfg.value('storage.images.name_convention')
     try:
         cfg.set_value('storage.images.name_convention', None)
-        demo_image.save()
+        demo_image.save( no_archive=True )
         assert re.search(r'Demo_\d{8}_\d{6}_\d+_.+_.{6}\.image\.fits', demo_image.get_fullpath()[0])
         for f in demo_image.get_fullpath(as_list=True):
             assert os.path.isfile(f)
@@ -375,7 +511,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
 
         new_convention = '{ra_int:03d}/foo_{date}_{time}_{section_id:02d}_{filter}'
         cfg.set_value('storage.images.name_convention', new_convention)
-        demo_image.save()
+        demo_image.save( no_archive=True )
         assert re.search(r'\d{3}/foo_\d{8}_\d{6}_\d{2}_.\.image\.fits', demo_image.get_fullpath()[0])
         for f in demo_image.get_fullpath(as_list=True):
             assert os.path.isfile(f)
@@ -386,7 +522,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
 
         new_convention = 'bar_{date}_{time}_{section_id:02d}_{ra_int_h:02d}{dec_int:+03d}'
         cfg.set_value('storage.images.name_convention', new_convention)
-        demo_image.save()
+        demo_image.save( no_archive=True )
         assert re.search(r'bar_\d{8}_\d{6}_\d{2}_\d{2}[+-]\d{2}\.image\.fits', demo_image.get_fullpath()[0])
         for f in demo_image.get_fullpath(as_list=True):
             assert os.path.isfile(f)
@@ -410,7 +546,7 @@ def test_image_multifile(demo_image, provenance_base):
     try:
         # first use single file
         cfg.set_value('storage.images.single_file', True)
-        demo_image.save()
+        demo_image.save( no_archive=True )
 
         assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.fits', demo_image.filepath)
 
@@ -434,7 +570,7 @@ def test_image_multifile(demo_image, provenance_base):
 
         # now test multiple files
         cfg.set_value('storage.images.single_file', False)
-        demo_image.save()
+        demo_image.save( no_archive=True )
 
         assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}', demo_image.filepath)
         fullnames = demo_image.get_fullpath(as_list=True)
