@@ -106,7 +106,7 @@ def test_image_archive_singlefile(demo_image, provenance_base, archive):
             with pytest.raises(FileNotFoundError):
                 ifp = open( f'{archivebase}{demo_image.filepath}', 'rb' )
                 ifp.close()
-            demo_image.remove_data_from_disk()
+            demo_image.remove_data_from_disk( session=session )
 
             # Save to the archive, make sure it all worked
             demo_image.save()
@@ -120,7 +120,7 @@ def test_image_archive_singlefile(demo_image, provenance_base, archive):
             assert archivemd5.hexdigest() == demo_image.md5sum.hex
 
             # Make sure that we can download from the archive
-            demo_image.remove_data_from_disk( purge_archive=False )
+            demo_image.remove_data_from_disk( purge_archive=False, session=session )
             with pytest.raises(FileNotFoundError):
                 assert isinstance( demo_image.get_fullpath( nofile=True ), str )
                 ifp = open( demo_image.get_fullpath( nofile=True ), "rb" )
@@ -139,7 +139,7 @@ def test_image_archive_singlefile(demo_image, provenance_base, archive):
                 assert dbimage.md5sum.hex == demo_image.md5sum.hex
 
             # Make sure we can purge the archive
-            demo_image.remove_data_from_disk( purge_archive=True )
+            demo_image.remove_data_from_disk( purge_archive=True, session=session )
             with pytest.raises(FileNotFoundError):
                 ifp = open( f'{archivebase}{demo_image.filepath}', 'rb' )
                 ifp.close()
@@ -177,7 +177,7 @@ def test_image_archive_multifile(demo_image, provenance_base, archive):
                     localmd5s[fullpath].update(ifp.read())
             assert demo_image.md5sum is None
             assert demo_image.md5sum_extensions == [ None, None ]
-            demo_image.remove_data_from_disk()
+            demo_image.remove_data_from_disk( session=session )
                     
             # Save to the archive
             demo_image.save()
@@ -195,7 +195,7 @@ def test_image_archive_multifile(demo_image, provenance_base, archive):
                     assert m.hexdigest() == localmd5s[fullpath].hexdigest()
 
             # Make sure that we can download from the archive
-            demo_image.remove_data_from_disk( purge_archive=False )
+            demo_image.remove_data_from_disk( purge_archive=False, session=session )
             fullpaths = demo_image.get_fullpath( nofile=True )
             for fullpath in fullpaths:
                 with pytest.raises(FileNotFoundError):

@@ -58,5 +58,8 @@ class SourceList(Base, FileOnDiskMixin):
         Save this source list to the database.
         """
         # TODO: Must implement this at some point!
+        # It may only require a call to super().save(...)
+        # (where ... has the right arguments to give
+        # FileOnDiskMixin.save the right data).
         self.filepath = uuid.uuid4().hex
 

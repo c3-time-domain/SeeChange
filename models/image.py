@@ -589,8 +589,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         return filename
 
     def save(self, filename=None, **kwargs ):
-        """
-        Save the data (along with flags, weights, etc.) to disk.
+        """Save the data (along with flags, weights, etc.) to disk.
         The format to save is determined by the config file.
         Use the filename to override the default naming convention.
 
@@ -599,7 +598,21 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         filename: str (optional)
             The filename to use to save the data.
             If not provided, the default naming convention will be used.
-        **kwargs: passed on to FileOnDiskMixin.save()
+        **kwargs: passed on to FileOnDiskMixin.save(), include:
+            overwrite - bool, set to True if it's OK to overwrite exsiting files
+            no_archive - bool, set to True to save only to local disk, otherwise also saves to the archive
+            exists_ok, verify_md5 - complicated, see documentation on FileOnDiskMixin
+
+        For images being saved to the database, you probably want to use
+        overwrite=True, verify_md5=True, or perhaps overwrite=False,
+        exists_ok=True, verify_md5=True.  For temporary images being
+        saved as part of local processing, you probably want to use
+        verify_md5=False and either overwrite=True (if you're modifying
+        and writing the file multiple times), or overwrite=False,
+        exists_ok=True (if you might call the save() method more than
+        once on the same image, and you want to trust the filesystem to
+        have saved it right).
+
         """
         if self.data is None:
             raise RuntimeError("The image data is not loaded. Cannot save.")
@@ -688,6 +701,8 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
                 raise FileNotFoundError(f"Could not find the image file: {filename}")
             self._data, self._raw_header = read_fits_image(filename, ext=0, output='both')
             # TODO: do we know what the extensions are for weight/flags/etc? are they ordered or named?
+            # Rob: we should have standard names for them; there is already a standard set of names
+            #   in save() above: ['flags', 'weight', 'background', 'score', 'psf']
             self._flags = read_fits_image(filename, ext=1)  # TODO: is the flags always extension 1??
             self._weight = read_fits_image(filename, ext=2)  # TODO: is the weight always extension 2??
 

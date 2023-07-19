@@ -363,8 +363,25 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     def save(self):
         pass  # TODO: implement this! do we need this?
+        # Considertions for whether we need this:
+        # IF we believe that the place we got the exposure from will
+        #  have it in perpetuity, then we don't need to save it to
+        #  either our own database or our own archive.  (Or, if we trust
+        #  that once we've extracted images from it and saved those,
+        #  we'll never have to exract images again, then we don't need
+        #  to save the exposure.  This is more dubious, as some things
+        #  you do to images, e.g. sky subtraction, can be potentially
+        #  destructive.)  We can justpull it back from the source if we
+        #  ever need it again.
+        # But, if we think we need to save it to our own archive,
+        #  we will need this.
+        # It might be sufficient to just use FileOnDiskMixin.save().
 
     def load(self, section_ids=None):
+        # Thought required: if exposures are going to be on the archive,
+        #  then we're going to need to call self.get_fullpath() to make
+        #  sure the exposure has been downloaded from the archive to
+        #  local storage.
         if section_ids is None:
             section_ids = self.instrument.get_section_ids()
 

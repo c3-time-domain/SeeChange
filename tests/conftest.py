@@ -168,7 +168,7 @@ def demo_image(exposure):
         if im.id is not None:
             session.execute(sa.delete(Image).where(Image.id == im.id))
             session.commit()
-        im.remove_data_from_disk(remove_folders=True, purge_archive=True)
+        im.remove_data_from_disk(remove_folders=True, purge_archive=True, session=session)
 
 
 @pytest.fixture
@@ -228,11 +228,11 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
                 ref = ref_entry.image
                 for im in ref.source_images:
                     exp = im.exposure
-                    exp.remove_data_from_disk(purge_archive=True)
-                    im.remove_data_from_disk(purge_archive=True)
+                    exp.remove_data_from_disk(purge_archive=True, session=session)
+                    im.remove_data_from_disk(purge_archive=True, session=session)
                     session.delete(exp)
                     session.delete(im)
-                ref.remove_data_from_disk(purge_archive=True)
+                ref.remove_data_from_disk(purge_archive=True, session=session)
                 session.delete(ref)  # should also delete ref_entry
 
                 session.commit()

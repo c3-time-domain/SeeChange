@@ -129,7 +129,6 @@ def test_data_flow(exposure, reference_entry):
             ds = p.run(ds)
 
             # commit to DB using this session
-            import pdb; pdb.set_trace()
             with SmartSession() as session:
                 ds.save_and_commit(session=session)
 
@@ -148,7 +147,7 @@ def test_data_flow(exposure, reference_entry):
                 with SmartSession() as session:
                     obj = obj.recursive_merge(session=session)
                     if isinstance(obj, FileOnDiskMixin):
-                        obj.remove_data_from_disk(purge_archive=True)
+                        obj.remove_data_from_disk(purge_archive=True, session=session, nocommit=True)
                     session.delete(obj)
                     session.commit()
 

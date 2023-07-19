@@ -1059,7 +1059,7 @@ class DataStore:
                     #     print(f'Deleting {obj} with provenance= {obj.provenance}')
                     obj = safe_merge(session, obj)
                     if isinstance(obj, FileOnDiskMixin):
-                        obj.remove_data_from_disk( purge_archive=True )
+                        obj.remove_data_from_disk( purge_archive=True, session=session, nocommit=True )
                     if obj in session:
                         session.delete(obj)
 
