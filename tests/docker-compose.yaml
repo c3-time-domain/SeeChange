@@ -44,7 +44,7 @@ services:
       - connector_tokens
 
   seechange_postgres:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
     build:
       context: ../docker/postgres
     environment:
@@ -56,7 +56,7 @@ services:
       retries: 5
 
   setuptables:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build:
       context: ../docker/application
     environment:
@@ -73,7 +73,7 @@ services:
     entrypoint: [ "alembic", "upgrade", "head" ]
       
   runtests:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build:
       context: ../docker/application
     environment:
@@ -96,7 +96,7 @@ services:
     entrypoint: [ "pytest", "-v", "/seechange/tests/", ]
 
   shell:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build:
       context: ../docker/application
     environment:

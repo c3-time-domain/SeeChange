@@ -12,7 +12,7 @@ jobs:
     name: run tests in docker image
     runs-on: ubuntu-latest
     env:
-      REGISTRY: gchr.io
+      REGISTRY: ghcr.io
       COMPOSE_FILE: tests/docker-compose.yaml
 
     steps:
@@ -49,6 +49,9 @@ jobs:
             runtests.tags=ghcr.io/${{ github.repository_owner }}/runtests
             runtests.cache-from=type=gha,scope=cached-seechange
             runtests.cache-to=type=gha,scope=cached-seechange,mode=max
+            shell.tags=ghcr.io/${{ github.repository_owner }}/runtests
+            shell.cache-from=type=gha,scope=cached-seechange
+            shell.cache-to=type=gha,scope=cached-seechange,mode=max
 
       - name: run test
         run: |
