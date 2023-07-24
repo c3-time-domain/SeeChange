@@ -257,7 +257,7 @@ class FileOnDiskMixin:
     If there are multiple files associated with this entry, then
     filepath is the beginning of the names of all the files.  Each entry
     in filepath_extensions is then appended to filepath to get the
-    actual path of the file.  For example, if an image file has a the
+    actual path of the file.  For example, if an image file has the
     image itself, an associated weight, and an associated mask, then
     filepath might be "image" and filepath_extensions might be
     [".fits.fz", ".mask.fits.fz", ".weight.fits.fz"] to indicate that
