@@ -2,6 +2,7 @@ import os
 import pytest
 import re
 import hashlib
+import uuid
 
 import numpy as np
 
@@ -85,6 +86,7 @@ def test_image_no_null_values(provenance_base):
                 session.delete(exposure)
                 session.commit()
 
+
 def test_image_archive_singlefile(demo_image, provenance_base, archive):
     demo_image.data = np.float32( demo_image.raw_data )
     demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint16)
@@ -145,7 +147,7 @@ def test_image_archive_singlefile(demo_image, provenance_base, archive):
                 ifp.close()
             assert demo_image.md5sum is None
             with SmartSession() as differentsession:
-                dbimage = differentsession.query(Image).filter(Image.id==demo_image.id)[0]
+                dbimage = differentsession.query(Image).filter(Image.id==demo_image.id).first()
                 assert dbimage.md5sum is None
 
     finally:

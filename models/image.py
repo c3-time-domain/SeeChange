@@ -25,10 +25,18 @@ image_source_self_association_table = sa.Table(
     sa.Column('combined_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
 )
 
+im_format_enum = Enum("fits", "hdf5", name='image_format')
 
 class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = 'images'
+
+    format = sa.Column(
+        im_format_enum,
+        nullable=False,
+        default='fits',
+        doc="Format of the image on disk. Should be fits or hdf5. "
+    )
 
     exposure_id = sa.Column(
         sa.ForeignKey('exposures.id', ondelete='SET NULL'),

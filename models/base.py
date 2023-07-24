@@ -25,8 +25,6 @@ from util.archive import Archive
 
 utcnow = func.timezone("UTC", func.current_timestamp())
 
-im_format_enum = Enum("fits", "hdf5", name='image_format')
-
 _logger = logging.getLogger("main")
 if len(_logger.handlers) == 0:
     _logout = logging.StreamHandler( sys.stdout )
@@ -373,13 +371,6 @@ class FileOnDiskMixin:
         doc="If non-null, array of text appended to filepath to get actual saved filenames."
     )
 
-    format = sa.Column(
-        im_format_enum,
-        nullable=False,
-        default='fits',
-        doc="Format of the file on disk. Should be fits or hdf5. "
-    )
-
     md5sum = sa.Column(
         sqlUUID(as_uuid=True),
         nullable=True,
@@ -533,8 +524,7 @@ class FileOnDiskMixin:
             ]
 
     def _get_fullpath_single(self, download=True, ext=None, nofile=None, always_verify_md5=False):
-        """
-        Get the full path of a single file.
+        """Get the full path of a single file.
         Will follow the same logic as get_fullpath(),
         of checking and downloading the file from the server
         if it is not on local disk.
@@ -545,7 +535,8 @@ class FileOnDiskMixin:
             Whether to download the file from server if missing.
             Must have archive defined. Default is True.
         ext: str
-            Extension to add to the filepath. Default is None.
+            Extension to add to the filepath. Default is None
+            (indicating that this object is stored in a single file).
         nofile: bool
             Whether to check if the file exists on local disk.
             Default is None, which means use the value of self.nofile.
@@ -558,6 +549,7 @@ class FileOnDiskMixin:
         -------
         str
             Full path to the file on local disk.
+
         """
         if nofile is None:
             nofile = self.nofile
@@ -726,8 +718,8 @@ class FileOnDiskMixin:
                 curextensions = list(curextensions)
                 extmd5s = list(extmd5s)
             if len(curextensions) != len(extmd5s):
-                raise RuntimeError( f"Data integrity error; len(md5sum_extensions)={len(md5sum_extensions)}, "
-                                    f"but len(filepath_extensions)={len(filepath_extensions)}" )
+                raise RuntimeError( f"Data integrity error; len(md5sum_extensions)={len(extmd5s)}, "
+                                    f"but len(filepath_extensions)={len(curextensions)}" )
             try:
                 extensiondex = curextensions.index( extension )
             except ValueError:
@@ -777,13 +769,13 @@ class FileOnDiskMixin:
                     localmd5 = hashlib.md5()
                     with open( localpath, "rb" ) as ifp:
                         localmd5.update( ifp.read() )
-                    if localmd5.hex_digest() != origmd5.hex_digest():
+                    if localmd5.hexdigest() != origmd5.hexdigest():
                         if overwrite:
-                            _loger.debug( f"Existing {localpath} md5sum mismatch; overwriting." )
+                            _logger.debug( f"Existing {localpath} md5sum mismatch; overwriting." )
                             mustwrite = True
                         else:
-                            raise ValueError( f"{localpath} exists, but its md5sum {localmd5.hex_digest()} does not "
-                                              f"match md5sum of {path} {origmd5.hex_digest()}" )
+                            raise ValueError( f"{localpath} exists, but its md5sum {localmd5.hexdigest()} does not "
+                                              f"match md5sum of {path} {origmd5.hexdigest()}" )
                 else:
                     if overwrite:
                         _logger.debug( f"Overwriting {localpath}" )
@@ -808,7 +800,7 @@ class FileOnDiskMixin:
             with open( localpath, "rb" ) as ifp:
                 writtenmd5 = hashlib.md5()
                 writtenmd5.update( ifp.read() )
-                if writtenmd5.hex_digest() != origmd5.hex_digest():
+                if writtenmd5.hexdigest() != origmd5.hexdigest():
                     raise RuntimeError( f"Error writing {localpath}; written file md5sum mismatches expected!" )
 
         if no_archive:
@@ -957,7 +949,6 @@ class SpatiallyIndexed:
         self.gallon = coords.galactic.l.deg
         self.ecllat = coords.barycentrictrueecliptic.lat.deg
         self.ecllon = coords.barycentrictrueecliptic.lon.deg
-
 
 if __name__ == "__main__":
     pass
