@@ -176,9 +176,15 @@ def test_fileondisk_save_singlefile( diskfile, archive ):
     with open( f'{archivebase}{diskfile.filepath}', 'rb' ) as ifp:
         assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
 
-    # Veify that get_fullpath gets the file from the archive
+    # Verify that get_fullpath gets the file from the archive
     with open( diskfile.get_fullpath( nofile=False ), 'rb' ) as ifp:
         assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
+
+    # Verify that if the wrong file is on disk, it yells at us if we told it to verify md5
+    with open( diskfile.get_fullpath(), 'wb' ) as ofp:
+        ofp.write( data2 )
+    with pytest.raises( ValueError, match=".*has md5sum.*on disk, which doesn't match the database value.*" ):
+        path = diskfile.get_fullpath( nofile=False, always_verify_md5=True )
 
     # Clean up for further tests
     diskfile.remove_data_from_disk( purge_archive=True )

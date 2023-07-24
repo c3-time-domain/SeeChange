@@ -584,13 +584,13 @@ class FileOnDiskMixin:
         if not nofile:
             if not os.path.exists(fullname):
                 raise FileNotFoundError(f"File {fullname} not found!")
-            elif always_verify_md5 and not downloaded and m5sum is not None:
+            elif always_verify_md5 and not downloaded and md5sum is not None:
                 # self.archive.download will have already verified the md5sum
                 filemd5 = hashlib.md5()
                 with open(fullname, "rb") as ifp:
                     filemd5.update(ifp.read())
-                localmd5 = md5.hexdigest()
-                if localmd5.hexdigest() != md5sum:
+                localmd5 = filemd5.hexdigest()
+                if localmd5 != md5sum:
                     raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
                                       f"database value of {md5sum}" )
         
