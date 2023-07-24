@@ -999,7 +999,7 @@ class DataStore:
         ----------
         exists_ok: bool
             Ignored if overwrite is True.  Otherwise, this indicates
-            what to do with the file exists on disk.  If exists_ok is
+            what to do if the file exists on disk.  If exists_ok is
             True, then the file is assumed to be right on disk (and on
             the archive), and is not checked.  This is most efficient;
             if the file has already been saved, I/O won't be wasted
