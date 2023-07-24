@@ -642,8 +642,8 @@ class FileOnDiskMixin:
                  raise an exception.
                verify_md5 = False
                  If overwrite is True, upload to the archive,
-                 overwriting what's there.  Otherwise, assume that's
-                 what on the archive is right.
+                 overwriting what's there.  Otherwise, assume that
+                 what's on the archive is right.
         no_archive: bool
           If True, do *not* save to the archive, only to the local filesystem.
 
