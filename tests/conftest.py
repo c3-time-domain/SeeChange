@@ -256,4 +256,7 @@ def archive():
     # For the test suite, we've also mounted that directory locally, so
     # we can do that
     archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
-    shutil.rmtree( archivebase )
+    try:
+        shutil.rmtree( archivebase )
+    except FileNotFoundError:
+        pass

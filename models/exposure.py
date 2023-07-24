@@ -113,7 +113,7 @@ class SectionHeaders:
 
 
 im_type_enum = Enum("science", "reference", "difference", "bias", "dark", "flat", name='image_type')
-
+im_format_enum = Enum("fits", "hdf5", name='image_format')
 
 class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
@@ -125,6 +125,13 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         default="science",
         index=True,
         doc="Type of image (science, reference, difference, etc)."
+    )
+
+    format = sa.Column(
+        im_format_enum,
+        nullable=False,
+        default='fits',
+        doc="Format of the image on disk. Should be fits or hdf5. "
     )
 
     header = sa.Column(

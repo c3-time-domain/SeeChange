@@ -12,7 +12,7 @@ import astropy.units as u
 from pipeline.utils import read_fits_image, save_fits_image_file
 
 from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed
-from models.exposure import Exposure, im_type_enum
+from models.exposure import Exposure, im_type_enum, im_format_enum
 from models.instrument import get_instrument_instance
 from models.provenance import Provenance
 
@@ -24,8 +24,6 @@ image_source_self_association_table = sa.Table(
     sa.Column('source_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
     sa.Column('combined_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
 )
-
-im_format_enum = Enum("fits", "hdf5", name='image_format')
 
 class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
