@@ -277,7 +277,7 @@ class FileOnDiskMixin:
     of this class will save the to the local filestore (undreneath
     path.data_root), and also save it to the archive.  Once a file is
     saved on the archive, the md5sum (or md5sum_extensions) field in the
-    database record updated.  (If the file has not been saved to the
+    database record is updated.  (If the file has not been saved to the
     archive, then the md5sum and md5sum_extensions fields will be null.)
 
     Loading data:
