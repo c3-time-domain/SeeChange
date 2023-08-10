@@ -11,3 +11,7 @@ archive:
   read_dir: null
   write_dir: null
   token: insecure
+
+subtraction:
+  method: testing_testing
+

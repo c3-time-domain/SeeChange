@@ -13,18 +13,7 @@ services:
       timeout: 10s
       retries: 5
 
-  # Put a database migration in here ...or don't.  Probably more
-  # convenient for the developer to manually handle alembic upgrade
-  # head.  (That way, you can start the devshell even if there are
-  # syntax errors in your code that would cause the databse migration
-  # to fail.)
-
-  # Might be worth putting in an archive server for testing purposes.
-  # Alternatively, could have a separate docker-compose file for a
-  # development archive server that exposes a port we could then point
-  # to here.
-  
-  seechange:
+  seechange_dbmigrate:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
     build: ../docker/application
     environment:
@@ -32,6 +21,24 @@ services:
     depends_on:
       seechange_postgres:
          condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    working_dir: /seechange
+    user: "${USERID:?err}:${GROUPID:?err}"
+    entrypoint: [ "alembic", "upgrade", "head" ]
+
+seechange:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+    build: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
+    depends_on:
+      seechange_postgres:
+         condition: service_healthy
+      seechange_dbmigrate:
+         condition: service_completed_successfully
     volumes:
       - type: bind
         source: ..

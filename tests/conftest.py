@@ -237,7 +237,6 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
 
                 session.commit()
 
-
 @pytest.fixture
 def archive():
     cfg = config.Config.get()
@@ -260,3 +259,10 @@ def archive():
         shutil.rmtree( archivebase )
     except FileNotFoundError:
         pass
+
+@pytest.fixture
+def config_test():
+    # Make sure the environment is set as expected for tests
+    assert os.getenv( "SEECHANGE_CONFIG" ) == "/seechange/tests/seechange_config_test.yaml"
+    return config.Config.get( os.getenv("SEECHANGE_CONFIG") )
+

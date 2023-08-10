@@ -42,3 +42,36 @@ storage:
 #   write_dir: the directory to write to if the archive is on the local filesystem, or null
 
 archive: null
+
+# Pipeline components
+#
+# For documentation on the parameters, see the Parameters subclass
+# in the file that defines each part of the pipeline
+
+pipeline: {}
+
+preprocessing:
+  use_sky_subtraction: True
+
+extraction: {}
+
+astro_cal:
+  cross_match_catalog: Gaia
+
+photo_cal:
+  cross_match_catalog: Gaia
+
+subtraction:
+  method: hotpants
+
+detection:
+  subtraction: true
+  threshold: 3
+
+cutting:
+  cutout_size: 20
+
+measurement:
+  photometry_method: aperture
+  aperture_radius: 3.0
+  real_bogus_version: null

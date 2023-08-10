@@ -1,4 +1,5 @@
 import os
+import pytest
 
 import sqlalchemy as sa
 
@@ -79,6 +80,52 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session
     assert ds.detections.id == sl.id
 
     # TODO: add the cutouts and measurements, but we need to produce them first!
+
+
+def test_parameters( config_test ):
+    """Test that pipeline parameters are being set properly"""
+
+    # Verify that we _enforce_no_new_attrs works
+    kwargs = { 'pipeline': { 'keyword_does_not_exist': 'testing' } }
+    with pytest.raises( AttributeError, match='object has no attribute' ):
+        failed = Pipeline( **kwargs )
+
+    # Verify that we can override from the yaml config file
+    pipeline = Pipeline()
+    assert pipeline.preprocessor.pars['use_sky_subtraction']
+    assert pipeline.astro_cal.pars['cross_match_catalog'] == 'Gaia'
+    assert pipeline.astro_cal.pars['catalog'] == 'Gaia'
+    assert pipeline.subtractor.pars['method'] == 'testing_testing'
+
+    # Verify that manual override works for all parts of pipeline
+    overrides = { 'preprocessing': { 'use_sky_subtraction': True },
+                  # 'extractin': # Currently has no parameters defined
+                  'astro_cal': { 'cross_match_catalog': 'override' },
+                  'photo_cal': { 'cross_match_catalog': 'override' },
+                  'subtraction': { 'method': 'override' },
+                  'detection': { 'threshold': -3.14 },
+                  'cutting': { 'cutout_size': 666 },
+                  'measurement': { 'photometry_method': 'override' }
+                 }
+    pipelinemodule = { 'preprocessing': 'preprocessor',
+                       'subtraction': 'subtractor',
+                       'detection': 'detector',
+                       'cutting': 'cutter',
+                       'measurement': 'measurer'
+                      }
+
+    # TODO: this is based on a temporary "example_pipeline_parameter" that will be removed later
+    pipeline = Pipeline( pipeline={ 'example_pipeline_parameter': -999 } )
+    assert pipeline.pars['example_pipeline_parameter'] == -999
+
+    pipeline = Pipeline( **overrides )
+    for module, subst in overrides.items():
+        if module in pipelinemodule:
+            pipelinemod = getattr( pipeline, pipelinemodule[module] )
+        else:
+            pipelinemod = getattr( pipeline, module )
+        for key, val in subst.items():
+            assert pipelinemod.pars[key] == val
 
 
 def test_data_flow(exposure, reference_entry):

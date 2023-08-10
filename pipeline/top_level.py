@@ -10,12 +10,10 @@ from pipeline.detection import Detector
 from pipeline.cutting import Cutter
 from pipeline.measurement import Measurer
 
+from util.config import Config
 
 # should this come from db.py instead?
 from models.base import SmartSession
-
-config = {}  # TODO: replace this with Rob's config loader
-
 
 # put all the top-level pipeline parameters in the init of this class:
 class ParsPipeline(Parameters):
@@ -32,56 +30,58 @@ class ParsPipeline(Parameters):
 
 class Pipeline:
     def __init__(self, **kwargs):
+        self.config = Config.get()
+
         # top level parameters
-        self.pars = ParsPipeline(**config.get('pipeline', {}))
+        self.pars = ParsPipeline(**(self.config.value('pipeline', {})))
         self.pars.augment(kwargs.get('pipeline', {}))
 
         # dark/flat and sky subtraction tools
-        preprocessing_config = config.get('preprocessing', {})
+        preprocessing_config = self.config.value('preprocessing', {})
         preprocessing_config.update(kwargs.get('preprocessing', {}))
         self.pars.add_defaults_to_dict(preprocessing_config)
         self.preprocessor = Preprocessor(**preprocessing_config)
 
         # source detection ("extraction" for the regular image!)
-        extraction_config = config.get('extraction', {})
+        extraction_config = self.config.value('extraction', {})
         extraction_config.update(kwargs.get('extraction', {}))
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astro_cal_config = config.get('astro_cal', {})
+        astro_cal_config = self.config.value('astro_cal', {})
         astro_cal_config.update(kwargs.get('astro_cal', {}))
         self.pars.add_defaults_to_dict(astro_cal_config)
         self.astro_cal = AstroCalibrator(**astro_cal_config)
 
         # photometric calibration:
-        photo_cal_config = config.get('photo_cal', {})
+        photo_cal_config = self.config.value('photo_cal', {})
         photo_cal_config.update(kwargs.get('photo_cal', {}))
         self.pars.add_defaults_to_dict(photo_cal_config)
         self.photo_cal = PhotCalibrator(**photo_cal_config)
 
         # reference fetching and image subtraction
-        subtraction_config = config.get('subtraction', {})
+        subtraction_config = self.config.value('subtraction', {})
         subtraction_config.update(kwargs.get('subtraction', {}))
         self.pars.add_defaults_to_dict(subtraction_config)
         self.subtractor = Subtractor(**subtraction_config)
 
         # source detection ("detection" for the subtracted image!)
-        detection_config = config.get('detection', {})
+        detection_config = self.config.value('detection', {})
         detection_config.update(kwargs.get('detection', {}))
         self.pars.add_defaults_to_dict(detection_config)
         self.detector = Detector(**detection_config)
         self.detector.pars.subtraction = True
 
         # produce cutouts for detected sources:
-        cutting_config = config.get('cutting', {})
+        cutting_config = self.config.value('cutting', {})
         cutting_config.update(kwargs.get('cutting', {}))
         self.pars.add_defaults_to_dict(cutting_config)
         self.cutter = Cutter(**cutting_config)
 
         # measure photometry, analytical cuts, and deep learning models on the Cutouts:
-        measurement_config = config.get('measurement', {})
-        measurement_config.update(kwargs.get('extraction', {}))
+        measurement_config = self.config.value('measurement', {})
+        measurement_config.update(kwargs.get('measurement', {}))
         self.pars.add_defaults_to_dict(measurement_config)
         self.measurer = Measurer(**measurement_config)
 

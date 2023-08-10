@@ -29,7 +29,7 @@ class ParsCutter(Parameters):
 
 class Cutter:
     def __init__(self, **kwargs):
-        self.pars = ParsCutter()
+        self.pars = ParsCutter(**kwargs)
 
     def run(self, *args, **kwargs):
         """
