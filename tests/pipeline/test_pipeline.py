@@ -114,6 +114,7 @@ def test_parameters( config_test ):
                        'measurement': 'measurer'
                       }
 
+    # TODO: this is based on a temporary "example_pipeline_parameter" that will be removed later
     pipeline = Pipeline( pipeline={ 'example_pipeline_parameter': -999 } )
     assert pipeline.pars['example_pipeline_parameter'] == -999
 
