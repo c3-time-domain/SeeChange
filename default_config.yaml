@@ -53,8 +53,8 @@ subtraction:
   method: hotpants
 
 detection:
-  subtraction: false
-  threshold: 5.0
+  subtraction: true
+  threshold: 3
 
 cutting:
   cutout_size: 20

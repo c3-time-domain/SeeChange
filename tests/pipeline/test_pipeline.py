@@ -87,7 +87,7 @@ def test_parameters( config_test ):
 
     # Verify that we _enforce_no_new_attrs works
     kwargs = { 'pipeline': { 'keyword_does_not_exist': 'testing' } }
-    with pytest.raises( AttributeError ):
+    with pytest.raises( AttributeError, match='object has no attribute' ):
         failed = Pipeline( **kwargs )
 
     # Verify that we can override from the yaml config file
