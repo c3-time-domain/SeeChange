@@ -17,7 +17,7 @@ from models.base import Base, FileOnDiskMixin
 # ======================================================================
 # FileOnDiskMixin test
 #
-# This set of tests isn't complete, because somne of the actual saving
+# This set of tests isn't complete, because some of the actual saving
 # functionality will be tested as a side effect of the save testing in
 # test_image.py
 
