@@ -1,12 +1,13 @@
 import os
 import re
+from enum import enum
 
 import numpy as np
 from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 
-from models.base import Base, SmartSession
+from models.base import Base, SmartSession, _logger
 
 from pipeline.utils import parse_dateobs, read_fits_image
 
@@ -19,6 +20,19 @@ INSTRUMENT_CLASSNAME_TO_CLASS = None
 # dictionary of instrument object instances, lazy loaded to be shared between exposures
 INSTRUMENT_INSTANCE_CACHE = None
 
+
+# Orientations for those instruments that have a permanent orientation square to the sky
+# x increases to the right, y increases upward
+class InstrumentOrientation(Enum):
+    NupEleft = 0          # No rotation
+    NrightEup = 1         # 90° clockwise
+    NdownEright = 2       # 180°
+    NleftEdown = 3        # 270° clockwise
+    NupEright = 4         # flip-x
+    NrightEdown = 5       # flip-x, then 90° clockwise
+    NdownEleft = 6        # flip-x, then 180°
+    NleftEup = 7          # flip-x, then 270° clockwise
+    
 
 # from: https://stackoverflow.com/a/5883218
 def get_inheritors(klass):
@@ -185,13 +199,13 @@ class SensorSection(Base):
     offset_x = sa.Column(
         sa.Integer,
         nullable=True,
-        doc='Offset of the section in the x direction (in pixels). '
+        doc='Offset of the center of the section in the x direction (in pixels). '
     )
 
     offset_y = sa.Column(
         sa.Integer,
         nullable=True,
-        doc='Offset of the section in the y direction (in pixels). '
+        doc='Offset of the center of the section in the y direction (in pixels). '
     )
 
     filter_array_index = sa.Column(
@@ -200,35 +214,47 @@ class SensorSection(Base):
         doc='Index in the filter array that specifies which filter this section is located under in the array. '
     )
 
-    read_noise = sa.Column(
-        sa.Float,
-        nullable=True,
-        doc='Read noise of the sensor section (in electrons). '
-    )
+    # Removing these columns -- they're troublesome
+    #
+    # Specifically in the case of DECam: there are two amplifiers per
+    # chip, and each amplifier has its own read noise, gain, etc.  As
+    # such, any number we put here is going to be some approximation of
+    # the two, not something we would ever want to quantitatively use.
+    # (The other option would be to make each amplifier its own sensor
+    # section, but that gets cumbersome.)  A better way of doing this is
+    # to have the instrument code where in the header you get these
+    # numbers from, and then pull the numbers from each image's header
+    # as necessary.
+    
+    # read_noise = sa.Column(
+    #     sa.Float,
+    #     nullable=True,
+    #     doc='Read noise of the sensor section (in electrons). '
+    # )
 
-    dark_current = sa.Column(
-        sa.Float,
-        nullable=True,
-        doc='Dark current of the sensor section (in electrons/pixel/second). '
-    )
+    # dark_current = sa.Column(
+    #     sa.Float,
+    #     nullable=True,
+    #     doc='Dark current of the sensor section (in electrons/pixel/second). '
+    # )
 
-    gain = sa.Column(
-        sa.Float,
-        nullable=True,
-        doc='Gain of the sensor section (in electrons/ADU). '
-    )
+    # gain = sa.Column(
+    #     sa.Float,
+    #     nullable=True,
+    #     doc='Gain of the sensor section (in electrons/ADU). '
+    # )
 
-    saturation_limit = sa.Column(
-        sa.Float,
-        nullable=True,
-        doc='Saturation level of the sensor section (in electrons). '
-    )
+    # saturation_limit = sa.Column(
+    #     sa.Float,
+    #     nullable=True,
+    #     doc='Saturation level of the sensor section (in electrons). '
+    # )
 
-    non_linearity_limit = sa.Column(
-        sa.Float,
-        nullable=True,
-        doc='Non-linearity of the sensor section (in electrons). '
-    )
+    # non_linearity_limit = sa.Column(
+    #     sa.Float,
+    #     nullable=True,
+    #     doc='Non-linearity of the sensor section (in electrons). '
+    # )
 
     defective = sa.Column(
         sa.Boolean,
@@ -329,16 +355,22 @@ class Instrument:
         self.size_x = getattr(self, 'size_x', None)  # number of pixels in the x direction
         self.size_y = getattr(self, 'size_y', None)  # number of pixels in the y direction
         self.read_time = getattr(self, 'read_time', None)  # read time in seconds (e.g., 20.0)
-        self.read_noise = getattr(self, 'read_noise', None)  # read noise in electrons (e.g., 7.0)
-        self.dark_current = getattr(self, 'dark_current', None)  # dark current in electrons/pixel/second (e.g., 0.2)
-        self.gain = getattr(self, 'gain', None)  # gain in electrons/ADU (e.g., 4.0)
-        self.saturation_limit = getattr(self, 'saturation_limit', None)  # saturation limit in electrons (e.g., 100000)
-        self.non_linearity_limit = getattr(self, 'non_linearity_limit', None)  # non-linearity limit in electrons
+        # See comment on Sensor Section column definitions re: these values.
+        # They can vary from chip to chip, and even between amps on one
+        #   chip; they vary by several times 0.1 for DECam.
+        # self.read_noise = getattr(self, 'read_noise', None)  # read noise in electrons (e.g., 7.0)
+        # self.dark_current = getattr(self, 'dark_current', None)  # dark current in electrons/pixel/second (e.g., 0.2)
+        # self.gain = getattr(self, 'gain', None)  # gain in electrons/ADU (e.g., 4.0)
+        # self.saturation_limit = getattr(self, 'saturation_limit', None)  # saturation limit in electrons (e.g., 100000)
+        # self.non_linearity_limit = getattr(self, 'non_linearity_limit', None)  # non-linearity limit in electrons
 
         self.allowed_filters = getattr(self, 'allowed_filters', None)  # list of allowed filter (e.g., ['g', 'r', 'i'])
 
+        self.orientation_fixed = ( self, 'orientation_fixed', False ) # True if sensor never rotates
+        self.orientation = ( self, 'orientation', None ) # If orientation_fixed is True, one of InstrumentOrientation
+        
         self.sections = getattr(self, 'sections', None)  # populate this using fetch_sections(), then a dict
-        self._dateobs_for_sections = getattr(self, '_date_obs_for_sections', None)  # dateobs when sections were loaded
+        self._dateobs_for_sections = getattr(self, '_dateobs_for_sections', None)  # dateobs when sections were loaded
         self._dateobs_range_days = getattr(self, '_dateobs_range_days', 1.0)  # how many days from dateobs to reload
 
         # set the attributes from the kwargs
@@ -993,11 +1025,11 @@ class DemoInstrument(Instrument):
         self.square_degree_fov = 0.5
         self.pixel_scale = 0.41
         self.read_time = 2.0
-        self.read_noise = 1.5
-        self.dark_current = 0.1
-        self.gain = 2.0
-        self.non_linearity_limit = 10000.0
-        self.saturation_limit = 50000.0
+        # self.read_noise = 1.5
+        # self.dark_current = 0.1
+        # self.gain = 2.0
+        # self.non_linearity_limit = 10000.0
+        # self.saturation_limit = 50000.0
         self.allowed_filters = ["g", "r", "i", "z", "Y"]
 
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
@@ -1087,6 +1119,57 @@ class DemoInstrument(Instrument):
         """
         return 'Demo'
 
+    def find_origin_exposures( self, skip_exposures_in_database=True,
+                               minmjd=None, maxmjd=None, filters=None,
+                               containing_ra=None, containing_dec=None,
+                               minexptime=None ):
+        """Search the external repository for this instrument.
+
+        Search the external image/exposure repository for this
+        instrument for exposures that the database doesn't know about
+        already.  For example, for DECam, this searches the noirlab data
+        archive.
+
+        WARNING : do not call this without some parameters that limit
+        the search; otherwise, too many things will be returned, and the
+        query is likely to time out or get an error from the external
+        repository.
+
+        Parameters
+        ----------
+        skip_exposures_in_databse: bool
+           If True (default), will filter out any exposures that (as
+           best can be determined) are already known in the SeeChange
+           database.  If False, will include any 
+        minmjd: float
+           The earliest time of exposure to search (default: no limit)
+        maxmjd: float
+           The latest time of exposure to search (default: no limit)
+        filters: list of string
+           Filters to search.  The actual strings are
+           instrument-dependent, and will match what is expected on the
+           external repository.  By default, doesn't limit by filter.
+        containing_ra: float
+           Search for exposures that include this RA (degrees, J2000);
+           default, no RA constraint.
+        containing_dec: float
+           Search for exposures that include this Dec (degrees, J2000);
+           default, no Dec constraint.
+        minexptime: float
+           Search for exposures that have this minimum exposure time in
+           seconds; default, no limit.
+
+        Returns
+        -------
+        A InstrumentOriginExposures object.
+
+        """
+        raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
+                                   f"implemented find_origin_exposures." )
+
+class InstrumentOriginExposures:
+    """A class encapsulating the response from Instrumet.find_origin_exposures()"""
+    
 
 class DECam(Instrument):
 
@@ -1096,13 +1179,15 @@ class DECam(Instrument):
         self.aperture = 4.0
         self.focal_ratio = 2.7
         self.square_degree_fov = 3.0
-        self.pixel_scale = 0.2637
+        self.pixel_scale = 0.263
         self.read_time = 20.0
-        self.read_noise = 7.0
-        self.dark_current = 0.1
-        self.gain = 4.0
-        self.saturation_limit = 100000
-        self.non_linearity_limit = 200000
+        self.orientation_fixed = True
+        self.orientation = InstrumentOrientation.NleftEup
+        # self.read_noise = 7.0
+        # self.dark_current = 0.1
+        # self.gain = 4.0
+        # self.saturation_limit = 
+        # self.non_linearity_limit = 
         self.allowed_filters = ["g", "r", "i", "z", "Y"]
 
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
@@ -1110,6 +1195,7 @@ class DECam(Instrument):
 
     @classmethod
     def get_section_ids(cls):
+
         """
         Get a list of SensorSection identifiers for this instrument.
         We are using the names of the FITS extensions (e.g., N12, S22, etc.).
@@ -1139,8 +1225,25 @@ class DECam(Instrument):
 
     @classmethod
     def get_section_offsets(cls, section_id):
-        """
-        Find the offset for a specific section.
+        """Find the offset for a specific section.
+
+        For DECam, these offests were determined by using the WCS
+        solutions for a given exposure, and then calculated from the
+        nominal pixel scale of the instrument.  The exposure center was
+        taken as the average of S4 (x=2047, y=2048) and N4 (x=0,
+        y=2048).  These pixel offsets do *not* correspond exactly to the
+        pixel offsets that you'd get if you laid the chips down flat on
+        a table positioned exactly where they are in the camera, and
+        measured the centers of each chip.  But, they are the ones you'd
+        use to figure out the RA and Dec of the chip centers starting
+        with the exposure ra/dec (ASSUMING that it's centered between N4
+        and S4) and using the noiminal instrument pixel scale (properly
+        including cos(dec)); as of this writing, that nominal instrument
+        pixel scale was coded to be 0.263"/pixel, which is the
+        three-digit average of what
+        https://noirlab.edu/science/programs/ctio/instruments/Dark-Energy-Camera/characteristics
+        cites as the center pixel scale (0.2637) and edge pixel scale
+        (0.2626).
 
         Parameters
         ----------
@@ -1153,33 +1256,110 @@ class DECam(Instrument):
             The x offset of the section.
         offset_y: int
             The y offset of the section.
+
         """
-        # TODO: this is just a placeholder, we need to put the actual offsets here!
+
+        # These numbers were measured off of the WCS solution to
+        #  c4d_230804_031607_ori.fits as saved by the
+        #  decat lensgrinder pipeline.
+        # Ra offsets are approximately *linear* degrees -- that is, they
+        #  are ΔRA * cos( dec ), where dec is the exposure dec.
+        # Chips 31 and 60 are the "bad" chips, and weren't in the
+        #  decat database, so their centers used centers of
+        #  the nearest aligned chips along each axis.
+
+        # Tuple is chipnumber, Δra (linear), Δdec
+        #
+        # Notice that the "N" chips are to the south and the "S" chips
+        # are to the north; this is correct! See:
+        # https://noirlab.edu/science/programs/ctio/instruments/Dark-Energy-Camera/characteristics
+        radecoff = {
+            'S29': { ccdnum:  1, dra:  -0.30358, ddec:   0.90579 },
+            'S30': { ccdnum:  2, dra:   0.00399, ddec:   0.90370 },
+            'S31': { ccdnum:  3, dra:   0.31197, ddec:   0.90294 },
+            'S25': { ccdnum:  4, dra:  -0.45907, ddec:   0.74300 },
+            'S26': { ccdnum:  5, dra:  -0.15079, ddec:   0.74107 },
+            'S27': { ccdnum:  6, dra:   0.15768, ddec:   0.73958 },
+            'S28': { ccdnum:  7, dra:   0.46585, ddec:   0.73865 },
+            'S20': { ccdnum:  8, dra:  -0.61496, ddec:   0.58016 },
+            'S21': { ccdnum:  9, dra:  -0.30644, ddec:   0.57787 },
+            'S22': { ccdnum: 10, dra:   0.00264, ddec:   0.57605 },
+            'S23': { ccdnum: 11, dra:   0.31167, ddec:   0.57493 },
+            'S24': { ccdnum: 12, dra:   0.62033, ddec:   0.57431 },
+            'S14': { ccdnum: 13, dra:  -0.77134, ddec:   0.41738 },
+            'S15': { ccdnum: 14, dra:  -0.46272, ddec:   0.41468 },
+            'S16': { ccdnum: 15, dra:  -0.15310, ddec:   0.41266 },
+            'S17': { ccdnum: 16, dra:   0.15678, ddec:   0.41097 },
+            'S18': { ccdnum: 17, dra:   0.46634, ddec:   0.41032 },
+            'S19': { ccdnum: 18, dra:   0.77533, ddec:   0.41018 },
+            'S8':  { ccdnum: 19, dra:  -0.77343, ddec:   0.25333 },
+            'S9':  { ccdnum: 20, dra:  -0.46437, ddec:   0.25010 },
+            'S10': { ccdnum: 21, dra:  -0.15423, ddec:   0.24804 },
+            'S11': { ccdnum: 22, dra:   0.15631, ddec:   0.24661 },
+            'S12': { ccdnum: 23, dra:   0.46667, ddec:   0.24584 },
+            'S13': { ccdnum: 24, dra:   0.77588, ddec:   0.24591 },
+            'S1':  { ccdnum: 25, dra:  -0.93041, ddec:   0.09069 },
+            'S2':  { ccdnum: 26, dra:  -0.62099, ddec:   0.08716 },
+            'S3':  { ccdnum: 27, dra:  -0.31067, ddec:   0.08417 },
+            'S4':  { ccdnum: 28, dra:   0.00054, ddec:   0.08241 },
+            'S5':  { ccdnum: 29, dra:   0.31130, ddec:   0.08122 },
+            'S6':  { ccdnum: 30, dra:   0.62187, ddec:   0.08113 },
+            'S7':  { ccdnum: 31, dra:   0.93180, ddec:   0.08113 },
+            'N1':  { ccdnum: 32, dra:  -0.93285, ddec:  -0.07360 },
+            'N2':  { ccdnum: 33, dra:  -0.62288, ddec:  -0.07750 },
+            'N3':  { ccdnum: 34, dra:  -0.31207, ddec:  -0.08051 },
+            'N4':  { ccdnum: 35, dra:  -0.00056, ddec:  -0.08247 },
+            'N5':  { ccdnum: 36, dra:   0.31077, ddec:  -0.08351 },
+            'N6':  { ccdnum: 37, dra:   0.62170, ddec:  -0.08335 },
+            'N7':  { ccdnum: 38, dra:   0.93180, ddec:  -0.08242 },
+            'N8':  { ccdnum: 39, dra:  -0.77988, ddec:  -0.24010 },
+            'N9':  { ccdnum: 40, dra:  -0.46913, ddec:  -0.24376 },
+            'N10': { ccdnum: 41, dra:  -0.15732, ddec:  -0.24624 },
+            'N11': { ccdnum: 42, dra:   0.15476, ddec:  -0.24786 },
+            'N12': { ccdnum: 43, dra:   0.46645, ddec:  -0.24819 },
+            'N13': { ccdnum: 44, dra:   0.77723, ddec:  -0.24747 },
+            'N14': { ccdnum: 45, dra:  -0.78177, ddec:  -0.40426 },
+            'N15': { ccdnum: 46, dra:  -0.47073, ddec:  -0.40814 },
+            'N16': { ccdnum: 47, dra:  -0.15836, ddec:  -0.41091 },
+            'N17': { ccdnum: 48, dra:   0.15385, ddec:  -0.41244 },
+            'N18': { ccdnum: 49, dra:   0.46623, ddec:  -0.41260 },
+            'N19': { ccdnum: 50, dra:   0.77755, ddec:  -0.41164 },
+            'N20': { ccdnum: 51, dra:  -0.62766, ddec:  -0.57063 },
+            'N21': { ccdnum: 52, dra:  -0.31560, ddec:  -0.57392 },
+            'N22': { ccdnum: 53, dra:  -0.00280, ddec:  -0.57599 },
+            'N23': { ccdnum: 54, dra:   0.30974, ddec:  -0.57705 },
+            'N24': { ccdnum: 55, dra:   0.62187, ddec:  -0.57650 },
+            'N25': { ccdnum: 56, dra:  -0.47298, ddec:  -0.73648 },
+            'N26': { ccdnum: 57, dra:  -0.16038, ddec:  -0.73922 },
+            'N27': { ccdnum: 58, dra:   0.15280, ddec:  -0.74076 },
+            'N28': { ccdnum: 59, dra:   0.46551, ddec:  -0.74086 },
+            'N29': { ccdnum: 60, dra:  -0.31779, ddec:  -0.90199 },
+            'N30': { ccdnum: 61, dra:  -0.00280, ddec:  -0.90348 },
+            'N31': { ccdnum: 62, dra:   0.30889, ddec:  -0.90498 },
+        }
+
         cls.check_section_id(section_id)
-        letter = section_id[0]
-        number = int(section_id[1:])
-        dx = number % 8
-        dy = number // 8
-        if letter == 'S':
-            dy = -dy
-        return dx * 2048, dy * 4096
+        if section_id not in radecoff:
+            raise ValueError( f'Failed to find {section_id} in dictionary of chip offsets' )
+
+        # x increases to the south, y increases to the east
+        return ( -ddec[section_id] * 3600. / self.pixel_scale ,
+                 dra[section_id] * 3600. / self.pixel_scale )
 
     def _make_new_section(self, section_id):
         """
         Make a single section for the DECam instrument.
-        The section_id must be a valid section identifier (int in this case).
+        The section_id must be a valid section identifier (Si or Ni, where i is an int in [1,31])
 
         Returns
         -------
         section: SensorSection
             A new section for this instrument.
         """
-        # TODO: we must improve this!
-        #  E.g., we should add some info on the gain and read noise (etc) for each chip.
-        #  Also need to fix the offsets, this is really not correct.
-        self.check_section_id(section_id)
         (dx, dy) = self.get_section_offsets(section_id)
-        return SensorSection(section_id, self.name, size_x=2048, size_y=4096, offset_x=dx, offset_y=dy)
+        defective = section_id in { 'N30', 'S7' }
+        return SensorSection(section_id, self.name, size_x=2048, size_y=4096,
+                             offset_x=dx, offset_y=dy, defective=defective)
 
     @classmethod
     def _get_fits_hdu_index_from_section_id(cls, section_id):
