@@ -179,12 +179,13 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         doc='Name of the instrument used to take the exposure. '
     )
 
-    telescope = sa.Column(
-        sa.Text,
-        nullable=False,
-        index=True,
-        doc='Telescope used to take the exposure. '
-    )
+    # Removing this ; telescope is uniquely determined by instrument
+    # telescope = sa.Column(
+    #     sa.Text,
+    #     nullable=False,
+    #     index=True,
+    #     doc='Telescope used to take the exposure. '
+    # )
 
     project = sa.Column(
         sa.Text,
@@ -198,6 +199,13 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         nullable=False,
         index=True,
         doc='Name of the target object or field id. '
+    )
+
+    origin_identifier = sa.Column(
+        sa.Text,
+        nullable=True,
+        index=True,
+        doc='String used by each instrument to identify exposures where they are pulled from'
     )
 
     def __init__(self, *args, **kwargs):
@@ -266,8 +274,8 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         This will set the column attributes from these values.
         Additional header values will be stored in the header JSONB column.
         """
-        if self.telescope is None:
-            self.telescope = self.instrument_object.telescope
+        # if self.telescope is None:
+        #     self.telescope = self.instrument_object.telescope
 
         # get the header from the file in its raw form as a dictionary
         raw_header_dictionary = self.instrument_object.read_header(self.get_fullpath())
@@ -326,6 +334,10 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
                 self._instrument_object = get_instrument_instance(self.instrument)
 
         return self._instrument_object
+
+    @property
+    def telescope(self):
+        return self.instrument_object.telescope
 
     @instrument_object.setter
     def instrument_object(self, value):

@@ -26,7 +26,7 @@ def test_base_instrument_not_implemented():
     with pytest.raises(NotImplementedError):
         inst.get_filename_regex()
 
-
+@pytest.mark.xfail( reason="Mostly tests fields that no longer exist in SensorSection" )
 def test_global_vs_sections_values():
     inst = DemoInstrument()
     inst.name = 'TestInstrument' + uuid.uuid4().hex
@@ -104,13 +104,13 @@ def test_global_vs_sections_values():
 def test_instrument_offsets_and_filter_array_index():
     inst = DemoInstrument()
     inst.name = 'TestInstrument' + uuid.uuid4().hex
-    assert inst.gain == 2.0
+    # assert inst.gain == 2.0
 
     inst.fetch_sections()
     assert inst.sections is not None
     assert len(inst.sections) == 1
 
-    assert inst.get_property(0, 'gain') == 2.0
+    # assert inst.get_property(0, 'gain') == 2.0
 
     # check that there's also a default offsets list
     offsets = inst.get_property(0, 'offsets')
@@ -145,6 +145,13 @@ def test_instrument_offsets_and_filter_array_index():
     idx = inst.get_property('N4', 'filter_array_index')
     assert idx == 0
 
+    # Spot check the offsets of a couple of DECam chips
+    offN19 = inst.get_section_offsets( 'N19' )
+    offS21 = inst.get_section_offsets( 'S21' )
+    assert offN19[0] == pytest.approx( 5635, abs=1 )
+    assert offN19[1] == pytest.approx( 10643, abs=1 )
+    assert offS21[0] == pytest.approx( -7910, abs=1 )
+    assert offS21[1] == pytest.approx( -4195, abs=1 )
 
 def test_instrument_inheritance_full_example():
     # define a new instrument class and make all the necessary overrides

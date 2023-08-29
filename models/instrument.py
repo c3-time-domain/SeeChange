@@ -1,11 +1,17 @@
 import os
 import re
-from enum import enum
+import math
+from enum import Enum
+from datetime import datetime, timedelta
+import collections
+import requests
 
 import numpy as np
-from datetime import datetime, timedelta
+import pandas
 
 import sqlalchemy as sa
+
+import astropy.time
 
 from models.base import Base, SmartSession, _logger
 
@@ -32,7 +38,7 @@ class InstrumentOrientation(Enum):
     NrightEdown = 5       # flip-x, then 90° clockwise
     NdownEleft = 6        # flip-x, then 180°
     NleftEup = 7          # flip-x, then 270° clockwise
-    
+
 
 # from: https://stackoverflow.com/a/5883218
 def get_inheritors(klass):
@@ -225,7 +231,7 @@ class SensorSection(Base):
     # to have the instrument code where in the header you get these
     # numbers from, and then pull the numbers from each image's header
     # as necessary.
-    
+
     # read_noise = sa.Column(
     #     sa.Float,
     #     nullable=True,
@@ -368,7 +374,7 @@ class Instrument:
 
         self.orientation_fixed = ( self, 'orientation_fixed', False ) # True if sensor never rotates
         self.orientation = ( self, 'orientation', None ) # If orientation_fixed is True, one of InstrumentOrientation
-        
+
         self.sections = getattr(self, 'sections', None)  # populate this using fetch_sections(), then a dict
         self._dateobs_for_sections = getattr(self, '_dateobs_for_sections', None)  # dateobs when sections were loaded
         self._dateobs_range_days = getattr(self, '_dateobs_range_days', 1.0)  # how many days from dateobs to reload
@@ -1105,7 +1111,7 @@ class DemoInstrument(Instrument):
             'OBJECT': 'crab nebula',
             'TELESCOP': self.telescope,
             'INSTRUME': self.name,
-            'GAIN': np.random.normal(self.gain, 0.01),
+            # 'GAIN': np.random.normal(self.gain, 0.01),
         }
 
     @classmethod
@@ -1161,15 +1167,24 @@ class DemoInstrument(Instrument):
 
         Returns
         -------
-        A InstrumentOriginExposures object.
+        A InstrumentOriginExposures object, or None if nothing is found.
 
         """
         raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
                                    f"implemented find_origin_exposures." )
 
 class InstrumentOriginExposures:
-    """A class encapsulating the response from Instrumet.find_origin_exposures()"""
-    
+    """A class encapsulating the response from Instrument.find_origin_exposures()
+
+    Should be subclassed by each instrument.
+    """
+
+    def download_exposure( self, index ):
+        pass
+
+    def download_and_load_exposure( self, index ):
+        pass
+
 
 class DECam(Instrument):
 
@@ -1190,7 +1205,84 @@ class DECam(Instrument):
         # self.non_linearity_limit = 
         self.allowed_filters = ["g", "r", "i", "z", "Y"]
 
+        # These numbers were measured off of the WCS solution to
+        #  c4d_230804_031607_ori.fits as saved by the
+        #  decat lensgrinder pipeline.
+        # Ra offsets are approximately *linear* degrees -- that is, they
+        #  are ΔRA * cos( dec ), where dec is the exposure dec.
+        # Chips 31 and 60 are the "bad" chips, and weren't in the
+        #  decat database, so their centers used centers of
+        #  the nearest aligned chips along each axis.
+        #
+        # Notice that the "N" chips are to the south and the "S" chips
+        # are to the north; this is correct! See:
+        # https://noirlab.edu/science/programs/ctio/instruments/Dark-Energy-Camera/characteristics
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
+        self._chip_radec_off = {
+            'S29': { 'ccdnum':  1, 'dra':  -0.30358, 'ddec':   0.90579 },
+            'S30': { 'ccdnum':  2, 'dra':   0.00399, 'ddec':   0.90370 },
+            'S31': { 'ccdnum':  3, 'dra':   0.31197, 'ddec':   0.90294 },
+            'S25': { 'ccdnum':  4, 'dra':  -0.45907, 'ddec':   0.74300 },
+            'S26': { 'ccdnum':  5, 'dra':  -0.15079, 'ddec':   0.74107 },
+            'S27': { 'ccdnum':  6, 'dra':   0.15768, 'ddec':   0.73958 },
+            'S28': { 'ccdnum':  7, 'dra':   0.46585, 'ddec':   0.73865 },
+            'S20': { 'ccdnum':  8, 'dra':  -0.61496, 'ddec':   0.58016 },
+            'S21': { 'ccdnum':  9, 'dra':  -0.30644, 'ddec':   0.57787 },
+            'S22': { 'ccdnum': 10, 'dra':   0.00264, 'ddec':   0.57605 },
+            'S23': { 'ccdnum': 11, 'dra':   0.31167, 'ddec':   0.57493 },
+            'S24': { 'ccdnum': 12, 'dra':   0.62033, 'ddec':   0.57431 },
+            'S14': { 'ccdnum': 13, 'dra':  -0.77134, 'ddec':   0.41738 },
+            'S15': { 'ccdnum': 14, 'dra':  -0.46272, 'ddec':   0.41468 },
+            'S16': { 'ccdnum': 15, 'dra':  -0.15310, 'ddec':   0.41266 },
+            'S17': { 'ccdnum': 16, 'dra':   0.15678, 'ddec':   0.41097 },
+            'S18': { 'ccdnum': 17, 'dra':   0.46634, 'ddec':   0.41032 },
+            'S19': { 'ccdnum': 18, 'dra':   0.77533, 'ddec':   0.41018 },
+            'S8':  { 'ccdnum': 19, 'dra':  -0.77343, 'ddec':   0.25333 },
+            'S9':  { 'ccdnum': 20, 'dra':  -0.46437, 'ddec':   0.25010 },
+            'S10': { 'ccdnum': 21, 'dra':  -0.15423, 'ddec':   0.24804 },
+            'S11': { 'ccdnum': 22, 'dra':   0.15631, 'ddec':   0.24661 },
+            'S12': { 'ccdnum': 23, 'dra':   0.46667, 'ddec':   0.24584 },
+            'S13': { 'ccdnum': 24, 'dra':   0.77588, 'ddec':   0.24591 },
+            'S1':  { 'ccdnum': 25, 'dra':  -0.93041, 'ddec':   0.09069 },
+            'S2':  { 'ccdnum': 26, 'dra':  -0.62099, 'ddec':   0.08716 },
+            'S3':  { 'ccdnum': 27, 'dra':  -0.31067, 'ddec':   0.08417 },
+            'S4':  { 'ccdnum': 28, 'dra':   0.00054, 'ddec':   0.08241 },
+            'S5':  { 'ccdnum': 29, 'dra':   0.31130, 'ddec':   0.08122 },
+            'S6':  { 'ccdnum': 30, 'dra':   0.62187, 'ddec':   0.08113 },
+            'S7':  { 'ccdnum': 31, 'dra':   0.93180, 'ddec':   0.08113 },
+            'N1':  { 'ccdnum': 32, 'dra':  -0.93285, 'ddec':  -0.07360 },
+            'N2':  { 'ccdnum': 33, 'dra':  -0.62288, 'ddec':  -0.07750 },
+            'N3':  { 'ccdnum': 34, 'dra':  -0.31207, 'ddec':  -0.08051 },
+            'N4':  { 'ccdnum': 35, 'dra':  -0.00056, 'ddec':  -0.08247 },
+            'N5':  { 'ccdnum': 36, 'dra':   0.31077, 'ddec':  -0.08351 },
+            'N6':  { 'ccdnum': 37, 'dra':   0.62170, 'ddec':  -0.08335 },
+            'N7':  { 'ccdnum': 38, 'dra':   0.93180, 'ddec':  -0.08242 },
+            'N8':  { 'ccdnum': 39, 'dra':  -0.77988, 'ddec':  -0.24010 },
+            'N9':  { 'ccdnum': 40, 'dra':  -0.46913, 'ddec':  -0.24376 },
+            'N10': { 'ccdnum': 41, 'dra':  -0.15732, 'ddec':  -0.24624 },
+            'N11': { 'ccdnum': 42, 'dra':   0.15476, 'ddec':  -0.24786 },
+            'N12': { 'ccdnum': 43, 'dra':   0.46645, 'ddec':  -0.24819 },
+            'N13': { 'ccdnum': 44, 'dra':   0.77723, 'ddec':  -0.24747 },
+            'N14': { 'ccdnum': 45, 'dra':  -0.78177, 'ddec':  -0.40426 },
+            'N15': { 'ccdnum': 46, 'dra':  -0.47073, 'ddec':  -0.40814 },
+            'N16': { 'ccdnum': 47, 'dra':  -0.15836, 'ddec':  -0.41091 },
+            'N17': { 'ccdnum': 48, 'dra':   0.15385, 'ddec':  -0.41244 },
+            'N18': { 'ccdnum': 49, 'dra':   0.46623, 'ddec':  -0.41260 },
+            'N19': { 'ccdnum': 50, 'dra':   0.77755, 'ddec':  -0.41164 },
+            'N20': { 'ccdnum': 51, 'dra':  -0.62766, 'ddec':  -0.57063 },
+            'N21': { 'ccdnum': 52, 'dra':  -0.31560, 'ddec':  -0.57392 },
+            'N22': { 'ccdnum': 53, 'dra':  -0.00280, 'ddec':  -0.57599 },
+            'N23': { 'ccdnum': 54, 'dra':   0.30974, 'ddec':  -0.57705 },
+            'N24': { 'ccdnum': 55, 'dra':   0.62187, 'ddec':  -0.57650 },
+            'N25': { 'ccdnum': 56, 'dra':  -0.47298, 'ddec':  -0.73648 },
+            'N26': { 'ccdnum': 57, 'dra':  -0.16038, 'ddec':  -0.73922 },
+            'N27': { 'ccdnum': 58, 'dra':   0.15280, 'ddec':  -0.74076 },
+            'N28': { 'ccdnum': 59, 'dra':   0.46551, 'ddec':  -0.74086 },
+            'N29': { 'ccdnum': 60, 'dra':  -0.31779, 'ddec':  -0.90199 },
+            'N30': { 'ccdnum': 61, 'dra':  -0.00280, 'ddec':  -0.90348 },
+            'N31': { 'ccdnum': 62, 'dra':   0.30889, 'ddec':  -0.90498 },
+        }
+
         Instrument.__init__(self, **kwargs)
 
     @classmethod
@@ -1223,8 +1315,7 @@ class DECam(Instrument):
         if not 1 <= number <= 31:
             raise ValueError(f"The section_id number must be in the range [1, 31]. Got {number}. ")
 
-    @classmethod
-    def get_section_offsets(cls, section_id):
+    def get_section_offsets(self, section_id):
         """Find the offset for a specific section.
 
         For DECam, these offests were determined by using the WCS
@@ -1259,92 +1350,13 @@ class DECam(Instrument):
 
         """
 
-        # These numbers were measured off of the WCS solution to
-        #  c4d_230804_031607_ori.fits as saved by the
-        #  decat lensgrinder pipeline.
-        # Ra offsets are approximately *linear* degrees -- that is, they
-        #  are ΔRA * cos( dec ), where dec is the exposure dec.
-        # Chips 31 and 60 are the "bad" chips, and weren't in the
-        #  decat database, so their centers used centers of
-        #  the nearest aligned chips along each axis.
-
-        # Tuple is chipnumber, Δra (linear), Δdec
-        #
-        # Notice that the "N" chips are to the south and the "S" chips
-        # are to the north; this is correct! See:
-        # https://noirlab.edu/science/programs/ctio/instruments/Dark-Energy-Camera/characteristics
-        radecoff = {
-            'S29': { ccdnum:  1, dra:  -0.30358, ddec:   0.90579 },
-            'S30': { ccdnum:  2, dra:   0.00399, ddec:   0.90370 },
-            'S31': { ccdnum:  3, dra:   0.31197, ddec:   0.90294 },
-            'S25': { ccdnum:  4, dra:  -0.45907, ddec:   0.74300 },
-            'S26': { ccdnum:  5, dra:  -0.15079, ddec:   0.74107 },
-            'S27': { ccdnum:  6, dra:   0.15768, ddec:   0.73958 },
-            'S28': { ccdnum:  7, dra:   0.46585, ddec:   0.73865 },
-            'S20': { ccdnum:  8, dra:  -0.61496, ddec:   0.58016 },
-            'S21': { ccdnum:  9, dra:  -0.30644, ddec:   0.57787 },
-            'S22': { ccdnum: 10, dra:   0.00264, ddec:   0.57605 },
-            'S23': { ccdnum: 11, dra:   0.31167, ddec:   0.57493 },
-            'S24': { ccdnum: 12, dra:   0.62033, ddec:   0.57431 },
-            'S14': { ccdnum: 13, dra:  -0.77134, ddec:   0.41738 },
-            'S15': { ccdnum: 14, dra:  -0.46272, ddec:   0.41468 },
-            'S16': { ccdnum: 15, dra:  -0.15310, ddec:   0.41266 },
-            'S17': { ccdnum: 16, dra:   0.15678, ddec:   0.41097 },
-            'S18': { ccdnum: 17, dra:   0.46634, ddec:   0.41032 },
-            'S19': { ccdnum: 18, dra:   0.77533, ddec:   0.41018 },
-            'S8':  { ccdnum: 19, dra:  -0.77343, ddec:   0.25333 },
-            'S9':  { ccdnum: 20, dra:  -0.46437, ddec:   0.25010 },
-            'S10': { ccdnum: 21, dra:  -0.15423, ddec:   0.24804 },
-            'S11': { ccdnum: 22, dra:   0.15631, ddec:   0.24661 },
-            'S12': { ccdnum: 23, dra:   0.46667, ddec:   0.24584 },
-            'S13': { ccdnum: 24, dra:   0.77588, ddec:   0.24591 },
-            'S1':  { ccdnum: 25, dra:  -0.93041, ddec:   0.09069 },
-            'S2':  { ccdnum: 26, dra:  -0.62099, ddec:   0.08716 },
-            'S3':  { ccdnum: 27, dra:  -0.31067, ddec:   0.08417 },
-            'S4':  { ccdnum: 28, dra:   0.00054, ddec:   0.08241 },
-            'S5':  { ccdnum: 29, dra:   0.31130, ddec:   0.08122 },
-            'S6':  { ccdnum: 30, dra:   0.62187, ddec:   0.08113 },
-            'S7':  { ccdnum: 31, dra:   0.93180, ddec:   0.08113 },
-            'N1':  { ccdnum: 32, dra:  -0.93285, ddec:  -0.07360 },
-            'N2':  { ccdnum: 33, dra:  -0.62288, ddec:  -0.07750 },
-            'N3':  { ccdnum: 34, dra:  -0.31207, ddec:  -0.08051 },
-            'N4':  { ccdnum: 35, dra:  -0.00056, ddec:  -0.08247 },
-            'N5':  { ccdnum: 36, dra:   0.31077, ddec:  -0.08351 },
-            'N6':  { ccdnum: 37, dra:   0.62170, ddec:  -0.08335 },
-            'N7':  { ccdnum: 38, dra:   0.93180, ddec:  -0.08242 },
-            'N8':  { ccdnum: 39, dra:  -0.77988, ddec:  -0.24010 },
-            'N9':  { ccdnum: 40, dra:  -0.46913, ddec:  -0.24376 },
-            'N10': { ccdnum: 41, dra:  -0.15732, ddec:  -0.24624 },
-            'N11': { ccdnum: 42, dra:   0.15476, ddec:  -0.24786 },
-            'N12': { ccdnum: 43, dra:   0.46645, ddec:  -0.24819 },
-            'N13': { ccdnum: 44, dra:   0.77723, ddec:  -0.24747 },
-            'N14': { ccdnum: 45, dra:  -0.78177, ddec:  -0.40426 },
-            'N15': { ccdnum: 46, dra:  -0.47073, ddec:  -0.40814 },
-            'N16': { ccdnum: 47, dra:  -0.15836, ddec:  -0.41091 },
-            'N17': { ccdnum: 48, dra:   0.15385, ddec:  -0.41244 },
-            'N18': { ccdnum: 49, dra:   0.46623, ddec:  -0.41260 },
-            'N19': { ccdnum: 50, dra:   0.77755, ddec:  -0.41164 },
-            'N20': { ccdnum: 51, dra:  -0.62766, ddec:  -0.57063 },
-            'N21': { ccdnum: 52, dra:  -0.31560, ddec:  -0.57392 },
-            'N22': { ccdnum: 53, dra:  -0.00280, ddec:  -0.57599 },
-            'N23': { ccdnum: 54, dra:   0.30974, ddec:  -0.57705 },
-            'N24': { ccdnum: 55, dra:   0.62187, ddec:  -0.57650 },
-            'N25': { ccdnum: 56, dra:  -0.47298, ddec:  -0.73648 },
-            'N26': { ccdnum: 57, dra:  -0.16038, ddec:  -0.73922 },
-            'N27': { ccdnum: 58, dra:   0.15280, ddec:  -0.74076 },
-            'N28': { ccdnum: 59, dra:   0.46551, ddec:  -0.74086 },
-            'N29': { ccdnum: 60, dra:  -0.31779, ddec:  -0.90199 },
-            'N30': { ccdnum: 61, dra:  -0.00280, ddec:  -0.90348 },
-            'N31': { ccdnum: 62, dra:   0.30889, ddec:  -0.90498 },
-        }
-
-        cls.check_section_id(section_id)
-        if section_id not in radecoff:
+        self.check_section_id(section_id)
+        if section_id not in self._chip_radec_off:
             raise ValueError( f'Failed to find {section_id} in dictionary of chip offsets' )
 
         # x increases to the south, y increases to the east
-        return ( -ddec[section_id] * 3600. / self.pixel_scale ,
-                 dra[section_id] * 3600. / self.pixel_scale )
+        return ( -self._chip_radec_off[section_id]['ddec'] * 3600. / self.pixel_scale ,
+                 self._chip_radec_off[section_id]['dra'] * 3600. / self.pixel_scale )
 
     def _make_new_section(self, section_id):
         """
@@ -1360,6 +1372,12 @@ class DECam(Instrument):
         defective = section_id in { 'N30', 'S7' }
         return SensorSection(section_id, self.name, size_x=2048, size_y=4096,
                              offset_x=dx, offset_y=dy, defective=defective)
+
+    def get_ra_dec_for_section( self, exposure, section_id ):
+        if section_id not in self._chip_radec_off:
+            raise ValueError( f"Unknown DECam section_id {section_id}" )
+        return ( exposure.ra + self._chip_radec_off[section_id]['dra'] / math.cos( exposure.dec * math.pi / 180. ),
+                 exposure.dec + self._chip_radec_off[section_id]['ddec'] )
 
     @classmethod
     def _get_fits_hdu_index_from_section_id(cls, section_id):
@@ -1391,6 +1409,101 @@ class DECam(Instrument):
         """
         return filter[0:1]
 
+    def find_origin_exposures( self, skip_exposures_in_database=True,
+                               minmjd=None, maxmjd=None, filters=None,
+                               containing_ra=None, containing_dec=None,
+                               minexptime=None, reduced=False,
+                               proposals=None ):
+        if ( containing_ra is None ) != ( containing_dec is None ):
+            raise RuntimeError( f"Must specify both or neither of (containing_ra, containing_dec)" )
+        if ( ( containing_ra is None ) or ( containing_dec is None ) ) and ( minmjd is None ):
+            raise RuntimeError( f"Must specify either a containing ra,dec or a minmjd to find DECam exposures." )
+        if containing_ra is not None:
+            raise NotImplementedError( f"containing_(ra|dec) is not implemented yet for DECam" )
+
+        # Convert mjd to iso format for astroarchive
+        starttime, endtime = astropy.time.Time( [ starttime, endtime ], format='mjd').to_value( 'isot' )
+        spec = {
+            "outfields" : [
+                "archive_filename",
+                "instrument",
+                "telescope",
+                "proposal",
+                "proc_type",
+                "prod_type",
+                "caldat",
+                "dateobs_center",
+                "ifilter",
+                "exposure",
+                "md5sum",
+                "MJD-OBS",
+                "DATE-OBS",
+                "PHOTDPTH",
+                "SEEING",
+                "AIRMASS",
+            ],
+            "search" : [
+                ["instrument", "decam"],
+                ["proc_type", "instcal" if reduced else "raw"],
+                ["prod_type", "image"],
+                ["dateobs_center", starttime, endtime],
+            ]
+        }
+
+        if filters is not None:
+            if not isinstance( filters, collections.Sequence ):
+                raise TypeError( f"Error, filters must be a list or a string" )
+            if isinstance( filters, basestring ):
+                filters = [ filters ]
+            else:
+                filters = list( filters )
+            spec["search"].append( ["ifilter" ] +  [ f[0] for f in filters ] + [ "startswith" ] )
+
+        if proposals is not None:
+            if not isinstance( filters, collections.Sequence ):
+                raise TypeError( f"Error, proposals must be a list or a string" )
+            if isinstance( proposals, basestring ):
+                proposals = [ proposals ]
+            else:
+                proposals = list( proposals )
+            spec["search"].append( [ "proposal" ] + proposals )
+
+        # TODO : implement the ability to log in via a configured username and password
+        # For now, will only get exposures that are public
+        apiurl = f'https://astroarchive.noirlab.edu/api/adv_search/find/?format=json&limit=0'
+        _logger.debug( f"Sending NOIRLab search query to {apiurl} with json={spec}" )
+        response = requests.post( apurl, json=spec )
+        response.raise_for_status()
+
+        if response.status_code == 200:
+            files = pd.DataFrame( response.json()[1:] )
+        else:
+            _logger.error( response.json()['errorMessage'] )
+            # _logger.error( response.json()['traceback'] )     # Uncomment for API developer use
+            return None
+
+        if files.empty:
+            _logger.warning( f"DECam exposure search found no files." )
+            return None
+
+        files['filtercode'] = files.ifilter.str[0]
+        if minexptime is not None:
+            files = files[ files.exposure >= minexptime ]
+
+        if skip_exposures_in_database:
+            raise NotImplementedError( "TODO: implement skip_exposures_in_database" )
+
+        files.sort_values( by='obsmjd', inplace=True, ignore_index=True )
+
+        return DECamOriginExposures( reduced, files )
+
+
+class DECamOriginExposures:
+    """An object that encapsulates what was found by DECam.find_origin_exposures()"""
+
+    def __init__( self, reduced, frame ):
+        self.reduced = reduced
+        self.frame = frame
 
 if __name__ == "__main__":
     inst = DemoInstrument()
