@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 import sqlalchemy as sa
+from sqlalchemy import orm
 from sqlalchemy.types import Enum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CheckConstraint
@@ -132,6 +133,28 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         nullable=False,
         default='fits',
         doc="Format of the image on disk. Should be fits or hdf5. "
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey('provenances.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+        doc=(
+            "ID of the provenance of this exposure. "
+            "The provenance will containe a record of the code version "
+            "and the parameters used to obtain this exposure."
+        )
+    )
+
+    provenance = orm.relationship(
+        'Provenance',
+        cascade='save-update, merge, refresh-expire, expunge',
+        lazy='selectin',
+        doc=(
+            "Provenance of this exposure. "
+            "The provenance will containe a record of the code version "
+            "and the parameters used to obtain this exposure."
+        )
     )
 
     header = sa.Column(
@@ -379,6 +402,62 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     def __str__(self):
         return self.__repr__()
+
+    def invent_filename( self ):
+        """Create a filename for the exposure based on metadata.
+
+        This is used when saving the exposure to disk
+
+        """
+
+        # Much code redundancy with Image.invent_filename; move to a mixin?
+
+        if self.provenance is None:
+            raise ValueError("Cannot invent filename for exposure without provenance.")
+        prov_hash = self.provenance.unique_hash
+
+        t = Time(self.mjd, format='mjd', scale='utc').datetime
+        date = t.strftime('%Y%m%d')
+        time = t.strftime('%H%M%S')
+
+        short_name = self.instrument_object.get_short_instrument_name()
+        filter = self.instrument_object.get_short_filter_name(self.filter)
+
+        ra = self.ra
+        ra_int, ra_frac = str(float(ra)).split('.')
+        ra_int = int(ra_int)
+        ra_int_h = ra_int // 15
+        ra_frac = int(ra_frac)
+
+        dec = self.dec
+        dec_int, dec_frac = str(float(dec)).split('.')
+        dec_int = int(dec_int)
+        dec_int_pm = f'p{dec_int:02d}' if dec_int >= 0 else f'm{dec_int:02d}'
+        dec_frac = int(dec_frac)
+
+        default_convention = "{short_name}_{date}_{time}_{filter}_{prov_hash:.6s}"
+        cfg = config.Config.get()
+        name_convention = cfg.value( 'storage.exposures.name_convention', default=None )
+        if name_convention is None:
+            name_convention = default_convention
+
+        filename = name_convention.format(
+            short_name=short_name,
+            date=date,
+            time=time,
+            filter=filter,
+            ra=ra,
+            ra_int=ra_int,
+            ra_int_h=ra_int_h,
+            ra_frac=ra_frac,
+            dec=dec,
+            dec_int=dec_int,
+            dec_int_pm=dec_int_pm,
+            dec_frac=dec_frac,
+            prov_hash=prov_hash,
+        )
+
+        return filename
 
     def save(self):
         pass  # TODO: implement this! do we need this?

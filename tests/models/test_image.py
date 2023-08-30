@@ -640,3 +640,4 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
     im.data = np.float32(im.raw_data - np.median(im.raw_data))
 
     # check we can save the image using the filename conventions
+    

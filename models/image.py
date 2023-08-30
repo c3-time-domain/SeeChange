@@ -151,7 +151,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         index=True,
         doc=(
             "ID of the provenance of this image. "
-            "The provenance will contain a record of the code version"
+            "The provenance will contain a record of the code version "
             "and the parameters used to produce this image. "
         )
     )
@@ -162,7 +162,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         lazy='selectin',
         doc=(
             "Provenance of this image. "
-            "The provenance will contain a record of the code version"
+            "The provenance will contain a record of the code version "
             "and the parameters used to produce this image. "
         )
     )

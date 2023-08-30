@@ -3,13 +3,15 @@ import time
 import re
 import uuid
 import datetime
+import hashlib
+import logging
 
 import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
-from models.base import SmartSession
+from models.base import SmartSession, _logger
 from models.instrument import SensorSection, Instrument, DemoInstrument, DECam
 from models.exposure import Exposure
 
@@ -285,5 +287,76 @@ def test_instrument_inheritance_full_example():
     assert im_data.sum() > 0
     assert abs(np.mean(im_data) - 10) < 0.1  # random numbers with Poisson distribution around lambda=10
 
+def test_demoim_search_notimplemented():
+    inst = DemoInstrument()
+    with pytest.raises( NotImplementedError ):
+        inst.find_origin_exposures()
 
+@pytest.fixture(scope='module')
+def decam_origin_exposures():
+    decam = DECam()
+    yield decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
+                                       proposals='2023A-716082',
+                                       skip_exposures_in_database=False )
+    
+def test_decam_search_noirlab( decam_origin_exposures ):
+    origloglevel = _logger.getEffectiveLevel()
+    try:
+        # Make sure we'll show the things sent to the noirlab API
+        # so that we have a hope of figuring out what went wrong
+        # if something does go wrong.
+        _logger.setLevel( logging.DEBUG )
+
+        decam = DECam()
+
+        # Make sure it yells at us if we don't give any constraints
+        with pytest.raises( RuntimeError ):
+            decam.find_origin_exposures()
+
+        # Make sure we can find some raw exposures without filter/proposals
+        originexposures = decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
+                                                       skip_exposures_in_database=False )
+        assert len(originexposures._frame) == 9
+        assert set(originexposures._frame.filtercode) == { 'g', 'V', 'i', 'r', 'z' }
+        assert set(originexposures._frame.proposal) == { '2023A-716082', '2023A-921384' }
+
+
+        # Make sure we can find raw exposures limiting by proposal
+        originexposures = decam_origin_exposures
+        assert set(originexposures._frame.filtercode) == { 'i', 'r', 'g', 'z' }
+        assert set(originexposures._frame.proposal) == { '2023A-716082' }
+
+        # Make sure we can find raw exposures limiting by filter
+        originexposures = decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
+                                                       filters='r',
+                                                       skip_exposures_in_database=False )
+        assert len(originexposures._frame) == 2
+        assert set(originexposures._frame.filtercode) == { 'r' }
+
+        originexposures = decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
+                                                       filters=[ 'r', 'g' ],
+                                                       skip_exposures_in_database=False )
+        assert len(originexposures._frame) == 4
+        assert set(originexposures._frame.filtercode) == { 'r', 'g' }
+    finally:
+        _logger.setLevel( origloglevel )
+
+def test_decam_download_origin_exposure( decam_origin_exposures ):
+    downloaded = decam_origin_exposures.download_exposures( indexes=[ 1, 3 ] )
+    try:
+        assert len(downloaded) == 2
+        for path, dex in zip( downloaded, [ 1, 3 ] ):
+            md5 = hashlib.md5()
+            with open( path, "rb") as ifp:
+                md5.update( ifp.read() )
+            assert md5.hexdigest() == decam_origin_exposures._frame.iloc[dex].md5sum
+        import pdb; pdb.set_trace()
+        pass
+    finally:
+        for path in downloaded:
+            path.unlink()
+
+
+        
+    
 # TODO: add more tests for e.g., loading FITS headers

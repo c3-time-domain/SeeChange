@@ -3,6 +3,8 @@ import pytest
 import uuid
 import wget
 import shutil
+import pathlib
+import warnings
 
 import numpy as np
 
@@ -263,6 +265,8 @@ def archive():
 @pytest.fixture
 def config_test():
     # Make sure the environment is set as expected for tests
-    assert os.getenv( "SEECHANGE_CONFIG" ) == "/seechange/tests/seechange_config_test.yaml"
-    return config.Config.get( os.getenv("SEECHANGE_CONFIG") )
+    conffile = pathlib.Path( __file__ ).parent / "seechange_config_test.yaml"
+    if os.getenv( "SEECHANGE_CONFIG" ) != str( conffile.resolve() ):
+        warnings.warn( "Ignoring $SEECHANGE_CONFIG, loading config from {conffile} for config_text fixture" )
+    return config.Config.get( conffile )
 
