@@ -175,6 +175,25 @@ class Provenance(Base):
             hashes.sort()
             return hashes
 
+    @classmethod
+    def create_or_load( cls, **kwargs ):
+        """Return a Provenance object, adding it to the database if it's not there already.
+
+        Paramteres : same as Provenance.__init__
+
+        """
+        prov = Provenance( **kwargs )
+        prov.update_hash()
+        passedsession = None if 'session' not in kwargs.keys() else kwargs['session']
+        with SmartSession( passedsession ) as session:
+            q = session.query( Provenance ).filter( Provenance.unique_hash==prov.unique_hash )
+            existingprov = q.first()
+            if existingprov is None:
+                session.add( prov )
+            else:
+                prov = existingprov
+        return prov
+
     def __init__(self, **kwargs):
         """
         Create a provenance object.

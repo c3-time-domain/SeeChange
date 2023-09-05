@@ -94,6 +94,8 @@ def test_provenances(code_version):
     try:
 
         with SmartSession() as session:
+            ninitprovs = session.query( Provenance ).count()
+            
             p = Provenance(
                 process="test_process",
                 code_version=code_version,
@@ -127,9 +129,38 @@ def test_provenances(code_version):
             assert isinstance(p2.unique_hash, str)
             assert len(p2.unique_hash) == 20
             assert p2.unique_hash != hash
-    finally:
+
+            # Make sure create_or_load can create a provenance
+            p3 = Provenance.create_or_load( code_version=code_version,
+                                            parameters={"test_key": "test_value3"},
+                                            process="test_process",
+                                            upstreams=[],
+                                            session=session )
+            session.commit()
+            pid3 = p3.id
+            assert pid3 is not None
+            assert p3.unique_hash is not None
+            assert isinstance( p3.unique_hash, str )
+            assert len( p3.unique_hash ) == 20
+            assert p3.unique_hash != hash
+            assert p3.unique_hash != p2.unique_hash
+
         with SmartSession() as session:
-            session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2])))
+            # Make sure create_or_load loads a provenance but doesn't create a new one
+            p3redo = Provenance.create_or_load( code_version=code_version,
+                                                parameters={"test_key": "test_value3"},
+                                                process="test_process",
+                                                upstreams=[],
+                                                session=session )
+            pid3redo = p3redo.id
+            assert pid3redo == pid3
+            assert p3redo.unique_hash == p3.unique_hash
+
+            assert session.query( Provenance ).count() == ninitprovs + 3
+    finally:
+        import pdb; pdb.set_trace()
+        with SmartSession() as session:
+            session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2, pid3])))
             session.commit()
 
     # deleting the Provenance does not delete the CodeVersion!
