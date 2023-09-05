@@ -1248,11 +1248,11 @@ class DECam(Instrument):
         self.read_time = 20.0
         self.orientation_fixed = True
         self.orientation = InstrumentOrientation.NleftEup
-        # self.read_noise = 7.0
-        # self.dark_current = 0.1
-        # self.gain = 4.0
-        # self.saturation_limit = 
-        # self.non_linearity_limit = 
+        self.read_noise = 7.0
+        self.dark_current = 0.1
+        self.gain = 4.0
+        self.saturation_limit = 44000
+        self.non_linearity_limit = 44000
         self.allowed_filters = ["g", "r", "i", "z", "Y"]
 
         # These numbers were measured off of the WCS solution to
