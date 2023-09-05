@@ -92,7 +92,7 @@ def test_image_archive_singlefile(demo_image, provenance_base, archive):
     demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint16)
 
     cfg = config.Config.get()
-    archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+    archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
     single_fileness = cfg.value( 'storage.images.single_file' )
 
     try:
@@ -159,7 +159,7 @@ def test_image_archive_multifile(demo_image, provenance_base, archive):
     demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint16)
 
     cfg = config.Config.get()
-    archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+    archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
     single_fileness = cfg.value( 'storage.images.single_file' )
 
     try:
@@ -242,10 +242,11 @@ def test_image_enum_values(demo_image, provenance_base):
                 session.commit()
             session.rollback()
 
-            for t in ["science", "reference", "difference", "bias", "dark", "flat"]:
-                demo_image.type = t
-                session.add(demo_image)
-                session.commit()
+            for prepend in ["", "Com"]:
+                for t in ["Sci", "Diff", "Bias", "Dark", "DomeFlat"]:
+                    demo_image.type = prepend+t
+                    session.add(demo_image)
+                    session.commit()
 
         finally:
             if data_filename is not None and os.path.exists(data_filename):
@@ -280,7 +281,7 @@ def test_image_coordinates():
 
 def test_image_from_exposure(exposure, provenance_base):
     exposure.update_instrument()
-    exposure.type = 'reference'
+    exposure.type = 'ComSci'
 
     # demo instrument only has one section
     with pytest.raises(ValueError, match='section_id must be 0 for this instrument.'):
@@ -511,7 +512,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
             if len(os.listdir(folder)) == 0:
                 os.rmdir(folder)
 
-        new_convention = '{ra_int:03d}/foo_{date}_{time}_{section_id:02d}_{filter}'
+        new_convention = '{ra_int:03d}/foo_{date}_{time}_{section_id_int:02d}_{filter}'
         cfg.set_value('storage.images.name_convention', new_convention)
         demo_image.save( no_archive=True )
         assert re.search(r'\d{3}/foo_\d{8}_\d{6}_\d{2}_.\.image\.fits', demo_image.get_fullpath()[0])
@@ -522,7 +523,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
             if len(os.listdir(folder)) == 0:
                 os.rmdir(folder)
 
-        new_convention = 'bar_{date}_{time}_{section_id:02d}_{ra_int_h:02d}{dec_int:+03d}'
+        new_convention = 'bar_{date}_{time}_{section_id_int:02d}_{ra_int_h:02d}{dec_int:+03d}'
         cfg.set_value('storage.images.name_convention', new_convention)
         demo_image.save( no_archive=True )
         assert re.search(r'bar_\d{8}_\d{6}_\d{2}_\d{2}[+-]\d{2}\.image\.fits', demo_image.get_fullpath()[0])

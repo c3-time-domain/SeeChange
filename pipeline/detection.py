@@ -1,5 +1,8 @@
-
+import numpy as np
+import numpy.lib.recfunctions as rfn
 import sqlalchemy as sa
+
+import sep
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -80,7 +83,6 @@ class Detector:
                     if detections.provenance.unique_hash != prov.unique_hash:
                         raise ValueError('Provenance mismatch for detections and provenance!')
 
-            detections.is_sub = True
             ds.detections = detections
 
         else:  # regular image
@@ -110,10 +112,43 @@ class Detector:
         return ds
 
     def extract_sources(self, image):
-        # TODO: finish this
-        # TODO: this should also generate an estimate of the PSF
+        """
+        Run source-extraction (using SExtractor) on the given image.
 
-        sources = SourceList()
+        Parameters
+        ----------
+        image: Image
+            The image to extract sources from.
+
+        Returns
+        -------
+        sources: SourceList
+            The list of sources detected in the image.
+            This contains a table where each row represents
+            one source that was detected, along with all its properties.
+
+        """
+        # TODO: finish this
+        # TODO: this should also generate an estimate of the PSF?
+
+        data = image.data
+
+        # see the note in https://sep.readthedocs.io/en/v1.0.x/tutorial.html#Finally-a-brief-word-on-byte-order
+        if data.dtype == '>f8':  # TODO: what about other datatypes besides f8?
+            data = data.byteswap().newbyteorder()
+        b = sep.Background(data)
+
+        data_sub = data - b.back()
+
+        print(f'threshold: {self.pars.threshold}')
+
+        objects = sep.extract(data_sub, self.pars.threshold, err=b.rms())
+
+        # get the radius containing half the flux for each source
+        r, flags = sep.flux_radius(data_sub, objects['x'], objects['y'], 6.0 * objects['a'], 0.5, subpix=5)
+        r = np.array(r, dtype=[('rhalf', '<f8')])
+        objects = rfn.merge_arrays((objects, r), flatten=True)
+        sources = SourceList(image=image, data=objects)
 
         return sources
 

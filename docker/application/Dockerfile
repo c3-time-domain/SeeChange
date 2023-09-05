@@ -176,6 +176,7 @@ RUN pip install \
       pyyaml==6.0 \
       requests==2.28.2 \
       scipy==1.10.1 \
+      sep==1.2.1 \
       simplejson==3.18.3 \
       sqlalchemy==2.0.7 \
       sqlalchemy-utils==0.40.0 \

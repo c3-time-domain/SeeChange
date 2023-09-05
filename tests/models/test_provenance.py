@@ -82,7 +82,7 @@ def test_provenances(code_version):
     # cannot create a provenance without a code version
     with pytest.raises(ValueError) as e:
         Provenance(process='foo')
-    assert "Code version must be a models.CodeVersion" in str(e)
+    assert "Provenance must have a code_version. " in str(e)
 
     # cannot create a provenance with a code_version of wrong type
     with pytest.raises(ValueError) as e:

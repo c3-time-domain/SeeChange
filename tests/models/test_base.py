@@ -6,6 +6,8 @@ import pathlib
 import random
 import uuid
 
+import sqlalchemy as sa
+
 import numpy
 
 import pytest
@@ -21,6 +23,7 @@ from models.base import Base, FileOnDiskMixin
 # functionality will be tested as a side effect of the save testing in
 # test_image.py
 
+
 class DiskFile(Base, FileOnDiskMixin):
     """A temporary database table for testing FileOnDiskMixin
 
@@ -28,6 +31,7 @@ class DiskFile(Base, FileOnDiskMixin):
     hexbarf = ''.join( [ random.choice( '0123456789abcdef' ) for i in range(8) ] )
     __tablename__ = f"test_diskfiles_{hexbarf}"
     nofile = True
+
 
 @pytest.fixture(scope='session')
 def diskfiletable():
@@ -123,9 +127,10 @@ def test_fileondisk_save_failuremodes( diskfile ):
         diskfile.save( data2, overwrite=False, exists_ok=True, verify_md5=True )
     filepath.unlink()
 
+
 def test_fileondisk_save_singlefile( diskfile, archive ):
     cfg = config.Config.get()
-    archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+    archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
 
     diskfile.filepath = 'test_fileondisk_save.dat'
     data1 = numpy.random.rand( 32 ).tobytes()
@@ -251,7 +256,7 @@ def test_fileondisk_save_singlefile( diskfile, archive ):
 def test_fileondisk_save_multifile( diskfile, archive ):
     try:
         cfg = config.Config.get()
-        archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+        archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
 
         diskfile.filepath = 'test_fileondisk_save'
         data1 = numpy.random.rand( 32 ).tobytes()

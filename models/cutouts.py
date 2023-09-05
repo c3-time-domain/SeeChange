@@ -2,12 +2,19 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base, FileOnDiskMixin, SpatiallyIndexed
+from models.base import Base, FileOnDiskMixin, SpatiallyIndexed, file_format_enum
 
 
 class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = 'cutouts'
+
+    format = sa.Column(
+        file_format_enum,
+        nullable=False,
+        default='fits',
+        doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
+    )
 
     source_list_id = sa.Column(
         sa.ForeignKey('source_lists.id'),

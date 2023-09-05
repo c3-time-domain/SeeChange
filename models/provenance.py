@@ -105,16 +105,6 @@ class Provenance(Base):
         lazy='selectin',  # should be able to get upstream_hashes without a session!
     )
 
-    # downstreams = relationship(
-    #     "Provenance",
-    #     secondary=provenance_self_association_table,
-    #     primaryjoin='provenances.c.id == provenance_upstreams.c.upstream_id',
-    #     secondaryjoin='provenances.c.id == provenance_upstreams.c.downstream_id',
-    #     back_populates="upstreams",
-    #     passive_deletes=True,
-    #     # can add lazy='selectin' here, but probably not need it
-    # )
-
     CodeVersion.provenances = relationship(
         "Provenance",
         back_populates="code_version",
@@ -129,6 +119,40 @@ class Provenance(Base):
         index=True,
         unique=True,
         doc="Unique hash of the code version, parameters and upstream provenances used to generate this dataset. ",
+    )
+
+    is_bad = sa.Column(
+        sa.Boolean,
+        nullable=False,
+        default=False,
+        doc="Flag to indicate if the provenance is bad and should not be used. ",
+    )
+
+    bad_comment = sa.Column(
+        sa.String,
+        nullable=True,
+        doc="Comment on why the provenance is bad. ",
+    )
+
+    is_outdated = sa.Column(
+        sa.Boolean,
+        nullable=False,
+        default=False,
+        doc="Flag to indicate if the provenance is outdated and should not be used. ",
+    )
+
+    replaced_by = sa.Column(
+        sa.Integer,
+        sa.ForeignKey("provenances.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="ID of the provenance that replaces this one. ",
+    )
+
+    is_testing = sa.Column(
+        sa.Boolean,
+        nullable=False,
+        default=False,
+        doc="Flag to indicate if the provenance is for testing purposes only. ",
     )
 
     @property
@@ -151,7 +175,7 @@ class Provenance(Base):
             hashes.sort()
             return hashes
 
-    def __init__(self, process=None, code_version=None, parameters=None, upstreams=None):
+    def __init__(self, **kwargs):
         """
         Create a provenance object.
 
@@ -167,33 +191,42 @@ class Provenance(Base):
             Include only the critical parameters that affect the final products.
         upstreams: list of Provenance
             List of provenance objects that this provenance object is dependent on.
+        is_bad: bool
+            Flag to indicate if the provenance is bad and should not be used.
+        bad_comment: str
+            Comment on why the provenance is bad.
+        is_testing: bool
+            Flag to indicate if the provenance is for testing purposes only.
+        is_outdated: bool
+            Flag to indicate if the provenance is outdated and should not be used.
+        replaced_by: int
+            ID of the Provenance object that replaces this one.
         """
         SeeChangeBase.__init__(self)
 
-        if process is None:
+        if kwargs.get('process') is None:
             raise ValueError('Provenance must have a process name. ')
         else:
-            self.process = process
+            self.process = kwargs.get('process')
+
+        if 'code_version' not in kwargs:
+            raise ValueError('Provenance must have a code_version. ')
+
+        code_version = kwargs.get('code_version')
         if not isinstance(code_version, CodeVersion):
             raise ValueError(f'Code version must be a models.CodeVersion. Got {type(code_version)}.')
         else:
             self.code_version = code_version
 
-        if parameters is None:
-            self.parameters = {}
-        else:
-            self.parameters = parameters
-
-        if upstreams is None:
-            self.upstreams = []
-        else:
-            if not isinstance(upstreams, list):
-                self.upstreams = [upstreams]
-            if len(upstreams) > 0:
-                if isinstance(upstreams[0], Provenance):
-                    self.upstreams = upstreams
-                else:
-                    raise ValueError('upstreams must be a list of Provenance objects')
+        self.parameters = kwargs.get('parameters', {})
+        upstreams = kwargs.get('upstreams', [])
+        if not isinstance(upstreams, list):
+            self.upstreams = [upstreams]
+        if len(upstreams) > 0:
+            if isinstance(upstreams[0], Provenance):
+                self.upstreams = upstreams
+            else:
+                raise ValueError('upstreams must be a list of Provenance objects')
 
     def __repr__(self):
         return (
@@ -203,7 +236,7 @@ class Provenance(Base):
             f'code_version="{self.code_version.version}", '
             f'parameters={self.parameters}, '
             f'upstreams={[h[:6] for h in self.upstream_hashes]}, '
-            f'hash= {self.unique_hash[:6]})>'
+            f'hash= {self.unique_hash[:6] if self.unique_hash else ""})>'
         )
 
     def update_hash(self):
@@ -281,10 +314,6 @@ class Provenance(Base):
         merged_self.upstreams = [
             u.recursive_merge(session, done_list=done_list) for u in merged_self.upstreams if u is not None
         ]
-
-        # merged_self.downstreams = [
-        #     d.recursive_merge(session, done_list=done_list) for d in merged_self.downstreams if d is not None
-        # ]
 
         return merged_self
 

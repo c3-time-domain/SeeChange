@@ -85,14 +85,15 @@ class Config:
 
     4. Change a config value with
 
-           confobj.set_or_append_value( fieldspec, value )
+           confobj.set_value( fieldspec, value )
 
        This only changes it for the running session, it does *not*
        affect the YAML files in storage.
 
     """
 
-    _default_default = os.getenv("SEECHANGE_CONFIG", None)
+    top_level_config = str((pathlib.Path(__file__).parent.parent / "default_config.yaml").resolve())
+    _default_default = os.getenv('SEECHANGE_CONFIG', top_level_config)
 
     _default = None
     _configs = {}
@@ -104,7 +105,9 @@ class Config:
         Parameters
         ----------
         configfile : str or pathlib.Path, default None
-            If None, will set the config file to os.getenv("SEECHANGE_CONFIG")
+            If None, will set the config file to the environmental
+            variable SEECHANGE_CONFIG, and if that is not defined,
+            will set to default_config.yaml in the top level of the project.
 
         logger: logging object, default: getLogger("main")
         
@@ -112,7 +115,6 @@ class Config:
             An ugly hack for changing the directories of imported files; see the static function dirmap.
 
         """
-
         Config.get( configfile, logger=logger, dirmap=dirmap )
 
     @staticmethod
@@ -316,8 +318,12 @@ class Config:
         augmentpath = pathlib.Path( augmentfile )
         if not augmentpath.is_absolute():
             augmentpath = ( self._path.parent / augmentfile ).resolve()
-        augment = Config( augmentpath, logger=self.logger, dirmap=dirmap )._data
-        self._data = Config._merge_trees( self._data, augment, augment=True )
+        if augmentpath.is_file():
+            self.logger.info( f'Reading file {augmentfile} as an augment. ' )
+            augment = Config( augmentpath, logger=self.logger, dirmap=dirmap )._data
+            self._data = Config._merge_trees( self._data, augment, augment=True )
+        elif augmentfile is not None:
+            self.logger.info( f'Augment file {augmentfile} not found. ' )
 
     def _override( self, overridefile, dirmap=dirmap ):
         """Read file (or path) overridefile and override config data.  Intended for internal use only.
@@ -340,10 +346,15 @@ class Config:
           recurse into the conflict rules.
         """
         overridepath = pathlib.Path( overridefile )
+
         if not overridepath.is_absolute():
             overridepath = ( self._path.parent / overridefile ).resolve()
-        override = Config( overridepath, logger=self.logger, dirmap=dirmap )._data
-        self._data = Config._merge_trees( self._data, override )
+        if overridepath.is_file():
+            self.logger.info(f'Reading file {overridepath} as an override. ')
+            override = Config( overridepath, logger=self.logger, dirmap=dirmap )._data
+            self._data = Config._merge_trees( self._data, override )
+        elif overridefile is not None:
+            self.logger.info( f'Override file {overridefile} not found. ' )
 
     def value( self, field, default=NoValue(), struct=None ):
         """Get a value from the config structure.
@@ -401,35 +412,39 @@ class Config:
             if ifield >= len(struct):
                 raise ValueError( f'{ifield} > {len(struct)}, the length of the list' )
             if isleaf:
-                return struct[ifield]
+                return_value = struct[ifield]
             else:
                 try:
-                    return self.value( ".".join(fields[1:]), default, struct[ifield] )
+                    return_value = self.value( ".".join(fields[1:]), default, struct[ifield] )
                 except Exception as e:
                     if isinstance(default, NoValue):
                         raise ValueError( f'Error getting list element {ifield}' ) from e
                     else:
-                        return default
+                        return_value = default
         elif isinstance( struct, dict ):
             if curfield not in struct:
                 if isinstance(default, NoValue):
                     raise ValueError( f'Field {curfield} doesn\'t exist' )
                 else:
-                    return default
-            if isleaf:
-                return struct[curfield]
+                    return_value = default
+            elif isleaf:
+                return_value = struct[curfield]
             else:
                 try:
-                    return self.value( ".".join(fields[1:]), default, struct[curfield] )
+                    return_value = self.value( ".".join(fields[1:]), default, struct[curfield] )
                 except Exception as e:
                     if isinstance(default, NoValue):
                         raise ValueError( f'Error getting field {curfield}' ) from e
                     else:
-                        return default
+                        return_value = default
         else:
             if not isleaf:
                 raise ValueError( f'Tried to get field {curfield} of scalar!' )
-            return struct
+            return_value = struct
+
+        if isinstance(return_value, (dict, list)):
+            return_value = copy.deepcopy( return_value )
+        return return_value
 
     def set_value( self, field, value, structpass=None, appendlists=False ):
         """Set a value in the singleton for the current session.
@@ -582,3 +597,8 @@ class Config:
             return newdict
         else:
             return copy.deepcopy( right )
+
+
+if __name__ == "__main__":
+    import os
+    conf = Config.get()

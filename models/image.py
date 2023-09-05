@@ -4,6 +4,7 @@ from sqlalchemy import orm
 from sqlalchemy.types import Enum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm.exc import DetachedInstanceError
+from sqlalchemy.ext.hybrid import hybrid_property
 
 from astropy.time import Time
 from astropy.wcs import WCS
@@ -11,8 +12,8 @@ import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
 
-from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed
-from models.exposure import Exposure, im_type_enum, im_format_enum
+from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, file_format_enum
+from models.exposure import Exposure, image_type_enum
 from models.instrument import get_instrument_instance
 from models.provenance import Provenance
 
@@ -25,15 +26,16 @@ image_source_self_association_table = sa.Table(
     sa.Column('combined_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
 )
 
+
 class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = 'images'
 
     format = sa.Column(
-        im_format_enum,
+        file_format_enum,
         nullable=False,
         default='fits',
-        doc="Format of the image on disk. Should be fits or hdf5. "
+        doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
     )
 
     exposure_id = sa.Column(
@@ -124,7 +126,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         return False
 
-    @property
+    @hybrid_property
     def is_sub(self):
         try:
             if self.ref_image is not None and self.new_image is not None:
@@ -135,13 +137,19 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         return False
 
+    @is_sub.expression
+    def is_sub(cls):
+        return cls.ref_image_id.isnot(None) & cls.new_image_id.isnot(None)
+
     type = sa.Column(
-        im_type_enum,  # defined in models/exposure.py
+        image_type_enum,  # defined in models/exposure.py
         nullable=False,
-        default="science",
+        default="Sci",
         index=True,
         doc=(
-            "Type of image. One of: science, reference, difference, bias, dark, flat. "
+            "Type of image. One of: Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, "
+            "or any of the above types prepended with 'Com' for combined "
+            "(e.g., a ComSci image is a science image combined from multiple exposures)."
         )
     )
 
@@ -341,7 +349,8 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
             'telescope',
             'filter',
             'project',
-            'target'
+            'target',
+            'format',
         ]
 
         # copy all the columns that are the same
@@ -442,6 +451,9 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         output.raw_header = images[0].raw_header
 
         output.source_images = images
+        base_type = images[0].type
+        if not base_type.startswith('Com'):
+            output.type = 'Com' + base_type
 
         # Note that "data" is not filled by this method, also the provenance is empty!
         return output
@@ -472,7 +484,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         output = Image(nofile=True)
 
         # for each attribute, check the two images have the same value
-        for att in ['section_id', 'instrument', 'telescope', 'type', 'filter', 'project', 'target']:
+        for att in ['section_id', 'instrument', 'telescope', 'filter', 'project', 'target']:
             ref_value = getattr(ref, att)
             new_value = getattr(new, att)
 
@@ -493,6 +505,9 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         output.ref_image = ref
         output.new_image = new
+        output.type = 'Diff'
+        if new.type.startswith('Com'):
+            output.type = 'ComDiff'
 
         # Note that "data" is not filled by this method, also the provenance is empty!
         return output
@@ -509,6 +524,12 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
     def instrument_object(self, value):
         self._instrument_object = value
 
+    @property
+    def filter_short(self):
+        if self.filter is None:
+            return None
+        return self.instrument_object.get_short_filter_name(self.filter)
+
     def __repr__(self):
 
         type_str = self.type
@@ -522,7 +543,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
             f"Image(id: {self.id}, "
             f"type: {type_str}, "
             f"exp: {self.exp_time}s, "
-            f"filt: {self.filter}, "
+            f"filt: {self.filter_short}, "
             f"from: {self.instrument}/{self.telescope}"
         )
 
@@ -535,48 +556,60 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     def invent_filename(self):
         """
-        Create a filename for the image based on the metadata.
+        Create a filename for the object based on its metadata.
         This is used when saving the image to disk.
+        Data products that depend on an image and are also
+        saved to disk (e.g., SourceList) will just append
+        another string to the Image filename.
         """
-        # TODO: we may want to get the naming convention from the config file
-        #  in which case we will need to parse it somehow, e.g., using some blocks
-        #  like <instrument>, <filter>, etc.
+        prov_hash = inst_name = im_type = date = time = filter = ra = dec = dec_int_pm = ''
+        ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
 
-        if self.provenance is None:
-            raise ValueError("Cannot invent filename for image without provenance.")
+        if self.provenance is not None:
+            prov_hash = self.provenance.unique_hash
+        if self.instrument_object is not None:
+            inst_name = self.instrument_object.get_short_instrument_name()
+        if self.type is not None:
+            im_type = self.type
 
-        t = Time(self.mjd, format='mjd', scale='utc').datetime
+        if self.mjd is not None:
+            t = Time(self.mjd, format='mjd', scale='utc').datetime
+            date = t.strftime('%Y%m%d')
+            time = t.strftime('%H%M%S')
 
-        short_name = self.instrument_object.get_short_instrument_name()
-        date = t.strftime('%Y%m%d')
-        time = t.strftime('%H%M%S')
-        filter = self.instrument_object.get_short_filter_name(self.filter)
+        if self.filter_short is not None:
+            filter = self.filter_short
 
-        ra = self.ra
-        ra_int, ra_frac = str(float(ra)).split('.')
-        ra_int = int(ra_int)
-        ra_int_h = ra_int // 15
-        ra_frac = int(ra_frac)
+        if self.section_id is not None:
+            section_id = str(self.section_id)
+            try:
+                section_id_int = int(self.section_id)
+            except ValueError:
+                section_id_int = 0
 
-        dec = self.dec
-        dec_int, dec_frac = str(float(dec)).split('.')
-        dec_int = int(dec_int)
-        dec_int_pm = f'p{dec_int:02d}' if dec_int >= 0 else f'm{dec_int:02d}'
-        dec_frac = int(dec_frac)
+        if self.ra is not None:
+            ra = self.ra
+            ra_int, ra_frac = str(float(ra)).split('.')
+            ra_int = int(ra_int)
+            ra_int_h = ra_int // 15
+            ra_frac = int(ra_frac)
 
-        section_id = self.section_id
-        prov_hash = self.provenance.unique_hash
-
-        default_convention = "{short_name}_{date}_{time}_{section_id}_{filter}_{prov_hash:.6s}"
+        if self.dec is not None:
+            dec = self.dec
+            dec_int, dec_frac = str(float(dec)).split('.')
+            dec_int = int(dec_int)
+            dec_int_pm = f'p{dec_int:02d}' if dec_int >= 0 else f'm{dec_int:02d}'
+            dec_frac = int(dec_frac)
 
         cfg = config.Config.get()
+        default_convention = "{inst_name}_{date}_{time}_{section_id}_{filter}_{im_type}_{prov_hash:.6s}"
         name_convention = cfg.value('storage.images.name_convention', default=None)
-
         if name_convention is None:
             name_convention = default_convention
 
         filename = name_convention.format(
-            short_name=short_name,
+            inst_name=inst_name,
+            im_type=im_type,
             date=date,
             time=time,
             filter=filter,
@@ -589,9 +622,12 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
             dec_int_pm=dec_int_pm,
             dec_frac=dec_frac,
             section_id=section_id,
+            section_id_int=section_id_int,
             prov_hash=prov_hash,
         )
 
+        # TODO: which elements of the naming convention are really necessary?
+        #  and what is a good way to make sure the filename actually depends on them?
         return filename
 
     def save(self, filename=None, **kwargs ):
@@ -684,7 +720,6 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         else:
             for ext in extensions:
                 super().save( files_written[ext], ext, **kwargs )
-                          
 
     def load(self):
         """
@@ -705,12 +740,12 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
             filename = self.get_fullpath()
             if not os.path.isfile(filename):
                 raise FileNotFoundError(f"Could not find the image file: {filename}")
-            self._data, self._raw_header = read_fits_image(filename, ext=0, output='both')
-            # TODO: do we know what the extensions are for weight/flags/etc? are they ordered or named?
-            # Rob: we should have standard names for them; there is already a standard set of names
-            #   in save() above: ['flags', 'weight', 'background', 'score', 'psf']
-            self._flags = read_fits_image(filename, ext=1)  # TODO: is the flags always extension 1??
-            self._weight = read_fits_image(filename, ext=2)  # TODO: is the weight always extension 2??
+            self._data, self._raw_header = read_fits_image(filename, ext='image', output='both')
+            self._flags = read_fits_image(filename, ext='flags')
+            self._weight = read_fits_image(filename, ext='weight')
+            self._background = read_fits_image(filename, ext='background')
+            self._score = read_fits_image(filename, ext='score')
+            # TODO: add more if needed!
 
         else:  # save each data array to a separate file
             # assumes there are filepath_extensions so get_fullpath() will return a list (as_list guarantees this)

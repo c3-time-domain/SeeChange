@@ -10,7 +10,7 @@ from astropy.time import Time
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
-from models.base import SmartSession
+from models.base import SmartSession, CODE_ROOT
 from models.exposure import Exposure, SectionData
 
 from models.instrument import Instrument, DECam, DemoInstrument
@@ -186,6 +186,13 @@ def test_exposure_spatial_indexing(exposure):
 
 def test_decam_exposure(decam_example_file):
     assert os.path.isfile(decam_example_file)
+
+    # verify we don't already have an Exposure like this on DB
+    decam_example_file_short = decam_example_file[len(CODE_ROOT + '/data/'):]
+    with SmartSession() as session:
+        session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
+        session.commit()
+
     e = Exposure(decam_example_file)
 
     assert e.instrument == 'DECam'

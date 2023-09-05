@@ -130,12 +130,12 @@ Database migrations are handled with alembic.
 
 If you've just created a database and want to initialize it with all the tables, run
 ```
-  SEECHANGE_CONFIG=<configfile> alembic upgrade head
+  alembic upgrade head
 ```
 
 After editing any schema, you have to create new database migrations to apply them.  Do this by running something like:
 ```
-  SEECHANGE_CONFIG=<configfile> alembic revision --autogenerate -m "<put a short comment here>"
+  alembic revision --autogenerate -m "<put a short comment here>"
 ```
 The comment will go in the filename, so it should really be short.  
 Look out for any warnings, and review the created migration file before applying it (with `alembic upgrade head`).

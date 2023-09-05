@@ -16,8 +16,6 @@ services:
   seechange_dbmigrate:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
     build: ../docker/application
-    environment:
-      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
       seechange_postgres:
          condition: service_healthy
@@ -32,8 +30,6 @@ services:
 seechange:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
     build: ../docker/application
-    environment:
-      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
       seechange_postgres:
          condition: service_healthy

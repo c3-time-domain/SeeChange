@@ -99,11 +99,11 @@ def test_parameters( config_test ):
 
     # Verify that manual override works for all parts of pipeline
     overrides = { 'preprocessing': { 'use_sky_subtraction': True },
-                  # 'extractin': # Currently has no parameters defined
+                  # 'extraction': # Currently has no parameters defined
                   'astro_cal': { 'cross_match_catalog': 'override' },
                   'photo_cal': { 'cross_match_catalog': 'override' },
                   'subtraction': { 'method': 'override' },
-                  'detection': { 'threshold': -3.14 },
+                  'detection': { 'threshold': 3.14 },
                   'cutting': { 'cutout_size': 666 },
                   'measurement': { 'photometry_method': 'override' }
                  }
@@ -131,7 +131,7 @@ def test_parameters( config_test ):
 def test_data_flow(exposure, reference_entry):
     """Test that the pipeline runs end-to-end."""
     sec_id = reference_entry.section_id
-
+    exp_id = None
     ds = None
     try:  # cleanup the file at the end
         # add the exposure to DB and use that ID to run the pipeline
@@ -148,6 +148,9 @@ def test_data_flow(exposure, reference_entry):
             ref_id = reference_entry.image.id
 
         p = Pipeline()
+        assert p.extractor.pars.threshold != 3.14
+        assert p.detector.pars.threshold != 3.14
+
         ds = p.run(exp_id, sec_id)
 
         # commit to DB using this session
@@ -183,8 +186,8 @@ def test_data_flow(exposure, reference_entry):
             with SmartSession() as session:
                 check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session, ds)
 
-        print(ds.image.filepath)
-        print(ds.sub_image.filepath)
+        # print(ds.image.filepath)
+        # print(ds.sub_image.filepath)
         # make sure we can remove the data from the end to the beginning and recreate it
         for i in range(len(attributes)):
             for j in range(i):
@@ -213,5 +216,11 @@ def test_data_flow(exposure, reference_entry):
     finally:
         if ds is not None:
             ds.delete_everything()
-
+        if exp_id is not None:
+            with SmartSession() as session:
+                exposure = session.scalars(sa.select(Exposure).where(Exposure.id == exp_id)).first()
+                if exposure is not None:
+                    exposure.remove_data_from_disk()
+                    session.delete(exposure)
+                    session.commit()
 

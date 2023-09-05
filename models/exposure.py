@@ -9,7 +9,7 @@ from sqlalchemy.orm.session import object_session
 
 from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_to_deg
 
-from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession
+from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession, file_format_enum
 from models.instrument import Instrument, guess_instrument, get_instrument_instance
 
 
@@ -113,26 +113,46 @@ class SectionHeaders:
         self._header = defaultdict(lambda: None)
 
 
-im_type_enum = Enum("science", "reference", "difference", "bias", "dark", "flat", name='image_type')
-im_format_enum = Enum("fits", "hdf5", name='image_format')
+image_type_enum = Enum(
+    "Sci",
+    "ComSci",
+    "Diff",
+    "ComDiff",
+    "Bias",
+    "ComBias",
+    "Dark",
+    "ComDark",
+    "DomeFlat",
+    "ComDomeFlat",
+    "SkyFlat",
+    "ComSkyFlat",
+    "TwiFlat",
+    "ComTwiFlat",
+    name='image_type'
+)
+
 
 class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = "exposures"
 
     type = sa.Column(
-        im_type_enum,
+        image_type_enum,
         nullable=False,
-        default="science",
+        default="Sci",
         index=True,
-        doc="Type of image (science, reference, difference, etc)."
+        doc=(
+            "Type of image. One of: Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, "
+            "or any of the above types prepended with 'Com' for combined "
+            "(e.g., a ComSci image is a science image combined from multiple exposures)."
+        )
     )
 
     format = sa.Column(
-        im_format_enum,
+        file_format_enum,
         nullable=False,
         default='fits',
-        doc="Format of the image on disk. Should be fits or hdf5. "
+        doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
     )
 
     provenance_id = sa.Column(
@@ -250,6 +270,7 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         self._data = None  # the underlying image data for each section
         self._section_headers = None  # the headers for individual sections, directly from the FITS file
         self._raw_header = None  # the global (exposure level) header, directly from the FITS file
+        self.type = 'Sci'  # default, can override using kwargs
 
         if self.filepath is None and not self.nofile:
             raise ValueError("Must give a filepath to initialize an Exposure object. ")
@@ -481,7 +502,7 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         #  sure the exposure has been downloaded from the archive to
         #  local storage.
         if section_ids is None:
-            section_ids = self.instrument.get_section_ids()
+            section_ids = self.instrument_object.get_section_ids()
 
         if not isinstance(section_ids, list):
             section_ids = [section_ids]

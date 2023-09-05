@@ -32,8 +32,8 @@ def test_base_instrument_not_implemented():
 def test_global_vs_sections_values():
     inst = DemoInstrument()
     inst.name = 'TestInstrument' + uuid.uuid4().hex
-    assert inst.gain == 2.0
-    assert inst.read_noise == 1.5
+    assert inst.gain == 2.0  # default value
+    assert inst.read_noise == 1.5  # default value
 
     # make sure there are no sections matching this instrument on the DB
     with SmartSession() as session:
@@ -80,7 +80,7 @@ def test_global_vs_sections_values():
         assert inst2.get_property(0, 'gain') == 2.5
         assert inst2.get_property(0, 'read_noise') == 1.3
 
-        t0 = datetime.datetime.now()
+        t0 = datetime.datetime.utcnow()
         # re-commit the section with a validity range
         inst2.commit_sections(session=session, validity_start=t0, validity_end=t0 + datetime.timedelta(days=1))
 

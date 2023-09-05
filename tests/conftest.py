@@ -4,7 +4,6 @@ import uuid
 import wget
 import shutil
 import pathlib
-import warnings
 
 import numpy as np
 
@@ -12,6 +11,7 @@ import sqlalchemy as sa
 
 from astropy.time import Time
 
+from util.config import Config
 from models.base import SmartSession, CODE_ROOT
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
@@ -20,8 +20,31 @@ from models.references import ReferenceEntry
 from util import config
 from util.archive import Archive
 
+
+# idea taken from: https://shay-palachy.medium.com/temp-environment-variables-for-pytest-7253230bd777
+# this fixture should be the first thing loaded by the test suite
+@pytest.fixture(scope="session", autouse=True)
+def tests_setup_and_teardown():
+    # Will be executed before the first test
+    # print('Initial setup fixture loaded! ')
+
+    # make sure to load the test config
+    test_config_file = str((pathlib.Path(__file__).parent.parent / 'tests' / 'seechange_config_test.yaml').resolve())
+
+    Config.get(configfile=test_config_file, setdefault=True)
+
+    yield
+    # Will be executed after the last test
+    # print('Final teardown fixture executed! ')
+
+
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
+
+
+@pytest.fixture
+def config_test():
+    return Config.get()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -46,17 +69,19 @@ def provenance_base(code_version):
         code_version=code_version,
         parameters={"test_key": uuid.uuid4().hex},
         upstreams=[],
+        is_testing=True,
     )
 
     with SmartSession() as session:
         session.add(p)
         session.commit()
+        session.refresh(p)
         pid = p.id
 
     yield p
 
     with SmartSession() as session:
-        # session.execute(sa.delete(Provenance).where(Provenance.id == pid))
+        session.execute(sa.delete(Provenance).where(Provenance.id == pid))
         session.commit()
 
 
@@ -67,11 +92,13 @@ def provenance_extra(code_version, provenance_base):
         code_version=code_version,
         parameters={"test_key": uuid.uuid4().hex},
         upstreams=[provenance_base],
+        is_testing=True,
     )
 
     with SmartSession() as session:
         session.add(p)
         session.commit()
+        session.refresh(p)
         pid = p.id
 
     yield p
@@ -159,6 +186,32 @@ def decam_example_file():
 
 
 @pytest.fixture
+def decam_example_exposure(decam_example_file):
+    # always destroy this Exposure object and make a new one, to avoid filepath unique constraint violations
+    decam_example_file_short = decam_example_file[len(CODE_ROOT+'/data/'):]
+    with SmartSession() as session:
+        session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
+        session.commit()
+
+    exposure = Exposure(decam_example_file)
+    return exposure
+
+
+@pytest.fixture
+def decam_example_image(decam_example_exposure):
+    image = Image.from_exposure(decam_example_exposure, section_id='N1')
+    image.data = image.raw_data.astype(np.float32)  # TODO: add bias/flat corrections at some point
+    return image
+
+
+@pytest.fixture
+def decam_small_image(decam_example_image):
+    image = decam_example_image
+    image.data = image.data[256:256+512, 256:256+512].copy()  # make it C-contiguous
+    return image
+
+
+@pytest.fixture
 def demo_image(exposure):
     exposure.update_instrument()
     im = Image.from_exposure(exposure, section_id=0)
@@ -239,34 +292,23 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
 
                 session.commit()
 
+
 @pytest.fixture
 def archive():
     cfg = config.Config.get()
-    if cfg.value('archive') is None:
+    archive_specs = cfg.value('archive')
+    if archive_specs is None:
         raise ValueError( "archive in config is None" )
-    archive = Archive( archive_url=cfg.value('archive.url'),
-                       verify_cert=cfg.value('archive.verify_cert'),
-                       path_base=cfg.value('archive.path_base'),
-                       local_read_dir=cfg.value('archive.read_dir'),
-                       local_write_dir=cfg.value('archive.write_dir'),
-                       token=cfg.value('archive.token')
-                      )
+    archive = Archive( **archive_specs )
     yield archive
 
     # To tear down, we need to blow away the archive server's directory.
     # For the test suite, we've also mounted that directory locally, so
     # we can do that
-    archivebase = f"{os.getenv('ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+    archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
     try:
         shutil.rmtree( archivebase )
     except FileNotFoundError:
         pass
 
-@pytest.fixture
-def config_test():
-    # Make sure the environment is set as expected for tests
-    conffile = pathlib.Path( __file__ ).parent / "seechange_config_test.yaml"
-    if os.getenv( "SEECHANGE_CONFIG" ) != str( conffile.resolve() ):
-        warnings.warn( "Ignoring $SEECHANGE_CONFIG, loading config from {conffile} for config_text fixture" )
-    return config.Config.get( conffile )
 

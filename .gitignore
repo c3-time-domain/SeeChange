@@ -1,4 +1,10 @@
 # some specific files we don't want in the repo
+local_config.yaml
+local_overrides.yaml
+local_augments.yaml
+tests/local_config.yaml
+tests/local_overrides.yaml
+tests/local_augments.yaml
 data/DECam_examples/c4d_221104_074232_ori.fits.fz
 
 # Byte-compiled / optimized / DLL files

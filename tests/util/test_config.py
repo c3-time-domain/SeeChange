@@ -15,25 +15,20 @@ from util import config
 
 
 class TestConfig:
-    # Nominally, this tests should pass even if SEECHANGE_CONFIG is not None.  However, because there
-    # are autouse fixtures in ../conftest.py, one of the side effects is that the config default
-    # gets set.
-    @pytest.mark.skipif( os.getenv("SEECHANGE_CONFIG") is not None, reason="Clear SEECHANGE_CONFIG to test this" )
-    def test_no_default( self ):
-        assert config.Config._default == None
-
-    @pytest.mark.skipif( os.getenv("SEECHANGE_CONFIG") is None, reason="Set SEECHANGE_CONFIG to test this" )
-    def test_default_default( self ):
-        cfg = config.Config.get()
-        assert cfg._path == pathlib.Path( os.getenv("SEECHANGE_CONFIG") )
-
-    def test_set_default( self ):
-        cfg = config.Config.get( _rundir / 'test.yaml', setdefault=True )
-        assert config.Config._default == f'{ (_rundir / "test.yaml").resolve() }'
-
     @pytest.fixture(scope='class')
-    def cfg( self ):
-        return config.Config.get( _rundir / 'test.yaml', setdefault=True )
+    def cfg(self):
+        # print('setting up a config object with a spoof yaml file just for testing the config mechanism. ')
+        return config.Config.get(_rundir / 'test.yaml', setdefault=False)  # retain the default for other tests
+
+    def test_default_default( self ):
+        # make sure that when we load a config without parameters,
+        # it uses the default config file
+        default_config_path = (_rundir.parent.parent / 'default_config.yaml').resolve()
+        default_config_path = os.getenv('SEECHANGE_CONFIG', default_config_path)
+        assert config.Config._default_default == str(default_config_path)
+
+    def test_config_path( self, cfg ):
+        assert cfg._path == (_rundir / "test.yaml").resolve()
 
     def test_preload(self, cfg):
         assert cfg.value('preload1dict1.preload1_1val1') == '2_1val1'
