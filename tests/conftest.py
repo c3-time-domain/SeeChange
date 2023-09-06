@@ -51,9 +51,11 @@ def config_test():
 def code_version():
     with SmartSession() as session:
         cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.version == 'test_v1.0.0')).first()
-    if cv is None:
-        cv = CodeVersion(version="test_v1.0.0")
-        cv.update()
+        if cv is None:
+            cv = CodeVersion(version="test_v1.0.0")
+            cv.update()
+            session.add( cv )
+            session.commit()
 
     yield cv
 

@@ -19,10 +19,13 @@ import pandas
 import sqlalchemy as sa
 
 import astropy.time
+from astropy.io import fits
 
 from models.base import Base, SmartSession, FileOnDiskMixin,_logger
-
+from util.config import Config
+from models.provenance import Provenance
 from pipeline.utils import parse_dateobs, read_fits_image
+import util.radec
 
 # dictionary of regex for filenames, pointing at instrument names
 INSTRUMENT_FILENAME_REGEX = None
@@ -227,47 +230,41 @@ class SensorSection(Base):
         doc='Index in the filter array that specifies which filter this section is located under in the array. '
     )
 
-    # Removing these columns -- they're troublesome
-    #
-    # Specifically in the case of DECam: there are two amplifiers per
-    # chip, and each amplifier has its own read noise, gain, etc.  As
-    # such, any number we put here is going to be some approximation of
-    # the two, not something we would ever want to quantitatively use.
-    # (The other option would be to make each amplifier its own sensor
-    # section, but that gets cumbersome.)  A better way of doing this is
-    # to have the instrument code where in the header you get these
-    # numbers from, and then pull the numbers from each image's header
-    # as necessary.
+    # Note that read_noise, dark_current, gain, saturation_limit, and
+    #  non_linearity_limit can vary by lot (10s of %) between amps on a
+    #  single chip.  The values here will be at best "nominal" values,
+    #  and shouldn't be used for any image reduction, but only for
+    #  general low-precision# instrument comparision.
 
-    # read_noise = sa.Column(
-    #     sa.Float,
-    #     nullable=True,
-    #     doc='Read noise of the sensor section (in electrons). '
-    # )
+    read_noise = sa.Column(
+        sa.Float,
+        nullable=True,
+        doc='Read noise of the sensor section (in electrons). '
+    )
 
-    # dark_current = sa.Column(
-    #     sa.Float,
-    #     nullable=True,
-    #     doc='Dark current of the sensor section (in electrons/pixel/second). '
-    # )
+    dark_current = sa.Column(
+        sa.Float,
+        nullable=True,
+        doc='Dark current of the sensor section (in electrons/pixel/second). '
+    )
 
-    # gain = sa.Column(
-    #     sa.Float,
-    #     nullable=True,
-    #     doc='Gain of the sensor section (in electrons/ADU). '
-    # )
+    gain = sa.Column(
+        sa.Float,
+        nullable=True,
+        doc='Gain of the sensor section (in electrons/ADU). '
+    )
 
-    # saturation_limit = sa.Column(
-    #     sa.Float,
-    #     nullable=True,
-    #     doc='Saturation level of the sensor section (in electrons). '
-    # )
+    saturation_limit = sa.Column(
+        sa.Float,
+        nullable=True,
+        doc='Saturation level of the sensor section (in electrons). '
+    )
 
-    # non_linearity_limit = sa.Column(
-    #     sa.Float,
-    #     nullable=True,
-    #     doc='Non-linearity of the sensor section (in electrons). '
-    # )
+    non_linearity_limit = sa.Column(
+        sa.Float,
+        nullable=True,
+        doc='Non-linearity of the sensor section (in electrons). '
+    )
 
     defective = sa.Column(
         sa.Boolean,
@@ -368,14 +365,15 @@ class Instrument:
         self.size_x = getattr(self, 'size_x', None)  # number of pixels in the x direction
         self.size_y = getattr(self, 'size_y', None)  # number of pixels in the y direction
         self.read_time = getattr(self, 'read_time', None)  # read time in seconds (e.g., 20.0)
-        # See comment on Sensor Section column definitions re: these values.
-        # They can vary from chip to chip, and even between amps on one
-        #   chip; they vary by several times 0.1 for DECam.
-        # self.read_noise = getattr(self, 'read_noise', None)  # read noise in electrons (e.g., 7.0)
-        # self.dark_current = getattr(self, 'dark_current', None)  # dark current in electrons/pixel/second (e.g., 0.2)
-        # self.gain = getattr(self, 'gain', None)  # gain in electrons/ADU (e.g., 4.0)
-        # self.saturation_limit = getattr(self, 'saturation_limit', None)  # saturation limit in electrons (e.g., 100000)
-        # self.non_linearity_limit = getattr(self, 'non_linearity_limit', None)  # non-linearity limit in electrons
+        # read_noise, dark_currnet, gain, saturation_limit, and non_linearity_limit can
+        #   vary by a lot between chips (and between amps on a single chip).  The numbers
+        #   here should only be used for low-precision instrument comparision, not
+        #   for any data reduction.  (Same comment in SensorSection.)
+        self.read_noise = getattr(self, 'read_noise', None)  # read noise in electrons (e.g., 7.0)
+        self.dark_current = getattr(self, 'dark_current', None)  # dark current in electrons/pixel/second (e.g., 0.2)
+        self.gain = getattr(self, 'gain', None)  # gain in electrons/ADU (e.g., 4.0)
+        self.saturation_limit = getattr(self, 'saturation_limit', None)  # saturation limit in electrons (e.g., 100000)
+        self.non_linearity_limit = getattr(self, 'non_linearity_limit', None)  # non-linearity limit in electrons
 
         self.allowed_filters = getattr(self, 'allowed_filters', None)  # list of allowed filter (e.g., ['g', 'r', 'i'])
 
@@ -398,11 +396,10 @@ class Instrument:
             INSTRUMENT_INSTANCE_CACHE[self.__class__.__name__] = self
 
     def __repr__(self):
-        return (
-            f'<Instrument {self.name} on {self.telescope} ' 
-            f'({self.aperture:.1f}m, {self.pixel_scale:.2f}"/pix, '
-            f'[{",".join(self.allowed_filters)}])>'
-        )
+        ap = None if self.aperture is None else f'{self.aperture:.1f}m'
+        sc = None if self.pixel_scale is None else f'{self.pixel_scale:.2f}"/pix'
+        filts = [] if self.allowed_filters is None else [",".join(self.allowed_filters)]
+        return f'<Instrument {self.name} on {self.telescope} ({ap}, {sc}, {filts})'
 
     @classmethod
     def get_section_ids(cls):
@@ -771,7 +768,7 @@ class Instrument:
 
         Parameters
         ----------
-        filepath: str or list of str
+        filepath: str, Path or list of str or Path
             The filename (and full path) of the exposure file.
             If an Exposure is associated with multiple files,
             this will be a list of filenames.
@@ -787,14 +784,14 @@ class Instrument:
             The header from the exposure file, as a dictionary
             (or the more complex astropy.io.fits.Header object).
         """
-        if isinstance(filepath, str):
+        if isinstance(filepath, str) or isinstance(filepath, pathlib.Path):
             if section_id is None:
                 return read_fits_image(filepath, ext=0, output='header')
             else:
                 self.check_section_id(section_id)
                 idx = self._get_fits_hdu_index_from_section_id(section_id)
                 return read_fits_image(filepath, ext=idx, output='header')
-        elif isinstance(filepath, list) and all(isinstance(f, str) for f in filepath):
+        elif isinstance(filepath, list) and all( (isinstance(f, str) or isinstance(f,pathlib.Path)) for f in filepath):
             if section_id is None:
                 # just read the header of the first file
                 return read_fits_image(filepath[0], ext=0, output='header')
@@ -1038,11 +1035,11 @@ class DemoInstrument(Instrument):
         self.square_degree_fov = 0.5
         self.pixel_scale = 0.41
         self.read_time = 2.0
-        # self.read_noise = 1.5
-        # self.dark_current = 0.1
-        # self.gain = 2.0
-        # self.non_linearity_limit = 10000.0
-        # self.saturation_limit = 50000.0
+        self.read_noise = 1.5
+        self.dark_current = 0.1
+        self.gain = 2.0
+        self.non_linearity_limit = 10000.0
+        self.saturation_limit = 50000.0
         self.allowed_filters = ["g", "r", "i", "z", "Y"]
 
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
@@ -1118,7 +1115,7 @@ class DemoInstrument(Instrument):
             'OBJECT': 'crab nebula',
             'TELESCOP': self.telescope,
             'INSTRUME': self.name,
-            # 'GAIN': np.random.normal(self.gain, 0.01),
+            'GAIN': np.random.normal(self.gain, 0.01),
         }
 
     @classmethod
@@ -1193,7 +1190,7 @@ class InstrumentOriginExposures:
 
     """
 
-    def download_exposures( self, outdir=".", indexes=None, clobber=False ):
+    def download_exposures( self, outdir=".", indexes=None, clobber=False, existing_ok=False, session=None ):
         """Download exposures from the origin.
 
         Parameters
@@ -1205,7 +1202,16 @@ class InstrumentOriginExposures:
            List of indexes into the set of origin exposures to download;
            None means download them all.
         clobber: bool
-           If True, will overwring existing files, otherwise will thrown an exception.
+           If True, will always download and overwrite existing files.
+           If False, will trust that the file is the right thing if existing_ok=True,
+           otherwise will throw an exception.
+        existing_ok: bool
+           Only matters if clobber=False (see above)
+        session: models.base.SmartSession
+           Database session to use.  (A new one will be created if this
+           is None, but that will lead to the returned exposures and
+           members of those exposures not being bound to a session, so
+           lazy-loading won't work).
 
         Returns
         -------
@@ -1215,17 +1221,47 @@ class InstrumentOriginExposures:
         raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
                                    f"implemented download_exposure." )
 
-    def download_and_load_exposures( self, indexes=None ):
+    def download_and_load_exposures( self, indexes=None, clobber=False, existing_ok=False,
+                                     delete_downloads=True, skip_existing=True ):
         """Download exposures and load them into the database.
 
-        They will be saved to the standard local data directory and
-        uploaded to the archive.
+        Files will first be downloaded to FileOnDiskMixin.local_path
+        with the filename that the origin gave them.  The headers of
+        files will be used to construct Exposure objects.  When each
+        Exposure object is saved, it will copy the file to the file
+        named by Exposure.invent_filpath (relative to
+        FileOnDiskMixin.local_path) and upload the exposure to the
+        archive.
 
         Parmaeters
         ----------
         indexes: list of int or None
            List of indexes into the set of origin exposures to download;
            None means download them all.
+        clobber: bool
+           Applies to the originally downloaded file
+           (i.e. FileOnDiskMixin.local_path/{origin_filename}) already
+           exists.  If clobber is True, that originally downloaded file
+           will always be deleted and written over with a redownload.
+           If clobber is False, then if existing_ok is True it will
+           assume that that file is correct, otherwise it throws an
+           exception.
+        existing_ok: bool
+           Applies to the originally downloaded file; see clobber.
+        delete_downloads: bool
+           If True, will delete the originally downloaded files after they have
+           been copied to their final location.  (This mainly exists for testing
+           purposes to avoid repeated downloads.)
+        skip_existing: bool
+           If True, will silently skip loading exposures that already exist in the
+           database.  If False, will raise an exception on an attempt to load
+           an exposure that already exists in the database.
+
+        Returns
+        -------
+        A list of Exposure objects.  Depending on skip_existing, the length of this list may
+        not be the same as the length of indexes.
+
         """
         raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
                                    f"implemented download_and_load_exposures." )
@@ -1233,8 +1269,8 @@ class InstrumentOriginExposures:
     def __len__( self ):
         """The number of exposures this object encapsulates."""
         raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't implemented __len__." )
-        
-    
+
+
 
 class DECam(Instrument):
 
@@ -1248,6 +1284,9 @@ class DECam(Instrument):
         self.read_time = 20.0
         self.orientation_fixed = True
         self.orientation = InstrumentOrientation.NleftEup
+        # read_noise, dark_current, gain, saturation_limit, non_linearity_limit
+        # are all approximate values for DECam; it varies by a lot
+        # between chips
         self.read_noise = 7.0
         self.dark_current = 0.1
         self.gain = 4.0
@@ -1517,6 +1556,7 @@ class DECam(Instrument):
             "search" : [
                 [ "instrument", "decam" ],
                 [ "proc_type", proc_type ],
+                [ "prod_type", "image" ],
                 [ "dateobs_center", starttime, endtime ],
             ]
         }
@@ -1553,7 +1593,7 @@ class DECam(Instrument):
                 # _logger.error( response.json()['traceback'] )     # Uncomment for API developer use
                 raise RuntimeError( response.json()['errorMessage'] )
             return files
-        
+
         if filters is None:
             files = getoneresponse( spec )
         else:
@@ -1564,7 +1604,7 @@ class DECam(Instrument):
                 newfiles = getoneresponse( filtspec )
                 if not newfiles.empty:
                     files = newfiles if files is None else pandas.concat( [files, newfiles] )
-                
+
         if files.empty or files is None:
             _logger.warning( f"DECam exposure search found no files." )
             return None
@@ -1599,7 +1639,7 @@ class DECamOriginExposures:
     def __len__( self ):
         return len(self._frame)
 
-    def download_exposures( self, outdir=".", indexes=None, clobber=False ):
+    def download_exposures( self, outdir=".", indexes=None, clobber=False, existing_ok=False ):
         outdir = pathlib.Path( outdir )
         if indexes is None:
             indexes = range( len(self._frame) )
@@ -1607,7 +1647,7 @@ class DECamOriginExposures:
             indexes = [ indexes ]
 
         downloaded = []
-            
+
         for dex in indexes:
             expinfo = self._frame.iloc[dex]
             fname = pathlib.Path( expinfo.archive_filename ).name
@@ -1615,12 +1655,16 @@ class DECamOriginExposures:
             if fpath.exists():
                 if clobber:
                     if not fpath.is_file():
-                        _logger.error( f"{fpath} exists and is not a file, not overwriting." )
+                        _logger.error( f"download_exposures: {fpath} exists and is not a file, not overwriting." )
                         raise FileExistsError( f"{fpath} exists and is not a file, not overwriting." )
                     else:
                         fpath.unlink()
+                elif existing_ok:
+                    _logger.info( f"download_exposures: {fpath} exists; trusting it's the right thing" )
+                    downloaded.append( fpath )
+                    continue
                 else:
-                    _logger.error( f"{fpath} exists but clobber is False" )
+                    _logger.error( f"download_exposures: {fpath} exists but clobber is False" )
                     raise FileExistsError( f"{fpath} exists but clobber is False" )
             countdown = 5
             success = False
@@ -1629,9 +1673,9 @@ class DECamOriginExposures:
                     starttime = time.perf_counter()
                     renew = False
                     if _logger.getEffectiveLevel() >= logging.DEBUG:
-                        _logger.info( f"Downloading {fname} from {expinfo.url}" )
+                        _logger.info( f"download_exposures: Downloading {fname} from {expinfo.url}" )
                     else:
-                        _logger.info( f"Downloading {fname}" )
+                        _logger.info( f"download_exposures: Downloading {fname}" )
                     response = requests.get( expinfo.url )
                     response.raise_for_status()
                     midtime = time.perf_counter()
@@ -1648,15 +1692,86 @@ class DECamOriginExposures:
                     _logger.warning( f"Exception downloading from {expinfo.url}:\n{strio.getvalue()}" )
                     countdown -= 1
                     if countdown >= 0:
-                        _logger.warning( f"Failed to download {fname}, waiting 5s and retrying." )
+                        _logger.warning( f"download_exposures: Failed to download {fname}, waiting 5s and retrying." )
                         time.sleep( 5 )
                     else:
-                        _logger.error( f"Repeated exceptions trying to download {fname}" )
+                        _logger.error( f"download_exposures: Repeated exceptions trying to download {fname}" )
                         raise e
 
             downloaded.append( fpath )
 
         return downloaded
-            
+
+    def download_and_load_exposures( self, indexes=None, clobber=False, existing_ok=False,
+                                     delete_downloads=True, skip_existing=True, session=None ):
+        outdir = pathlib.Path( FileOnDiskMixin.local_path )
+        if indexes is None:
+            indexes = range( len(self._frame) )
+        if not isinstance( indexes, collections.abc.Sequence ):
+            indexes = [ index ]
+
+        exposures = []
+
+        # This import is here rather than at the top of the file
+        #  because Exposure imports Instrument, so we've got
+        #  a circular import.  Here, instrument will have been
+        #  fully initialized before we try to import Exposure,
+        #  so we should be OK.
+        from models.exposure import Exposure
+
+        with SmartSession(session) as dbsess:
+            codeversion = Provenance.get_code_version( session=dbsess )
+            provenance = Provenance.create_or_load( code_version=codeversion, process='download',
+                                                    parameters={ 'proc_type': self.proc_type },
+                                                    session=dbsess )
+
+            downloaded = self.download_exposures( outdir=outdir, indexes=indexes,
+                                                  clobber=clobber, existing_ok=existing_ok )
+            for dex, expfile in zip( range(len(indexes)), downloaded ):
+                with fits.open( expfile ) as ifp:
+                    hdr = { k: v for k, v in ifp[0].header.items()
+                            if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
+                                      'OBS-LONG', 'OBS-LAT', 'EXPTIME', 'DARKTIME', 'OBSID',
+                                      'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
+                                      'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
+                                      'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
+                    pass
+                mjd = hdr['MJD-OBS']
+                exp_time = hdr['EXPTIME']
+                filter = hdr['FILTER']
+                project = hdr['PROPID']
+                target = hdr['OBJECT']
+                origin_identifier = pathlib.Path( self._frame.iloc[dex].archive_filename ).name
+
+                ra = util.radec.parse_sexigesimal_degrees( hdr['RA'] )
+                dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
+
+                q = dbsess.query( Exposure ).filter( Exposure.origin_identifier==origin_identifier )
+                existing = q.first()
+                # Maybe check that q.count() isn't >1; if it is, throw an exception
+                #  about database corruption?
+                if existing is not None:
+                    if skip_existing:
+                        _logger.info( f"download_and_load_exposures: exposure with origin identifier "
+                                      f"{origin_identifier} is already in the database, skipping. "
+                                      f"({existing.filepath})" )
+                        continue
+                    else:
+                        raise FileExistsError( f"Exposure with origin identifier {origin_identifier} "
+                                               f"already exists in the database. ({existing.filepath})" )
+                expobj = Exposure( current_file=expfile, invent_filepath=True,
+                                   type='Sci', format='fits', provenance=provenance, ra=ra, dec=dec, 
+                                   header=hdr, mjd=mjd, exp_time=exp_time, filter=filter, instrument='DECam',
+                                   project=project, target=target, origin_identifier=origin_identifier )
+                dbpath = outdir / expobj.filepath
+                expobj.save( expfile )
+                dbsess.add( expobj )
+                dbsess.commit()
+                if delete_downloads and ( dbpath.resolve() != expfile.resolve() ):
+                    expfile.unlink()
+                exposures.append( expobj )
+
+        return exposures
+
 if __name__ == "__main__":
     inst = DemoInstrument()

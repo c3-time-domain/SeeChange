@@ -1,3 +1,4 @@
+import types
 from collections import defaultdict
 
 import sqlalchemy as sa
@@ -7,6 +8,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CheckConstraint
 from sqlalchemy.orm.session import object_session
 
+from astropy.time import Time
+
+from util.config import Config
 from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_to_deg
 
 from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession, file_format_enum
@@ -152,7 +156,7 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         file_format_enum,
         nullable=False,
         default='fits',
-        doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
+        doc="Format of the file on disk. Should be fits (or hdf5, not yet implemented). "
     )
 
     provenance_id = sa.Column(
@@ -251,20 +255,33 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         doc='String used by each instrument to identify exposures where they are pulled from'
     )
 
-    def __init__(self, *args, **kwargs):
-        """
-        Initialize the exposure object.
-        Can give the filepath of the exposure
-        as the single positional argument.
+    def __init__(self, current_file=None, invent_filepath=True, **kwargs):
+        """Initialize the exposure object.
 
-        Otherwise, give any arguments that are
-        columns of the Exposure table.
+        If the filepath is given (as a keyword argument), it will parse the instrument name
+        from the filename.  The header will be read out from the file.
 
-        If the filename is given, it will parse
-        the instrument name from the filename.
-        The header will be read out from the file.
+        Parameters
+        ----------
+        All the properties of Exposure (i.e. columns of the exposures table), plus:
+
+        current_file: Path or str
+           The path to the file where the exposure currently is (which
+           may or may not be the same as the filepath it will have in
+           the database).  If you don't specify this, then the file must
+           exist filepath (either the one you pass or the one that is
+           determined automatically if invent_filepath is True).
+
+        invent_filepath: bool
+           Will be ignored if you specify a filepath as an argument.
+           Otherwise, if this is True, call invent_filepath() to create
+           the filepath for this Exposure, based on all the other
+           properties.  If this is False, then you must specify filepath
+           unless the global property Exposure.nofile is True (but you
+           really shouldn't be playing around with that).
+
         """
-        FileOnDiskMixin.__init__(self, *args, **kwargs)
+        FileOnDiskMixin.__init__(self, **kwargs)
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
 
         self._data = None  # the underlying image data for each section
@@ -272,22 +289,35 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         self._raw_header = None  # the global (exposure level) header, directly from the FITS file
         self.type = 'Sci'  # default, can override using kwargs
 
-        if self.filepath is None and not self.nofile:
-            raise ValueError("Must give a filepath to initialize an Exposure object. ")
+        # manually set all properties (columns or not, but don't overwrite instance methods)
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                if type( getattr( self, key ) ) != types.MethodType:
+                    setattr(self, key, value)
+
+        self._instrument_object = None
+
+        # Bit of a check and egg problem here...
+        # For filepath, invent_filepath tries to use the instrument
+        # For instrument, guess_instrument tires to use the filepath
+        # If we have neither, we're in trouble.
+        if self.filepath is None:
+            if self.instrument is None:
+                raise ValueError( "Exposure.__init__: must give at least a filepath or an instrument" )
+            else:
+                if invent_filepath:
+                    self.filepath = self.invent_filepath()
+                elif not self.nofile:
+                    raise ValueError("Exposure.__init__: must give a filepath to initialize an Exposure object. ")
 
         if self.instrument is None:
             self.instrument = guess_instrument(self.filepath)
 
-        self._instrument_object = None
-
         # instrument_obj is lazy loaded when first getting it
+        if current_file is None:
+            current_file = self.filepath
         if self.instrument_object is not None:
-            self.use_instrument_to_read_header_data()
-
-        # manually set all properties (columns or not)
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
+            self.use_instrument_to_read_header_data( fromfile=current_file )
 
         if self.ra is not None and self.dec is not None:
             self.calculate_coordinates()  # galactic and ecliptic coordinates
@@ -312,7 +342,7 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         super().__setattr__(key, value)
 
-    def use_instrument_to_read_header_data(self):
+    def use_instrument_to_read_header_data(self, fromfile=None):
         """
         Use the instrument object to read the header data from the file.
         This will set the column attributes from these values.
@@ -322,7 +352,9 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         #     self.telescope = self.instrument_object.telescope
 
         # get the header from the file in its raw form as a dictionary
-        raw_header_dictionary = self.instrument_object.read_header(self.get_fullpath())
+        if fromfile is None:
+            fromfile = self.get_fullpath()
+        raw_header_dictionary = self.instrument_object.read_header( fromfile )
 
         # read and rename/convert units for all the column attributes:
         critical_info = self.instrument_object.extract_header_info(
@@ -424,17 +456,17 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
     def __str__(self):
         return self.__repr__()
 
-    def invent_filename( self ):
-        """Create a filename for the exposure based on metadata.
+    def invent_filepath( self ):
+        """Create a filepath (relative to data root) for the exposure based on metadata.
 
         This is used when saving the exposure to disk
 
         """
 
-        # Much code redundancy with Image.invent_filename; move to a mixin?
+        # Much code redundancy with Image.invent_filepath; move to a mixin?
 
         if self.provenance is None:
-            raise ValueError("Cannot invent filename for exposure without provenance.")
+            raise ValueError("Cannot invent filepath for exposure without provenance.")
         prov_hash = self.provenance.unique_hash
 
         t = Time(self.mjd, format='mjd', scale='utc').datetime
@@ -457,12 +489,12 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         dec_frac = int(dec_frac)
 
         default_convention = "{short_name}_{date}_{time}_{filter}_{prov_hash:.6s}"
-        cfg = config.Config.get()
+        cfg = Config.get()
         name_convention = cfg.value( 'storage.exposures.name_convention', default=None )
         if name_convention is None:
             name_convention = default_convention
 
-        filename = name_convention.format(
+        filepath = name_convention.format(
             short_name=short_name,
             date=date,
             time=time,
@@ -478,23 +510,12 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
             prov_hash=prov_hash,
         )
 
-        return filename
+        if self.format == 'fits':
+            filepath += ".fits"
+        else:
+            raise ValueError( f"Unknown format for exposures: {self.format}" )
 
-    def save(self):
-        pass  # TODO: implement this! do we need this?
-        # Considertions for whether we need this:
-        # IF we believe that the place we got the exposure from will
-        #  have it in perpetuity, then we don't need to save it to
-        #  either our own database or our own archive.  (Or, if we trust
-        #  that once we've extracted images from it and saved those,
-        #  we'll never have to exract images again, then we don't need
-        #  to save the exposure.  This is more dubious, as some things
-        #  you do to images, e.g. sky subtraction, can be potentially
-        #  destructive.)  We can justpull it back from the source if we
-        #  ever need it again.
-        # But, if we think we need to save it to our own archive,
-        #  we will need this.
-        # It might be sufficient to just use FileOnDiskMixin.save().
+        return filepath
 
     def load(self, section_ids=None):
         # Thought required: if exposures are going to be on the archive,
@@ -590,6 +611,6 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 if __name__ == '__main__':
     import os
     ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    filename = os.path.join(ROOT_FOLDER, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
-    e = Exposure(filename)
+    filepath = os.path.join(ROOT_FOLDER, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
+    e = Exposure(filepath)
     print(e)

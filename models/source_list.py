@@ -147,7 +147,7 @@ class SourceList(Base, FileOnDiskMixin):
 
         filename = self.image.filepath
         if filename is None:
-            filename = self.image.invent_filename()
+            filename = self.image.invent_filepath()
 
         if filename.endswith(('.fits', '.h5', '.hdf5')):
             filename = os.path.splitext(filename)[0]
