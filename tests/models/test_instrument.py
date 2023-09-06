@@ -301,7 +301,7 @@ def decam_origin_exposures():
                                        proposals='2023A-716082',
                                        skip_exposures_in_database=False,
                                        proc_type='instcal' )
-    
+
 # Note that these tests are probing the internal state of the opaque
 # DECamOriginExposures objects.  If you're looking at this test for
 # guidance for how to do things, do *not* write code that mucks about
@@ -420,5 +420,5 @@ def test_decam_download_and_load_exposure( code_version, decam_origin_exposures 
             # Reinitialize the test environment (including cleaning out
             #  non-git-tracked files from data) to force verification of
             #  downloads; this will always happen on github actions.
-        
+
 # TODO: add more tests for e.g., loading FITS headers

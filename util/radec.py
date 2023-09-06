@@ -9,12 +9,12 @@ _radecparse = re.compile( '^ *(?P<sign>[\-\+])? *(?P<d>[0-9]{1,2}): *(?P<m>[0-9]
 
 def parse_sexigesimal_degrees( strval ):
     """Parse [+-]dd:mm::ss to decimal degrees
-    
+
     Parameters
     ----------
     strval: string
        Sexigesimal value in the form [-+]dd:mm:ss (+ may be omitted)
-    
+
     Returns
     -------
     float, the value in degrees

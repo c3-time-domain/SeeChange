@@ -95,7 +95,7 @@ def test_provenances(code_version):
 
         with SmartSession() as session:
             ninitprovs = session.query( Provenance ).count()
-            
+
             p = Provenance(
                 process="test_process",
                 code_version=code_version,
