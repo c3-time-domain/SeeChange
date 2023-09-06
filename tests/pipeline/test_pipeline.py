@@ -137,6 +137,7 @@ def test_data_flow(exposure, reference_entry):
         # add the exposure to DB and use that ID to run the pipeline
         with SmartSession() as session:
             reference_entry = session.merge(reference_entry)
+            exposure.provenance = session.merge( exposure.provenance )
             match_exposure_to_reference_entry(exposure, reference_entry)
 
             session.add(exposure)

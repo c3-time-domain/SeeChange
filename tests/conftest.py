@@ -10,13 +10,15 @@ import numpy as np
 import sqlalchemy as sa
 
 from astropy.time import Time
+from astropy.io import fits
 
 from util.config import Config
-from models.base import SmartSession, CODE_ROOT
+from models.base import SmartSession, CODE_ROOT, _logger
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.references import ReferenceEntry
+from models.instrument import Instrument, get_instrument_instance
 from util import config
 from util.archive import Archive
 
@@ -114,7 +116,7 @@ def provenance_extra(code_version, provenance_base):
 def exposure_factory():
     def factory():
         e = Exposure(
-            f"Demo_test_{rnd_str(5)}.fits",
+            filepath=f"Demo_test_{rnd_str(5)}.fits",
             section_id=0,
             exp_time=np.random.randint(1, 4) * 10,  # 10 to 40 seconds
             mjd=np.random.uniform(58000, 58500),
@@ -195,7 +197,11 @@ def decam_example_exposure(decam_example_file):
         session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
         session.commit()
 
-    exposure = Exposure(decam_example_file)
+    with fits.open( decam_example_file, memmap=False ) as ifp:
+        hdr = ifp[0].header
+    exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
+
+    exposure = Exposure( filepath=decam_example_file, instrument='DECam', **exphdrinfo )
     return exposure
 
 
@@ -273,6 +279,7 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
         ref_entry.target = target
 
         with SmartSession() as session:
+            ref_entry.image = session.merge( ref_entry.image )
             session.add(ref_entry)
             session.commit()
 
@@ -285,13 +292,12 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
                 ref = ref_entry.image
                 for im in ref.source_images:
                     exp = im.exposure
-                    exp.remove_data_from_disk(purge_archive=True, session=session)
-                    im.remove_data_from_disk(purge_archive=True, session=session)
+                    exp.remove_data_from_disk(purge_archive=True, session=session, nocommit=True)
+                    im.remove_data_from_disk(purge_archive=True, session=session, nocommit=True)
                     session.delete(exp)
                     session.delete(im)
                 ref.remove_data_from_disk(purge_archive=True, session=session)
-                session.delete(ref)  # should also delete ref_entry
-
+                session.delete(ref_entry.image)  # should also delete ref_entry
                 session.commit()
 
 

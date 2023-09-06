@@ -12,9 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from models.base import SmartSession, CODE_ROOT
 from models.exposure import Exposure, SectionData
-
 from models.instrument import Instrument, DECam, DemoInstrument
-
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
@@ -23,7 +21,7 @@ def rnd_str(n):
 def test_exposure_no_null_values():
 
     # cannot create an exposure without a filepath!
-    with pytest.raises(ValueError, match='Must give a filepath'):
+    with pytest.raises(ValueError, match='Exposure.__init__: must give at least a filepath or an instrument'):
         _ = Exposure()
 
     required = {
@@ -44,7 +42,7 @@ def test_exposure_no_null_values():
 
     try:
         exposure_id = None  # make sure to delete the exposure if it is added to DB
-        e = Exposure(f"Demo_test_{rnd_str(5)}.fits", nofile=True)
+        e = Exposure(filepath=f"Demo_test_{rnd_str(5)}.fits", nofile=True)
         with SmartSession() as session:
             for i in range(len(required)):
                 # set the exposure to the values in "added" or None if not in "added"
@@ -78,6 +76,8 @@ def test_exposure_no_null_values():
         session.commit()
         exposure_id = e.id
         assert exposure_id is not None
+        assert e.provenance.process == 'load_exposure'
+        assert e.provenance.parameters == {}
 
     finally:
         # cleanup
@@ -91,7 +91,7 @@ def test_exposure_no_null_values():
 
 
 def test_exposure_guess_demo_instrument():
-    e = Exposure(f"Demo_test_{rnd_str(5)}.fits", exp_time=30, mjd=58392.0, filter="F160W", ra=123, dec=-23,
+    e = Exposure(filepath=f"Demo_test_{rnd_str(5)}.fits", exp_time=30, mjd=58392.0, filter="F160W", ra=123, dec=-23,
                  project='foo', target='bar', nofile=True)
 
     assert e.instrument == 'DemoInstrument'
@@ -107,15 +107,15 @@ def test_exposure_guess_decam_instrument():
     t = datetime.now()
     mjd = Time(t).mjd
 
-    e = Exposure(f"DECam_examples/c4d_20221002_040239_r_v1.24.fits", exp_time=30, mjd=mjd, filter="r", ra=123, dec=-23,
-                 project='foo', target='bar', nofile=True)
+    e = Exposure(filepath=f"DECam_examples/c4d_20221002_040239_r_v1.24.fits", exp_time=30, mjd=mjd,
+                 filter="r", ra=123, dec=-23, project='foo', target='bar', nofile=True)
 
     assert e.instrument == 'DECam'
     assert isinstance(e.instrument_object, DECam)
 
 
 def test_exposure_coordinates():
-    e = Exposure('foo.fits', ra=None, dec=None, nofile=True)
+    e = Exposure(filepath='foo.fits', ra=None, dec=None, nofile=True)
     assert e.ecllat is None
     assert e.ecllon is None
     assert e.gallat is None
@@ -124,13 +124,13 @@ def test_exposure_coordinates():
     with pytest.raises(ValueError, match='Object must have RA and Dec set'):
         e.calculate_coordinates()
 
-    e = Exposure('foo.fits', ra=123.4, dec=None, nofile=True)
+    e = Exposure(filepath='foo.fits', ra=123.4, dec=None, nofile=True)
     assert e.ecllat is None
     assert e.ecllon is None
     assert e.gallat is None
     assert e.gallon is None
 
-    e = Exposure('foo.fits', ra=123.4, dec=56.78, nofile=True)
+    e = Exposure(filepath='foo.fits', ra=123.4, dec=56.78, nofile=True)
     assert abs(e.ecllat - 35.846) < 0.01
     assert abs(e.ecllon - 111.838) < 0.01
     assert abs(e.gallat - 33.542) < 0.01
@@ -193,7 +193,7 @@ def test_decam_exposure(decam_example_file):
         session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
         session.commit()
 
-    e = Exposure(decam_example_file)
+    e = Exposure(filepath=decam_example_file)
 
     assert e.instrument == 'DECam'
     assert isinstance(e.instrument_object, DECam)

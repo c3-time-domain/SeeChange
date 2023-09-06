@@ -406,7 +406,6 @@ def test_decam_download_and_load_exposure( code_version, decam_origin_exposures 
     finally:
         # Clean up
         with SmartSession() as session:
-            import pdb; pdb.set_trace()
             exposures = session.query( Exposure ).filter( Exposure.id.in_( eids ) )
             for exposure in exposures:
                 for base in [ pathlib.Path( FileOnDiskMixin.local_path ),

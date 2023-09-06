@@ -2,7 +2,7 @@ import sqlalchemy as sa
 
 from pipeline.utils import get_latest_provenance, parse_session
 
-from models.base import SmartSession, FileOnDiskMixin, safe_merge
+from models.base import SmartSession, FileOnDiskMixin, safe_merge, _logger
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
@@ -1025,9 +1025,12 @@ class DataStore:
                 for obj in self.get_all_data_products(output='list'):
                     # print(f'saving {obj} with provenance: {getattr(obj, "provenance", None)}')
 
-                    # ...I think this will break if obj has extensions...
                     if isinstance(obj, FileOnDiskMixin):
-                        obj.save()
+                        try:
+                            obj.save()
+                        except Exception as ex:
+                            _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
+                            raise ex
 
                     obj = obj.recursive_merge(session)
                     session.add(obj)

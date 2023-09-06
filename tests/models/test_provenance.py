@@ -158,7 +158,6 @@ def test_provenances(code_version):
 
             assert session.query( Provenance ).count() == ninitprovs + 3
     finally:
-        import pdb; pdb.set_trace()
         with SmartSession() as session:
             session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2, pid3])))
             session.commit()

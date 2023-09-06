@@ -1735,15 +1735,11 @@ class DECamOriginExposures:
                                       'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
                                       'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
                                       'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
-                    pass
-                mjd = hdr['MJD-OBS']
-                exp_time = hdr['EXPTIME']
-                filter = hdr['FILTER']
-                project = hdr['PROPID']
-                target = hdr['OBJECT']
+                exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
+                                                                    'project', 'target' ] )
                 origin_identifier = pathlib.Path( self._frame.iloc[dex].archive_filename ).name
 
-                ra = util.radec.parse_sexigesimal_degrees( hdr['RA'] )
+                ra = util.radec.parse_sexigesimal_degrees( hdr['RA'] ) * 15.
                 dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
 
                 q = dbsess.query( Exposure ).filter( Exposure.origin_identifier==origin_identifier )
@@ -1761,8 +1757,8 @@ class DECamOriginExposures:
                                                f"already exists in the database. ({existing.filepath})" )
                 expobj = Exposure( current_file=expfile, invent_filepath=True,
                                    type='Sci', format='fits', provenance=provenance, ra=ra, dec=dec, 
-                                   header=hdr, mjd=mjd, exp_time=exp_time, filter=filter, instrument='DECam',
-                                   project=project, target=target, origin_identifier=origin_identifier )
+                                   instrument='DECam', origin_identifier=origin_identifier, header=hdr,
+                                   **exphdrinfo )
                 dbpath = outdir / expobj.filepath
                 expobj.save( expfile )
                 dbsess.add( expobj )

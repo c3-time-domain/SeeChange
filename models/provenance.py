@@ -190,6 +190,8 @@ class Provenance(Base):
             existingprov = q.first()
             if existingprov is None:
                 session.add( prov )
+                if passedsession is None:
+                    session.commit()
             else:
                 prov = existingprov
         return prov
@@ -295,11 +297,12 @@ class Provenance(Base):
         code_version: CodeVersion
             CodeVersion object
         """
-        code_hash = session.scalars(sa.select(CodeHash).where(CodeHash.hash == get_git_hash())).first()
-        if code_hash is not None:
-            code_version = code_hash.code_version
-        else:
-            code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion.version.desc())).first()
+        with SmartSession( session ) as session:
+            code_hash = session.scalars(sa.select(CodeHash).where(CodeHash.hash == get_git_hash())).first()
+            if code_hash is not None:
+                code_version = code_hash.code_version
+            else:
+                code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion.version.desc())).first()
 
         return code_version
 

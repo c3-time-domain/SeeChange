@@ -1,3 +1,4 @@
+import pathlib
 import types
 from collections import defaultdict
 
@@ -15,6 +16,7 @@ from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_t
 
 from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession, file_format_enum
 from models.instrument import Instrument, guess_instrument, get_instrument_instance
+from models.provenance import Provenance
 
 
 # columns key names that must be loaded from the header for each Exposure
@@ -289,11 +291,21 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         self._raw_header = None  # the global (exposure level) header, directly from the FITS file
         self.type = 'Sci'  # default, can override using kwargs
 
-        # manually set all properties (columns or not, but don't overwrite instance methods)
+        # manually set all properties (columns or not, but don't
+        # overwrite instance methods) Do this once here, because some of
+        # the values are going to be needed by upcoming function calls.
+        # (See "chicken and egg" comment below).  We will run this exact
+        # code again later so that the keywords can override what's
+        # detected from the header.
         for key, value in kwargs.items():
             if hasattr(self, key):
                 if type( getattr( self, key ) ) != types.MethodType:
                     setattr(self, key, value)
+
+        # a default provenance for exposures
+        if self.provenance is None:
+            codeversion = Provenance.get_code_version()
+            self.provenance = Provenance.create_or_load( code_version=codeversion, process='load_exposure' )
 
         self._instrument_object = None
 
@@ -315,9 +327,15 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         # instrument_obj is lazy loaded when first getting it
         if current_file is None:
-            current_file = self.filepath
+            current_file = pathlib.Path( FileOnDiskMixin.local_path ) / self.filepath
         if self.instrument_object is not None:
             self.use_instrument_to_read_header_data( fromfile=current_file )
+
+        # Allow passed keywords to override what's detected from the header
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                if type( getattr( self, key ) ) != types.MethodType:
+                    setattr(self, key, value)
 
         if self.ra is not None and self.dec is not None:
             self.calculate_coordinates()  # galactic and ecliptic coordinates
@@ -516,6 +534,38 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
             raise ValueError( f"Unknown format for exposures: {self.format}" )
 
         return filepath
+
+    def save( self, *args, **kwargs ):
+        """Save an exposure to the local file store and the archive.
+
+        One optional positional parameter is the data to save.  This can
+        either be a binary blob, or a file path (str or pathlib.Path).
+        This is passed as the first parameter to FileOnDiskMixin.save().
+        If nothing is given, then we will assume that the exposure is
+        already in the right place in the local filestore, and will use
+        self.get_fullpath(nofile=True) to figure out where it is.  (In
+        that case, the only real reason to call this is to make sure
+        things get pushed to the archive.)
+
+        Keyword parmeters are passed on to FileOnDiskMixin.save().
+
+        """
+        if len(args) > 0:
+            data = args[0]
+        else:
+            # THOUGHT REQUIRED.
+            #
+            # (I think) the exposure is never full read into memory, just
+            # sections are.  We're operating under the assumption that
+            # exposures aren't modified from what we pull down from the
+            # original sources, so the exposure will always be on disk.
+            # We still do want to call FileOnDiskMixin.save() to make
+            # sure that things are pushed to the archive as necessary.
+            # (But, if the right thing is already on the archive, will
+            # there be a call to something like get_fullpath() that will
+            # cause it to be gratuitously pulled down?)
+            data = self.get_fullpath( nofile=True )
+        FileOnDiskMixin.save( self, data, **kwargs )
 
     def load(self, section_ids=None):
         # Thought required: if exposures are going to be on the archive,

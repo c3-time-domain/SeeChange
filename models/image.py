@@ -298,9 +298,6 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         if self.ra is not None and self.dec is not None:
             self.calculate_coordinates()  # galactic and ecliptic coordinates
 
-        if self.filepath is None:
-            self.filepath = self.invent_filepath()
-
     @orm.reconstructor
     def init_on_load(self):
         Base.init_on_load(self)
