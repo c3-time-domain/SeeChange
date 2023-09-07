@@ -2,6 +2,7 @@ import os
 import pytest
 import re
 import hashlib
+import pathlib
 import uuid
 
 import numpy as np
@@ -132,7 +133,7 @@ def test_image_archive_singlefile(demo_image, provenance_base, archive):
             with open( demo_image.get_fullpath( nofile=False ), 'rb' ) as ifp:
                 localmd5.update( ifp.read() )
             assert localmd5.hexdigest() == demo_image.md5sum.hex
-            
+
             # Make sure that the md5sum is properly saved to the database
             session.add( demo_image )
             session.commit()
@@ -180,7 +181,7 @@ def test_image_archive_multifile(demo_image, provenance_base, archive):
             assert demo_image.md5sum is None
             assert demo_image.md5sum_extensions == [ None, None ]
             demo_image.remove_data_from_disk( session=session )
-                    
+
             # Save to the archive
             demo_image.save()
             for ext, fullpath, md5sum in zip( demo_image.filepath_extensions,
@@ -222,7 +223,7 @@ def test_image_archive_multifile(demo_image, provenance_base, archive):
     finally:
         cfg.set_value( 'storage.images.single_file', single_fileness )
 
-                
+
 def test_image_enum_values(demo_image, provenance_base):
     data_filename = None
     with SmartSession() as session:
@@ -277,6 +278,65 @@ def test_image_coordinates():
     assert abs(image.ecllon - 111.838) < 0.01
     assert abs(image.gallat - 33.542) < 0.01
     assert abs(image.gallon - 160.922) < 0.01
+
+def test_image_cone_search( provenance_base ):
+    with SmartSession() as session:
+        image1 = None
+        image2 = None
+        image3 = None
+        image4 = None
+        try:
+            mjd = 60000.
+            endmjd = 60000.0007
+            kwargs = { 'mjd': 60000.,
+                       'end_mjd': 60000.0007,
+                       'format': 'fits',
+                       'exp_time': 60.48,
+                       'section_id': 'x',
+                       'project': 'x',
+                       'target': 'x',
+                       'instrument': 'x',
+                       'telescope': 'x',
+                       'filter': 'r',
+                      }
+            image1 = Image( 'one.fits', ra=120., dec=10., provenance=provenance_base, nofile=True, **kwargs )
+            image2 = Image( 'two.fits', ra=120.0002, dec=9.9998, provenance=provenance_base, nofile=True, **kwargs )
+            image3 = Image( 'three.fits', ra=120.0005, dec=10., provenance=provenance_base, nofile=True, **kwargs )
+            image4 = Image( 'four.fits', ra=60., dec=0., provenance=provenance_base, nofile=True, **kwargs )
+            session.add( image1 )
+            session.add( image2 )
+            session.add( image3 )
+            session.add( image4 )
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., rad=1.02) ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits', 'two.fits' } )
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., rad=2.) ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits', 'two.fits', 'three.fits' } )
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., 0.017, radunit='arcmin') ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits', 'two.fits', } )
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., 0.0002833, radunit='degrees') ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits', 'two.fits', } )
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., 4.9451e-6, radunit='radians') ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits', 'two.fits', } )
+
+            sought = session.query( Image ).filter( Image.cone_search(60, -10, 1.) ).all()
+            assert len( sought ) == 0
+
+            with pytest.raises( ValueError, match='.*unknown radius unit' ):
+                sought = Image.cone_search( 0., 0., 1., 'undefined_unit' )
+        finally:
+            for i in [ image1, image2, image3, image4 ]:
+                if ( i is not None ) and sa.inspect( i ).persistent:
+                    session.delete( i )
 
 
 def test_image_from_exposure(exposure, provenance_base):

@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import hashlib
 import pathlib
 import logging
@@ -15,6 +16,7 @@ from sqlalchemy.types import Enum
 
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.ext.hybrid import hybrid_method
 from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
@@ -159,7 +161,7 @@ class SeeChangeBase:
     )
 
     type_annotation_map = { UUID: sqlUUID }
-    
+
     def __init__(self, **kwargs):
         self.from_db = False  # let users know this object was newly created
         for k, v in kwargs.items():
@@ -622,7 +624,7 @@ class FileOnDiskMixin():
                 if localmd5 != md5sum:
                     raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
                                       f"database value of {md5sum}" )
-        
+
         return fullname
 
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
@@ -815,7 +817,7 @@ class FileOnDiskMixin():
                         # raise FileExistsError( f"{localpath} already exists, not saving" )
                         # Logically, should not be able to get here
                         raise RuntimeError( "This should never happen" )
-            
+
         if mustwrite and not alreadyinplace:
             if data is None:
                 with open( path, "rb" ) as ifp:
@@ -837,7 +839,7 @@ class FileOnDiskMixin():
                 self.filepath_extensions = curextensions
                 self.md5sum_extensions = extmd5s
             return
-        
+
         # The rest of this deals with the archive
 
         archivemd5 = self.md5sum if extension is None else extmd5s[extensiondex]
@@ -977,6 +979,52 @@ class SpatiallyIndexed:
         self.gallon = coords.galactic.l.deg
         self.ecllat = coords.barycentrictrueecliptic.lat.deg
         self.ecllon = coords.barycentrictrueecliptic.lon.deg
+
+    @hybrid_method
+    def cone_search( self, ra, dec, rad, radunit='arcsec' ):
+        """Find all objects of this class that are within a cone.
+
+        Parameters
+        ----------
+          ra: float
+            The central right ascension in decimal degrees
+          dec: float
+            The central declination in decimal degrees
+          rad: float
+            The radius of the circle on the sky
+          radunit: str
+            The units of rad.  One of 'arcsec', 'arcmin', 'degrees', or
+            'radians'.  Defaults to 'arcsec'.
+
+        Returns
+        -------
+          A query with the cone search.
+
+        """
+
+        if radunit == 'arcmin':
+            rad /= 60.
+        elif radunit == 'arcsec':
+            rad /= 3600.
+        elif radunit == 'radians':
+            rad *= 180. / math.pi
+        elif radunit != 'degrees':
+            raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
+
+        return func.q3c_radial_query( self.ra, self.dec, ra, dec, rad )
+
+    @cone_search.expression
+    def cone_search( cls, ra, dec, rad, radunit='arcsec' ):
+        if radunit == 'arcmin':
+            rad /= 60.
+        elif radunit == 'arcsec':
+            rad /= 3600.
+        elif radunit == 'radians':
+            rad *= 180. / math.pi
+        elif radunit != 'degrees':
+            raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
+
+        return func.q3c_radial_query( cls.ra, cls.dec, ra, dec, rad )
 
 
 if __name__ == "__main__":
