@@ -13,7 +13,7 @@ def test_parse_sexigesimal_degrees():
     # Test the postive flag
     deg = radec.parse_sexigesimal_degrees( '-15:32:25', positive=True )
     assert deg == pytest.approx( 344.45972222, abs=1e-8 )
-    
+
     # Make sure that the "negative dec bug" isn't present
     deg = radec.parse_sexigesimal_degrees( "-00:30:00" )
     assert deg == -0.5

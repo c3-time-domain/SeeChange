@@ -625,7 +625,7 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
     with fits.open( decam_example_file, memmap=False ) as ifp:
         hdr = ifp[0].header
     exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
-    ra = util.radec.parse_sexigesimal_degrees( hdr['RA'] ) * 15.
+    ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
     dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
     e = Exposure( ra=ra, dec=dec, instrument='DECam', format='fits', **exphdrinfo,
                   filepath=str( pathlib.Path('DECam_examples') / pathlib.Path(decam_example_file).name ) )
@@ -668,4 +668,3 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
     im.data = np.float32(im.raw_data - np.median(im.raw_data))
 
     # check we can save the image using the filename conventions
-    

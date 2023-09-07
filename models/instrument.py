@@ -1739,7 +1739,7 @@ class DECamOriginExposures:
                                                                     'project', 'target' ] )
                 origin_identifier = pathlib.Path( self._frame.iloc[dex].archive_filename ).name
 
-                ra = util.radec.parse_sexigesimal_degrees( hdr['RA'] ) * 15.
+                ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
                 dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
 
                 q = dbsess.query( Exposure ).filter( Exposure.origin_identifier==origin_identifier )
