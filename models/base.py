@@ -1013,19 +1013,5 @@ class SpatiallyIndexed:
 
         return func.q3c_radial_query( self.ra, self.dec, ra, dec, rad )
 
-    @cone_search.expression
-    def cone_search( cls, ra, dec, rad, radunit='arcsec' ):
-        if radunit == 'arcmin':
-            rad /= 60.
-        elif radunit == 'arcsec':
-            rad /= 3600.
-        elif radunit == 'radians':
-            rad *= 180. / math.pi
-        elif radunit != 'degrees':
-            raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
-
-        return func.q3c_radial_query( cls.ra, cls.dec, ra, dec, rad )
-
-
 if __name__ == "__main__":
     pass
