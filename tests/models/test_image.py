@@ -2,6 +2,7 @@ import os
 import pytest
 import re
 import hashlib
+import pathlib
 import uuid
 
 import numpy as np
@@ -30,6 +31,14 @@ def test_image_no_null_values(provenance_base):
         'filter': 'r',
         'ra': np.random.uniform(0, 360),
         'dec': np.random.uniform(-90, 90),
+        'ra00': 0,
+        'ra01': 0,
+        'ra10': 0,
+        'ra11': 0,
+        'dec00': 0,
+        'dec01': 0,
+        'dec10': 0,
+        'dec11': 0,
         'instrument': 'DemoInstrument',
         'telescope': 'DemoTelescope',
         'project': 'foo',
@@ -132,7 +141,7 @@ def test_image_archive_singlefile(demo_image, provenance_base, archive):
             with open( demo_image.get_fullpath( nofile=False ), 'rb' ) as ifp:
                 localmd5.update( ifp.read() )
             assert localmd5.hexdigest() == demo_image.md5sum.hex
-            
+
             # Make sure that the md5sum is properly saved to the database
             session.add( demo_image )
             session.commit()
@@ -180,7 +189,7 @@ def test_image_archive_multifile(demo_image, provenance_base, archive):
             assert demo_image.md5sum is None
             assert demo_image.md5sum_extensions == [ None, None ]
             demo_image.remove_data_from_disk( session=session )
-                    
+
             # Save to the archive
             demo_image.save()
             for ext, fullpath, md5sum in zip( demo_image.filepath_extensions,
@@ -222,7 +231,7 @@ def test_image_archive_multifile(demo_image, provenance_base, archive):
     finally:
         cfg.set_value( 'storage.images.single_file', single_fileness )
 
-                
+
 def test_image_enum_values(demo_image, provenance_base):
     data_filename = None
     with SmartSession() as session:
@@ -277,6 +286,101 @@ def test_image_coordinates():
     assert abs(image.ecllon - 111.838) < 0.01
     assert abs(image.gallat - 33.542) < 0.01
     assert abs(image.gallon - 160.922) < 0.01
+
+
+# Really, we should also do some speed tests, but that
+# is outside of the scope of the always-run tests
+def test_four_corners( provenance_base ):
+    # There is a small chance that this test will randomly fail
+    # because the demo_image fixture (and others) that are
+    # generated with a random RA and Dec, if they just happen
+    # to fall within the radius of one of the searches below.
+
+    with SmartSession() as session:
+        image1 = None
+        image2 = None
+        image3 = None
+        image4 = None
+        try:
+            mjd = 60000.
+            endmjd = 60000.0007
+            kwargs = { 'mjd': 60000.,
+                       'end_mjd': 60000.0007,
+                       'format': 'fits',
+                       'exp_time': 60.48,
+                       'section_id': 'x',
+                       'project': 'x',
+                       'target': 'x',
+                       'instrument': 'x',
+                       'telescope': 'x',
+                       'filter': 'r',
+                      }
+            # RA numbers are made ugly from cos(dec).
+            # image1: centered on 120, 40, square to the sky
+            image1 = Image( 'one.fits', ra=120, dec=40.,
+                            ra00=119.86945927, ra01=119.86945927, ra10=120.13054073, ra11=120.13054073,
+                            dec00=39.9, dec01=40.1, dec10=39.9, dec11=40.1,
+                            provenance=provenance_base, nofile=True, **kwargs )
+            # image2: centered on 120, 40, at a 45° angle
+            image2 = Image( 'two.fits', ra=120, dec=40.,
+                            ra00=119.81538753, ra01=120, ra11=120.18461247, ra10=120,
+                            dec00=40, dec01=40.14142136, dec11=40, dec10=39.85857864,
+                            provenance=provenance_base, nofile=True, **kwargs )
+            # image3: centered offset by (0.025, 0.025) linear arcsec from 120, 40, square on sky
+            image3 = Image( 'three.fits', ra=120.03264714, dec=40.025,
+                            ra00=119.90210641, ra01=119.90210641, ra10=120.16318787, ra11=120.16318787,
+                            dec00=39.975, dec01=40.125, dec10=39.975, dec11=40.125,
+                            provenance=provenance_base, nofile=True, **kwargs )
+            # imagepoint and imagefar are used to test Image.containing and Image.find_containing,
+            # as Image is the only example of a SpatiallyIndexed thing we have so far.
+            # The corners don't matter for these given how they'll be used.
+            imagepoint = Image( 'point.fits', ra=119.88, dec=39.95, 
+                                ra00=-.001, ra01=0.001, ra10=-0.001, ra11=0.001, dec00=0, dec01=0, dec10=0, dec11=0,
+                                provenance=provenance_base, nofile=True, **kwargs )
+            imagefar = Image( 'far.fits', ra=30, dec=-10, 
+                                ra00=0, ra01=0, ra10=0, ra11=0, dec00=0, dec01=0, dec10=0, dec11=0,
+                                provenance=provenance_base, nofile=True, **kwargs )
+            session.add( image1 )
+            session.add( image2 )
+            session.add( image3 )
+            session.add( imagepoint )
+            session.add( imagefar )
+
+            sought = session.query( Image ).filter( Image.containing( 120, 40 ) ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits', 'two.fits', 'three.fits' } )
+
+            sought = session.query( Image ).filter( Image.containing( 119.88, 39.95 ) ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits' } )
+
+            sought = session.query( Image ).filter( Image.containing( 120, 40.12 ) ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'two.fits', 'three.fits' } )
+
+            sought = session.query( Image ).filter( Image.containing( 120, 39.88 ) ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'two.fits' } )
+
+            sought = Image.find_containing( imagepoint, session=session )
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits' } )
+
+            sought = session.query( Image ).filter( Image.containing( 0, 0 ) ).all()
+            assert len(sought) == 0
+
+            sought = Image.find_containing( imagefar, session=session )
+            assert len(sought) == 0
+
+            sought = session.query( Image ).filter( Image.within( image1 ) ).all()
+            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
+                     == { 'one.fits', 'two.fits', 'three.fits', 'point.fits' } )
+
+            sought = session.query( Image ).filter( Image.within( imagefar ) ).all()
+            assert len(sought) == 0
+
+        finally:
+            session.rollback()
 
 
 def test_image_from_exposure(exposure, provenance_base):
@@ -613,8 +717,8 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
     # assert im.dec == -26.25
     assert im.ra != e.ra
     assert im.dec != e.dec
-    assert im.ra == 116.23984530727733
-    assert im.dec == -26.410038282561345
+    assert im.ra == 116.32126671843677
+    assert im.dec == -26.337508447652503
     assert im.mjd == 59887.32121458
     assert im.end_mjd == 59887.32232569111
     assert im.exp_time == 96.0

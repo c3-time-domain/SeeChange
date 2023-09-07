@@ -1,4 +1,5 @@
 import os
+import math
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.types import Enum
@@ -12,7 +13,7 @@ import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
 
-from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, file_format_enum
+from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners, file_format_enum
 from models.exposure import Exposure, image_type_enum
 from models.instrument import get_instrument_instance
 from models.provenance import Provenance
@@ -27,7 +28,7 @@ image_source_self_association_table = sa.Table(
 )
 
 
-class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
+class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
     __tablename__ = 'images'
 
@@ -368,6 +369,10 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # read the header from the exposure file's individual section data
         new._raw_header = exposure.section_headers[section_id]
 
+        # numpy array axis ordering is backwards from FITS ordering
+        width = new.raw_data.shape[1]
+        height = new.raw_data.shape[0]
+
         names = ['ra', 'dec'] + new.instrument_object.get_auxiliary_exposure_header_keys()
         header_info = new.instrument_object.extract_header_info(new._raw_header, names)
         # TODO: get the important keywords translated into the searchable header column
@@ -377,26 +382,72 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # first see if this instrument has a special method of figuring out the RA/Dec
         new.ra, new.dec = new.instrument_object.get_ra_dec_for_section(exposure, section_id)
 
-        # if that fails (which is true for most instruments!), get the RA/Dec from the section header
-        if new.ra is None or new.dec is None:
-            new.ra = header_info.pop('ra', None)
-            new.dec = header_info.pop('dec', None)
-
-        # if that doesn't work, maybe we can read the WCS from the header:
+        # if not (which is true for most instruments!), try to read the WCS from the header:
         try:
             wcs = WCS(new._raw_header)
-            sc = wcs.pixel_to_world(new._raw_header['NAXIS2'] // 2, new._raw_header['NAXIS1'] // 2)
+            sc = wcs.pixel_to_world(width // 2, height // 2)
             new.ra = sc.ra.to(u.deg).value
             new.dec = sc.dec.to(u.deg).value
         except:
             pass  # can't do it, just leave RA/Dec as None
 
-        # just use the RA/Dec of the global exposure
+        # if that fails, try to get the RA/Dec from the section header
+        if new.ra is None or new.dec is None:
+            new.ra = header_info.pop('ra', None)
+            new.dec = header_info.pop('dec', None)
+
+        # if that fails, just use the RA/Dec of the global exposure
         if new.ra is None or new.dec is None:
             new.ra = exposure.ra
             new.dec = exposure.dec
 
         new.header = header_info  # save any additional header keys into a JSONB column
+
+        # Figure out the 4 corners  Start by tying to use the WCS
+        gotcorners = False
+        try:
+            wcs = WCS( new._raw_header )
+            ras = []
+            decs = []
+            xs = [ 0., width-1., 0., width-1. ]
+            ys = [ 0., height-1., height-1., 0. ]
+            scs = wcs.pixel_to_world( xs, ys )
+            ras = [ i.ra.value_in(u.deg).value for i in scs ]
+            decs = [ i.dec.value_in(u.deg).value for i in scs ]
+            ras, decs = FourCorners.sort_radec( ras, decs )
+            new.ra00 = ras[0]
+            new.ra01 = ras[1]
+            new.ra10 = ras[2]
+            new.ra11 = ras[3]
+            new.dec00 = decs[0]
+            new.dec01 = decs[1]
+            new.dec10 = decs[2]
+            new.dec11 = decs[3]
+            _logger.debug( 'Got corners from WCS' )
+            gotcorners = True
+        except:
+            pass
+
+        # If that didn't work, then use ra and dec and the instrument scale
+        # TODO : take into account standard instrument orientation!
+        # (Can be done after the decam_pull PR is merged)
+
+        if not gotcorners:
+            halfwid = new.instrument_object.pixel_scale * width / 2. / math.cos( new.dec * math.pi / 180. ) / 3600.
+            halfhei = new.instrument_object.pixel_scale * height / 2. / 3600.
+            ra0 = new.ra - halfwid
+            ra1 = new.ra + halfwid
+            dec0 = new.dec - halfhei
+            dec1 = new.dec + halfhei
+            new.ra00 = ra0
+            new.ra01 = ra0
+            new.ra10 = ra1
+            new.ra11 = ra1
+            new.dec00 = dec0
+            new.dec01 = dec1
+            new.dec10 = dec0
+            new.dec11 = dec1
+            gotcorners = True
 
         # the exposure_id will be set automatically at commit time
         new.exposure = exposure
@@ -438,6 +489,14 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # TODO: should RA and Dec also be exactly the same??
         output.ra = images[0].ra
         output.dec = images[0].dec
+        output.ra00 = images[0].ra00
+        output.ra01 = images[0].ra01
+        output.ra10 = images[0].ra10
+        output.ra11 = images[0].ra11
+        output.dec00 = images[0].dec00
+        output.dec01 = images[0].dec01
+        output.dec10 = images[0].dec10
+        output.dec11 = images[0].dec11
 
         # exposure time is usually added together
         output.exp_time = sum([image.exp_time for image in images])
@@ -500,7 +559,8 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # TODO: should RA and Dec also be exactly the same??
 
         # get some more attributes from the new image
-        for att in ['exp_time', 'mjd', 'end_mjd', 'header', 'raw_header', 'ra', 'dec']:
+        for att in ['exp_time', 'mjd', 'end_mjd', 'header', 'raw_header', 'ra', 'dec',
+                    'ra00', 'ra01', 'ra10', 'ra11', 'dec00', 'dec01', 'dec10', 'dec11' ]:
             output.__setattr__(att, getattr(new, att))
 
         output.ref_image = ref
@@ -669,7 +729,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         format = cfg.value('storage.images.format', default='fits')
         extensions = []
         files_written = {}
-        
+
         full_path = os.path.join(self.local_path, self.filepath)
 
         if format == 'fits':

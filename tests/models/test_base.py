@@ -14,7 +14,7 @@ import pytest
 
 import util.config as config
 from models.base import SmartSession
-from models.base import Base, FileOnDiskMixin
+from models.base import Base, FileOnDiskMixin, FourCorners
 
 # ======================================================================
 # FileOnDiskMixin test
@@ -372,3 +372,18 @@ def test_fileondisk_save_multifile( diskfile, archive ):
     # (Many of those code paths were already tested in the previous test,
     # but it would be good to verify that they work as expected with
     # multi-file saves.)
+
+def test_fourcorners_sort_radec():
+    ras = [ 0, 1, 0, 1 ]
+    decs = [ 1, 1, 0, 0 ]
+    ras, decs = FourCorners.sort_radec( ras, decs )
+    assert ras ==  [ 0, 0, 1, 1 ]
+    assert decs == [ 0, 1, 0, 1 ]
+
+    # Rotate 30 degrees
+    ras =  [  1.366, -1.366,  0.366, -0.366 ]
+    decs = [  0.366, -0.366, -1.366,  1.366 ]
+    ras, decs = FourCorners.sort_radec( ras, decs )
+    assert ras ==  [ -1.366, -0.366,  0.366, 1.366 ]
+    assert decs == [ -0.366,  1.366, -1.366, 0.366 ]
+
