@@ -107,13 +107,13 @@ def test_global_vs_sections_values():
 def test_instrument_offsets_and_filter_array_index():
     inst = DemoInstrument()
     inst.name = 'TestInstrument' + uuid.uuid4().hex
-    # assert inst.gain == 2.0
+    assert inst.gain == 2.0
 
     inst.fetch_sections()
     assert inst.sections is not None
     assert len(inst.sections) == 1
 
-    # assert inst.get_property(0, 'gain') == 2.0
+    assert inst.get_property(0, 'gain') == 2.0
 
     # check that there's also a default offsets list
     offsets = inst.get_property(0, 'offsets')
