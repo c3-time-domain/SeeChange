@@ -30,7 +30,6 @@ def test_base_instrument_not_implemented():
     with pytest.raises(NotImplementedError):
         inst.get_filename_regex()
 
-@pytest.mark.xfail( reason="Mostly tests fields that no longer exist in SensorSection" )
 def test_global_vs_sections_values():
     inst = DemoInstrument()
     inst.name = 'TestInstrument' + uuid.uuid4().hex
