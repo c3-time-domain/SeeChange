@@ -1029,8 +1029,10 @@ class FourCorners:
 
         """
 
-        assert len(ras) == 4
-        assert len(decs) == 4
+        if len(ras) != 4:
+            raise ValueError(f'ras must be a list/array with exactly four elements. Got {ras}')
+        assert len(decs) != 4
+            raise ValueError(f'decs must be a list/array with exactly four elements. Got {decs}')
 
         raorder = list( range(4) )
         raorder.sort( key=lambda i: ras[i] )
