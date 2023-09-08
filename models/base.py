@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import hashlib
 import pathlib
 import logging
@@ -1138,6 +1139,38 @@ class FourCorners:
             sess.execute( sa.text( "DROP TABLE temp_find_containing" ) )
             return objs
 
+    @hybrid_method
+    def cone_search( self, ra, dec, rad, radunit='arcsec' ):
+        """Find all objects of this class that are within a cone.
+
+        Parameters
+        ----------
+          ra: float
+            The central right ascension in decimal degrees
+          dec: float
+            The central declination in decimal degrees
+          rad: float
+            The radius of the circle on the sky
+          radunit: str
+            The units of rad.  One of 'arcsec', 'arcmin', 'degrees', or
+            'radians'.  Defaults to 'arcsec'.
+
+        Returns
+        -------
+          A query with the cone search.
+
+        """
+
+        if radunit == 'arcmin':
+            rad /= 60.
+        elif radunit == 'arcsec':
+            rad /= 3600.
+        elif radunit == 'radians':
+            rad *= 180. / math.pi
+        elif radunit != 'degrees':
+            raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
+
+        return func.q3c_radial_query( self.ra, self.dec, ra, dec, rad )
 
 if __name__ == "__main__":
     pass

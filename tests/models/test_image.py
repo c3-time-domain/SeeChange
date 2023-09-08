@@ -287,6 +287,71 @@ def test_image_coordinates():
     assert abs(image.gallat - 33.542) < 0.01
     assert abs(image.gallon - 160.922) < 0.01
 
+def test_image_cone_search( provenance_base ):
+    with SmartSession() as session:
+        image1 = None
+        image2 = None
+        image3 = None
+        image4 = None
+        try:
+            mjd = 60000.
+            endmjd = 60000.0007
+            kwargs = { 'mjd': 60000.,
+                       'end_mjd': 60000.0007,
+                       'format': 'fits',
+                       'exp_time': 60.48,
+                       'section_id': 'x',
+                       'project': 'x',
+                       'target': 'x',
+                       'instrument': 'x',
+                       'telescope': 'x',
+                       'filter': 'r',
+                      }
+            image1 = Image( 'one.fits', ra=120., dec=10., provenance=provenance_base, nofile=True, **kwargs )
+            image2 = Image( 'two.fits', ra=120.0002, dec=9.9998, provenance=provenance_base, nofile=True, **kwargs )
+            image3 = Image( 'three.fits', ra=120.0005, dec=10., provenance=provenance_base, nofile=True, **kwargs )
+            image4 = Image( 'four.fits', ra=60., dec=0., provenance=provenance_base, nofile=True, **kwargs )
+            session.add( image1 )
+            session.add( image2 )
+            session.add( image3 )
+            session.add( image4 )
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., rad=1.02) ).all()
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., rad=2.) ).all()
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id, image3.id }.issubset( soughtids )
+            assert len( { image4.id } & soughtids ) == 0
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., 0.017, radunit='arcmin') ).all()
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., 0.0002833, radunit='degrees') ).all()
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
+
+            sought = session.query( Image ).filter( Image.cone_search(120., 10., 4.9451e-6, radunit='radians') ).all()
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
+
+            sought = session.query( Image ).filter( Image.cone_search(60, -10, 1.) ).all()
+            soughtids = set( [ s.id for s in sought ] )
+            assert len( { image1.id, image2.id, image3.id, image4.id } & soughtids ) == 0
+
+            with pytest.raises( ValueError, match='.*unknown radius unit' ):
+                sought = Image.cone_search( 0., 0., 1., 'undefined_unit' )
+        finally:
+            for i in [ image1, image2, image3, image4 ]:
+                if ( i is not None ) and sa.inspect( i ).persistent:
+                    session.delete( i )
+            session.commit()
 
 # Really, we should also do some speed tests, but that
 # is outside of the scope of the always-run tests.
