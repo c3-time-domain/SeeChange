@@ -1017,8 +1017,10 @@ class FourCorners:
 
         Parameters
         ----------
-          ras, decs: list of float
-             Four ras and four decs
+          ras: list of float
+             Four ra values in a list. 
+          decs: list of float
+             Four dec values in a list. 
 
         Returns
         -------
