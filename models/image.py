@@ -415,14 +415,14 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
             ras = [ i.ra.value_in(u.deg).value for i in scs ]
             decs = [ i.dec.value_in(u.deg).value for i in scs ]
             ras, decs = FourCorners.sort_radec( ras, decs )
-            new.ra00 = ras[0]
-            new.ra01 = ras[1]
-            new.ra10 = ras[2]
-            new.ra11 = ras[3]
-            new.dec00 = decs[0]
-            new.dec01 = decs[1]
-            new.dec10 = decs[2]
-            new.dec11 = decs[3]
+            new.ra_corner_00 = ras[0]
+            new.ra_corner_01 = ras[1]
+            new.ra_corner_10 = ras[2]
+            new.ra_corner_11 = ras[3]
+            new.dec_corner_00 = decs[0]
+            new.dec_corner_01 = decs[1]
+            new.dec_corner_10 = decs[2]
+            new.dec_corner_11 = decs[3]
             _logger.debug( 'Got corners from WCS' )
             gotcorners = True
         except:
@@ -439,14 +439,14 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
             ra1 = new.ra + halfwid
             dec0 = new.dec - halfhei
             dec1 = new.dec + halfhei
-            new.ra00 = ra0
-            new.ra01 = ra0
-            new.ra10 = ra1
-            new.ra11 = ra1
-            new.dec00 = dec0
-            new.dec01 = dec1
-            new.dec10 = dec0
-            new.dec11 = dec1
+            new.ra_corner_00 = ra0
+            new.ra_corner_01 = ra0
+            new.ra_corner_10 = ra1
+            new.ra_corner_11 = ra1
+            new.dec_corner_00 = dec0
+            new.dec_corner_01 = dec1
+            new.dec_corner_10 = dec0
+            new.dec_corner_11 = dec1
             gotcorners = True
 
         # the exposure_id will be set automatically at commit time
@@ -489,14 +489,14 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         # TODO: should RA and Dec also be exactly the same??
         output.ra = images[0].ra
         output.dec = images[0].dec
-        output.ra00 = images[0].ra00
-        output.ra01 = images[0].ra01
-        output.ra10 = images[0].ra10
-        output.ra11 = images[0].ra11
-        output.dec00 = images[0].dec00
-        output.dec01 = images[0].dec01
-        output.dec10 = images[0].dec10
-        output.dec11 = images[0].dec11
+        output.ra_corner_00 = images[0].ra_corner_00
+        output.ra_corner_01 = images[0].ra_corner_01
+        output.ra_corner_10 = images[0].ra_corner_10
+        output.ra_corner_11 = images[0].ra_corner_11
+        output.dec_corner_00 = images[0].dec_corner_00
+        output.dec_corner_01 = images[0].dec_corner_01
+        output.dec_corner_10 = images[0].dec_corner_10
+        output.dec_corner_11 = images[0].dec_corner_11
 
         # exposure time is usually added together
         output.exp_time = sum([image.exp_time for image in images])
@@ -560,7 +560,8 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
         # get some more attributes from the new image
         for att in ['exp_time', 'mjd', 'end_mjd', 'header', 'raw_header', 'ra', 'dec',
-                    'ra00', 'ra01', 'ra10', 'ra11', 'dec00', 'dec01', 'dec10', 'dec11' ]:
+                    'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
+                    'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11' ]:
             output.__setattr__(att, getattr(new, att))
 
         output.ref_image = ref

@@ -996,20 +996,25 @@ class SpatiallyIndexed:
         """
 
         return func.q3c_poly_query( self.ra, self.dec,
-                                    sqlarray( [ fourcorn.ra00, fourcorn.dec00, fourcorn.ra01, fourcorn.dec01,
-                                                fourcorn.ra11, fourcorn.dec11, fourcorn.ra10, fourcorn.dec10 ] ) )
+                                    sqlarray( [ fourcorn.ra_corner_00, fourcorn.dec_corner_00,
+                                                fourcorn.ra_corner_01, fourcorn.dec_corner_01,
+                                                fourcorn.ra_corner_11, fourcorn.dec_corner_11,
+                                                fourcorn.ra_corner_10, fourcorn.dec_corner_10 ] ) )
 
 class FourCorners:
     """A mixin for tables that have four RA/Dec corners"""
 
-    ra00 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, low-Dec corner (degrees)" )
-    ra01 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, high-Dec corner (degrees)" )
-    ra10 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, low-Dec corner (degrees)" )
-    ra11 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, high-Dec corner (degrees)" )
-    dec00 = sa.Column( sa.REAL, nullable=False, index=True, doc="Dec of the low-RA, low-Dec corner (degrees)" )
-    dec01 = sa.Column( sa.REAL, nullable=False, index=True, doc="Dec of the low-RA, high-Dec corner (degrees)" )
-    dec10 = sa.Column( sa.REAL, nullable=False, index=True, doc="Dec of the high-RA, low-Dec corner (degrees)" )
-    dec11 = sa.Column( sa.REAL, nullable=False, index=True, doc="Dec of the high-RA, high-Dec corner (degrees)" )
+    ra_corner_00 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, low-Dec corner (degrees)" )
+    ra_corner_01 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, high-Dec corner (degrees)" )
+    ra_corner_10 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, low-Dec corner (degrees)" )
+    ra_corner_11 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, high-Dec corner (degrees)" )
+    dec_corner_00 = sa.Column( sa.REAL, nullable=False, index=True, doc="Dec of the low-RA, low-Dec corner (degrees)" )
+    dec_corner_01 = sa.Column( sa.REAL, nullable=False, index=True,
+                               doc="Dec of the low-RA, high-Dec corner (degrees)" )
+    dec_corner_10 = sa.Column( sa.REAL, nullable=False, index=True,
+                               doc="Dec of the high-RA, low-Dec corner (degrees)" )
+    dec_corner_11 = sa.Column( sa.REAL, nullable=False, index=True,
+                               doc="Dec of the high-RA, high-Dec corner (degrees)" )
 
     @classmethod
     def sort_radec( cls, ras, decs ):
@@ -1086,12 +1091,10 @@ class FourCorners:
         # I have no clue how to implement that simply here as as an
         # SQLAlchemy filter, so I implement it in find_containing()
 
-        # return sa.and_( func.greatest( self.ra00, self.ra01, self.ra10, self.ra11 ) >= ra,
-        #                 func.least( self.ra00, self.ra01, self.ra10, self.ra11 ) <= ra,
-        #                 func.greatest( self.dec00, self.dec01, self.dec10, self.dec11 ) >= dec,
-        #                 func.least( self.dec00, self.dec01, self.dec10, self.dec11 ) <= dec )
-        return func.q3c_poly_query( ra, dec, sqlarray( [ self.ra00, self.dec00, self.ra01, self.dec01,
-                                                         self.ra11, self.dec11, self.ra10, self.dec10 ] ) )
+        return func.q3c_poly_query( ra, dec, sqlarray( [ self.ra_corner_00, self.dec_corner_00,
+                                                         self.ra_corner_01, self.dec_corner_01,
+                                                         self.ra_corner_11, self.dec_corner_11,
+                                                         self.ra_corner_10, self.dec_corner_10 ] ) )
 
     @classmethod
     def find_containing( cls, siobj, session=None ):
@@ -1113,18 +1116,24 @@ class FourCorners:
         dec = float( siobj.dec )
 
         with SmartSession( session ) as sess:
-            sess.execute( sa.text( f"SELECT i.id, i.ra00, i.ra01, i.ra10, i.ra11, "
-                                   f"       i.dec00, i.dec01, i.dec10, i.dec11 "
+            sess.execute( sa.text( f"SELECT i.id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+                                   f"       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
                                    f"INTO TEMP TABLE temp_find_containing "
                                    f"FROM {cls.__tablename__} i "
-                                   f"WHERE GREATEST(i.ra00, i.ra01, i.ra10, i.ra11 ) >= :ra "
-                                   f"  AND LEAST(i.ra00, i.ra01, i.ra10, i.ra11 ) <= :ra "
-                                   f"  AND GREATEST(i.dec00, i.dec01, i.dec10, i.dec11 ) >= :dec "
-                                   f"  AND LEAST(i.dec00, i.dec01, i.dec10, i.dec11 ) <= :dec" ),
+                                   f"WHERE GREATEST(i.ra_corner_00, i.ra_corner_01, "
+                                   f"               i.ra_corner_10, i.ra_corner_11 ) >= :ra "
+                                   f"  AND LEAST(i.ra_corner_00, i.ra_corner_01, "
+                                   f"            i.ra_corner_10, i.ra_corner_11 ) <= :ra "
+                                   f"  AND GREATEST(i.dec_corner_00, i.dec_corner_01, "
+                                   f"               i.dec_corner_10, i.dec_corner_11 ) >= :dec "
+                                   f"  AND LEAST(i.dec_corner_00, i.dec_corner_01, "
+                                   f"            i.dec_corner_10, i.dec_corner_11 ) <= :dec" ),
                           { 'ra': ra, 'dec': dec } )
             query = sa.text( f"SELECT i.id FROM temp_find_containing i "
-                             f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ i.ra00, i.dec00, i.ra01, i.dec01, "
-                             f"                                          i.ra11, i.dec11, i.ra10, i.dec10 ])" )
+                             f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ i.ra_corner_00, i.dec_corner_00, "
+                             f"                                          i.ra_corner_01, i.dec_corner_01, "
+                             f"                                          i.ra_corner_11, i.dec_corner_11, "
+                             f"                                          i.ra_corner_10, i.dec_corner_10 ])" )
             objs = sess.scalars( sa.select( cls ).from_statement( query ) ).all()
             sess.execute( sa.text( "DROP TABLE temp_find_containing" ) )
             return objs

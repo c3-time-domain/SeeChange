@@ -31,14 +31,14 @@ def test_image_no_null_values(provenance_base):
         'filter': 'r',
         'ra': np.random.uniform(0, 360),
         'dec': np.random.uniform(-90, 90),
-        'ra00': 0,
-        'ra01': 0,
-        'ra10': 0,
-        'ra11': 0,
-        'dec00': 0,
-        'dec01': 0,
-        'dec10': 0,
-        'dec11': 0,
+        'ra_corner_00': 0,
+        'ra_corner_01': 0,
+        'ra_corner_10': 0,
+        'ra_corner_11': 0,
+        'dec_corner_00': 0,
+        'dec_corner_01': 0,
+        'dec_corner_10': 0,
+        'dec_corner_11': 0,
         'instrument': 'DemoInstrument',
         'telescope': 'DemoTelescope',
         'project': 'foo',
@@ -314,27 +314,31 @@ def test_four_corners( provenance_base ):
             # RA numbers are made ugly from cos(dec).
             # image1: centered on 120, 40, square to the sky
             image1 = Image( 'one.fits', ra=120, dec=40.,
-                            ra00=119.86945927, ra01=119.86945927, ra10=120.13054073, ra11=120.13054073,
-                            dec00=39.9, dec01=40.1, dec10=39.9, dec11=40.1,
+                            ra_corner_00=119.86945927, ra_corner_01=119.86945927,
+                            ra_corner_10=120.13054073, ra_corner_11=120.13054073,
+                            dec_corner_00=39.9, dec_corner_01=40.1, dec_corner_10=39.9, dec_corner_11=40.1,
                             provenance=provenance_base, nofile=True, **kwargs )
             # image2: centered on 120, 40, at a 45° angle
             image2 = Image( 'two.fits', ra=120, dec=40.,
-                            ra00=119.81538753, ra01=120, ra11=120.18461247, ra10=120,
-                            dec00=40, dec01=40.14142136, dec11=40, dec10=39.85857864,
+                            ra_corner_00=119.81538753, ra_corner_01=120, ra_corner_11=120.18461247, ra_corner_10=120,
+                            dec_corner_00=40, dec_corner_01=40.14142136, dec_corner_11=40, dec_corner_10=39.85857864,
                             provenance=provenance_base, nofile=True, **kwargs )
             # image3: centered offset by (0.025, 0.025) linear arcsec from 120, 40, square on sky
             image3 = Image( 'three.fits', ra=120.03264714, dec=40.025,
-                            ra00=119.90210641, ra01=119.90210641, ra10=120.16318787, ra11=120.16318787,
-                            dec00=39.975, dec01=40.125, dec10=39.975, dec11=40.125,
+                            ra_corner_00=119.90210641, ra_corner_01=119.90210641,
+                            ra_corner_10=120.16318787, ra_corner_11=120.16318787,
+                            dec_corner_00=39.975, dec_corner_01=40.125, dec_corner_10=39.975, dec_corner_11=40.125,
                             provenance=provenance_base, nofile=True, **kwargs )
             # imagepoint and imagefar are used to test Image.containing and Image.find_containing,
             # as Image is the only example of a SpatiallyIndexed thing we have so far.
             # The corners don't matter for these given how they'll be used.
             imagepoint = Image( 'point.fits', ra=119.88, dec=39.95, 
-                                ra00=-.001, ra01=0.001, ra10=-0.001, ra11=0.001, dec00=0, dec01=0, dec10=0, dec11=0,
+                                ra_corner_00=-.001, ra_corner_01=0.001, ra_corner_10=-0.001,
+                                ra_corner_11=0.001, dec_corner_00=0, dec_corner_01=0, dec_corner_10=0, dec_corner_11=0,
                                 provenance=provenance_base, nofile=True, **kwargs )
             imagefar = Image( 'far.fits', ra=30, dec=-10, 
-                                ra00=0, ra01=0, ra10=0, ra11=0, dec00=0, dec01=0, dec10=0, dec11=0,
+                                ra_corner_00=0, ra_corner_01=0, ra_corner_10=0,
+                              ra_corner_11=0, dec_corner_00=0, dec_corner_01=0, dec_corner_10=0, dec_corner_11=0,
                                 provenance=provenance_base, nofile=True, **kwargs )
             session.add( image1 )
             session.add( image2 )
