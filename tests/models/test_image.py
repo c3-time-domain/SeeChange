@@ -290,17 +290,7 @@ def test_image_coordinates():
 
 # Really, we should also do some speed tests, but that
 # is outside of the scope of the always-run tests.
-#
-# There is a small chance that this test will randomly fail
-# because the demo_image fixture (and others) that are
-# generated with a random RA and Dec, if they just happen
-# to fall within the radius of one of the searches below.
-#
-# This decorator isn't part of standard pytest,
-# isn't in the environment we run the tests in
-# @pytest.mark.flaky(reruns=2)
 def test_four_corners( provenance_base ):
-    
 
     with SmartSession() as session:
         image1 = None
@@ -353,37 +343,46 @@ def test_four_corners( provenance_base ):
             session.add( imagefar )
 
             sought = session.query( Image ).filter( Image.containing( 120, 40 ) ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits', 'two.fits', 'three.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id, image3.id }.issubset( soughtids )
+            assert len( { imagepoint.id, imagefar.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.containing( 119.88, 39.95 ) ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id }.issubset( soughtids  )
+            assert len( { image2.id, image3.id, imagepoint.id, imagefar.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.containing( 120, 40.12 ) ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'two.fits', 'three.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image2.id, image3.id }.issubset( soughtids )
+            assert len( { image1.id, imagepoint.id, imagefar.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.containing( 120, 39.88 ) ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'two.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image2.id }.issubset( soughtids )
+            assert len( { image1.id, image3.id, imagepoint.id, imagefar.id } & soughtids ) == 0
 
             sought = Image.find_containing( imagepoint, session=session )
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id }.issubset( soughtids )
+            assert len( { image2.id, image3.id, imagepoint.id, imagefar.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.containing( 0, 0 ) ).all()
-            assert len(sought) == 0
+            soughtids = set( [ s.id for s in sought ] )
+            assert len( { image1.id, image2.id, image3.id, imagepoint.id, imagefar.id } & soughtids ) == 0
 
             sought = Image.find_containing( imagefar, session=session )
-            assert len(sought) == 0
+            soughtids = set( [ s.id for s in sought ] )
+            assert len( { image1.id, image2.id, image3.id, imagepoint.id, imagefar.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.within( image1 ) ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits', 'two.fits', 'three.fits', 'point.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id, image3.id, imagepoint.id }.issubset( soughtids )
+            assert len( { imagefar.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.within( imagefar ) ).all()
-            assert len(sought) == 0
+            soughtids = set( [ s.id for s in sought ] )
+            assert len( { image1.id, image2.id, image3.id, imagepoint.id, imagefar.id } & soughtids ) == 0
 
         finally:
             session.rollback()
