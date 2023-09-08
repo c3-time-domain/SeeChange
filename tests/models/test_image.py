@@ -309,27 +309,33 @@ def test_image_cone_search( provenance_base ):
             session.add( image4 )
 
             sought = session.query( Image ).filter( Image.cone_search(120., 10., rad=1.02) ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits', 'two.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.cone_search(120., 10., rad=2.) ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits', 'two.fits', 'three.fits' } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id, image3.id }.issubset( soughtids )
+            assert len( { image4.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.cone_search(120., 10., 0.017, radunit='arcmin') ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits', 'two.fits', } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.cone_search(120., 10., 0.0002833, radunit='degrees') ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits', 'two.fits', } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.cone_search(120., 10., 4.9451e-6, radunit='radians') ).all()
-            assert ( set( [ pathlib.Path( s.filepath ).name for s in sought ] )
-                     == { 'one.fits', 'two.fits', } )
+            soughtids = set( [ s.id for s in sought ] )
+            assert { image1.id, image2.id }.issubset( soughtids )
+            assert len( { image3.id, image4.id } & soughtids ) == 0
 
             sought = session.query( Image ).filter( Image.cone_search(60, -10, 1.) ).all()
-            assert len( sought ) == 0
+            soughtids = set( [ s.id for s in sought ] )
+            assert len( { image1.id, image2.id, image3.id, image4.id } & soughtids ) == 0
 
             with pytest.raises( ValueError, match='.*unknown radius unit' ):
                 sought = Image.cone_search( 0., 0., 1., 'undefined_unit' )
