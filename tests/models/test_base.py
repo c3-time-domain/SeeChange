@@ -13,6 +13,7 @@ import numpy
 import pytest
 
 import util.config as config
+import models.base
 from models.base import SmartSession
 from models.base import Base, FileOnDiskMixin, FourCorners
 
@@ -45,17 +46,17 @@ def diskfiletable():
 
 
 @pytest.fixture
-def diskfile(diskfiletable):
+def diskfile( diskfiletable ):
     df = DiskFile()
     yield df
 
     with SmartSession() as session:
         df = session.merge( df )
-        if df.id is not None:
-            session.execute( sa.delete(DiskFile).where( DiskFile.id == df.id ) )
         df.remove_data_from_disk( remove_folders=True, purge_archive=True, nocommit=True )
+        if sa.inspect( df ).persistent:
+            session.delete( df )
+        session.expunge( df )
         session.commit()
-
 
 def test_fileondisk_save_failuremodes( diskfile ):
     data1 = numpy.random.rand( 32 ).tobytes()
@@ -253,6 +254,27 @@ def test_fileondisk_save_singlefile( diskfile, archive ):
         assert md5sum3 == hashlib.md5( ifp.read() ).hexdigest()
 
 
+def test_fileondisk_save_singlefile_noarchive( diskfile ):
+    # Verify that the md5sum of a file gets set when saving to a disk
+    # when the archive is null.
+
+    diskfile.filepath = 'test_fileondisk_save.dat'
+    data1 = numpy.random.rand( 32 ).tobytes()
+    md5sum1 = hashlib.md5( data1 ).hexdigest()
+
+    cfg = config.Config.get()
+    origcfgarchive = cfg.value( 'archive' )
+    origarchive = models.base.ARCHIVE
+    try:
+        cfg.set_value( 'archive', None )
+        models.base.ARCHIVE = None
+        diskfile.save( data1, overwrite=False, exists_ok=False )
+        assert diskfile.md5sum.hex == md5sum1
+    finally:
+        cfg.set_value( 'archive', origcfgarchive )
+        models.base.ARCHIVE = origarchive
+
+
 def test_fileondisk_save_multifile( diskfile, archive ):
     try:
         cfg = config.Config.get()
@@ -367,11 +389,35 @@ def test_fileondisk_save_multifile( diskfile, archive ):
             ifp = open( f'{archivebase}{diskfile.filepath}_2.dat', 'rb' )
             ifp.close()
 
-
     # TODO : test various combinations of overwrite, exists_ok, and verify_md5
     # (Many of those code paths were already tested in the previous test,
     # but it would be good to verify that they work as expected with
     # multi-file saves.)
+
+def test_fileondisk_save_multifile_noarchive( diskfile ):
+    # Verify that the md5sum of a file gets set when saving to a disk
+    # when the archive is null.
+
+    diskfile.filepath = 'test_fileondisk_save.dat'
+    data1 = numpy.random.rand( 32 ).tobytes()
+    md5sum1 = hashlib.md5( data1 ).hexdigest()
+    data2 = numpy.random.rand( 32 ).tobytes()
+    md5sum2 = hashlib.md5( data2 ).hexdigest()
+    assert md5sum1 != md5sum2
+
+    cfg = config.Config.get()
+    origcfgarchive = cfg.value( 'archive' )
+    origarchive = models.base.ARCHIVE
+    try:
+        cfg.set_value( 'archive', None )
+        models.base.ARCHIVE = None
+        diskfile.save( data1, extension="_1.dat", overwrite=False, exists_ok=False )
+        diskfile.save( data2, extension="_2.dat", overwrite=False, exists_ok=False )
+        assert diskfile.md5sum is None
+        assert diskfile.md5sum_extensions == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
+    finally:
+        cfg.set_value( 'archive', origcfgarchive )
+        models.base.ARCHIVE = origarchive
 
 def test_fourcorners_sort_radec():
     ras = [ 0, 1, 0, 1 ]
