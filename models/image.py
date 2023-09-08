@@ -403,7 +403,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
         new.header = header_info  # save any additional header keys into a JSONB column
 
-        # Figure out the 4 corners  Start by tying to use the WCS
+        # Figure out the 4 corners  Start by trying to use the WCS
         gotcorners = False
         try:
             wcs = WCS( new._raw_header )
