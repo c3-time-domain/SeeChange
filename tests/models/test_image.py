@@ -290,11 +290,13 @@ def test_image_coordinates():
 
 # Really, we should also do some speed tests, but that
 # is outside of the scope of the always-run tests
+# There is a small chance that this test will randomly fail
+# because the demo_image fixture (and others) that are
+# generated with a random RA and Dec, if they just happen
+# to fall within the radius of one of the searches below.
+@pytest.mark.flaky(reruns=2)
 def test_four_corners( provenance_base ):
-    # There is a small chance that this test will randomly fail
-    # because the demo_image fixture (and others) that are
-    # generated with a random RA and Dec, if they just happen
-    # to fall within the radius of one of the searches below.
+    
 
     with SmartSession() as session:
         image1 = None
