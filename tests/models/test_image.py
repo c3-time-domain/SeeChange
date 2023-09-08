@@ -337,7 +337,7 @@ def test_image_cone_search( provenance_base ):
             for i in [ image1, image2, image3, image4 ]:
                 if ( i is not None ) and sa.inspect( i ).persistent:
                     session.delete( i )
-
+            session.commit()
 
 def test_image_from_exposure(exposure, provenance_base):
     exposure.update_instrument()
