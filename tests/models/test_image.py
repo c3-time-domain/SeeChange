@@ -306,6 +306,14 @@ def test_image_cone_search( provenance_base ):
                        'instrument': 'x',
                        'telescope': 'x',
                        'filter': 'r',
+                       'ra_corner_00': 0,
+                       'ra_corner_01': 0,
+                       'ra_corner_10': 0,
+                       'ra_corner_11': 0,
+                       'dec_corner_00': 0,
+                       'dec_corner_01': 0,
+                       'dec_corner_10': 0,
+                       'dec_corner_11': 0,
                       }
             image1 = Image( 'one.fits', ra=120., dec=10., provenance=provenance_base, nofile=True, **kwargs )
             image2 = Image( 'two.fits', ra=120.0002, dec=9.9998, provenance=provenance_base, nofile=True, **kwargs )
