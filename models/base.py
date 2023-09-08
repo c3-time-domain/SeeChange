@@ -34,7 +34,6 @@ if len(_logger.handlers) == 0:
     _logger.addHandler( _logout )
     _formatter = logging.Formatter( f"[%(asctime)s - %(levelname)s] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S" )
     _logout.setFormatter( _formatter )
-    # _logout.setLevel( logging.INFO )
     _logout.setLevel( logging.DEBUG )
 
 # this is the root SeeChange folder
