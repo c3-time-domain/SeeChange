@@ -1,0 +1,127 @@
+version: "3.3"
+
+services:
+  make-archive-directories:
+    image: rknop/upload-connector:tests
+    build:
+      context: ../extern/nersc-upload-connector
+      args:
+        UID: 0
+        GID: 0
+    volumes:
+      - type: volume
+        source: archive-storage
+        target: /storage
+    entrypoint: bash -c "mkdir -p /storage/base && chmod a+rwx /storage/base"
+
+  archive:
+    depends_on:
+      make-archive-directories:
+        condition: service_completed_successfully
+    image: rknop/upload-connector:tests
+    build:
+      context: ../extern/nersc-upload-connector
+      args:
+        UID: 0
+        GID: 0
+    healthcheck:
+      test: netcat -w 1 localhost 8080 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    environment:
+      - CONNECTOR_READ_STORAGE=/storage_ro/base
+      - CONNECTOR_WRITE_STORAGE=/storage/base
+    volumes:
+      - type: volume
+        source: archive-storage
+        target: /storage
+      - type: volume
+        source: archive-storage
+        target: /storage_ro
+        read_only: true
+    secrets:
+      - connector_tokens
+
+  seechange_postgres:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
+    build:
+      context: ../docker/postgres
+    environment:
+      POSTGRES_DATA_DIR: /var/lib/postgresql/data
+    healthcheck:
+      test: netcat -w 1 localhost 5432 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  setuptables:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build:
+      context: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
+    depends_on:
+      seechange_postgres:
+         condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    working_dir: /seechange
+    user: ${USERID:-0}:${GROUPID:-0}
+    entrypoint: [ "alembic", "upgrade", "head" ]
+      
+  runtests:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build:
+      context: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
+      SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
+    depends_on:
+      setuptables:
+        condition: service_completed_successfully
+      archive:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+      - type: volume
+        source: archive-storage
+        target: /archive_storage
+    working_dir: /seechange
+    user: ${USERID:-0}:${GROUPID:-0}
+    entrypoint: [ "pytest", "-v", "/seechange/tests/", ]
+
+  shell:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build:
+      context: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
+      SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
+    depends_on:
+      setuptables:
+        condition: service_completed_successfully
+      archive:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+      - type: volume
+        source: archive-storage
+        target: /archive_storage
+    working_dir: /seechange
+    user: ${USERID:-0}:${GROUPID:-0}
+    entrypoint: [ "tail", "-f", "/etc/issue" ]
+      
+    
+secrets:
+  connector_tokens:
+    file: connector_tokens.txt
+
+volumes:
+  archive-storage:
