@@ -184,7 +184,7 @@ class Provenance(Base):
         """
         prov = Provenance( **kwargs )
         prov.update_hash()
-        passedsession = None if 'session' not in kwargs.keys() else kwargs['session']
+        passedsession = kwargs.get('session', None)
         with SmartSession( passedsession ) as session:
             q = session.query( Provenance ).filter( Provenance.unique_hash==prov.unique_hash )
             existingprov = q.first()

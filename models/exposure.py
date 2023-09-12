@@ -271,7 +271,7 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
            The path to the file where the exposure currently is (which
            may or may not be the same as the filepath it will have in
            the database).  If you don't specify this, then the file must
-           exist filepath (either the one you pass or the one that is
+           exist at filepath (either the one you pass or the one that is
            determined automatically if invent_filepath is True).
 
         invent_filepath: bool
@@ -309,9 +309,9 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         self._instrument_object = None
 
-        # Bit of a check and egg problem here...
+        # Bit of a chicken and egg problem here...
         # For filepath, invent_filepath tries to use the instrument
-        # For instrument, guess_instrument tires to use the filepath
+        # For instrument, guess_instrument tries to use the filepath
         # If we have neither, we're in trouble.
         if self.filepath is None:
             if self.instrument is None:

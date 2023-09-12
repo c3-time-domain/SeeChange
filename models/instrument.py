@@ -234,7 +234,7 @@ class SensorSection(Base):
     #  non_linearity_limit can vary by lot (10s of %) between amps on a
     #  single chip.  The values here will be at best "nominal" values,
     #  and shouldn't be used for any image reduction, but only for
-    #  general low-precision# instrument comparision.
+    #  general low-precision instrument comparison.
 
     read_noise = sa.Column(
         sa.Float,
@@ -784,14 +784,14 @@ class Instrument:
             The header from the exposure file, as a dictionary
             (or the more complex astropy.io.fits.Header object).
         """
-        if isinstance(filepath, str) or isinstance(filepath, pathlib.Path):
+        if isinstance(filepath, (str, pathlib.Path)):
             if section_id is None:
                 return read_fits_image(filepath, ext=0, output='header')
             else:
                 self.check_section_id(section_id)
                 idx = self._get_fits_hdu_index_from_section_id(section_id)
                 return read_fits_image(filepath, ext=idx, output='header')
-        elif isinstance(filepath, list) and all( (isinstance(f, str) or isinstance(f,pathlib.Path)) for f in filepath):
+        elif isinstance(filepath, list) and all( (isinstance(f, (str, pathlib.Path))) for f in filepath):
             if section_id is None:
                 # just read the header of the first file
                 return read_fits_image(filepath[0], ext=0, output='header')
@@ -1133,7 +1133,7 @@ class DemoInstrument(Instrument):
                                minmjd=None, maxmjd=None, filters=None,
                                containing_ra=None, containing_dec=None,
                                minexptime=None ):
-        """Search the external repository for this instrument.
+        """Search the external repository associated with this instrument.
 
         Search the external image/exposure repository for this
         instrument for exposures that the database doesn't know about
@@ -1143,14 +1143,14 @@ class DemoInstrument(Instrument):
         WARNING : do not call this without some parameters that limit
         the search; otherwise, too many things will be returned, and the
         query is likely to time out or get an error from the external
-        repository.
+        repository. E.g., a good idea is to search only for exposure from the last week. 
 
         Parameters
         ----------
         skip_exposures_in_databse: bool
            If True (default), will filter out any exposures that (as
            best can be determined) are already known in the SeeChange
-           database.  If False, will include any 
+           database.  If False, will include all exposures. 
         minmjd: float
            The earliest time of exposure to search (default: no limit)
         maxmjd: float
@@ -1285,8 +1285,7 @@ class DECam(Instrument):
         self.orientation_fixed = True
         self.orientation = InstrumentOrientation.NleftEup
         # read_noise, dark_current, gain, saturation_limit, non_linearity_limit
-        # are all approximate values for DECam; it varies by a lot
-        # between chips
+        # are all approximate values for DECam; it varies by a lot between chips
         self.read_noise = 7.0
         self.dark_current = 0.1
         self.gain = 4.0
