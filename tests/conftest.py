@@ -19,7 +19,8 @@ from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.references import ReferenceEntry
-from models.instrument import Instrument, SourceList
+from models.instrument import Instrument
+from models.source_list import SourceList
 from util import config
 from util.archive import Archive
 

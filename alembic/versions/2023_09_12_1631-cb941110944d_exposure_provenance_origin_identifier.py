@@ -1,8 +1,8 @@
 """exposure_provenance_origin_identifier
 
-Revision ID: d4c251c870b2
-Revises: e78c1e8bec33
-Create Date: 2023-09-05 19:20:51.318996
+Revision ID: cb941110944d
+Revises: 04e5cdfa1ad9
+Create Date: 2023-09-12 16:31:55.244297
 
 """
 from alembic import op
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'd4c251c870b2'
-down_revision = 'e78c1e8bec33'
+revision = 'cb941110944d'
+down_revision = '04e5cdfa1ad9'
 branch_labels = None
 depends_on = None
 
