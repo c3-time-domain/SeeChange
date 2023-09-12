@@ -17,11 +17,12 @@ class CodeHash(Base):
     def __init__(self, git_hash):
         self.id = git_hash
 
-    id = sa.Column(sa.String, primary_key=True, index=True, unique=True)
+    id = sa.Column(sa.String, primary_key=True)
 
     code_version_id = sa.Column(sa.String, sa.ForeignKey("code_versions.id",
                                                          ondelete="CASCADE",
-                                                         name='code_hashes_code_version_id_fkey'))
+                                                         name='code_hashes_code_version_id_fkey'),
+                                index=True )
 
     code_version = relationship("CodeVersion", back_populates="code_hashes", lazy='selectin')
 
@@ -33,8 +34,6 @@ class CodeVersion(Base):
         sa.String,
         primary_key=True,
         nullable=False,
-        index=True,
-        unique=True,
         doc='Version of the code. Can use semantic versioning or date/time, etc. '
     )
 
@@ -80,8 +79,6 @@ class Provenance(Base):
         sa.String,
         primary_key=True,
         nullable=False,
-        index=True,
-        unique=True,
         doc="Unique hash of the code version, parameters and upstream provenances used to generate this dataset. ",
     )
 
@@ -152,9 +149,10 @@ class Provenance(Base):
     )
 
     replaced_by = sa.Column(
-        sa.Integer,
+        sa.String,
         sa.ForeignKey("provenances.id", ondelete="SET NULL", name='provenances_replaced_by_fkey'),
         nullable=True,
+        index=True,
         doc="ID of the provenance that replaces this one. ",
     )
 
