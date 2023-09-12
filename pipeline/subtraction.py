@@ -66,7 +66,7 @@ class Subtractor:
             if sub_image.provenance is None:
                 sub_image.provenance = prov
             else:
-                if sub_image.provenance.unique_hash != prov.unique_hash:
+                if sub_image.provenance.id != prov.id:
                     raise ValueError('Provenance mismatch for sub_image and provenance!')
 
         ds.sub_image = sub_image

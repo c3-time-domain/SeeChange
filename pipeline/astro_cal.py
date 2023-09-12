@@ -64,7 +64,7 @@ class AstroCalibrator:
             if wcs.provenance is None:
                 wcs.provenance = prov
             else:
-                if wcs.provenance.unique_hash != prov.unique_hash:
+                if wcs.provenance.id != prov.id:
                     raise ValueError('Provenance mismatch for wcs and provenance!')
 
             # add the resulting object to the data store

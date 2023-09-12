@@ -62,7 +62,7 @@ class Preprocessor:
         if image.provenance is None:
             image.provenance = prov
         else:
-            if image.provenance.unique_hash != prov.unique_hash:
+            if image.provenance.id != prov.id:
                 raise ValueError('Provenance mismatch for image and provenance!')
 
         ds.image = image

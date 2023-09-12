@@ -747,7 +747,7 @@ def test_image_from_exposure(exposure, provenance_base):
     im_id = None
     try:
         with SmartSession() as session:
-            with pytest.raises(IntegrityError, match='null value in column "provenance_id" of relation "images"'):
+            with pytest.raises(IntegrityError, match='null value in column .* of relation "images"'):
                 session.add(im)
                 session.commit()
             session.rollback()

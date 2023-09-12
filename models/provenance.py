@@ -178,7 +178,7 @@ class Provenance(Base):
         if self.upstreams is None:
             return []
         else:
-            hashes = set(self.upstreams)
+            hashes = set( [ u.id for u in self.upstreams ] )
             hashes = list(hashes)
             hashes.sort()
             return hashes
@@ -241,7 +241,7 @@ class Provenance(Base):
             '<Provenance('
             f'id= {self.id[:6] if self.id else "<None>"}, '
             f'process="{self.process}", '
-            f'code_version="{self.code_version.version}", '
+            f'code_version="{self.code_version.id}", '
             f'parameters={self.parameters}, '
             f'upstreams={[h[:6] for h in self.upstream_hashes]})>'
         )
@@ -257,7 +257,7 @@ class Provenance(Base):
             process=self.process,
             parameters=self.parameters,
             upstream_hashes=self.upstream_hashes,
-            code_version=self.code_version.version
+            code_version=self.code_version.id
         )
         json_string = json.dumps(superdict, sort_keys=True)
 
@@ -287,7 +287,7 @@ class Provenance(Base):
         if code_hash is not None:
             code_version = code_hash.code_version
         else:
-            code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion.version.desc())).first()
+            code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion.id.desc())).first()
 
         return code_version
 

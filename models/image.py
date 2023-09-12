@@ -943,7 +943,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         section_id = section_id_int = ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
 
         if self.provenance is not None:
-            prov_hash = self.provenance.unique_hash
+            prov_hash = self.provenance.id
         if self.instrument_object is not None:
             inst_name = self.instrument_object.get_short_instrument_name()
         if self.type is not None:

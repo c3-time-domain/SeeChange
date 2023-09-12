@@ -52,9 +52,9 @@ def config_test():
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
     with SmartSession() as session:
-        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.version == 'test_v1.0.0')).first()
+        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
     if cv is None:
-        cv = CodeVersion(version="test_v1.0.0")
+        cv = CodeVersion(id="test_v1.0.0")
         cv.update()
 
     yield cv
@@ -100,6 +100,7 @@ def provenance_extra(code_version, provenance_base):
         upstreams=[provenance_base],
         is_testing=True,
     )
+    p.update_id()
 
     with SmartSession() as session:
         session.add(p)
