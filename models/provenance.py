@@ -15,11 +15,11 @@ class CodeHash(Base):
     __tablename__ = "code_hashes"
 
     def __init__(self, git_hash):
-        self.hash = git_hash
+        self.id = git_hash
 
-    hash = sa.Column(sa.String, index=True, unique=True)
+    id = sa.Column(sa.String, primary_key=True, index=True, unique=True)
 
-    code_version_id = sa.Column(sa.Integer, sa.ForeignKey("code_versions.id", ondelete="CASCADE"))
+    code_version_id = sa.Column(sa.String, sa.ForeignKey("code_versions.id", ondelete="CASCADE"))
 
     code_version = relationship("CodeVersion", back_populates="code_hashes", lazy='selectin')
 
@@ -27,8 +27,9 @@ class CodeHash(Base):
 class CodeVersion(Base):
     __tablename__ = 'code_versions'
 
-    version = sa.Column(
+    id = sa.Column(
         sa.String,
+        primary_key=True,
         nullable=False,
         index=True,
         unique=True,
@@ -49,7 +50,7 @@ class CodeVersion(Base):
         if git_hash is None:
             return  # quietly fail if we can't get the git hash
         with SmartSession(session) as session:
-            hash_obj = session.scalars(sa.select(CodeHash).where(CodeHash.hash == git_hash)).first()
+            hash_obj = session.scalars(sa.select(CodeHash).where(CodeHash.id == git_hash)).first()
             if hash_obj is None:
                 hash_obj = CodeHash(git_hash)
 
@@ -59,13 +60,22 @@ class CodeVersion(Base):
 provenance_self_association_table = sa.Table(
     'provenance_upstreams',
     Base.metadata,
-    sa.Column('upstream_id', sa.Integer, sa.ForeignKey('provenances.id', ondelete="CASCADE"), primary_key=True),
-    sa.Column('downstream_id', sa.Integer, sa.ForeignKey('provenances.id', ondelete="CASCADE"), primary_key=True),
+    sa.Column('upstream_id', sa.String, sa.ForeignKey('provenances.id', ondelete="CASCADE"), primary_key=True),
+    sa.Column('downstream_id', sa.String, sa.ForeignKey('provenances.id', ondelete="CASCADE"), primary_key=True),
 )
 
 
 class Provenance(Base):
     __tablename__ = "provenances"
+
+    id = sa.Column(
+        sa.String,
+        primary_key=True,
+        nullable=False,
+        index=True,
+        unique=True,
+        doc="Unique hash of the code version, parameters and upstream provenances used to generate this dataset. ",
+    )
 
     process = sa.Column(
         sa.String,
@@ -111,14 +121,6 @@ class Provenance(Base):
         cascade="save-update, merge, expunge, refresh-expire",
         foreign_keys="Provenance.code_version_id",
         passive_deletes=True,
-    )
-
-    unique_hash = sa.Column(
-        sa.String,
-        nullable=False,
-        index=True,
-        unique=True,
-        doc="Unique hash of the code version, parameters and upstream provenances used to generate this dataset. ",
     )
 
     is_bad = sa.Column(
@@ -170,7 +172,7 @@ class Provenance(Base):
         if self.upstreams is None:
             return []
         else:
-            hashes = set([u.unique_hash for u in self.upstreams])
+            hashes = set(self.upstreams)
             hashes = list(hashes)
             hashes.sort()
             return hashes
@@ -231,17 +233,16 @@ class Provenance(Base):
     def __repr__(self):
         return (
             '<Provenance('
-            f'id= {self.id}, '
+            f'id= {self.id[:6] if self.id else "<None>"}, '
             f'process="{self.process}", '
             f'code_version="{self.code_version.version}", '
             f'parameters={self.parameters}, '
-            f'upstreams={[h[:6] for h in self.upstream_hashes]}, '
-            f'hash= {self.unique_hash[:6] if self.unique_hash else ""})>'
+            f'upstreams={[h[:6] for h in self.upstream_hashes]})>'
         )
 
-    def update_hash(self):
+    def update_id(self):
         """
-        Update the unique_hash using the code_version, parameters and upstream_hashes.
+        Update the id using the code_version, parameters and upstream_hashes.
         """
         if self.process is None or self.parameters is None or self.code_version is None:
             raise ValueError('Provenance must have process, code_version, and parameters defined. ')
@@ -254,7 +255,7 @@ class Provenance(Base):
         )
         json_string = json.dumps(superdict, sort_keys=True)
 
-        self.unique_hash = base64.urlsafe_b64encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
+        self.id = base64.urlsafe_b64encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
     @classmethod
     def get_code_version(cls, session=None):
@@ -276,7 +277,7 @@ class Provenance(Base):
         code_version: CodeVersion
             CodeVersion object
         """
-        code_hash = session.scalars(sa.select(CodeHash).where(CodeHash.hash == get_git_hash())).first()
+        code_hash = session.scalars(sa.select(CodeHash).where(CodeHash.id == get_git_hash())).first()
         if code_hash is not None:
             code_version = code_hash.code_version
         else:
@@ -322,8 +323,8 @@ class Provenance(Base):
 def insert_new_dataset(mapper, connection, target):
     """
     This function is called before a new provenance is inserted into the database.
-    It will check all the required fields are populated and update the unique_hash.
+    It will check all the required fields are populated and update the id.
     """
-    target.update_hash()
+    target.update_id()
 
 

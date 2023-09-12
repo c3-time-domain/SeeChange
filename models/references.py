@@ -1,10 +1,10 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base
+from models.base import Base, AutoIDMixin
 
 
-class ReferenceEntry(Base):
+class ReferenceEntry(Base, AutoIDMixin):
     """
     A table that refers to each reference Image object,
     based on the validity time range, and the object/field it is targeting.

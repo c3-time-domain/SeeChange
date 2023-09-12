@@ -8,7 +8,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_to_deg
 
-from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession
+from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, SmartSession
 from models.instrument import Instrument, guess_instrument, get_instrument_instance
 from models.enums_and_bitflags import (
     image_format_converter,
@@ -121,7 +121,7 @@ class SectionHeaders:
         self._header = defaultdict(lambda: None)
 
 
-class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
+class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = "exposures"
 

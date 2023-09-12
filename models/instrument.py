@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 
-from models.base import Base, SmartSession
+from models.base import Base, AutoIDMixin, SmartSession
 
 from pipeline.utils import parse_dateobs, read_fits_image
 
@@ -111,7 +111,7 @@ def get_instrument_instance(instrument_name):
     return INSTRUMENT_INSTANCE_CACHE[instrument_name]
 
 
-class SensorSection(Base):
+class SensorSection(Base, AutoIDMixin):
     """
     A class to represent a section of a sensor.
     This is most often associated with a CCD chip, but could be any

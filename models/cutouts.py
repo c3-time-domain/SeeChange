@@ -3,11 +3,11 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 
-from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed
+from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed
 from models.enums_and_bitflags import cutouts_format_dict, cutouts_format_converter
 
 
-class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
+class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = 'cutouts'
 

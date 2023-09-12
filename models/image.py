@@ -14,7 +14,7 @@ import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
 
-from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners
+from models.base import SeeChangeBase, Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance
 from models.enums_and_bitflags import (
@@ -38,7 +38,7 @@ image_source_self_association_table = sa.Table(
 )
 
 
-class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
+class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
     __tablename__ = 'images'
 

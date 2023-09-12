@@ -10,7 +10,7 @@ from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.functions import coalesce
 
-from models.base import Base, FileOnDiskMixin, SeeChangeBase
+from models.base import Base, AutoIDMixin, FileOnDiskMixin, SeeChangeBase
 from models.image import Image
 from models.enums_and_bitflags import (
     source_list_format_dict,
@@ -22,7 +22,7 @@ from models.enums_and_bitflags import (
 )
 
 
-class SourceList(Base, FileOnDiskMixin):
+class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
 
     __tablename__ = 'source_lists'
 

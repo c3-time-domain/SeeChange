@@ -135,14 +135,6 @@ def safe_merge(session, obj):
 class SeeChangeBase:
     """Base class for all SeeChange classes."""
 
-    id = sa.Column(
-        sa.BigInteger,
-        primary_key=True,
-        index=True,
-        autoincrement=True,
-        doc="Unique identifier for this dataset",
-    )
-
     created_at = sa.Column(
         sa.DateTime,
         nullable=False,
@@ -963,6 +955,16 @@ class FileOnDiskMixin():
 
 def safe_mkdir(path):
     FileOnDiskMixin.safe_mkdir(path)
+
+
+class AutoIDMixin:
+    id = sa.Column(
+        sa.BigInteger,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+        doc="Autoincrementing unique identifier for this dataset",
+    )
 
 
 class SpatiallyIndexed:

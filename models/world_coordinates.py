@@ -2,10 +2,10 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base
+from models.base import Base, AutoIDMixin
 
 
-class WorldCoordinates(Base):
+class WorldCoordinates(Base, AutoIDMixin):
     __tablename__ = 'world_coordinates'
 
     source_list_id = sa.Column(
