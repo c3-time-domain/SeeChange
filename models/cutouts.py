@@ -33,7 +33,7 @@ class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
         self._format = cutouts_format_converter(value)
 
     source_list_id = sa.Column(
-        sa.ForeignKey('source_lists.id'),
+        sa.ForeignKey('source_lists.id', name='cutouts_source_list_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the source list this cutout is associated with. "
@@ -45,7 +45,7 @@ class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
     )
 
     new_image_id = sa.Column(
-        sa.ForeignKey('images.id'),
+        sa.ForeignKey('images.id', name='cutouts_new_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the new science image this cutout is associated with. "
@@ -58,7 +58,7 @@ class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
     )
 
     ref_image_id = sa.Column(
-        sa.ForeignKey('images.id'),
+        sa.ForeignKey('images.id', name='cutouts_ref_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the reference image this cutout is associated with. "
@@ -71,7 +71,7 @@ class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
     )
 
     sub_image_id = sa.Column(
-        sa.ForeignKey('images.id'),
+        sa.ForeignKey('images.id', name='cutouts_sub_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the subtraction image this cutout is associated with. "
@@ -96,7 +96,7 @@ class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE"),
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='cutouts_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(

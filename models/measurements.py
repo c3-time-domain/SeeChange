@@ -10,7 +10,7 @@ class Measurements(Base, SpatiallyIndexed):
     __tablename__ = 'measurements'
 
     cutouts_id = sa.Column(
-        sa.ForeignKey('cutouts.id'),
+        sa.ForeignKey('cutouts.id', name='measurements_cutouts_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the cutout this measurement is associated with. "
@@ -22,7 +22,7 @@ class Measurements(Base, SpatiallyIndexed):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE"),
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='measurements_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the provenance of this measurement. "

@@ -19,7 +19,10 @@ class CodeHash(Base):
 
     hash = sa.Column(sa.String, index=True, unique=True)
 
-    code_version_id = sa.Column(sa.Integer, sa.ForeignKey("code_versions.id", ondelete="CASCADE"))
+    code_version_id = sa.Column(sa.Integer,
+                                sa.ForeignKey("code_versions.id",
+                                              ondelete="CASCADE",
+                                              name='code_hashes_code_version_id_fkey'))
 
     code_version = relationship("CodeVersion", back_populates="code_hashes", lazy='selectin')
 
@@ -59,8 +62,14 @@ class CodeVersion(Base):
 provenance_self_association_table = sa.Table(
     'provenance_upstreams',
     Base.metadata,
-    sa.Column('upstream_id', sa.Integer, sa.ForeignKey('provenances.id', ondelete="CASCADE"), primary_key=True),
-    sa.Column('downstream_id', sa.Integer, sa.ForeignKey('provenances.id', ondelete="CASCADE"), primary_key=True),
+    sa.Column('upstream_id',
+              sa.Integer,
+              sa.ForeignKey('provenances.id', ondelete="CASCADE", name='provenance_upstreams_upstream_id_fkey'),
+              primary_key=True),
+    sa.Column('downstream_id',
+              sa.Integer,
+              sa.ForeignKey('provenances.id', ondelete="CASCADE", name='provenance_upstreams_downstream_id_fkey'),
+              primary_key=True),
 )
 
 
@@ -75,7 +84,7 @@ class Provenance(Base):
     )
 
     code_version_id = sa.Column(
-        sa.ForeignKey("code_versions.id", ondelete="CASCADE"),
+        sa.ForeignKey("code_versions.id", ondelete="CASCADE", name='provenances_code_version_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the code version the provenance is associated with. ",
@@ -143,7 +152,7 @@ class Provenance(Base):
 
     replaced_by = sa.Column(
         sa.Integer,
-        sa.ForeignKey("provenances.id", ondelete="SET NULL"),
+        sa.ForeignKey("provenances.id", ondelete="SET NULL", name='provenances_replaced_by_fkey'),
         nullable=True,
         doc="ID of the provenance that replaces this one. ",
     )

@@ -48,7 +48,7 @@ class SourceList(Base, FileOnDiskMixin):
         self._format = source_list_format_converter(value)
 
     image_id = sa.Column(
-        sa.ForeignKey('images.id'),
+        sa.ForeignKey('images.id', name='source_lists_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the image this source list was generated from. "
@@ -82,7 +82,7 @@ class SourceList(Base, FileOnDiskMixin):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE"),
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='source_lists_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(

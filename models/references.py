@@ -13,7 +13,7 @@ class ReferenceEntry(Base):
     __tablename__ = 'reference_images'
 
     image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete='CASCADE'),
+        sa.ForeignKey('images.id', ondelete='CASCADE', name='reference_images_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the reference image this object is referring to. "

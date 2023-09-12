@@ -33,8 +33,14 @@ import util.config as config
 image_source_self_association_table = sa.Table(
     'image_sources',
     Base.metadata,
-    sa.Column('source_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
-    sa.Column('combined_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
+    sa.Column('source_id',
+              sa.Integer,
+              sa.ForeignKey('images.id', ondelete="CASCADE", name='image_sources_source_id_fkey'),
+              primary_key=True),
+    sa.Column('combined_id',
+              sa.Integer,
+              sa.ForeignKey('images.id',ondelete="CASCADE", name='image_sources_combined_id_fkey'),
+              primary_key=True),
 )
 
 
@@ -64,7 +70,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         self._format = image_format_converter(value)
 
     exposure_id = sa.Column(
-        sa.ForeignKey('exposures.id', ondelete='SET NULL'),
+        sa.ForeignKey('exposures.id', ondelete='SET NULL', name='images_exposure_id_fkey'),
         nullable=True,
         index=True,
         doc=(
@@ -97,7 +103,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
     )
 
     ref_image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete="CASCADE"),
+        sa.ForeignKey('images.id', ondelete="CASCADE", name='images_ref_image_id_fkey'),
         nullable=True,
         index=True,
         doc=(
@@ -119,7 +125,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
     )
 
     new_image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete="CASCADE"),
+        sa.ForeignKey('images.id', ondelete="CASCADE", name='images_new_image_id_fkey'),
         nullable=True,
         index=True,
         doc=(
@@ -194,7 +200,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         self._type = image_type_converter(value)
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE"),
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='images_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(

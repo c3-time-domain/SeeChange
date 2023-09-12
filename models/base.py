@@ -984,7 +984,9 @@ class SpatiallyIndexed:
     def __table_args__(cls):
         tn = cls.__tablename__
         return (
-            sa.Index(f"{tn}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+            sa.Index( f"{tn}_q3c_ang2ipix_idx",
+                      sa.func.q3c_ang2ipix(cls.ra, cls.dec),
+                      name=f"ix_{tn}_q3c_radec"),
         )
 
     def calculate_coordinates(self):
