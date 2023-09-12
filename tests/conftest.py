@@ -1,4 +1,5 @@
 import os
+import warnings
 import pytest
 import uuid
 import wget
@@ -18,7 +19,7 @@ from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.references import ReferenceEntry
-from models.instrument import Instrument, get_instrument_instance
+from models.instrument import Instrument, SourceList
 from util import config
 from util.archive import Archive
 
@@ -61,10 +62,12 @@ def code_version():
 
     yield cv
 
-    with SmartSession() as session:
-        session.execute(sa.delete(CodeVersion).where(CodeVersion.version == 'test_v1.0.0'))
-        session.commit()
-
+    try:
+        with SmartSession() as session:
+            session.execute(sa.delete(CodeVersion).where(CodeVersion.version == 'test_v1.0.0'))
+            session.commit()
+    except Exception as e:
+        warnings.warn(str(e))
 
 @pytest.fixture
 def provenance_base(code_version):
@@ -84,10 +87,12 @@ def provenance_base(code_version):
 
     yield p
 
-    with SmartSession() as session:
-        session.execute(sa.delete(Provenance).where(Provenance.id == pid))
-        session.commit()
-
+    try:
+        with SmartSession() as session:
+            session.execute(sa.delete(Provenance).where(Provenance.id == pid))
+            session.commit()
+    except Exception as e:
+        warnings.warn(str(e))
 
 @pytest.fixture
 def provenance_extra(code_version, provenance_base):
@@ -107,9 +112,12 @@ def provenance_extra(code_version, provenance_base):
 
     yield p
 
-    with SmartSession() as session:
-        session.execute(sa.delete(Provenance).where(Provenance.id == pid))
-        session.commit()
+    try:
+        with SmartSession() as session:
+            session.execute(sa.delete(Provenance).where(Provenance.id == pid))
+            session.commit()
+    except Exception as e:
+        warnings.warn(str(e))
 
 
 @pytest.fixture
@@ -134,14 +142,13 @@ def exposure_factory():
 
 def make_exposure_file(exposure):
     fullname = None
-    try:  # make sure to remove file at the end
-        fullname = exposure.get_fullpath()
-        open(fullname, 'a').close()
-        exposure.nofile = False
+    fullname = exposure.get_fullpath()
+    open(fullname, 'a').close()
+    exposure.nofile = False
 
-        yield exposure
+    yield exposure
 
-    finally:
+    try:
         with SmartSession() as session:
             exposure = session.merge(exposure)
             if exposure.id is not None:
@@ -150,6 +157,8 @@ def make_exposure_file(exposure):
 
         if fullname is not None and os.path.isfile(fullname):
             os.remove(fullname)
+    except Exception as e:
+        warnings.warn(str(e))
 
 
 @pytest.fixture
@@ -159,11 +168,23 @@ def exposure(exposure_factory):
     yield e
 
 
-@pytest.fixture
-def exposure2(exposure_factory):
-    e = exposure_factory()
-    make_exposure_file(e)
-    yield e
+# idea taken from: https://github.com/pytest-dev/pytest/issues/2424#issuecomment-333387206
+def generate_exposure():
+    @pytest.fixture
+    def new_exposure(exposure_factory):
+        e = exposure_factory()
+        make_exposure_file(e)
+        yield e
+
+    return new_exposure
+
+
+def inject_exposure_fixture(name):
+    globals()[name] = generate_exposure()
+
+
+for i in range(2, 10):
+    inject_exposure_fixture(f'exposure{i}')
 
 
 @pytest.fixture
@@ -226,66 +247,99 @@ def demo_image(exposure):
 
     yield im
 
-    with SmartSession() as session:
-        im = session.merge(im)
-        if im.id is not None:
-            session.execute(sa.delete(Image).where(Image.id == im.id))
-            session.commit()
-        im.remove_data_from_disk(remove_folders=True, purge_archive=True, session=session)
+    try:
+        with SmartSession() as session:
+            im = session.merge(im)
+            im.remove_data_from_disk(remove_folders=True, purge_archive=True, session=session)
+            if im.id is not None:
+                session.execute(sa.delete(Image).where(Image.id == im.id))
+                session.commit()
+
+    except Exception as e:
+        warnings.warn(str(e))
+
+
+# idea taken from: https://github.com/pytest-dev/pytest/issues/2424#issuecomment-333387206
+def generate_image():
+
+    @pytest.fixture
+    def new_image(exposure_factory):
+        exp = exposure_factory()
+        make_exposure_file(exp)
+        exp.update_instrument()
+        im = Image.from_exposure(exp, section_id=0)
+
+        yield im
+
+        with SmartSession() as session:
+            im = session.merge(im)
+            im.remove_data_from_disk(remove_folders=True, purge_archive=True, session=session)
+            if im.id is not None:
+                session.execute(sa.delete(Image).where(Image.id == im.id))
+                session.commit()
+
+    return new_image
+
+
+def inject_demo_image_fixture(image_name):
+    globals()[image_name] = generate_image()
+
+
+for i in range(2, 10):
+    inject_demo_image_fixture(f'demo_image{i}')
 
 
 @pytest.fixture
 def reference_entry(exposure_factory, provenance_base, provenance_extra):
     ref_entry = None
-    try:  # remove files and DB entries at the end
-        filter = np.random.choice(list('grizY'))
-        target = rnd_str(6)
-        ra = np.random.uniform(0, 360)
-        dec = np.random.uniform(-90, 90)
-        images = []
+    filter = np.random.choice(list('grizY'))
+    target = rnd_str(6)
+    ra = np.random.uniform(0, 360)
+    dec = np.random.uniform(-90, 90)
+    images = []
 
-        for i in range(5):
-            exp = exposure_factory()
+    for i in range(5):
+        exp = exposure_factory()
 
-            exp.filter = filter
-            exp.target = target
-            exp.project = "coadd_test"
-            exp.ra = ra
-            exp.dec = dec
+        exp.filter = filter
+        exp.target = target
+        exp.project = "coadd_test"
+        exp.ra = ra
+        exp.dec = dec
 
-            exp.update_instrument()
-            im = Image.from_exposure(exp, section_id=0)
-            im.data = im.raw_data - np.median(im.raw_data)
-            im.provenance = provenance_base
-            im.ra = ra
-            im.dec = dec
-            im.save()
-            images.append(im)
+        exp.update_instrument()
+        im = Image.from_exposure(exp, section_id=0)
+        im.data = im.raw_data - np.median(im.raw_data)
+        im.provenance = provenance_base
+        im.ra = ra
+        im.dec = dec
+        im.save()
+        images.append(im)
 
-        # TODO: replace with a "from_images" method?
-        ref = Image.from_images(images)
-        ref.data = np.mean(np.array([im.data for im in images]), axis=0)
+    # TODO: replace with a "from_images" method?
+    ref = Image.from_images(images)
+    ref.data = np.mean(np.array([im.data for im in images]), axis=0)
 
-        provenance_extra.process = 'coaddition'
-        ref.provenance = provenance_extra
-        ref.save()
+    provenance_extra.process = 'coaddition'
+    ref.provenance = provenance_extra
+    ref.save()
 
-        ref_entry = ReferenceEntry()
-        ref_entry.image = ref
-        ref_entry.validity_start = Time(50000, format='mjd', scale='utc').isot
-        ref_entry.validity_end = Time(58500, format='mjd', scale='utc').isot
-        ref_entry.section_id = 0
-        ref_entry.filter = filter
-        ref_entry.target = target
+    ref_entry = ReferenceEntry()
+    ref_entry.image = ref
+    ref_entry.validity_start = Time(50000, format='mjd', scale='utc').isot
+    ref_entry.validity_end = Time(58500, format='mjd', scale='utc').isot
+    ref_entry.section_id = 0
+    ref_entry.filter = filter
+    ref_entry.target = target
 
-        with SmartSession() as session:
-            ref_entry.image = session.merge( ref_entry.image )
-            session.add(ref_entry)
-            session.commit()
+    with SmartSession() as session:
+        ref_entry.image = session.merge( ref_entry.image )
+        session.add(ref_entry)
+        session.commit()
 
-        yield ref_entry
+    yield ref_entry
 
-    finally:  # cleanup
+    try:
         if ref_entry is not None:
             with SmartSession() as session:
                 ref_entry = session.merge(ref_entry)
@@ -300,6 +354,37 @@ def reference_entry(exposure_factory, provenance_base, provenance_extra):
                 session.delete(ref_entry.image)  # should also delete ref_entry
                 session.commit()
 
+    except Exception as e:
+        warnings.warn(str(e))
+
+
+@pytest.fixture
+def sources(demo_image):
+    num = 100
+    x = np.random.uniform(0, demo_image.raw_data.shape[1], num)
+    y = np.random.uniform(0, demo_image.raw_data.shape[0], num)
+    flux = np.random.uniform(0, 1000, num)
+    flux_err = np.random.uniform(0, 100, num)
+    rhalf = np.abs(np.random.normal(0, 3, num))
+
+    data = np.array(
+        [x, y, flux, flux_err, rhalf],
+        dtype=([('x', 'f4'), ('y', 'f4'), ('flux', 'f4'), ('flux_err', 'f4'), ('rhalf', 'f4')])
+    )
+    s = SourceList(image=demo_image, data=data)
+
+    yield s
+
+    try:
+        with SmartSession() as session:
+            s = session.merge(s)
+            s.remove_data_from_disk(remove_folders=True, purge_archive=True, session=session)
+            if s.id is not None:
+                session.execute(sa.delete(SourceList).where(SourceList.id == s.id))
+                session.commit()
+    except Exception as e:
+        warnings.warn(str(e))
+
 
 @pytest.fixture
 def archive():
@@ -310,13 +395,15 @@ def archive():
     archive = Archive( **archive_specs )
     yield archive
 
-    # To tear down, we need to blow away the archive server's directory.
-    # For the test suite, we've also mounted that directory locally, so
-    # we can do that
-    archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
     try:
-        shutil.rmtree( archivebase )
-    except FileNotFoundError:
-        pass
+        # To tear down, we need to blow away the archive server's directory.
+        # For the test suite, we've also mounted that directory locally, so
+        # we can do that
+        archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
+        try:
+            shutil.rmtree( archivebase )
+        except FileNotFoundError:
+            pass
 
-
+    except Exception as e:
+        warnings.warn(str(e))

@@ -1,20 +1,36 @@
 
 import sqlalchemy as sa
 from sqlalchemy import orm
+from sqlalchemy.ext.hybrid import hybrid_property
 
-from models.base import Base, FileOnDiskMixin, SpatiallyIndexed, file_format_enum
+from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed
+from models.enums_and_bitflags import cutouts_format_dict, cutouts_format_converter
 
 
 class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = 'cutouts'
 
-    format = sa.Column(
-        file_format_enum,
+    _format = sa.Column(
+        sa.SMALLINT,
         nullable=False,
-        default='fits',
+        default=cutouts_format_converter('fits'),
         doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
+            "Saved as integer but is converter to string when loaded. "
     )
+
+    @hybrid_property
+    def format(self):
+        return cutouts_format_converter(self._format)
+
+    @format.expression
+    def format(cls):
+        # ref: https://stackoverflow.com/a/25272425
+        return sa.case(cutouts_format_dict, value=cls._format)
+
+    @format.setter
+    def format(self, value):
+        self._format = cutouts_format_converter(value)
 
     source_list_id = sa.Column(
         sa.ForeignKey('source_lists.id'),
@@ -101,3 +117,49 @@ class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
         )
     )
 
+    _bitflag = sa.Column(
+        sa.BIGINT,
+        nullable=False,
+        default=0,
+        index=True,
+        doc='Bitflag for these cutouts. Good cutouts have a bitflag of 0. '
+            'Bad cutouts are each bad in their own way (i.e., have different bits set). '
+            'Will include all the bits from data used to make these cutouts '
+            '(e.g., the exposure it is based on). '
+    )
+
+    @hybrid_property
+    def bitflag(self):
+        return self._bitflag | self.image.bitflag
+
+    @bitflag.expression
+    def bitflag(cls):
+        sa.select(Cutouts).where(
+            Cutouts._bitflag,
+            Cutouts.ref_image.bitflag,
+            Cutouts.new_image.bitflag,
+            Cutouts.sub_image.bitflag,
+            Cutouts.source_list.bitflag,
+        ).label('bitflag')
+
+    @bitflag.setter
+    def bitflag(self, value):
+        self._bitflag = value
+
+    description = sa.Column(
+        sa.Text,
+        nullable=True,
+        doc='Free text comment about this source list, e.g., why it is bad. '
+    )
+
+    def __init__(self, *args, **kwargs):
+        FileOnDiskMixin.__init__(self, *args, **kwargs)
+        SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
+
+        self._data = None
+        self._bitflag = 0
+
+        # manually set all properties (columns or not)
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)

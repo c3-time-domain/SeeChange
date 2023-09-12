@@ -1,10 +1,12 @@
 import os
+import math
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.types import Enum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm import aliased
+from sqlalchemy.sql.functions import coalesce
 
 from astropy.time import Time
 from astropy.wcs import WCS
@@ -12,10 +14,19 @@ import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
 
-from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, file_format_enum
-from models.exposure import Exposure, image_type_enum
+from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners
+from models.exposure import Exposure
 from models.instrument import get_instrument_instance
-from models.provenance import Provenance
+from models.enums_and_bitflags import (
+    image_format_converter,
+    image_format_dict,
+    image_type_converter,
+    image_type_dict,
+    image_badness_inverse,
+    data_badness_dict,
+    string_to_bitflag,
+    bitflag_to_string,
+)
 
 import util.config as config
 
@@ -27,16 +38,30 @@ image_source_self_association_table = sa.Table(
 )
 
 
-class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
+class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
     __tablename__ = 'images'
 
-    format = sa.Column(
-        file_format_enum,
+    _format = sa.Column(
+        sa.SMALLINT,
         nullable=False,
-        default='fits',
-        doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
+        default=image_format_converter('fits'),
+        doc="Format of the file on disk. Should be fits or hdf5. "
     )
+
+    @hybrid_property
+    def format(self):
+        return image_format_converter(self._format)
+
+    @format.inplace.expression
+    @classmethod
+    def format(cls):
+        # ref: https://stackoverflow.com/a/25272425
+        return sa.case(image_format_dict, value=cls._format)
+
+    @format.inplace.setter
+    def format(self, value):
+        self._format = image_format_converter(value)
 
     exposure_id = sa.Column(
         sa.ForeignKey('exposures.id', ondelete='SET NULL'),
@@ -137,21 +162,36 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         return False
 
-    @is_sub.expression
+    @is_sub.inplace.expression
+    @classmethod
     def is_sub(cls):
         return cls.ref_image_id.isnot(None) & cls.new_image_id.isnot(None)
 
-    type = sa.Column(
-        image_type_enum,  # defined in models/exposure.py
+    _type = sa.Column(
+        sa.SMALLINT,
         nullable=False,
-        default="Sci",
+        default=image_type_converter('Sci'),
         index=True,
         doc=(
             "Type of image. One of: Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, "
             "or any of the above types prepended with 'Com' for combined "
             "(e.g., a ComSci image is a science image combined from multiple exposures)."
+            "Saved as an integer in the database, but converted to a string when read. "
         )
     )
+
+    @hybrid_property
+    def type(self):
+        return image_type_converter(self._type)
+
+    @type.inplace.expression
+    @classmethod
+    def type(cls):
+        return sa.case(image_type_dict, value=cls._type)
+
+    @type.inplace.setter
+    def type(self, value):
+        self._type = image_type_converter(value)
 
     provenance_id = sa.Column(
         sa.ForeignKey('provenances.id', ondelete="CASCADE"),
@@ -275,6 +315,283 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         doc='Name of the target object or field id. '
     )
 
+    _bitflag = sa.Column(
+        sa.BIGINT,
+        nullable=False,
+        default=0,
+        index=True,
+        doc='Bitflag for this image. Good images have a bitflag of 0. '
+            'Bad images are each bad in their own way (i.e., have different bits set). '
+            'The bitflag will include this value, bit-wise-or-ed with the bitflags of the '
+            'exposure or images used to make this image. '
+    )
+
+    @hybrid_property
+    def bitflag(self):
+        bf = self._bitflag
+        if self.source_images is not None and len(self.source_images) > 0:
+            for img in self.source_images:
+                if img.bitflag is not None:
+                    bf |= img.bitflag
+        elif self.ref_image is not None and self.new_image is not None:
+            if self.ref_image.bitflag is not None:
+                bf |= self.ref_image.bitflag
+            if self.new_image.bitflag is not None:
+                bf |= self.new_image.bitflag
+        elif self.exposure is not None:
+            if self.exposure.bitflag is not None:
+                bf |= self.exposure.bitflag
+        else:
+            raise RuntimeError('Cannot get bitflag without source images, ref_image, new_image, or exposure.')
+
+        return bf
+
+    @bitflag.inplace.expression
+    @classmethod
+    def bitflag(cls):
+
+        class ImTable:
+            """
+            This is a helper class that defines the recursive relationship
+            between Image and its parents. Some images will have an Exposure parent,
+            some will have a ref/new pair of images as parents, and some will have
+            a list of source images as parents. Each instance of ImTable will contain
+            aliased versions of the Image and Exposure tables, and will have a role
+            to play (is it a new image, a ref image, a source image, etc).
+            The role helps tell the following code how to join the SQL tables together
+            when we construct the select expression.
+
+
+            """
+            def __init__(self, role):
+                """
+                Create a new ImTable with a given role.
+                The roles can be "first", "ref", "new", and "src".
+                The first is the Image table we are querying on.
+                The ref/new are images that act as the pair used for subtraction.
+                The src are a list of images used to build up a coadd.
+
+                The self.dad attribute links back to the ImTable above this one.
+                The self.ref, self.new and self.src are references to the ImTable
+                objects below this one.
+                Thus we get a linked tree of ImTables that forms the blueprint for
+                the massive join we want to make in the end.
+                """
+                self.role = role
+                self.img = aliased(Image)
+                self.exp = aliased(Exposure)
+                self.dad = None
+                self.ref = None
+                self.new = None
+                self.src = None
+                if role == 'src':
+                    self.association_table = aliased(image_source_self_association_table)
+
+            def make_children(self, iterations=3):
+                """
+                Recursively make the child ImTable objects for this ImTable.
+                Will stop when iterations reach 0.
+                """
+                if iterations < 1:
+                    return
+
+                self.ref = ImTable(role='ref')
+                self.ref.dad = self
+                self.ref.make_children(iterations=iterations-1)
+
+                self.new = ImTable(role='new')
+                self.new.dad = self
+                self.new.make_children(iterations=iterations-1)
+
+                self.src = ImTable(role='src')
+                self.src.dad = self
+                self.src.make_children(iterations=iterations-1)
+
+            def add_to_columns(self, col=None):
+                """
+                Add the column that we want to select. If col=None will just create a column
+                based on the current img._bitflag and its associated exp._bitflag.
+                This only happens for the first ImTable (the one we are querying on).
+
+                If col is given, it is "or'ed" together using op.('|')(bit_or(...)).
+                The internal bit_or is used to aggregate the bitflags of an array of images
+                (e.g., the source images).
+
+                The resulting col is returned, so it can be used recursively
+                or just put into the select statement in the end.
+
+                Since we use coalesce(bitflag, 0) and bit_or(bitflag) any null
+                values in these tables will be ignored/replaced by zero.
+                So only if we have a non-zero value in any of the bitflags
+                will the final bitflag be non-zero (it will be the bit or of all bitflags).
+                """
+                if self.role == 'first':
+                    return self.img._bitflag.op('|')(coalesce(self.exp._bitflag, 0))
+                else:
+                    return col.op('|')(
+                        coalesce(sa.func.bit_or(self.img._bitflag), 0).op('|')(
+                            coalesce(sa.func.bit_or(self.exp._bitflag), 0)
+                        )
+                    )
+
+            def add_children_to_columns(self, col):
+                """
+                Applies the add_to_column to the children ImTables.
+                This is re-applied recursively to the children's children
+                until a generation is reached that has None as children.
+                """
+                if self.ref is None or self.new is None or self.src is None:
+                    return col
+
+                col = self.ref.add_to_columns(col)
+                col = self.new.add_to_columns(col)
+                col = self.src.add_to_columns(col)
+
+                col = self.ref.add_children_to_columns(col)
+                col = self.new.add_children_to_columns(col)
+                col = self.src.add_children_to_columns(col)
+
+                return col
+
+            def add_to_joins(self, stmt):
+                """
+                Updates the "stmt" (select statement) with the joins needed
+                to get the data from more and more aliased versions of Image
+                and Exposure tables, so we get the bitflag of all the objects
+                that were used to make the image we are querying on.
+
+                We outerjoin the exposures, ref/new pairs and the source images,
+                and wherever there is no parent of that type we just allow a null row.
+                Those null rows are not included in the bit_or aggregate function,
+                and in case all rows are null, we use coalesce to get 0 instead of null.
+
+                Each role has a different join condition, and the joins are applied
+                recursively to the children ImTables.
+
+                For any of the roles, after we join the correct Image table,
+                we need to also join the Exposures used to make (some) of those images.
+
+                The function returns the "stmt" after modifying it, so it can be used
+                recursively and at the end it can be used as a select statement for
+                the hybrid_property expression.
+                """
+                if self.role == 'first':
+                    stmt = stmt.select_from(self.img)
+                elif self.role == 'ref':
+                    stmt = stmt.outerjoin(
+                        self.img, self.dad.img.ref_image_id == self.img.id
+                    )
+                elif self.role == 'new':
+                    stmt = stmt.outerjoin(
+                        self.img, self.dad.img.new_image_id == self.img.id
+                    )
+                elif self.role == 'src':
+                    stmt = stmt.outerjoin(
+                        self.association_table, self.association_table.c.combined_id == self.dad.img.id
+                    ).outerjoin(
+                        self.img, self.association_table.c.source_id == self.img.id
+                    )
+                # also add the exposures for each image
+                stmt = stmt.outerjoin(
+                        self.exp, self.img.exposure_id == self.exp.id
+                    )
+                return stmt
+
+            def add_children_to_joins(self, stmt):
+                """
+                Recursively apply the joins of add_to_joins
+                to all of this ImTable's children, and to their
+                children, until a generation of children that has
+                None as their children.
+                """
+                if self.ref is None or self.new is None or self.src is None:
+                    return stmt
+
+                stmt = self.ref.add_to_joins(stmt)
+                stmt = self.new.add_to_joins(stmt)
+                stmt = self.src.add_to_joins(stmt)
+
+                stmt = self.ref.add_children_to_joins(stmt)
+                stmt = self.new.add_children_to_joins(stmt)
+                stmt = self.src.add_children_to_joins(stmt)
+
+                return stmt
+
+        # end of ImTable class
+        # start of the bitflag expression built up from those ImTables:
+
+        # define a recursive structure with X number of layers
+        # each Image has zero or one Exposures, but can also
+        # have one ref/new pair of images, or a list of source images
+        # each of those images (ref, new, sources) has their own parents,
+        # up to the number of recursions allowed.
+        # This step only builds up the blueprint for the relationships
+        # between the different aliased versions of the Image table (and Exposure table).
+        first_table = ImTable(role='first')
+        first_table.make_children(iterations=3)  # recursively add three layers of children
+
+        # this is where we add the column that needs to get selected
+        # e.g., the _bitflag of each table, using op('|') to combine them
+        columns = first_table.add_to_columns()
+        columns = first_table.add_children_to_columns(columns)
+
+        # here we join more and more tables in, including
+        # the exposures associated with each image,
+        # and the images recursively associated with other images
+        stmt = sa.select(columns)
+        stmt = first_table.add_to_joins(stmt)
+        stmt = first_table.add_children_to_joins(stmt)
+
+        # since we aggregate every associated image/exposure using bit_or,
+        # we need to make sure to group by the top level image and exposure combination
+        stmt = stmt.group_by(first_table.img.id, first_table.exp.id)
+
+        # this last where makes sure that when querying on Image externally
+        # each Image row will correspond to one result, hence the scalar_subquery
+        stmt = stmt.where(cls.id == first_table.img.id).scalar_subquery()
+
+        return stmt
+
+    @bitflag.inplace.setter
+    def bitflag(self, value):
+        allowed_bits = 0
+        for i in image_badness_inverse.values():
+            allowed_bits += 2 ** i
+        if value & ~allowed_bits != 0:
+            raise ValueError(f'Bitflag value {bin(value)} has bits set that are not allowed.')
+        self._bitflag = value
+
+    @property
+    def badness(self):
+        """
+        A comma separated string of keywords describing
+        why this data is not good, based on the bitflag.
+        This includes all the reasons this data is bad,
+        including the parent data models that were used
+        to create this data (e.g., the Exposure underlying
+        the Image).
+        """
+        return bitflag_to_string(self.bitflag, data_badness_dict)
+
+    @badness.setter
+    def badness(self, value):
+        """Set the badness for this image using a comma separated string. """
+        self.bitflag = string_to_bitflag(value, image_badness_inverse)
+
+    def append_badness(self, value):
+        """Add some keywords (in a comma separated string)
+        describing what is bad about this image.
+        The keywords will be added to the list "badness"
+        and the bitflag for this image will be updated accordingly.
+        """
+        self.bitflag |= string_to_bitflag(value, image_badness_inverse)
+
+    description = sa.Column(
+        sa.Text,
+        nullable=True,
+        doc='Free text comment about this image, e.g., why it is bad. '
+    )
+
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
@@ -289,6 +606,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         self._psf = None  # a small point-spread-function image (2D float array)
 
         self._instrument_object = None
+        self._bitflag = 0
 
         # manually set all properties (columns or not)
         for key, value in kwargs.items():
@@ -368,6 +686,10 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # read the header from the exposure file's individual section data
         new._raw_header = exposure.section_headers[section_id]
 
+        # numpy array axis ordering is backwards from FITS ordering
+        width = new.raw_data.shape[1]
+        height = new.raw_data.shape[0]
+
         names = ['ra', 'dec'] + new.instrument_object.get_auxiliary_exposure_header_keys()
         header_info = new.instrument_object.extract_header_info(new._raw_header, names)
         # TODO: get the important keywords translated into the searchable header column
@@ -377,26 +699,72 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # first see if this instrument has a special method of figuring out the RA/Dec
         new.ra, new.dec = new.instrument_object.get_ra_dec_for_section(exposure, section_id)
 
-        # if that fails (which is true for most instruments!), get the RA/Dec from the section header
-        if new.ra is None or new.dec is None:
-            new.ra = header_info.pop('ra', None)
-            new.dec = header_info.pop('dec', None)
-
-        # if that doesn't work, maybe we can read the WCS from the header:
+        # if not (which is true for most instruments!), try to read the WCS from the header:
         try:
             wcs = WCS(new._raw_header)
-            sc = wcs.pixel_to_world(new._raw_header['NAXIS2'] // 2, new._raw_header['NAXIS1'] // 2)
+            sc = wcs.pixel_to_world(width // 2, height // 2)
             new.ra = sc.ra.to(u.deg).value
             new.dec = sc.dec.to(u.deg).value
         except:
             pass  # can't do it, just leave RA/Dec as None
 
-        # just use the RA/Dec of the global exposure
+        # if that fails, try to get the RA/Dec from the section header
+        if new.ra is None or new.dec is None:
+            new.ra = header_info.pop('ra', None)
+            new.dec = header_info.pop('dec', None)
+
+        # if that fails, just use the RA/Dec of the global exposure
         if new.ra is None or new.dec is None:
             new.ra = exposure.ra
             new.dec = exposure.dec
 
         new.header = header_info  # save any additional header keys into a JSONB column
+
+        # Figure out the 4 corners  Start by trying to use the WCS
+        gotcorners = False
+        try:
+            wcs = WCS( new._raw_header )
+            ras = []
+            decs = []
+            xs = [ 0., width-1., 0., width-1. ]
+            ys = [ 0., height-1., height-1., 0. ]
+            scs = wcs.pixel_to_world( xs, ys )
+            ras = [ i.ra.value_in(u.deg).value for i in scs ]
+            decs = [ i.dec.value_in(u.deg).value for i in scs ]
+            ras, decs = FourCorners.sort_radec( ras, decs )
+            new.ra_corner_00 = ras[0]
+            new.ra_corner_01 = ras[1]
+            new.ra_corner_10 = ras[2]
+            new.ra_corner_11 = ras[3]
+            new.dec_corner_00 = decs[0]
+            new.dec_corner_01 = decs[1]
+            new.dec_corner_10 = decs[2]
+            new.dec_corner_11 = decs[3]
+            _logger.debug( 'Got corners from WCS' )
+            gotcorners = True
+        except:
+            pass
+
+        # If that didn't work, then use ra and dec and the instrument scale
+        # TODO : take into account standard instrument orientation!
+        # (Can be done after the decam_pull PR is merged)
+
+        if not gotcorners:
+            halfwid = new.instrument_object.pixel_scale * width / 2. / math.cos( new.dec * math.pi / 180. ) / 3600.
+            halfhei = new.instrument_object.pixel_scale * height / 2. / 3600.
+            ra0 = new.ra - halfwid
+            ra1 = new.ra + halfwid
+            dec0 = new.dec - halfhei
+            dec1 = new.dec + halfhei
+            new.ra_corner_00 = ra0
+            new.ra_corner_01 = ra0
+            new.ra_corner_10 = ra1
+            new.ra_corner_11 = ra1
+            new.dec_corner_00 = dec0
+            new.dec_corner_01 = dec1
+            new.dec_corner_10 = dec0
+            new.dec_corner_11 = dec1
+            gotcorners = True
 
         # the exposure_id will be set automatically at commit time
         new.exposure = exposure
@@ -438,6 +806,14 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # TODO: should RA and Dec also be exactly the same??
         output.ra = images[0].ra
         output.dec = images[0].dec
+        output.ra_corner_00 = images[0].ra_corner_00
+        output.ra_corner_01 = images[0].ra_corner_01
+        output.ra_corner_10 = images[0].ra_corner_10
+        output.ra_corner_11 = images[0].ra_corner_11
+        output.dec_corner_00 = images[0].dec_corner_00
+        output.dec_corner_01 = images[0].dec_corner_01
+        output.dec_corner_10 = images[0].dec_corner_10
+        output.dec_corner_11 = images[0].dec_corner_11
 
         # exposure time is usually added together
         output.exp_time = sum([image.exp_time for image in images])
@@ -500,7 +876,9 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
         # TODO: should RA and Dec also be exactly the same??
 
         # get some more attributes from the new image
-        for att in ['exp_time', 'mjd', 'end_mjd', 'header', 'raw_header', 'ra', 'dec']:
+        for att in ['exp_time', 'mjd', 'end_mjd', 'header', 'raw_header', 'ra', 'dec',
+                    'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
+                    'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11' ]:
             output.__setattr__(att, getattr(new, att))
 
         output.ref_image = ref
@@ -532,16 +910,9 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     def __repr__(self):
 
-        type_str = self.type
-        if self.is_coadd:
-            type_str += " (coadd)"
-
-        if self.is_sub:
-            type_str += " (sub)"
-
         output = (
             f"Image(id: {self.id}, "
-            f"type: {type_str}, "
+            f"type: {self.type}, "
             f"exp: {self.exp_time}s, "
             f"filt: {self.filter_short}, "
             f"from: {self.instrument}/{self.telescope}"
@@ -565,7 +936,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed):
 
         """
         prov_hash = inst_name = im_type = date = time = filter = ra = dec = dec_int_pm = ''
-        ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
+        section_id = section_id_int = ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
 
         if self.provenance is not None:
             prov_hash = self.provenance.unique_hash
@@ -850,3 +1221,57 @@ if __name__ == '__main__':
     filename = '/home/guyn/Dropbox/python/SeeChange/data/DECam_examples/c4d_221104_074232_ori.fits.fz'
     e = Exposure(filename)
     im = Image.from_exposure(e, section_id=1)
+
+# this is an example for the recursive select emitted by the Image.bitflag hybrid property expression
+# if you set the recursion level to 1, this is the expression you are supposed to get
+# I wrote this first, then made it into a recursive function using the ImTable helper class
+# if you need some help figuring out what is going on in that class then this may be useful:
+
+# from sqlalchemy import func
+# from sqlalchemy.orm import aliased
+# from sqlalchemy.sql import coalesce
+
+# first_images = aliased(Image)
+# first_exposures = aliased(Exposure)
+# ref_images = aliased(Image)
+# ref_exposures = aliased(Exposure)
+# new_images = aliased(Image)
+# new_exposures = aliased(Exposure)
+# source_images = aliased(Image)
+# source_exposures = aliased(Exposure)
+#
+# stmt = sa.select(
+#     coalesce(first_images._bitflag, 0).op('|')(
+#         coalesce(first_exposures._bitflag, 0)
+#     ).op('|')(
+#         coalesce(bit_or(ref_images._bitflag), 0)
+#     ).op('|')(
+#         coalesce(bit_or(ref_exposures._bitflag), 0)
+#     ).op('|')(
+#         coalesce(bit_or(new_images._bitflag), 0)
+#     ).op('|')(
+#         coalesce(bit_or(new_exposures._bitflag), 0)
+#     ).op('|')(
+#         coalesce(bit_or(source_images._bitflag), 0)
+#     ).op('|')(
+#         coalesce(bit_or(source_exposures._bitflag), 0)
+#     )
+# ).select_from(Image).outerjoin(
+#     first_exposures, first_exposures.id == first_images.exposure_id
+# ).outerjoin(
+#     ref_images, ref_images.id == first_images.ref_image_id
+# ).outerjoin(
+#     ref_exposures, ref_exposures.id == ref_images.exposure_id
+# ).outerjoin(
+#     new_images, new_images.id == first_images.new_image_id
+# ).outerjoin(
+#     new_exposures, new_exposures.id == new_images.exposure_id
+# ).outerjoin(
+#     image_source_self_association_table, image_source_self_association_table.c.combined_id == first_images.id,
+# ).outerjoin(
+#     source_images, sa.and_(image_source_self_association_table.c.source_id == source_images.id)
+# ).outerjoin(
+#     source_exposures, source_exposures.id == source_images.exposure_id
+# ).group_by(
+#     first_images.id, first_exposures.id
+# ).where(Image.id == first_images.id).scalar_subquery()

@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import hashlib
 import pathlib
 import logging
@@ -11,20 +12,20 @@ from astropy.coordinates import SkyCoord
 
 import sqlalchemy as sa
 from sqlalchemy import func, orm
-from sqlalchemy.types import Enum
 
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.ext.hybrid import hybrid_method
 from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
+from sqlalchemy.dialects.postgresql import array as sqlarray
+from sqlalchemy.schema import CheckConstraint
 
 import util.config as config
 from util.archive import Archive
 
 utcnow = func.timezone("UTC", func.current_timestamp())
 
-# TODO: should we replace all enums with integers and a lookup table?
-file_format_enum = Enum("fits", "hdf5", "csv", "npy", name='file_format', create_type=False)
 
 _logger = logging.getLogger("main")
 if len(_logger.handlers) == 0:
@@ -32,7 +33,7 @@ if len(_logger.handlers) == 0:
     _logger.addHandler( _logout )
     _formatter = logging.Formatter( f"[%(asctime)s - %(levelname)s] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S" )
     _logout.setFormatter( _formatter )
-    _logger.setLevel( logging.INFO )
+    _logout.setLevel( logging.DEBUG )
 
 # this is the root SeeChange folder
 CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
@@ -159,7 +160,7 @@ class SeeChangeBase:
     )
 
     type_annotation_map = { UUID: sqlUUID }
-    
+
     def __init__(self, **kwargs):
         self.from_db = False  # let users know this object was newly created
         for k, v in kwargs.items():
@@ -264,7 +265,10 @@ class FileOnDiskMixin():
     has the name of that file.  md5sum holds a checksum for the file,
     *if* it has been correctly saved to the archive.  If the file has
     not been saved to the archive, md5sum is null.  In this case,
-    filepath_extensions and md5sum_extensions will be null.
+    filepath_extensions and md5sum_extensions will be null.  (Exception:
+    if you are configured with a null archive (config parameter archive
+    in the yaml config file is null), then md5sum will be set when the
+    image is saved to disk, instead of when it's saved to the archive.)
 
     If there are multiple files associated with this entry, then
     filepath is the beginning of the names of all the files.  Each entry
@@ -376,13 +380,6 @@ class FileOnDiskMixin():
         doc="If non-null, array of text appended to filepath to get actual saved filenames."
     )
 
-    # format = sa.Column(
-    #     file_format_enum,
-    #     nullable=False,
-    #     default='fits',
-    #     doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
-    # )
-
     md5sum = sa.Column(
         sqlUUID(as_uuid=True),
         nullable=True,
@@ -395,6 +392,13 @@ class FileOnDiskMixin():
         nullable=True,
         default=None,
         doc="md5sum of extension files; must have same number of elements as filepath_extensions"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            sqltext='NOT(md5sum IS NULL AND md5sum_extensions IS NULL)',
+            name='md5sum_or_md5sum_extensions_check'
+        ),
     )
 
     def __init__(self, *args, **kwargs):
@@ -622,7 +626,7 @@ class FileOnDiskMixin():
                 if localmd5 != md5sum:
                     raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
                                       f"database value of {md5sum}" )
-        
+
         return fullname
 
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
@@ -815,7 +819,7 @@ class FileOnDiskMixin():
                         # raise FileExistsError( f"{localpath} already exists, not saving" )
                         # Logically, should not be able to get here
                         raise RuntimeError( "This should never happen" )
-            
+
         if mustwrite and not alreadyinplace:
             if data is None:
                 with open( path, "rb" ) as ifp:
@@ -832,12 +836,27 @@ class FileOnDiskMixin():
                 if writtenmd5.hexdigest() != origmd5.hexdigest():
                     raise RuntimeError( f"Error writing {localpath}; written file md5sum mismatches expected!" )
 
+        # If there is no archive, update the md5sum now
+        if self.archive is None:
+            if origmd5 is None:
+                origmd5 = hashlib.md5()
+                with open( localpath, "rb" ) as ifp:
+                    origmd5.update( ifp.read() )
+            if curextensions is not None:
+                extmd5s[ extensiondex ] = UUID( origmd5.hexdigest() )
+                self.filepath_extensions = curextensions
+                self.md5sum_extensions = extmd5s
+            else:
+                self.md5sum = UUID( origmd5.hexdigest() )
+            return
+
+        # This is the case where there *is* an archive, but the no_archive option was passed
         if no_archive:
             if curextensions is not None:
                 self.filepath_extensions = curextensions
                 self.md5sum_extensions = extmd5s
             return
-        
+
         # The rest of this deals with the archive
 
         archivemd5 = self.md5sum if extension is None else extmd5s[extensiondex]
@@ -978,6 +997,196 @@ class SpatiallyIndexed:
         self.ecllat = coords.barycentrictrueecliptic.lat.deg
         self.ecllon = coords.barycentrictrueecliptic.lon.deg
 
+    @hybrid_method
+    def within( self, fourcorn ):
+        """An SQLAlchemy filter to find all things within a FourCorners object
+
+        Parameters
+        ----------
+          fourcorn: FourCorners
+            A FourCorners object
+
+        Returns
+        -------
+          An expression usable in a sqlalchemy filter
+
+        """
+
+        return func.q3c_poly_query( self.ra, self.dec,
+                                    sqlarray( [ fourcorn.ra_corner_00, fourcorn.dec_corner_00,
+                                                fourcorn.ra_corner_01, fourcorn.dec_corner_01,
+                                                fourcorn.ra_corner_11, fourcorn.dec_corner_11,
+                                                fourcorn.ra_corner_10, fourcorn.dec_corner_10 ] ) )
+
+class FourCorners:
+    """A mixin for tables that have four RA/Dec corners"""
+
+    ra_corner_00 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, low-Dec corner (degrees)" )
+    ra_corner_01 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, high-Dec corner (degrees)" )
+    ra_corner_10 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, low-Dec corner (degrees)" )
+    ra_corner_11 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, high-Dec corner (degrees)" )
+    dec_corner_00 = sa.Column( sa.REAL, nullable=False, index=True, doc="Dec of the low-RA, low-Dec corner (degrees)" )
+    dec_corner_01 = sa.Column( sa.REAL, nullable=False, index=True,
+                               doc="Dec of the low-RA, high-Dec corner (degrees)" )
+    dec_corner_10 = sa.Column( sa.REAL, nullable=False, index=True,
+                               doc="Dec of the high-RA, low-Dec corner (degrees)" )
+    dec_corner_11 = sa.Column( sa.REAL, nullable=False, index=True,
+                               doc="Dec of the high-RA, high-Dec corner (degrees)" )
+
+    @classmethod
+    def sort_radec( cls, ras, decs ):
+        """Sort ra and dec lists so they're each in the order in models.base.FourCorners
+
+        Parameters
+        ----------
+          ras: list of float
+             Four ra values in a list. 
+          decs: list of float
+             Four dec values in a list. 
+
+        Returns
+        -------
+          Two new lists (ra, dec) sorted so they're in the order:
+          (lowRA,lowDec), (lowRA,highDec), (highRA,lowDec), (highRA,highDec)
+
+        """
+
+        if len(ras) != 4:
+            raise ValueError(f'ras must be a list/array with exactly four elements. Got {ras}')
+            raise ValueError(f'decs must be a list/array with exactly four elements. Got {decs}')
+
+        raorder = list( range(4) )
+        raorder.sort( key=lambda i: ras[i] )
+
+        # Of two lowest ras, of those, pick the one with the lower dec;
+        #   that's lowRA,lowDec; the other one is lowRA, highDec
+
+        dex00 = raorder[0] if decs[raorder[0]] < decs[raorder[1]] else raorder[1]
+        dex01 = raorder[1] if decs[raorder[0]] < decs[raorder[1]] else raorder[0]
+
+        # Same thing, only now high ra
+
+        dex10 = raorder[2] if decs[raorder[2]] < decs[raorder[3]] else raorder[3]
+        dex11 = raorder[3] if decs[raorder[2]] < decs[raorder[3]] else raorder[2]
+
+        return ( [  ras[dex00],  ras[dex01],  ras[dex10],  ras[dex11] ],
+                 [ decs[dex00], decs[dex01], decs[dex10], decs[dex11] ] )
+
+
+    @hybrid_method
+    def containing( self, ra, dec ):
+        """An SQLAlchemy filter for objects that might contain a given ra/dec.
+
+        This will be reliable for objects (i.e. images, or whatever else
+        has four corners) that are square to the sky (assuming that the
+        ra* and dec* fields are correct).  However, if the object is at
+        an angle, it will return objects that have the given ra, dec in
+        the rectangle on the sky oriented along ra/dec lines that fully
+        contains the four corners of the image.
+
+        Parameters
+        ----------
+           ra, dec: float
+              Position to search (decimal degrees).
+
+        Returns
+        -------
+           An expression usable in a sqlalchemy filter
+
+        """
+
+        # This query will go through every row of the table it's
+        # searching, because q3c uses the index on the first two
+        # arguments, not on the array argument.
+
+        # It could probably be made faster by making a first pass doing:
+        #   greatest( ra** ) >= ra AND least( ra** ) <= ra AND
+        #   greatest( dec** ) >= dec AND least( dec** ) <= dec
+        # with indexes in ra** and dec**.  Put the results of that into
+        # a temp table, and then do the polygon search on that temp table.
+        #
+        # I have no clue how to implement that simply here as as an
+        # SQLAlchemy filter, so I implement it in find_containing()
+
+        return func.q3c_poly_query( ra, dec, sqlarray( [ self.ra_corner_00, self.dec_corner_00,
+                                                         self.ra_corner_01, self.dec_corner_01,
+                                                         self.ra_corner_11, self.dec_corner_11,
+                                                         self.ra_corner_10, self.dec_corner_10 ] ) )
+
+    @classmethod
+    def find_containing( cls, siobj, session=None ):
+        """Return all images (or whatever) that contain the given SpatiallyIndexed thing
+
+        Parameters
+        ----------
+          siobj: SpatiallyIndexed
+            A single object that is spatially indexed
+
+        Returns
+        -------
+           An sql query result thingy.
+
+        """
+
+        # Overabundance of caution to avoid SQL injection
+        ra = float( siobj.ra )
+        dec = float( siobj.dec )
+
+        with SmartSession( session ) as sess:
+            sess.execute( sa.text( f"SELECT i.id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+                                   f"       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
+                                   f"INTO TEMP TABLE temp_find_containing "
+                                   f"FROM {cls.__tablename__} i "
+                                   f"WHERE GREATEST(i.ra_corner_00, i.ra_corner_01, "
+                                   f"               i.ra_corner_10, i.ra_corner_11 ) >= :ra "
+                                   f"  AND LEAST(i.ra_corner_00, i.ra_corner_01, "
+                                   f"            i.ra_corner_10, i.ra_corner_11 ) <= :ra "
+                                   f"  AND GREATEST(i.dec_corner_00, i.dec_corner_01, "
+                                   f"               i.dec_corner_10, i.dec_corner_11 ) >= :dec "
+                                   f"  AND LEAST(i.dec_corner_00, i.dec_corner_01, "
+                                   f"            i.dec_corner_10, i.dec_corner_11 ) <= :dec" ),
+                          { 'ra': ra, 'dec': dec } )
+            query = sa.text( f"SELECT i.id FROM temp_find_containing i "
+                             f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ i.ra_corner_00, i.dec_corner_00, "
+                             f"                                          i.ra_corner_01, i.dec_corner_01, "
+                             f"                                          i.ra_corner_11, i.dec_corner_11, "
+                             f"                                          i.ra_corner_10, i.dec_corner_10 ])" )
+            objs = sess.scalars( sa.select( cls ).from_statement( query ) ).all()
+            sess.execute( sa.text( "DROP TABLE temp_find_containing" ) )
+            return objs
+
+    @hybrid_method
+    def cone_search( self, ra, dec, rad, radunit='arcsec' ):
+        """Find all objects of this class that are within a cone.
+
+        Parameters
+        ----------
+          ra: float
+            The central right ascension in decimal degrees
+          dec: float
+            The central declination in decimal degrees
+          rad: float
+            The radius of the circle on the sky
+          radunit: str
+            The units of rad.  One of 'arcsec', 'arcmin', 'degrees', or
+            'radians'.  Defaults to 'arcsec'.
+
+        Returns
+        -------
+          A query with the cone search.
+
+        """
+
+        if radunit == 'arcmin':
+            rad /= 60.
+        elif radunit == 'arcsec':
+            rad /= 3600.
+        elif radunit == 'radians':
+            rad *= 180. / math.pi
+        elif radunit != 'degrees':
+            raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
+
+        return func.q3c_radial_query( self.ra, self.dec, ra, dec, rad )
 
 if __name__ == "__main__":
     pass

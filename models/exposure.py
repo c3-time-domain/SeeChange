@@ -4,20 +4,30 @@ from collections import defaultdict
 
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.types import Enum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CheckConstraint
 from sqlalchemy.orm.session import object_session
+from sqlalchemy.ext.hybrid import hybrid_property
 
 from astropy.time import Time
 
 from util.config import Config
 from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_to_deg
 
-from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession, file_format_enum
+from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession
 from models.instrument import Instrument, guess_instrument, get_instrument_instance
 from models.provenance import Provenance
 
+from models.enums_and_bitflags import (
+    image_format_converter,
+    image_format_dict,
+    image_type_converter,
+    image_type_dict,
+    image_badness_inverse,
+    data_badness_dict,
+    string_to_bitflag,
+    bitflag_to_string,
+)
 
 # columns key names that must be loaded from the header for each Exposure
 EXPOSURE_COLUMN_NAMES = [
@@ -119,46 +129,41 @@ class SectionHeaders:
         self._header = defaultdict(lambda: None)
 
 
-image_type_enum = Enum(
-    "Sci",
-    "ComSci",
-    "Diff",
-    "ComDiff",
-    "Bias",
-    "ComBias",
-    "Dark",
-    "ComDark",
-    "DomeFlat",
-    "ComDomeFlat",
-    "SkyFlat",
-    "ComSkyFlat",
-    "TwiFlat",
-    "ComTwiFlat",
-    name='image_type'
-)
-
-
 class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     __tablename__ = "exposures"
 
-    type = sa.Column(
-        image_type_enum,
+    _type = sa.Column(
+        sa.SMALLINT,
         nullable=False,
-        default="Sci",
+        default=image_type_converter('Sci'),
         index=True,
         doc=(
             "Type of image. One of: Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, "
             "or any of the above types prepended with 'Com' for combined "
             "(e.g., a ComSci image is a science image combined from multiple exposures)."
+            "The value is saved as SMALLINT but translated to a string when read. "
         )
     )
 
-    format = sa.Column(
-        file_format_enum,
+    @hybrid_property
+    def type(self):
+        return image_type_converter(self._type)
+
+    @type.expression
+    def type(cls):
+        return sa.case(image_type_dict, value=cls._type)
+
+    @type.setter
+    def type(self, value):
+        self._type = image_type_converter(value)
+
+    _format = sa.Column(
+        sa.SMALLINT,
         nullable=False,
-        default='fits',
-        doc="Format of the file on disk. Should be fits (or hdf5, not yet implemented). "
+        default=image_format_converter('fits'),
+        doc="Format of the file on disk. Should be fits or hdf5. "
+            "The value is saved as SMALLINT but translated to a string when read. "
     )
 
     provenance_id = sa.Column(
@@ -182,6 +187,19 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
             "and the parameters used to obtain this exposure."
         )
     )
+
+    @hybrid_property
+    def format(self):
+        return image_format_converter(self._format)
+
+    @format.expression
+    def format(cls):
+        # ref: https://stackoverflow.com/a/25272425
+        return sa.case(image_format_dict, value=cls._format)
+
+    @format.setter
+    def format(self, value):
+        self._format = image_format_converter(value)
 
     header = sa.Column(
         JSONB,
@@ -250,6 +268,59 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
         doc='Name of the target object or field id. '
     )
 
+    _bitflag = sa.Column(
+        sa.BIGINT,
+        nullable=False,
+        default=0,
+        index=True,
+        doc='Bitflag for this exposure. Good exposures have a bitflag of 0. '
+            'Bad exposures are each bad in their own way (i.e., have different bits set). '
+    )
+
+    @hybrid_property
+    def bitflag(self):
+        return self._bitflag
+
+    @bitflag.inplace.expression
+    def bitflag(cls):
+        return cls._bitflag
+
+    @bitflag.inplace.setter
+    def bitflag(self, value):
+        allowed_bits = 0
+        for i in image_badness_inverse.values():
+            allowed_bits += 2 ** i
+        if value & ~allowed_bits != 0:
+            raise ValueError(f'Bitflag value {bin(value)} has bits set that are not allowed.')
+        self._bitflag = value
+
+    @property
+    def badness(self):
+        """
+        A comma separated string of keywords describing
+        why this data is not good, based on the bitflag.
+        """
+        return bitflag_to_string(self.bitflag, data_badness_dict)
+
+    @badness.setter
+    def badness(self, value):
+        """Set the badness for this exposure using a comma separated string. """
+        self.bitflag = string_to_bitflag(value, image_badness_inverse)
+
+    def append_badness(self, value):
+        """Add some keywords (in a comma separated string)
+        describing what is bad about this exposure.
+        The keywords will be added to the list "badness"
+        and the bitflag for this exposure will be updated accordingly.
+        """
+        self.bitflag = self.bitflag | string_to_bitflag(value, image_badness_inverse)
+
+    description = sa.Column(
+        sa.Text,
+        nullable=True,
+        doc='Free text comment about this exposure, e.g., why it is bad. '
+    )
+
     origin_identifier = sa.Column(
         sa.Text,
         nullable=True,
@@ -308,6 +379,7 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
             self.provenance = Provenance.create_or_load( code_version=codeversion, process='load_exposure' )
 
         self._instrument_object = None
+        self._bitflag = 0
 
         # Bit of a chicken and egg problem here...
         # For filepath, invent_filepath tries to use the instrument
