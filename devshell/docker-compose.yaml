@@ -60,7 +60,7 @@ services:
     working_dir: /seechange
     user: "${USERID:?err}:${GROUPID:?err}"
     entrypoint: [ "tail", "-f", "/etc/issue" ]
-    
+
   seechange_nomigrate:
     image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build: ../docker/application
@@ -76,7 +76,7 @@ services:
     working_dir: /seechange
     user: "${USERID:?err}:${GROUPID:?err}"
     entrypoint: [ "tail", "-f", "/etc/issue" ]
-    
-    
+
+
 volumes:
   seechange-postgres-dbdata:

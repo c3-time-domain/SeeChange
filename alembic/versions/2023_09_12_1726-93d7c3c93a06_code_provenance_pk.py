@@ -98,6 +98,6 @@ def upgrade() -> None:
                      sa.PrimaryKeyConstraint('upstream_id', 'downstream_id')
                     )
 
-    
+
 def downgrade() -> None:
     raise Exception( "Irreversable migration." )
