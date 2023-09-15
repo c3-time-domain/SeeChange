@@ -17,7 +17,7 @@ def test_enums_zero_values():
 
 def test_converter_dict():
     # Probably should test them all, but test just these
-    #  three and trust that it it works, then the inheritance
+    #  three and trust that if it works, then the inheritance
     #  is working for all of them.
 
     assert ImageTypeConverter.dict == {

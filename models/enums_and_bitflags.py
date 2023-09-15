@@ -4,10 +4,6 @@ Here we put all the dictionaries and conversion functions for getting/setting en
 
 from util.classproperty import classproperty
 
-def c(keyword):
-    """Convert the key to something more compatible. """
-    return keyword.lower().replace(' ', '')
-
 class EnumConverter:
     """Base class for creating an (effective) enum that is saved to the database as an int.
 
@@ -59,6 +55,11 @@ class EnumConverter:
     _dict_filtered = None
     _dict_inverse = None
 
+    @classmethod
+    def c( cls, keyword ):
+        """Convert the key to something more compatible. """
+        return keyword.lower().replace(' ', '')
+
     @classproperty
     def dict( cls ):
         if cls._dict_filtered is None:
@@ -71,7 +72,7 @@ class EnumConverter:
     @classproperty
     def dict_inverse( cls ):
         if cls._dict_inverse is None:
-            cls._dict_inverse = { c(v): k for k, v in cls._dict.items() }
+            cls._dict_inverse = { cls.c(v): k for k, v in cls._dict.items() }
         return cls._dict_inverse
 
     @classmethod
@@ -82,11 +83,13 @@ class EnumConverter:
         integer key, will return the corresponding string.  String
         identification is case-insensitive and ignores spaces.
 
+        If given None, will return None.
+
         """
         if isinstance(value, str):
-            if c(value) not in cls.dict_inverse:
+            if cls.c(value) not in cls.dict_inverse:
                 raise ValueError(f'{cls.__name__} must be one of {cls.dict_inverse.keys()}, not {value}')
-            return cls.dict_inverse[c(value)]
+            return cls.dict_inverse[cls.c(value)]
         elif isinstance(value, (int, float)):
             if value not in cls.dict:
                 raise ValueError(f'{cls.__name__} integer key must be one of {cls.dict.keys()}, not {value}')
@@ -239,7 +242,7 @@ def string_to_bitflag(value, dictionary):
         output = 0
         for keyword in value.split(','):
             original_keyword = keyword
-            keyword = c(keyword)
+            keyword = EnumConverter.c(keyword)
             if keyword not in dictionary:
                 raise ValueError(f'Keyword "{original_keyword}" not recognized in dictionary')
             output += 2 ** dictionary[keyword]
@@ -254,7 +257,7 @@ image_badness_dict = {
     4: 'Bad Subtraction',
     5: 'Bright Sky',
 }
-image_badness_inverse = {c(v): k for k, v in image_badness_dict.items()}
+image_badness_inverse = {EnumConverter.c(v): k for k, v in image_badness_dict.items()}
 
 # these are the ways a Cutouts object is allowed to be bad
 cutouts_badness_dict = {
@@ -265,7 +268,7 @@ cutouts_badness_dict = {
     25: 'Bad Pixel',
     26: 'Bleed Trail',
 }
-cutouts_badness_inverse = {c(v): k for k, v in cutouts_badness_dict.items()}
+cutouts_badness_inverse = {EnumConverter.c(v): k for k, v in cutouts_badness_dict.items()}
 
 # these are the ways a SourceList object is allowed to be bad
 source_list_badness_dict = {
@@ -274,13 +277,13 @@ source_list_badness_dict = {
     43: 'Few Sources',
     44: 'Many Sources',
 }
-source_list_badness_inverse = {c(v): k for k, v in source_list_badness_dict.items()}
+source_list_badness_inverse = {EnumConverter.c(v): k for k, v in source_list_badness_dict.items()}
 
 # join the badness:
 data_badness_dict = {0: 'Good'}
 data_badness_dict.update(image_badness_dict)
 data_badness_dict.update(cutouts_badness_dict)
 data_badness_dict.update(source_list_badness_dict)
-data_badness_inverse = {c(v): k for k, v in data_badness_dict.items()}
+data_badness_inverse = {EnumConverter.c(v): k for k, v in data_badness_dict.items()}
 if 0 in data_badness_inverse:
     raise ValueError('Cannot have a badness bitflag of zero. This is reserved for good data.')
