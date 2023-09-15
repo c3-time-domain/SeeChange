@@ -2,164 +2,109 @@
 Here we put all the dictionaries and conversion functions for getting/setting enums and bitflags.
 """
 
+from util.classproperty import classproperty
 
 def c(keyword):
     """Convert the key to something more compatible. """
     return keyword.lower().replace(' ', '')
 
+class EnumConverter:
+    _dict = {}
+    _dict_filtered = None
+    _dict_inverse = None
+    _allowed_values = None
 
-# This is the master format dictionary, that contains all file types for
-# all data models. Each model will get a subset of this dictionary.
-file_format_dict = {
-    1: 'fits',
-    2: 'hdf5',
-    3: 'csv',
-    4: 'json',
-    5: 'yaml',
-    6: 'xml',
-    7: 'pickle',
-    8: 'parquet',
-    9: 'npy',
-    10: 'npz',
-    11: 'avro',
-    12: 'netcdf',
-    13: 'jpg',
-    14: 'png',
-    15: 'pdf',
-}
+    @classproperty
+    def dict( cls ):
+        if cls._dict_filtered is None:
+            if cls._allowed_values is not None:
+                cls._dict_filtered = cls._dict
+            else:
+                cls._dict_filtered = { k: v for k, v in cls._dict.items() if k in cls._allowed_values }
+        return cls._dict_filtered
 
-allowed_image_formats = ['fits', 'hdf5']
-image_format_dict = {k: v for k, v in file_format_dict.items() if v in allowed_image_formats}
-image_format_inverse = {c(v): k for k, v in image_format_dict.items()}
+    @classproperty
+    def dict_inverse( cls ):
+        if cls._dict_inverse is None:
+            cls._dict_inverse = { c(v): k for k, v in cls._dict.items() }
+        return cls._dict_inverse
+    
+    @classmethod
+    def convert( cls, value ):
+        """Convert between a string and corresponding integer key.
 
+        If given a string, will return the integer key.  If given an
+        integer key, will return the corresponding string.  String
+        identification is case-insensitive and ignores spaces.
 
-def image_format_converter(value):
-    """
-    Convert between an image format string (e.g., "fits" or "hdf5")
-    to the corresponding integer key (e.g., 1 or 2). If given a string,
-    will return the integer key, and if given a number (float or int)
-    will return the corresponding string.
-    String identification is case insensitive and ignores spaces.
-
-    If given None, will return None.
-    """
+        """
     if isinstance(value, str):
-        if c(value) not in image_format_inverse:
-            raise ValueError(f'Image format must be one of {image_format_inverse.keys()}, not {value}')
-        return image_format_inverse[c(value)]
+        if c(value) not in self.dict_inverse:
+            raise ValueError(f'{cls.__name__} must be one of {self.dict_inverse.keys()}, not {value}')
+        return self.dict_inverse[c(value)]
     elif isinstance(value, (int, float)):
-        if value not in image_format_dict:
-            raise ValueError(f'Image format integer key must be one of {image_format_dict.keys()}, not {value}')
-        return image_format_dict[value]
+        if value not in self.dict:
+            raise ValueError(f'{cls.__name__} integer key must be one of {self.dict.keys()}, not {value}')
+        return self.dict[value]
     elif value is None:
         return None
     else:
-        raise ValueError(f'Image format must be integer/float key or string value, not {type(value)}')
+        raise ValueError(f'{cls.__name__} must be integer/float key or string value, not {type(value)}')
 
 
-allowed_cutout_formats = ['fits', 'hdf5', 'jpg', 'png']
-cutouts_format_dict = {k: v for k, v in file_format_dict.items() if v in allowed_cutout_formats}
-cutouts_format_inverse = {c(v): k for k, v in cutouts_format_dict.items()}
+class FormatConverter( EnumConverter ):
+    # This is the master format dictionary, that contains all file types for
+    # all data models. Each model will get a subset of this dictionary.
+    _dict = {
+        1: 'fits',
+        2: 'hdf5',
+        3: 'csv',
+        4: 'json',
+        5: 'yaml',
+        6: 'xml',
+        7: 'pickle',
+        8: 'parquet',
+        9: 'npy',
+        10: 'npz',
+        11: 'avro',
+        12: 'netcdf',
+        13: 'jpg',
+        14: 'png',
+        15: 'pdf',
+        16: 'fitsldac',
+    }
+    
+class ImageFormatConverter( FormatConverter ):
+    allowed_formats = ['fits', 'hdf5']
 
+class CutoutFormatConverter( FormatConverter ):
+    _dict = ImageFormatConverter._format_dict
+    _allowed_values = ['fits', 'hdf5', 'jpg', 'png']
 
-def cutouts_format_converter(value):
-    """
-    Convert between a cutouts format string (e.g., "fits" or "hdf5")
-    to the corresponding integer key (e.g., 1 or 2). If given a string,
-    will return the integer key, and if given a number (float or int)
-    will return the corresponding string.
-    String identification is case insensitive and ignores spaces.
+class SourceListFormatConverter( FormatConverter ):
+    _allowed_values = ['npy', 'csv', 'hdf5', 'parquet', 'fits']
 
-    If given None, will return None.
-    """
-    if isinstance(value, str):
-        if c(value) not in cutouts_format_inverse:
-            raise ValueError(f'Cutouts format must be one of {cutouts_format_inverse.keys()}, not {value}')
-        return cutouts_format_inverse[c(value)]
-    elif isinstance(value, (int, float)):
-        if value not in cutouts_format_dict:
-            raise ValueError(f'Cutouts format integer key must be one of {cutouts_format_dict.keys()}, not {value}')
-        return cutouts_format_dict[value]
-    elif value is None:
-        return None
-    else:
-        raise ValueError(f'Cutouts format must be integer/float key or string value, not {type(value)}')
-
-
-allowed_source_list_formats = ['npy', 'csv', 'hdf5', 'parquet', 'fits']
-source_list_format_dict = {k: v for k, v in file_format_dict.items() if v in allowed_source_list_formats}
-source_list_format_inverse = {c(v): k for k, v in source_list_format_dict.items()}
-
-
-def source_list_format_converter(value):
-    """
-    Convert between a source list format string (e.g., "fits" or "npy")
-    to the corresponding integer key (e.g., 1 or 9). If given a string,
-    will return the integer key, and if given a number (float or int)
-    will return the corresponding string.
-    String identification is case insensitive and ignores spaces.
-
-    If given None, will return None.
-    """
-
-    if isinstance(value, str):
-        if c(value) not in source_list_format_inverse:
-            raise ValueError(f'Source list format must be one of {source_list_format_inverse.keys()}, not {value}')
-        return source_list_format_inverse[c(value)]
-    elif isinstance(value, (int, float)):
-        if value not in source_list_format_dict:
-            raise ValueError(f'Source list format integer key must be one of {source_list_format_dict.keys()}, not {value}')
-        return source_list_format_dict[value]
-    elif value is None:
-        return None
-    else:
-        raise ValueError(f'Source list format must be integer/float key or string value, not {type(value)}')
-
-
-image_type_dict = {
-    1: 'Sci',
-    2: 'ComSci',
-    3: 'Diff',
-    4: 'ComDiff',
-    5: 'Bias',
-    6: 'ComBias',
-    7: 'Dark',
-    8: 'ComDark',
-    9: 'DomeFlat',
-    10: 'ComDomeFlat',
-    11: 'SkyFlat',
-    12: 'ComSkyFlat',
-    13: 'TwiFlat',
-    14: 'ComTwiFlat',
-}
-image_type_inverse = {c(v): k for k, v in image_type_dict.items()}
-
-
-def image_type_converter(value):
-    """
-    Convert between an image type string (e.g., "Sci" or "Diff")
-    to the corresponding integer key (e.g., 1 or 3). If given a string,
-    will return the integer key, and if given a number (float or int)
-    will return the corresponding string.
-    String identification is case insensitive, and ignores spaces.
-
-    If given None, will return None.
-    """
-    if isinstance(value, str):
-        if c(value) not in image_type_inverse:
-            raise ValueError(f'Image type must be one of {image_type_inverse.keys()}, not {value}')
-        return image_type_inverse[c(value)]
-    elif isinstance(value, (int, float)):
-        if value not in image_type_dict:
-            raise ValueError(f'Image type integer key must be one of {image_type_dict.keys()}, not {value}')
-        return image_type_dict[value]
-    elif value is None:
-        return None
-    else:
-        raise ValueError(f'Image type must be integer/float key or string value, not {type(value)}')
-
-
+class ImageTypeConverter( EnumConverter ):
+    _dict = {
+        1: 'Sci',
+        2: 'ComSci',
+        3: 'Diff',
+        4: 'ComDiff',
+        5: 'Bias',
+        6: 'ComBias',
+        7: 'Dark',
+        8: 'ComDark',
+        9: 'DomeFlat',
+        10: 'ComDomeFlat',
+        11: 'SkyFlat',
+        12: 'ComSkyFlat',
+        13: 'TwiFlat',
+        14: 'ComTwiFlat',
+    }
+    _allowed_values = list( ImageTypeConverter._dict.keys() )
+    
 def bitflag_to_string(value, dictionary):
+
     """
     Takes a 64 bit integer bit-flag and converts it to a comma separated string,
     using the given dictionary.
