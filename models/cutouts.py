@@ -4,7 +4,7 @@ from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed
-from models.enums_and_bitflags import cutouts_format_dict, cutouts_format_converter
+from models.enums_and_bitflags import CutoutsFormatConverter
 
 
 class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
@@ -14,23 +14,23 @@ class Cutouts(Base, FileOnDiskMixin, SpatiallyIndexed):
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=cutouts_format_converter('fits'),
+        default=CutoutsFormatConverter.convert('fits'),
         doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
             "Saved as integer but is converter to string when loaded. "
     )
 
     @hybrid_property
     def format(self):
-        return cutouts_format_converter(self._format)
+        return CutoutsFormatConverter.convert(self._format)
 
     @format.expression
     def format(cls):
         # ref: https://stackoverflow.com/a/25272425
-        return sa.case(cutouts_format_dict, value=cls._format)
+        return sa.case(CutoutsFormatConverter.dict, value=cls._format)
 
     @format.setter
     def format(self, value):
-        self._format = cutouts_format_converter(value)
+        self._format = CutoutsFormatConverter.convert(value)
 
     source_list_id = sa.Column(
         sa.ForeignKey('source_lists.id', name='cutouts_source_list_id_fkey'),

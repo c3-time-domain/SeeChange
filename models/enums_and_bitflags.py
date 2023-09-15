@@ -9,18 +9,65 @@ def c(keyword):
     return keyword.lower().replace(' ', '')
 
 class EnumConverter:
+    """Base class for creating an (effective) enum that is saved to the database as an int.
+
+    This avoids the pain of dealing with Postgres enums and migrtions.
+
+    To use this:
+
+    1. Create a subclass of EnumConverter; call that <class>
+
+    2. Make sure that every class has its own initialized values of
+       _allowed_values, _dict_filtered, _dict_inverse, and
+       _allowed_values ; the latter two must be initialized to None, and
+       _allowed_values may be initilzed to None.
+
+       (This is necessary because we're using class variables as mutable
+       variables, so we have to make sure that inheritance doesn't
+       confuse the different classes with each other.)
+
+    2. Define the _dict property of that subclass to have the mapping from integer to string.
+
+    3. If not all of the strings in the _dict are allowed formats for
+       this class, define the allowed_formats array to list the ones
+       that are allowed.  (See, for example, ImageFormatConverter.)  If
+       they are all allowed formats, don't define this (it will inherit
+       None from the parent class).
+
+    4. In the database model that uses the enum, create fields and properties like:
+
+       _format = sa.Column( sa.SMALLINT, nullable=False, default=<class>.convert('<default_value>' )
+
+       @hybrid_property
+       def format(self):
+           return <class>.convert( self._format )
+
+       @format.expression
+       def format(cls):
+           return sa.case( <class>.dict, value=cls._format )
+
+       @format.setter
+       def format( self, value ):
+           self._format = <class>.convert( value )
+
+    5. Anywhere in code where you want to convert between the string and
+       the corresponding integer key (in either direction), just call
+       <class>.convert( value )
+
+    """
+
     _dict = {}
+    _allowed_values = None
     _dict_filtered = None
     _dict_inverse = None
-    _allowed_values = None
 
     @classproperty
     def dict( cls ):
         if cls._dict_filtered is None:
-            if cls._allowed_values is not None:
+            if cls._allowed_values is None:
                 cls._dict_filtered = cls._dict
             else:
-                cls._dict_filtered = { k: v for k, v in cls._dict.items() if k in cls._allowed_values }
+                cls._dict_filtered = { k: v for k, v in cls._dict.items() if v in cls._allowed_values }
         return cls._dict_filtered
 
     @classproperty
@@ -28,7 +75,7 @@ class EnumConverter:
         if cls._dict_inverse is None:
             cls._dict_inverse = { c(v): k for k, v in cls._dict.items() }
         return cls._dict_inverse
-    
+
     @classmethod
     def convert( cls, value ):
         """Convert between a string and corresponding integer key.
@@ -38,18 +85,18 @@ class EnumConverter:
         identification is case-insensitive and ignores spaces.
 
         """
-    if isinstance(value, str):
-        if c(value) not in self.dict_inverse:
-            raise ValueError(f'{cls.__name__} must be one of {self.dict_inverse.keys()}, not {value}')
-        return self.dict_inverse[c(value)]
-    elif isinstance(value, (int, float)):
-        if value not in self.dict:
-            raise ValueError(f'{cls.__name__} integer key must be one of {self.dict.keys()}, not {value}')
-        return self.dict[value]
-    elif value is None:
-        return None
-    else:
-        raise ValueError(f'{cls.__name__} must be integer/float key or string value, not {type(value)}')
+        if isinstance(value, str):
+            if c(value) not in cls.dict_inverse:
+                raise ValueError(f'{cls.__name__} must be one of {cls.dict_inverse.keys()}, not {value}')
+            return cls.dict_inverse[c(value)]
+        elif isinstance(value, (int, float)):
+            if value not in cls.dict:
+                raise ValueError(f'{cls.__name__} integer key must be one of {cls.dict.keys()}, not {value}')
+            return cls.dict[value]
+        elif value is None:
+            return None
+        else:
+            raise ValueError(f'{cls.__name__} must be integer/float key or string value, not {type(value)}')
 
 
 class FormatConverter( EnumConverter ):
@@ -73,16 +120,25 @@ class FormatConverter( EnumConverter ):
         15: 'pdf',
         16: 'fitsldac',
     }
-    
-class ImageFormatConverter( FormatConverter ):
-    allowed_formats = ['fits', 'hdf5']
+    _allowed_values = None
+    _dict_filtered = None
+    _dict_inverse = None
 
-class CutoutFormatConverter( FormatConverter ):
-    _dict = ImageFormatConverter._format_dict
+class ImageFormatConverter( FormatConverter ):
+    _allowed_values = ['fits', 'hdf5']
+    _dict_filtered = None
+    _dict_inverse = None
+
+class CutoutsFormatConverter( FormatConverter ):
+    _dict = ImageFormatConverter._dict
     _allowed_values = ['fits', 'hdf5', 'jpg', 'png']
+    _dict_filtered = None
+    _dict_inverse = None
 
 class SourceListFormatConverter( FormatConverter ):
     _allowed_values = ['npy', 'csv', 'hdf5', 'parquet', 'fits']
+    _dict_filtered = None
+    _dict_inverse = None
 
 class ImageTypeConverter( EnumConverter ):
     _dict = {
@@ -101,8 +157,10 @@ class ImageTypeConverter( EnumConverter ):
         13: 'TwiFlat',
         14: 'ComTwiFlat',
     }
-    _allowed_values = list( ImageTypeConverter._dict.keys() )
-    
+    _allowed_values = list( _dict.values() )
+    _dict_filtered = None
+    _dict_inverse = None
+
 def bitflag_to_string(value, dictionary):
 
     """

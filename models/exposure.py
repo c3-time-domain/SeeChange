@@ -11,10 +11,8 @@ from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_t
 from models.base import Base, SeeChangeBase, FileOnDiskMixin, SpatiallyIndexed, SmartSession
 from models.instrument import Instrument, guess_instrument, get_instrument_instance
 from models.enums_and_bitflags import (
-    image_format_converter,
-    image_format_dict,
-    image_type_converter,
-    image_type_dict,
+    ImageFormatConverter,
+    ImageTypeConverter,
     image_badness_inverse,
     data_badness_dict,
     string_to_bitflag,
@@ -128,7 +126,7 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
     _type = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=image_type_converter('Sci'),
+        default=ImageTypeConverter.convert('Sci'),
         index=True,
         doc=(
             "Type of image. One of: Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, "
@@ -140,36 +138,36 @@ class Exposure(Base, FileOnDiskMixin, SpatiallyIndexed):
 
     @hybrid_property
     def type(self):
-        return image_type_converter(self._type)
+        return ImageTypeConverter.convert(self._type)
 
     @type.expression
     def type(cls):
-        return sa.case(image_type_dict, value=cls._type)
+        return sa.case(ImageTypeConverter.dict, value=cls._type)
 
     @type.setter
     def type(self, value):
-        self._type = image_type_converter(value)
+        self._type = ImageTypeConverter.convert(value)
 
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=image_format_converter('fits'),
+        default=ImageFormatConverter.convert('fits'),
         doc="Format of the file on disk. Should be fits or hdf5. "
             "The value is saved as SMALLINT but translated to a string when read. "
     )
 
     @hybrid_property
     def format(self):
-        return image_format_converter(self._format)
+        return ImageFormatConverter.convert(self._format)
 
     @format.expression
     def format(cls):
         # ref: https://stackoverflow.com/a/25272425
-        return sa.case(image_format_dict, value=cls._format)
+        return sa.case(ImageFormatConverter.dict, value=cls._format)
 
     @format.setter
     def format(self, value):
-        self._format = image_format_converter(value)
+        self._format = ImageFormatConverter.convert(value)
 
     header = sa.Column(
         JSONB,
