@@ -261,7 +261,7 @@ class Provenance(Base):
         )
         json_string = json.dumps(superdict, sort_keys=True)
 
-        self.id = base64.b32hexencode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
+        self.id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
     @classmethod
     def get_code_version(cls, session=None):
