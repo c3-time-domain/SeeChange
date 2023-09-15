@@ -11,30 +11,28 @@ def c(keyword):
 class EnumConverter:
     """Base class for creating an (effective) enum that is saved to the database as an int.
 
-    This avoids the pain of dealing with Postgres enums and migrtions.
+    This avoids the pain of dealing with Postgres enums and migrations.
 
     To use this:
 
-    1. Create a subclass of EnumConverter; call that <class>
-
-    2. Make sure that every class has its own initialized values of
-       _allowed_values, _dict_filtered, and _dict_inverse; the latter
-       two must be initialized to None, and _allowed_values may be
-       initilzed to None.
-
-       (This is necessary because we're using class variables as mutable
-       variables, so we have to make sure that inheritance doesn't
-       confuse the different classes with each other.)
+    1. Create a subclass of EnumConverter (called <class> here).
 
     2. Define the _dict property of that subclass to have the mapping from integer to string.
 
     3. If not all of the strings in the _dict are allowed formats for
-       this class, define the allowed_formats array to list the ones
-       that are allowed.  (See, for example, ImageFormatConverter.)  If
-       they are all allowed formats, don't define this (it will inherit
-       None from the parent class).
+       this class, define a property _allowed_values with a list of
+       values (strings) that are allowed.  (See, for example,
+       ImageFormatConverter.)  If they are all allowed formats, you can
+       instead just define _allowed_values as None.  (See, for example,
+       ImageTypeConverter.)
 
-    4. In the database model that uses the enum, create fields and properties like:
+    4. Make sure that every class has its own initialized values of
+       _dict_filtered and _dict_inverse, both initialized to None.
+       (This is necessary because we're using these two class variables
+       as mutable variables, so we have to make sure that inheritance
+       doesn't confuse the different classes with each other.)
+
+    5. In the database model that uses the enum, create fields and properties like:
 
        _format = sa.Column( sa.SMALLINT, nullable=False, default=<class>.convert('<default_value>' )
 
@@ -50,7 +48,7 @@ class EnumConverter:
        def format( self, value ):
            self._format = <class>.convert( value )
 
-    5. Anywhere in code where you want to convert between the string and
+    6. Anywhere in code where you want to convert between the string and
        the corresponding integer key (in either direction), just call
        <class>.convert( value )
 
@@ -157,9 +155,10 @@ class ImageTypeConverter( EnumConverter ):
         13: 'TwiFlat',
         14: 'ComTwiFlat',
     }
-    _allowed_values = list( _dict.values() )
+    _allowed_values = None
     _dict_filtered = None
     _dict_inverse = None
+
 
 def bitflag_to_string(value, dictionary):
 
