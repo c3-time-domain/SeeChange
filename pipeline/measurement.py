@@ -83,7 +83,7 @@ class Measurer:
             if measurements.provenance is None:
                 measurements.provenance = prov
             else:
-                if measurements.provenance.unique_hash != prov.unique_hash:
+                if measurements.provenance.id != prov.id:
                     raise ValueError('Provenance mismatch for measurements and provenance!')
 
             ds.measurements = measurements

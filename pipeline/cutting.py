@@ -71,7 +71,7 @@ class Cutter:
             if cutout_list.provenance is None:
                 cutout_list.provenance = prov
             else:
-                if cutout_list.provenance.unique_hash != prov.unique_hash:
+                if cutout_list.provenance.id != prov.id:
                     raise ValueError('Provenance mismatch for cutout_list and provenance!')
 
             ds.cutouts = cutout_list

@@ -14,7 +14,7 @@ import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
 
-from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners
+from models.base import SeeChangeBase, Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance
 from models.enums_and_bitflags import (
@@ -42,7 +42,7 @@ image_source_self_association_table = sa.Table(
 )
 
 
-class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
+class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
     __tablename__ = 'images'
 
@@ -941,7 +941,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         section_id = section_id_int = ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
 
         if self.provenance is not None:
-            prov_hash = self.provenance.unique_hash
+            prov_hash = self.provenance.id
         if self.instrument_object is not None:
             inst_name = self.instrument_object.get_short_instrument_name()
         if self.type is not None:

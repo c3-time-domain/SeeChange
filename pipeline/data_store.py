@@ -327,15 +327,8 @@ class DataStore:
                 parameters=pars_dict,
                 upstreams=upstreams,
             )
-            prov.update_hash()  # need a new object to calculate the hash, then check if it exists on the DB:
-            existing_p = session.scalars(
-                sa.select(Provenance).where(
-                    Provenance.unique_hash == prov.unique_hash
-                )
-            ).first()
-
-            if existing_p is not None:
-                prov = existing_p
+            prov.update_id()
+            prov = session.merge( prov )
 
         return prov
 
@@ -457,7 +450,7 @@ class DataStore:
                         raise ValueError(f'More than one "{process_name}" provenance found!')
                     if len(provenances) == 1:
                         # a mismatch of provenance and cached image:
-                        if self.image.provenance.unique_hash != provenances[0].unique_hash:
+                        if self.image.provenance.id != provenances[0].id:
                             self.image = None  # this must be an old image, get a new one
 
             if self.image is None:  # load from DB
@@ -471,7 +464,7 @@ class DataStore:
                             sa.select(Image).where(
                                 Image.exposure_id == self.exposure_id,
                                 Image.section_id == str(self.section_id),
-                                Image.provenance.has(unique_hash=provenance.unique_hash)
+                                Image.provenance.has(id=provenance.id)
                             )
                         ).first()
 
@@ -520,7 +513,7 @@ class DataStore:
                 raise ValueError(f'More than one {process_name} provenance found!')
             if len(provenances) == 1:
                 # a mismatch of given provenance and self.sources' provenance:
-                if self.sources.provenance.unique_hash != provenances[0].unique_hash:
+                if self.sources.provenance.id != provenances[0].id:
                     self.sources = None  # this must be an old sources object, get a new one
 
         # not in memory, look for it on the DB
@@ -536,7 +529,7 @@ class DataStore:
                         sa.select(SourceList).where(
                             SourceList.image_id == image.id,
                             SourceList.is_sub.is_(False),
-                            SourceList.provenance.has(unique_hash=provenance.unique_hash),
+                            SourceList.provenance.has(id=provenance.id),
                         )
                     ).first()
 
@@ -579,7 +572,7 @@ class DataStore:
                 raise ValueError(f'More than one "{process_name}" provenance found!')
             if len(provenances) == 1:
                 # a mismatch of provenance and cached wcs:
-                if self.wcs.provenance.unique_hash != provenances[0].unique_hash:
+                if self.wcs.provenance.id != provenances[0].id:
                     self.wcs = None  # this must be an old wcs object, get a new one
 
         # not in memory, look for it on the DB
@@ -594,7 +587,7 @@ class DataStore:
                     self.wcs = session.scalars(
                         sa.select(WorldCoordinates).where(
                             WorldCoordinates.source_list_id == sources.id,
-                            WorldCoordinates.provenance.has(unique_hash=provenance.unique_hash),
+                            WorldCoordinates.provenance.has(id=provenance.id),
                         )
                     ).first()
 
@@ -637,7 +630,7 @@ class DataStore:
                 raise ValueError(f'More than one "{process_name}" provenance found!')
             if len(provenances) == 1:
                 # a mismatch of provenance and cached zp:
-                if self.zp.provenance.unique_hash != provenances[0].unique_hash:
+                if self.zp.provenance.id != provenances[0].id:
                     self.zp = None  # this must be an old zp, get a new one
 
         # not in memory, look for it on the DB
@@ -653,7 +646,7 @@ class DataStore:
                     self.zp = session.scalars(
                         sa.select(ZeroPoint).where(
                             ZeroPoint.source_list_id == sources.id,
-                            ZeroPoint.provenance.has(unique_hash=provenance.unique_hash),
+                            ZeroPoint.provenance.has(id=provenance.id),
                         )
                     ).first()
 
@@ -747,7 +740,7 @@ class DataStore:
                 raise ValueError(f'More than one "{process_name}" provenance found!')
             if len(provenances) > 0:
                 # a mismatch of provenance and cached subtraction image:
-                if self.sub_image.provenance.unique_hash != provenances[0].unique_hash:
+                if self.sub_image.provenance.id != provenances[0].id:
                     self.sub_image = None  # this must be an old subtraction image, need to get a new one
 
         # not in memory, look for it on the DB
@@ -765,7 +758,7 @@ class DataStore:
                         sa.select(Image).where(
                             Image.ref_image_id == ref.id,
                             Image.new_image_id == image.id,
-                            Image.provenance.has(unique_hash=provenance.unique_hash),
+                            Image.provenance.has(id=provenance.id),
                         )
                     ).first()
 
@@ -811,7 +804,7 @@ class DataStore:
                 raise ValueError(f'More than one "{process_name}" provenance found!')
             if len(provenances) == 1:
                 # a mismatch of provenance and cached detections:
-                if self.detections.provenance.unique_hash != provenances[0].unique_hash:
+                if self.detections.provenance.id != provenances[0].id:
                     self.detections = None  # this must be an old detections object, need to get a new one
 
         if self.detections is None:
@@ -827,7 +820,7 @@ class DataStore:
                         sa.select(SourceList).where(
                             SourceList.image_id == sub_image.id,
                             SourceList.is_sub.is_(True),
-                            SourceList.provenance.has(unique_hash=provenance.unique_hash),
+                            SourceList.provenance.has(id=provenance.id),
                         )
                     ).first()
 
@@ -870,7 +863,7 @@ class DataStore:
                 raise ValueError(f'More than one "{process_name}" provenance found!')
             if len(provenances) == 1:
                 # a mismatch of provenance and cached cutouts:
-                if any([c.provenance.unique_hash != provenances[0].unique_hash for c in self.cutouts]):
+                if any([c.provenance.id != provenances[0].id for c in self.cutouts]):
                     self.cutouts = None  # this must be an old cutouts list, need to get a new one
 
         # not in memory, look for it on the DB
@@ -886,7 +879,7 @@ class DataStore:
                     self.cutouts = session.scalars(
                         sa.select(Cutouts).where(
                             Cutouts.sub_image_id == sub_image.id,
-                            Cutouts.provenance.has(unique_hash=provenance.unique_hash),
+                            Cutouts.provenance.has(id=provenance.id),
                         )
                     ).all()
 
@@ -929,7 +922,7 @@ class DataStore:
                 raise ValueError(f'More than one "{process_name}" provenance found!')
             if len(provenances) == 1:
                 # a mismatch of provenance and cached image:
-                if any([m.provenance.unique_hash != provenances[0].unique_hash for m in self.measurements]):
+                if any([m.provenance.id != provenances[0].id for m in self.measurements]):
                     self.measurements = None
 
         # not in memory, look for it on the DB
@@ -946,7 +939,7 @@ class DataStore:
                     self.measurements = session.scalars(
                         sa.select(Measurements).where(
                             Measurements.cutouts_id.in_(cutout_ids),
-                            Measurements.provenance.has(unique_hash=provenance.unique_hash),
+                            Measurements.provenance.has(id=provenance.id),
                         )
                     ).all()
 

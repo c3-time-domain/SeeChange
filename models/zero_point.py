@@ -2,10 +2,10 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base
+from models.base import Base, AutoIDMixin
 
 
-class ZeroPoint(Base):
+class ZeroPoint(Base, AutoIDMixin):
     __tablename__ = 'zero_points'
 
     source_list_id = sa.Column(

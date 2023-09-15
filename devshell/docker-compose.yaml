@@ -1,7 +1,7 @@
 version: "3.3"
 services:
   seechange_postgres:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange-postgres
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
     build: ../docker/postgres
     volumes:
       - seechange-postgres-dbdata:/var/lib/postgresql/data
@@ -14,8 +14,10 @@ services:
       retries: 5
 
   seechange_dbmigrate:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
       seechange_postgres:
          condition: service_healthy
@@ -27,9 +29,11 @@ services:
     user: "${USERID:?err}:${GROUPID:?err}"
     entrypoint: [ "alembic", "upgrade", "head" ]
 
-seechange:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER}/seechange
+  seechange:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
       seechange_postgres:
          condition: service_healthy
@@ -43,6 +47,36 @@ seechange:
     user: "${USERID:?err}:${GROUPID:?err}"
     # A hack to keep the image up
     entrypoint: [ "tail", "-f", "/etc/issue" ]
+
+  seechange_nodb:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    working_dir: /seechange
+    user: "${USERID:?err}:${GROUPID:?err}"
+    entrypoint: [ "tail", "-f", "/etc/issue" ]
+
+  seechange_nomigrate:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
+    depends_on:
+      seechange_postgres:
+         condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    working_dir: /seechange
+    user: "${USERID:?err}:${GROUPID:?err}"
+    entrypoint: [ "tail", "-f", "/etc/issue" ]
+
 
 volumes:
   seechange-postgres-dbdata:

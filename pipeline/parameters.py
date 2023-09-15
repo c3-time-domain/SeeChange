@@ -690,7 +690,7 @@ class Parameters:
             prov.update_hash()  # need a new object to calculate the hash, then check if it exists on the DB:
             existing_p = session.scalars(
                 sa.select(Provenance).where(
-                    Provenance.unique_hash == prov.unique_hash
+                    Provenance.id == prov.id
                 )
             ).first()
 

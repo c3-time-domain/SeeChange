@@ -2,10 +2,10 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base, SpatiallyIndexed
+from models.base import Base, AutoIDMixin, SpatiallyIndexed
 
 
-class Measurements(Base, SpatiallyIndexed):
+class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
 
     __tablename__ = 'measurements'
 

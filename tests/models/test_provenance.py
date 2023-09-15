@@ -106,10 +106,9 @@ def test_provenances(code_version):
             session.commit()
             pid1 = p.id
             assert pid1 is not None
-            assert p.unique_hash is not None
-            assert isinstance(p.unique_hash, str)
-            assert len(p.unique_hash) == 20
-            hash = p.unique_hash
+            assert isinstance(p.id, str)
+            assert len(p.id) == 20
+            hash = p.id
 
             p2 = Provenance(
                 code_version=code_version,
@@ -123,10 +122,9 @@ def test_provenances(code_version):
             session.commit()
             pid2 = p2.id
             assert pid2 is not None
-            assert p2.unique_hash is not None
-            assert isinstance(p2.unique_hash, str)
-            assert len(p2.unique_hash) == 20
-            assert p2.unique_hash != hash
+            assert isinstance(p2.id, str)
+            assert len(p2.id) == 20
+            assert p2.id != hash
     finally:
         with SmartSession() as session:
             session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2])))
@@ -154,10 +152,8 @@ def test_unique_provenance_hash(code_version):
             session.commit()
             pid = p.id
             assert pid is not None
-            assert p.unique_hash is not None
-            assert isinstance(p.unique_hash, str)
-            assert len(p.unique_hash) == 20
-            hash = p.unique_hash
+            assert len(p.id) == 20
+            hash = p.id
 
             p2 = Provenance(
                 process='test_process',
@@ -165,13 +161,13 @@ def test_unique_provenance_hash(code_version):
                 parameters={'test_key': parameter},
                 upstreams=[]
             )
-            p2.update_hash()
-            assert p2.unique_hash == hash
+            p2.update_id()
+            assert p2.id == hash
 
             with pytest.raises(sa.exc.IntegrityError) as e:
                 session.add(p2)
                 session.commit()
-            assert 'duplicate key value violates unique constraint "ix_provenances_unique_hash"' in str(e)
+            assert 'duplicate key value violates unique constraint "pk_provenances"' in str(e)
 
     finally:
         if pid is not None:
@@ -201,10 +197,9 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
             pid1 = p1.id
             new_ids.append(pid1)
             assert pid1 is not None
-            assert p1.unique_hash is not None
-            assert isinstance(p1.unique_hash, str)
-            assert len(p1.unique_hash) == 20
-            hash = p1.unique_hash
+            assert isinstance(p1.id, str)
+            assert len(p1.id) == 20
+            hash = p1.id
 
             p2 = Provenance(
                 process="test_downstream_process",
@@ -218,11 +213,10 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
             pid2 = p2.id
             assert pid2 is not None
             new_ids.append(pid2)
-            assert p2.unique_hash is not None
-            assert isinstance(p2.unique_hash, str)
-            assert len(p2.unique_hash) == 20
+            assert isinstance(p2.id, str)
+            assert len(p2.id) == 20
             # added a new upstream, so the hash should be different
-            assert p2.unique_hash != hash
+            assert p2.id != hash
 
             # check that new provenances get added via relationship cascade
             p3 = Provenance(
