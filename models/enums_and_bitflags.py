@@ -18,9 +18,9 @@ class EnumConverter:
     1. Create a subclass of EnumConverter; call that <class>
 
     2. Make sure that every class has its own initialized values of
-       _allowed_values, _dict_filtered, _dict_inverse, and
-       _allowed_values ; the latter two must be initialized to None, and
-       _allowed_values may be initilzed to None.
+       _allowed_values, _dict_filtered, and _dict_inverse; the latter
+       two must be initialized to None, and _allowed_values may be
+       initilzed to None.
 
        (This is necessary because we're using class variables as mutable
        variables, so we have to make sure that inheritance doesn't
