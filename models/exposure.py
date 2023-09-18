@@ -1,5 +1,4 @@
 import pathlib
-import types
 from collections import defaultdict
 
 import sqlalchemy as sa
@@ -323,7 +322,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
         sa.Text,
         nullable=True,
         index=True,
-        doc='String used by each instrument to identify exposures where they are pulled from'
+        doc='Opaque string used by InstrumentOriginExposures to identify this exposure remotely'
     )
 
     def __init__(self, current_file=None, invent_filepath=True, **kwargs):
@@ -366,10 +365,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
         # (See "chicken and egg" comment below).  We will run this exact
         # code again later so that the keywords can override what's
         # detected from the header.
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                if type( getattr( self, key ) ) != types.MethodType:
-                    setattr(self, key, value)
+        self.set_attributes_from_dict( kwargs )
 
         # a default provenance for exposures
         if self.provenance is None:
@@ -403,10 +399,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
             self.use_instrument_to_read_header_data( fromfile=current_file )
 
         # Allow passed keywords to override what's detected from the header
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                if type( getattr( self, key ) ) != types.MethodType:
-                    setattr(self, key, value)
+        self.set_attributes_from_dict( kwargs )
 
         if self.ra is not None and self.dec is not None:
             self.calculate_coordinates()  # galactic and ecliptic coordinates

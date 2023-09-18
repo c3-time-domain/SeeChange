@@ -41,6 +41,17 @@ def tests_setup_and_teardown():
     # Will be executed after the last test
     # print('Final teardown fixture executed! ')
 
+    with SmartSession() as session:
+        # Tests are leaving behind (at least) exposures and provenances.
+        # Ideally, they should all clean up after themselves.  Finding
+        # all of this is a worthwhile TODO, but recursive_merge probably
+        # means that finding all of them is going to be a challenge.
+        # So, make sure that the database is wiped.  Deleting just
+        # provenances and codeversions should do it, because most things
+        # have a cascading foreign key into provenances.
+        session.execute( sa.text( "DELETE FROM provenances" ) )
+        session.execute( sa.text( "DELETE FROM code_versions" ) )
+        session.commit()
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
@@ -66,7 +77,7 @@ def code_version():
 
     try:
         with SmartSession() as session:
-            session.execute(sa.delete(CodeVersion).where(CodeVersion.version == 'test_v1.0.0'))
+            session.execute(sa.delete(CodeVersion).where(CodeVersion.id == 'test_v1.0.0'))
             session.commit()
     except Exception as e:
         warnings.warn(str(e))
@@ -153,7 +164,7 @@ def make_exposure_file(exposure):
 
     try:
         with SmartSession() as session:
-            exposure = session.merge(exposure)
+            exposure = exposure.recursive_merge( session )
             if exposure.id is not None:
                 session.execute(sa.delete(Exposure).where(Exposure.id == exposure.id))
                 session.commit()

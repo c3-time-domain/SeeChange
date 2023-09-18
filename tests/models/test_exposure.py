@@ -12,7 +12,8 @@ from sqlalchemy.exc import IntegrityError
 
 from models.base import SmartSession, CODE_ROOT
 from models.exposure import Exposure, SectionData
-from models.instrument import Instrument, DECam, DemoInstrument
+from models.instrument import Instrument, DemoInstrument
+from models.decam import DECam
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
@@ -257,6 +258,7 @@ def test_decam_exposure(decam_example_file):
     finally:
         if exp_id is not None:
             with SmartSession() as session:
+                e = e.recursive_merge( session )
                 session.delete(e)
                 session.commit()
 

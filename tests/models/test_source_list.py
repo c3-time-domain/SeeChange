@@ -17,6 +17,7 @@ def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_ex
         filenames.append(demo_image.get_fullpath(as_list=True)[0])
         sources.save(no_archive=True)
         filenames.append(sources.get_fullpath(as_list=True)[0])
+        sources = sources.recursive_merge( session )
         session.add(sources)
         session.commit()
 

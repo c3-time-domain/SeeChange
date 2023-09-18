@@ -110,7 +110,7 @@ ENV PYTHONPATH ""
 # I can't believe I have to do this
 RUN echo "import sys; sys.path.append('/usr/lib/python3.9/site-packages')" > /usr/lib/python3/dist-packages/site39.pth
 
-ENV PYTHONPATH "/pipeline/bin"
+ENV PYTHONPATH "/seechange"
 
 ## NOT INCLUDING MPI FOR NOW SINCE ITS HUGE AND WE DON'T CURRENTLY USE IT
 #

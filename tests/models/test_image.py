@@ -101,6 +101,7 @@ def test_image_no_null_values(provenance_base):
 def test_image_archive_singlefile(exposure, demo_image, provenance_base, archive):
     demo_image.data = np.float32( demo_image.raw_data )
     demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint16)
+    demo_image.provenance = provenance_base
 
     cfg = config.Config.get()
     archivebase = f"{os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')}/{cfg.value('archive.path_base')}"
@@ -108,11 +109,7 @@ def test_image_archive_singlefile(exposure, demo_image, provenance_base, archive
 
     try:
         with SmartSession() as session:
-            # SQLAlchemy can be a real PITA.  Have to merge things into
-            # it (plus see below before session.add(demo_image)) to
-            # avoid having it refuse to do things.
-            demo_image.provenance = session.merge( provenance_base )
-            exposure.provenance = session.merge( exposure.provenance )
+            exposure = exposure.recursive_merge( session )
 
             # Do single file first
             cfg.set_value( 'storage.images.single_file', True )

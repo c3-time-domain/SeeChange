@@ -129,7 +129,7 @@ def test_provenances(code_version):
             assert p2.id != hash
     finally:
         with SmartSession() as session:
-            session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2, pid3])))
+            session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2])))
             session.commit()
 
     # deleting the Provenance does not delete the CodeVersion!

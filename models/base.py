@@ -1,6 +1,7 @@
 import sys
 import os
 import math
+import types
 import hashlib
 import pathlib
 import logging
@@ -180,6 +181,20 @@ class SeeChangeBase:
         ]
 
         return attrs
+
+    def set_attributes_from_dict( self, dictionary ):
+        """Set all atributes of self from a dictionary, excepting existing  attributes that are methods.
+
+        Parameters
+        ----------
+        dictionary: dict
+          A dictionary of attributes to set in self
+
+        """
+        for key, value in dictionary.items():
+            if hasattr(self, key):
+                if type( getattr( self, key ) ) != types.MethodType:
+                    setattr(self, key, value)
 
     def recursive_merge(self, session, done_list=None):
         """
