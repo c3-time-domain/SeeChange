@@ -209,7 +209,8 @@ class SeeChangeBase:
         done_list.add(obj)
 
         # only do the sub-properties if the object was already added to the session
-        attributes = ['provenance', 'exposure', 'image', 'ref_image', 'new_image', 'sub_image', 'source_list']
+        attributes = ['provenance', 'code_version',
+                      'exposure', 'image', 'ref_image', 'new_image', 'sub_image', 'source_list']
 
         # recursively call this on the provenance and other parent objects
         for att in attributes:

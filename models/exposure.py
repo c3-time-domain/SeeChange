@@ -374,7 +374,8 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
         # a default provenance for exposures
         if self.provenance is None:
             codeversion = Provenance.get_code_version()
-            self.provenance = Provenance.create_or_load( code_version=codeversion, process='load_exposure' )
+            self.provenance = Provenance( code_version=codeversion, process='load_exposure' )
+            self.provenance.update_id()
 
         self._instrument_object = None
         self._bitflag = 0
@@ -555,7 +556,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
 
         if self.provenance is None:
             raise ValueError("Cannot invent filepath for exposure without provenance.")
-        prov_hash = self.provenance.unique_hash
+        prov_hash = self.provenance.id
 
         t = Time(self.mjd, format='mjd', scale='utc').datetime
         date = t.strftime('%Y%m%d')

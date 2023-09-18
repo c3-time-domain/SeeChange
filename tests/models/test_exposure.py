@@ -51,6 +51,9 @@ def test_exposure_no_null_values():
 
                 # without all the required columns on e, it cannot be added to DB
                 with pytest.raises(IntegrityError) as exc:
+                    e = e.recursive_merge( session )
+                    # session.merge( e.provenance.code_version )
+                    # session.merge( e.provenance )
                     session.add(e)
                     session.commit()
                     exposure_id = e.id
@@ -165,19 +168,25 @@ def test_exposure_load_demo_instrument_data(exposure):
 
 
 def test_exposure_comes_loaded_with_instrument_from_db(exposure):
-    with SmartSession() as session:
-        session.add(exposure)
-        session.commit()
-        eid = exposure.id
+    try:
+        with SmartSession() as session:
+            exposure.recursive_merge( session )
+            session.add(exposure)
+            session.commit()
+            eid = exposure.id
 
-    assert eid is not None
+        assert eid is not None
 
-    with SmartSession() as session:
-        e2 = session.scalars(sa.select(Exposure).where(Exposure.id == eid)).first()
-        assert e2 is not None
-        assert e2.instrument_object is not None
-        assert isinstance(e2.instrument_object, DemoInstrument)
-        assert e2.instrument_object.sections is not None
+        with SmartSession() as session:
+            e2 = session.scalars(sa.select(Exposure).where(Exposure.id == eid)).first()
+            assert e2 is not None
+            assert e2.instrument_object is not None
+            assert isinstance(e2.instrument_object, DemoInstrument)
+            assert e2.instrument_object.sections is not None
+    finally:
+        with SmartSession() as session:
+            session.execute( sa.delete(Exposure).where( Exposure.id == eid ) )
+            session.commit()
 
 
 def test_exposure_spatial_indexing(exposure):
@@ -233,6 +242,7 @@ def test_decam_exposure(decam_example_file):
     try:
         exp_id = None
         with SmartSession() as session:
+            e = e.recursive_merge( session )
             session.add(e)
             session.commit()
             exp_id = e.id

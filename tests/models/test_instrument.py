@@ -384,7 +384,7 @@ def test_decam_download_and_load_exposure( code_version, decam_origin_exposures 
                 assert match is not None
                 # Todo : add the subdirectory to dbfname once that is implemented
                 dbfname = ( f'c4d_20{match.group("yymmdd")}_{match.group("hhmmss")}_{exposure.filter[0]}_'
-                            f'{exposure.provenance.unique_hash[0:6]}.fits' )
+                            f'{exposure.provenance.id[0:6]}.fits' )
                 assert exposure.filepath == dbfname
                 assert ( pathlib.Path( exposure.get_fullpath( download=False ) ) ==
                          pathlib.Path( FileOnDiskMixin.local_path ) / exposure.filepath )

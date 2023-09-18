@@ -1721,9 +1721,10 @@ class DECamOriginExposures:
 
         with SmartSession(session) as dbsess:
             codeversion = Provenance.get_code_version( session=dbsess )
-            provenance = Provenance.create_or_load( code_version=codeversion, process='download',
-                                                    parameters={ 'proc_type': self.proc_type },
-                                                    session=dbsess )
+            provenance = Provenance( code_version=codeversion, process='download',
+                                     parameters={ 'proc_type': self.proc_type } )
+            provenance = provenance.recursive_merge( dbsess )
+            dbsess.add( provenance )
 
             downloaded = self.download_exposures( outdir=outdir, indexes=indexes,
                                                   clobber=clobber, existing_ok=existing_ok )
@@ -1761,6 +1762,7 @@ class DECamOriginExposures:
                                    **exphdrinfo )
                 dbpath = outdir / expobj.filepath
                 expobj.save( expfile )
+                expobj = expobj.recursive_merge( dbsess )
                 dbsess.add( expobj )
                 dbsess.commit()
                 if delete_downloads and ( dbpath.resolve() != expfile.resolve() ):

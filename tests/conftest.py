@@ -54,7 +54,7 @@ def config_test():
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
     with SmartSession() as session:
-        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.version == 'test_v1.0.0')).first()
+        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
         if cv is None:
             cv = CodeVersion(id="test_v1.0.0")
             cv.update()

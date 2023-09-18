@@ -346,6 +346,7 @@ def test_image_badness(demo_image):
         assert demo_image.badness == 'Banding, Shaking, Bright Sky'
 
 
+# @pytest.mark.skip( reason="slow" )
 def test_multiple_images_badness(
         demo_image,
         demo_image2,
@@ -381,6 +382,7 @@ def test_multiple_images_badness(
                 im.save(no_archive=True)
                 filenames.append(im.get_fullpath(as_list=True)[0])
                 assert os.path.exists(filenames[-1])
+                im = im.recursive_merge( session )
                 session.add(im)
             session.commit()
 
@@ -406,6 +408,7 @@ def test_multiple_images_badness(
             demo_image4.save(no_archive=True)
             images.append(demo_image4)
             filenames.append(demo_image4.get_fullpath(as_list=True)[0])
+            demo_image4 = demo_image4.recursive_merge( session )
             session.add(demo_image4)
             session.commit()
             assert demo_image4.id is not None
@@ -441,6 +444,7 @@ def test_multiple_images_badness(
                 im.save(no_archive=True)
                 filenames.append(im.get_fullpath(as_list=True)[0])
                 images.append(im)
+                im = im.recursive_merge( session )
                 session.add(im)
             session.commit()
 
@@ -451,6 +455,7 @@ def test_multiple_images_badness(
             demo_image7.save(no_archive=True)
             images.append(demo_image7)
             filenames.append(demo_image7.get_fullpath(as_list=True)[0])
+            demo_image7 = demo_image7.recursive_merge( session )
             session.add(demo_image7)
             session.commit()
 
@@ -481,6 +486,7 @@ def test_multiple_images_badness(
             demo_image8.save(no_archive=True)
             images.append(demo_image8)
             filenames.append(demo_image8.get_fullpath(as_list=True)[0])
+            demo_image8 = demo_image8.recursive_merge( session )
             session.add(demo_image8)
             session.commit()
             assert demo_image8.badness == 'Banding, Bright Sky'
@@ -758,12 +764,14 @@ def test_image_from_exposure(exposure, provenance_base):
     try:
         with SmartSession() as session:
             with pytest.raises(IntegrityError, match='null value in column .* of relation "images"'):
+                im = im.recursive_merge( session )
                 session.add(im)
                 session.commit()
             session.rollback()
 
             # must add the provenance!
             im.provenance = provenance_base
+            im = im.recursive_merge( session )
             with pytest.raises(IntegrityError, match='null value in column "filepath" of relation "images"'):
                 session.add(im)
                 session.commit()
