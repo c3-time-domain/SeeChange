@@ -4,7 +4,7 @@ def listify( val, require_string=False ):
     """Return a list version of val.
 
     If val is already a sequence other than a string, return list(val).
-    Otherwise, return [val].
+    Otherwise, return [val].  If val is None, return None.
 
     Parameters
     ----------
@@ -13,7 +13,7 @@ def listify( val, require_string=False ):
 
     Returns
     -------
-    list
+    list or None
 
     """
 
@@ -24,9 +24,8 @@ def listify( val, require_string=False ):
         if isinstance( val, str ):
             return [ val ]
         else:
-            if require_string:
-                if not all( [ isinstance( i, str ) for i in val ] ):
-                    raise TypeError( f'listify: all elements of passed sequence must be strings.' )
+            if require_string and ( not all( [ isinstance( i, str ) for i in val ] ) ):
+                raise TypeError( f'listify: all elements of passed sequence must be strings.' )
             return list( val )
     else:
         if require_string and ( not isinstance( val, str ) ):

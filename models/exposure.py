@@ -617,17 +617,6 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
         if len(args) > 0:
             data = args[0]
         else:
-            # THOUGHT REQUIRED.
-            #
-            # (I think) the exposure is never full read into memory, just
-            # sections are.  We're operating under the assumption that
-            # exposures aren't modified from what we pull down from the
-            # original sources, so the exposure will always be on disk.
-            # We still do want to call FileOnDiskMixin.save() to make
-            # sure that things are pushed to the archive as necessary.
-            # (But, if the right thing is already on the archive, will
-            # there be a call to something like get_fullpath() that will
-            # cause it to be gratuitously pulled down?)
             data = self.get_fullpath( nofile=True )
         FileOnDiskMixin.save( self, data, **kwargs )
 

@@ -830,11 +830,16 @@ def test_image_with_multiple_source_images(exposure, exposure2, provenance_base)
         im1_id = None
         im2_id = None
         with SmartSession() as session:
-            im.provenance = session.merge( im.provenance )
-            im1.provenance = session.merge( im1.provenance )
-            im2.provenance = session.merge( im2.provenance )
-            exposure.provenance = session.merge( exposure.provenance )
-            exposure2.provenance = session.merge( exposure2.provenance )
+            # im.provenance = session.merge( im.provenance )
+            # im1.provenance = session.merge( im1.provenance )
+            # im2.provenance = session.merge( im2.provenance )
+            # exposure.provenance = session.merge( exposure.provenance )
+            # exposure2.provenance = session.merge( exposure2.provenance )
+            im = im.recursive_merge( session )
+            im1 = im1.recursive_merge( session )
+            im2 = im2.recursive_merge( session )
+            exposure = exposure.recursive_merge( session )
+            exposure2 = exposure2.recursive_merge( session )
             session.add(im)
             session.commit()
 
@@ -898,11 +903,11 @@ def test_image_subtraction(exposure, exposure2, provenance_base):
         im1_id = None
         im2_id = None
         with SmartSession() as session:
-            im.provenance = session.merge( im.provenance )
-            im1.provenance = session.merge( im1.provenance )
-            im2.provenance = session.merge( im2.provenance )
-            exposure.provenance = session.merge( exposure.provenance )
-            exposure2.provenance = session.merge( exposure2.provenance )
+            im = im.recursive_merge( session )
+            im1 = im1.recursive_merge( session )
+            im2 = im2.recursive_merge( session )
+            exposure = exposure.recursive_merge( session )
+            exposure2 = exposure2.recursive_merge( session )
             session.add(im)
             session.commit()
 
