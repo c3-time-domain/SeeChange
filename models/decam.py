@@ -14,6 +14,7 @@ from models.base import _logger, SmartSession, FileOnDiskMixin
 from models.instrument import Instrument, InstrumentOrientation, SensorSection
 from models.provenance import Provenance
 import util
+import util.util
 
 class DECam(Instrument):
 
@@ -286,6 +287,7 @@ class DECam(Instrument):
                 "proposal",
                 "proc_type",
                 "prod_type",
+                "obs_type",
                 "caldat",
                 "dateobs_center",
                 "ifilter",
@@ -303,21 +305,10 @@ class DECam(Instrument):
             ]
         }
 
-        if filters is not None:
-            if not isinstance( filters, collections.abc.Sequence ):
-                raise TypeError( f"Error, filters must be a list or a string" )
-            if isinstance( filters, str ):
-                filters = [ filters ]
-            else:
-                filters = list( filters )
+        filters = util.util.listify( filters, require_string=True )
+        proposals = util.util.listify( proposals, require_string=True )
 
         if proposals is not None:
-            if not isinstance( proposals, collections.abc.Sequence ):
-                raise TypeError( f"Error, proposals must be a list or a string" )
-            if isinstance( proposals, str ):
-                proposals = [ proposals ]
-            else:
-                proposals = list( proposals )
             spec["search"].append( [ "proposal" ] + proposals )
 
         # TODO : implement the ability to log in via a configured username and password
@@ -461,6 +452,12 @@ class DECamOriginExposures:
         #  so we should be OK.
         from models.exposure import Exposure
 
+        obstypemap = { 'object': 'Sci',
+                       'dark': 'Dark',
+                       'dome flat': 'DomeFlat',
+                       'zero': 'Bias'
+                      }
+
         with SmartSession(session) as dbsess:
             provenance = Provenance( process='download',
                                      parameters={ 'proc_type': self.proc_type },
@@ -471,7 +468,7 @@ class DECamOriginExposures:
 
             downloaded = self.download_exposures( outdir=outdir, indexes=indexes,
                                                   clobber=clobber, existing_ok=existing_ok )
-            for dex, expfile in zip( range(len(indexes)), downloaded ):
+            for dex, expfile in zip( indexes, downloaded ):
                 with fits.open( expfile ) as ifp:
                     hdr = { k: v for k, v in ifp[0].header.items()
                             if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
@@ -486,7 +483,10 @@ class DECamOriginExposures:
                 ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
                 dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
 
-                q = dbsess.query( Exposure ).filter( Exposure.origin_identifier==origin_identifier )
+                q = ( dbsess.query( Exposure )
+                      .filter( Exposure.instrument == 'DECam' )
+                      .filter( Exposure.origin_identifier==origin_identifier )
+                     )
                 existing = q.first()
                 # Maybe check that q.count() isn't >1; if it is, throw an exception
                 #  about database corruption?
@@ -499,8 +499,14 @@ class DECamOriginExposures:
                     else:
                         raise FileExistsError( f"Exposure with origin identifier {origin_identifier} "
                                                f"already exists in the database. ({existing.filepath})" )
+                obstype = self._frame.iloc[dex].obs_type
+                if obstype not in obstypemap:
+                    _logger.warning( f"DECam obs_type {obstype} not known, assuming Sci" )
+                    obstype = 'Sci'
+                else:
+                    obstype = obstypemap[ obstype ]
                 expobj = Exposure( current_file=expfile, invent_filepath=True,
-                                   type='Sci', format='fits', provenance=provenance, ra=ra, dec=dec, 
+                                   type=obstype, format='fits', provenance=provenance, ra=ra, dec=dec, 
                                    instrument='DECam', origin_identifier=origin_identifier, header=hdr,
                                    **exphdrinfo )
                 dbpath = outdir / expobj.filepath

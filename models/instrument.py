@@ -1179,7 +1179,7 @@ class InstrumentOriginExposures:
     Must be subclassed by each instrument that defines
     find_origin_exposures().  The internal storage of the exposures will
     differ for each instrument, and no external assumptions should be
-    made about it other than that it's a sequence.
+    made about it other than that it's a sequence (and so can be indexed).
 
     """
 
@@ -1200,7 +1200,7 @@ class InstrumentOriginExposures:
            otherwise will throw an exception.
         existing_ok: bool
            Only matters if clobber=False (see above)
-        session: models.base.SmartSession
+        session: Session
            Database session to use.  (A new one will be created if this
            is None, but that will lead to the returned exposures and
            members of those exposures not being bound to a session, so
@@ -1242,9 +1242,10 @@ class InstrumentOriginExposures:
         existing_ok: bool
            Applies to the originally downloaded file; see clobber.
         delete_downloads: bool
-           If True, will delete the originally downloaded files after they have
-           been copied to their final location.  (This mainly exists for testing
-           purposes to avoid repeated downloads.)
+           If True (the default), will delete the originally downloaded
+           files after they have been copied to their final location.
+           (This mainly exists for testing purposes to avoid repeated
+           downloads.)
         skip_existing: bool
            If True, will silently skip loading exposures that already exist in the
            database.  If False, will raise an exception on an attempt to load
