@@ -2,14 +2,14 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base
+from models.base import Base, AutoIDMixin
 
 
-class WorldCoordinates(Base):
+class WorldCoordinates(Base, AutoIDMixin):
     __tablename__ = 'world_coordinates'
 
     source_list_id = sa.Column(
-        sa.ForeignKey('source_lists.id'),
+        sa.ForeignKey('source_lists.id', name='world_coordinates_source_list_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the source list this world coordinate system is associated with. "
@@ -21,7 +21,7 @@ class WorldCoordinates(Base):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE"),
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='world_coordinates_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(

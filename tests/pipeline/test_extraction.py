@@ -72,7 +72,7 @@ def test_save_source_list(decam_small_image, provenance_base, code_version):
         upstreams=[provenance_base],
         is_testing=True
     )
-    prov.update_hash()
+    prov.update_id()
     sources.provenance = prov
 
     filename = None

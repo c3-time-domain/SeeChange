@@ -10,11 +10,10 @@ from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.functions import coalesce
 
-from models.base import Base, FileOnDiskMixin, SeeChangeBase
+from models.base import Base, AutoIDMixin, FileOnDiskMixin, SeeChangeBase
 from models.image import Image
 from models.enums_and_bitflags import (
-    source_list_format_dict,
-    source_list_format_converter,
+    SourceListFormatConverter,
     bitflag_to_string,
     string_to_bitflag,
     data_badness_dict,
@@ -22,33 +21,33 @@ from models.enums_and_bitflags import (
 )
 
 
-class SourceList(Base, FileOnDiskMixin):
+class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
 
     __tablename__ = 'source_lists'
 
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=source_list_format_converter('npy'),
+        default=SourceListFormatConverter.convert('npy'),
         doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
             "Saved as integer but is converter to string when loaded. "
     )
 
     @hybrid_property
     def format(self):
-        return source_list_format_converter(self._format)
+        return SourceListFormatConverter.convert(self._format)
 
     @format.expression
     def format(cls):
         # ref: https://stackoverflow.com/a/25272425
-        return sa.case(source_list_format_dict, value=cls._format)
+        return sa.case(SourceListFormatConverter.dict, value=cls._format)
 
     @format.setter
     def format(self, value):
-        self._format = source_list_format_converter(value)
+        self._format = SourceListFormatConverter.convert(value)
 
     image_id = sa.Column(
-        sa.ForeignKey('images.id'),
+        sa.ForeignKey('images.id', name='source_lists_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the image this source list was generated from. "
@@ -82,7 +81,7 @@ class SourceList(Base, FileOnDiskMixin):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE"),
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='source_lists_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(

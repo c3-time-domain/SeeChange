@@ -254,7 +254,7 @@ def test_image_enum_values(exposure, demo_image, provenance_base):
         assert os.path.exists(data_filename)
 
         try:
-            with pytest.raises(ValueError, match='Image type must be one of .* not foo'):
+            with pytest.raises(ValueError, match='ImageTypeConverter must be one of .* not foo'):
                 demo_image.type = 'foo'
                 session.add(demo_image)
                 session.commit()
@@ -278,7 +278,7 @@ def test_image_enum_values(exposure, demo_image, provenance_base):
             assert demo_image.id not in [i.id for i in images]
 
             # check the image format enum works as expected:
-            with pytest.raises(ValueError, match='Image format must be one of .* not foo'):
+            with pytest.raises(ValueError, match='ImageFormatConverter must be one of .* not foo'):
                 demo_image.format = 'foo'
                 session.add(demo_image)
                 session.commit()
@@ -757,7 +757,7 @@ def test_image_from_exposure(exposure, provenance_base):
     im_id = None
     try:
         with SmartSession() as session:
-            with pytest.raises(IntegrityError, match='null value in column "provenance_id" of relation "images"'):
+            with pytest.raises(IntegrityError, match='null value in column .* of relation "images"'):
                 session.add(im)
                 session.commit()
             session.rollback()

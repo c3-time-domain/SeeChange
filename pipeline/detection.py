@@ -80,7 +80,7 @@ class Detector:
                 if detections.provenance is None:
                     detections.provenance = prov
                 else:
-                    if detections.provenance.unique_hash != prov.unique_hash:
+                    if detections.provenance.id != prov.id:
                         raise ValueError('Provenance mismatch for detections and provenance!')
 
             ds.detections = detections
@@ -103,7 +103,7 @@ class Detector:
                 if sources.provenance is None:
                     sources.provenance = prov
                 else:
-                    if sources.provenance.unique_hash != prov.unique_hash:
+                    if sources.provenance.id != prov.id:
                         raise ValueError('Provenance mismatch for sources and provenance!')
 
             ds.sources = sources

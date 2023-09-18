@@ -15,7 +15,7 @@ import pytest
 import util.config as config
 import models.base
 from models.base import SmartSession
-from models.base import Base, FileOnDiskMixin, FourCorners
+from models.base import Base, AutoIDMixin, FileOnDiskMixin, FourCorners
 
 # ======================================================================
 # FileOnDiskMixin test
@@ -25,7 +25,7 @@ from models.base import Base, FileOnDiskMixin, FourCorners
 # test_image.py
 
 
-class DiskFile(Base, FileOnDiskMixin):
+class DiskFile(Base, AutoIDMixin, FileOnDiskMixin):
     """A temporary database table for testing FileOnDiskMixin
 
     """

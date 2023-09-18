@@ -14,14 +14,12 @@ import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
 
-from models.base import SeeChangeBase, Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners
+from models.base import SeeChangeBase, Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance
 from models.enums_and_bitflags import (
-    image_format_converter,
-    image_format_dict,
-    image_type_converter,
-    image_type_dict,
+    ImageFormatConverter,
+    ImageTypeConverter,
     image_badness_inverse,
     data_badness_dict,
     string_to_bitflag,
@@ -33,38 +31,44 @@ import util.config as config
 image_source_self_association_table = sa.Table(
     'image_sources',
     Base.metadata,
-    sa.Column('source_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
-    sa.Column('combined_id', sa.Integer, sa.ForeignKey('images.id', ondelete="CASCADE"), primary_key=True),
+    sa.Column('source_id',
+              sa.Integer,
+              sa.ForeignKey('images.id', ondelete="CASCADE", name='image_sources_source_id_fkey'),
+              primary_key=True),
+    sa.Column('combined_id',
+              sa.Integer,
+              sa.ForeignKey('images.id',ondelete="CASCADE", name='image_sources_combined_id_fkey'),
+              primary_key=True),
 )
 
 
-class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
+class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
     __tablename__ = 'images'
 
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=image_format_converter('fits'),
+        default=ImageFormatConverter.convert('fits'),
         doc="Format of the file on disk. Should be fits or hdf5. "
     )
 
     @hybrid_property
     def format(self):
-        return image_format_converter(self._format)
+        return ImageFormatConverter.convert(self._format)
 
     @format.inplace.expression
     @classmethod
     def format(cls):
         # ref: https://stackoverflow.com/a/25272425
-        return sa.case(image_format_dict, value=cls._format)
+        return sa.case(ImageFormatConverter.dict, value=cls._format)
 
     @format.inplace.setter
     def format(self, value):
-        self._format = image_format_converter(value)
+        self._format = ImageFormatConverter.convert(value)
 
     exposure_id = sa.Column(
-        sa.ForeignKey('exposures.id', ondelete='SET NULL'),
+        sa.ForeignKey('exposures.id', ondelete='SET NULL', name='images_exposure_id_fkey'),
         nullable=True,
         index=True,
         doc=(
@@ -97,7 +101,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
     )
 
     ref_image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete="CASCADE"),
+        sa.ForeignKey('images.id', ondelete="CASCADE", name='images_ref_image_id_fkey'),
         nullable=True,
         index=True,
         doc=(
@@ -119,7 +123,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
     )
 
     new_image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete="CASCADE"),
+        sa.ForeignKey('images.id', ondelete="CASCADE", name='images_new_image_id_fkey'),
         nullable=True,
         index=True,
         doc=(
@@ -170,7 +174,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
     _type = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=image_type_converter('Sci'),
+        default=ImageTypeConverter.convert('Sci'),
         index=True,
         doc=(
             "Type of image. One of: Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, "
@@ -182,19 +186,19 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
     @hybrid_property
     def type(self):
-        return image_type_converter(self._type)
+        return ImageTypeConverter.convert(self._type)
 
     @type.inplace.expression
     @classmethod
     def type(cls):
-        return sa.case(image_type_dict, value=cls._type)
+        return sa.case(ImageTypeConverter.dict, value=cls._type)
 
     @type.inplace.setter
     def type(self, value):
-        self._type = image_type_converter(value)
+        self._type = ImageTypeConverter.convert(value)
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE"),
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='images_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(
@@ -939,7 +943,7 @@ class Image(Base, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         section_id = section_id_int = ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
 
         if self.provenance is not None:
-            prov_hash = self.provenance.unique_hash
+            prov_hash = self.provenance.id
         if self.instrument_object is not None:
             inst_name = self.instrument_object.get_short_instrument_name()
         if self.type is not None:

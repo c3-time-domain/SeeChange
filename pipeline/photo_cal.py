@@ -71,7 +71,7 @@ class PhotCalibrator:
             if zp.provenance is None:
                 zp.provenance = prov
             else:
-                if zp.provenance.unique_hash != prov.unique_hash:
+                if zp.provenance.id != prov.id:
                     raise ValueError('Provenance mismatch for zp and provenance!')
 
             # update the data store with the new ZeroPoint
