@@ -9,7 +9,7 @@ class CalibratorFile(Base, AutoIDMixin):
         sa.SMALLINT,
         nullable=False,
         index=True,
-        default=CalibratorTypeConverter.convert( 'unknown' )
+        default=CalibratorTypeConverter.convert( 'unknown' ),
         doc="Type of calibrator (Dark, Flat, Linearity, etc.)"
     )
 
@@ -24,6 +24,12 @@ class CalibratorFile(Base, AutoIDMixin):
     @type.setter
     def type( self, value ):
         self._type = CalibratorTypeConverter.convert( value )
+
+    calibrator_set = sa.Column(
+        sa.Text,
+        nullable=False,
+        doc="A string identifying the set of calibrators, which will go into provenance"
+    )
 
     instrument = sa.Column(
         sa.Text,
@@ -64,7 +70,7 @@ class CalibratorFile(Base, AutoIDMixin):
         cascade='save-update, merge, refresh-expire, expunge', # ROB REVIEW THIS
         doc='DataFile for this CalibratorFile (if any)'
     ),
-    
+
     validity_start = sa.Column(
         sa.DateTime,
         nullable=True,
@@ -73,7 +79,7 @@ class CalibratorFile(Base, AutoIDMixin):
               ' which this calibrator file becomes valid.  If None, this '
               ' calibrator is valid from the beginning of time.' )
     )
-    
+
     validity_start = sa.Column(
         sa.DateTime,
         nullable=True,

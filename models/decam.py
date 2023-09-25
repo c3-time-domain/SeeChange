@@ -1,4 +1,5 @@
 import io
+import re
 import math
 import time
 import copy
@@ -6,6 +7,8 @@ import pathlib
 import hashlib
 import logging
 import requests
+import tarfile
+import subprocess
 import collections.abc
 
 import pandas
@@ -15,8 +18,8 @@ from astropy.io import fits
 from models.base import _logger, SmartSession, FileOnDiskMixin
 from models.instrument import Instrument, InstrumentOrientation, SensorSection
 from models.provenance import Provenance
-import util
 import util.util
+from util.retrydownload import retry_download
 
 class DECam(Instrument):
 
@@ -213,6 +216,23 @@ class DECam(Instrument):
         return ( exposure.ra + self._chip_radec_off[section_id]['dra'] / math.cos( exposure.dec * math.pi / 180. ),
                  exposure.dec + self._chip_radec_off[section_id]['ddec'] )
 
+    def get_gain_at_pixel( self, image, x, y, section_id=None ):
+        if image is None:
+            return Instrument.get_gain_at_pixel( image, x, y, section_id=section_id )
+
+        # VERIFY THAT THIS IS RIGHT FOR ALL CHIPS
+        # Really, we should be looking at the DATASECA, TIRMSECA, etc.
+        # header keywords, but those are gone from the NOIRLab-reduced
+        # C-pixels x=0-2047 are amp A, 2048-4095 are amp B
+        #
+        # Empirically, the noirlab-reduced images are *not* gain multiplied,
+        # BUT the images are flatfielded, so there's been some effective
+        # gain adjustment.
+        if ( x <= 2048 ):
+            return float( image.header[ 'GAINA' ] )
+        else:
+            return float( image.header[ 'GAINB' ] )
+
     @classmethod
     def _get_fits_hdu_index_from_section_id(cls, section_id):
         """
@@ -242,6 +262,145 @@ class DECam(Instrument):
         e.g., shortening "g DECam SDSS c0001 4720.0 1520.0" to "g".
         """
         return filter[0:1]
+
+    def _get_default_calibrator( self, mjd, section, type='dark', filter=None, session=None ):
+        # WORRY - There's a race condition here.  If multiple processes
+        # are running at once and they all search the calibrator files
+        # table for DECam calibrators at once, then multiple processes
+        # could be populating this table at once.  Deal with this with
+        # some sort of locking.  (The easy-but-not-robust workaround is
+        # just to run this once early on for any given database
+        # instance, and then it will never come up.)
+        #
+        # (We *don't* want to just lock the CalibratorFiles table, because
+        # all of this downloading will take a long time.)
+
+        # Just going to use the 56876 versions for everything, even
+        # though there are earlier versions.  "Good enough."
+
+        # Import CalibratorFile here.  We can't import it at the top of
+        # the file because calibrator.py imports image.py, image.py
+        # imports exposure.py, and exposure.py imports instrument.py --
+        # leading to a circular import
+        from models.calibratorfile import CalibratorFile
+
+        prov = Provfenance( process='DECam Default Calibrator' )
+
+        tmpdir = pathlib.Path( FileOnDiskMixin.local_path ) / "DECam_preproc_calibrators_tmp"
+        tmpdir.mkdir( exist_ok=True, parents=True )
+        reldatadir = pathlib.Path( "DECam_default_calibrators" )
+        linearitytar = tmpdir / 'DECamMasterCal_56475-linearity.tgz'
+        fringecortar = tmpdir / 'DECamMasterCal_56876-fringecor.tgz'
+        flattar = tmpdir / 'DECamMasterCal_56876-starflat.tgz'
+
+        for f in [ linearitytar, fringecortar, flattar ]:
+            if not f.is_file():
+                res = requests.get( f'https://portal.nersc.gov/cfs/m2218/decam_calibration_files/{f.name}' )
+                res.raise_for_status()
+                with open(f) as ofp:
+                    ofp.write( res.data )
+
+        fnparse = re.compile( "^(?P<subdir>.*)/(?P<fname>DECAM_Master_\d{8}v?-(?P<filter1>.)I_ci_"
+                              "(?P<filter2>.)_(?P<ccdnum>\d{2})\.fits")
+
+        # Fringes and flats
+        flats = None
+        fringes = None
+        for caltype, tarf, dbtype in zip( ['flat', 'fringe'], [flattar, fringecortar], ['SkyFlat', 'Fringe' ] ):
+            ims = {}
+            caims = {}
+            filters = set()
+            with tarfile.open( tarf ) as tar:
+                # Figure out all the filenames
+                for filename in tar.getnames():
+                    match = fnparse.search( tar )
+                    if match is not None:
+                        if match.group('filter1') != match.group('filter2'):
+                            raise RuntimeError( f"I am surprised; filter1={match.group('filter1')} "
+                                                f"doesn't match filter2={match.group('filter2')}" )
+                        for key, val in self._chip_radec_off.items():
+                            if val['ccdnum'] == int( match.group('ccdnum') ):
+                                if key not in ims:
+                                    ims[key] == {}
+                                    if match.group('filter1') in ims[key]:
+                                        raise RuntimeError( f"Found mutiple {caltype}s for "
+                                                            f"{key} {match.group('filter1')}" )
+                                    filters.add( match.group('filter1') )
+                                    ims[key][match.group('filter1')] = filename
+                # Make sure we have everything
+                for key in self._chip_radec_off.keys():
+                    if key not in ims.keys():
+                        raise RuntimeError( f'Failed to find {caltype}s for {key}' )
+                    for filt in filters:
+                        if filt not in ims[key].keys():
+                            raise RuntimeError( f'Failed to find {caltype} for {key} filter {filt}' )
+                # Load 'em
+                for key in self._chip_radec_off.keys():
+                    if key not in calims.keys():
+                        calims[key] = {}
+                    for filt in filters:
+                        relofpath = reldatadir / ims[key][filt]
+                        ofpath = pathlib.Path( FileOnDiskMixin.local_path ) / relofpath
+                        ofpath.parent.mkdir( exist_ok=True, parents=True )
+                        tar.extract( ims[key][filt], path=ofpath, filter='data' )
+                        image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
+                                       telescope='CTIO4m', filter=filt, section_id=key,
+                                       filepath=str(relofpath) )
+                        # Not using Image.save because we're doing a lower-level operaiton here.
+                        FileOnDiskMixin.save( image, ofpath )
+                        with SmartSession( session ) as dbsess:
+                            prov = dbsess.merge( prov )
+                            dbsess.add( image )
+                            calim = CalibratorFile( type=caltype, instrument='DECam', sensor_section=key,
+                                                    calibrator_set='DECam Default', image=image )
+                            dbsess.add( calim )
+                            dbsess.commit()
+                            calims[key][filt] = calim
+            if caltype == 'flat':
+                flats = copy.deepcopy( calims )
+            elif caltype == 'fringe':
+                flats = copy.deepcoly( calims )
+            else:
+                raise RuntimeError( 'This should never happen.' )
+
+
+        # For linearity, there's just one file; tag it for all sensor sections
+        linfiles = {}
+        with tar.open( linearitytar ) as tar:
+            did = False
+            for filename in tar.getnames():
+                if filename[-5:0] != '.fits':
+                    continue
+                relofpath = reldatadir / filename
+                ofpath = pathlib.Path( FileOnDiskMixin.local_path ) / relofpath
+                ofpath.parent.mkdir( exist_ok=True, parents=True )
+                tar.extract( filename, path=ofpath, filter='data' )
+                datafile = DataFile( filepath=str(reofpath), provenance=prov )
+                datafile.save( ofpath )
+                with SmartSession( session ) as dbsess:
+                    prov = dbsess.merge( prov )
+                    dbsess.add( datafile )
+                    for ssec in self._chip_radec_off.keys():
+                        calfile = CalibratorFile( type='Linearity', instrument='DECam', sensor_section=ssec,
+                                                  calibrator_set='DECam Default', datafile=datafile )
+                        dbsess.add( calfile )
+                        linfiles[ ssec.identifier ] = calfile
+                    dbsess.commit()
+
+        # Return the thing that was asked for
+        if type == 'flat':
+            if filter is None:
+                raise RuntimeError( f'Default DECam flat requires a filter' )
+            return flats[section.identifier][filter]
+        elif type == 'fringe':
+            if filter is None:
+                raise RuntimeError( f'Default DECam fringe requires a filter' )
+            return fringes[section.identifier][filter]
+        elif type == 'linearity':
+            return linfiles[section.identifier]
+        else:
+            return None
+
 
     def find_origin_exposures( self, skip_exposures_in_database=True,
                                minmjd=None, maxmjd=None, filters=None,
@@ -302,7 +461,6 @@ class DECam(Instrument):
             "search" : [
                 [ "instrument", "decam" ],
                 [ "proc_type", proc_type ],
-                [ "prod_type", "image" ],
                 [ "dateobs_center", starttime, endtime ],
             ]
         }
@@ -352,6 +510,19 @@ class DECam(Instrument):
         if skip_exposures_in_database:
             raise NotImplementedError( "TODO: implement skip_exposures_in_database" )
 
+        # If we were downloaded reduced images, we're going to have multiple prod_types
+        # for the same image (reason: there are dq mask and weight images in addition
+        # to the actual images).  Reflect this in the pandas structure.  Try to set it
+        # up so that there's a range()-like index for each dateobs, and then the
+        # second index is prod_type.  I really hope the dateobs values all match
+        # perfectly.
+        dateobsvals = files.dateobs_center.unique()
+        dateobsmap = { dateobsvals[i]: i for i in range(len(dateobsvals)) }
+        dateobsindexcol = [ dateobsmap[i] for i in files.dateobs_center.values ]
+        files['dateobsindex'] = dateobsindexcol
+
+        files.set_index( [ 'dateobsindex', 'prod_type' ], inplace=True )
+
         return DECamOriginExposures( proc_type, files )
 
 
@@ -372,9 +543,29 @@ class DECamOriginExposures:
         self._frame = frame
 
     def __len__( self ):
-        return len(self._frame)
+        # The length is the number of values there are in the *first* index
+        # as that is the number of different exposures.
+        return len( self._frame.index.levels[0] )
 
-    def download_exposures( self, outdir=".", indexes=None, clobber=False, existing_ok=False ):
+    def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,
+                            clobber=False, existing_ok=False, session=None ):
+        """Download exposures, and maybe weight and data quality frames as well.
+
+        Parameters
+        ----------
+        Same as Instrument.download_exposures, plus:
+
+        onlyexposures: bool
+          If True, only download the main exposure.  If False, also
+          download dqmask and weight exposures; this only makes sense if
+          proc_type was 'instcal' in the call to
+          DECam.find_origin_exposures that instantiated this object.
+
+        Returns a list of all files downloaded; you will need to parse
+        the filenames to figure out if it's exposure (image), weight
+        exposure, or dqmask exposure.
+
+        """
         outdir = pathlib.Path( outdir )
         if indexes is None:
             indexes = range( len(self._frame) )
@@ -384,56 +575,19 @@ class DECamOriginExposures:
         downloaded = []
 
         for dex in indexes:
-            expinfo = self._frame.iloc[dex]
-            fname = pathlib.Path( expinfo.archive_filename ).name
-            fpath = pathlib.Path( outdir / fname )
-            if fpath.exists():
-                if clobber:
-                    if not fpath.is_file():
-                        _logger.error( f"download_exposures: {fpath} exists and is not a file, not overwriting." )
-                        raise FileExistsError( f"{fpath} exists and is not a file, not overwriting." )
-                    else:
-                        fpath.unlink()
-                elif existing_ok:
-                    _logger.info( f"download_exposures: {fpath} exists; trusting it's the right thing" )
-                    downloaded.append( fpath )
+            expinfo = self._frame.loc[dex]
+            extensions = expinfo.index.values
+            fpaths = {}
+            for ext in extensions:
+                if onlyexposures and ext != 'image':
                     continue
-                else:
-                    _logger.error( f"download_exposures: {fpath} exists but clobber is False" )
-                    raise FileExistsError( f"{fpath} exists but clobber is False" )
-            countdown = 5
-            success = False
-            while not success:
-                try:
-                    starttime = time.perf_counter()
-                    renew = False
-                    if _logger.getEffectiveLevel() >= logging.DEBUG:
-                        _logger.info( f"download_exposures: Downloading {fname} from {expinfo.url}" )
-                    else:
-                        _logger.info( f"download_exposures: Downloading {fname}" )
-                    response = requests.get( expinfo.url )
-                    response.raise_for_status()
-                    midtime = time.perf_counter()
-                    size = len(response.content) / 1024 / 1024 / 1024
-                    _logger.info( f"...downloaded {size:.3f} GiB in {midtime-starttime:.2f} sec" )
-                    with open( fpath, "wb" ) as ofp:
-                        ofp.write( response.content )
-                    endtime = time.perf_counter()
-                    _logger.info( f"...written to disk in {endtime-midtime:.2f} sec" )
-                    success = True
-                except Exception as e:
-                    strio = io.StringIO("")
-                    traceback.print_exc( file=strio )
-                    _logger.warning( f"Exception downloading from {expinfo.url}:\n{strio.getvalue()}" )
-                    countdown -= 1
-                    if countdown >= 0:
-                        _logger.warning( f"download_exposures: Failed to download {fname}, waiting 5s and retrying." )
-                        time.sleep( 5 )
-                    else:
-                        _logger.error( f"download_exposures: Repeated exceptions trying to download {fname}" )
-                        raise e
-
-            downloaded.append( fpath )
+                expinfo = self._frame.loc[ dex, ext ]
+                fname = pathlib.Path( expinfo.archive_filename ).name
+                fpath = outdir / fname
+                retry_download( expinfo.url, fpath, retries=5, sleeptime=5, exists_ok=existing_ok,
+                                clobber=clobber, md5sum=expinfo.md5sum, sizelog='GiB', logger=_logger )
+                fpaths[ 'exposure' if ext=='image' else ext ] = fpath
+            downloaded.append( fpaths )
 
         return downloaded
 
@@ -470,7 +624,18 @@ class DECamOriginExposures:
 
             downloaded = self.download_exposures( outdir=outdir, indexes=indexes,
                                                   clobber=clobber, existing_ok=existing_ok )
-            for dex, expfile in zip( indexes, downloaded ):
+            for dex, expfiledict in zip( indexes, downloaded ):
+                if set( expfiledict.keys() ) != { 'exposure' }:
+                    _logger.warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
+                                     f"from DECam, but only loading the exposure file into the database." )
+                    # TODO: load these as file extensions (see
+                    # FileOnDiskMixin), if we're ever going to actually
+                    # use the observatory-reduced DECam images It's more
+                    # work than just what needs to be doe here, because
+                    # we will need to think about that in
+                    # Image.from_exposure(), and perhaps other places as
+                    # well.
+                expfile = expfiledict[ 'exposure' ]
                 with fits.open( expfile ) as ifp:
                     hdr = { k: v for k, v in ifp[0].header.items()
                             if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
@@ -480,7 +645,7 @@ class DECamOriginExposures:
                                       'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
                 exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
                                                                     'project', 'target' ] )
-                origin_identifier = pathlib.Path( self._frame.iloc[dex].archive_filename ).name
+                origin_identifier = pathlib.Path( self._frame.loc[dex,'image'].archive_filename ).name
 
                 ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
                 dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
@@ -501,7 +666,7 @@ class DECamOriginExposures:
                     else:
                         raise FileExistsError( f"Exposure with origin identifier {origin_identifier} "
                                                f"already exists in the database. ({existing.filepath})" )
-                obstype = self._frame.iloc[dex].obs_type
+                obstype = self._frame.loc[dex,'image'].obs_type
                 if obstype not in obstypemap:
                     _logger.warning( f"DECam obs_type {obstype} not known, assuming Sci" )
                     obstype = 'Sci'

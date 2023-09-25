@@ -296,7 +296,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         doc="Name of the telescope used to create this image. "
     )
 
-    filter = sa.Column(sa.Text, nullable=False, index=True, doc="Name of the filter used to make this image. ")
+    filter = sa.Column(sa.Text, nullable=True, index=True, doc="Name of the filter used to make this image. ")
 
     section_id = sa.Column(
         sa.Text,

@@ -157,6 +157,21 @@ class ImageTypeConverter( EnumConverter ):
         12: 'ComSkyFlat',
         13: 'TwiFlat',
         14: 'ComTwiFlat',
+        15: 'Fringe',
+    }
+    _allowed_values = None
+    _dict_filtered = None
+    _dict_inverse = None
+
+class CalibratorTypeConverter( EnumConverter ):
+    _dict = {
+        0: 'Unknown',
+        1: 'Zero',
+        2: 'Dark',
+        3: 'Flat',
+        4: 'Fringe',
+        5: 'Illumination',
+        6: 'Linearity',
     }
     _allowed_values = None
     _dict_filtered = None

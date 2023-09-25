@@ -75,7 +75,7 @@ class DataStore:
         See the parse_args method for details on how to initialize this object.
         """
         # these are data products that can be cached in the store
-        self.exposure = None  # single image, entire focal plane
+        self._exposure = None  # single image, entire focal plane
         self.image = None  # single image from one sensor section
         self.sources = None  # extracted sources (a SourceList object, basically a catalog)
         self.wcs = None  # astrometric solution
@@ -93,7 +93,20 @@ class DataStore:
         self.section_id = None  # use this and exposure_id to find the raw image
         self.image_id = None  # use this to specify an image already in the database
 
+        # The database session parsed in parse_args; it could still be None even after parse_args
+        self.sesson = None
         self.parse_args(*args, **kwargs)
+
+    @property
+    def exposure( self ):
+        if self._exposure is None:
+            self._exposure = self.get_raw_exposure( session=self.session )
+        return self._exposure
+
+    @exposure.setter
+    def exposure( self, value ):
+        self._exposure = value
+        self.exposure_id = value.id
 
     def parse_args(self, *args, **kwargs):
         """
@@ -107,6 +120,7 @@ class DataStore:
             A list of arguments to parse.
             Possible argument combinations are:
             - exposure_id, section_id: give two integers or integer and string
+            - Expposure, section_id: an Exposure object, and an integer or string
             - image_id: give a single integer
 
         kwargs: dict
@@ -130,6 +144,7 @@ class DataStore:
             return
 
         args, kwargs, output_session = parse_session(*args, **kwargs)
+        self.session = output_session
 
         # remove any provenances from the args list
         for arg in args:
@@ -143,6 +158,8 @@ class DataStore:
             pass
         elif arg_types == [int, int] or arg_types == [int, str]:  # exposure_id, section_id
             self.exposure_id, self.section_id = args
+        elif arg_types == [Exposure, int] or arg_types == [Exposure, str]:
+            self.exposure, self.section_id = args
         elif arg_types == [int]:
             self.image_id = args[0]
         # TODO: add more options here
@@ -369,14 +386,14 @@ class DataStore:
         """
         Get the raw exposure from the database.
         """
-        if self.exposure is None:
+        if self._exposure is None:
             if self.exposure_id is None:
                 raise ValueError('Cannot get raw exposure without an exposure_id!')
 
             with SmartSession(session) as session:
-                self.exposure = session.scalars(sa.select(Exposure).where(Exposure.id == self.exposure_id)).first()
+                self._exposure = session.scalars(sa.select(Exposure).where(Exposure.id == self.exposure_id)).first()
 
-        return self.exposure
+        return self._exposure
 
     def get_image(self, provenance=None, session=None):
         """
