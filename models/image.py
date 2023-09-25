@@ -771,6 +771,9 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
             gotcorners = True
 
         # the exposure_id will be set automatically at commit time
+        # ...but we have to set it right now because other things are
+        # going to check to see if exposure.id matches image.exposure.id
+        new.exposure_id = exposure.id
         new.exposure = exposure
 
         return new

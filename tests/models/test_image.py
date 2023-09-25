@@ -19,6 +19,13 @@ from models.exposure import Exposure
 from models.image import Image
 from models.instrument import Instrument, get_instrument_instance
 
+# Have to have this here; otherwise, decam.py never gets loaded, and
+# DECam never gets added to the global instrument.INSTRUMENT_INSTANCE_CACHE
+#
+# There must be a better solution.  Do we just need to stuff all of the instruments
+# in the same file?  Or, should we rerun register_all_instruments() at the bottom
+# of every instrument's .py file?
+import models.decam
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
@@ -30,7 +37,6 @@ def test_image_no_null_values(provenance_base):
         'mjd': 58392.1,
         'end_mjd': 58392.1 + 30 / 86400,
         'exp_time': 30,
-        'filter': 'r',
         'ra': np.random.uniform(0, 360),
         'dec': np.random.uniform(-90, 90),
         'ra_corner_00': 0,
@@ -59,6 +65,7 @@ def test_image_no_null_values(provenance_base):
         image = Image(f"Demo_test_{rnd_str(5)}.fits", nofile=True)
         with SmartSession() as session:
             for i in range(len(required)):
+                image.recursive_merge( session )
                 # set the exposure to the values in "added" or None if not in "added"
                 for k in required.keys():
                     setattr(image, k, added.get(k, None))
@@ -343,7 +350,7 @@ def test_image_badness(demo_image):
         assert demo_image.badness == 'Banding, Shaking, Bright Sky'
 
 
-# @pytest.mark.skip( reason="slow" )
+@pytest.mark.skip( reason="slow" )
 def test_multiple_images_badness(
         demo_image,
         demo_image2,

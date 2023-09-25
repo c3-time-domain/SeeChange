@@ -380,9 +380,9 @@ class Instrument:
         self._dateobs_for_sections = getattr(self, '_dateobs_for_sections', None)  # dateobs when sections were loaded
         self._dateobs_range_days = getattr(self, '_dateobs_range_days', 1.0)  # how many days from dateobs to reload
 
-        # List of the calibration files that go into preprocessing images from this instrument
-        # This should be in the order they are applied
-        self.preprocessing_files = [ 'zero', 'dark', 'linearity', 'flat', 'fringe', 'illumination' ]
+        # List of the preprocessing steps to apply to images from this instrument, in order
+        # overscan must always be first
+        self.preprocessing_steps = [ 'overscan', 'zero','dark', 'linearity', 'flat', 'fringe', 'illumination' ]
 
         # set the attributes from the kwargs
         for key, value in kwargs.items():
@@ -1126,15 +1126,16 @@ class Instrument:
 
         return None
 
-    def preprocessing_calibrator_params( self, mjd, section, session=None ):
+    def preprocessing_calibrator_params( self, section, filter, mjd, session=None ):
         """Get a dictionary of calibrator images/datafiles for a given mjd and sensor section.
 
         Instruments *may* need to override this.
 
         Parameters
         ----------
-        mjd: float
         section: str
+        filter: str
+        mjd: float
 
         Returns
         -------
@@ -1153,39 +1154,39 @@ class Instrument:
         # imports exposure.py, and exposure.py imports instrument.py --
         # leading to a circular import
         from models.calibratorfile import CalibratorFile
+        from models.image import Image
 
         params = {}
 
-        if exposure.instrument != self.name:
-            raise ValueError( f"Instrument.preprocessing_params: instrument {self.name} doesn't match "
-                              f"exposure instrument {exposure.instrument}" )
-        expdatetime = pytz.utc.localize( astropy.time.Time( exposure.mjd, format='mjd' ) )
+        expdatetime = pytz.utc.localize( astropy.time.Time( mjd, format='mjd' ).datetime )
 
-        with SmartSession() as session:
+        with SmartSession(session) as session:
             for calibtype in [ 'zero', 'dark', 'flat', 'fringe', 'illumination', 'linearity' ]:
-                # Searching for filter=None isn't alwasy right, but is for zeros, darks, and linearity.
+                if calibtype not in self.preprocessing_steps:
+                    continue
+                # Searching for filter=None isn't always right, but is for zeros, darks, and linearity.
                 # We'll just have to assume that the CalibratorFile table won't have fringe, flats,
                 # or illminations loaded in with null image filters.
                 calibquery = ( session.query( CalibratorFile )
                               .filter( CalibratorFile.instrument==self.name )
                               .filter( CalibratorFile.type==calibtype )
-                              .filter( CalibratorFile.sensor_section==section.identifier )
+                              .filter( CalibratorFile.sensor_section==section )
                               .filter( sa.or_( CalibratorFile.validity_start is None,
                                                CalibratorFile.validity_start <= expdatetime ) )
                               .filter( sa.or_( CalibratorFile.validity_end is None,
-                                               CalibratorFile.validyt_end >= expdatetime ) )
+                                               CalibratorFile.validity_end >= expdatetime ) )
                              )
                 if calibtype in [ 'flat', 'fringe', 'illumination' ]:
-                    calibquery = calib.flter( CalibratorFile.image.filter==exposure.filter )
+                    calibquery = calibquery.join( Image ).filter( Image.filter==filter )
 
                 calib = None
                 if calibquery.count() == 0:
-                    calib = self._get_default_calibrator( exposure.mjd, section, type=calib, filter=exposure.filter,
+                    calib = self._get_default_calibrator( mjd, section, type=calib, filter=filter,
                                                           session=session )
                 else:
                     if calibquery.count() > 1:
                         _logger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
-                                         f"{exposure.instrument} {section.identifier}, randomly using one." )
+                                         f"{instrument.name} {section}, randomly using one." )
                     calib = calibquery.first()
                 if calib is None:
                     params[ f'{calibtype}_isimage' ] = False
@@ -1374,6 +1375,9 @@ class DemoInstrument(Instrument):
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
         Instrument.__init__(self, **kwargs)
 
+        # DemoInstrument doesn't know how to preprocess
+        self.preprocessing_steps = []
+
     @classmethod
     def get_section_ids(cls):
 
@@ -1431,7 +1435,7 @@ class DemoInstrument(Instrument):
 
         section = self.get_section(section_id)
 
-        return np.random.poisson(10, (section.size_y, section.size_x))
+        return np.array( np.random.poisson(10., (section.size_y, section.size_x)), dtype='=f4' )
 
     def read_header(self, filepath, section_id=None):
         # return a spoof header

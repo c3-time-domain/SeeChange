@@ -1,6 +1,11 @@
+import sqlalchemy as sa
+from sqlalchemy import orm
+from sqlalchemy.ext.hybrid import hybrid_property
+
+from models.base import Base, AutoIDMixin
 from models.image import Image
 from models.datafile import DataFile
-from enums_and_bitflags import CalibratorTypeConverter
+from models.enums_and_bitflags import CalibratorTypeConverter
 
 class CalibratorFile(Base, AutoIDMixin):
     __tablename__ = 'calibrator_files'
@@ -50,26 +55,26 @@ class CalibratorFile(Base, AutoIDMixin):
         nullable=True,
         index=True,
         doc='ID of the image (if any) that is this calibrator'
-    ),
+    )
 
     image = orm.relationship(
         'Image',
         cascade='save-update, merge, refresh-expire, expunge',  # ROB REVIEW THIS
         doc='Image for this CalibratorImage (if any)'
-    ),
+    )
 
     datafile_id = sa.Column(
         sa.ForeignKey( 'data_files.id', ondelete='CASCADE', name='calibrator_files_data_file_id_fkey' ),
         nullable=True,
         index=True,
         doc='ID of the miscellaneous data file (if any) that is this calibrator'
-    ),
+    )
 
     datafile = orm.relationship(
         'DataFile',
         cascade='save-update, merge, refresh-expire, expunge', # ROB REVIEW THIS
         doc='DataFile for this CalibratorFile (if any)'
-    ),
+    )
 
     validity_start = sa.Column(
         sa.DateTime,
@@ -80,7 +85,7 @@ class CalibratorFile(Base, AutoIDMixin):
               ' calibrator is valid from the beginning of time.' )
     )
 
-    validity_start = sa.Column(
+    validity_end = sa.Column(
         sa.DateTime,
         nullable=True,
         index=True,

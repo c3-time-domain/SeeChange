@@ -35,6 +35,7 @@ def test_converter_dict():
         12: 'ComSkyFlat',
         13: 'TwiFlat',
         14: 'ComTwiFlat',
+        15: 'Fringe',
     }
     assert FormatConverter.dict == {
         1: 'fits',

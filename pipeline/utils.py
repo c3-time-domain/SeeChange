@@ -1,3 +1,4 @@
+import sys
 import os
 import git
 from collections import defaultdict
@@ -242,6 +243,11 @@ def read_fits_image(filename, ext=0, output='data'):
     with fits.open(filename, memmap=False) as hdul:
         if output in ['data', 'both']:
             data = hdul[ext].data
+            # astropy will read FITS files as big-endian
+            # But, the sep library depends on native byte ordering
+            # So, swap if necessary
+            if not data.dtype.isnative:
+                data = data.astype( data.dtype.name ) 
 
         if output in ['header', 'both']:
             header = hdul[ext].header

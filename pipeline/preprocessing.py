@@ -14,23 +14,25 @@ class ParsPreprocessor(Parameters):
     def __init__(self, instrument, **kwargs):
         super().__init__()
 
-        self.add_par( 'from_exposure', None, int, 'ID of exposure this image came from', critical=True )
-        for calib in instrument.preprocesing_files:
-            self.add_par( f'{calib}_set', None, str, 'Calibrator set for {calib}', critical=True )
+        self.use_sky_subtraction = self.add_par('use_sky_subtraction', False, bool, 'Apply sky subtraction. ')
+
+        for calib in instrument.preprocessing_steps:
+            self.add_par( f'{calib}_set', None, (str, None), 'Calibrator set for {calib}', critical=True )
             self.add_par( f'{calib}_isimage', False, bool, 'Is the calibrator an Image?' )
-            self.add_par( f'{calib}_fileid', None, int, 'image_id or datafile_id for the calibrator file' )
+            self.add_par( f'{calib}_fileid', None, (int, None), 'image_id or datafile_id for the calibrator file' )
 
         # A note about provenance.
         #
         # Ideally, we want the flats/biases/etc. that go into image
         # preprocessing be part of the provenance.  However, we also
         # would like for all of the chips on one instrument to have the
-        # same provenance (when appropriate).  Hence, the defintion of
-        # "flat_set", "dark_set", etc.  We can tag things in the
-        # CalibratorFiles models in the database with a calbrator_set,
-        # and *that* is what will go into the provenance.  It's then up
-        # to the users to make sure that the calibrator_set field is
-        # used properly.
+        # same provenance (when appropriate).  If the fileid of the
+        # calibrator were in the provenance, it would be different for
+        # every chip.  Hence, the defintion of "flat_set", "dark_set",
+        # etc.  We can tag things in the CalibratorFiles models in the
+        # database with a calbrator_set, and *that* is what will go into
+        # the provenance.  It's then up to the users to make sure that
+        # the calibrator_set field is used properly.
 
         self._enforce_no_new_attrs = True
 
@@ -75,23 +77,40 @@ class Preprocessor:
         self.exposure = exposure
 
         # Get the preprocessing parameters (i.e. flats, biases, etc.) for this instrument / mjd
-        preprocparam = self.instrument.preprocessing_calibrator_params( exposure.mjd, section.identifier )
+        preprocparam = self.instrument.preprocessing_calibrator_params( section.identifier,
+                                                                        exposure.filter, exposure.mjd )
 
         # Update with anything passed
         preprocparam.update( **kwargs )
 
-        self.pars = ParsPreprocessor( preprocparam )
+        self.pars = ParsPreprocessor( instrument, **preprocparam )
 
-    def run( self ):
+    def run( self, ds=None, session=None ):
         """Run preprocessing.
 
+        Parameters
+        ----------
+        ds : DataStore or None
+          The DataStore object.  If passed, it should be consistent with
+          all of the arguments passed to the object constructor.  (Usually,
+          you would only pass this if you got it as a return value from
+          a previous call to a pipeline or processing step.)
+        session : Session or None
+          Database session.  Required if ds is not None.
+
         Returns a DataStore object with the products of the processing.
+
         """
-        # TODO: implement the actual code to do this.
-        #  Save the dark/flat to attributes on "self"
-        #  Apply the dark/flat/sky subtraction
-        #  If not, create an Image for the specific CCD and add it to the cache and database.
-        ds, session = DataStore.from_args( self.exposure, self.section.id )
+
+        if ds is None:
+            if session is not None:
+                ds, session = DataStore.from_args( self.exposure, self.section.id, session=session )
+            else:
+                ds, session = DataStore.from_args( self.exposure, self.section.id )
+        else:
+            if session is not None:
+                raise RuntimeError( "Preprocessor.run: can't pass a Ssession when you pass a pre-existing DataStore" )
+            session = ds.session
 
         # get the provenance for this step, using the current parameters:
         prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
@@ -106,14 +125,17 @@ class Preprocessor:
         if image is None:
             raise ValueError('Image cannot be None at this point!')
 
+        # Overscan is always first
+        if 'overscan' in self.instrument.preprocessing_steps:
+            image.data = self.instrument.overscan_and_trim( image.header, image.raw_data )
+        else:
+            image.data = image.raw_data
 
-        # Overscan
-        image.data = self.instrument.overscan_and_trim_image( image.header, image.raw_data )
-
-        # Apply subsequent steps in the order expected by the instrument
-        for step in self.instrument.preprocessing_files:
-            if getattr( self.pars, f'{step}_fileid' ) is not None:
-
+        # Apply steps in the order expected by the instrument
+        for step in self.instrument.preprocessing_steps:
+            if step == 'overscan':
+                continue
+            elif getattr( self.pars, f'{step}_fileid' ) is not None:
                 # Subtract zeros and darks ; divide flats and illumiation
                 if step in [ 'zero', 'dark', 'flat', 'illumination' ]:
                     if not getattr( self.pars, f'{step}_isimage' ):

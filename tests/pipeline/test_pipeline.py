@@ -82,7 +82,7 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session
     # TODO: add the cutouts and measurements, but we need to produce them first!
 
 
-def test_parameters( config_test ):
+def test_parameters( config_test, exposure ):
     """Test that pipeline parameters are being set properly"""
 
     # Verify that we _enforce_no_new_attrs works
@@ -91,14 +91,19 @@ def test_parameters( config_test ):
         failed = Pipeline( **kwargs )
 
     # Verify that we can override from the yaml config file
-    pipeline = Pipeline()
+    basepipelinepars = { 'instrument': 'DemoInstrument', 'section': 0, 'exposure': exposure }
+    pipeline = Pipeline( pipeline=basepipelinepars )
+    assert pipeline.pars.instrument == 'DemoInstrument'
+    assert pipeline.pars.section == 0
+    assert pipeline.pars.exposure == exposure
     assert pipeline.preprocessor.pars['use_sky_subtraction']
     assert pipeline.astro_cal.pars['cross_match_catalog'] == 'Gaia'
     assert pipeline.astro_cal.pars['catalog'] == 'Gaia'
     assert pipeline.subtractor.pars['method'] == 'testing_testing'
 
     # Verify that manual override works for all parts of pipeline
-    overrides = { 'preprocessing': { 'use_sky_subtraction': True },
+    overrides = { 'pipeline': basepipelinepars.copy(),
+                  'preprocessing': { 'use_sky_subtraction': True },
                   # 'extraction': # Currently has no parameters defined
                   'astro_cal': { 'cross_match_catalog': 'override' },
                   'photo_cal': { 'cross_match_catalog': 'override' },
@@ -114,13 +119,11 @@ def test_parameters( config_test ):
                        'measurement': 'measurer'
                       }
 
-    # TODO: this is based on a temporary "example_pipeline_parameter" that will be removed later
-    pipeline = Pipeline( pipeline={ 'example_pipeline_parameter': -999 } )
-    assert pipeline.pars['example_pipeline_parameter'] == -999
-
     pipeline = Pipeline( **overrides )
     for module, subst in overrides.items():
-        if module in pipelinemodule:
+        if module == 'pipeline':
+            pipelinemod = pipeline
+        elif module in pipelinemodule:
             pipelinemod = getattr( pipeline, pipelinemodule[module] )
         else:
             pipelinemod = getattr( pipeline, module )
@@ -148,11 +151,11 @@ def test_data_flow(exposure, reference_entry):
             open(filename, 'a').close()
             ref_id = reference_entry.image.id
 
-        p = Pipeline()
+        p = Pipeline( pipeline={ 'instrument': 'DemoInstrument', 'section': 0, 'exposure': exposure } )
         assert p.extractor.pars.threshold != 3.14
         assert p.detector.pars.threshold != 3.14
 
-        ds = p.run(exp_id, sec_id)
+        ds = p.run()
 
         # commit to DB using this session
         with SmartSession() as session:
@@ -171,7 +174,7 @@ def test_data_flow(exposure, reference_entry):
             check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session, ds)
 
         # feed the pipeline the same data, but missing the upstream data
-        attributes = ['exposure', 'image', 'sources', 'wcs', 'zp', 'sub_image', 'detections']
+        attributes = ['_exposure', 'image', 'sources', 'wcs', 'zp', 'sub_image', 'detections']
 
         for i in range(len(attributes)):
             for j in range(i):
