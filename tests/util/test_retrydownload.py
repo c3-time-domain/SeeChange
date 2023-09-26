@@ -94,7 +94,7 @@ def test_overwrite_misc_file():
             retry_download( url1, fpath, exists_ok=True, md5sum=md5sum1 )
 
         # Make sure it "succeeds" when not given an md5sum to verify
-        retry_download( url1, fpath, exists_ok=True )
+        retry_download( url1, fpath, exists_ok=True, clobber=False )
         assert checkmd5( fpath, md5sumabc )
         retry_download( url1, fpath, exists_ok=True, clobber=True )
         assert checkmd5( fpath, md5sumabc )
