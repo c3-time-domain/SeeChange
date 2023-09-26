@@ -1082,12 +1082,12 @@ class Instrument:
     # may need specific overrides for some of the steps.  For many
     # instruments, the defaults should work.
 
-    def _get_default_calibrator( self, mjd, section, type='dark', filter=None, session=None ):
+    def _get_default_calibrator( self, mjd, section, calibtype='dark', filter=None, session=None ):
         """Acquire (if possible) the default CalibratorFile for the given instrument/section/filter/type
 
         Will load it into the database as both an Image and a Calibrator
         Image; may also load other default calibrator images if they
-        come as a pack.
+        come as a pack. WILL CALL session.commit()!
 
         Should not be called from outside Instrument; instead, use
         preprocessing_params.  This method will assume that the default
@@ -1104,18 +1104,16 @@ class Instrument:
           mjd of validity of the dark frame
         section: SensorSection
           The sensor section for the dark frame
-        type: str
+        calibtype: str
           One of 'zero', 'dark', 'flat', 'illumination', 'fringe', or 'linearity'
         session: Session
           database session
 
         Returns
         -------
-        CalibratorFile
+        CalibratorFile or None
 
         """
-
-        # See DECam._get_default_calibrator in decam.py for a worry re: a race condition here.
 
         # Note: subclasses will need to import CalibratorFile here.  We
         # can't import it at the top of the file because calibrator.py
@@ -1126,16 +1124,31 @@ class Instrument:
 
         return None
 
-    def preprocessing_calibrator_params( self, section, filter, mjd, session=None ):
+    def preprocessing_calibrator_params( self, section, filter, mjd, nodefault=False, session=None ):
         """Get a dictionary of calibrator images/datafiles for a given mjd and sensor section.
 
         Instruments *may* need to override this.
 
+        A call to this MIGHT call session.commit().  (This will happen
+        in the case where the default calibrator for the image isn't
+        present and has to be fetched.)
+
         Parameters
         ----------
         section: str
+          The name of the SensorSection
         filter: str
+          The filter (can be None for some types, e.g. zero, linearity)
         mjd: float
+          The mjd where the calibrator params are valid
+        nodefault: bool
+          If True, and a calibrator file isn't found, will call the
+          instrument's _get_default_calibrator method to download a
+          default calibrator if one exists.  If False (default), won't
+          do that, and will return None if there's not something in the
+          database already.
+        session: Session
+
 
         Returns
         -------
@@ -1164,30 +1177,46 @@ class Instrument:
             for calibtype in [ 'zero', 'dark', 'flat', 'fringe', 'illumination', 'linearity' ]:
                 if calibtype not in self.preprocessing_steps:
                     continue
-                # Searching for filter=None isn't always right, but is for zeros, darks, and linearity.
-                # We'll just have to assume that the CalibratorFile table won't have fringe, flats,
-                # or illminations loaded in with null image filters.
-                calibquery = ( session.query( CalibratorFile )
-                              .filter( CalibratorFile.instrument==self.name )
-                              .filter( CalibratorFile.type==calibtype )
-                              .filter( CalibratorFile.sensor_section==section )
-                              .filter( sa.or_( CalibratorFile.validity_start is None,
-                                               CalibratorFile.validity_start <= expdatetime ) )
-                              .filter( sa.or_( CalibratorFile.validity_end is None,
-                                               CalibratorFile.validity_end >= expdatetime ) )
-                             )
-                if calibtype in [ 'flat', 'fringe', 'illumination' ]:
-                    calibquery = calibquery.join( Image ).filter( Image.filter==filter )
+                # To avoid a race condition in _get_default_calibrator, we need to
+                # lock the CalibratorFile table.  Reason: if multiple processes are
+                # running at once, they might both look for the same calibrator file
+                # at once, both not find it, and both call _get_default_calibrator
+                # to try to add the same calibrator file.
+                try:
+                    if not nodefault:
+                        session.connection().execute( sa.text( 'LOCK TABLE calibrator_files' ) )
+                    calibquery = ( session.query( CalibratorFile )
+                                  .filter( CalibratorFile.instrument==self.name )
+                                  .filter( CalibratorFile.type==calibtype )
+                                  .filter( CalibratorFile.sensor_section==section )
+                                  .filter( sa.or_( CalibratorFile.validity_start == None,
+                                                   CalibratorFile.validity_start <= expdatetime ) )
+                                  .filter( sa.or_( CalibratorFile.validity_end == None,
+                                                   CalibratorFile.validity_end >= expdatetime ) )
+                                 )
+                    if ( calibtype in [ 'flat', 'fringe', 'illumination' ] ) and ( filter is not None ):
+                        calibquery = calibquery.join( Image ).filter( Image.filter==filter )
 
-                calib = None
-                if calibquery.count() == 0:
-                    calib = self._get_default_calibrator( mjd, section, type=calib, filter=filter,
-                                                          session=session )
-                else:
-                    if calibquery.count() > 1:
-                        _logger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
-                                         f"{instrument.name} {section}, randomly using one." )
-                    calib = calibquery.first()
+                    calib = None
+                    if ( calibquery.count() == 0 ) and ( not nodefault ):
+                        calib = self._get_default_calibrator( mjd, section, calibtype=calibtype, filter=filter,
+                                                              session=session )
+                    else:
+                        if calibquery.count() > 1:
+                            _logger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
+                                             f"{instrument.name} {section}, randomly using one." )
+                        calib = calibquery.first()
+                finally:
+                    # Make sure that the calibrator_files table gets
+                    # unlocked.  If _get_default_calibrator had to add
+                    # something to the database, it will have called a
+                    # commit() already, which would have already
+                    # unlocked the table.  But, if it wasn't called,
+                    # then the table would remain locked; to avoid that,
+                    # rollback here.
+                    if not nodefault:
+                        session.rollback()
+
                 if calib is None:
                     params[ f'{calibtype}_isimage' ] = False
                     params[ f'{calibtype}_fileid'] = None

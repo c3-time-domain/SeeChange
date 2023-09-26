@@ -8,6 +8,9 @@ import sqlalchemy as sa
 
 from models.base import SmartSession, FileOnDiskMixin, _logger
 from models.exposure import Exposure
+from models.instrument import get_instrument_instance
+from models.calibratorfile import CalibratorFile
+from models.image import Image
 from models.decam import DECam
 
 @pytest.fixture(scope='module')
@@ -160,3 +163,38 @@ def test_decam_download_and_commit_exposure( code_version, decam_raw_origin_expo
             # Reinitialize the test environment (including cleaning out
             #  non-git-tracked files from data) to force verification of
             #  downloads; this will always happen on github actions.
+
+def test_get_default_calibrators( decam_default_calibrators ):
+    sections, filters = decam_default_calibrators
+    decam = get_instrument_instance( 'DECam' )
+
+    with SmartSession() as session:
+        for sec in sections:
+            for filt in filters:
+                for ftype in [ 'flat', 'fringe', 'linearity' ]:
+                    q = ( session.query( CalibratorFile )
+                          .filter( CalibratorFile.instrument=='DECam' )
+                          .filter( CalibratorFile.type==ftype )
+                          .filter( CalibratorFile.sensor_section==sec )
+                          .filter( CalibratorFile.calibrator_set=='DECam Default' )
+                         )
+                    if ftype != 'linearity':
+                        q = q.join( Image ).filter( Image.filter==filt )
+
+                    if ( ftype == 'fringe' ) and ( filt not in [ 'z', 'Y' ] ):
+                        assert q.count() == 0
+                    else:
+                        assert q.count() == 1
+                        cf = q.first()
+                        assert cf.validity_start is None
+                        assert cf.validity_end is None
+                        if ftype == 'linearity':
+                            assert cf.image_id is None
+                            assert cf.datafile_id is not None
+                            p = ( pathlib.Path( FileOnDiskMixin.local_path ) / cf.datafile.filepath )
+                            assert p.is_file()
+                        else:
+                            assert cf.image_id is not None
+                            assert cf.datafile_id is None
+                            p = ( pathlib.Path( FileOnDiskMixin.local_path ) / cf.image.filepath )
+                            assert p.is_file()

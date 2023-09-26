@@ -165,13 +165,13 @@ class ImageTypeConverter( EnumConverter ):
 
 class CalibratorTypeConverter( EnumConverter ):
     _dict = {
-        0: 'Unknown',
-        1: 'Zero',
-        2: 'Dark',
-        3: 'Flat',
-        4: 'Fringe',
-        5: 'Illumination',
-        6: 'Linearity',
+        0: 'unknown',
+        1: 'zero',
+        2: 'dark',
+        3: 'flat',
+        4: 'fringe',
+        5: 'illumination',
+        6: 'linearity',
     }
     _allowed_values = None
     _dict_filtered = None

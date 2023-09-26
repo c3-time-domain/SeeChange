@@ -14,12 +14,13 @@ from astropy.time import Time
 from astropy.io import fits
 
 from util.config import Config
-from models.base import SmartSession, CODE_ROOT, _logger
+from models.base import FileOnDiskMixin, SmartSession, CODE_ROOT, _logger
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
+from models.datafile import DataFile
 from models.references import ReferenceEntry
-from models.instrument import Instrument
+from models.instrument import Instrument, get_instrument_instance
 from models.source_list import SourceList
 from util import config
 from util.archive import Archive
@@ -421,3 +422,42 @@ def archive():
 
     except Exception as e:
         warnings.warn(str(e))
+
+
+# Get the flat, fringe, and linearity for
+# a couple of DECam chip sand filters
+@pytest.fixture
+def decam_default_calibrators():
+    decam = get_instrument_instance( 'DECam' )
+    sections = [ 'N1', 'S1' ]
+    filters = [ 'r', 'i', 'z' ]
+    for sec in sections:
+        for calibtype in [ 'flat', 'fringe' ]:
+            for filt in filters:
+                decam._get_default_calibrator( 60000, sec, calibtype=calibtype, filter=filt )
+    decam._get_default_calibrator( 60000, sec, calibtype='linearity' )
+
+    yield sections, filters
+
+    imagestonuke = set()
+    datafilestonuke = set()
+    with SmartSession() as session:
+        for sec in [ 'N1', 'S1' ]:
+            for filt in [ 'r', 'i', 'z' ]:
+                info = decam.preprocessing_calibrator_params( sec, filt, 60000, nodefault=True, session=session )
+                for filetype in [ 'zero', 'flat', 'dark', 'fringe', 'illumination', 'linearity' ]:
+                    if info[ f'{filetype}_fileid' ] is not None:
+                        if info[ f'{filetype}_isimage' ]:
+                            imagestonuke.add( info[ f'{filetype}_fileid' ] )
+                        else:
+                            datafilestonuke.add( info[ f'{filetype}_fileid' ] )
+        for imid in imagestonuke:
+            im = session.get( Image, imid )
+            im.remove_data_from_disk( purge_archive=True, session=session, nocommit=True )
+            session.delete( im )
+        for dfid in datafilestonuke:
+            df = session.get( DataFile, dfid )
+            df.remove_data_from_disk( purge_archive=True, session=session, nocommit=True )
+            session.delete( df )
+        session.commit()
+

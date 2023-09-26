@@ -7,7 +7,6 @@ import pathlib
 import hashlib
 import logging
 import requests
-import tarfile
 import subprocess
 import collections.abc
 
@@ -17,7 +16,10 @@ from astropy.io import fits
 
 from models.base import _logger, SmartSession, FileOnDiskMixin
 from models.instrument import Instrument, InstrumentOrientation, SensorSection
+from models.image import Image
+from models.datafile import DataFile
 from models.provenance import Provenance
+from util.config import Config
 import util.util
 from util.retrydownload import retry_download
 
@@ -263,20 +265,10 @@ class DECam(Instrument):
         """
         return filter[0:1]
 
-    def _get_default_calibrator( self, mjd, section, type='dark', filter=None, session=None ):
-        # WORRY - There's a race condition here.  If multiple processes
-        # are running at once and they all search the calibrator files
-        # table for DECam calibrators at once, then multiple processes
-        # could be populating this table at once.  Deal with this with
-        # some sort of locking.  (The easy-but-not-robust workaround is
-        # just to run this once early on for any given database
-        # instance, and then it will never come up.)
-        #
-        # (We *don't* want to just lock the CalibratorFiles table, because
-        # all of this downloading will take a long time.)
-
-        # Just going to use the 56876 versions for everything, even
-        # though there are earlier versions.  "Good enough."
+    def _get_default_calibrator( self, mjd, section, calibtype='dark', filter=None, session=None ):
+        # Just going to use the 56876 versions for everything
+        # (configured in the yaml files), even though there are earlier
+        # versions.  "Good enough."
 
         # Import CalibratorFile here.  We can't import it at the top of
         # the file because calibrator.py imports image.py, image.py
@@ -284,122 +276,71 @@ class DECam(Instrument):
         # leading to a circular import
         from models.calibratorfile import CalibratorFile
 
-        prov = Provfenance( process='DECam Default Calibrator' )
+        cfg = Config.get()
+        cv = Provenance.get_code_version()
+        prov = Provenance( process='DECam Default Calibrator', code_version=cv )
+        prov.update_id()
 
-        tmpdir = pathlib.Path( FileOnDiskMixin.local_path ) / "DECam_preproc_calibrators_tmp"
-        tmpdir.mkdir( exist_ok=True, parents=True )
         reldatadir = pathlib.Path( "DECam_default_calibrators" )
-        linearitytar = tmpdir / 'DECamMasterCal_56475-linearity.tgz'
-        fringecortar = tmpdir / 'DECamMasterCal_56876-fringecor.tgz'
-        flattar = tmpdir / 'DECamMasterCal_56876-starflat.tgz'
+        datadir = pathlib.Path( FileOnDiskMixin.local_path ) / reldatadir
 
-        for f in [ linearitytar, fringecortar, flattar ]:
-            if not f.is_file():
-                res = requests.get( f'https://portal.nersc.gov/cfs/m2218/decam_calibration_files/{f.name}' )
-                res.raise_for_status()
-                with open(f) as ofp:
-                    ofp.write( res.data )
-
-        fnparse = re.compile( "^(?P<subdir>.*)/(?P<fname>DECAM_Master_\d{8}v?-(?P<filter1>.)I_ci_"
-                              "(?P<filter2>.)_(?P<ccdnum>\d{2})\.fits")
-
-        # Fringes and flats
-        flats = None
-        fringes = None
-        for caltype, tarf, dbtype in zip( ['flat', 'fringe'], [flattar, fringecortar], ['SkyFlat', 'Fringe' ] ):
-            ims = {}
-            caims = {}
-            filters = set()
-            with tarfile.open( tarf ) as tar:
-                # Figure out all the filenames
-                for filename in tar.getnames():
-                    match = fnparse.search( tar )
-                    if match is not None:
-                        if match.group('filter1') != match.group('filter2'):
-                            raise RuntimeError( f"I am surprised; filter1={match.group('filter1')} "
-                                                f"doesn't match filter2={match.group('filter2')}" )
-                        for key, val in self._chip_radec_off.items():
-                            if val['ccdnum'] == int( match.group('ccdnum') ):
-                                if key not in ims:
-                                    ims[key] == {}
-                                    if match.group('filter1') in ims[key]:
-                                        raise RuntimeError( f"Found mutiple {caltype}s for "
-                                                            f"{key} {match.group('filter1')}" )
-                                    filters.add( match.group('filter1') )
-                                    ims[key][match.group('filter1')] = filename
-                # Make sure we have everything
-                for key in self._chip_radec_off.keys():
-                    if key not in ims.keys():
-                        raise RuntimeError( f'Failed to find {caltype}s for {key}' )
-                    for filt in filters:
-                        if filt not in ims[key].keys():
-                            raise RuntimeError( f'Failed to find {caltype} for {key} filter {filt}' )
-                # Load 'em
-                for key in self._chip_radec_off.keys():
-                    if key not in calims.keys():
-                        calims[key] = {}
-                    for filt in filters:
-                        relofpath = reldatadir / ims[key][filt]
-                        ofpath = pathlib.Path( FileOnDiskMixin.local_path ) / relofpath
-                        ofpath.parent.mkdir( exist_ok=True, parents=True )
-                        tar.extract( ims[key][filt], path=ofpath, filter='data' )
-                        image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
-                                       telescope='CTIO4m', filter=filt, section_id=key,
-                                       filepath=str(relofpath) )
-                        # Not using Image.save because we're doing a lower-level operaiton here.
-                        FileOnDiskMixin.save( image, ofpath )
-                        with SmartSession( session ) as dbsess:
-                            prov = dbsess.merge( prov )
-                            dbsess.add( image )
-                            calim = CalibratorFile( type=caltype, instrument='DECam', sensor_section=key,
-                                                    calibrator_set='DECam Default', image=image )
-                            dbsess.add( calim )
-                            dbsess.commit()
-                            calims[key][filt] = calim
-            if caltype == 'flat':
-                flats = copy.deepcopy( calims )
-            elif caltype == 'fringe':
-                flats = copy.deepcoly( calims )
-            else:
-                raise RuntimeError( 'This should never happen.' )
-
-
-        # For linearity, there's just one file; tag it for all sensor sections
-        linfiles = {}
-        with tar.open( linearitytar ) as tar:
-            did = False
-            for filename in tar.getnames():
-                if filename[-5:0] != '.fits':
-                    continue
-                relofpath = reldatadir / filename
-                ofpath = pathlib.Path( FileOnDiskMixin.local_path ) / relofpath
-                ofpath.parent.mkdir( exist_ok=True, parents=True )
-                tar.extract( filename, path=ofpath, filter='data' )
-                datafile = DataFile( filepath=str(reofpath), provenance=prov )
-                datafile.save( ofpath )
-                with SmartSession( session ) as dbsess:
-                    prov = dbsess.merge( prov )
-                    dbsess.add( datafile )
-                    for ssec in self._chip_radec_off.keys():
-                        calfile = CalibratorFile( type='Linearity', instrument='DECam', sensor_section=ssec,
-                                                  calibrator_set='DECam Default', datafile=datafile )
-                        dbsess.add( calfile )
-                        linfiles[ ssec.identifier ] = calfile
-                    dbsess.commit()
-
-        # Return the thing that was asked for
-        if type == 'flat':
-            if filter is None:
-                raise RuntimeError( f'Default DECam flat requires a filter' )
-            return flats[section.identifier][filter]
-        elif type == 'fringe':
-            if filter is None:
-                raise RuntimeError( f'Default DECam fringe requires a filter' )
-            return fringes[section.identifier][filter]
-        elif type == 'linearity':
-            return linfiles[section.identifier]
+        if calibtype == 'flat':
+            rempath = pathlib.Path( f'{cfg.value("decam.calibfiles.flatbase")}-'
+                                    f'{filter}I_ci_{filter}_{self._chip_radec_off[section]["ccdnum"]:02d}.fits' )
+        elif calibtype == 'fringe':
+            if filter not in [ 'z', 'Y' ]:
+                return None
+            rempath = pathlib.Path( f'{cfg.value("decam.calibfiles.fringebase")}-'
+                                    f'{filter}G_ci_{filter}_{self._chip_radec_off[section]["ccdnum"]:02d}.fits' )
+        elif calibtype == 'linearity':
+            rempath = pathlib.Path( cfg.value( "decam.calibfiles.linearity" ) )
         else:
+            # Other types don't have calibrators for DECam
             return None
+
+        url = f'{cfg.value("decam.calibfiles.urlbase")}{str(rempath)}'
+        filepath = reldatadir / calibtype / rempath.name
+        fileabspath = datadir / calibtype / rempath.name
+
+        retry_download( url, fileabspath )
+
+        with SmartSession( session ) as dbsess:
+            if calibtype in [ 'flat', 'fringe' ]:
+                dbtype = 'Fringe' if calibtype=='fringe' else 'SkyFlat'
+                mjd = float( cfg.value( "decam.calibfiles.mjd" ) )
+                image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
+                               telescope='CTIO4m', filter=filter, section_id=section, filepath=str(filepath),
+                               mjd=mjd, end_mjd=mjd,
+                               header={}, exp_time=0, ra=0., dec=0.,
+                               ra_corner_00=0., ra_corner_01=0.,ra_corner_10=0., ra_corner_11=0.,
+                               dec_corner_00=0., dec_corner_01=0., dec_corner_10=0., dec_corner_11=0.,
+                               target="", project="" )
+                # Use FileOnDiskMixin.save instead of Image.save here because we're doing
+                # a lower-level operation.  image.save would be if we wanted to read and
+                # save FITS data, but here we just want to have it make sure the file
+                # is in the right place and check it's md5sum.  (FileOnDiskMixin.save, when
+                # given a filename, will move that file to where it goes in the local data
+                # storage unless it's already in the right place.)
+                FileOnDiskMixin.save( image, fileabspath )
+                calfile = CalibratorFile( type=calibtype, instrument='DECam', sensor_section=section,
+                                          calibrator_set='DECam Default', image=image )
+                calfile = calfile.recursive_merge( dbsess )
+                dbsess.add( calfile )
+                dbsess.commit()
+            else:
+                datafile = DataFile( filepath=str(filepath), provenance=prov )
+                datafile.save( str(fileabspath) )
+                datafile = datafile.recursive_merge( dbsess )
+                dbsess.add( datafile )
+                # Linearity file applies for all chips, so load the database accordingly
+                for ssec in self._chip_radec_off.keys():
+                    calfile = CalibratorFile( type='Linearity', instrument='DECam', sensor_section=ssec,
+                                              calibrator_set="DECam Default", datafile=datafile )
+                    calfile = calfile.recursive_merge( dbsess )
+                    dbsess.add( calfile )
+                dbsess.commit()
+
+        return calfile
 
 
     def find_origin_exposures( self, skip_exposures_in_database=True,

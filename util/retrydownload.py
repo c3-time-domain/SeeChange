@@ -97,6 +97,7 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
             dt = float( midtime-starttime )
             logger.info( f"...downloaded {size:.3f} {sizelog} in {midtime-starttime:.2f} sec "
                          f"({size/dt:.3f} {sizelog}/sec)" )
+            fpath.parent.mkdir( exist_ok=True, parents=True )
             with open( fpath, "wb" ) as ofp:
                 ofp.write( response.content )
             endtime = time.perf_counter()

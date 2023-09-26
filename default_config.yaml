@@ -81,3 +81,22 @@ measurement:
   photometry_method: aperture
   aperture_radius: 3.0
   real_bogus_version: null
+
+# Specific configuration for specific instruments
+#
+# DECam -- location to find the standard NOIRLab calibration files.
+# NOIRLab distributes them on a Google Drive, which is a nightmare to
+# try to download programmatically.  What's more, they come in ginormous
+# tar files, which are slow to process; especially for tests, where we
+# just want to do a couple of chips, it's not worth the time.  So, I've
+# untarred the files on the NERSC web portal to allow them to be grabbed
+# individually.  These can be found on Perlmutter at
+# /global/cfs/dirs/m2218/www/decam_calibration_files
+
+decam:
+  calibfiles:
+    mjd: 56876
+    urlbase: https://portal.nersc.gov/cfs/m2218/decam_calibration_files/
+    linearity: DECamMasterCal_56475/linearity/linearity_table_v0.4.fits
+    fringebase: DECamMasterCal_56876/fringecor/DECam_Master_20131115v1
+    flatbase: DECamMasterCal_56876/starflat/DECam_Master_20130829v3
