@@ -33,17 +33,6 @@ def testfile1():
 
     p.unlink()
 
-@pytest.fixture( scope='module' )
-def testfile2():
-    p = pathlib.Path( f'{md5sum2}.dat' )
-    if p.exists():
-        p.unlink()
-    retry_download( url2, p )
-
-    yield p
-
-    p.unlink()
-
 def checkmd5( path, md5sum ):
     md5 = hashlib.md5()
     with open( path, "rb" ) as ifp:
