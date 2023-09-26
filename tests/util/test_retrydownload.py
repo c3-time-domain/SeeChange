@@ -10,16 +10,16 @@ from util.retrydownload import retry_download
 # http server that the test environment controls; we then put files
 # there that we download and verify in the tests.
 #
-# For now, I've put some static files at
-#  https://portal.nersc.gov/cfs/m2218/fiducial_test_files
+# For now, I've put some static 1MB files at
+#   https://portal.nersc.gov/cfs/m2218/fiducial_test_files
+# If those files go away, these tests will fail, but hopefully
+# they will be at leasdt somewhat stable.
 #
 # (found on nersc in /global/cfs/cdirs/m2218/www/fiducial_test_files )
 
 md5sum1 = '3f6217f6e68efa71a711ed7083ed1348'
-md5sum2 = 'ee9ccfeb903f05e42eace2179009c7f3'
 nonexistent = '3f1d598431502e796c3852981d97a576'
 url1 = f'https://portal.nersc.gov/cfs/m2218/fiducial_test_files/{md5sum1}.dat'
-url2 = f'https://portal.nersc.gov/cfs/m2218/fiducial_test_files/{md5sum2}.dat'
 url_nonexistent = f'https://portal.nersc.gov/cfs/m2218/fiducial_test_files/{nonexistent}.dat'
 
 @pytest.fixture( scope='module' )
@@ -95,6 +95,8 @@ def test_overwrite_misc_file():
 
         # Make sure it "succeeds" when not given an md5sum to verify
         retry_download( url1, fpath, exists_ok=True )
+        assert checkmd5( fpath, md5sumabc )
+        retry_download( url1, fpath, exists_ok=True, clobber=True )
         assert checkmd5( fpath, md5sumabc )
 
         # Make sure it redownloads the file when given an md5sum
