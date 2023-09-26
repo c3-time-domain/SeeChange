@@ -120,5 +120,6 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
                                  f"waiting {sleeptime} sec and retrying." )
                 time.sleep( sleeptime )
             else:
-                logger.error( f"retry_download: {retries} exceptions trying to download {fname}, failing." )
-                raise e
+                err = f'{retries} exceptions trying to download {fname}, failing.'
+                logger.error( f"retry_download: {err}" )
+                raise RuntimeError( err )
