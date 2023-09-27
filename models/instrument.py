@@ -1720,7 +1720,7 @@ class InstrumentOriginExposures:
            If True, only download the exposure.  If False, and there are
            anciallary exposure (e.g. for the DECam instrument, when
            reducing prod_type='instcal' images, there are weight and
-           data quality mask exposure), download those as well.        
+           data quality mask exposure), download those as well.
         clobber: bool
            If True, will always download and overwrite existing files.
            If False, will trust that the file is the right thing if existing_ok=True,

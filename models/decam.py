@@ -331,7 +331,6 @@ class DECam(Instrument):
                 dbsess.add( calfile )
                 dbsess.commit()
             else:
-                import pdb; pdb.set_trace()
                 datafile = DataFile( filepath=str(filepath), provenance=prov )
                 datafile.save( str(fileabspath) )
                 datafile = datafile.recursive_merge( dbsess )

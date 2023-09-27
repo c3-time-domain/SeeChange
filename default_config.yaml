@@ -57,7 +57,7 @@ archive: null
 pipeline: {}
 
 preprocessing:
-  use_sky_subtraction: True
+  use_sky_subtraction: False
 
 extraction: {}
 

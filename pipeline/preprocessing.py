@@ -15,7 +15,8 @@ class ParsPreprocessor(Parameters):
     def __init__(self, instrument, **kwargs):
         super().__init__()
 
-        self.use_sky_subtraction = self.add_par('use_sky_subtraction', False, bool, 'Apply sky subtraction. ')
+        self.use_sky_subtraction = self.add_par('use_sky_subtraction', False, bool, 'Apply sky subtraction. ',
+                                                critical=True)
         self.add_par( 'steps', None, ( list, None ), "Steps to do; don't specify, or pass None, to do all." )
 
         for calib in instrument.preprocessing_steps:
@@ -52,7 +53,7 @@ class Preprocessor:
           * overscan subtraction
           * bias (zero) subtraction
           * dark current subtraction
-'          * linearity correction
+          * linearity correction
           * flatfielding
           * fringe correction
           * illumination correction
@@ -91,6 +92,10 @@ class Preprocessor:
         preprocparam.update( **kwargs )
 
         self.pars = ParsPreprocessor( instrument, **preprocparam )
+
+        # TODO : remove this if/when we actually put sky subtraction in run()
+        if self.pars.use_sky_subtraction:
+            raise NotImplementedError( "Sky subtraction in preprocessing isn't implemented." )
 
         if self.pars.steps is None:
             self.stepstodo = self.instrument.preprocessing_steps
