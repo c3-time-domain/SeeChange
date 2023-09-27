@@ -203,6 +203,11 @@ def test_data_flow(exposure, reference_entry):
                     if isinstance(obj, FileOnDiskMixin):
                         obj.remove_data_from_disk(purge_archive=True, session=session, nocommit=True)
                     session.delete(obj)
+                    # Have to make sure that the data store image and exposure ids are None if necessary
+                    if attributes[-j-1] == '_exposure':
+                        ds.exposure_id = None
+                    elif attributes[-j-1] == 'image':
+                        ds.image_id = None
                     session.commit()
 
                 setattr(ds, attributes[-j-1], None)

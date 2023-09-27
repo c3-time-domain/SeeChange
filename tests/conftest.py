@@ -435,7 +435,10 @@ def archive():
 
 # Get the flat, fringe, and linearity for
 # a couple of DECam chip sand filters
-@pytest.fixture
+# Need session scope; otherwise, things
+# get mixed up when _get_default_calibrator
+# is called from within another function.
+@pytest.fixture( scope='session' )
 def decam_default_calibrators():
     decam = get_instrument_instance( 'DECam' )
     sections = [ 'N1', 'S1' ]

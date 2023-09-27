@@ -76,6 +76,7 @@ class DataStore:
         """
         # these are data products that can be cached in the store
         self._exposure = None  # single image, entire focal plane
+        self._section = None # SensorSection
         self.image = None  # single image from one sensor section
         self.sources = None  # extracted sources (a SourceList object, basically a catalog)
         self.wcs = None  # astrometric solution
@@ -90,7 +91,8 @@ class DataStore:
 
         # these are identifiers used to find the data products in the database
         self.exposure_id = None  # use this and section_id to find the raw image
-        self.section_id = None  # use this and exposure_id to find the raw image
+        self.section_id = None  # corresponds to SensorSection.identifier (*not* .id)
+                                # use this and exposure_id to find the raw image
         self.image_id = None  # use this to specify an image already in the database
 
         # The database session parsed in parse_args; it could still be None even after parse_args
@@ -108,6 +110,15 @@ class DataStore:
     def exposure( self, value ):
         self._exposure = value
         self.exposure_id = value.id if value is not None else None
+
+    @property
+    def section( self ):
+        if self._section is None:
+            if self.section_id is not None:
+                if self.exposure is not None:
+                    self.exposure.instrument_object.fetch_sections()
+                    self._section = self.exposure.instrument_object.get_section( self.section_id )
+        return self._section
 
     def parse_args(self, *args, **kwargs):
         """
@@ -447,8 +458,8 @@ class DataStore:
         session = self.session if session is None else session
 
         process_name = 'preprocessing'
-        # we were explicitly asked for a specific image id:
         if self.image_id is not None:
+            # we were explicitly asked for a specific image id:
             if isinstance(self.image, Image) and self.image.id == self.image_id:
                 pass  # return self.image at the end of function...
             else:  # not found in local memory, get from DB
@@ -459,8 +470,24 @@ class DataStore:
             if self.image is None:
                 raise ValueError(f'Cannot find image with id {self.image_id}!')
 
-        # this option is for when we are not sure which image id we need
+        elif self.image is not None:
+            # If an image already exists and image_id is none, we may be
+            # working with a datastore that hasn't been committed to the
+            # database; do a quick check for mismatches.
+            # (If all the ids are None, it'll match even if the actual
+            # objects are wrong, but, oh well.)
+            if ( self.exposure_id is not None ) and ( self.section_id is not None ):
+                if ( ( self.image.exposure_id != self.exposure_id ) or
+                     ( self.image.section_id != self.section_id ) ):
+                    raise ValueError( "Image exposure/section id doesn't match what's expected!" )
+            elif ( self.exposure is not None and self.section is not None ):
+                if ( ( self.image.exposure_id != self.exposure.id ) or
+                     ( self.image.section_id != self.section.id ) ):
+                    raise ValueError( "Image exposure/section id doesn't match what's expected!" )
+            # If we get here, self.image is presumed to be good
+
         elif self.exposure_id is not None and self.section_id is not None:
+            # If we don't know the image yet
             # check if self.image is the correct image:
             if (
                 isinstance(self.image, Image) and self.image.exposure_id == self.exposure_id
@@ -497,8 +524,15 @@ class DataStore:
                             )
                         ).first()
 
+        elif self.exposure is not None and self.section is not None:
+            # If we don't have exposure and section ids, but we do have an exposure
+            # and a section, we're probably working with a non-committed datastore.
+            # So, extract the image from the exposure.
+            self.image = Image.from_exposure( self.exposure, self.section.identifier )
+
         else:
-            raise ValueError('Cannot get processed image without exposure_id and section_id or image_id!')
+            raise ValueError('Cannot get image without one of (exposure_id, section_id), '
+                             '(exposure, section), image, or image_id!')
 
         return self.image  # could return none if no image was found
 
@@ -1019,7 +1053,7 @@ class DataStore:
             objects, including lists (e.g., Cutouts will be concatenated,
             no nested). Any None values will be removed.
         """
-        attributes = ['exposure', 'image', 'sources', 'wcs', 'zp', 'sub_image', 'detections', 'cutouts', 'measurements']
+        attributes = [ 'measurements', 'cutouts', 'detections', 'sub_image', 'sources', 'zp', 'wcs', 'image', 'exposure' ]
         result = {att: getattr(self, att) for att in attributes}
         if output == 'dict':
             return result
@@ -1083,6 +1117,13 @@ class DataStore:
                     session.add(obj)
 
                 session.commit()
+
+                # This may well have updated some ids, as objects got added to the database
+                if ( self.exposure_id is None ) and ( self._exposure is not None ):
+                    self.exposure_id = self._exposure.id
+                if ( self.image_id is None ) and ( self.image is not None ):
+                    self.image_id = self.image.id
+
             finally:
                 session.autoflush = autoflush_state
 

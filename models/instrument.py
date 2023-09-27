@@ -1199,7 +1199,6 @@ class Instrument:
 
                     calib = None
                     if ( calibquery.count() == 0 ) and ( not nodefault ):
-                        import pdb; pdb.set_trace()
                         calib = self._get_default_calibrator( mjd, section, calibtype=calibtype, filter=filter,
                                                               session=session )
                     else:
@@ -1239,6 +1238,8 @@ class Instrument:
     def overscan_sections( self, header ):
         """Return the overscan sections for a raw image given its header.
 
+        You probably want to call overscan_and_data_sections() rather than this.
+
         Most instruments will need to override this to look at the right
         header keywords.  This default routine uses the keywords from
         DECam, i.e. BIASSECA, BIASSECB, DATASECA, DATASECB.
@@ -1253,17 +1254,14 @@ class Instrument:
         Returns
         -------
         list of dicts; each element has fields
-          'biassec': [ x0, x1, y0, y1 ],
-          'datasec': [ x0, x1, y0, y1 ]
-        Sections are in C-coordinates (0-offset), using the numpy
-        standard (i.e. x1 is one past the end of the region); remember
-        that numpy arrays are indexed [y, x].  Sections are inclusive
-        (so you'd need to subtract 1 from the top range to get a numpy
-        index).  biassec is the section of the raw image that has the
-        bias information, and datasec is the section of the raw image
-        that has the detector information.  datasecs should have zero
-        intersection, and their union is what should be trimmed out
-        after overscan correction is complete.
+          'secname': str,
+          'biassec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int },
+          'datasec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int }
+        Secname is some subsection identifier, which is instrument
+        specific.  By default, it will be 'A' or 'B'.  Sections are in
+        C-coordinates (0-offset), using the numpy standard (i.e. x1 is
+        one past the end of the region); remember that numpy arrays are
+        indexed [y, x].
 
         """
 
@@ -1281,10 +1279,12 @@ class Instrument:
             if not datamatch:
                 raise ValueError( f"Error parsing header DATASEC{letter} entry {biassec}" )
             # The -1 are to convert from FITS/Fortran coordinates to C coordinates
-            # The *aren't* present on the high limits because the header keywords
+            # There is no -1 high limits because the header keywords
             # give inclusive right-side limits, but numpy wants exclusive right-side
-            # limits, and we're using numpy.
-            retval.append( { 'biassec': { 'x0': int(biasmatch.group('x0'))-1, 'x1': int(biasmatch.group('x1')),
+            # limits, and we're using numpy.  (The -1 offsets the +1 to
+            # go from inclusive to exclusive.)
+            retval.append( { 'secname': letter,
+                             'biassec': { 'x0': int(biasmatch.group('x0'))-1, 'x1': int(biasmatch.group('x1')),
                                           'y0': int(biasmatch.group('y0'))-1, 'y1': int(biasmatch.group('y1')) },
                              'datasec': { 'x0': int(datamatch.group('x0'))-1, 'x1': int(datamatch.group('x1')),
                                           'y0': int(datamatch.group('y0'))-1, 'y1': int(datamatch.group('y1')) }
@@ -1292,84 +1292,44 @@ class Instrument:
         return retval
 
 
-    def overscan_and_trim( self, *args ):
-        """Overscan and trim image.  Modifies imageheader, imagedata.
+    def overscan_and_data_sections( self, header ):
+        """Return the data sections where they appear in the image after trimming.
+
+        Returns everything overscan_sections does, plus more.
+
+        It's possible (likely?) that an instrument that overrides
+        overscan_sections won't need to override this.
 
         Parameters
         ----------
-        image: Image
-          The Image to process.  Will use Image.raw_header for header
-          and Image.raw_data for data
-
-          --- OR ---
-
-        header: dict (NOTE THIS DOESN'T WORK -- SEE ISSUE #92)
-          Image header.  Need the full header, i.e. Image.raw_header not Image.header.
-        data: numpy array
-          Image data.  Must not be trimmed, i.e. must include the overscan section
-
-        Hopefully most instruments won't have to override this (only
-        overscan_sections), but this routine does assume that the data
-        sections are laid out in a grid (1x2, 2x2, 2x2, 3x3, etc), and
-        that the relative positions of the data sections on the raw
-        images (i.e. what is to the left of what) is the same as on the
-        reconstructed trimmed image.   Any more complicated layout of
-        data sections (e.g. interleaving, out of order data sections,
-        etc.) will require custom code.
+        header: dict
+          The header of the image in question; use Image.raw_header not Image.header.
 
         Returns
-        -------
-        numpy array
-          The bias-corrected and trimmed image data
+        ------
+        list of dicts, each dict being:
+           { 'secname': str,
+             'biassec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int },
+             'datasec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int },
+             'destsec': { 'x0': int, 'x1', int, 'y0': int, 'y1': int }
+           }
+        secname is a string identifying the subsection.  (Not to be
+        confused with SensorSection, as each Image has a single
+        SensorSection.)  biassec and datasec are regions on the raw
+        image; destsec are regions on the trimmed image.  Sections are
+        in C-coordiates(0-offset), using the numpy standard (i.e. x1 and
+        y1 are one past the end of the region); remember that numpy
+        arrays are indexed [y, x].
 
         """
-        # import image here because importing it at the top
-        # of the file leads to circular imports
-        from models.image import Image
+        # This whole thing turns out to be surprisingly complicated
 
-        if len(args) == 1:
-            if not isinstance( args[0], Image ):
-                raise TypeError( 'overscan_and_trim: pass either an Image as one argument, '
-                                 'or header and data as two arguments' )
-            data = args[0].raw_data
-            header = args[0].raw_header
-        elif len(args) == 2:
-            # if not isinstance( args[0], <whatever the right header datatype is>:
-            #     raise TypeError( "header isn't a <header>" )
-            if not isinstance( args[1], np.ndarray ):
-                raise TypeError( "data isn't a numpy array" )
-            header = args[0]
-            data = args[1]
-        else:
-            raise RuntimeError( 'overscan_and_trim: pass either an Image as one argument, '
-                                'or header and data as two arguments' )
-
-        sections = self.overscan_sections( header )
-
-        # Figure out bias values by taking the median of the appropriate overscan sections
-        for sec in sections:
-            # Have to figure out whether the overscan strip is offset in x or offset in y
-            if sec['biassec']['y1'] - sec['biassec']['y0'] == sec['datasec']['y1'] - sec['datasec']['y0']:
-                sec['bias'] = np.median( data[ sec['biassec']['y0']:sec['biassec']['y1'] ,
-                                               sec['biassec']['x0']:sec['biassec']['x1'] ],
-                                         axis=1 )[ :, np.newaxis ]
-            elif sec['biassec']['x1'] - sec['biassec']['x0'] == sec['datasec']['x1'] - sec['datasec']['x0']:
-                sec['bias'] = np.median( data[ sec['biassec']['y0']:sec['biassec']['y1'] ,
-                                               sec['biassec']['x0']:sec['biassec']['x1'] ],
-                                         axis=0 )[ np.newaxis, : ]
-            else:
-                err = ( f"Bias/Data section size mismatch: biassec=["
-                        f"{sec['biassec']['x0']}:{sec['biassec']['x1']},"
-                        f"{sec['biassec']['y0']}:{sec['biassec']['y1']}], datasec=["
-                        f"{sec['datasec']['x0']}:{sec['datasec']['x1']},"
-                        f"{sec['datasec']['y0']}:{sec['datasec']['y1']}]" )
-                _logger.error( err )
-                raise ValueError( err )
+        secs = self.overscan_sections( header )
 
         # Figure out all the data ranges, making sure they don't overlap
         xranges = []
         yranges = []
-        for sec in sections:
+        for sec in secs:
             x0 = sec['datasec']['x0']
             x1 = sec['datasec']['x1']
             y0 = sec['datasec']['y0']
@@ -1414,9 +1374,8 @@ class Instrument:
             ydestranges.append( [ ysize, ysize + yr[1] - yr[0] ] )
             ysize += yr[1] - yr[0]
 
-        # Actually subtract overscan and trim
-        trimmedimage = np.zeros( [ ysize, xsize ], dtype=data.dtype )
-        for sec in sections:
+        # Now map sections to ranges
+        for sec in secs:
             # Figure out where the data section goes inthe trimmed image
             xr = None
             xrdest = None
@@ -1430,14 +1389,150 @@ class Instrument:
                 if ( yrcand[0] == sec['datasec']['y0'] ) and ( yrcand[1] == sec['datasec']['y1'] ):
                     yr = yrcand
                     yrdest = yrdestcand
-            if ( xr is None ) or ( yr is None ):
-                raise RuntimeError( f"Failed to find data sec [{sec['datasec']['x0']}:{sec['datasec']['x1']},"
-                                    f"{sec['datasec']['y0']}:{sec['datasec']['y1']}]; this should never happen." )
-            trimmedimage[ yrdest[0]:yrdest[1] , xrdest[0]:xrdest[1] ] = ( data[ yr[0]:yr[1] , xr[0]:xr[1] ]
-                                                                          - sec['bias'] )
+            sec[ 'destsec' ] = { 'x0': xrdest[0], 'x1': xrdest[1], 'y0': yrdest[0], 'y1': yrdest[1] }
+
+        # whew
+        return secs
+
+    def overscan_and_trim( self, *args ):
+        """Overscan and trim image.
+
+        Parameters
+        ----------
+        Can pass either one or two positional parmeters
+
+        If one: image
+        image: Image
+          The Image to process.  Will use Image.raw_header for header
+          and Image.raw_data for data
+
+          --- OR ---
+
+        If two: header, data
+        header: dict (NOTE THIS DOESN'T WORK -- SEE ISSUE #92)
+          Image header.  Need the full header, i.e. Image.raw_header not Image.header.
+        data: numpy array
+          Image data.  Must not be trimmed, i.e. must include the overscan section
+
+        Hopefully most instruments won't have to override this (only
+        overscan_sections), but this routine does assume that the data
+        sections are laid out in a grid (1x2, 2x2, 2x2, 3x3, etc), and
+        that the relative positions of the data sections on the raw
+        images (i.e. what is to the left of what) is the same as on the
+        reconstructed trimmed image.   Any more complicated layout of
+        data sections (e.g. interleaving, out of order data sections,
+        etc.) will require custom code.
+
+        Returns
+        -------
+        numpy array
+          The bias-corrected and trimmed image data
+
+        """
+        # import image here because importing it at the top
+        # of the file leads to circular imports
+        from models.image import Image
+
+        if len(args) == 1:
+            if not isinstance( args[0], Image ):
+                raise TypeError( 'overscan_and_trim: pass either an Image as one argument, '
+                                 'or header and data as two arguments' )
+            # THOUGHT REQUIRED
+            # The raw FITS data as loaded might be integer data (based on what
+            # the observatory does), but we want to use floats once we start
+            # processing.  Are we limiting ourselves too much by hardcoding
+            # in float32, or should we put in an option somewhere to
+            # use float64?  That's probably a back-burner low-priority TODO.
+            data = args[0].raw_data.astype( np.float32 )
+            header = args[0].raw_header
+        elif len(args) == 2:
+            # if not isinstance( args[0], <whatever the right header datatype is>:
+            #     raise TypeError( "header isn't a <header>" )
+            if not isinstance( args[1], np.ndarray ):
+                raise TypeError( "data isn't a numpy array" )
+            header = args[0]
+            data = args[1].astype( np.float32 )
+        else:
+            raise RuntimeError( 'overscan_and_trim: pass either an Image as one argument, '
+                                'or header and data as two arguments' )
+
+        sections = self.overscan_and_data_sections( header )
+        xsize = 0
+        ysize = 0
+        for sec in sections:
+            ysize = max( sec['destsec']['y1'], ysize )
+            xsize = max( sec['destsec']['x1'], xsize )
+
+        # Figure out bias values by taking the median of the appropriate overscan sections
+        for sec in sections:
+            # Have to figure out whether the overscan strip is offset in x or offset in y
+            if sec['biassec']['y1'] - sec['biassec']['y0'] == sec['datasec']['y1'] - sec['datasec']['y0']:
+                sec['bias'] = np.median( data[ sec['biassec']['y0']:sec['biassec']['y1'] ,
+                                               sec['biassec']['x0']:sec['biassec']['x1'] ],
+                                         axis=1 )[ :, np.newaxis ]
+            elif sec['biassec']['x1'] - sec['biassec']['x0'] == sec['datasec']['x1'] - sec['datasec']['x0']:
+                sec['bias'] = np.median( data[ sec['biassec']['y0']:sec['biassec']['y1'] ,
+                                               sec['biassec']['x0']:sec['biassec']['x1'] ],
+                                         axis=0 )[ np.newaxis, : ]
+            else:
+                err = ( f"Bias/Data section size mismatch: biassec=["
+                        f"{sec['biassec']['x0']}:{sec['biassec']['x1']},"
+                        f"{sec['biassec']['y0']}:{sec['biassec']['y1']}], datasec=["
+                        f"{sec['datasec']['x0']}:{sec['datasec']['x1']},"
+                        f"{sec['datasec']['y0']}:{sec['datasec']['y1']}]" )
+                _logger.error( err )
+                raise ValueError( err )
+
+        # Actually subtract overscan and trim
+        trimmedimage = np.zeros( [ ysize, xsize ], dtype=data.dtype )
+        for sec in sections:
+            # Make a bunch of temp variables for clarity
+            xsrc0 = sec['datasec']['x0']
+            xsrc1 = sec['datasec']['x1']
+            ysrc0 = sec['datasec']['y0']
+            ysrc1 = sec['datasec']['y1']
+            xdst0 = sec['destsec']['x0']
+            xdst1 = sec['destsec']['x1']
+            ydst0 = sec['destsec']['y0']
+            ydst1 = sec['destsec']['y1']
+            trimmedimage[ ydst0:ydst1, xdst0:xdst1 ] = data[ ysrc0:ysrc1, xsrc0:xsrc1 ] - sec[ 'bias' ]
 
         return trimmedimage
 
+    def linearity_correct( self, *args, linearitydata=None ):
+        """Linearity correct image.
+
+        Pass an image that has already been overscanned and trimmed.
+
+        Parameters
+        ----------
+        Can pass either one or two positional parmeters
+
+        If one: image
+        image: Image
+          The Image to process.  Will use Image.raw_header for header
+          and Image.data for data
+
+          --- OR ---
+
+        If two: header, data
+        header: dict (NOTE THIS DOESN'T WORK -- SEE ISSUE #92)
+          Image header.  Need the full header, i.e. Image.raw_header not Image.header.
+        data: numpy array
+          Image data.  Must not be trimmed, i.e. must include the overscan section
+
+        In addition, there's one keyword parameter, linearitydata, which
+        should be either an Image or a DataFile (which one is needed
+        depends on the instrument) holding the data that the instrument
+        needs to linearity correct this image.
+
+        Returns
+        -------
+        numpy array
+          The linearity-corrected data
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} needs to impldment linearity_correct" )
 
 
 class DemoInstrument(Instrument):

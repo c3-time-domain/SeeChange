@@ -242,6 +242,12 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
 
     filter = sa.Column(sa.Text, nullable=True, index=True, doc="Name of the filter used to make this exposure. ")
 
+    @property
+    def filter_short(self):
+        if self.filter is None:
+            return None
+        return self.instrument_object.get_short_filter_name(self.filter)
+
     filter_array = sa.Column(
         sa.ARRAY(sa.Text),
         nullable=True,

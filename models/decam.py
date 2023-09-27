@@ -10,6 +10,7 @@ import requests
 import subprocess
 import collections.abc
 
+import numpy as np
 import pandas
 import astropy.time
 from astropy.io import fits
@@ -330,6 +331,7 @@ class DECam(Instrument):
                 dbsess.add( calfile )
                 dbsess.commit()
             else:
+                import pdb; pdb.set_trace()
                 datafile = DataFile( filepath=str(filepath), provenance=prov )
                 datafile.save( str(fileabspath) )
                 datafile = datafile.recursive_merge( dbsess )
@@ -344,6 +346,53 @@ class DECam(Instrument):
 
         return calfile
 
+    def linearity_correct( self, *args, linearitydata=None ):
+        if not isinstance( linearitydata, DataFile ):
+            raise TypeError( f'DECam.linearity_corret: linearitydata must be a DataFile' )
+
+        if len(args) == 1:
+            if not isinstance( args[0], Image ):
+                raise TypeError( 'linearity_correct: pass either an Image as one argument, '
+                                 'or header and data as two arguments' )
+            data = args[0].data
+            header = args[0].raw_header
+        elif len(args) == 2:
+            # if not isinstance( args[0], <whatever the right header datatype is>:
+            #     raise TypeError( "header isn't a <header>" )
+            if not isinstance( args[1], np.ndarray ):
+                raise TypeError( "data isn't a numpy array" )
+            header = args[0]
+            data = args[1]
+        else:
+            raise RuntimeError( 'linearity_correct: pass either an Image as one argument, '
+                                'or header and data as two arguments' )
+
+        presecs = self.overscan_and_data_sections( header )
+        secs = {}
+        for sec in presecs:
+            secs[sec['secname']] = sec
+
+        newdata = np.zeros_like( data )
+        ccdnum = header[ 'CCDNUM' ]
+
+        with fits.open( linearitydata.get_fullpath(), memmap=False ) as linhdu:
+            for amp in ["A", "B"]:
+                ampdex = f'ADU_LINEAR_{amp}'
+                x0 = secs[amp]['destsec']['x0']
+                x1 = secs[amp]['destsec']['x1']
+                y0 = secs[amp]['destsec']['y0']
+                y1 = secs[amp]['destsec']['y1']
+
+                lindex = np.floor( data[ y0:y1, x0:x1 ] ).astype( int )
+                newdata[ y0:y1, x0:x1 ] = ( linhdu[ccdnum].data[lindex][ampdex]
+                                            + ( ( data[y0:y1, x0:x1] - linhdu[ccdnum].data[lindex]['ADU'] )
+                                                * ( linhdu[ccdnum].data[lindex+1][ampdex]
+                                                    - linhdu[ccdnum].data[lindex][ampdex] )
+                                                / ( linhdu[ccdnum].data[lindex+1]['ADU']
+                                                    - linhdu[ccdnum].data[lindex]['ADU'] ) 
+                                               ) )
+
+        return newdata
 
     def find_origin_exposures( self, skip_exposures_in_database=True,
                                minmjd=None, maxmjd=None, filters=None,

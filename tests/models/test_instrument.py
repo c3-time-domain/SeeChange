@@ -300,7 +300,6 @@ def test_demoim_search_notimplemented():
 # DECam images.  Perhaps this test belongs in test_decam.py
 # instead of test_instrument.py
 def test_preprocessing_calibrator_params( decam_default_calibrators ):
-    import pdb; pdb.set_trace()
     decam = get_instrument_instance( "DECam" )
 
     linfile = None
@@ -336,11 +335,28 @@ def test_overscan_sections( decam_example_raw_image ):
     decam = get_instrument_instance( "DECam" )
     # Need the full header, not what's stored in the database
     ovsecs = decam.overscan_sections( decam_example_raw_image.raw_header )
-    assert ovsecs == [ { 'biassec' : { 'x0': 6, 'x1': 56, 'y0': 0, 'y1': 4096 },
+    assert ovsecs == [ { 'secname': 'A',
+                         'biassec' : { 'x0': 6, 'x1': 56, 'y0': 0, 'y1': 4096 },
                          'datasec' : { 'x0': 56, 'x1': 1080, 'y0': 0, 'y1': 4096 }
                         },
-                       { 'biassec': { 'x0': 2104, 'x1': 2154, 'y0': 0, 'y1': 4096 },
+                       { 'secname': 'B',
+                         'biassec': { 'x0': 2104, 'x1': 2154, 'y0': 0, 'y1': 4096 },
                          'datasec': { 'x0': 1080, 'x1': 2104, 'y0': 0, 'y1': 4096 }
+                        } ]
+
+def test_overscan_and_data_sections( decam_example_raw_image ):
+    decam = get_instrument_instance( "DECam" )
+    # Need the full header, not what's stored in the database
+    ovsecs = decam.overscan_and_data_sections( decam_example_raw_image.raw_header )
+    assert ovsecs == [ { 'secname': 'A',
+                         'biassec' : { 'x0': 6, 'x1': 56, 'y0': 0, 'y1': 4096 },
+                         'datasec' : { 'x0': 56, 'x1': 1080, 'y0': 0, 'y1': 4096 },
+                         'destsec' : { 'x0': 0, 'x1': 1024, 'y0': 0, 'y1': 4096 }
+                        },
+                       { 'secname': 'B',
+                         'biassec': { 'x0': 2104, 'x1': 2154, 'y0': 0, 'y1': 4096 },
+                         'datasec': { 'x0': 1080, 'x1': 2104, 'y0': 0, 'y1': 4096 },
+                         'destsec': { 'x0': 1024, 'x1': 2048, 'y0': 0, 'y1': 4096 }
                         } ]
 
 def test_overscan( decam_example_raw_image ):

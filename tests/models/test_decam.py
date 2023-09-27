@@ -4,11 +4,13 @@ import pathlib
 import hashlib
 import pytest
 
+import numpy as np
 import sqlalchemy as sa
 
 from models.base import SmartSession, FileOnDiskMixin, _logger
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance
+from models.datafile import DataFile
 from models.calibratorfile import CalibratorFile
 from models.image import Image
 from models.decam import DECam
@@ -198,3 +200,32 @@ def test_get_default_calibrators( decam_default_calibrators ):
                             assert cf.datafile_id is None
                             p = ( pathlib.Path( FileOnDiskMixin.local_path ) / cf.image.filepath )
                             assert p.is_file()
+
+def test_linearity( decam_example_raw_image ):
+    decam = get_instrument_instance( "DECam" )
+    im = decam_example_raw_image
+    origdata = im.data
+    try:
+        with SmartSession() as session:
+            info = decam.preprocessing_calibrator_params( im.section_id, im.filter_short, im.mjd, session=session )
+            lindf = session.get( DataFile, info['linearity_fileid'] )
+            im.data = decam.overscan_and_trim( im )
+            assert im.data.shape == ( 4096, 2048 )
+            newdata = decam.linearity_correct( im, linearitydata=lindf )
+
+            from astropy.io import fits
+            fits.writeto( 'trimmed.fits', im.data, im.raw_header, overwrite=True )
+            fits.writeto( 'linearitied.fits', newdata, im.raw_header, overwrite=True )
+
+            # Brighter pixels should all have gotten brighter
+            # (as nonlinearity will suppress bright pixels )
+            w = np.where( im.data > 10000 )
+            assert np.all( newdata[w] <= im.data[w] )
+
+            # TODO -- figure out more ways to really test if this was done right'
+            # (Could make this a regression test by putting in empirically what
+            # we get, but it'd be nice to actually make sure it really did the
+            # right thing.)
+    finally:
+        im.data = origdata
+

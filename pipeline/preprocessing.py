@@ -4,6 +4,7 @@ import sqlalchemy as sa
 from models.base import SmartSession
 from models.exposure import Exposure, ExposureImageIterator
 from models.image import Image
+from models.datafile import DataFile
 from models.instrument import get_instrument_instance, Instrument, SensorSection
 
 from pipeline.parameters import Parameters
@@ -51,7 +52,7 @@ class Preprocessor:
           * overscan subtraction
           * bias (zero) subtraction
           * dark current subtraction
-          * linearity correction
+'          * linearity correction
           * flatfielding
           * fringe correction
           * illumination correction
@@ -76,6 +77,7 @@ class Preprocessor:
         self.instrument = instrument
 
         if not isinstance( section, SensorSection ):
+            instrument.fetch_sections()
             section = instrument.get_section( section )
         self.section = section
 
@@ -83,7 +85,7 @@ class Preprocessor:
 
         # Get the preprocessing parameters (i.e. flats, biases, etc.) for this instrument / mjd
         preprocparam = self.instrument.preprocessing_calibrator_params( section.identifier,
-                                                                        exposure.filter, exposure.mjd )
+                                                                        exposure.filter_short, exposure.mjd )
 
         # Update with anything passed
         preprocparam.update( **kwargs )
@@ -117,12 +119,15 @@ class Preprocessor:
 
         if ds is None:
             if session is not None:
-                ds, session = DataStore.from_args( self.exposure, self.section.id, session=session )
+                ds, session = DataStore.from_args( self.exposure, self.section.identifier, session=session )
             else:
-                ds, session = DataStore.from_args( self.exposure, self.section.id )
+                ds, session = DataStore.from_args( self.exposure, self.section.identifier )
+            ds.exposure_id = self.exposure.id
         else:
             if session is not None:
                 raise RuntimeError( "Preprocessor.run: can't pass a Ssession when you pass a pre-existing DataStore" )
+            if ( ds.exposure_id != self.exposure.id ) or ( ds.section.id != self.section.id ):
+                raise RuntimeError( "Passed a DataStore to Preprocessor.run with a non-matching exposure/section" )
             session = ds.session
 
         # get the provenance for this step, using the current parameters:
@@ -140,7 +145,7 @@ class Preprocessor:
 
         # Overscan is always first
         if 'overscan' in self.instrument.preprocessing_steps:
-            image.data = self.instrument.overscan_and_trim( image.header, image.raw_data )
+            image.data = self.instrument.overscan_and_trim( image )
         else:
             image.data = image.raw_data
 
@@ -153,9 +158,10 @@ class Preprocessor:
                 if step in [ 'zero', 'dark', 'flat', 'illumination' ]:
                     if not getattr( self.pars, f'{step}_isimage' ):
                         raise RuntimeError( f"Expected {step} file to be an image!" )
-                    calim = ( session.query( Image )
-                              .filter( Image.id==getattr( self.pars, f'{step}_fileid' ) )
-                              .first() )
+                    with SmartSession(session) as dbsess:
+                        calim = ( dbsess.query( Image )
+                                  .filter( Image.id==getattr( self.pars, f'{step}_fileid' ) )
+                                  .first() )
                     if step in [ 'zero', 'dark' ]:
                         image.data -= calim.data
                     else:
@@ -167,7 +173,9 @@ class Preprocessor:
 
                 # Linearity is instrument-specific
                 elif step == 'linearity':
-                    self.instrument.linearity_correct( image.data, self.section.id )
+                    with SmartSession(session) as dbsess:
+                        lindf = dbsess.get( DataFile, self.pars.linearity_fileid )
+                    self.instrument.linearity_correct( image, linearitydata=lindf )
 
                 else:
                     # TODO: Replace this with a call into an instrument method
@@ -182,6 +190,7 @@ class Preprocessor:
                 raise ValueError('Provenance mismatch for image and provenance!')
 
         ds.image = image
+        ds.image.filepath = ds.image.invent_filepath()
 
         # make sure this is returned to be used in the next step
         return ds
