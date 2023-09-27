@@ -124,6 +124,8 @@ class DECam(Instrument):
 
         Instrument.__init__(self, **kwargs)
 
+        self.preprocessing_steps = [ 'overscan', 'linearity', 'flat', 'fringe' ]
+
     @classmethod
     def get_section_ids(cls):
 

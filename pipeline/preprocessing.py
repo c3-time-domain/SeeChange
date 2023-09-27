@@ -15,6 +15,7 @@ class ParsPreprocessor(Parameters):
         super().__init__()
 
         self.use_sky_subtraction = self.add_par('use_sky_subtraction', False, bool, 'Apply sky subtraction. ')
+        self.add_par( 'steps', None, ( list, None ), "Steps to do; don't specify, or pass None, to do all." )
 
         for calib in instrument.preprocessing_steps:
             self.add_par( f'{calib}_set', None, (str, None), 'Calibrator set for {calib}', critical=True )
@@ -44,7 +45,7 @@ class ParsPreprocessor(Parameters):
 
 class Preprocessor:
     def __init__(self, instrument, section, exposure, **kwargs):
-        """Create a preprocessor for a given exposure / section.
+        """Create a preprocessor for a given section of a given exposure.
 
         Preprocessing is instrument-defined, but usually includes a subset of:
           * overscan subtraction
@@ -54,6 +55,10 @@ class Preprocessor:
           * flatfielding
           * fringe correction
           * illumination correction
+
+        After initialization, just call run() to perform the
+        preprocessing.  This will return a DataStore with the
+        preprocessed image.
 
         Parameters
         ----------
@@ -85,6 +90,11 @@ class Preprocessor:
 
         self.pars = ParsPreprocessor( instrument, **preprocparam )
 
+        if self.pars.steps is None:
+            self.stepstodo = self.instrument.preprocessing_steps
+        else:
+            self.stepstodo = [ s for s in self.instrument.preprocessing_steps if s in self.pars.steps ]
+
     def run( self, ds=None, session=None ):
         """Run preprocessing.
 
@@ -98,7 +108,10 @@ class Preprocessor:
         session : Session or None
           Database session.  Required if ds is not None.
 
-        Returns a DataStore object with the products of the processing.
+        Returns
+        -------
+        DataStore
+          contains the products of the processing.
 
         """
 
@@ -132,7 +145,7 @@ class Preprocessor:
             image.data = image.raw_data
 
         # Apply steps in the order expected by the instrument
-        for step in self.instrument.preprocessing_steps:
+        for step in self.stepstodo:
             if step == 'overscan':
                 continue
             elif getattr( self.pars, f'{step}_fileid' ) is not None:

@@ -241,6 +241,15 @@ def decam_example_exposure(decam_example_file):
     return exposure
 
 
+# This one is currently completely redudant with decam_example_image, except
+# for the TODO comment
+@pytest.fixture
+def decam_example_raw_image( decam_example_exposure ):
+    image = Image.from_exposure(decam_example_exposure, section_id='N1')
+    image.data = image.raw_data.astype(np.float32)
+    return image
+
+
 @pytest.fixture
 def decam_example_image(decam_example_exposure):
     image = Image.from_exposure(decam_example_exposure, section_id='N1')
@@ -446,7 +455,7 @@ def decam_default_calibrators():
             for filt in [ 'r', 'i', 'z' ]:
                 info = decam.preprocessing_calibrator_params( sec, filt, 60000, nodefault=True, session=session )
                 for filetype in [ 'zero', 'flat', 'dark', 'fringe', 'illumination', 'linearity' ]:
-                    if info[ f'{filetype}_fileid' ] is not None:
+                    if ( f'{filetype}_fileid' in info ) and ( info[ f'{filetype}_fileid' ] is not None ):
                         if info[ f'{filetype}_isimage' ]:
                             imagestonuke.add( info[ f'{filetype}_fileid' ] )
                         else:

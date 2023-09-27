@@ -1199,6 +1199,7 @@ class Instrument:
 
                     calib = None
                     if ( calibquery.count() == 0 ) and ( not nodefault ):
+                        import pdb; pdb.set_trace()
                         calib = self._get_default_calibrator( mjd, section, calibtype=calibtype, filter=filter,
                                                               session=session )
                     else:
@@ -1245,19 +1246,22 @@ class Instrument:
         Parameters
         ----------
         header: dict
-          The header of the image in question
+          The header of the image in question.
+          NOTE: this needs to be the full header of the image,
+          i.e. Image.raw_header rahter than Image.header.
 
         Returns
         -------
         list of dicts; each element has fields
           'biassec': [ x0, x1, y0, y1 ],
           'datasec': [ x0, x1, y0, y1 ]
-        Sections are in C-coordinates (0-offset); remember that numpy
-        arrays are indexed [y, x].  Sections are inclusive (so you'd
-        need to subtract 1 from the top range to get a numpy index).
-        biassec is the section of the raw image that has the bias
-        information, and datasec is the section of the raw image that
-        has the detector information.  datasecs should have zero
+        Sections are in C-coordinates (0-offset), using the numpy
+        standard (i.e. x1 is one past the end of the region); remember
+        that numpy arrays are indexed [y, x].  Sections are inclusive
+        (so you'd need to subtract 1 from the top range to get a numpy
+        index).  biassec is the section of the raw image that has the
+        bias information, and datasec is the section of the raw image
+        that has the detector information.  datasecs should have zero
         intersection, and their union is what should be trimmed out
         after overscan correction is complete.
 
@@ -1277,21 +1281,30 @@ class Instrument:
             if not datamatch:
                 raise ValueError( f"Error parsing header DATASEC{letter} entry {biassec}" )
             # The -1 are to convert from FITS/Fortran coordinates to C coordinates
-            retval.append( { 'biassec': [ int(biasmatch.group('x0'))-1, int(biasmatch.group('x1'))-1,
-                                          int(biasmatch.group('y0'))-1, int(biasmatch.group('y1'))-1 ],
-                             'datasec': [ int(datamatch.group('x0'))-1, int(datamatch.group('x1'))-1,
-                                          int(datamatch.group('y0'))-1, int(datamatch.group('y1'))-1 ]
+            # The *aren't* present on the high limits because the header keywords
+            # give inclusive right-side limits, but numpy wants exclusive right-side
+            # limits, and we're using numpy.
+            retval.append( { 'biassec': { 'x0': int(biasmatch.group('x0'))-1, 'x1': int(biasmatch.group('x1')),
+                                          'y0': int(biasmatch.group('y0'))-1, 'y1': int(biasmatch.group('y1')) },
+                             'datasec': { 'x0': int(datamatch.group('x0'))-1, 'x1': int(datamatch.group('x1')),
+                                          'y0': int(datamatch.group('y0'))-1, 'y1': int(datamatch.group('y1')) }
                             } )
         return retval
 
 
-    def overscan_and_trim( self, header, data ):
+    def overscan_and_trim( self, *args ):
         """Overscan and trim image.  Modifies imageheader, imagedata.
 
         Parameters
         ----------
+        image: Image
+          The Image to process.  Will use Image.raw_header for header
+          and Image.raw_data for data
+
+          --- OR ---
+
         header: dict (NOTE THIS DOESN'T WORK -- SEE ISSUE #92)
-          Image header.
+          Image header.  Need the full header, i.e. Image.raw_header not Image.header.
         data: numpy array
           Image data.  Must not be trimmed, i.e. must include the overscan section
 
@@ -1310,12 +1323,48 @@ class Instrument:
           The bias-corrected and trimmed image data
 
         """
+        # import image here because importing it at the top
+        # of the file leads to circular imports
+        from models.image import Image
+
+        if len(args) == 1:
+            if not isinstance( args[0], Image ):
+                raise TypeError( 'overscan_and_trim: pass either an Image as one argument, '
+                                 'or header and data as two arguments' )
+            data = args[0].raw_data
+            header = args[0].raw_header
+        elif len(args) == 2:
+            # if not isinstance( args[0], <whatever the right header datatype is>:
+            #     raise TypeError( "header isn't a <header>" )
+            if not isinstance( args[1], np.ndarray ):
+                raise TypeError( "data isn't a numpy array" )
+            header = args[0]
+            data = args[1]
+        else:
+            raise RuntimeError( 'overscan_and_trim: pass either an Image as one argument, '
+                                'or header and data as two arguments' )
+
         sections = self.overscan_sections( header )
 
         # Figure out bias values by taking the median of the appropriate overscan sections
         for sec in sections:
-            sec['base'] = np.median( data[ sec['biassec']['x0']:sec['biassec']['x1']+1 ,
-                                    sec['biassec']['y0']:sec['biassec']['y1']+1 ] )
+            # Have to figure out whether the overscan strip is offset in x or offset in y
+            if sec['biassec']['y1'] - sec['biassec']['y0'] == sec['datasec']['y1'] - sec['datasec']['y0']:
+                sec['bias'] = np.median( data[ sec['biassec']['y0']:sec['biassec']['y1'] ,
+                                               sec['biassec']['x0']:sec['biassec']['x1'] ],
+                                         axis=1 )[ :, np.newaxis ]
+            elif sec['biassec']['x1'] - sec['biassec']['x0'] == sec['datasec']['x1'] - sec['datasec']['x0']:
+                sec['bias'] = np.median( data[ sec['biassec']['y0']:sec['biassec']['y1'] ,
+                                               sec['biassec']['x0']:sec['biassec']['x1'] ],
+                                         axis=0 )[ np.newaxis, : ]
+            else:
+                err = ( f"Bias/Data section size mismatch: biassec=["
+                        f"{sec['biassec']['x0']}:{sec['biassec']['x1']},"
+                        f"{sec['biassec']['y0']}:{sec['biassec']['y1']}], datasec=["
+                        f"{sec['datasec']['x0']}:{sec['datasec']['x1']},"
+                        f"{sec['datasec']['y0']}:{sec['datasec']['y1']}]" )
+                _logger.error( err )
+                raise ValueError( err )
 
         # Figure out all the data ranges, making sure they don't overlap
         xranges = []
@@ -1327,6 +1376,9 @@ class Instrument:
             y1 = sec['datasec']['y1']
             foundx = False
             for xr in xranges:
+                if ( x0 == xr[0] ) and ( x1 == xr[1] ):
+                    foundx = True
+                    continue
                 if ( ( ( x0 > xr[0] ) and ( x0 < xr[1] ) )
                      or
                      ( ( x1 > xr[0] ) and ( x1 < xr[1] ) ) ):
@@ -1335,12 +1387,15 @@ class Instrument:
                 xranges.append( [ x0, x1 ] )
             foundy = False
             for yr in yranges:
+                if ( y0 == yr[0] ) and ( y1 == yr[1] ):
+                    foundy = True
+                    continue
                 if ( ( ( y0 > yr[0] ) and ( y0 < yr[1] ) )
                      or
                      ( ( y1 > yr[0] ) and ( y1 < yr[1] ) ) ):
                     raise ValueError( f"Error, data sections aren't in a grid" )
             if not foundy:
-                yranges.apppend( [ y0, y1 ] )
+                yranges.append( [ y0, y1 ] )
 
         # Figure out destination data ranges.  There's a built in
         # assumption here that the ordering of the data sections on the
@@ -1349,17 +1404,18 @@ class Instrument:
         xranges.sort( key = lambda a: a[0] )
         yranges.sort( key = lambda a: a[0] )
         xdestranges = []
+        ydestranges = []
         xsize = 0
         for xr in xranges:
             xdestranges.append( [ xsize, xsize + xr[1] - xr[0] ] )
-            xsize += xr[1] - xr[0] + 1
+            xsize += xr[1] - xr[0]
         ysize = 0
         for yr in yranges:
             ydestranges.append( [ ysize, ysize + yr[1] - yr[0] ] )
-            yhsize += yr[1] - yr[0]
+            ysize += yr[1] - yr[0]
 
         # Actually subtract overscan and trim
-        trimmedimage = numpy.zeros( [ ysize, xsize ], dtype=data.dtype )
+        trimmedimage = np.zeros( [ ysize, xsize ], dtype=data.dtype )
         for sec in sections:
             # Figure out where the data section goes inthe trimmed image
             xr = None
@@ -1377,8 +1433,8 @@ class Instrument:
             if ( xr is None ) or ( yr is None ):
                 raise RuntimeError( f"Failed to find data sec [{sec['datasec']['x0']}:{sec['datasec']['x1']},"
                                     f"{sec['datasec']['y0']}:{sec['datasec']['y1']}]; this should never happen." )
-            trimmedimage[ xrdest[0]:xrdest[1]+1 , yrdest[0]:yrdest[1]+1 ] = ( data[ xr[0]:xr[1]+1 , yr[0]:yr[1]+1 ]
-                                                                              - sec['bias'] )
+            trimmedimage[ yrdest[0]:yrdest[1] , xrdest[0]:xrdest[1] ] = ( data[ yr[0]:yr[1] , xr[0]:xr[1] ]
+                                                                          - sec['bias'] )
 
         return trimmedimage
 
