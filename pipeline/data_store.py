@@ -173,6 +173,7 @@ class DataStore:
             self.exposure_id, self.section_id = args
         elif arg_types == [Exposure, int] or arg_types == [Exposure, str]:
             self.exposure, self.section_id = args
+            self.exposure_id = self.exposure.id
         elif arg_types == [int]:
             self.image_id = args[0]
         # TODO: add more options here

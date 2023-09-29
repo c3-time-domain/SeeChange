@@ -83,17 +83,28 @@ measurement:
   real_bogus_version: null
 
 # Specific configuration for specific instruments
-#
-# DECam -- location to find the standard NOIRLab calibration files.
-# NOIRLab distributes them on a Google Drive, which is a nightmare to
-# try to download programmatically.  What's more, they come in ginormous
-# tar files, which are slow to process; especially for tests, where we
-# just want to do a couple of chips, it's not worth the time.  So, I've
-# untarred the files on the NERSC web portal to allow them to be grabbed
+# Instruments should override the two defaults from
+# instrument_defaults; they may add additional
+# configuration that their code needs.
+
+instrument_default:
+  calibratorset: nightly
+  flattype: sky
+
+# DECam
+
+# For the observatory-supplied calibrations, NOIRLab distributes them on
+# a Google Drive, which is a nightmare to try to download
+# programmatically.  What's more, they come in ginormous tar files,
+# which are slow to process; especially for tests, where we just want to
+# do a couple of chips, it's not worth the time.  So, I've untarred the
+# files on the NERSC web portal to allow them to be grabbed
 # individually.  These can be found on Perlmutter at
 # /global/cfs/dirs/m2218/www/decam_calibration_files
 
 decam:
+  calibratorset: externally_supplied
+  flattype: externally_supplied
   calibfiles:
     mjd: 56876
     urlbase: https://portal.nersc.gov/cfs/m2218/decam_calibration_files/

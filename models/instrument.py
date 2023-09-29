@@ -380,10 +380,18 @@ class Instrument:
         self._dateobs_for_sections = getattr(self, '_dateobs_for_sections', None)  # dateobs when sections were loaded
         self._dateobs_range_days = getattr(self, '_dateobs_range_days', 1.0)  # how many days from dateobs to reload
 
-        # List of the preprocessing steps to apply to images from this instrument, in order
-        # overscan must always be first
+        # List of the preprocessing steps to apply to images from this
+        # instrument, in order overscan must always be first.  The
+        # values here (in the Instrument class) are all possible values.
+        # Subclasses should redefine this with the subset that they
+        # actually need.  If a subclass has to add a new preprocessing
+        # step, then it should add that step to this list, and (if it's
+        # a step that includes a calibraiton image or datafile) to the
+        # CalibratorTypeConverter dict in enums_and_bitflags.py
         self.preprocessing_steps = [ 'overscan', 'zero','dark', 'linearity', 'flat', 'fringe', 'illumination' ]
-
+        # nofile_steps are ones that don't have an associated file
+        self.preprocessing_nofile_steps = [ 'overscan' ]
+        
         # set the attributes from the kwargs
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -1083,20 +1091,21 @@ class Instrument:
     # instruments, the defaults should work.
 
     def _get_default_calibrator( self, mjd, section, calibtype='dark', filter=None, session=None ):
-        """Acquire (if possible) the default CalibratorFile for the given instrument/section/filter/type
+        """Acquire (if possible) the default externally-supplied CalibratorFile.
 
         Will load it into the database as both an Image and a Calibrator
         Image; may also load other default calibrator images if they
         come as a pack. WILL CALL session.commit()!
 
         Should not be called from outside Instrument; instead, use
-        preprocessing_params.  This method will assume that the default
-        is not already in the database!  That other method searches the
+        preprocessing_calibrator_params.  _get_default_calibrator method
+        will assume that the default is not already in the database, and
+        load it without checking first.  That other method searches the
         database first.
 
         WILL NEED TO BE OVERRIDEEN FOR EVERY SUBCLASS, unless the
-        instrument doesn't use any calibrator images for whatever
-        reason.
+        instrument doesn't use any calibrator images, or doesn't have
+        any default externally supplied calibrator images.
 
         Parameters
         ----------
@@ -1124,17 +1133,28 @@ class Instrument:
 
         return None
 
-    def preprocessing_calibrator_params( self, section, filter, mjd, nodefault=False, session=None ):
+    def preprocessing_calibrator_params( self, calibset, flattype, section, filter, mjd, session=None ):
         """Get a dictionary of calibrator images/datafiles for a given mjd and sensor section.
 
+        MIGHT call session.commit(); see below.
+        
         Instruments *may* need to override this.
 
-        A call to this MIGHT call session.commit().  (This will happen
-        in the case where the default calibrator for the image isn't
-        present and has to be fetched.)
+        If a calibrator file doesn't exist for calibset 'default', will
+        call the instrument's _get_default_calibrator, which will call
+        session.commit().
 
+        If a calibrator file isn't found (potentially after calling the
+        instrument's _get_default_calibrator), then the _isimage and
+        _fileid values in the return dictionary for that calibrator file
+        will be None.
+        
         Parameters
         ----------
+        calibset: str
+          The calibrator set, one of the values in the CalibratorSetConverter enum
+        flattype: str
+          The flatfield type, one of the values in the FlatTypeConverter enum
         section: str
           The name of the SensorSection
         filter: str
@@ -1149,19 +1169,23 @@ class Instrument:
           database already.
         session: Session
 
-
         Returns
         -------
-        dict with 18 keys:
+        dict with up to 12 keys:
            (zero|flat|dark|fringe|illumination|linearity)_isimage: bool
                True if the calibrator id is an image (other wise is none, or a miscellaneous data file)
            (zero|flat|dark|fringe|illumination|linearity)_fileid: int
-               Either the image_id or datafile_id of the calibrator file
-           (zero|flat|dark|fringe|illumination|linearity)_set: str or None
-               The calibrator_set of this calibrator (for provenance purposes)
+               Either the image_id or datafile_id of the calibrator file, or None if not found
+
+        keys will only be included for steps in the instrument's
+        preprocessing_steps list (which is set during instrument object
+        construction).
 
         """
 
+        if ( calibset == 'externally_supplied' ) != ( flattype == 'externally_supplied' ):
+            raise ValueError( "Doesn't make sense to have only one of calibset and flattype be externally_supplied" )
+        
         # Import CalibratorFile here.  We can't import it at the top of
         # the file because calibrator.py imports image.py, image.py
         # imports exposure.py, and exposure.py imports instrument.py --
@@ -1174,8 +1198,8 @@ class Instrument:
         expdatetime = pytz.utc.localize( astropy.time.Time( mjd, format='mjd' ).datetime )
 
         with SmartSession(session) as session:
-            for calibtype in [ 'zero', 'dark', 'flat', 'fringe', 'illumination', 'linearity' ]:
-                if calibtype not in self.preprocessing_steps:
+            for calibtype in self.preprocessing_steps:
+                if calibtype in self.preprocessing_nofile_steps:
                     continue
                 # To avoid a race condition in _get_default_calibrator, we need to
                 # lock the CalibratorFile table.  Reason: if multiple processes are
@@ -1183,17 +1207,20 @@ class Instrument:
                 # at once, both not find it, and both call _get_default_calibrator
                 # to try to add the same calibrator file.
                 try:
-                    if not nodefault:
+                    if calibset == 'externally_supplied':
                         session.connection().execute( sa.text( 'LOCK TABLE calibrator_files' ) )
                     calibquery = ( session.query( CalibratorFile )
-                                  .filter( CalibratorFile.instrument==self.name )
-                                  .filter( CalibratorFile.type==calibtype )
-                                  .filter( CalibratorFile.sensor_section==section )
-                                  .filter( sa.or_( CalibratorFile.validity_start == None,
-                                                   CalibratorFile.validity_start <= expdatetime ) )
-                                  .filter( sa.or_( CalibratorFile.validity_end == None,
-                                                   CalibratorFile.validity_end >= expdatetime ) )
-                                 )
+                                   .filter( CalibratorFile.calibrator_set=calibset )
+                                   .filter( CalibratorFile.instrument==self.name )
+                                   .filter( CalibratorFile.type==calibtype )
+                                   .filter( CalibratorFile.sensor_section==section )
+                                   .filter( sa.or_( CalibratorFile.validity_start == None,
+                                                    CalibratorFile.validity_start <= expdatetime ) )
+                                   .filter( sa.or_( CalibratorFile.validity_end == None,
+                                                    CalibratorFile.validity_end >= expdatetime ) )
+                                  )
+                    if calibtype == 'flat':
+                        calibquery = calibquery.filter( CalibratorFile.flat_type = flattype )
                     if ( calibtype in [ 'flat', 'fringe', 'illumination' ] ) and ( filter is not None ):
                         calibquery = calibquery.join( Image ).filter( Image.filter==filter )
 
@@ -1214,7 +1241,7 @@ class Instrument:
                     # unlocked the table.  But, if it wasn't called,
                     # then the table would remain locked; to avoid that,
                     # rollback here.
-                    if not nodefault:
+                    if calibset == 'externally_supplied':
                         session.rollback()
 
                 if calib is None:

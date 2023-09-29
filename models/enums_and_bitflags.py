@@ -177,6 +177,27 @@ class CalibratorTypeConverter( EnumConverter ):
     _dict_filtered = None
     _dict_inverse = None
 
+class CalibratorSetConverter( EnumConverter ):
+    _dict = {
+        0: 'unknown',
+        1: 'externally_supplied',
+        2: 'general',             # A calib file you built yourself and use for a long time
+        3: 'nightly'              # A calib built each night (or for a very limited mjd range)
+    }
+    
+class FlatTypeConverter( EnumConverter ):
+    _dict = {
+        0: 'unknown',
+        1: 'externally_supplied',
+        2: 'sky',
+        3: 'twilight',
+        4: 'dome'
+    }
+    _allowed_values = None
+    _dict_filtered = None
+    _dict_inverse = None
+
+
 
 def bitflag_to_string(value, dictionary):
 
@@ -302,3 +323,14 @@ data_badness_dict.update(source_list_badness_dict)
 data_badness_inverse = {EnumConverter.c(v): k for k, v in data_badness_dict.items()}
 if 0 in data_badness_inverse:
     raise ValueError('Cannot have a badness bitflag of zero. This is reserved for good data.')
+
+# bitflag for image preprocessing steps that have been done
+image_preprocessing_dict = {
+    0: 'overscan',
+    1: 'zero',
+    2: 'dark',
+    3: 'linearity',
+    4: 'flat',
+    5: 'fringe',
+    6: 'illumination'
+}

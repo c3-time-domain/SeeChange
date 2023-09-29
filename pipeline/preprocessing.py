@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import sqlalchemy as sa
 
@@ -10,19 +12,23 @@ from models.instrument import get_instrument_instance, Instrument, SensorSection
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
+from util.config import Config
 
 class ParsPreprocessor(Parameters):
-    def __init__(self, instrument, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
 
         self.use_sky_subtraction = self.add_par('use_sky_subtraction', False, bool, 'Apply sky subtraction. ',
                                                 critical=True)
         self.add_par( 'steps', None, ( list, None ), "Steps to do; don't specify, or pass None, to do all." )
-
-        for calib in instrument.preprocessing_steps:
-            self.add_par( f'{calib}_set', None, (str, None), 'Calibrator set for {calib}', critical=True )
-            self.add_par( f'{calib}_isimage', False, bool, 'Is the calibrator an Image?' )
-            self.add_par( f'{calib}_fileid', None, (int, None), 'image_id or datafile_id for the calibrator file' )
+        self.add_par( 'calibset', None, ( str, None ),
+                      ( "One of the CalibratorSetConverter enum; "
+                        "the calibrator set to use.  Defaults to the instrument default" ),
+                      critical = True )
+        self.add_alias( 'calibrator_set', 'calibset' )
+        self.add_par( 'flattype', None, ( str, None ),
+                      ( "One of the FlatTypeConverter enum; defaults to the instrument default" ),
+                      critical = True )
 
         # A note about provenance.
         #
@@ -46,8 +52,8 @@ class ParsPreprocessor(Parameters):
 
 
 class Preprocessor:
-    def __init__(self, instrument, section, exposure, **kwargs):
-        """Create a preprocessor for a given section of a given exposure.
+    def __init__(self, **kwargs):
+        """Create a preprocessor.
 
         Preprocessing is instrument-defined, but usually includes a subset of:
           * overscan subtraction
@@ -73,48 +79,29 @@ class Preprocessor:
 
         """
 
-        if not isinstance( instrument, Instrument ):
-            instrument =  get_instrument_instance( instrument )
-        self.instrument = instrument
-
-        if not isinstance( section, SensorSection ):
-            instrument.fetch_sections()
-            section = instrument.get_section( section )
-        self.section = section
-
-        self.exposure = exposure
-
-        # Get the preprocessing parameters (i.e. flats, biases, etc.) for this instrument / mjd
-        preprocparam = self.instrument.preprocessing_calibrator_params( section.identifier,
-                                                                        exposure.filter_short, exposure.mjd )
-
-        # Update with anything passed
-        preprocparam.update( **kwargs )
-
-        self.pars = ParsPreprocessor( instrument, **preprocparam )
-
+        # Things that get cached
+        self.instrument = None
+        self.stepfilesids = {}
+        self.stepfiles = {}
+        
         # TODO : remove this if/when we actually put sky subtraction in run()
         if self.pars.use_sky_subtraction:
             raise NotImplementedError( "Sky subtraction in preprocessing isn't implemented." )
 
-        if self.pars.steps is None:
-            self.stepstodo = self.instrument.preprocessing_steps
-        else:
-            self.stepstodo = [ s for s in self.instrument.preprocessing_steps if s in self.pars.steps ]
+    def run( self, *args, **kwargs ):
+        """Run preprocessing for a given exposure and section_identifier.
 
-    def run( self, ds=None, session=None ):
-        """Run preprocessing.
+        Parameters are passed to the data_store constructor (see
+        DataStore.parse_args).  For preprocessing, an exposure and a
+        sensorsection is required, so args must be one of:
+          - DataStore (which has an exposure and a section)
+          - exposure_id, seciton_identifier
+          - Exposure, section_identifier
+        Passing just an image won't work.
 
-        Parameters
-        ----------
-        ds : DataStore or None
-          The DataStore object.  If passed, it should be consistent with
-          all of the arguments passed to the object constructor.  (Usually,
-          you would only pass this if you got it as a return value from
-          a previous call to a pipeline or processing step.)
-        session : Session or None
-          Database session.  Required if ds is not None.
-
+        kwargs can also include things that override the preprocessing
+        behavior.  (TODO: document this)
+        
         Returns
         -------
         DataStore
@@ -122,35 +109,86 @@ class Preprocessor:
 
         """
 
-        if ds is None:
-            if session is not None:
-                ds, session = DataStore.from_args( self.exposure, self.section.identifier, session=session )
-            else:
-                ds, session = DataStore.from_args( self.exposure, self.section.identifier )
-            ds.exposure_id = self.exposure.id
+        ds, session = DataStore.from_args( *args, **kwargs )
+        
+        # This is here just for testing purposes
+        self._ds = ds
+        
+        if ( ds.exposure_id is None ) or ( ds.section_id is None ):
+            raise RuntimeError( "Preprocessing requires an exposure and a sensor section" )
+        
+        cfg = Config()
+
+        if ( self.instrument is None ) or ( self.instrument.name != ds.exposure.instrument ):
+            self.instrument = ds.exposure.instrument_object
+
+        # The only reason these are saved in self, rather than being
+        # local variables, is so that tests can probe them
+        self._calibset = None
+        self._flattype = None
+        self._stepstodo = None
+            
+        if 'calibset' in kwargs:
+            self._calibset = kwargs['calibset']
+        elif 'calibratorset' in kwargs:
+            self._calibset = kwargs['calibrator_set']
+        elif self.pars.calibset is not None:
+            self._calibset = self.pars.calibset
         else:
-            if session is not None:
-                raise RuntimeError( "Preprocessor.run: can't pass a Ssession when you pass a pre-existing DataStore" )
-            if ( ds.exposure_id != self.exposure.id ) or ( ds.section.id != self.section.id ):
-                raise RuntimeError( "Passed a DataStore to Preprocessor.run with a non-matching exposure/section" )
-            session = ds.session
+            self._calibset = cfg.value( 'f{instrument.name}.calibratorset',
+                                        default=cfg.value( 'instrument.calibratorset' ) )
+                
+        if 'flattype' in kwargs:
+            self._flattype = kwargs['flattype']
+        elif self.pars.flattype is not None:
+            self._flattype = self.pars.flattype
+        else:
+            self._flattype = cfg.value( f'{instrument.name}.flattype', default=cfg.value( 'instrument.flattype' ) )
 
+        if 'steps' in kwargs:
+            self._stepstodo = [ s for s in self.instrument.preprocessing_steps if s in kwargs['steps'] ]
+        elif self.pars.steps is not None:
+            self._stepstodo = [ s for s in self.instrument.preprocessing_steps if s in self.pars.steps ]
+        else:
+            self._stepstodo = self.instrument.preprocessing_steps
+
+        # Get the calibrator files
+
+        preprocparam = self.instrument.preprocessing_calibrator_params( self._calibset,
+                                                                        self.section.identifier,
+                                                                        ds.exposure.filter,
+                                                                        ds.exposure.mjd,
+                                                                        session = session )
+        
+            
         # get the provenance for this step, using the current parameters:
-        prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
-
+        # Provenance includes not just self.pars.get_critical_pars(),
+        # but also the steps that were performed.  Reason: we may well
+        # load non-flatfielded images in the database for purposes of
+        # collecting images used for later building flats.  We will then
+        # flatfield those images.  The two images in the database must have
+        # different provenances.
+        # We also include any overrides to calibrator files, as that indicates
+        # that something individual happened here that's different from
+        # normal processing of the image.
+        provdict = dict( self.pars.get_critical_pars() )
+        provdict['preprocessing_steps' ] = self.stepstodo
+        prov = ds.get_provenance(self.pars.get_process_name(), provdict, session=session)
+        
         # check if the image already exists in memory or in the database:
         image = ds.get_image(prov, session=session)
 
         if image is None:  # need to make new image
-            # get the CCD image from the exposure
+            # get the single-chip image from the exposure
             image = Image.from_exposure( self.exposure, ds.section_id )
 
         if image is None:
             raise ValueError('Image cannot be None at this point!')
 
-        # Overscan is always first
-        if 'overscan' in self.instrument.preprocessing_steps:
+        # Overscan is always first (as it reshapes the image)
+        if 'overscan' in self.stepstodo:
             image.data = self.instrument.overscan_and_trim( image )
+            image.preproc_bitflag |= string_to_bitflag( 'overscan', image_processing_dict )
         else:
             image.data = image.raw_data
 
@@ -158,44 +196,68 @@ class Preprocessor:
         for step in self.stepstodo:
             if step == 'overscan':
                 continue
-            elif getattr( self.pars, f'{step}_fileid' ) is not None:
-                # Subtract zeros and darks ; divide flats and illumiation
+
+            stepfileid = None
+            # Acquire the calibration file
+            if f'{step}_fileid' in kwargs:
+                stepfileid = kwargs[ f'{step}_fileid' ]
+            elif f'{step}_fileid' in preprocparam:
+                stepfileid = preprocparam[ f'{step}_fileid' ]
+            else:
+                raise RuntimeError( f"Can't find calibration file for preprocessing step {step}" )
+
+            # Use the cached calibrator file for this step if it's the right one; otherwise, grab it
+            if ( stepfileid in self.stepfilesids ) and ( self.stepfilesids[step] == stepfileid ):
+                calibfile = self.stepfiles[ calibfile ]
+            else:
                 if step in [ 'zero', 'dark', 'flat', 'illumination' ]:
-                    if not getattr( self.pars, f'{step}_isimage' ):
-                        raise RuntimeError( f"Expected {step} file to be an image!" )
-                    with SmartSession(session) as dbsess:
-                        calim = ( dbsess.query( Image )
-                                  .filter( Image.id==getattr( self.pars, f'{step}_fileid' ) )
-                                  .first() )
-                    if step in [ 'zero', 'dark' ]:
-                        image.data -= calim.data
-                    else:
-                        image.data /= calim.data
-
-                # TODO FRINGE CORRECTION
-                elif step == 'fringe':
-                    _logger.warning( "Fringe correction not implemented" )
-
-                # Linearity is instrument-specific
+                    calibfile = dbsess.get( Image, stepfileid )
+                    if calibfile is None:
+                        raise RuntimeError( f"Unable to load image id {stepfileid} for preproc step {step}" )
                 elif step == 'linearity':
-                    with SmartSession(session) as dbsess:
-                        lindf = dbsess.get( DataFile, self.pars.linearity_fileid )
-                    self.instrument.linearity_correct( image, linearitydata=lindf )
-
+                    calibfile = dbsess.get( DataFile, stepfileid )
+                    if calibfile is None:
+                        raise RuntimeError( f"Unable to load datafile id {stepfileid} for preproc step {step}" )
                 else:
-                    # TODO: Replace this with a call into an instrument method
-                    raise ValueError( f"Unknown preprocessing step {step}" )
+                    raise ValueError( f"Preprocessing step {step} has an unknown file type (image vs. datafile)" )
+                self.stepfilesids[ step ] = stepfileid
+                self.stepfiles[ step ] = calibfile
 
+            if step in [ 'zero', 'dark' ]:
+                # Subtract zeros and darks
+                image.data -= calfile.data
 
+            elif step in [ 'flat', 'illumination' ]:
+                # Divide flats and illuminations
+                image.data /= calfile.data
+
+            elif step == 'fringe':
+                # TODO FRINGE CORRECTION
+                _logger.warning( "Fringe correction not implemented" )
+
+            elif step == 'linearity':
+                # Linearity is instrument-specific
+                self.instrument.linearity_correct( image, linearitydata=calibfile )
+
+            else:
+                # TODO: Replace this with a call into an instrument method?
+                # In that case, the logic above about acquiring step files
+                # will need to be updated.
+                raise ValueError( f"Unknown preprocessing step {step}" )
+
+            image.preproc_bitflag |= string_to-bitflag( step, image_preprocessing_dict )
+
+        # TODO : Issue #95
+        _logger.warning( "Weight and dataquality flag file creation not yet implemented." )
 
         if image.provenance is None:
             image.provenance = prov
         else:
             if image.provenance.id != prov.id:
+                # Logically, this should never happen
                 raise ValueError('Provenance mismatch for image and provenance!')
 
         ds.image = image
         ds.image.filepath = ds.image.invent_filepath()
 
-        # make sure this is returned to be used in the next step
         return ds

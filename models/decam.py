@@ -325,8 +325,12 @@ class DECam(Instrument):
                 # given a filename, will move that file to where it goes in the local data
                 # storage unless it's already in the right place.)
                 FileOnDiskMixin.save( image, fileabspath )
-                calfile = CalibratorFile( type=calibtype, instrument='DECam', sensor_section=section,
-                                          calibrator_set='DECam Default', image=image )
+                calfile = CalibratorFile( type=calibtype,
+                                          calibrator_set='externally_supplied',
+                                          flat_type='externally_supplied' if calibtype=='flat' else None,
+                                          instrument='DECam',
+                                          sensor_section=section,
+                                          image=image )
                 calfile = calfile.recursive_merge( dbsess )
                 dbsess.add( calfile )
                 dbsess.commit()
@@ -337,8 +341,12 @@ class DECam(Instrument):
                 dbsess.add( datafile )
                 # Linearity file applies for all chips, so load the database accordingly
                 for ssec in self._chip_radec_off.keys():
-                    calfile = CalibratorFile( type='Linearity', instrument='DECam', sensor_section=ssec,
-                                              calibrator_set="DECam Default", datafile=datafile )
+                    calfile = CalibratorFile( type='Linearity',
+                                              calibrator_set="externally_supplied",
+                                              flat_type=None,
+                                              instrument='DECam',
+                                              sensor_section=ssec,
+                                              datafile=datafile )
                     calfile = calfile.recursive_merge( dbsess )
                     dbsess.add( calfile )
                 dbsess.commit()
@@ -347,7 +355,7 @@ class DECam(Instrument):
 
     def linearity_correct( self, *args, linearitydata=None ):
         if not isinstance( linearitydata, DataFile ):
-            raise TypeError( f'DECam.linearity_corret: linearitydata must be a DataFile' )
+            raise TypeError( f'DECam.linearity_correct: linearitydata must be a DataFile' )
 
         if len(args) == 1:
             if not isinstance( args[0], Image ):

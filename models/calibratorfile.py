@@ -30,12 +30,45 @@ class CalibratorFile(Base, AutoIDMixin):
     def type( self, value ):
         self._type = CalibratorTypeConverter.convert( value )
 
-    calibrator_set = sa.Column(
-        sa.Text,
+    _calibrator_set = sa.Column(
+        sa.SMALLINT,
         nullable=False,
-        doc="A string identifying the set of calibrators, which will go into provenance"
+        index=True,
+        default=CalibratorTypeConverter.convert('unknown'),
+        doc="Calibrator set for instrument (unknown, externally_supplied, general, nightly)"
+    ),
+
+    @hybrid_property
+    def calibrator_set( self ):
+        return CalibratorSetConverter.convert( self._type )
+
+    @calibrator_set.expression
+    def calibrator_set( self ):
+        return sa.case( CalibratorSetConverter.dict, value=cls._calibrator_set )
+
+    @calibrator_set.setter
+    def calibrator_set( self, value ):
+        self._calibrator_set = CalibratorSetConverter.convert( value )
+
+    _flat_type = sa.Column(
+        sa.SMALLINT,
+        nullable=True,
+        index=True,
+        doc="Type of flat (unknown, observatory_supplied, sky, twilight, dome), or None if not a flat"
     )
 
+    @hybrid_property
+    def flat_type( self ):
+        return FlatTypeConverter.convert( self._type )
+
+    @flat_type.expression
+    def flat_type( self ):
+        return sa.case( FlatTypeConverter.dict, value=cls._flat_type )
+
+    @flat_type.setter
+    def flat_type( self, value ):
+        self._flat_type = FlatTypeConverter.convert( value )
+    
     instrument = sa.Column(
         sa.Text,
         nullable=False,
