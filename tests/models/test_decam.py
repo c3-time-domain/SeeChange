@@ -306,13 +306,13 @@ def test_overscan( decam_example_raw_image ):
 
     # Make sure it fails if it gets bad arguments
     with pytest.raises( TypeError, match='overscan_and_trim: pass either an Image as one argument' ):
-        junk = decam.overscan_and_trim( 42 )
+        _ = decam.overscan_and_trim( 42 )
     with pytest.raises( RuntimeError, match='overscan_and_trim: pass either an Image as one argument' ):
-        junk = decam.overscan_and_trim()
+        _ = decam.overscan_and_trim()
     with pytest.raises( RuntimeError, match='overscan_and_trim: pass either an Image as one argument' ):
-        junk = decam.overscan_and_trim( 1, 2, 3 )
+        _ = decam.overscan_and_trim( 1, 2, 3 )
     with pytest.raises( TypeError, match="data isn't a numpy array" ):
-        junk = decam.overscan_and_trim( decam_example_raw_image.raw_header, 42 )
+        _ = decam.overscan_and_trim( decam_example_raw_image.raw_header, 42 )
 
     rawdata = decam_example_raw_image.raw_data
     trimmeddata = decam.overscan_and_trim( decam_example_raw_image.raw_header, rawdata )

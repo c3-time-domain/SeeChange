@@ -7,7 +7,7 @@ from models.base import SmartSession
 from models.source_list import SourceList
 
 
-@pytest.mark.skip( reason="slow" )
+# @pytest.mark.skip( reason="slow" )
 def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_extra):
     filenames = []
     with SmartSession() as session:

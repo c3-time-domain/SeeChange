@@ -22,7 +22,7 @@ class DataFile( Base, AutoIDMixin, FileOnDiskMixin ):
         doc=(
             "Provenance of this data file. "
             "The provenance will contain a record of the code version "
-            "and the parameters used to produce this image. "
+            "and the parameters used to produce this file. "
         )
     )
 

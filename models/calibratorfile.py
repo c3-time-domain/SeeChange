@@ -125,5 +125,5 @@ class CalibratorFile(Base, AutoIDMixin):
         index=True,
         doc=( 'The time (of exposure acquisition) for exposures for '
               ' which this calibrator file is no longer.  If None, this '
-              ' calibrator is valid from the beginning of time.' )
+              ' calibrator is valid to the end of time.' )
     )

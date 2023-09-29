@@ -321,7 +321,7 @@ class DECam(Instrument):
                 # Use FileOnDiskMixin.save instead of Image.save here because we're doing
                 # a lower-level operation.  image.save would be if we wanted to read and
                 # save FITS data, but here we just want to have it make sure the file
-                # is in the right place and check it's md5sum.  (FileOnDiskMixin.save, when
+                # is in the right place and check its md5sum.  (FileOnDiskMixin.save, when
                 # given a filename, will move that file to where it goes in the local data
                 # storage unless it's already in the right place.)
                 FileOnDiskMixin.save( image, fileabspath )
