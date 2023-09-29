@@ -101,8 +101,8 @@ def test_overwrite_misc_file():
         # Make sure it fails out if exists_ok is False even though the right file is there
         with pytest.raises( FileExistsError, match='.*already exists and exists_ok is false' ):
             retry_download( url1, fpath, md5sum=md5sum1, exists_ok=False )
-        
+
     finally:
         fpath.unlink()
         assert not fpath.exists()
-        
+

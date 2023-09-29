@@ -11,7 +11,7 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
     # The decam_default_calibrators fixture is included so that
     # _get_default_calibrators won't be called as a side effect of calls
     # to Preprocessor.run().  (To avoid committing.)
-    
+
     preppor = Preprocessor()
     ds = preppor.run( decam_example_exposure, 'N1' )
 
@@ -24,7 +24,7 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
     assert preppor._ds.exposure.filter[:1] == 'g'
     assert preppor._ds.section_id == 'N1'
     assert set( preppor.stepfiles.keys() ) == { 'flat', 'linearity' }
-    
+
     # Flatfielding should have improved the sky noise, though for DECam
     # it looks like this is a really small effect.  I've picked out a
     # seciton that's all sky (though it may be in the wings of a bright
@@ -37,7 +37,7 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
 
     # TODO : other checks that preprocessing did what it was supposed to do?
     # (Look at image header once we have HISTORY adding in there.)
-    
+
     # Test some overriding
 
     preppor = Preprocessor()
@@ -48,4 +48,4 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
     assert preppor._ds.exposure.filter[:1] == 'g'
     assert preppor._ds.section_id == 'N1'
     assert set( preppor.stepfiles.keys() ) == { 'linearity' }
-    
+

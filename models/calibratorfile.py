@@ -69,7 +69,7 @@ class CalibratorFile(Base, AutoIDMixin):
     @flat_type.setter
     def flat_type( self, value ):
         self._flat_type = FlatTypeConverter.convert( value )
-    
+
     instrument = sa.Column(
         sa.Text,
         nullable=False,

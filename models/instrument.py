@@ -391,7 +391,7 @@ class Instrument:
         self.preprocessing_steps = [ 'overscan', 'zero','dark', 'linearity', 'flat', 'fringe', 'illumination' ]
         # nofile_steps are ones that don't have an associated file
         self.preprocessing_nofile_steps = [ 'overscan' ]
-        
+
         # set the attributes from the kwargs
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -1137,7 +1137,7 @@ class Instrument:
         """Get a dictionary of calibrator images/datafiles for a given mjd and sensor section.
 
         MIGHT call session.commit(); see below.
-        
+
         Instruments *may* need to override this.
 
         If a calibrator file doesn't exist for calibset 'default', will
@@ -1148,7 +1148,7 @@ class Instrument:
         instrument's _get_default_calibrator), then the _isimage and
         _fileid values in the return dictionary for that calibrator file
         will be None.
-        
+
         Parameters
         ----------
         calibset: str
@@ -1187,7 +1187,7 @@ class Instrument:
 
         if ( calibset == 'externally_supplied' ) != ( flattype == 'externally_supplied' ):
             raise ValueError( "Doesn't make sense to have only one of calibset and flattype be externally_supplied" )
-        
+
         # Import CalibratorFile here.  We can't import it at the top of
         # the file because calibrator.py imports image.py, image.py
         # imports exposure.py, and exposure.py imports instrument.py --

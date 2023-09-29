@@ -353,7 +353,7 @@ def test_image_preproc_bitflag( demo_image, provenance_base ):
                                                                        image_preprocessing_inverse) )
                        == string_to_bitflag( 'overscan, fringe', image_preprocessing_inverse ) ) )
         assert q.count() == 0
-              
+
 def test_image_badness(demo_image):
 
         # this is not a legit "badness" keyword...

@@ -81,12 +81,12 @@ class Preprocessor:
         """
 
         self.pars = ParsPreprocessor( **kwargs )
-        
+
         # Things that get cached
         self.instrument = None
         self.stepfilesids = {}
         self.stepfiles = {}
-        
+
         # TODO : remove this if/when we actually put sky subtraction in run()
         if self.pars.use_sky_subtraction:
             raise NotImplementedError( "Sky subtraction in preprocessing isn't implemented." )
@@ -104,7 +104,7 @@ class Preprocessor:
 
         kwargs can also include things that override the preprocessing
         behavior.  (TODO: document this)
-        
+
         Returns
         -------
         DataStore
@@ -113,13 +113,13 @@ class Preprocessor:
         """
 
         ds, session = DataStore.from_args( *args, **kwargs )
-        
+
         # This is here just for testing purposes
         self._ds = ds
-        
+
         if ( ds.exposure is None ) or ( ds.section_id is None ):
             raise RuntimeError( "Preprocessing requires an exposure and a sensor section" )
-        
+
         cfg = Config.get()
 
         if ( self.instrument is None ) or ( self.instrument.name != ds.exposure.instrument ):
@@ -130,7 +130,7 @@ class Preprocessor:
         self._calibset = None
         self._flattype = None
         self._stepstodo = None
-            
+
         if 'calibset' in kwargs:
             self._calibset = kwargs['calibset']
         elif 'calibratorset' in kwargs:
@@ -140,7 +140,7 @@ class Preprocessor:
         else:
             self._calibset = cfg.value( f'{self.instrument.name}.calibratorset',
                                         default=cfg.value( 'instrument_default.calibratorset' ) )
-                
+
         if 'flattype' in kwargs:
             self._flattype = kwargs['flattype']
         elif self.pars.flattype is not None:
@@ -164,8 +164,8 @@ class Preprocessor:
                                                                         ds.exposure.filter_short,
                                                                         ds.exposure.mjd,
                                                                         session = session )
-        
-            
+
+
         # get the provenance for this step, using the current parameters:
         # Provenance includes not just self.pars.get_critical_pars(),
         # but also the steps that were performed.  Reason: we may well
@@ -179,7 +179,7 @@ class Preprocessor:
         provdict = dict( self.pars.get_critical_pars() )
         provdict['preprocessing_steps' ] = self._stepstodo
         prov = ds.get_provenance(self.pars.get_process_name(), provdict, session=session)
-        
+
         # check if the image already exists in memory or in the database:
         image = ds.get_image(prov, session=session)
 
@@ -192,7 +192,7 @@ class Preprocessor:
 
         if image.preproc_bitflag is None:
             image.preproc_bitflag = 0
-        
+
         # Overscan is always first (as it reshapes the image)
         if 'overscan' in self._stepstodo:
             image.data = self.instrument.overscan_and_trim( image )
@@ -218,7 +218,7 @@ class Preprocessor:
                 _logger.warning( f"Skipping step {step} for filter {ds.exposure.filter_short} "
                                  f"because there is no calibration file (this may be normal)" )
                 continue
-                
+
             # Use the cached calibrator file for this step if it's the right one; otherwise, grab it
             if ( stepfileid in self.stepfilesids ) and ( self.stepfilesids[step] == stepfileid ):
                 calibfile = self.stepfiles[ calibfile ]

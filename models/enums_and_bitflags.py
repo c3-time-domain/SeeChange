@@ -184,7 +184,7 @@ class CalibratorSetConverter( EnumConverter ):
         2: 'general',             # A calib file you built yourself and use for a long time
         3: 'nightly'              # A calib built each night (or for a very limited mjd range)
     }
-    
+
 class FlatTypeConverter( EnumConverter ):
     _dict = {
         0: 'unknown',
