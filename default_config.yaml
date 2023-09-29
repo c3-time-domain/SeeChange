@@ -84,7 +84,7 @@ measurement:
 
 # Specific configuration for specific instruments
 # Instruments should override the two defaults from
-# instrument_defaults; they may add additional
+# instrument_default; they may add additional
 # configuration that their code needs.
 
 instrument_default:
@@ -102,7 +102,7 @@ instrument_default:
 # individually.  These can be found on Perlmutter at
 # /global/cfs/dirs/m2218/www/decam_calibration_files
 
-decam:
+DECam:
   calibratorset: externally_supplied
   flattype: externally_supplied
   calibfiles:

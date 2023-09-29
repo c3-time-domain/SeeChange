@@ -3,11 +3,12 @@ from types import SimpleNamespace
 import numpy as np
 import sqlalchemy as sa
 
-from models.base import SmartSession
+from models.base import SmartSession, _logger
 from models.exposure import Exposure, ExposureImageIterator
 from models.image import Image
 from models.datafile import DataFile
 from models.instrument import get_instrument_instance, Instrument, SensorSection
+from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -79,6 +80,8 @@ class Preprocessor:
 
         """
 
+        self.pars = ParsPreprocessor( **kwargs )
+        
         # Things that get cached
         self.instrument = None
         self.stepfilesids = {}
@@ -114,10 +117,10 @@ class Preprocessor:
         # This is here just for testing purposes
         self._ds = ds
         
-        if ( ds.exposure_id is None ) or ( ds.section_id is None ):
+        if ( ds.exposure is None ) or ( ds.section_id is None ):
             raise RuntimeError( "Preprocessing requires an exposure and a sensor section" )
         
-        cfg = Config()
+        cfg = Config.get()
 
         if ( self.instrument is None ) or ( self.instrument.name != ds.exposure.instrument ):
             self.instrument = ds.exposure.instrument_object
@@ -135,15 +138,16 @@ class Preprocessor:
         elif self.pars.calibset is not None:
             self._calibset = self.pars.calibset
         else:
-            self._calibset = cfg.value( 'f{instrument.name}.calibratorset',
-                                        default=cfg.value( 'instrument.calibratorset' ) )
+            self._calibset = cfg.value( f'{self.instrument.name}.calibratorset',
+                                        default=cfg.value( 'instrument_default.calibratorset' ) )
                 
         if 'flattype' in kwargs:
             self._flattype = kwargs['flattype']
         elif self.pars.flattype is not None:
             self._flattype = self.pars.flattype
         else:
-            self._flattype = cfg.value( f'{instrument.name}.flattype', default=cfg.value( 'instrument.flattype' ) )
+            self._flattype = cfg.value( f'{self.instrument.name}.flattype',
+                                        default=cfg.value( 'instrument_default.flattype' ) )
 
         if 'steps' in kwargs:
             self._stepstodo = [ s for s in self.instrument.preprocessing_steps if s in kwargs['steps'] ]
@@ -155,8 +159,9 @@ class Preprocessor:
         # Get the calibrator files
 
         preprocparam = self.instrument.preprocessing_calibrator_params( self._calibset,
-                                                                        self.section.identifier,
-                                                                        ds.exposure.filter,
+                                                                        self._flattype,
+                                                                        ds.section_id,
+                                                                        ds.exposure.filter_short,
                                                                         ds.exposure.mjd,
                                                                         session = session )
         
@@ -172,7 +177,7 @@ class Preprocessor:
         # that something individual happened here that's different from
         # normal processing of the image.
         provdict = dict( self.pars.get_critical_pars() )
-        provdict['preprocessing_steps' ] = self.stepstodo
+        provdict['preprocessing_steps' ] = self._stepstodo
         prov = ds.get_provenance(self.pars.get_process_name(), provdict, session=session)
         
         # check if the image already exists in memory or in the database:
@@ -180,20 +185,23 @@ class Preprocessor:
 
         if image is None:  # need to make new image
             # get the single-chip image from the exposure
-            image = Image.from_exposure( self.exposure, ds.section_id )
+            image = Image.from_exposure( ds.exposure, ds.section_id )
 
         if image is None:
             raise ValueError('Image cannot be None at this point!')
 
+        if image.preproc_bitflag is None:
+            image.preproc_bitflag = 0
+        
         # Overscan is always first (as it reshapes the image)
-        if 'overscan' in self.stepstodo:
+        if 'overscan' in self._stepstodo:
             image.data = self.instrument.overscan_and_trim( image )
-            image.preproc_bitflag |= string_to_bitflag( 'overscan', image_processing_dict )
+            image.preproc_bitflag |= string_to_bitflag( 'overscan', image_preprocessing_inverse )
         else:
             image.data = image.raw_data
 
         # Apply steps in the order expected by the instrument
-        for step in self.stepstodo:
+        for step in self._stepstodo:
             if step == 'overscan':
                 continue
 
@@ -206,30 +214,36 @@ class Preprocessor:
             else:
                 raise RuntimeError( f"Can't find calibration file for preprocessing step {step}" )
 
+            if stepfileid is None:
+                _logger.warning( f"Skipping step {step} for filter {ds.exposure.filter_short} "
+                                 f"because there is no calibration file (this may be normal)" )
+                continue
+                
             # Use the cached calibrator file for this step if it's the right one; otherwise, grab it
             if ( stepfileid in self.stepfilesids ) and ( self.stepfilesids[step] == stepfileid ):
                 calibfile = self.stepfiles[ calibfile ]
             else:
-                if step in [ 'zero', 'dark', 'flat', 'illumination' ]:
-                    calibfile = dbsess.get( Image, stepfileid )
-                    if calibfile is None:
-                        raise RuntimeError( f"Unable to load image id {stepfileid} for preproc step {step}" )
-                elif step == 'linearity':
-                    calibfile = dbsess.get( DataFile, stepfileid )
-                    if calibfile is None:
-                        raise RuntimeError( f"Unable to load datafile id {stepfileid} for preproc step {step}" )
-                else:
-                    raise ValueError( f"Preprocessing step {step} has an unknown file type (image vs. datafile)" )
+
+                with SmartSession( session ) as session:
+                    if step in [ 'zero', 'dark', 'flat', 'illumination', 'fringe' ]:
+                        calibfile = session.get( Image, stepfileid )
+                        if calibfile is None:
+                            raise RuntimeError( f"Unable to load image id {stepfileid} for preproc step {step}" )
+                    elif step == 'linearity':
+                        calibfile = session.get( DataFile, stepfileid )
+                        if calibfile is None:
+                            raise RuntimeError( f"Unable to load datafile id {stepfileid} for preproc step {step}" )
+                    else:
+                        raise ValueError( f"Preprocessing step {step} has an unknown file type (image vs. datafile)" )
                 self.stepfilesids[ step ] = stepfileid
                 self.stepfiles[ step ] = calibfile
-
             if step in [ 'zero', 'dark' ]:
                 # Subtract zeros and darks
-                image.data -= calfile.data
+                image.data -= calibfile.data
 
             elif step in [ 'flat', 'illumination' ]:
                 # Divide flats and illuminations
-                image.data /= calfile.data
+                image.data /= calibfile.data
 
             elif step == 'fringe':
                 # TODO FRINGE CORRECTION
@@ -245,7 +259,7 @@ class Preprocessor:
                 # will need to be updated.
                 raise ValueError( f"Unknown preprocessing step {step}" )
 
-            image.preproc_bitflag |= string_to-bitflag( step, image_preprocessing_dict )
+            image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
 
         # TODO : Issue #95
         _logger.warning( "Weight and dataquality flag file creation not yet implemented." )

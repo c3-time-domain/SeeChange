@@ -18,6 +18,7 @@ from models.base import SmartSession
 from models.exposure import Exposure
 from models.image import Image
 from models.instrument import Instrument, get_instrument_instance
+from models.enums_and_bitflags import image_preprocessing_dict, image_preprocessing_inverse, string_to_bitflag
 
 # Have to have this here; otherwise, decam.py never gets loaded, and
 # DECam never gets added to the global instrument.INSTRUMENT_INSTANCE_CACHE
@@ -311,7 +312,48 @@ def test_image_enum_values(exposure, demo_image, provenance_base):
                 if len(os.listdir(folder)) == 0:
                     os.rmdir(folder)
 
+def test_image_preproc_bitflag( demo_image, provenance_base ):
 
+    with SmartSession() as session:
+        demo_image.provenance = provenance_base
+        demo_image.filepath = demo_image.invent_filepath()
+        im = demo_image.recursive_merge( session )
+        session.add( im  )
+        # Need to do this for the defaults to get set
+        # It will be removed from the database in
+        # demo_image teardown
+        session.commit()
+
+        assert im.preproc_bitflag == 0
+        im.preproc_bitflag |= string_to_bitflag( 'zero', image_preprocessing_inverse )
+        assert im.preproc_bitflag == string_to_bitflag( 'zero', image_preprocessing_inverse )
+        im.preproc_bitflag |= string_to_bitflag( 'flat', image_preprocessing_inverse )
+        assert im.preproc_bitflag == string_to_bitflag( 'zero, flat', image_preprocessing_inverse )
+        im.preproc_bitflag |= string_to_bitflag( 'flat, overscan', image_preprocessing_inverse )
+        assert im.preproc_bitflag == string_to_bitflag( 'overscan, zero, flat', image_preprocessing_inverse )
+
+        q = ( session.query( Image.filepath )
+              .filter( Image.preproc_bitflag.op('&')(string_to_bitflag('zero', image_preprocessing_inverse) )
+                       != 0 ) )
+        assert (im.filepath,) in q.all()
+        q = ( session.query( Image.filepath )
+              .filter( Image.preproc_bitflag.op('&')(string_to_bitflag('zero,flat', image_preprocessing_inverse) )
+                       !=0 ) )
+        assert (im.filepath,) in q.all()
+        q = ( session.query( Image.filepath )
+              .filter( Image.preproc_bitflag.op('&')(string_to_bitflag('zero, flat', image_preprocessing_inverse ) )
+                       == string_to_bitflag( 'flat, zero', image_preprocessing_inverse ) ) )
+        assert (im.filepath,) in q.all()
+        q = ( session.query( Image.filepath )
+              .filter( Image.preproc_bitflag.op('&')(string_to_bitflag('fringe', image_preprocessing_inverse) )
+                       !=0 ) )
+        assert (im.filepath,) not in q.all()
+        q = ( session.query( Image.filepath )
+              .filter( Image.preproc_bitflag.op('&')(string_to_bitflag('fringe, overscan',
+                                                                       image_preprocessing_inverse) )
+                       == string_to_bitflag( 'overscan, fringe', image_preprocessing_inverse ) ) )
+        assert q.count() == 0
+              
 def test_image_badness(demo_image):
 
         # this is not a legit "badness" keyword...

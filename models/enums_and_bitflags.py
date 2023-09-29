@@ -334,3 +334,4 @@ image_preprocessing_dict = {
     5: 'fringe',
     6: 'illumination'
 }
+image_preprocessing_inverse = {EnumConverter.c(v):k for k, v in image_preprocessing_dict.items()}

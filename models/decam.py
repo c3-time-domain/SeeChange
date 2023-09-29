@@ -288,20 +288,20 @@ class DECam(Instrument):
         datadir = pathlib.Path( FileOnDiskMixin.local_path ) / reldatadir
 
         if calibtype == 'flat':
-            rempath = pathlib.Path( f'{cfg.value("decam.calibfiles.flatbase")}-'
+            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.flatbase")}-'
                                     f'{filter}I_ci_{filter}_{self._chip_radec_off[section]["ccdnum"]:02d}.fits' )
         elif calibtype == 'fringe':
             if filter not in [ 'z', 'Y' ]:
                 return None
-            rempath = pathlib.Path( f'{cfg.value("decam.calibfiles.fringebase")}-'
+            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.fringebase")}-'
                                     f'{filter}G_ci_{filter}_{self._chip_radec_off[section]["ccdnum"]:02d}.fits' )
         elif calibtype == 'linearity':
-            rempath = pathlib.Path( cfg.value( "decam.calibfiles.linearity" ) )
+            rempath = pathlib.Path( cfg.value( "DECam.calibfiles.linearity" ) )
         else:
             # Other types don't have calibrators for DECam
             return None
 
-        url = f'{cfg.value("decam.calibfiles.urlbase")}{str(rempath)}'
+        url = f'{cfg.value("DECam.calibfiles.urlbase")}{str(rempath)}'
         filepath = reldatadir / calibtype / rempath.name
         fileabspath = datadir / calibtype / rempath.name
 
@@ -310,7 +310,7 @@ class DECam(Instrument):
         with SmartSession( session ) as dbsess:
             if calibtype in [ 'flat', 'fringe' ]:
                 dbtype = 'Fringe' if calibtype=='fringe' else 'SkyFlat'
-                mjd = float( cfg.value( "decam.calibfiles.mjd" ) )
+                mjd = float( cfg.value( "DECam.calibfiles.mjd" ) )
                 image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
                                telescope='CTIO4m', filter=filter, section_id=section, filepath=str(filepath),
                                mjd=mjd, end_mjd=mjd,

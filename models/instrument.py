@@ -1133,7 +1133,7 @@ class Instrument:
 
         return None
 
-    def preprocessing_calibrator_params( self, calibset, flattype, section, filter, mjd, session=None ):
+    def preprocessing_calibrator_params( self, calibset, flattype, section, filter, mjd, nofetch=False, session=None ):
         """Get a dictionary of calibrator images/datafiles for a given mjd and sensor section.
 
         MIGHT call session.commit(); see below.
@@ -1154,19 +1154,21 @@ class Instrument:
         calibset: str
           The calibrator set, one of the values in the CalibratorSetConverter enum
         flattype: str
-          The flatfield type, one of the values in the FlatTypeConverter enum
+          The flatfield type, one of the values in the FlatTypeConverter
+          enum; if and only if calibset is externally_supplied, then
+          flattype must be externally_supplied.
         section: str
           The name of the SensorSection
         filter: str
           The filter (can be None for some types, e.g. zero, linearity)
         mjd: float
           The mjd where the calibrator params are valid
-        nodefault: bool
-          If True, and a calibrator file isn't found, will call the
-          instrument's _get_default_calibrator method to download a
-          default calibrator if one exists.  If False (default), won't
-          do that, and will return None if there's not something in the
-          database already.
+        nofetch: bool
+          If True, will only search the database for an
+          externally_supplied calibrator.  If False (default), will call
+          the instrument's _get_default_calibrators method if an
+          externally_supplied calibrator isn't found in the database.
+          Ignored if calibset is not externally_supplied.
         session: Session
 
         Returns
@@ -1207,26 +1209,27 @@ class Instrument:
                 # at once, both not find it, and both call _get_default_calibrator
                 # to try to add the same calibrator file.
                 try:
-                    if calibset == 'externally_supplied':
+                    if ( calibset == 'externally_supplied' ) and ( not nofetch ):
                         session.connection().execute( sa.text( 'LOCK TABLE calibrator_files' ) )
                     calibquery = ( session.query( CalibratorFile )
-                                   .filter( CalibratorFile.calibrator_set=calibset )
-                                   .filter( CalibratorFile.instrument==self.name )
-                                   .filter( CalibratorFile.type==calibtype )
-                                   .filter( CalibratorFile.sensor_section==section )
+                                   .filter( CalibratorFile.calibrator_set == calibset )
+                                   .filter( CalibratorFile.instrument == self.name )
+                                   .filter( CalibratorFile.type == calibtype )
+                                   .filter( CalibratorFile.sensor_section == section )
                                    .filter( sa.or_( CalibratorFile.validity_start == None,
                                                     CalibratorFile.validity_start <= expdatetime ) )
                                    .filter( sa.or_( CalibratorFile.validity_end == None,
                                                     CalibratorFile.validity_end >= expdatetime ) )
                                   )
                     if calibtype == 'flat':
-                        calibquery = calibquery.filter( CalibratorFile.flat_type = flattype )
+                        calibquery = calibquery.filter( CalibratorFile.flat_type == flattype )
                     if ( calibtype in [ 'flat', 'fringe', 'illumination' ] ) and ( filter is not None ):
-                        calibquery = calibquery.join( Image ).filter( Image.filter==filter )
+                        calibquery = calibquery.join( Image ).filter( Image.filter == filter )
 
                     calib = None
-                    if ( calibquery.count() == 0 ) and ( not nodefault ):
-                        calib = self._get_default_calibrator( mjd, section, calibtype=calibtype, filter=filter,
+                    if ( calibquery.count() == 0 ) and ( calibset == 'externally_supplied' ) and ( not nofetch ):
+                        calib = self._get_default_calibrator( mjd, section, calibtype=calibtype,
+                                                              filter=self.get_short_filter_name( filter ),
                                                               session=session )
                     else:
                         if calibquery.count() > 1:
@@ -1241,15 +1244,13 @@ class Instrument:
                     # unlocked the table.  But, if it wasn't called,
                     # then the table would remain locked; to avoid that,
                     # rollback here.
-                    if calibset == 'externally_supplied':
+                    if ( calibset == 'externally_supplied' ) and ( not nofetch ):
                         session.rollback()
 
                 if calib is None:
                     params[ f'{calibtype}_isimage' ] = False
                     params[ f'{calibtype}_fileid'] = None
-                    params[ f'{calibtype}_set' ] = None
                 else:
-                    params[ f'{calibtype}_set' ] = calib.calibrator_set
                     if calib.image_id is not None:
                         params[ f'{calibtype}_isimage' ] = True
                         params[ f'{calibtype}_fileid' ] = calib.image_id

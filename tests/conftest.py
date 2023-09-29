@@ -456,7 +456,8 @@ def decam_default_calibrators():
     with SmartSession() as session:
         for sec in [ 'N1', 'S1' ]:
             for filt in [ 'r', 'i', 'z' ]:
-                info = decam.preprocessing_calibrator_params( sec, filt, 60000, nodefault=True, session=session )
+                info = decam.preprocessing_calibrator_params( 'externally_supplied', 'externally_supplied',
+                                                              sec, filt, 60000, nofetch=True, session=session )
                 for filetype in [ 'zero', 'flat', 'dark', 'fringe', 'illumination', 'linearity' ]:
                     if ( f'{filetype}_fileid' in info ) and ( info[ f'{filetype}_fileid' ] is not None ):
                         if info[ f'{filetype}_isimage' ]:

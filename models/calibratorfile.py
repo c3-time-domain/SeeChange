@@ -5,7 +5,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from models.base import Base, AutoIDMixin
 from models.image import Image
 from models.datafile import DataFile
-from models.enums_and_bitflags import CalibratorTypeConverter
+from models.enums_and_bitflags import CalibratorTypeConverter, CalibratorSetConverter, FlatTypeConverter
 
 class CalibratorFile(Base, AutoIDMixin):
     __tablename__ = 'calibrator_files'
@@ -36,14 +36,14 @@ class CalibratorFile(Base, AutoIDMixin):
         index=True,
         default=CalibratorTypeConverter.convert('unknown'),
         doc="Calibrator set for instrument (unknown, externally_supplied, general, nightly)"
-    ),
+    )
 
     @hybrid_property
     def calibrator_set( self ):
         return CalibratorSetConverter.convert( self._type )
 
     @calibrator_set.expression
-    def calibrator_set( self ):
+    def calibrator_set( cls ):
         return sa.case( CalibratorSetConverter.dict, value=cls._calibrator_set )
 
     @calibrator_set.setter
@@ -61,8 +61,9 @@ class CalibratorFile(Base, AutoIDMixin):
     def flat_type( self ):
         return FlatTypeConverter.convert( self._type )
 
-    @flat_type.expression
-    def flat_type( self ):
+    @flat_type.inplace.expression
+    @classmethod
+    def flat_type( cls ):
         return sa.case( FlatTypeConverter.dict, value=cls._flat_type )
 
     @flat_type.setter

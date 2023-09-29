@@ -22,7 +22,7 @@ from models.enums_and_bitflags import (
     ImageTypeConverter,
     image_badness_inverse,
     data_badness_dict,
-    image_processing_dict,
+    image_preprocessing_dict,
     string_to_bitflag,
     bitflag_to_string,
 )
@@ -320,7 +320,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         doc='Name of the target object or field id. '
     )
 
-    _preproc_bitflag = sa.Column(
+    preproc_bitflag = sa.Column(
         sa.SMALLINT,
         nullable=False,
         default=0,
@@ -328,18 +328,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         doc='Bitflag specifying which preprocessing steps have been completed for the image.'
     )
 
-    @hybrid_property
-    def preproc_bitflag( self ):
-        return bitflag_to_string( self._preproc_bitflag, image_processing_dict )
-
-    @preproc_bitflag.expression
-    def preproc_bitflag( cls ):
-        return string_to_bitflag( cls._preproc_bitflag, image_processing_dict )
-
-    @preproc_bitflag.setter
-    def preproc_bitflag( self, value ):
-        self._preproc_bitflag = string_to_bitflag( value, image_processing_dict )
-    
     _bitflag = sa.Column(
         sa.BIGINT,
         nullable=False,

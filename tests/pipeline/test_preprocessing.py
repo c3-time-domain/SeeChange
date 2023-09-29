@@ -7,12 +7,24 @@ from astropy.io import fits
 import models.decam
 
 
-def test_preprocessing( decam_example_exposure ):
-    preppor = Preprocessor( 'DECam', 'N1', decam_example_exposure )
-    ds = preppor.run()
+def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
+    # The decam_default_calibrators fixture is included so that
+    # _get_default_calibrators won't be called as a side effect of calls
+    # to Preprocessor.run().  (To avoid committing.)
+    
+    preppor = Preprocessor()
+    ds = preppor.run( decam_example_exposure, 'N1' )
 
     # fits.writeto( 'preprocessed.fits', ds.image.data, header=ds.image.raw_header, overwrite=True )
 
+    # Check some Preprocesor internals
+    assert preppor._calibset == 'externally_supplied'
+    assert preppor._flattype == 'externally_supplied'
+    assert preppor._stepstodo == [ 'overscan', 'linearity', 'flat', 'fringe' ]
+    assert preppor._ds.exposure.filter[:1] == 'g'
+    assert preppor._ds.section_id == 'N1'
+    assert set( preppor.stepfiles.keys() ) == { 'flat', 'linearity' }
+    
     # Flatfielding should have improved the sky noise, though for DECam
     # it looks like this is a really small effect.  I've picked out a
     # seciton that's all sky (though it may be in the wings of a bright
@@ -22,3 +34,18 @@ def test_preprocessing( decam_example_exposure ):
     rawsec = ds.image.raw_data[ 2226:2267, 267+56:308+56 ]
     flatsec = ds.image.data[ 2226:2267, 267:308 ]
     assert flatsec.std() < rawsec.std()
+
+    # TODO : other checks that preprocessing did what it was supposed to do?
+    # (Look at image header once we have HISTORY adding in there.)
+    
+    # Test some overriding
+
+    preppor = Preprocessor()
+    ds = preppor.run( decam_example_exposure, 'N1', steps=['overscan','linearity'] )
+    assert preppor._calibset == 'externally_supplied'
+    assert preppor._flattype == 'externally_supplied'
+    assert preppor._stepstodo == [ 'overscan', 'linearity' ]
+    assert preppor._ds.exposure.filter[:1] == 'g'
+    assert preppor._ds.section_id == 'N1'
+    assert set( preppor.stepfiles.keys() ) == { 'linearity' }
+    
