@@ -52,11 +52,12 @@ def diskfile( diskfiletable ):
 
     with SmartSession() as session:
         df = session.merge( df )
-        df.remove_data_from_disk( remove_folders=True, purge_archive=True, nocommit=True )
+        df.remove_data_from_disk( remove_folders=True )
         if sa.inspect( df ).persistent:
             session.delete( df )
         session.expunge( df )
         session.commit()
+
 
 def test_fileondisk_save_failuremodes( diskfile ):
     data1 = numpy.random.rand( 32 ).tobytes()
@@ -174,7 +175,7 @@ def test_fileondisk_save_singlefile( diskfile, archive ):
         assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
 
     # Verify that we can delete from disk without deleting from the archive
-    diskfile.remove_data_from_disk( purge_archive=False )
+    diskfile.remove_data_from_disk()
     assert diskfile.md5sum.hex == md5sum1
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath(), 'rb' )
@@ -193,17 +194,20 @@ def test_fileondisk_save_singlefile( diskfile, archive ):
         path = diskfile.get_fullpath( nofile=False, always_verify_md5=True )
 
     # Clean up for further tests
-    diskfile.remove_data_from_disk( purge_archive=True )
+    filename = diskfile.get_fullpath()
+    filepath = diskfile.filepath
+    diskfile.delete_from_disk_and_database()
     with pytest.raises( FileNotFoundError ):
-        ifp = open( diskfile.get_fullpath(), 'rb' )
+        ifp = open( filename, 'rb' )
         ifp.close()
     with pytest.raises( FileNotFoundError ):
         ifp = open( f'{archivebase}{diskfile.filepath}', 'rb' )
         ifp.close()
 
     # Make sure that saving is happy if the file is already on disk in place
-    with open( diskfile.get_fullpath(), 'wb' ) as ofp:
+    with open( filename, 'wb' ) as ofp:
         ofp.write( data1 )
+    diskfile.filepath = filepath  # this would usually be calculated by the subclass using invent_filepath
     diskfile.save( data1, overwrite=False, exists_ok=True, verify_md5=True )
     assert diskfile.md5sum.hex == md5sum1
     with open( diskfile.get_fullpath(), 'rb' ) as ifp:
@@ -340,7 +344,7 @@ def test_fileondisk_save_multifile( diskfile, archive ):
             assert md5sum2 == hashlib.md5( ifp.read() ).hexdigest()
 
         # Make sure we can delete without purging the archive
-        diskfile.remove_data_from_disk( purge_archive=False )
+        diskfile.remove_data_from_disk()
         assert diskfile.filepath_extensions == [ '_1.dat', '_2.dat' ]
         assert diskfile.md5sum_extensions == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
         assert diskfile.md5sum == None
@@ -369,13 +373,12 @@ def test_fileondisk_save_multifile( diskfile, archive ):
 
     finally:
         # Delete it all
-        diskfile.remove_data_from_disk( purge_archive=True )
-        assert diskfile.filepath_extensions == [ '_1.dat', '_2.dat' ]
-        assert diskfile.md5sum_extensions == [ None, None ]
-        assert diskfile.md5sum == None
         paths = diskfile.get_fullpath()
-        assert paths == [ f'{diskfile.local_path}/{diskfile.filepath}_1.dat',
-                          f'{diskfile.local_path}/{diskfile.filepath}_2.dat' ]
+        diskfile.delete_from_disk_and_database()
+        assert diskfile.filepath_extensions is None
+        assert diskfile.md5sum_extensions is None
+        assert diskfile.md5sum is None
+        assert diskfile.get_fullpath() is None
         with pytest.raises( FileNotFoundError ):
             ifp = open( paths[0], 'rb' )
             ifp.close()
@@ -393,6 +396,7 @@ def test_fileondisk_save_multifile( diskfile, archive ):
     # (Many of those code paths were already tested in the previous test,
     # but it would be good to verify that they work as expected with
     # multi-file saves.)
+
 
 def test_fileondisk_save_multifile_noarchive( diskfile ):
     # Verify that the md5sum of a file gets set when saving to a disk
@@ -418,6 +422,7 @@ def test_fileondisk_save_multifile_noarchive( diskfile ):
     finally:
         cfg.set_value( 'archive', origcfgarchive )
         models.base.ARCHIVE = origarchive
+
 
 def test_fourcorners_sort_radec():
     ras = [ 0, 1, 0, 1 ]

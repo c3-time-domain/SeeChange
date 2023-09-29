@@ -260,7 +260,7 @@ def get_archive_object():
     return ARCHIVE
 
 
-class FileOnDiskMixin():
+class FileOnDiskMixin:
     """Mixin for objects that refer to files on disk.
 
     Files are assumed to live on the local disk (underneath the
@@ -402,12 +402,16 @@ class FileOnDiskMixin():
         doc="md5sum of extension files; must have same number of elements as filepath_extensions"
     )
 
-    __table_args__ = (
-        CheckConstraint(
-            sqltext='NOT(md5sum IS NULL AND md5sum_extensions IS NULL)',
-            name='md5sum_or_md5sum_extensions_check'
-        ),
-    )
+    # ref: https://docs.sqlalchemy.org/en/20/orm/declarative_mixins.html#creating-indexes-with-mixins
+    @declared_attr
+    def __table_args__(cls):
+        return (
+            CheckConstraint(
+                sqltext='NOT(md5sum IS NULL AND '
+                        '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                name=f'{cls.__tablename__}_md5sum_check'
+            ),
+        )
 
     def __init__(self, *args, **kwargs):
         """
@@ -640,7 +644,7 @@ class FileOnDiskMixin():
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
         """Save a file to disk, and to the archive.
 
-        Parametrs
+        Parameters
         ---------
         data: bytes, string, or Path
           The data to be saved
@@ -907,37 +911,20 @@ class FileOnDiskMixin():
             else:
                 self.md5sum = remmd5
 
-    def remove_data_from_disk(self, remove_folders=True, purge_archive=False, session=None, nocommit=False):
+    def remove_data_from_disk(self, remove_folders=True):
 
-        """Delete the data from disk, if it exists.
+        """Delete the data from local disk, if it exists.
         If remove_folders=True, will also remove any folders
         if they are empty after the deletion.
+
+        To remove both the files and the database entry, use
+        delete_from_disk_and_database() instead.
 
         Parameters
         ----------
         remove_folders: bool
             If True, will remove any folders on the path to the files
             associated to this object, if they are empty.
-        purge_archive: bool
-            If True, will also remove these files from the archive.
-            Make this True when deleteing a file from the database. 
-            Make this False when you're just cleaning up local storage.
-        session: an sqlalchemy session, or None
-            Database session -- IMPORTANT: if you call this method
-            when a database session has a transaction in progress,
-            pass that session here, otherwise you'll likely get
-            database deadlocks.
-        nocommit: bool
-            Don't commit the md5sum changes to the database. WARNING:
-            only use this if the calling function is going to commit the
-            self object to the database shortly after calling this
-            method!  Otherwise, the database will get out of sync from
-            the reality of the archive.  This argument is here so that
-            this method may be called inside a database transaction that
-            is doing things that would lead to problems (e.g. deleting
-            some things that other things that won't be deleted until
-            later refer to via foreign keys).
-
         """
         if self.filepath is None:
             return
@@ -953,20 +940,60 @@ class FileOnDiskMixin():
                             os.rmdir(folder)
                         else:
                             break
-        if purge_archive:
+
+    def delete_from_disk_and_database(self, session=None, commit=True, remove_folders=True):
+        """
+        Delete the data from disk, archive and the database.
+        Use this to clean up an entry from all locations.
+        Will delete the object from the DB using the given session
+        (or using an internal session).
+        If using an internal session, commit must be True,
+        to allow the change to be committed before closing it.
+
+        This will silently continue if the file does not exist
+        (locally or on the archive), or if it isn't on the database,
+        and will attempt to delete from any locations regardless
+        of if it existed elsewhere or not.
+
+        Parameters
+        ----------
+        session: sqlalchemy session
+            The session to use for the deletion. If None, will open a new session,
+            which will also close at the end of the call.
+        commit: bool
+            Whether to commit the deletion to the database.
+            Default is True. When session=None then commit must be True,
+            otherwise the session will exit without committing
+            (in this case the function will raise a RuntimeException).
+        remove_folders: bool
+            If True, will remove any folders on the path to the files
+            associated to this object, if they are empty.
+        """
+
+        if session is None and not commit:
+            raise RuntimeError("When session=None, commit must be True!")
+
+        self.remove_data_from_disk(remove_folders=remove_folders)
+
+        if self.filepath is not None:
             if self.filepath_extensions is None:
                 self.archive.delete( self.filepath, okifmissing=True )
             else:
                 for ext in self.filepath_extensions:
                     self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
-            self.md5sum = None
-            if self.filepath_extensions is not None:
-                self.md5sum_extensions = [ None for i in range(len(self.filepath_extensions)) ]
-            # If this image is in the database, make sure the database md5sum fields are updated
-            if not nocommit:
-                with SmartSession(session) as smsess:
-                    safe_merge( smsess, self )
-                    smsess.commit()
+
+        # make sure these are set to null just in case we fail
+        # to commit later on, we will at least know something is wrong
+        self.md5sum = None
+        self.md5sum_extensions = None
+        self.filepath_extensions = None
+        self.filepath = None
+
+        with SmartSession(session) as session:
+            if sa.inspect(self).persistent:
+                session.delete(self)
+                if commit:
+                    session.commit()
 
 
 def safe_mkdir(path):
@@ -1035,6 +1062,7 @@ class SpatiallyIndexed:
                                                 fourcorn.ra_corner_01, fourcorn.dec_corner_01,
                                                 fourcorn.ra_corner_11, fourcorn.dec_corner_11,
                                                 fourcorn.ra_corner_10, fourcorn.dec_corner_10 ] ) )
+
 
 class FourCorners:
     """A mixin for tables that have four RA/Dec corners"""
@@ -1205,6 +1233,7 @@ class FourCorners:
             raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
 
         return func.q3c_radial_query( self.ra, self.dec, ra, dec, rad )
+
 
 if __name__ == "__main__":
     pass

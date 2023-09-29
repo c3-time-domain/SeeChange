@@ -1,7 +1,7 @@
 """calibrator_data_files
 
 Revision ID: 32690eb49d8d
-Revises: 1dc72cec60ad
+Revises: afc54edee946
 Create Date: 2023-09-29 17:34:10.839608
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '32690eb49d8d'
-down_revision = '1dc72cec60ad'
+down_revision = 'afc54edee946'
 branch_labels = None
 depends_on = None
 

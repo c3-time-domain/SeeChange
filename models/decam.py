@@ -4,6 +4,7 @@ import math
 import time
 import copy
 import pathlib
+import traceback
 import hashlib
 import logging
 import requests

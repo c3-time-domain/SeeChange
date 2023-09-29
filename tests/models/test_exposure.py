@@ -1,6 +1,7 @@
 import os
 import pytest
 import re
+import uuid
 
 import numpy as np
 from datetime import datetime
@@ -29,6 +30,7 @@ def test_exposure_no_null_values():
         'mjd': 58392.1,
         'exp_time': 30,
         'filter': 'r',
+        'md5sum': uuid.UUID('00000000-0000-0000-0000-000000000000'),
         'ra': np.random.uniform(0, 360),
         'dec': np.random.uniform(-90, 90),
         'instrument': 'DemoInstrument',
@@ -60,9 +62,12 @@ def test_exposure_no_null_values():
                     exposure_id = e.id
                 session.rollback()
 
-                if "check constraint" in str(exc.value):
+                if 'check constraint "exposures_filter_or_array_check"' in str(exc.value):
                     # the constraint on the filter is either filter or filter array must be not-null
                     colname = 'filter'
+                elif 'check constraint "exposures_md5sum_check"' in str(exc.value):
+                    # the constraint on the md5sum is that it must be not-null or md5sum_extensions must be non-null
+                    colname = 'md5sum'
                 else:
                     # a constraint on a column being not-null was violated
                     match_obj = re.search(expr, str(exc.value))
@@ -204,7 +209,7 @@ def test_decam_exposure(decam_example_file):
         session.commit()
 
     e = Exposure(filepath=decam_example_file)
-
+    e.save()  # make sure to save it to archive so it has an MD5 sum
     assert e.instrument == 'DECam'
     assert isinstance(e.instrument_object, DECam)
     assert e.telescope == 'CTIO 4.0-m telescope'

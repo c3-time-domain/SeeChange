@@ -7,6 +7,7 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.functions import coalesce
+from sqlalchemy.schema import CheckConstraint
 
 from astropy.time import Time
 from astropy.wcs import WCS
@@ -605,6 +606,13 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         doc='Free text comment about this image, e.g., why it is bad. '
     )
 
+    __table_args__ = (
+        CheckConstraint(
+            sqltext='NOT(md5sum IS NULL AND md5sum_extensions IS NULL)',
+            name='md5sum_or_md5sum_extensions_check'
+        ),
+    )
+
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
@@ -1073,6 +1081,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
             # save the other extensions
             array_list = ['flags', 'weight', 'background', 'score', 'psf']
+            # TODO: the list of extensions should be saved somewhere more central
+
             for array_name in array_list:
                 array = getattr(self, array_name)
                 if array is not None:
@@ -1105,10 +1115,10 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         # (as well as self.filepath, self.filepath_extensions, self.md5sum, self.md5sum_extensions)
         # (From what we did above, it's already in the right place in the local filestore.)
         if single_file:
-            super().save( files_written, **kwargs )
+            FileOnDiskMixin.save( self, files_written, **kwargs )
         else:
             for ext in extensions:
-                super().save( files_written[ext], ext, **kwargs )
+                FileOnDiskMixin.save( self, files_written[ext], ext, **kwargs )
 
     def load(self):
         """

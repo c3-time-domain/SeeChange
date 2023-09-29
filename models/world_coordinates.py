@@ -9,7 +9,7 @@ class WorldCoordinates(Base, AutoIDMixin):
     __tablename__ = 'world_coordinates'
 
     source_list_id = sa.Column(
-        sa.ForeignKey('source_lists.id', name='world_coordinates_source_list_id_fkey'),
+        sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the source list this world coordinate system is associated with. "

@@ -9,7 +9,7 @@ class ZeroPoint(Base, AutoIDMixin):
     __tablename__ = 'zero_points'
 
     source_list_id = sa.Column(
-        sa.ForeignKey('source_lists.id', name='zero_points_source_list_id_fkey'),
+        sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='zero_points_source_list_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the source list this zero point is associated with. "

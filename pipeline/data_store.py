@@ -1054,7 +1054,7 @@ class DataStore:
             objects, including lists (e.g., Cutouts will be concatenated,
             no nested). Any None values will be removed.
         """
-        attributes = [ 'measurements', 'cutouts', 'detections', 'sub_image', 'sources', 'zp', 'wcs', 'image', 'exposure' ]
+        attributes = [ '_exposure' , 'image', 'wcs', 'sources', 'zp', 'sub_image', 'detections', 'cutouts', 'measurements' ]
         result = {att: getattr(self, att) for att in attributes}
         if output == 'dict':
             return result
@@ -1148,12 +1148,10 @@ class DataStore:
             try:
                 session.autoflush = False
                 for obj in self.get_all_data_products(output='list'):
-                    # if hasattr(obj, 'provenance'):
-                    #     print(f'Deleting {obj} with provenance= {obj.provenance}')
                     obj = safe_merge(session, obj)
                     if isinstance(obj, FileOnDiskMixin):
-                        obj.remove_data_from_disk( purge_archive=True, session=session, nocommit=True )
-                    if obj in session:
+                        obj.delete_from_disk_and_database(session=session, commit=False)
+                    if sa.inspect(obj).persistent:
                         session.delete(obj)
 
                 session.commit()

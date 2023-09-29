@@ -6,6 +6,8 @@ import sqlalchemy as sa
 from models.base import SmartSession
 from models.source_list import SourceList
 
+from tests.conftest import ImageCleanup
+
 
 # @pytest.mark.skip( reason="slow" )
 def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_extra):
@@ -13,10 +15,10 @@ def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_ex
     with SmartSession() as session:
         sources.provenance = provenance_extra
         demo_image.provenance = provenance_base
-        demo_image.data = np.float32(demo_image.raw_data)
-        demo_image.save(no_archive=True)
+        _ = ImageCleanup.save_image(demo_image, archive=True)
+
         filenames.append(demo_image.get_fullpath(as_list=True)[0])
-        sources.save(no_archive=True)
+        sources.save(no_archive=False)
         filenames.append(sources.get_fullpath(as_list=True)[0])
         sources = sources.recursive_merge( session )
         session.add(sources)

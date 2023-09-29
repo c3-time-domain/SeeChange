@@ -180,7 +180,6 @@ def downgrade() -> None:
     op.add_column('exposures', sa.Column('section_id', sa.TEXT(), autoincrement=False, nullable=False))
     op.drop_index(op.f('ix_exposures_type'), table_name='exposures')
     op.create_index('ix_exposures_section_id', 'exposures', ['section_id'], unique=False)
-    op.create_index('exposure_q3c_ang2ipix_idx', 'exposures', [sa.text('q3c_ang2ipix(ra, "dec")')], unique=False)
     op.drop_column('exposures', 'type')
     op.drop_column('exposures', 'format')
     op.drop_table('image_sources')

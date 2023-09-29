@@ -17,6 +17,7 @@ import util.radec
 from models.base import SmartSession
 from models.exposure import Exposure
 from models.image import Image
+from tests.conftest import ImageCleanup
 from models.instrument import Instrument, get_instrument_instance
 from models.enums_and_bitflags import image_preprocessing_dict, image_preprocessing_inverse, string_to_bitflag
 
@@ -63,7 +64,9 @@ def test_image_no_null_values(provenance_base):
 
     try:
         im_id = None  # make sure to delete the image if it is added to DB
-        image = Image(f"Demo_test_{rnd_str(5)}.fits", nofile=True)
+
+        # md5sum is spoofed as we don't have this file saved to archive
+        image = Image(f"Demo_test_{rnd_str(5)}.fits", md5sum=uuid.uuid4(), nofile=True)
         with SmartSession() as session:
             for i in range(len(required)):
                 image.recursive_merge( session )
@@ -98,15 +101,36 @@ def test_image_no_null_values(provenance_base):
     finally:
         # cleanup
         with SmartSession() as session:
-            exposure = None
+            found_image = None
             if im_id is not None:
-                exposure = session.scalars(sa.select(Image).where(Image.id == im_id)).first()
-            if exposure is not None:
-                session.delete(exposure)
+                found_image = session.scalars(sa.select(Image).where(Image.id == im_id)).first()
+            if found_image is not None:
+                session.delete(found_image)
                 session.commit()
 
 
-def test_image_archive_singlefile(exposure, demo_image, provenance_base, archive):
+def test_image_must_have_md5(demo_image, provenance_base):
+    assert demo_image.md5sum is None
+    assert demo_image.md5sum_extensions is None
+
+    demo_image.provenance = provenance_base
+    _ = ImageCleanup.save_image(demo_image, archive=False)
+
+    demo_image.md5sum = None
+    with SmartSession() as session:
+        demo_image.recursive_merge(session)
+        with pytest.raises(IntegrityError, match='violates check constraint'):
+            session.add(demo_image)
+            session.commit()
+        session.rollback()
+
+        # adding md5sums should fix this problem
+        _2 = ImageCleanup.save_image(demo_image, archive=True)
+        session.add(demo_image)
+        session.commit()
+
+
+def test_image_archive_singlefile(demo_image, provenance_base, archive):
     demo_image.data = np.float32( demo_image.raw_data )
     demo_image.flags = np.random.randint(0, 100, size=demo_image.raw_data.shape, dtype=np.uint16)
     demo_image.provenance = provenance_base
@@ -117,18 +141,16 @@ def test_image_archive_singlefile(exposure, demo_image, provenance_base, archive
 
     try:
         with SmartSession() as session:
-            exposure = exposure.recursive_merge( session )
-
             # Do single file first
             cfg.set_value( 'storage.images.single_file', True )
-
+            demo_image.exposure.recursive_merge(session)  # make sure the exposure and provenance/code versions merge
             # Make sure that the archive is *not* written when we tell it not to.
             demo_image.save( no_archive=True )
             assert demo_image.md5sum is None
             with pytest.raises(FileNotFoundError):
                 ifp = open( f'{archivebase}{demo_image.filepath}', 'rb' )
                 ifp.close()
-            demo_image.remove_data_from_disk( session=session )
+            demo_image.remove_data_from_disk()
 
             # Save to the archive, make sure it all worked
             demo_image.save()
@@ -142,7 +164,7 @@ def test_image_archive_singlefile(exposure, demo_image, provenance_base, archive
             assert archivemd5.hexdigest() == demo_image.md5sum.hex
 
             # Make sure that we can download from the archive
-            demo_image.remove_data_from_disk( purge_archive=False, session=session )
+            demo_image.remove_data_from_disk()
             with pytest.raises(FileNotFoundError):
                 assert isinstance( demo_image.get_fullpath( nofile=True ), str )
                 ifp = open( demo_image.get_fullpath( nofile=True ), "rb" )
@@ -162,14 +184,11 @@ def test_image_archive_singlefile(exposure, demo_image, provenance_base, archive
                 assert dbimage.md5sum.hex == demo_image.md5sum.hex
 
             # Make sure we can purge the archive
-            demo_image.remove_data_from_disk( purge_archive=True, session=session )
+            demo_image.delete_from_disk_and_database(session=session, commit=True)
             with pytest.raises(FileNotFoundError):
                 ifp = open( f'{archivebase}{demo_image.filepath}', 'rb' )
                 ifp.close()
             assert demo_image.md5sum is None
-            with SmartSession() as differentsession:
-                dbimage = differentsession.query(Image).filter(Image.id==demo_image.id).first()
-                assert dbimage.md5sum is None
 
     finally:
         cfg.set_value( 'storage.images.single_file', single_fileness )
@@ -195,21 +214,22 @@ def test_image_archive_multifile(exposure, demo_image, provenance_base, archive)
             # Make sure that the archive is not written when we tell it not to
             demo_image.save( no_archive=True )
             localmd5s = {}
-            assert len( demo_image.get_fullpath( nofile=True ) ) == 2
-            for fullpath in demo_image.get_fullpath( nofile=True ):
+            assert len(demo_image.get_fullpath(nofile=True)) == 2
+            for fullpath in demo_image.get_fullpath(nofile=True):
                 localmd5s[fullpath] = hashlib.md5()
                 with open(fullpath, "rb") as ifp:
                     localmd5s[fullpath].update(ifp.read())
             assert demo_image.md5sum is None
-            assert demo_image.md5sum_extensions == [ None, None ]
-            demo_image.remove_data_from_disk( session=session )
+            assert demo_image.md5sum_extensions == [None, None]
+            demo_image.remove_data_from_disk()
 
             # Save to the archive
             demo_image.save()
-            for ext, fullpath, md5sum in zip( demo_image.filepath_extensions,
-                                              demo_image.get_fullpath( nofile=True ),
-                                              demo_image.md5sum_extensions ):
+            for ext, fullpath, md5sum in zip(demo_image.filepath_extensions,
+                                             demo_image.get_fullpath(nofile=True),
+                                             demo_image.md5sum_extensions):
                 assert localmd5s[fullpath].hexdigest() == md5sum.hex
+
                 with open( fullpath, "rb" ) as ifp:
                     m = hashlib.md5()
                     m.update( ifp.read() )
@@ -220,30 +240,38 @@ def test_image_archive_multifile(exposure, demo_image, provenance_base, archive)
                     assert m.hexdigest() == localmd5s[fullpath].hexdigest()
 
             # Make sure that we can download from the archive
-            demo_image.remove_data_from_disk( purge_archive=False, session=session )
-            fullpaths = demo_image.get_fullpath( nofile=True )
-            for fullpath in fullpaths:
+            demo_image.remove_data_from_disk()
+
+            # using nofile=True will make sure the files are not downloaded from archive
+            filenames = demo_image.get_fullpath( nofile=True )
+            for filename in filenames:
                 with pytest.raises(FileNotFoundError):
-                    ifp = open( fullpath, "rb" )
+                    ifp = open( filename, "rb" )
                     ifp.close()
+
+            # this call to get_fullpath will also download the files to local storage
             newpaths = demo_image.get_fullpath( nofile=False )
-            assert newpaths == fullpaths
-            for fullpath in fullpaths:
-                with open( fullpath, "rb" ) as ifp:
+            assert newpaths == filenames
+            for filename in filenames:
+                with open( filename, "rb" ) as ifp:
                     m = hashlib.md5()
                     m.update( ifp.read() )
-                    assert m.hexdigest() == localmd5s[fullpath].hexdigest()
+                    assert m.hexdigest() == localmd5s[filename].hexdigest()
 
             # Make sure that the md5sum is properly saved to the database
             session.add( demo_image )
             session.commit()
             with SmartSession() as differentsession:
-                dbimage = differentsession.query(Image).filter(Image.id==demo_image.id)[0]
+                dbimage = differentsession.scalars(sa.select(Image).where(Image.id == demo_image.id)).first()
                 assert dbimage.md5sum is None
-                for fullpath, md5sum in zip( fullpaths, dbimage.md5sum_extensions ):
+
+                filenames = dbimage.get_fullpath( nofile=True )
+                for fullpath, md5sum in zip(filenames, dbimage.md5sum_extensions):
                     assert localmd5s[fullpath].hexdigest() == md5sum.hex
+
     finally:
         cfg.set_value( 'storage.images.single_file', single_fileness )
+
 
 def test_image_enum_values(exposure, demo_image, provenance_base):
     data_filename = None
@@ -253,8 +281,7 @@ def test_image_enum_values(exposure, demo_image, provenance_base):
         with pytest.raises(RuntimeError, match='The image data is not loaded. Cannot save.'):
             demo_image.save( no_archive=True )
 
-        demo_image.data = np.float32(demo_image.raw_data)
-        demo_image.save( no_archive=True )
+        _ = ImageCleanup.save_image(demo_image, archive=True)
         data_filename = demo_image.get_fullpath(as_list=True)[0]
         assert os.path.exists(data_filename)
 
@@ -306,6 +333,7 @@ def test_image_enum_values(exposure, demo_image, provenance_base):
             assert demo_image.id not in [i.id for i in images]
 
         finally:
+            demo_image.remove_data_from_disk()
             if data_filename is not None and os.path.exists(data_filename):
                 os.remove(data_filename)
                 folder = os.path.dirname(data_filename)
@@ -317,6 +345,8 @@ def test_image_preproc_bitflag( demo_image, provenance_base ):
     with SmartSession() as session:
         demo_image.provenance = provenance_base
         demo_image.filepath = demo_image.invent_filepath()
+        # Spoof an md5sum so we can commit this to the database without saving actual data
+        demo_image.md5sum = uuid.uuid4()
         im = demo_image.recursive_merge( session )
         session.add( im  )
         # Need to do this for the defaults to get set
@@ -418,14 +448,14 @@ def test_multiple_images_badness(
     target = uuid.uuid4().hex
     filter = demo_image.filter
     filenames = []
+    cleanups = []
     try:
         with SmartSession() as session:
             for im in images:
                 im.target = target
                 im.filter = filter
                 im.provenance = provenance_base
-                im.data = np.float32(im.raw_data)
-                im.save(no_archive=True)
+                cleanups.append(ImageCleanup.save_image(im))
                 filenames.append(im.get_fullpath(as_list=True)[0])
                 assert os.path.exists(filenames[-1])
                 im = im.recursive_merge( session )
@@ -450,8 +480,7 @@ def test_multiple_images_badness(
             # make an image from the two bad exposures using subtraction
             demo_image4 = Image.from_ref_and_new(demo_image2, demo_image3)
             demo_image4.provenance = provenance_extra
-            demo_image4.data = np.random.normal(0, 10, size=(100, 100)).astype(np.float32)
-            demo_image4.save(no_archive=True)
+            cleanups.append(ImageCleanup.save_image(demo_image4))
             images.append(demo_image4)
             filenames.append(demo_image4.get_fullpath(as_list=True)[0])
             demo_image4 = demo_image4.recursive_merge( session )
@@ -486,8 +515,7 @@ def test_multiple_images_badness(
                 im.target = target
                 im.filter = filter
                 im.provenance = provenance_base
-                im.data = np.float32(im.raw_data)
-                im.save(no_archive=True)
+                cleanups.append(ImageCleanup.save_image(im))
                 filenames.append(im.get_fullpath(as_list=True)[0])
                 images.append(im)
                 im = im.recursive_merge( session )
@@ -497,8 +525,7 @@ def test_multiple_images_badness(
             # make a new subtraction:
             demo_image7 = Image.from_ref_and_new(demo_image5, demo_image6)
             demo_image7.provenance = provenance_extra
-            demo_image7.data = np.random.normal(0, 10, size=(100, 100)).astype(np.float32)
-            demo_image7.save(no_archive=True)
+            cleanups.append(ImageCleanup.save_image(demo_image7))
             images.append(demo_image7)
             filenames.append(demo_image7.get_fullpath(as_list=True)[0])
             demo_image7 = demo_image7.recursive_merge( session )
@@ -528,8 +555,7 @@ def test_multiple_images_badness(
             # make a coadded image (without including the subtraction demo_image4):
             demo_image8 = Image.from_images([demo_image, demo_image2, demo_image3, demo_image5, demo_image6])
             demo_image8.provenance = provenance_extra
-            demo_image8.data = np.random.normal(0, 10, size=(100, 100)).astype(np.float32)
-            demo_image8.save(no_archive=True)
+            cleanups.append(ImageCleanup.save_image(demo_image8))
             images.append(demo_image8)
             filenames.append(demo_image8.get_fullpath(as_list=True)[0])
             demo_image8 = demo_image8.recursive_merge( session )
@@ -558,18 +584,16 @@ def test_multiple_images_badness(
             bad_coadd = session.scalars(sa.select(Image).where(Image.bitflag == 42)).all()
             assert demo_image8.id in [i.id for i in bad_coadd]
 
-
     finally:  # cleanup
         with SmartSession() as session:
             for im in images:
-                im.remove_data_from_disk(purge_archive=False, session=session)
+                im.remove_data_from_disk()
                 if im.id is not None:
-                    session.delete(im)
+                    session.execute(sa.delete(Image).where(Image.id == im.id))
             session.commit()
 
         for filename in filenames:
             assert not os.path.exists(filename)
-
 
 
 def test_image_coordinates():
@@ -594,6 +618,7 @@ def test_image_coordinates():
     assert abs(image.gallat - 33.542) < 0.01
     assert abs(image.gallon - 160.922) < 0.01
 
+
 def test_image_cone_search( provenance_base ):
     with SmartSession() as session:
         image1 = None
@@ -601,16 +626,12 @@ def test_image_cone_search( provenance_base ):
         image3 = None
         image4 = None
         try:
-            mjd = 60000.
-            endmjd = 60000.0007
-            kwargs = { 'mjd': 60000.,
-                       'end_mjd': 60000.0007,
-                       'format': 'fits',
+            kwargs = { 'format': 'fits',
                        'exp_time': 60.48,
                        'section_id': 'x',
                        'project': 'x',
                        'target': 'x',
-                       'instrument': 'x',
+                       'instrument': 'DemoInstrument',
                        'telescope': 'x',
                        'filter': 'r',
                        'ra_corner_00': 0,
@@ -622,10 +643,26 @@ def test_image_cone_search( provenance_base ):
                        'dec_corner_10': 0,
                        'dec_corner_11': 0,
                       }
-            image1 = Image( 'one.fits', ra=120., dec=10., provenance=provenance_base, nofile=True, **kwargs )
-            image2 = Image( 'two.fits', ra=120.0002, dec=9.9998, provenance=provenance_base, nofile=True, **kwargs )
-            image3 = Image( 'three.fits', ra=120.0005, dec=10., provenance=provenance_base, nofile=True, **kwargs )
-            image4 = Image( 'four.fits', ra=60., dec=0., provenance=provenance_base, nofile=True, **kwargs )
+            image1 = Image(ra=120., dec=10., provenance=provenance_base, **kwargs )
+            image1.mjd = np.random.uniform(0, 1) + 60000
+            image1.end_mjd = image1.mjd + 0.007
+            clean1 = ImageCleanup.save_image( image1 )
+
+            image2 = Image(ra=120.0002, dec=9.9998, provenance=provenance_base, **kwargs )
+            image2.mjd = np.random.uniform(0, 1) + 60000
+            image2.end_mjd = image2.mjd + 0.007
+            clean2 = ImageCleanup.save_image( image2 )
+
+            image3 = Image(ra=120.0005, dec=10., provenance=provenance_base, **kwargs )
+            image3.mjd = np.random.uniform(0, 1) + 60000
+            image3.end_mjd = image3.mjd + 0.007
+            clean3 = ImageCleanup.save_image( image3 )
+
+            image4 = Image(ra=60., dec=0., provenance=provenance_base, **kwargs )
+            image4.mjd = np.random.uniform(0, 1) + 60000
+            image4.end_mjd = image4.mjd + 0.007
+            clean4 = ImageCleanup.save_image( image4 )
+
             session.add( image1 )
             session.add( image2 )
             session.add( image3 )
@@ -668,8 +705,9 @@ def test_image_cone_search( provenance_base ):
                     session.delete( i )
             session.commit()
 
+
 # Really, we should also do some speed tests, but that
-# is outside of the scope of the always-run tests.
+# is outside the scope of the always-run tests.
 def test_four_corners( provenance_base ):
 
     with SmartSession() as session:
@@ -678,48 +716,64 @@ def test_four_corners( provenance_base ):
         image3 = None
         image4 = None
         try:
-            mjd = 60000.
-            endmjd = 60000.0007
-            kwargs = { 'mjd': 60000.,
-                       'end_mjd': 60000.0007,
-                       'format': 'fits',
+            kwargs = { 'format': 'fits',
                        'exp_time': 60.48,
                        'section_id': 'x',
                        'project': 'x',
                        'target': 'x',
-                       'instrument': 'x',
+                       'instrument': 'DemoInstrument',
                        'telescope': 'x',
                        'filter': 'r',
                       }
             # RA numbers are made ugly from cos(dec).
             # image1: centered on 120, 40, square to the sky
-            image1 = Image( 'one.fits', ra=120, dec=40.,
+            image1 = Image( ra=120, dec=40.,
                             ra_corner_00=119.86945927, ra_corner_01=119.86945927,
                             ra_corner_10=120.13054073, ra_corner_11=120.13054073,
                             dec_corner_00=39.9, dec_corner_01=40.1, dec_corner_10=39.9, dec_corner_11=40.1,
                             provenance=provenance_base, nofile=True, **kwargs )
+            image1.mjd = np.random.uniform(0, 1) + 60000
+            image1.end_mjd = image1.mjd + 0.007
+            clean1 = ImageCleanup.save_image( image1 )
+
             # image2: centered on 120, 40, at a 45° angle
-            image2 = Image( 'two.fits', ra=120, dec=40.,
+            image2 = Image( ra=120, dec=40.,
                             ra_corner_00=119.81538753, ra_corner_01=120, ra_corner_11=120.18461247, ra_corner_10=120,
                             dec_corner_00=40, dec_corner_01=40.14142136, dec_corner_11=40, dec_corner_10=39.85857864,
                             provenance=provenance_base, nofile=True, **kwargs )
+            image2.mjd = np.random.uniform(0, 1) + 60000
+            image2.end_mjd = image2.mjd + 0.007
+            clean2 = ImageCleanup.save_image( image2 )
+
             # image3: centered offset by (0.025, 0.025) linear arcsec from 120, 40, square on sky
-            image3 = Image( 'three.fits', ra=120.03264714, dec=40.025,
+            image3 = Image( ra=120.03264714, dec=40.025,
                             ra_corner_00=119.90210641, ra_corner_01=119.90210641,
                             ra_corner_10=120.16318787, ra_corner_11=120.16318787,
                             dec_corner_00=39.975, dec_corner_01=40.125, dec_corner_10=39.975, dec_corner_11=40.125,
                             provenance=provenance_base, nofile=True, **kwargs )
+            image3.mjd = np.random.uniform(0, 1) + 60000
+            image3.end_mjd = image3.mjd + 0.007
+            clean3 = ImageCleanup.save_image( image3 )
+
             # imagepoint and imagefar are used to test Image.containing and Image.find_containing,
             # as Image is the only example of a SpatiallyIndexed thing we have so far.
             # The corners don't matter for these given how they'll be used.
-            imagepoint = Image( 'point.fits', ra=119.88, dec=39.95, 
+            imagepoint = Image( ra=119.88, dec=39.95,
                                 ra_corner_00=-.001, ra_corner_01=0.001, ra_corner_10=-0.001,
                                 ra_corner_11=0.001, dec_corner_00=0, dec_corner_01=0, dec_corner_10=0, dec_corner_11=0,
                                 provenance=provenance_base, nofile=True, **kwargs )
-            imagefar = Image( 'far.fits', ra=30, dec=-10, 
-                                ra_corner_00=0, ra_corner_01=0, ra_corner_10=0,
+            imagepoint.mjd = np.random.uniform(0, 1) + 60000
+            imagepoint.end_mjd = imagepoint.mjd + 0.007
+            clearpoint = ImageCleanup.save_image( imagepoint )
+
+            imagefar = Image( ra=30, dec=-10,
+                              ra_corner_00=0, ra_corner_01=0, ra_corner_10=0,
                               ra_corner_11=0, dec_corner_00=0, dec_corner_01=0, dec_corner_10=0, dec_corner_11=0,
-                                provenance=provenance_base, nofile=True, **kwargs )
+                              provenance=provenance_base, nofile=True, **kwargs )
+            imagefar.mjd = np.random.uniform(0, 1) + 60000
+            imagefar.end_mjd = imagefar.mjd + 0.007
+            clearfar = ImageCleanup.save_image( imagefar )
+
             session.add( image1 )
             session.add( image2 )
             session.add( image3 )
@@ -823,8 +877,7 @@ def test_image_from_exposure(exposure, provenance_base):
                 session.commit()
             session.rollback()
 
-            # must add the filepath!
-            im.filepath = 'foo_exposure.fits'
+            _ = ImageCleanup.save_image(im)  # this will add the filepath and md5 sum!
 
             session.add(im)
             session.commit()
@@ -838,9 +891,7 @@ def test_image_from_exposure(exposure, provenance_base):
     finally:
         if im_id is not None:
             with SmartSession() as session:
-                im = session.scalars(sa.select(Image).where(Image.id == im_id)).first()
-                session.delete(im)
-                session.commit()
+                im.delete_from_disk_and_database(commit=True, session=session)
 
 
 def test_image_from_exposure_filter_array(exposure_filter_array):
@@ -865,14 +916,15 @@ def test_image_with_multiple_source_images(exposure, exposure2, provenance_base)
     im2.target = im1.target
 
     im1.provenance = provenance_base
-    im1.filepath = 'foo1.fits'
+    _1 = ImageCleanup.save_image(im1)
+
     im2.provenance = provenance_base
-    im2.filepath = 'foo2.fits'
+    _2 = ImageCleanup.save_image(im2)
 
     # make a coadd image from the two
     im = Image.from_images([im1, im2])
-    im.filepath = 'foo.fits'
     im.provenance = provenance_base
+    _3 = ImageCleanup.save_image(im)
 
     try:
         im_id = None
@@ -938,14 +990,14 @@ def test_image_subtraction(exposure, exposure2, provenance_base):
     im2.target = im1.target
 
     im1.provenance = provenance_base
-    im1.filepath = 'foo1.fits'
+    _1 = ImageCleanup.save_image(im1)
     im2.provenance = provenance_base
-    im2.filepath = 'foo2.fits'
+    _2 = ImageCleanup.save_image(im2)
 
     # make a coadd image from the two
     im = Image.from_ref_and_new(im1, im2)
-    im.filepath = 'foo.fits'
     im.provenance = provenance_base
+    _3 = ImageCleanup.save_image(im)
 
     try:
         im_id = None

@@ -140,8 +140,6 @@ class Detector:
 
         data_sub = data - b.back()
 
-        print(f'threshold: {self.pars.threshold}')
-
         objects = sep.extract(data_sub, self.pars.threshold, err=b.rms())
 
         # get the radius containing half the flux for each source
