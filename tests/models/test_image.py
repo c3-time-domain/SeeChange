@@ -27,7 +27,7 @@ from models.enums_and_bitflags import image_preprocessing_dict, image_preprocess
 # There must be a better solution.  Do we just need to stuff all of the instruments
 # in the same file?  Or, should we rerun register_all_instruments() at the bottom
 # of every instrument's .py file?
-import models.decam
+# import models.decam
 
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))

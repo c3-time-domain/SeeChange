@@ -15,8 +15,6 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
     preppor = Preprocessor()
     ds = preppor.run( decam_example_exposure, 'N1' )
 
-    # fits.writeto( 'preprocessed.fits', ds.image.data, header=ds.image.raw_header, overwrite=True )
-
     # Check some Preprocesor internals
     assert preppor._calibset == 'externally_supplied'
     assert preppor._flattype == 'externally_supplied'
@@ -27,7 +25,7 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
 
     # Flatfielding should have improved the sky noise, though for DECam
     # it looks like this is a really small effect.  I've picked out a
-    # seciton that's all sky (though it may be in the wings of a bright
+    # section that's all sky (though it may be in the wings of a bright
     # star, but, whatever).
 
     # 56 is how much got trimmed from this image

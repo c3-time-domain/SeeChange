@@ -31,19 +31,6 @@ class ParsPreprocessor(Parameters):
                       ( "One of the FlatTypeConverter enum; defaults to the instrument default" ),
                       critical = True )
 
-        # A note about provenance.
-        #
-        # Ideally, we want the flats/biases/etc. that go into image
-        # preprocessing be part of the provenance.  However, we also
-        # would like for all of the chips on one instrument to have the
-        # same provenance (when appropriate).  If the fileid of the
-        # calibrator were in the provenance, it would be different for
-        # every chip.  Hence, the defintion of "flat_set", "dark_set",
-        # etc.  We can tag things in the CalibratorFiles models in the
-        # database with a calbrator_set, and *that* is what will go into
-        # the provenance.  It's then up to the users to make sure that
-        # the calibrator_set field is used properly.
-
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -98,7 +85,7 @@ class Preprocessor:
         DataStore.parse_args).  For preprocessing, an exposure and a
         sensorsection is required, so args must be one of:
           - DataStore (which has an exposure and a section)
-          - exposure_id, seciton_identifier
+          - exposure_id, section_identifier
           - Exposure, section_identifier
         Passing just an image won't work.
 
@@ -158,12 +145,12 @@ class Preprocessor:
 
         # Get the calibrator files
 
-        preprocparam = self.instrument.preprocessing_calibrator_params( self._calibset,
-                                                                        self._flattype,
-                                                                        ds.section_id,
-                                                                        ds.exposure.filter_short,
-                                                                        ds.exposure.mjd,
-                                                                        session = session )
+        preprocparam = self.instrument.preprocessing_calibrator_files( self._calibset,
+                                                                       self._flattype,
+                                                                       ds.section_id,
+                                                                       ds.exposure.filter_short,
+                                                                       ds.exposure.mjd,
+                                                                       session = session )
 
 
         # get the provenance for this step, using the current parameters:

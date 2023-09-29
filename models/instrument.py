@@ -913,7 +913,7 @@ class Instrument:
         self.check_section_id(section_id)
         return None, None
 
-    def get_default_section_flags( self, section_id ):
+    def get_standard_flags_image( self, section_id ):
         """Get the default flags image for the given SensorSection of this instrument.
 
         This is for loading, say, an observatory-standard flags image.
@@ -1098,7 +1098,7 @@ class Instrument:
         come as a pack. WILL CALL session.commit()!
 
         Should not be called from outside Instrument; instead, use
-        preprocessing_calibrator_params.  _get_default_calibrator method
+        preprocessing_calibrator_files.  _get_default_calibrator method
         will assume that the default is not already in the database, and
         load it without checking first.  That other method searches the
         database first.
@@ -1133,7 +1133,7 @@ class Instrument:
 
         return None
 
-    def preprocessing_calibrator_params( self, calibset, flattype, section, filter, mjd, nofetch=False, session=None ):
+    def preprocessing_calibrator_files( self, calibset, flattype, section, filter, mjd, nofetch=False, session=None ):
         """Get a dictionary of calibrator images/datafiles for a given mjd and sensor section.
 
         MIGHT call session.commit(); see below.
@@ -1404,7 +1404,7 @@ class Instrument:
 
         # Now map sections to ranges
         for sec in secs:
-            # Figure out where the data section goes inthe trimmed image
+            # Figure out where the data section goes in the trimmed image
             xr = None
             xrdest = None
             for xrcand, xrdestcand in zip( xranges, xdestranges ):

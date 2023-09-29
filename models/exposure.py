@@ -133,13 +133,13 @@ class ExposureImageIterator:
         self.exposure = exposure
 
         self.instrument = get_instrument_instance( self.exposure.instrument )
-        self.sectionids = self.instrument.get_section_ids()
+        self.section_ids = self.instrument.get_section_ids()
         self.dex = 0
         return self
 
     def __next__( self ):
-        if self.dex < len( self.sectionids ):
-            img = Image.from_exposure( self.exposure, self.sectionids[ dex ] )
+        if self.dex < len( self.section_ids ):
+            img = Image.from_exposure( self.exposure, self.section_ids[ dex ] )
             self.dex += 1
             return img
         else:

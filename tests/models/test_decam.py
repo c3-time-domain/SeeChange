@@ -216,8 +216,8 @@ def test_linearity( decam_example_raw_image ):
     origdata = im.data
     try:
         with SmartSession() as session:
-            info = decam.preprocessing_calibrator_params( 'externally_supplied', 'externally_supplied',
-                                                          im.section_id, im.filter_short, im.mjd, session=session )
+            info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
+                                                         im.section_id, im.filter_short, im.mjd, session=session )
             lindf = session.get( DataFile, info['linearity_fileid'] )
             im.data = decam.overscan_and_trim( im )
             assert im.data.shape == ( 4096, 2048 )
@@ -239,16 +239,13 @@ def test_linearity( decam_example_raw_image ):
     finally:
         im.data = origdata
 
-# This implementation is in instrument, but we're testing it on
-# DECam images.  Perhaps this test belongs in test_decam.py
-# instead of test_instrument.py
-def test_preprocessing_calibrator_params( decam_default_calibrators ):
+def test_preprocessing_calibrator_files( decam_default_calibrators ):
     decam = get_instrument_instance( "DECam" )
 
     linfile = None
     for filt in [ 'r', 'z' ]:
-        info = decam.preprocessing_calibrator_params( 'externally_supplied', 'externally_supplied',
-                                                      'N1', filt, 60000. )
+        info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
+                                                     'N1', filt, 60000. )
         for nocalib in [ 'zero', 'dark', 'illumination' ]:
             # DECam doesn't include these three in its preprocessing steps
             assert f'{nocalib}_isimage' not in info.keys()
@@ -277,8 +274,8 @@ def test_preprocessing_calibrator_params( decam_default_calibrators ):
     # database errors (which would happen if _get_default_calibrators
     # gets called the second time around, which it should not.
     for filt in [ 'r', 'z' ]:
-        info = decam.preprocessing_calibrator_params( 'externally_supplied', 'externally_supplied',
-                                                      'N1', filt, 60000. )
+        info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
+                                                     'N1', filt, 60000. )
 
 def test_overscan_sections( decam_example_raw_image ):
     decam = get_instrument_instance( "DECam" )
