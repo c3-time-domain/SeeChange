@@ -525,11 +525,9 @@ def decam_default_calibrators():
                             datafilestonuke.add( info[ f'{filetype}_fileid' ] )
         for imid in imagestonuke:
             im = session.get( Image, imid )
-            im.remove_data_from_disk( purge_archive=True, session=session, nocommit=True )
-            session.delete( im )
+            im.delete_from_disk_and_database( session=session, commit=False )
         for dfid in datafilestonuke:
             df = session.get( DataFile, dfid )
-            df.remove_data_from_disk( purge_archive=True, session=session, nocommit=True )
-            session.delete( df )
+            df.delete_from_disk_and_database( session=session, commit=False )
         session.commit()
 

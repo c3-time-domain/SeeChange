@@ -24,6 +24,7 @@ from models.provenance import Provenance
 from util.config import Config
 import util.util
 from util.retrydownload import retry_download
+from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
 class DECam(Instrument):
 
@@ -222,6 +223,35 @@ class DECam(Instrument):
         return ( exposure.ra + self._chip_radec_off[section_id]['dra'] / math.cos( exposure.dec * math.pi / 180. ),
                  exposure.dec + self._chip_radec_off[section_id]['ddec'] )
 
+    def get_standard_flags_image( self, section_id ):
+        # NOTE : there's a race condition here; multiple
+        # processes might try to locally cache the
+        # file all at the same time.
+        #
+        # For now, just not going to worry about it.
+        #
+        cfg = Config.get()
+        ccdnum = f'{self._chip_radec_off[section_id]["ccdnum"]:02d}'
+        rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.bpmbase")}{ccdnum}.fits' )
+        filepath = pathlib.Path( FileOnDiskMixin.local_path ) / "DECam_default_calibrators" / "bpm" / rempath.name
+
+        if not filepath.exists():
+            url = f'{cfg.value("DECam.calibfiles.urlbase")}{str(rempath)}'
+            retry_download( url, filepath )
+
+        with fits.open( filepath, memmap=False ) as hdu:
+            rawbpm = hdu[0].data
+
+        # TODO : figure out what the bits mean in this bad pixel mask file!
+        # For now, call anything non-zero as "bad"
+        # (If we ever change this, we have to fix the
+        # flag_image_bits dictionary in enums_and_bitflags,
+        # and everything that has used it...)
+        bpm = np.zeros( rawbpm.shape, dtype=np.uint16 )
+        bpm[ rawbpm != 0 ] = string_to_bitflag( 'bad pixel', flag_image_bits_inverse )
+
+        return bpm
+
     def get_gain_at_pixel( self, image, x, y, section_id=None ):
         if image is None:
             return Instrument.get_gain_at_pixel( image, x, y, section_id=section_id )
@@ -238,6 +268,19 @@ class DECam(Instrument):
             return float( image.header[ 'GAINA' ] )
         else:
             return float( image.header[ 'GAINB' ] )
+
+    def average_gain( self, image, section_id=None ):
+        if image is None:
+            return Instrument.average_again( self, None, section_id=section_id )
+        return ( float( image.raw_header['GAINA'] ) + float( image.raw_header['GAINB'] ) ) / 2.
+
+
+    def average_saturation_limit( self, image, section_id=None ):
+        if image is None:
+            return Instrument.average_saturation_limit( self, image, section_id=section_id )
+        # Although the method name is "average...", return the lower saturation
+        #  limit to be conservative
+        return min( float( image.raw_header['SATURATA'] ), float( image.raw_header['SATURATB'] ) )
 
     @classmethod
     def _get_fits_hdu_index_from_section_id(cls, section_id):

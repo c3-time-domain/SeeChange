@@ -111,3 +111,4 @@ DECam:
     linearity: DECamMasterCal_56475/linearity/linearity_table_v0.4.fits
     fringebase: DECamMasterCal_56876/fringecor/DECam_Master_20131115v1
     flatbase: DECamMasterCal_56876/starflat/DECam_Master_20130829v3
+    bpmbase: DECamMasterCal_56876/bpm/DECam_Master_20140209v2_cd_

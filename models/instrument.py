@@ -370,6 +370,8 @@ class Instrument:
         self.gain = getattr(self, 'gain', None)  # gain in electrons/ADU (e.g., 4.0)
         self.saturation_limit = getattr(self, 'saturation_limit', None)  # saturation limit in electrons (e.g., 100000)
         self.non_linearity_limit = getattr(self, 'non_linearity_limit', None)  # non-linearity limit in electrons
+        self.background_box_size = getattr( self, 'background_box_size', 256 ) # Box size for sep background estimation
+        self.background_filt_size = getattr( self, 'background_fit_size', 3 ) # Filter size for sep background
 
         self.allowed_filters = getattr(self, 'allowed_filters', None)  # list of allowed filter (e.g., ['g', 'r', 'i'])
 
@@ -963,6 +965,49 @@ class Instrument:
             return self.gain
         else:
             return sec.gain
+
+    def average_gain( self, image, section_id=None ):
+        """Get an average gain for the image.
+
+        THIS SHOULD USUALLY BE OVERRIDDEN BY SUBCLASSES.  By default,
+        it's going to assume that the gain property of the sensor
+        section is good, or if it's null, that the gain property of the
+        instrument is good.  Subclasses should use the image header
+        information.
+
+        Parameters
+        ----------
+        image: Image or None
+          The Image.  If None, section_id must not be none
+        section_id:
+          If Image is None, pass a non-null section_id to get the default gain.
+
+        Returns
+        -------
+        float
+
+        """
+        return Instrument.get_gain_at_pixel( self, image, 0, 0, section_id=section_id )
+
+    def average_saturation_limit( self, image, section_id=None ):
+        """Get an average saturation limit in ADU for the image.
+
+        THIS SHOULD USUALLY BE OVERRIDDEN BY SUBCLASSES, for the same
+        reason as average_gain.
+
+        Parameters
+        ----------
+        image: Image or None
+          The Image.  If None, section_id must not be none
+        section_id:
+          If Image is None, pass a non-null section_id to get the default gain.
+
+        Returns
+        -------
+        float
+
+        """
+        return self.saturation_limit
 
     @classmethod
     def _get_header_keyword_translations(cls):

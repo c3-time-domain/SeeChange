@@ -263,7 +263,7 @@ def string_to_bitflag(value, dictionary):
         Comma separated string with all the different ways the data is bad.
     dictionary: dict
         Dictionary with the keywords as keys, and the corresponding bit-flag values as values.
-
+>
     Returns
     -------
     output: int or None
@@ -335,3 +335,11 @@ image_preprocessing_dict = {
     6: 'illumination'
 }
 image_preprocessing_inverse = {EnumConverter.c(v):k for k, v in image_preprocessing_dict.items()}
+
+# bitflag used in flag images
+flag_image_bits = {
+    0: 'bad pixel',        # Bad pixel flagged by the instrument
+    1: 'zero weight',
+    2: 'saturated',
+}
+flag_image_bits_inverse = { EnumConverter.c(v):k for k, v in flag_image_bits.items() }

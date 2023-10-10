@@ -1,14 +1,17 @@
+import pathlib
 from types import SimpleNamespace
 
 import numpy as np
 import sqlalchemy as sa
+
+import sep
 
 from models.base import SmartSession, _logger
 from models.exposure import Exposure, ExposureImageIterator
 from models.image import Image
 from models.datafile import DataFile
 from models.instrument import get_instrument_instance, Instrument, SensorSection
-from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag
+from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag, flag_image_bits_inverse
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -248,8 +251,45 @@ class Preprocessor:
 
             image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
 
-        # TODO : Issue #95
-        _logger.warning( "Weight and dataquality flag file creation not yet implemented." )
+        # Get the Instrument standard bad pixel mask for this image
+        image._flags = self.instrument.get_standard_flags_image( ds.section_id )
+
+        # Estimate the background rms with sep
+        boxsize = self.instrument.background_box_size
+        filtsize = self.instrument.background_filt_size
+        _logger.debug( "Subtracting sky and estimating sky RMS" )
+        # Dysfunctionality alert: sep requires a *float* image for the mask
+        # IEEE 32-bit floats have 23 bits in the mantissa, so they should
+        # be able to precisely represent a 16-bit integer mask image
+        # In any event, sep.Background uses >0 as "bad"
+        fmask = np.array( image._flags, dtype=np.float32 )
+        backgrounder = sep.Background( image.data, mask=fmask,
+                                       bw=boxsize, bh=boxsize, fw=filtsize, fh=filtsize )
+        fmask = None
+        rms = backgrounder.rms()
+        sky = backgrounder.back()
+        subim = image.data - sky
+        _logger.debug( "Building weight image and augmenting flags image" )
+
+        wbad = np.where( rms <= 0 )
+        wgood = np.where( rms > 0 )
+        rms = rms ** 2
+        subim[ subim < 0 ] = 0
+        gain = self.instrument.average_gain( image )
+        gain = gain if gain is not None else 1.
+        # Shot noise from image above background
+        rms += subim / gain
+        image._weight = np.zeros( image.data.shape, dtype=np.float32 )
+        image._weight[ wgood ] = 1. / rms[ wgood ]
+        image._flags[ wbad ] |= string_to_bitflag( "zero weight", flag_image_bits_inverse )
+        # Now make the weight zero on the bad pixels too
+        image._weight[ image._flags != 0 ] = 0.
+        # Figure out saturated pixels
+        satlevel = self.instrument.average_saturation_limit( image )
+        if satlevel is not None:
+            wsat = image.data >= satlevel
+            image._flags[ wsat ] |= string_to_bitflag( "saturated", flag_image_bits_inverse )
+            image._weight[ wsat ] = 0.
 
         if image.provenance is None:
             image.provenance = prov
@@ -260,5 +300,6 @@ class Preprocessor:
 
         ds.image = image
         ds.image.filepath = ds.image.invent_filepath()
+        _logger.debug( f"Done with {pathlib.Path(ds.image.filepath).name}" )
 
         return ds
