@@ -1195,10 +1195,12 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
     assert im.filepath is None  # no file yet!
 
     # the header lazy loads alright:
-    assert len(im.raw_header) == 100
+    assert len(im.raw_header) == 98
     assert im.raw_header['NAXIS'] == 2
     assert im.raw_header['NAXIS1'] == 2160
     assert im.raw_header['NAXIS2'] == 4146
+    assert 'BSCALE' not in im.raw_header
+    assert 'BZERO' not in im.raw_header
 
     # check we have the raw data copied into temporary attribute
     assert im.raw_data is not None

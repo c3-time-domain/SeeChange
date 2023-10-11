@@ -263,7 +263,7 @@ def string_to_bitflag(value, dictionary):
         Comma separated string with all the different ways the data is bad.
     dictionary: dict
         Dictionary with the keywords as keys, and the corresponding bit-flag values as values.
->
+
     Returns
     -------
     output: int or None

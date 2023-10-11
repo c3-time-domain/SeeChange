@@ -1033,9 +1033,9 @@ class DataStore:
 
         return self.measurements
 
-    def get_all_data_products(self, output='dict'):
-        """
-        Get all the data products associated with this Exposure.
+    def get_all_data_products(self, output='dict', omit_exposure=False ):
+        """Get all the data products associated with this Exposure.
+
         By default, this returns a dict with named entries.
         If using output='list', will return a flattened list of all
         objects, including lists (e.g., Cutouts will be concatenated,
@@ -1046,6 +1046,8 @@ class DataStore:
         output: str, optional
             The output format. Can be 'dict' or 'list'.
             Default is 'dict'.
+        omit_Exposure: bool, default False
+            If True, does not include the exposure in the list of data products
 
         Returns
         -------
@@ -1054,7 +1056,9 @@ class DataStore:
             objects, including lists (e.g., Cutouts will be concatenated,
             no nested). Any None values will be removed.
         """
-        attributes = [ '_exposure' , 'image', 'wcs', 'sources', 'zp', 'sub_image', 'detections', 'cutouts', 'measurements' ]
+        attributes = [] if omit_exposure else [ '_exposure' ]
+        attributes.extend( [ 'image', 'wcs', 'sources', 'zp', 'sub_image',
+                             'detections', 'cutouts', 'measurements' ] )
         result = {att: getattr(self, att) for att in attributes}
         if output == 'dict':
             return result
@@ -1129,10 +1133,14 @@ class DataStore:
                 session.autoflush = autoflush_state
 
     def delete_everything(self, session=None):
-        """
-        Delete everything associated with this sub-image.
+        """Delete everything associated with this sub-image.
+
         All data products in the data store are removed from the DB,
         and all files on disk are deleted.
+
+        NOTE: does *not* delete the exposure.  (There may well be other
+        data stores out there with different images from the same
+        exposure.)
 
         Parameters
         ----------
@@ -1142,18 +1150,18 @@ class DataStore:
             DataStore object; if there is none, will open a new session
             and close it at the end of the function.
             Note that this method calls session.commit()
+
         """
         with SmartSession( self.session if session is None else session ) as session:
             autoflush_state = session.autoflush
             try:
                 session.autoflush = False
-                for obj in self.get_all_data_products(output='list'):
+                for obj in self.get_all_data_products(output='list', omit_exposure=True):
                     obj = safe_merge(session, obj)
                     if isinstance(obj, FileOnDiskMixin):
                         obj.delete_from_disk_and_database(session=session, commit=False)
                     if sa.inspect(obj).persistent:
                         session.delete(obj)
-
                 session.commit()
             finally:
                 session.autoflush = autoflush_state

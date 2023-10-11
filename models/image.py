@@ -707,6 +707,14 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         # read the header from the exposure file's individual section data
         new._raw_header = exposure.section_headers[section_id]
 
+        # Because we will later be writing out float data (BITPIX=-32)
+        # -- or whatever the type of raw_data is -- we have to make sure
+        # there aren't any vestigal BSCALE and BZERO keywords in the
+        # header.
+        for delkw in [ 'BSCALE', 'BZERO' ]:
+            if delkw in new.raw_header:
+                del new.raw_header[delkw]
+
         # numpy array axis ordering is backwards from FITS ordering
         width = new.raw_data.shape[1]
         height = new.raw_data.shape[0]
