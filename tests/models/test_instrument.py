@@ -57,14 +57,14 @@ def test_global_vs_sections_values():
     assert len(inst.sections) == 1
 
     # new section is created with null values
-    assert inst.sections[0].gain is None
-    assert inst.sections[0].read_noise is None
+    assert inst.sections['0'].gain is None
+    assert inst.sections['0'].read_noise is None
     assert inst.get_property(0, 'gain') == 2.0
     assert inst.get_property(0, 'read_noise') == 1.5
 
     # now adjust the values on that section:
-    inst.sections[0].gain = 2.5
-    inst.sections[0].read_noise = 1.3
+    inst.sections['0'].gain = 2.5
+    inst.sections['0'].read_noise = 1.3
     assert inst.get_property(0, 'gain') == 2.5
     assert inst.get_property(0, 'read_noise') == 1.3
 
@@ -188,7 +188,7 @@ def test_instrument_inheritance_full_example():
             """
             Get a list of SensorSection identifiers for this instrument.
             """
-            return range(10)  # let's assume this instrument has 10 sections
+            return [ str(i) for i in range(10) ]  # let's assume this instrument has 10 sections
 
         @classmethod
         def check_section_id(cls, section_id):
@@ -196,17 +196,19 @@ def test_instrument_inheritance_full_example():
             Check if the section_id is valid for this instrument.
             The section identifier must be between 0 and 9.
             """
-            if not isinstance(section_id, int):
-                raise ValueError(f"section_id must be an integer. Got {type(section_id)} instead.")
+            if not isinstance(section_id, (str, int) ):
+                raise ValueError(f"section_id must be an integer or a stringified integer. "
+                                 f"Got {type(section_id)} instead.")
+            section_id = int( section_id )
             if section_id < 0 or section_id > 9:
                 raise ValueError(f"section_id must be between 0 and 9. Got {section_id} instead.")
 
         def _make_new_section(self, identifier):
             return SensorSection(
-                identifier=identifier,
+                identifier=str(identifier),
                 instrument=self.name,
                 offset_x=0,
-                offset_y=identifier*(self.size_y + 100),
+                offset_y=int(identifier)*(self.size_y + 100),
             )
 
         def load_section_image(self, filepath, section_id):
@@ -258,18 +260,15 @@ def test_instrument_inheritance_full_example():
 
     assert len(inst.sections) == 10
     for i in range(10):
-        assert inst.sections[i].identifier == str(i)
-        assert inst.sections[i].offset_x == 0
+        assert inst.sections[str(i)].identifier == str(i)
+        assert inst.sections[str(i)].offset_x == 0
         if i > 0:
-            assert inst.sections[i].offset_y > 0
-
-    with pytest.raises(ValueError, match='section_id must be an integer'):
-        inst.get_section('0')
+            assert inst.sections[str(i)].offset_y > 0
 
     with pytest.raises(ValueError, match='section_id must be between 0 and 9'):
         inst.get_section(10)
 
-    inst.sections[1].gain = 1.6
+    inst.sections['1'].gain = 1.6
     assert inst.get_property(0, 'gain') == 1.2
     assert inst.get_property(1, 'gain') == 1.6
 

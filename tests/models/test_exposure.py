@@ -166,7 +166,7 @@ def test_exposure_load_demo_instrument_data(exposure):
     assert np.array_equal(array, exposure.data[0])
 
     inst = exposure.instrument_object
-    assert array.shape == (inst.sections[0].size_y, inst.sections[0].size_x)
+    assert array.shape == (inst.sections['0'].size_y, inst.sections['0'].size_x)
 
     # check that we can clear the cache and "re-load" data:
     exposure.data.clear_cache()

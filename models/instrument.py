@@ -413,8 +413,11 @@ class Instrument:
 
     @classmethod
     def get_section_ids(cls):
-        """
-        Get a list of SensorSection identifiers for this instrument.
+        """Get a list of SensorSection identifiers for this instrument.
+
+        Returns
+        -------
+           list of str
 
         THIS METHOD MUST BE OVERRIDEN BY THE SUBCLASS.
         """
@@ -422,18 +425,25 @@ class Instrument:
 
     @classmethod
     def check_section_id(cls, section_id):
-        """
-        Check that the type and value of the section is compatible with the instrument.
-        For example, many instruments will key the section by a running integer (e.g., CCD ID),
-        while others will use a string (e.g., channel 'A').
+        """Check that the type and value of the section is compatible with the instrument.
+
+        For example, many instruments will key the section by a running
+        integer (e.g., CCD ID), while others will use a string (e.g.,
+        channel 'A').
 
         Will raise a meaningful error if not compatible.
 
         Subclasses should override this method to be more specific
-        (e.g., to test if an integer is in range).
+        (e.g., to test if an integer is in range).  IMPORTANT NOTE:
+        subclasses must *always* be able to handle a string section_id,
+        even if that subclass only uses integer section_ids.  (Reason:
+        the "section_id" field of the Image model is type string, so
+        sometimes strings will come in.)  See DemoInstrument as an example.
 
         THIS METHOD CAN BE OVERRIDEN TO MAKE THE CHECK MORE SPECIFIC
-        (e.g., to check only for integers, to check the id is in range).
+        (e.g., to verify that the actual section_id is valid for the
+        instrument)
+
         """
         if not isinstance(section_id, (int, str)):
             raise ValueError(f"The section_id must be an integer or string. Got {type(section_id)}. ")
@@ -490,7 +500,7 @@ class Instrument:
         if self.sections is None:
             raise RuntimeError("No sections loaded for this instrument. Use fetch_sections() first.")
 
-        return self.sections.get(section_id)
+        return self.sections.get( str(section_id) )
 
     def fetch_sections(self, session=None, dateobs=None):
         """
@@ -554,7 +564,7 @@ class Instrument:
                     ).all()
 
             for sid in self.get_section_ids():
-                sec = [s for s in all_sec if s.identifier == str(sid)]
+                sec = [s for s in all_sec if s.identifier == sid]
                 if len(sec) > 0:
                     self.sections[sid] = sec[0]
                 else:
@@ -615,6 +625,7 @@ class Instrument:
         """
 
         section = self.get_section(section_id)
+        section_id = section.identifier
         if section is not None:
             if hasattr(section, prop) and getattr(section, prop) is not None:
                 return getattr(section, prop)
@@ -934,7 +945,7 @@ class Instrument:
         """
 
         sec = self.get_section( section_id )
-        return np.zeros( [ sec.size_y, sec.size_x ], dtype=numpy.uint16 )
+        return np.zeros( [ sec.size_y, sec.size_x ], dtype=np.uint16 )
 
     def get_gain_at_pixel( self, image, x, y, section_id=None ):
         """Get the gain of an image at a given pixel position.
@@ -948,23 +959,29 @@ class Instrument:
         Parameters
         ----------
         image: Image or None
-          The Image.  If None, section_id must not be none.
+          The Image.  If None, will look at section_id
         x, y: int or float
           Position on the image in C-coordinates (0 offset).  Remember
           that numpy arrays are indexed [y, x].
         section_id:
-          If Image is None, pass a non-null section_id to get the default gain.
+          Ignored if image is not None.  If image is None, will get the
+          default gain for this section.  If both this and image are
+          None, will return the instrument default gain, or 1 if there
+          is no instrument default gain.
 
         Returns
         -------
         float
 
         """
-        sec = self.get_section( section_id if image is None else image.section_id )
-        if sec.gain is None:
+        if image is not None:
+            return self.get_section( image.section_id ).gain
+        elif section_id is not None:
+            return self.get_section( section_id ).gain
+        elif sec.gain is not None:
             return self.gain
         else:
-            return sec.gain
+            return 1.
 
     def average_gain( self, image, section_id=None ):
         """Get an average gain for the image.
@@ -999,7 +1016,7 @@ class Instrument:
         ----------
         image: Image or None
           The Image.  If None, section_id must not be none
-        section_id:
+        section_id: int or str
           If Image is None, pass a non-null section_id to get the default gain.
 
         Returns
@@ -1055,18 +1072,21 @@ class Instrument:
 
     @classmethod
     def _get_fits_hdu_index_from_section_id(cls, section_id):
-        """
-        Translate the section_id into the index of the HDU in the FITS file.
-        For example, if we have an instrument with 10 CCDs, numbered 0 to 9,
-        the HDU list will probably contain a generic HDU at index 0,
-        and the individual section information in 1 through 10, so
-        the function should return section_id+1.
-        Another example could have section_id=A give an index 1,
-        and a section_id=B give an index 2 (so the function will read
-        from a dictionary to translate the values).
+        """Translate the section_id into the index of the HDU in the FITS file.
 
-        THIS METHOD SHOULD BE OVERRIDEN BY SUBCLASSES,
-        in particular when section_id is a string.
+        For example, if we have an instrument with 10 CCDs, numbered 0
+        to 9, the HDU list will probably contain a generic HDU at index
+        0, and the individual section information in 1 through 10, so
+        the function should return section_id+1.  Another example could
+        have section_id=A give an index 1, and a section_id=B give an
+        index 2 (so the function will read from a dictionary to
+        translate the values).
+
+        THIS METHOD SHOULD USUALLY BE OVERRIDEN BY SUBCLASSES.  Only in
+        the special case where the section IDs are [0, 1, 2, 3, ...]
+        and in an exposure those correspond to FITS HDUs [1, 2, 3, 4,
+        ...] (or indexes into an astropy.io.fits HDU that is the same as
+        the section ID).  will this implementation work.
 
         Parameters
         ----------
@@ -1076,10 +1096,10 @@ class Instrument:
         Returns
         -------
         index: int
-            The index of the HDU in the FITS file.
-            Note that the index is 0-based, as this value is
-            used in the astropy.io.fits functions/objects,
-            not in the native FITS format (which is 1-based).
+            The index of the HDU in the FITS file.  Note that the index
+            is 1-based, as it corresponds to the index in the native
+            FITS file.
+
         """
         cls.check_section_id(section_id)
         return int(section_id) + 1
@@ -1633,11 +1653,7 @@ class DemoInstrument(Instrument):
 
     @classmethod
     def get_section_ids(cls):
-
-        """
-        Get a list of SensorSection identifiers for this instrument.
-        """
-        return [0]
+        return [ '0' ]
 
     @classmethod
     def check_section_id(cls, section_id):
@@ -1645,9 +1661,7 @@ class DemoInstrument(Instrument):
         Check if the section_id is valid for this instrument.
         The demo instrument only has one section, so the section_id must be 0.
         """
-        if not isinstance(section_id, int):
-            raise ValueError(f"section_id must be an integer. Got {type(section_id)} instead.")
-        if section_id != 0:
+        if ( not isinstance(section_id, (str, int)) ) or ( int(section_id) != 0 ):
             raise ValueError(f"section_id must be 0 for this instrument. Got {section_id} instead.")
 
     def _make_new_section(self, identifier):
