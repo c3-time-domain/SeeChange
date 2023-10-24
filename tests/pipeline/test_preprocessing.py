@@ -1,7 +1,7 @@
 import pytest
 import pathlib
 
-import numpy
+import numpy as np
 from astropy.io import fits
 
 from models.base import FileOnDiskMixin, SmartSession
@@ -47,14 +47,14 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
     assert flatsec.std() < rawsec.std()
 
     # Make sure that some bad pixels got masked, but not too many
-    assert numpy.all( ds.image._flags[ 1390:1400, 1430:1440 ] == 4 )
-    assert numpy.all( ds.image._flags[ 4085:4093, 1080:1100 ] == 1 )
+    assert np.all( ds.image._flags[ 1390:1400, 1430:1440 ] == 4 )
+    assert np.all( ds.image._flags[ 4085:4093, 1080:1100 ] == 1 )
     assert ( ds.image._flags != 0 ).sum() / ds.image.data.size < 0.03
 
     # Make sure that the weight is reasonable
-    assert not numpy.any( ds.image._weight < 0 )
+    assert not np.any( ds.image._weight < 0 )
     assert ( ds.image.data[3959:3980, 653:662].std() ==
-             pytest.approx( 1./numpy.sqrt(ds.image._weight[3959:3980, 653:662]), rel=0.2 ) )
+             pytest.approx( 1./np.sqrt(ds.image._weight[3959:3980, 653:662]), rel=0.2 ) )
 
     # Make sure that the expected files get written
     try:
@@ -65,7 +65,7 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
                                       [ ds.image.data, ds.image._weight, ds.image._flags ] ):
             path = basepath.parent / f'{basepath.name}{suffix}'
             with fits.open( path, memmap=False ) as hdul:
-                assert numpy.all( hdul[0].data == compimage )
+                assert np.all( hdul[0].data == compimage )
             assert ( archpath.parent / f'{archpath.name}{suffix}' ).is_file()
 
         with SmartSession() as session:

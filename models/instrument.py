@@ -371,7 +371,7 @@ class Instrument:
         self.saturation_limit = getattr(self, 'saturation_limit', None)  # saturation limit in electrons (e.g., 100000)
         self.non_linearity_limit = getattr(self, 'non_linearity_limit', None)  # non-linearity limit in electrons
         self.background_box_size = getattr( self, 'background_box_size', 256 ) # Box size for sep background estimation
-        self.background_filt_size = getattr( self, 'background_fit_size', 3 ) # Filter size for sep background
+        self.background_filt_size = getattr( self, 'background_filt_size', 3 ) # Filter size for sep background
 
         self.allowed_filters = getattr(self, 'allowed_filters', None)  # list of allowed filter (e.g., ['g', 'r', 'i'])
 
@@ -1004,7 +1004,7 @@ class Instrument:
         float
 
         """
-        return Instrument.get_gain_at_pixel( self, image, 0, 0, section_id=section_id )
+        return self.get_gain_at_pixel( image, 0, 0, section_id=section_id )
 
     def average_saturation_limit( self, image, section_id=None ):
         """Get an average saturation limit in ADU for the image.
@@ -1653,6 +1653,11 @@ class DemoInstrument(Instrument):
 
     @classmethod
     def get_section_ids(cls):
+        """Get a list of SensorSection identifiers for this instrument.
+
+        See Instrument.get_section_ids for interface.
+        """
+
         return [ '0' ]
 
     @classmethod

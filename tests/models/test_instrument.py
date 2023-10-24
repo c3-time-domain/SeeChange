@@ -196,10 +196,11 @@ def test_instrument_inheritance_full_example():
             Check if the section_id is valid for this instrument.
             The section identifier must be between 0 and 9.
             """
-            if not isinstance(section_id, (str, int) ):
+            try:
+                section_id = int( section_id )
+            except ValueError:
                 raise ValueError(f"section_id must be an integer or a stringified integer. "
-                                 f"Got {type(section_id)} instead.")
-            section_id = int( section_id )
+                                 f"Got{type(section_id)} instead.")
             if section_id < 0 or section_id > 9:
                 raise ValueError(f"section_id must be between 0 and 9. Got {section_id} instead.")
 
