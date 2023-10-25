@@ -110,7 +110,7 @@ class Config:
             will set to default_config.yaml in the top level of the project.
 
         logger: logging object, default: getLogger("main")
-        
+
         dirmap: dict of { str: str }
             An ugly hack for changing the directories of imported files; see the static function dirmap.
 
@@ -170,7 +170,7 @@ class Config:
             configfile = Config._default
 
         configfile = str( pathlib.Path(configfile).resolve() )
-                
+
         if reread or ( configfile not in Config._configs ):
             Config._configs[configfile] = Config( configfile, logger=logger, dirmap=dirmap )
             if Config._default is None:
@@ -178,7 +178,7 @@ class Config:
 
         if setdefault:
             Config._default = configfile
-                
+
         return Config._configs[configfile]
 
     @staticmethod
@@ -221,7 +221,7 @@ class Config:
         Parameters
         ----------
         configfile: str or Path, default None
-        
+
         reread: bool
 
         logger: a logging object, default getLogger("main")
@@ -231,7 +231,7 @@ class Config:
         Returns
         -------
             Config object
-        
+
         Will call "get" on the passed configfile, but will *not* return
         the singleton object for that config file.  Rather, will make a
         deep copy of it, and return that.  That gives you a config file
@@ -243,7 +243,7 @@ class Config:
 
     def __init__( self, configfile, clone=None, logger=logging.getLogger("main"), dirmap={} ):
         """Don't call this, call static method Config.get() or Config.clone()
-        
+
         Parameters
         ----------
         configfile : str or Path
@@ -464,7 +464,7 @@ class Config:
            If true and if field is a pre-existing list, then value is
            appended to the list.  Otherwise, value replaces the
            pre-existing field if there is one.
-            
+
         Does not save to disk.  Follows the standard rules docuemnted in
         "augment" and "override"; if appendlists is True, uses
         "augment", else "override".  Will create the whole hierarchy if

@@ -1,6 +1,8 @@
 import pytest
+import pathlib
+import random
 
-from util.util import listify
+from util.util import listify, ensure_file_does_not_exist
 
 def test_listify():
     assert listify( None ) is None
@@ -21,4 +23,41 @@ def test_listify():
         l = listify( [ 1, 2, 3], require_string=True )
     with pytest.raises( TypeError ):
         l = listify( [ "a", 1 ], require_string=True )
-        
+
+def test_ensure_file_does_not_exist():
+    fname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
+    fpath = pathlib.Path( fname )
+    assert not fpath.exists()
+
+    try:
+        ensure_file_does_not_exist( fname )
+        ensure_file_does_not_exist( fpath )
+
+        fpath.mkdir()
+        with pytest.raises( FileExistsError, match='.*exists but is not a regular file' ):
+            ensure_file_does_not_exist( fname )
+        with pytest.raises( FileExistsError, match='.*exists but is not a regular file' ):
+            ensure_file_does_not_exist( fpath )
+        fpath.rmdir()
+
+        with open( fpath, "w" ) as ofp:
+            ofp.write( "Hello, world\n" )
+
+        with pytest.raises( FileExistsError, match='.*exists and clobber is False' ):
+            ensure_file_does_not_exist( fname )
+        with pytest.raises( FileExistsError, match='.*exists and clobber is False' ):
+            ensure_file_does_not_exist( fpath )
+
+        ensure_file_does_not_exist( fname, clobber=True )
+        assert not fpath.exists()
+        with open( fpath, "w" ) as ofp:
+            ofp.write( "Hello, world\n" )
+        ensure_file_does_not_exist( fpath, clobber=True )
+        assert not fpath.exists()
+
+    finally:
+        if fpath.exists():
+            if fpath.is_file():
+                fpath.unlink()
+            else:
+                fpath.rmdir()

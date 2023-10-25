@@ -146,7 +146,7 @@ class Detector:
         r, flags = sep.flux_radius(data_sub, objects['x'], objects['y'], 6.0 * objects['a'], 0.5, subpix=5)
         r = np.array(r, dtype=[('rhalf', '<f8')])
         objects = rfn.merge_arrays((objects, r), flatten=True)
-        sources = SourceList(image=image, data=objects)
+        sources = SourceList(image=image, data=objects, format='sepnpy')
 
         return sources
 

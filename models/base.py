@@ -340,6 +340,12 @@ class FileOnDiskMixin:
     if not os.path.isdir(local_path):
         os.makedirs(local_path, exist_ok=True)
 
+    temp_path = cfg.value( 'path.data_temp', None )
+    if temp_path is None:
+        temp_path = os.path.join( CODE_ROOT, 'data' )
+    if not os.path.isdir( temp_path ):
+        os.makedirs( temp_path, exist_ok=True )
+
     @classmethod
     def safe_mkdir(cls, path):
         if path is None or path == '':
@@ -440,6 +446,7 @@ class FileOnDiskMixin:
                 override the _do_not_require_file_to_exist() method.
                 # TODO: add the check that file exists before committing?
         """
+        _logger.debug( f"In FileOnDiskMixin.__init__ for {self.__class__.__name__}" )
         if len(args) == 1 and isinstance(args[0], str):
             self.filepath = args[0]
 

@@ -483,7 +483,7 @@ class DataStore:
                     raise ValueError( "Image exposure/section id doesn't match what's expected!" )
             elif ( self.exposure is not None and self.section is not None ):
                 if ( ( self.image.exposure_id != self.exposure.id ) or
-                     ( self.image.section_id != self.section.id ) ):
+                     ( self.image.section_id != self.section.identifier ) ):
                     raise ValueError( "Image exposure/section id doesn't match what's expected!" )
             # If we get here, self.image is presumed to be good
 
@@ -1137,6 +1137,11 @@ class DataStore:
 
         All data products in the data store are removed from the DB,
         and all files on disk are deleted.
+
+        WARNING : after calling this, calling this again on the same
+        data_store will cause problems.  (TODO: set all the various _id
+        fields of the objects to None?  Would that fix it?  Or, perhaps
+        set all fields to None?)
 
         NOTE: does *not* delete the exposure.  (There may well be other
         data stores out there with different images from the same

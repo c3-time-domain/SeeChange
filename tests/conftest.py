@@ -23,6 +23,8 @@ from models.references import ReferenceEntry
 from models.instrument import Instrument, get_instrument_instance
 from models.decam import DECam
 from models.source_list import SourceList
+from pipeline.preprocessing import Preprocessor
+from pipeline.detection import Detector
 from util import config
 from util.archive import Archive
 
@@ -213,38 +215,40 @@ def exposure_filter_array(exposure_factory):
     yield e
 
 
-@pytest.fixture
-def decam_example_file():
+def get_decam_example_file():
     filename = os.path.join(CODE_ROOT, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
     if not os.path.isfile(filename):
-        url = 'https://astroarchive.noirlab.edu/api/retrieve/004d537b1347daa12f8361f5d69bc09b/'
-        response = wget.download(
-            url=url,
-            out=os.path.join(CODE_ROOT, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
-        )
-        assert response == filename
-
-    yield filename
-
+        cachedfilename = f'{filename}_cached'
+        if not os.path.isfile( cachedfilename ):
+            url = 'https://astroarchive.noirlab.edu/api/retrieve/004d537b1347daa12f8361f5d69bc09b/'
+            response = wget.download( url=url, out=cachedfilename )
+            assert response == filename
+        os.symlink( cachedfilename, filename )
+    return filename
 
 @pytest.fixture
-def decam_example_exposure(decam_example_file):
-    # always destroy this Exposure object and make a new one, to avoid filepath unique constraint violations
-    decam_example_file_short = decam_example_file[len(CODE_ROOT+'/data/'):]
+def decam_example_file():
+    yield get_decam_example_file()
+
+def get_decam_example_exposure():
+    filename = get_decam_example_file()
+    decam_example_file_short = filename[len(CODE_ROOT+'/data/'):]
     with SmartSession() as session:
         session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
         session.commit()
 
-    with fits.open( decam_example_file, memmap=False ) as ifp:
+    with fits.open( filename, memmap=False ) as ifp:
         hdr = ifp[0].header
     exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
 
-    exposure = Exposure( filepath=decam_example_file, instrument='DECam', **exphdrinfo )
+    exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
     return exposure
 
 
-# This one is currently completely redudant with decam_example_image, except
-# for the TODO comment
+@pytest.fixture
+def decam_example_exposure(decam_example_file):
+    return get_decam_example_exposure()
+
 @pytest.fixture
 def decam_example_raw_image( decam_example_exposure ):
     image = Image.from_exposure(decam_example_exposure, section_id='N1')
@@ -252,17 +256,44 @@ def decam_example_raw_image( decam_example_exposure ):
     return image
 
 
-@pytest.fixture
-def decam_example_image(decam_example_exposure):
-    image = Image.from_exposure(decam_example_exposure, section_id='N1')
-    image.data = image.raw_data.astype(np.float32)  # TODO: add bias/flat corrections at some point
-    image.md5sum = uuid.uuid4()  # spoof the md5 sum
-    return image
+@pytest.fixture(scope="session")
+def decam_example_reduced_image_ds():
+    """Returns a datastore with an image that's been loaded into the database."""
+    exposure = get_decam_example_exposure()
+    # Have to spoof the md5sum field to let us add it to the database even
+    # though we're not really saving it to the archive
+    exposure.md5sum = uuid.uuid4()
+    with SmartSession() as session:
+        # Spoof md5sum so we can add it
+        # Think: may be better just to actually save the exposure
+        # to the test archive?
+        exposure = exposure.recursive_merge( session )
+        session.add( exposure )
+        session.commit()
+        prepper = Preprocessor()
+        # NOTE: this has a side effect of loading some DECam
+        # calibration files (flats, etc.) into the databse
+        ds = prepper.run( exposure, 'N1', session=session )
+        ds.save_and_commit( session=session )
+    yield ds
+    ds.delete_everything()
 
+@pytest.fixture(scope="session")
+def decam_example_reduced_image_source_list_ds( decam_example_reduced_image_ds ):
+    """Returns the same datastore from decam_example_reduced_image_ds, only now with a source list too"""
+    det = Detector()
+    ds = det.run( decam_example_reduced_image_ds )
+    ds.save_and_commit()
+    yield ds
+    # This next line may not be necessary since
+    # decam_example_reduced_image_ds will run it
+    # ...indeed, it looks like data_store.delete_everyting()
+    # is not robust to being called more than once
+    # ds.delete_everything()
 
 @pytest.fixture
-def decam_small_image(decam_example_image):
-    image = decam_example_image
+def decam_small_image(decam_example_raw_image):
+    image = decam_example_raw_image
     image.data = image.data[256:256+512, 256:256+512].copy()  # make it C-contiguous
     return image
 
@@ -457,7 +488,7 @@ def sources(demo_image):
         [x, y, flux, flux_err, rhalf],
         dtype=([('x', 'f4'), ('y', 'f4'), ('flux', 'f4'), ('flux_err', 'f4'), ('rhalf', 'f4')])
     )
-    s = SourceList(image=demo_image, data=data)
+    s = SourceList(image=demo_image, data=data, format='sepnpy')
 
     yield s
 
@@ -530,4 +561,12 @@ def decam_default_calibrators():
             df = session.get( DataFile, dfid )
             df.delete_from_disk_and_database( session=session, commit=False )
         session.commit()
+
+@pytest.fixture
+def example_source_list():
+    filepath = "test_data/ztf_20190317307639_000712_zg_io.083_sources.fits"
+    fullpath = pathlib.Path( FileOnDiskMixin.local_path ) / filepath
+    if not fullpath.is_file():
+        raise FileNotFoundError( f"Can't read {fullpath}" )
+    return filepath, fullpath
 

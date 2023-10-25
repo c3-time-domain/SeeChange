@@ -1,4 +1,4 @@
-FROM rknop/devuan-chimaera-rknop
+FROM rknop/devuan-daedalus-rknop
 
 MAINTAINER Rob Knop <raknop@lbl.gov>
 
@@ -54,7 +54,7 @@ RUN DEBIAN_FRONTEND="nonintearctive" TZ="US/Pacific" \
       postgresql-client \
       procps \
       psfex \
-      python \
+      python3 \
       python3-ipykernel \
       python3-pip \
       scamp \
@@ -137,6 +137,12 @@ RUN git clone https://github.com/acbecker/hotpants.git \
     && cd .. \
     && rm -rf hotpants
 
+# So, the Debian python now has a thing that tells pip that it really
+# shouldn't be mucking about with the directories that apt manages.
+# This sounds like a really good idea!  Duelling package managers are a
+# nightmare!  But... it breaks the dockerfile.  So, work around it.
+RUN rm /usr/lib/python3.11/EXTERNALLY-MANAGED
+
 RUN pip install --upgrade pip setuptools wheel
 
 # Listing all these versions ensures that this is going to fall behind
@@ -165,6 +171,7 @@ RUN pip install \
       fitsio==0.9.12 \
       gitdb==4.0.10 \
       GitPython==3.1.31 \
+      healpy==1.16.5 \
       numpy==1.24.2 \
       pandas==1.5.3 \
       photutils==1.6.0 \

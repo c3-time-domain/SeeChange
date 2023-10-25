@@ -136,8 +136,12 @@ class CutoutsFormatConverter( FormatConverter ):
     _dict_filtered = None
     _dict_inverse = None
 
-class SourceListFormatConverter( FormatConverter ):
-    _allowed_values = ['npy', 'csv', 'hdf5', 'parquet', 'fits']
+class SourceListFormatConverter( EnumConverter ):
+    _dict = {
+        1: 'sepnpy',
+        2: 'sextrfits',
+    }
+    _allowed_values = None
     _dict_filtered = None
     _dict_inverse = None
 

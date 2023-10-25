@@ -223,9 +223,10 @@ def test_linearity( decam_example_raw_image ):
             assert im.data.shape == ( 4096, 2048 )
             newdata = decam.linearity_correct( im, linearitydata=lindf )
 
-            from astropy.io import fits
-            fits.writeto( 'trimmed.fits', im.data, im.raw_header, overwrite=True )
-            fits.writeto( 'linearitied.fits', newdata, im.raw_header, overwrite=True )
+            # This is here to uncomment for debugging purposes
+            # from astropy.io import fits
+            # fits.writeto( 'trimmed.fits', im.data, im.raw_header, overwrite=True )
+            # fits.writeto( 'linearitied.fits', newdata, im.raw_header, overwrite=True )
 
             # Brighter pixels should all have gotten brighter
             # (as nonlinearity will suppress bright pixels )

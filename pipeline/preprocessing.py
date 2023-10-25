@@ -59,14 +59,7 @@ class Preprocessor:
         preprocessing.  This will return a DataStore with the
         preprocessed image.
 
-        Parameters
-        ----------
-        instrument: Instrument or str
-          The instrument we're working on
-        section: SensorSectin or str
-          The SensorSection of the image
-        exposure: Exposure
-          The exposure we're working on.
+        Parameters are parsed by ParsPreprocessor
 
         """
 

@@ -71,7 +71,7 @@ services:
     working_dir: /seechange
     user: ${USERID:-0}:${GROUPID:-0}
     entrypoint: [ "alembic", "upgrade", "head" ]
-      
+
   runtests:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build:
@@ -117,8 +117,8 @@ services:
     working_dir: /seechange
     user: ${USERID:-0}:${GROUPID:-0}
     entrypoint: [ "tail", "-f", "/etc/issue" ]
-      
-    
+
+
 secrets:
   connector_tokens:
     file: connector_tokens.txt

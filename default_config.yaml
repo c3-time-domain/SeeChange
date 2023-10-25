@@ -91,6 +91,14 @@ instrument_default:
   calibratorset: nightly
   flattype: sky
 
+# Config for astromatic utilities (sextractor, scamp, swarp, psfex)
+astromatic:
+  # An absolute path to where astromatic config files are
+  config_dir: null
+  # A path relative to models/base/CODE_ROOT where the astromatic
+  # config files are. Ignored if config_dir is not null
+  config_subdir: data/astromatic_config
+
 # DECam
 
 # For the observatory-supplied calibrations, NOIRLab distributes them on
