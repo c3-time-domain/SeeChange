@@ -222,7 +222,7 @@ def get_decam_example_file():
         if not os.path.isfile( cachedfilename ):
             url = 'https://astroarchive.noirlab.edu/api/retrieve/004d537b1347daa12f8361f5d69bc09b/'
             response = wget.download( url=url, out=cachedfilename )
-            assert response == filename
+            assert response == cachedfilename
         os.symlink( cachedfilename, filename )
     return filename
 
