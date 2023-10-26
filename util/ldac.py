@@ -1,9 +1,18 @@
 # Copyright 2015 Fred Moolekamp
 # BSD 3-clause license
 # Modified by RKNOP in 2021, 2023 to add imghdr
-"""
-Functions to convert FITS files or astropy Tables to FITS_LDAC files and
-vice versa.
+
+"""Functions to convert FITS files or astropy Tables to FITS_LDAC files and vice versa.
+
+The FITS LDAC format is a specific convention for FITS files for storing
+catalogs:
+https://marvinweb.astro.uni-bonn.de/data_products/THELIWWW/LDAC/LDAC_concepts.html
+
+It's the format used by Emmanuel Bertin's Astromatic utilities (SExtractor et al).
+
+This code may not fully implement the specification; it does what's
+necessary to read and write SExtractor catalogs.
+
 """
 
 import io

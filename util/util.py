@@ -1,8 +1,8 @@
 import pathlib
 import collections.abc
 
-def ensure_file_does_not_exist( filepath, clobber=False ):
-    """Check if a file exists.  Clobber it, or raise an exception if it does.
+def ensure_file_does_not_exist( filepath, delete=False ):
+    """Check if a file exists.  Delete it, or raise an exception, if it does.
 
     Will always raise a FileExistsError if the file exists but isn't a normal file.
 
@@ -10,8 +10,8 @@ def ensure_file_does_not_exist( filepath, clobber=False ):
     ----------
     filepath: str or Path
        Path to the file
-    clobber: bool
-       If True, will clobber the file if it exists and is a regular
+    delete: bool
+       If True, will delete the file if it exists and is a regular
        file.  If False (default), will raise a FileExistsError
     """
 
@@ -19,8 +19,8 @@ def ensure_file_does_not_exist( filepath, clobber=False ):
     if filepath.exists():
         if not filepath.is_file():
             raise FileExistsError( f"{filepath} exists but is not a regular file" )
-        if not clobber:
-            raise FileExistsError( f"{filepath} exists and clobber is False" )
+        if not delete:
+            raise FileExistsError( f"{filepath} exists and delete is False" )
         else:
             filepath.unlink()
 
