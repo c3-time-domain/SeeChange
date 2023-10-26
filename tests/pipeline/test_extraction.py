@@ -1,3 +1,4 @@
+import pytest
 import os
 import re
 import uuid
@@ -13,8 +14,8 @@ from models.source_list import SourceList
 from pipeline.detection import Detector
 
 
-def test_find_sources_in_small_image(decam_small_image):
-    det = Detector(subtraction=False, threshold=3.0)
+def test_sep_find_sources_in_small_image(decam_small_image):
+    det = Detector(method='sep', subtraction=False, threshold=3.0)
 
     sources = det.extract_sources(decam_small_image)
 
@@ -61,9 +62,9 @@ def test_find_sources_in_small_image(decam_small_image):
     assert 2.0 < np.median(sources2.data['rhalf']) < 2.5
 
 
-def test_save_source_list(decam_small_image, provenance_base, code_version):
+def test_sep_save_source_list(decam_small_image, provenance_base, code_version):
     decam_small_image.provenance = provenance_base
-    det = Detector(subtraction=False, threshold=3.0)
+    det = Detector(method='sep', subtraction=False, threshold=3.0)
     sources = det.extract_sources(decam_small_image)
     prov = Provenance(
         process='extraction',
@@ -118,3 +119,48 @@ def test_save_source_list(decam_small_image, provenance_base, code_version):
             if image_id is not None:
                 session.execute(sa.delete(Image).where(Image.id == image_id))
             session.commit()
+
+
+def test_sextractor_extract_once( decam_example_reduced_image_ds ):
+    detector = Detector( method='sextractor', subtraction=False, threshold=3.0 )
+
+    sourcelist = detector._run_sextractor_once( decam_example_reduced_image_ds.image )
+
+    assert sourcelist.num_sources == 5611
+    assert len(sourcelist.data) == sourcelist.num_sources
+    assert sourcelist.aper_rads == [ 5. ]
+
+    assert sourcelist.info['SEXAPED1'] == 5.0
+    assert sourcelist.info['SEXAPED2'] == 0.
+    assert sourcelist.info['SEXBKGND'] == pytest.approx( 179.8, abs=0.1 )
+
+    assert sourcelist.x.min() == pytest.approx( 16.0, abs=0.1 )
+    assert sourcelist.x.max() == pytest.approx( 2039.6, abs=0.1 )
+    assert sourcelist.y.min() == pytest.approx( 16.3, abs=0.1 )
+    assert sourcelist.y.max() == pytest.approx( 4087.9, abs=0.1 )
+    assert sourcelist.apfluxadu()[0].min() == pytest.approx( 79.2300, rel=1e-5 )
+    assert sourcelist.apfluxadu()[0].max() == pytest.approx( 852137.56, rel=1e-5 )
+    snr = sourcelist.apfluxadu()[0] / sourcelist.apfluxadu()[1]
+    assert snr.min() == pytest.approx( 2.33, abs=0.01 )
+    assert snr.max() == pytest.approx( 1285, abs=1. )
+    assert snr.mean() == pytest.approx( 120.85, abs=0.1 )
+    assert snr.std() == pytest.approx( 205, abs=1. )
+
+    # Test multiple apertures
+    sourcelist = detector._run_sextractor_once( decam_example_reduced_image_ds.image, apers=[2,5] )
+
+    assert sourcelist.num_sources == 5611    # It *finds* the same things
+    assert len(sourcelist.data) == sourcelist.num_sources
+    assert sourcelist.aper_rads == [ 2., 5. ]
+
+    assert sourcelist.info['SEXAPED1'] == 2.0
+    assert sourcelist.info['SEXAPED2'] == 5.0
+    assert sourcelist.info['SEXBKGND'] == pytest.approx( 179.8, abs=0.1 )
+    assert sourcelist.x.min() == pytest.approx( 16.0, abs=0.1 )
+    assert sourcelist.x.max() == pytest.approx( 2039.6, abs=0.1 )
+    assert sourcelist.y.min() == pytest.approx( 16.3, abs=0.1 )
+    assert sourcelist.y.max() == pytest.approx( 4087.9, abs=0.1 )
+    assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( 79.2300, rel=1e-5 )
+    assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 852137.56, rel=1e-5 )
+    assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 35.02905, rel=1e-5 )
+    assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 152206.1, rel=1e-5 )

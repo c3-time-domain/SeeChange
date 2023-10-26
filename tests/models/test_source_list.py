@@ -213,4 +213,3 @@ def test_write_sextractor():
             assert hdr.cards[0].comment == 'Comment'
     finally:
         pathlib.Path( sources.get_fullpath() ).unlink( missing_ok=True )
-
