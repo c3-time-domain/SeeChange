@@ -203,13 +203,12 @@ def parse_session(*args, **kwargs):
         session = sessions[-1]
     args = [arg for arg in args if not isinstance(arg, sa.orm.session.Session)]
 
-    # (Added this because we were getting a "dictionary size chagned during iteration"
-    # error in for key in kwargs.keys() when the pop was inside that loop.)
     sesskeys = []
     for key in kwargs.keys():
         if key in ['session']:
             if not isinstance(kwargs[key], sa.orm.session.Session):
                 raise ValueError(f'Session must be a sqlalchemy.orm.session.Session, got {type(kwargs[key])}')
+            sesskeys.append(key)
     for key in sesskeys:
         session = kwargs.pop(key)
 

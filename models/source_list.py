@@ -298,7 +298,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
             aper_rads to use.  Ignroed if ap is not None.
 
           ap: float, default None
-            If not None, look for an aperture that's within 0.1 pixels
+            If not None, look for an aperture that's within 0.01 pixels
             of this and return flux in apertures of that radius.  Raises
             an exception if such an aperture doesn't apear in aper_rads
 
@@ -503,7 +503,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         clobber: bool, default True
            If the file exists, overwrite it
         """
-        ensure_file_does_not_exist( regfile, clobber=clobber )
+        ensure_file_does_not_exist( regfile, delete=clobber )
 
         data = self.data
         with open( regfile, "w" ) as ofp:

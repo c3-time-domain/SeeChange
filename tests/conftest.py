@@ -234,6 +234,7 @@ def get_decam_example_exposure():
     filename = get_decam_example_file()
     decam_example_file_short = filename[len(CODE_ROOT+'/data/'):]
     with SmartSession() as session:
+        # always destroy this Exposure object and make a new one, to avoid filepath unique constraint violations
         session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
         session.commit()
 

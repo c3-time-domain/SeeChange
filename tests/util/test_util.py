@@ -43,16 +43,16 @@ def test_ensure_file_does_not_exist():
         with open( fpath, "w" ) as ofp:
             ofp.write( "Hello, world\n" )
 
-        with pytest.raises( FileExistsError, match='.*exists and clobber is False' ):
+        with pytest.raises( FileExistsError, match='.*exists and delete is False' ):
             ensure_file_does_not_exist( fname )
-        with pytest.raises( FileExistsError, match='.*exists and clobber is False' ):
+        with pytest.raises( FileExistsError, match='.*exists and delete is False' ):
             ensure_file_does_not_exist( fpath )
 
-        ensure_file_does_not_exist( fname, clobber=True )
+        ensure_file_does_not_exist( fname, delete=True )
         assert not fpath.exists()
         with open( fpath, "w" ) as ofp:
             ofp.write( "Hello, world\n" )
-        ensure_file_does_not_exist( fpath, clobber=True )
+        ensure_file_does_not_exist( fpath, delete=True )
         assert not fpath.exists()
 
     finally:
