@@ -1,12 +1,17 @@
 import pytest
+import io
 import os
 import re
 import uuid
-import numpy as np
+import pathlib
+import random
 
+import numpy as np
 import sqlalchemy as sa
 
-from models.base import SmartSession
+from astropy.io import votable
+
+from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
@@ -120,11 +125,24 @@ def test_sep_save_source_list(decam_small_image, provenance_base, code_version):
                 session.execute(sa.delete(Image).where(Image.id == image_id))
             session.commit()
 
+# This is running sextractor in one particular way that is used by more than one test
+@pytest.fixture
+def run_sextractor( decam_example_reduced_image_ds ):
+    detector = Detector( method='sextractor', subtraction=False, apers=[5.], threshold=3.0 )
 
-def test_sextractor_extract_once( decam_example_reduced_image_ds ):
-    detector = Detector( method='sextractor', subtraction=False, threshold=3.0 )
+    tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
+    sourcelist = detector._run_sextractor_once( decam_example_reduced_image_ds.image, tempname=tempname )
+    sourcefile = pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}_sources.fits"
+    imagefile =  pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}.fits"
+    assert not imagefile.exists()
+    assert sourcefile.exists()
 
-    sourcelist = detector._run_sextractor_once( decam_example_reduced_image_ds.image )
+    yield sourcelist, sourcefile
+
+    sourcefile.unlink( missing_ok=True )
+
+def test_sextractor_extract_once( decam_example_reduced_image_ds, run_sextractor ):
+    sourcelist, sourcefile = run_sextractor
 
     assert sourcelist.num_sources == 5611
     assert len(sourcelist.data) == sourcelist.num_sources
@@ -147,6 +165,8 @@ def test_sextractor_extract_once( decam_example_reduced_image_ds ):
     assert snr.std() == pytest.approx( 205, abs=1. )
 
     # Test multiple apertures
+    detector = Detector( method='sextractor', subtraction=False, threshold=3.0 )
+
     sourcelist = detector._run_sextractor_once( decam_example_reduced_image_ds.image, apers=[2,5] )
 
     assert sourcelist.num_sources == 5611    # It *finds* the same things
@@ -164,3 +184,42 @@ def test_sextractor_extract_once( decam_example_reduced_image_ds ):
     assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 852137.56, rel=1e-5 )
     assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 35.02905, rel=1e-5 )
     assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 152206.1, rel=1e-5 )
+
+def test_run_psfex( run_sextractor ):
+    sourcelist, sourcefile = run_sextractor
+    match = re.search( '^(.*)_sources.fits', sourcefile.name )
+    assert match is not None
+    tempname = match.group(1)
+    tmppsffile = pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}_sources.psf"
+    tmppsfxmlfile = pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}_sources.psf.xml"
+
+    try:
+        detector = Detector( method='sextractor', subtraction=False, threshold=3.0 )
+        psf = detector._run_psfex( tempname, sourcelist.image_id )
+        assert psf._header['PSFAXIS1'] == 25
+        assert psf._header['PSFAXIS2'] == 25
+        assert psf._header['PSFAXIS3'] == 6
+        assert psf._header['PSF_SAMP'] == pytest.approx( 0.92, abs=0.01 )
+        assert psf._header['CHI2'] == pytest.approx( 0.91, abs=0.01 )
+        bio = io.BytesIO( psf._info.encode( 'utf-8' ) )
+        psfstats = votable.parse( bio ).get_table_by_index(1)
+        assert psfstats.array['FWHM_FromFluxRadius_Max'] == pytest.approx( 4.33, abs=0.01 )
+        assert not tmppsffile.exists()
+        assert not tmppsfxmlfile.exists()
+
+        psf = detector._run_psfex( tempname, sourcelist.image_id, do_not_cleanup=True )
+        assert tmppsffile.exists()
+        assert tmppsfxmlfile.exists()
+        tmppsffile.unlink()
+        tmppsfxmlfile.unlink()
+
+        psf = detector._run_psfex( tempname, sourcelist.image_id, psf_size=26 )
+        import pdb; pdb.set_trace()
+        assert psf._header['PSFAXIS1'] == 29
+        assert psf._header['PSFAXIS1'] == 29
+
+    finally:
+        tmppsffile.unlink( missing_ok=True )
+        tmppsfxmlfile.unlink( missing_ok=True )
+
+

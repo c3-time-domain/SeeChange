@@ -1,0 +1,251 @@
+import pytest
+import random
+import math
+import pathlib
+import subprocess
+
+import numpy as np
+from scipy.integrate import dblquad
+
+from astropy.io import fits
+
+from util.config import Config
+from models.base import FileOnDiskMixin, _logger, CODE_ROOT
+from models.psf import PSF
+
+class PSFPaletteMaker:
+    def __init__( self, round=False ):
+        tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
+        self.imagename = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.fits'
+        self.weightname = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.weight.fits'
+        self.flagsname = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.flags.fits'
+        self.catname = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.cat'
+        self.psfname = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.psf'
+        self.psfxmlname = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.psf.xml'
+
+        self.nx = 1024
+        self.ny = 1024
+
+        self.clipwid = 17
+        
+        self.flux = 200000.
+        self.noiselevel = 5.
+        
+        self.x0 = self.nx/2.
+        self.sigx0 = 1.
+        if round:
+            self.sigxx = 0.
+            self.sigxy = 0.
+        else:
+            self.sigxx = 0.25 / self.nx
+            self.sigxy = 0.
+
+        self.y0 = self.ny/2.
+        if round:
+            self.sigy0 = 1.
+            self.sigyx = 0.
+            self.sigyy = 0.
+        else:
+            self.sigy0 = 1.5
+            self.sigyx = -0.25 / self.ny
+            self.sigyy = 0.
+        
+        self.theta0 = 0.
+        if round:
+            self.thetax = 0.
+            self.thetay = 0.
+        else:
+            self.thetax = 0.
+            self.thetay = math.pi / 4. / self.nx
+
+        # Positions where we're going to put the PSFs.  Want to have
+        # about 10 0 of them, but also don't want them all to fall right
+        # at the center of the pixel (hence the nonintegral spacing)
+        self.xpos = np.arange( 25., 1000., 102.327 )
+        self.ypos = np.arange( 25., 1000., 102.327 )
+
+    @staticmethod
+    def psffunc ( yr, xr, sigx, sigy, theta ):
+        xrot =  xr * math.cos(theta) + yr * math.sin(theta)
+        yrot = -xr * math.sin(theta) + yr * math.cos(theta)
+        return 1/(2*math.pi*sigx*sigy) * math.exp( -( xrot**2/(2.*sigx**2) + yrot**2/(2.*sigy**2) ) )
+
+    def psfpixel( self, x, y, xi, yi ):
+        sigx = self.sigx0 + (x - self.x0) * self.sigxx + (y - self.y0) * self.sigxy
+        sigy = self.sigy0 + (x - self.x0) * self.sigyx + (y - self.y0) * self.sigyy
+        theta = self.theta0 + (x - self.x0) * self.thetax + (y - self.y0) * self.thetay
+    
+        res = dblquad( PSFPaletteMaker.psffunc, xi-x-0.5, xi-x+0.5, yi-y-0.5, yi-y+0.5, args=( sigx, sigy, theta ) )
+        return res[0]
+
+    def make_psf_palette( self ):
+        self.img = np.zeros( ( self.nx, self.ny ) )
+
+        for i, xc in enumerate( self.xpos ):
+            xi0 = int( math.floor(xc)+0.5 )
+            _logger.info( f"Making psf palette, on x {i} of {len(self.xpos)}" )
+            for yc in self.ypos:
+                yi0 = int( math.floor(yc)+0.5 )
+                for xi in range(xi0 - (self.clipwid//2), xi0 + self.clipwid//2 + 1):
+                    for yi in range(yi0 - (self.clipwid//2), yi0 + self.clipwid//2 + 1):
+                        self.img[yi, xi] = self.flux * self.psfpixel( xc, yc, xi, yi )
+
+        # Have to have some noise in there, or sextractor will choke on the image
+        self.img += np.random.normal( 0., self.noiselevel, self.img.shape )
+
+        hdu = fits.PrimaryHDU( data=self.img )
+        hdu.writeto( self.imagename, overwrite=True )
+        hdu = fits.PrimaryHDU( data=np.zeros_like( self.img, dtype=np.uint8 ) )
+        hdu.writeto( self.flagsname, overwrite=True )
+        hdu = fits.PrimaryHDU( data=np.full( self.img.shape, 1. / ( self.noiselevel**2 ) ) )
+        hdu.writeto( self.weightname, overwrite=True )
+
+
+    def extract_and_psfex( self ):
+        astromatic_dir = None
+        cfg = Config.get()
+        if cfg.value( 'astromatic.config_dir' ) is not None:
+            astromatic_dir = pathlib.Path( cfg.value( 'astromatic.config_dir' ) )
+        elif cfg.value( 'astromatic.config_subdir' ) is not None:
+            astromatic_dir = pathlib.Path( CODE_ROOT ) / cfg.value( 'astromatic.config_subdir' )
+        if astromatic_dir is None:
+            raise FileNotFoundError( "Can't figure out where astromatic config directory is" )
+        if not astromatic_dir.is_dir():
+            raise FileNotFoundError( f"Astromatic config dir {str(astromatic_dir)} doesn't exist "
+                                     f"or isn't a directory." )
+
+        conv = astromatic_dir / "default.conv"
+        nnw = astromatic_dir / "default.nnw"
+        paramfile = astromatic_dir / "detection_sextractor.param"
+
+        _logger.info( "Running sextractor..." )
+        # Run sextractor to give psfex something to do
+        command = [ 'source-extractor',
+                    '-CATALOG_NAME', self.catname,
+                    '-CATALOG_TYPE', 'FITS_LDAC',
+                    '-PARAMETERS_NAME', paramfile,
+                    '-FILTER', 'Y',
+                    '-FILTER_NAME', str(conv),
+                    '-WEIGHT_TYPE', 'MAP_WEIGHT',
+                    '-RESCALE_WEIGHTS', 'N',
+                    '-WEIGHT_IMAGE', self.weightname,
+                    '-FLAG_IMAGE', self.flagsname,
+                    '-FLAG_TYPE', 'OR',
+                    '-PHOT_APERTURES', '4.7',
+                    '-SATUR_LEVEL', '1000000',
+                    '-STARNNW_NAME', nnw,
+                    '-BACK_TYPE', 'MANUAL',
+                    '-BACK_VALUE', '0.0',
+                    self.imagename
+                   ]
+        res = subprocess.run( command, capture_output=True )
+        assert res.returncode == 0
+
+        _logger.info( "Runing psfex..." )
+        # Run psfex to get the psf and psfxml files
+        command = [ 'psfex',
+                    '-PSF_SIZE', '31',
+                    '-SAMPLE_FWHMRANGE', f'1.0,10.0',
+                    '-SAMPLE_VARIABILITY', '0.5',
+                    '-CHECKPLOT_DEV', 'NULL',
+                    '-CHECKPLOT_TYPE', 'NONE',
+                    '-CHECKIMAGE_TYPE', 'NONE',
+                    '-WRITE_XML', 'Y',
+                    '-XML_NAME', self.psfxmlname,
+                    '-XML_URL', 'file:///usr/share/psfex/psfex.xsl',
+                    self.catname
+                   ]
+        res = subprocess.run( command, capture_output=True )
+        assert res.returncode == 0
+
+        self.psf = PSF( format='psfex' )
+        self.psf.load( psfpath=self.psfname, psfxmlpath=self.psfxmlname )
+        self.psf.fwhm_pixels = float( self.psf.header['PSF_FWHM'] )
+
+    def cleanup( self ):
+        self.imagename.unlink( missing_ok=True )
+        self.weightname.unlink( missing_ok=True )
+        self.flagsname.unlink( missing_ok=True )
+        self.catname.unlink( missing_ok=True )
+        self.psfname.unlink( missing_ok=True )
+        self.psfxmlname.unlink( missing_ok=True )
+
+        
+@pytest.fixture(scope="module")
+def round_psf_palette():
+    palette = PSFPaletteMaker( round=True )
+    palette.make_psf_palette()
+    palette.extract_and_psfex()
+
+    yield palette
+
+    palette.cleanup()
+    
+@pytest.fixture(scope="module")
+def psf_palette():
+    palette = PSFPaletteMaker( round=False )
+    palette.make_psf_palette()
+    palette.extract_and_psfex()
+
+    yield palette
+
+    palette.cleanup()
+
+# This incidentally also tests psf.load
+def test_psfex_rendering( psf_palette ): # round_psf_palette ):
+    # psf_palette = round_psf_palette
+    psf = psf_palette.psf
+
+    resamp = psf.get_resampled_psf( 512., 512., dtype=np.float32 )
+    # ****
+    # Uncomment this for by-eye debugging
+    # fits.writeto( '/seechange/data/resamp.fits', resamp, overwrite=True )
+    # ****
+    assert resamp.shape == ( 31, 31 )
+    
+    clip = psf.get_clip( 512., 512., 1., dtype=np.float64 )
+    import pdb; pdb.set_trace()
+    assert clip.shape == ( 19, 19 )                        # (15, 15) for round psf (resampling ends up different)
+    assert clip.sum() == pytest.approx( 1., abs=1e-5 )
+
+    with fits.open( psf_palette.imagename ) as ifp:
+        data = ifp[0].data
+
+    model = np.zeros( data.shape, dtype=np.float32 )
+    for x in psf_palette.xpos:
+        for y in psf_palette.ypos:
+            psf.add_psf_to_image( model, x, y, psf_palette.flux )
+
+    # ****
+    # Uncomment these for by-eye debugging
+    # fits.writeto( '/seechange/data/model.fits', model, overwrite=True )
+    # fits.writeto( '/seechange/data/resid.fits', data-model, overwrite=True )
+    # with fits.open( psf_palette.imagename ) as ifp:
+    #     fits.writeto( '/seechange/data/data.fits', ifp[0].data, overwrite=True )
+    # ****
+
+    with fits.open( psf_palette.weightname, memmap=False ) as whdu:
+        weight = whdu[0].data
+    
+    resid = data - model
+    chisq = 0.
+    halfwid = clip.shape[1] // 2
+    n = 0
+    for x in psf_palette.xpos:
+        for y in psf_palette.ypos:
+            ix = int( np.floor( x + 0.5 ) )
+            iy = int( np.floor( y + 0.5 ) )
+            chisq += np.square( resid[ iy - halfwid : iy + halfwid + 1 ]
+                                * weight[ iy - halfwid : iy + halfwid + 1 ] ).sum()
+            n += clip.size
+
+    # Yes, ideally chisq / n is supposed to be close to 1., but in
+    # practice it does not seem to be so.  So, the psf model isn't a
+    # perfect model.  This warrants further thought.  (Other
+    # investigations do suggest that it is good enough for psf
+    # photometry, at least as compared to aperture photometry.)  Suffice
+    # to say that the chisq would be a *lot* worse if (for instance) I
+    # mixed up the x and y terms on the polynomial in
+    # PSF.get_resampled_psf (the **i and **j).
+
+    assert chisq / n < 20.0

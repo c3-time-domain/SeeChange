@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 import sep
 
-from astropy.io import fits
+from astropy.io import fits, votable
 
 from util.config import Config
 
@@ -18,6 +18,7 @@ from pipeline.data_store import DataStore
 
 from models.base import SmartSession, FileOnDiskMixin, CODE_ROOT, _logger
 from models.image import Image
+from models.psf import PSF
 from models.source_list import SourceList
 
 
@@ -44,6 +45,24 @@ class ParsDetector(Parameters):
             ( 'Use this PSF; pass the PSF object, or its integer id. '
               'If None, will not do PSF photometry (if measurepsf is False)' )
         )
+
+        self.apers = self.add_par(
+            'apers',
+            [ 1. ],
+            ( None, list ),
+            'Apertures in which to measure photometry; a list of 1-4 floats',
+            critical=True
+        )
+        self.add_alias( 'apertures', 'apers' )
+
+        self.aperunit = self.add_par(
+            'aperunit',
+            'fwhm',
+            str,
+            'Units of the apertures in the apers parameters; one of "fwhm" or "pixel"',
+            critical=True
+        )
+        self.add_alias( 'aperture_unit', 'aperunit' )
 
         self.subtraction = self.add_par(
             'subtraction',
@@ -161,24 +180,41 @@ class Detector:
     def extract_sources_sextractor( self, *args, **kwargs ):
         return self._run_sextractor_once( *args, **kwargs )
 
-    def _run_sextractor_once( self, image, apers=[5, ], psffile=None, do_not_cleanup=False ):
+    def _run_sextractor_once( self, image, apers=[5, ], psffile=None, tempname=None, do_not_cleanup=False ):
         """Extract a SourceList from a FITS image using SExtractor.
+
+        This function should not be called from outside this class.
 
         Parameters
         ----------
           image: Image
             The Image object from which to extract.  This routine will
             use all of image, weight, and flags data.
+
           apers: list of float
             Aperture radii in pixels in which to do aperture photometry.
+
           psffile: Path or str
             File that has the PSF to use for PSF photometry
+
+          tempname: str
+            A filename base for where the catalog will be written.  The
+            source file will be written to
+            "{FileOnDiskMixin.temp_path}/{tempname}_sources.fits".  (A
+            temporary image, weight, and mask file will be written with
+            the same name base to the same directory, but will be
+            deleted by this routine unless do_not_cleanup is False.)  It
+            is the responsibility of the calling routine to delete this
+            temporary file.
+
           do_not_cleanup: bool, default False
             This routine writes some temp files with the image, weight,
             mask, and sourcelist data in it, muchof which is probably
             redundant with what's already written somewhere.  Normally,
             they're deleted at the end of the routine.  Set this to True
-            to keep the files for debugging purposes.
+            to keep the files for debugging purposes.  (If tempname is
+            not None, then the sourcelist fill will not be deleted even
+            if this is False.)
 
         Returns
         -------
@@ -186,7 +222,8 @@ class Detector:
             Has data and info already loaded
 
         """
-        tmpnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
+        tmpnamebase = tempname
+        if tmpnamebase is None: tmpnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
         tmpimage = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tmpnamebase}.fits'
         tmpweight = tmpimage.parent / f'{tmpnamebase}_weight.fits'
         tmpflags = tmpimage.parent / f'{tmpnamebase}_flags.fits'
@@ -323,8 +360,120 @@ class Detector:
                 tmpimage.unlink( missing_ok=True )
                 tmpweight.unlink( missing_ok=True )
                 tmpflags.unlink( missing_ok=True )
-                tmpsources.unlink( missing_ok=True )
                 tmpparams.unlink( missing_ok=True )
+                if tempname is None: tmpsources.unlink( missing_ok=True )
+
+
+    def _run_psfex( self, tempname, image_id, psf_size=None, do_not_cleanup=False ):
+        """Create a PSF from a SExtractor catalog file.
+
+        Will run psfex twice, to make sure it has the right data size.
+        The first pass, it will use a resampled PSF data array size of
+        psf_size in x and y (or 25, of psf_size is None).  The second
+        pass, it will use a resampled PSF data array size
+        psf_size/psfsamp, where psfsamp is the psf sampling determined
+        in the first pass.  In the second pass, psf_size will be what
+        was passed; if None was passed, then it will be 5 times the
+        measured FWHM (using the "FWHM" determined from the half-light
+        radius) in the first pass.
+
+        Parameters
+        ----------
+          tempname: str (required)
+            The catalog file is found in
+            {FileOnDiskMixin.temp_path}/{tempname}_sources.fits.
+
+          image_id: int
+            The id of the Image the sources were extracted from
+
+          psf_size: int or None
+            The size of one side of the thumbnail of the PSF, in pixels.
+            Should be odd; if it's not, 1 will be added to it.
+            If None, will be determined automatically.
+
+          do_not_cleanup: bool, default False
+            If True, don't delete the psf and psfxml files that will be
+            created on the way to building the PSF that's returned.
+            (Normally, these temporary files are deleted.)  The psf FITS
+            file will be in
+            {FileOnDiskMixin.temp_path}/{tempname}_sources.psf and the
+            psfxml file will be in
+            {FileOnDiskMixin.temp_path}/{tempname}_sources.psf.xml
+
+
+        Returns
+        -------
+          A PSF object.
+
+        """
+        sourcefile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}_sources.fits'
+        psffile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}_sources.psf'
+        psfxmlfile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}_sources.psf.xml'
+
+        if psf_size is not None:
+            psf_size = int( psf_size )
+            if psf_size % 2 == 0:
+                psf_size += 1
+        psf_sampling = 1.
+
+        try:
+            usepsfsize = psf_size if psf_size is not None else 25
+            for i in range(2):
+                psfdatasize = int( usepsfsize / psf_sampling + 0.5 )
+                if psfdatasize % 2 == 0:
+                    psfdatsize += 1
+
+                # TODO: make the fwhmmax tried configurable
+                # (This is just a range of things to try to see if we can
+                # get psfex to succeed; it will stop after the first one that does.)
+                fwhmmaxtotry = [ 10.0, 15.0, 20.0, 25.0 ]
+                #
+                # TODO: make -XML_URL configurable.  (The default there is what
+                # is installed if you install the psfex package on a
+                # debian-based distro, which is what the Dockerfile is built from.)
+                for fwhmmaxdex, fwhmmax in enumerate( fwhmmaxtotry ):
+                    command = [ 'psfex',
+                                '-PSF_SIZE', f'{psfdatasize},{psfdatasize}',
+                                '-SAMPLE_FWHMRANGE', f'0.5,{fwhmmax}',
+                                '-SAMPLE_VARIABILITY', "0.2",   # Allowed FWHM variability (1.0 = 100%)
+                                '-SAMPLE_IMAFLAGMAS', "0xffff",
+                                '-CHECKPLOT_DEV', 'NULL',
+                                '-CHECKPLOT_TYPE', 'NONE',
+                                '-CHECKIMAGE_TYPE', 'NONE',
+                                '-WRITE_XML', 'Y',
+                                '-XML_NAME', psfxmlfile,
+                                '-XML_URL', 'file:///usr/share/psfex/psfex.xsl',
+                                sourcefile ]
+                    res = subprocess.run( command, cwd=sourcefile.parent, capture_output=True )
+                    if res.returncode == 0:
+                        fwhmmaxtotry = [ fwhmmax ]
+                        break
+                    else:
+                        if fwhmmaxdex == len(fwhmmaxtotry) - 1:
+                            _logger.error( f"psfex failed with all attempted fwhmmax.\n"
+                                           f"stdout:\n------\n{res.stdout.decode('utf-8')}\n"
+                                           f"stderr:\n------\n{res.stderr.decode('utf-8')}" )
+                            raise RuntimeError( "Repeated failures from psfex call" )
+                        _logger.warning( f"psfex failed with fwhmmax={fwhmmax}, trying {fwhmmaxtotry[fwhmmaxdex+1]}" )
+
+                psfxml = votable.parse( psfxmlfile )
+                psfstats = psfxml.get_table_by_index( 1 )
+                psf_sampling = psfstats.array['Sampling_Mean'][0]
+                if psf_size is None:
+                    usepsfsize = int( np.ceil( psfstats.array['FWHM_FromFluxRadius_Mean'][0] * 5. ) )
+                    if usepsfsize % 2 == 0:
+                        usepsfsize += 1
+
+            psf = PSF( format="psfex", image_id=image_id, fwhm_pixels=psfstats.array['FWHM_FromFluxRadius_Mean'][0] )
+            psf.load( psfpath=psffile, psfxmlpath=psfxmlfile )
+
+            return psf
+
+        finally:
+            if not do_not_cleanup:
+                psffile.unlink( missing_ok=True )
+                psfxmlfile.unlink( missing_ok=True )
+
 
     def extract_sources_sep(self, image):
         """

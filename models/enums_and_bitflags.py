@@ -201,6 +201,14 @@ class FlatTypeConverter( EnumConverter ):
     _dict_filtered = None
     _dict_inverse = None
 
+class PSFFormatConverter( EnumConverter ):
+    _dict = {
+        0: 'unknown',
+        1: 'psfex'
+    }
+    _allowed_values = None
+    _dict_filtered = None
+    _dict_inverse = None
 
 
 def bitflag_to_string(value, dictionary):
