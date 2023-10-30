@@ -1169,7 +1169,7 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
     ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
     dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
     e = Exposure( ra=ra, dec=dec, instrument='DECam', format='fits', **exphdrinfo,
-                  filepath=str( pathlib.Path('DECam_examples') / pathlib.Path(decam_example_file).name ) )
+                  filepath=str( pathlib.Path('test_data/DECam_examples') / pathlib.Path(decam_example_file).name ) )
     sec_id = 'N4'
     im = Image.from_exposure(e, section_id=sec_id)  # load the first CCD
 

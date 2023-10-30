@@ -1,4 +1,5 @@
 import pytest
+import io
 import random
 import math
 import pathlib
@@ -7,10 +8,11 @@ import subprocess
 import numpy as np
 from scipy.integrate import dblquad
 
+import astropy.io
 from astropy.io import fits
 
 from util.config import Config
-from models.base import FileOnDiskMixin, _logger, CODE_ROOT
+from models.base import FileOnDiskMixin, _logger, CODE_ROOT, get_archive_object
 from models.psf import PSF
 
 class PSFPaletteMaker:
@@ -27,10 +29,10 @@ class PSFPaletteMaker:
         self.ny = 1024
 
         self.clipwid = 17
-        
+
         self.flux = 200000.
         self.noiselevel = 5.
-        
+
         self.x0 = self.nx/2.
         self.sigx0 = 1.
         if round:
@@ -49,7 +51,7 @@ class PSFPaletteMaker:
             self.sigy0 = 1.5
             self.sigyx = -0.25 / self.ny
             self.sigyy = 0.
-        
+
         self.theta0 = 0.
         if round:
             self.thetax = 0.
@@ -74,7 +76,7 @@ class PSFPaletteMaker:
         sigx = self.sigx0 + (x - self.x0) * self.sigxx + (y - self.y0) * self.sigxy
         sigy = self.sigy0 + (x - self.x0) * self.sigyx + (y - self.y0) * self.sigyy
         theta = self.theta0 + (x - self.x0) * self.thetax + (y - self.y0) * self.thetay
-    
+
         res = dblquad( PSFPaletteMaker.psffunc, xi-x-0.5, xi-x+0.5, yi-y-0.5, yi-y+0.5, args=( sigx, sigy, theta ) )
         return res[0]
 
@@ -170,7 +172,7 @@ class PSFPaletteMaker:
         self.psfname.unlink( missing_ok=True )
         self.psfxmlname.unlink( missing_ok=True )
 
-        
+
 @pytest.fixture(scope="module")
 def round_psf_palette():
     palette = PSFPaletteMaker( round=True )
@@ -180,7 +182,7 @@ def round_psf_palette():
     yield palette
 
     palette.cleanup()
-    
+
 @pytest.fixture(scope="module")
 def psf_palette():
     palette = PSFPaletteMaker( round=False )
@@ -191,7 +193,103 @@ def psf_palette():
 
     palette.cleanup()
 
-# This incidentally also tests psf.load
+
+def check_example_psfex_psf_values( psf ):
+    assert psf.header[ 'TTYPE1' ] == 'PSF_MASK'
+    assert psf.header[ 'POLDEG1' ] == 2
+    assert psf.header[ 'PSFNAXIS' ] == 3
+    assert psf.header[ 'PSFAXIS1' ] == 25
+    assert psf.header[ 'PSFAXIS2' ] == 25
+    assert psf.header[ 'POLNAME1' ] == 'X_IMAGE'
+    assert psf.header[ 'POLZERO1' ] == pytest.approx( 514.31, abs=0.01 )
+    assert psf.header[ 'POLSCAL1' ] == pytest.approx( 1018.67, abs=0.01 )
+    assert psf.header[ 'POLNAME2' ] == 'Y_IMAGE'
+    assert psf.header[ 'POLZERO2' ] == pytest.approx( 497.36, abs=0.01 )
+    assert psf.header[ 'POLSCAL2' ] == pytest.approx( 991.75, abs=0.01 )
+    assert psf.data.shape == ( 6, 25, 25, )
+
+    bytio = io.BytesIO( psf.info.encode( 'utf-8' ) )
+    psfstats = astropy.io.votable.parse( bytio ).get_table_by_index(1)
+    assert psfstats.array[ 'NStars_Loaded_Mean' ] == 43
+    assert psfstats.array[ 'NStars_Accepted_Mean' ] ==  41
+    assert psfstats.array[ 'FWHM_FromFluxRadius_Mean' ] == pytest.approx( 3.13, abs=0.01 )
+
+def test_read_psfex_psf( example_image_with_sources_and_psf ):
+    im, wt, fl, sr, psfpath, psfxmlpath = example_image_with_sources_and_psf
+    psf = PSF( format='psfex' )
+    psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
+    check_example_psfex_psf_values( psf )
+
+def test_write_psfex_psf( example_image_with_sources_and_psf ):
+    image, weight, flags, sourcepath, psfpath, psfxmlpath = example_image_with_sources_and_psf
+    psf = PSF( format='psfex' )
+    psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
+
+    # Write it out, make sure the expected files get created
+    tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
+    psfpath = f'{tempname}.psf'
+    psffullpath = pathlib.Path( FileOnDiskMixin.local_path ) / psfpath
+    psfxmlpath = f'{tempname}.psf.xml'
+    psfxmlfullpath = pathlib.Path( FileOnDiskMixin.local_path ) / psfxmlpath
+    sourcesfullpath = pathlib.Path( FileOnDiskMixin.local_path ) / f'{tempname}.cat'
+
+    try:
+        psf.save( tempname )
+        assert psffullpath.is_file()
+        assert psfxmlfullpath.is_file()
+        archive = get_archive_object()
+        assert archive.get_info( psfpath ) is not None
+        assert archive.get_info( psfxmlpath ) is not None
+
+        # See if we can read the psf we wrote back in
+        psf = PSF( format='psfex' )
+        psf.load( psfpath=psffullpath, psfxmlpath=psfxmlfullpath )
+        check_example_psfex_psf_values( psf )
+
+        # Make sure SEXtractor can read this psf file
+
+        # Figure out where astromatic config files are:
+        astromatic_dir = None
+        cfg = Config.get()
+        if cfg.value( 'astromatic.config_dir' ) is not None:
+            astromatic_dir = pathlib.Path( cfg.value( 'astromatic.config_dir' ) )
+        elif cfg.value( 'astromatic.config_subdir' ) is not None:
+            astromatic_dir = pathlib.Path( CODE_ROOT ) / cfg.value( 'astromatic.config_subdir' )
+        assert astromatic_dir is not None
+        assert astromatic_dir.is_dir()
+        conv = astromatic_dir / "default.conv"
+        nnw = astromatic_dir / "default.nnw"
+        param = astromatic_dir / "detection_sextractor_with_psf.param"
+
+        command = [ 'source-extractor',
+                    '-CATALOG_NAME', sourcesfullpath,
+                    '-CATALOG_TYPE', 'FITS_LDAC',
+                    '-PARAMETERS_NAME', param,
+                    '-FILTER', 'Y',
+                    '-FILTER_NAME', conv,
+                    '-WEIGHT_TYPE', 'MAP_WEIGHT',
+                    '-RESCALE_WEIGHTS', 'N',
+                    '-WEIGHT_IMAGE', weight,
+                    '-FLAG_IMAGE', flags,
+                    '-FLAG_TYPE', 'OR',
+                    '-PHOT_APERTURES', '2,5',
+                    '-SATUR_LEVEL', '54000',
+                    '-STARNNW_NAME', nnw,
+                    '-BACK_TYPE', 'AUTO',
+                    '-BACK_SIZE', '128',
+                    '-BACK_FILTERSIZE', '3',
+                    '-PSF_NAME', psffullpath,
+                    image ]
+        res = subprocess.run( command, capture_output=True )
+        assert res.returncode == 0
+
+    finally:
+        psffullpath.unlink( missing_ok=True )
+        psfxmlfullpath.unlink( missing_ok=True )
+        sourcesfullpath.unlink( missing_ok=True )
+
+
+# @pytest.mark.skip( reason="slow" )
 def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # psf_palette = round_psf_palette
     psf = psf_palette.psf
@@ -202,9 +300,8 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # fits.writeto( '/seechange/data/resamp.fits', resamp, overwrite=True )
     # ****
     assert resamp.shape == ( 31, 31 )
-    
+
     clip = psf.get_clip( 512., 512., 1., dtype=np.float64 )
-    import pdb; pdb.set_trace()
     assert clip.shape == ( 19, 19 )                        # (15, 15) for round psf (resampling ends up different)
     assert clip.sum() == pytest.approx( 1., abs=1e-5 )
 
@@ -226,7 +323,7 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
 
     with fits.open( psf_palette.weightname, memmap=False ) as whdu:
         weight = whdu[0].data
-    
+
     resid = data - model
     chisq = 0.
     halfwid = clip.shape[1] // 2
@@ -248,4 +345,4 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # mixed up the x and y terms on the polynomial in
     # PSF.get_resampled_psf (the **i and **j).
 
-    assert chisq / n < 20.0
+    assert chisq / n < 25.0

@@ -61,14 +61,14 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         cascade='save-update, merge, refresh-expire, expunge',
         doc="Image for which this is the PSF."
     )
-    
+
     fwhm_pixels = sa.Column(
         sa.REAL,
         nullable=False,
         index=False,
         doc="Approximate FWHM of seeing in pixels; use for a broad estimate, doesn't capture spatial variation."
     )
-    
+
 
     @property
     def data( self ):
@@ -104,7 +104,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
     def info( self ):
         """Associated info for this PSF; something opaque.
 
-           For PSFEx, this is the contents of the xml file produced when
+         For PSFEx, this is the contents of the xml file produced when
          psfex ran.  (It can be parsed into a votable with
          astropy.io.votable.parse.)
 
@@ -120,7 +120,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
     # Right now, this may be PSF specific, in that it assumes
     # there's a header and data from a FITS file, and a votable
     # from the xml file
-    
+
     def __init__( self, *args, **kwargs ):
         FileOnDiskMixin.__init__( self, **kwargs )
         SeeChangeBase.__init__( self )
@@ -132,7 +132,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         for key, value in kwargs.items():
             if hasattr( self, key ):
                 setattr( self, key, value )
-        
+
     @sa.orm.reconstructor
     def init_on_load( self ):
         Base.init_on_load( self )
@@ -142,7 +142,12 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         self._table = None
 
     def invent_filepath( self ):
-        """Creates a filepath based on the image's path, replacing the extension with ".psf"."""
+        """Creates a filepath (without extension) based on the image's path.
+
+        Returns is the image's path with the ".fits" or ".hdf5" at the
+        end stripped off.
+
+        """
 
         if self.image.image.filepath is None:
             raise ValueError( "Can't invent a filepath if image.filepath is None" )
@@ -150,39 +155,67 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         match = re.search( '^(.*)\.(hdf5|fits)$', imagepath.name )
         if match is None:
             raise ValueError( "Failed to parse image filename for *.(hdf5|fits): {imagepath.name} ")
-        return str( imagepath.parent / f'{match.group(1)}.psf' )
+        return str( imagepath.parent / match.group(1) )
 
 
     def save( self, filename=None, **kwargs ):
+
+        """Write the PSF to disk.
+
+        May or may not upload to the archive and update the
+        FileOnDiskMixin-included fields of this object based on the
+        additional arguments that are forwarded to FileOnDiskMixin.save.
+
+        For psfex-format psfs, this saves two files: the .psf file (the
+        FITS file with the data), and the .psf.xml file (the XML file
+        created by PSFex.)
+
+        Parameters
+        ----------
+          filename: str or path
+             The path to the file to write, relative to the local store
+             root.  Do not include the extension (e.g. '.psf') at the
+             end of the name; that will be added automatically for all
+             extensions.  If None, will call invent_filepath() to get a
+             filestore-standard filename and directory.
+
+          Additional arguments are passed on to FileOnDiskMixin.save
+
+        """
         if self.format != 'psfex':
             raise NotImplementedError( "Only know how to save psfex PSF files" )
 
         if ( self._data is None ) or ( self._header is None ) or ( self._info is None ):
             raise RuntimeError( "_data, _header, and _info must all be non-None" )
 
-        self.filepath = filename if filenamer is not None else self.invent_filepath()
-        fullpath = pathlib.Path( self.local_path ) / self.filepath
-        
+        self.filepath = filename if filename is not None else self.invent_filepath()
+        psfpath = pathlib.Path( self.local_path ) / f'{self.filepath}.psf'
+        psfxmlpath = pathlib.Path( self.local_path ) / f'{self.filepath}.psf.xml'
+
         header0 = fits.Header( [ fits.Card( 'SIMPLE', 'T', 'This is a FITS file' ),
                                  fits.Card( 'BITPIX', 8 ),
                                  fits.Card( 'NAXIS', 0 ),
                                  fits.Card( 'EXTEND', 'T', 'This file may contain FITS extensions' )
                                 ] )
         hdu0 = fits.PrimaryHDU( header=header0 )
-        hdu1 = fits.PrimaryHDU( self._data, self._header )
-        hdulist = fits.HDU( [ hd0, hdu1 ] )
-        hdulist.writeto( fullpath )
+        # The PSFEx format is a bit byzantine
+        fitsshape = list( self._data.shape )
+        fitsshape.reverse()
+        fitsshape = str( tuple( fitsshape ) )
+        fitscol = fits.Column( name='PSF_MASK', format='3750E', dim=fitsshape, array=[ self._data ] )
+        fitsrec = fits.FITS_rec.from_columns( fits.ColDefs( [ fitscol ] ) )
+        hdu = fits.BinTableHDU( fitsrec, self._header )
+        hdu.writeto( psfpath )
 
-        xmlpath = fullpath.parent / f'{fullpath.name}.xml'
-        with open( xmlpath, "w" ) as ofp:
+        with open( psfxmlpath, "w" ) as ofp:
             ofp.write( self._info )
 
         # Save the file to the archive and update the database record
         # (From what we did above, the files are already in the right place in the local filestore.)
-        FileOnDiskMixin.save( self, fulpath, 'psf', **kwargs )
-        FileOnDiskMixin.save( self, xmlpath, 'psfxml', **kwargs )
-        
-        
+        FileOnDiskMixin.save( self, psfpath, '.psf', **kwargs )
+        FileOnDiskMixin.save( self, psfxmlpath, '.psf.xml', **kwargs )
+
+
     def load( self, download=True, always_verify_md5=False, psfpath=None, psfxmlpath=None ):
         """Load the data from the files into the _data, _header, and _info fields.
 
@@ -211,17 +244,17 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
             .psf.xml file to read _info from.
 
         """
-        
+
         if self.format != 'psfex':
             raise NotImplementedError( "Only know how to load psfex PSF files" )
 
         if ( psfpath is None ) != ( psfxmlpath is None ):
             raise ValueError( "Either both or neither of psfpath and psfxmlpath must be None" )
-        
+
         if psfpath is None:
-            if self.filepath_extensions != [ 'psf', 'psfxml' ]:
+            if self.filepath_extensions != [ '.psf', '.psf.xml' ]:
                 raise ValueError( f"Can't load psfex file; filepath_extension is {self.filepath_extension}, "
-                                  f"but expected ['psf', 'psfxml']." )
+                                  f"but expected ['.psf', '.psf.xml']." )
             psfpath, psfxmlpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5 )
 
         with fits.open( psfpath, memmap=False ) as hdul:
@@ -245,12 +278,16 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
 
           dtype: type, default numpy.float64
             Type of the returned array; usually either numpy.float64 or numpy.float32
-        
+
         Returns
         -------
            A 2d numpy array
 
         """
+
+        if self.format != 'psfex':
+            raise NotImplementedError( "Only know how to get resampled psf for psfex PSF files" )
+
         xc = int( np.floor(x + 0.5) )
         yc = int( np.floor(y + 0.5) )
 
@@ -259,7 +296,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         xsc = float( self.header['POLSCAL1'] )
         y0 = float( self.header['POLZERO2'] ) - 1
         ysc = float( self.header['POLSCAL2'] )
-        
+
         psfbase = np.zeros_like( self.data[0,:,:], dtype=dtype )
         off = 0
         for j in range( psforder+1 ) :
@@ -271,7 +308,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
                 off += 1
 
         return psfbase
-                
+
 
     def _get_clip_info( self ):
         psfwid = self.data.shape[1]
@@ -287,7 +324,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         psfdex1d = np.arange( -(psfwid//2), psfwid//2+1, dtype=int )
 
         return psfwid, psfsamp, stampwid, psfdex1d
-    
+
     def get_clip( self, x, y, flux, norm=True, noisy=False, gain=1., rng=None, dtype=np.float64 ):
         """Get a image clip with the psf.
 
@@ -322,7 +359,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
             generate the noise.  Pass this if you want reproducable
             noise for testing purposes.  If None, will use
             numpy.random.default_rng() (i.e. seeded from system entropy).
-        
+
           dtype: type, default numpy.float64
             Type of the returned array; usually either numpy.float64 or numpy.float32
 
@@ -332,16 +369,19 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
 
         """
 
+        if self.format != 'psfex':
+            raise NotImplementedError( "Only know how to get clip for psfex PSF files" )
+
         psfbase = self.get_resampled_psf( x, y, dtype=np.float64 )
 
         psfwid, psfsamp, stampwid, psfdex1d = self._get_clip_info()
-        
+
         xc = int( np.floor(x + 0.5) )
         yc = int( np.floor(y + 0.5) )
 
         # See Chapter 5, "How PSFEx Works", of the PSFEx manual
         #   https://psfex.readthedocs.io/en/latest/Working.html
-        
+
         clip = np.empty( ( stampwid, stampwid ), dtype=dtype )
         xmin = xc - stampwid // 2
         xmax = xc + stampwid // 2 + 1
@@ -363,7 +403,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
             clip /= clip.sum()
 
         clip *= flux
-            
+
         if noisy:
             if rng is None:
                 rng = np.random.default_rng()
@@ -372,7 +412,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
             clip = rng.normal( clip, sig )
 
         return clip
-            
+
     def add_psf_to_image( self, image, x, y, flux, norm=True, noisy=False, weight=None, gain=1., rng=None ):
         """Add a psf with indicated flux to the 2d image.
 
@@ -393,14 +433,17 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
 
         """
 
+        if self.format != 'psfex':
+            raise NotImplementedError( "Only know how to add psf to image for psfex PSF files" )
+
         if ( x < 0 ) or ( x >= image.shape[1] ) or ( y < 0 ) or ( y >= image.shape[0] ):
             _logger.warn( "Center of psf to be added to image is off of edge of image" )
-        
+
         xc = int( np.floor(x + 0.5) )
         yc = int( np.floor(y + 0.5) )
         clip = self.get_clip( x, y, flux, norm=norm, noisy=noisy, gain=gain, rng=rng )
         stampwid = clip.shape[1]
-        
+
         xmin = xc - stampwid // 2
         x0 = 0
         if xmin < 0:

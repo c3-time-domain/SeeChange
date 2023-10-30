@@ -216,7 +216,7 @@ def exposure_filter_array(exposure_factory):
 
 
 def get_decam_example_file():
-    filename = os.path.join(CODE_ROOT, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
+    filename = os.path.join(CODE_ROOT, 'data/test_data/DECam_examples/c4d_221104_074232_ori.fits.fz')
     if not os.path.isfile(filename):
         cachedfilename = f'{filename}_cached'
         if not os.path.isfile( cachedfilename ):
@@ -564,6 +564,16 @@ def decam_default_calibrators():
         session.commit()
 
 @pytest.fixture
+def example_image_with_sources_and_psf():
+    image = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.fits"
+    weight = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.weight.fits"
+    flags = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.flags.fits"
+    sources = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.sources.fits"
+    psf = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.psf"
+    psfxml = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.psf.xml"
+    return image, weight, flags, sources, psf, psfxml
+
+@pytest.fixture
 def example_source_list():
     filepath = "test_data/ztf_20190317307639_000712_zg_io.083_sources.fits"
     fullpath = pathlib.Path( FileOnDiskMixin.local_path ) / filepath
@@ -571,3 +581,12 @@ def example_source_list():
         raise FileNotFoundError( f"Can't read {fullpath}" )
     return filepath, fullpath
 
+@pytest.fixture
+def example_psfex_psf_files():
+    psfpath = ( pathlib.Path( FileOnDiskMixin.local_path )
+                / "test_data/ztf_20190317307639_000712_zg_io.083_sources.psf" )
+    psfxmlpath = ( pathlib.Path( FileOnDiskMixin.local_path )
+                   / "test_data/ztf_20190317307639_000712_zg_io.083_sources.psf.xml" )
+    if not ( psfpath.is_file() and psfxmlpath.is_file() ):
+        raise FileNotFoundErrro( f"Can't read at leastd one of {psfpath}, {psfxmlpath}" )
+    return psfpath, psfxmlpath

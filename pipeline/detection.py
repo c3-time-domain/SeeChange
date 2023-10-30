@@ -436,7 +436,7 @@ class Detector:
                                 '-PSF_SIZE', f'{psfdatasize},{psfdatasize}',
                                 '-SAMPLE_FWHMRANGE', f'0.5,{fwhmmax}',
                                 '-SAMPLE_VARIABILITY', "0.2",   # Allowed FWHM variability (1.0 = 100%)
-                                '-SAMPLE_IMAFLAGMAS', "0xffff",
+                                '-SAMPLE_IMAFLAGMASK', "0xff",
                                 '-CHECKPLOT_DEV', 'NULL',
                                 '-CHECKPLOT_TYPE', 'NONE',
                                 '-CHECKIMAGE_TYPE', 'NONE',

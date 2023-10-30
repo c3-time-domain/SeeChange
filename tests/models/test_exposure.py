@@ -116,7 +116,7 @@ def test_exposure_guess_decam_instrument():
     t = datetime.now()
     mjd = Time(t).mjd
 
-    e = Exposure(filepath=f"DECam_examples/c4d_20221002_040239_r_v1.24.fits", exp_time=30, mjd=mjd,
+    e = Exposure(filepath=f"test_data/DECam_examples/c4d_20221002_040239_r_v1.24.fits", exp_time=30, mjd=mjd,
                  filter="r", ra=123, dec=-23, project='foo', target='bar', nofile=True)
 
     assert e.instrument == 'DECam'
@@ -218,7 +218,7 @@ def test_decam_exposure(decam_example_file):
     assert e.ra == 116.32024583333332
     assert e.dec == -26.25
     assert e.exp_time == 96.0
-    assert e.filepath == 'DECam_examples/c4d_221104_074232_ori.fits.fz'
+    assert e.filepath == 'test_data/DECam_examples/c4d_221104_074232_ori.fits.fz'
     assert e.filter == 'g DECam SDSS c0001 4720.0 1520.0'
     assert not e.from_db
     assert e.header == {}

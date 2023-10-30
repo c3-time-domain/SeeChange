@@ -210,6 +210,7 @@ def test_run_psfex( run_sextractor ):
         psf = detector._run_psfex( tempname, sourcelist.image_id, do_not_cleanup=True )
         assert tmppsffile.exists()
         assert tmppsfxmlfile.exists()
+        import pdb; pdb.set_trace()
         tmppsffile.unlink()
         tmppsfxmlfile.unlink()
 

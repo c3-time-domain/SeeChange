@@ -7,7 +7,7 @@ from pipeline.utils import read_fits_image
 
 
 def test_read_fits_image():
-    filename = os.path.join(CODE_ROOT, 'data/DECam_examples/c4d_20221002_040239_r_v1.24.fits')
+    filename = os.path.join(CODE_ROOT, 'data/test_data/DECam_examples/c4d_20221002_040239_r_v1.24.fits')
 
     # by default only get the data
     data = read_fits_image(filename)
