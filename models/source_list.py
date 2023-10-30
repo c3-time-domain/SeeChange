@@ -382,11 +382,20 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
                     aps.append( info[kw] )
 
             if self.aper_rads is None:
+                if ( len( tbl['FLUX_APER'].shape ) > 1 ) and ( tbl['FLUX_APER'].shape[1] > 4 ):
+                    raise ValueError( f"Can't load sextractor file, has {tbl['FLUX_APER'].shape[1]} "
+                                      f"apertures, but sextractor only saves the radii of the first four." )
                 self.aper_rads = aps
             else:
-                if ( ( len( aps ) != len( self.aper_rads ) )
+                # SExtractor annoyingly only saves the radii of the first four apertures
+                # it used.  So, we're just going to blindly trust that if there are more,
+                # they're right.
+                if len( self.aper_rads ) != ( tbl['FLUX_APER'].shape[1] if tbl['FLUX_APER'].ndim==2 else 1 ):
+                    raise ValueError( f"self.aper_rads doesn't match the number of apertures "
+                                      f"found in {filepath}" )
+                if ( ( ( len(self.aper_rads) <= 4 ) and ( len( aps ) != len( self.aper_rads ) ) )
                      or
-                     ( not ( np.abs( np.array( aps ) - np.array( self.aper_rads ) ) < 0.01 ).all() )
+                     ( not ( np.abs( np.array( aps ) - np.array( self.aper_rads[:len(aps)] ) ) < 0.01 ).all() )
                     ):
                      raise ValueError( f"self.aper_rads {self.aper_rads} doesn't match sextractor file "
                                        f"aperture radii {aps}" )

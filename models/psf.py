@@ -69,6 +69,28 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         doc="Approximate FWHM of seeing in pixels; use for a broad estimate, doesn't capture spatial variation."
     )
 
+    provenance_id = sa.Column(
+        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='psfs_provenance_id_fkey'),
+        nullable=False,
+        index=True,
+        doc=(
+            "ID of the provenance of this PSF. "
+            "The provenance will contain a record of the code version"
+            "and the parameters used to produce this PSF."
+        )
+    )
+
+    provenance = orm.relationship(
+        'Provenance',
+        cascade='save-update, merge, refresh-expire, expunge',
+        lazy='selectin',
+        doc=(
+            "Provenance of this PSF. "
+            "The provenance will contain a record of the code version"
+            "and the parameters used to produce this PSF."
+        )
+    )
+
 
     @property
     def data( self ):
@@ -141,23 +163,6 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         self._data = None
         self._table = None
 
-    def invent_filepath( self ):
-        """Creates a filepath (without extension) based on the image's path.
-
-        Returns is the image's path with the ".fits" or ".hdf5" at the
-        end stripped off.
-
-        """
-
-        if self.image.image.filepath is None:
-            raise ValueError( "Can't invent a filepath if image.filepath is None" )
-        imagepath = pathlib.Path( filepath )
-        match = re.search( '^(.*)\.(hdf5|fits)$', imagepath.name )
-        if match is None:
-            raise ValueError( "Failed to parse image filename for *.(hdf5|fits): {imagepath.name} ")
-        return str( imagepath.parent / match.group(1) )
-
-
     def save( self, filename=None, **kwargs ):
 
         """Write the PSF to disk.
@@ -176,7 +181,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
              The path to the file to write, relative to the local store
              root.  Do not include the extension (e.g. '.psf') at the
              end of the name; that will be added automatically for all
-             extensions.  If None, will call invent_filepath() to get a
+             extensions.  If None, will call image.invent_filepath() to get a
              filestore-standard filename and directory.
 
           Additional arguments are passed on to FileOnDiskMixin.save
@@ -188,7 +193,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         if ( self._data is None ) or ( self._header is None ) or ( self._info is None ):
             raise RuntimeError( "_data, _header, and _info must all be non-None" )
 
-        self.filepath = filename if filename is not None else self.invent_filepath()
+        self.filepath = filename if filename is not None else self.image.invent_filepath()
         psfpath = pathlib.Path( self.local_path ) / f'{self.filepath}.psf'
         psfxmlpath = pathlib.Path( self.local_path ) / f'{self.filepath}.psf.xml'
 

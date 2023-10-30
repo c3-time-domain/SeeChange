@@ -6,8 +6,9 @@
 #	Extra parameters added by JMB
 #
 NUMBER
-MAG_AUTO
-MAGERR_AUTO
+# Commenting out mag because when we run sextractor, we don't have a zeropoint yet
+# MAG_AUTO
+# MAGERR_AUTO
 
 #
 # CENTROID_KEYS

@@ -7,6 +7,7 @@ from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
+from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.references import ReferenceEntry
@@ -79,6 +80,7 @@ class DataStore:
         self._section = None # SensorSection
         self.image = None  # single image from one sensor section
         self.sources = None  # extracted sources (a SourceList object, basically a catalog)
+        self.psf = None   # psf determined from the extracted sources
         self.wcs = None  # astrometric solution
         self.zp = None  # photometric calibration
         self.ref_image = None  # to be used to make subtractions
@@ -602,7 +604,66 @@ class DataStore:
 
         return self.sources
 
+    def get_psf( self, provenance=None, session=None ):
+        """Get a PSF for the image, either from memory or the database.
+
+        Parameters
+        ----------
+        provenance: Provenance object
+          The provenance to use for the PSF.  This provenance should be
+          consistent with the current code version and critical
+          parameters.  If None, will use the latest provenance for the
+          "extraction" process.
+        session: sqlalchemy.orm.session.Sesssion or SmartSession
+          An optional database session.  If not given, will use the
+          session stored in the DataStore object, or open and close a
+          new session if there isn't one.
+
+        Retruns
+        -------
+        psf: PSF Object
+
+        """
+
+        session = self.session if session is None else session
+
+        process_name = 'extraction'
+        # if psf exists in memory already, check that the provenance is ok
+        if self.psf is not None:
+            if self.psf.provenance is None:
+                raise ValueError( 'PSF has no provenance!' )
+            if self.upstream_provs is not None:
+                provenances = [ p for p in self.upstream_provs if p.process == process_name ]
+            else:
+                provenances = []
+            if len(provenances) > 1:
+                raise ValueError( f"More than one {process_name} provenances found!" )
+            if len(provenances) == 1:
+                # Check for a mismatch of given provenance and self.psf's provenance
+                if self.psf.provenance.id != provenances[0].id:
+                    self.psf = None
+
+        # Didn't have the right psf in memory, look for it in the DB
+        if self.psf is None:
+            # This happens when the psf is required as an upstream for another process (but isn't in memory)
+            if provenance is None:
+                provenance = self._get_provenance_for_an_upstream( process_name, session )
+
+            # If we can't find a provenance, then we don't need to load from the DB
+            if provenance is not None:
+                with SmartSession( session ) as session:
+                    image = self.get_image( session=session )
+                    self.psf = session.scalars(
+                        sa.select( PSF ).where(
+                            PSF.image_id == image.id,
+                            PSF.provenance.has( id=provenance.id )
+                        )
+                    ).first()
+
+        return self.psf
+
     def get_wcs(self, provenance=None, session=None):
+
         """
         Get an astrometric solution (in the form of a WorldCoordinates),
         either from memory or from database.
@@ -1057,7 +1118,7 @@ class DataStore:
             no nested). Any None values will be removed.
         """
         attributes = [] if omit_exposure else [ '_exposure' ]
-        attributes.extend( [ 'image', 'wcs', 'sources', 'zp', 'sub_image',
+        attributes.extend( [ 'image', 'wcs', 'sources', 'psf', 'zp', 'sub_image',
                              'detections', 'cutouts', 'measurements' ] )
         result = {att: getattr(self, att) for att in attributes}
         if output == 'dict':

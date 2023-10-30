@@ -1041,6 +1041,11 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         The format to save is determined by the config file.
         Use the filename to override the default naming convention.
 
+        Will save the standard image extensions : image, weight, mask.
+        Does not save the source list or psf or other things that have
+        their own objects; those need to be saved separately.  (Also see
+        pipeline.datastore.)
+
         Parameters
         ----------
         filename: str (optional)

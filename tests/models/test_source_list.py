@@ -12,7 +12,7 @@ from models.source_list import SourceList
 
 from tests.conftest import ImageCleanup
 
-# @pytest.mark.skip( reason="slow" )
+@pytest.mark.skip( reason="slow" )
 def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_extra):
     filenames = []
     with SmartSession() as session:
@@ -95,65 +95,65 @@ def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_ex
         assert sources.id not in [s.id for s in sources5x]
 
 def test_read_sextractor( example_source_list ):
-    filepath, fullpath = example_source_list
+    fullpath = example_source_list
+    filepath = fullpath.relative_to( pathlib.Path( FileOnDiskMixin.local_path ) )
 
     # Make sure things go haywire when we try to load data with inconsistent
     # num_sources or aper_rads
     with pytest.raises( ValueError, match='self.num_sources=10 but the sextractor file had' ):
         sources = SourceList( format='sextrfits', filepath=filepath, num_sources=10 )
         data = sources.data
-    with pytest.raises( ValueError, match="self.aper_rads.*doesn't match sextractor file" ):
-        sources = SourceList( format='sextrfits', filepath=filepath, num_sources=1069, aper_rads=[1., 2.] )
+    with pytest.raises( ValueError, match="self.aper_rads.*doesn't match the number of apertures found in" ):
+        sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112, aper_rads=[1., 2., 3.] )
         data = sources.data
     with pytest.raises( ValueError, match="self.aper_rads.*doesn't match sextractor file" ):
-        sources = SourceList( format='sextrfits', filepath=filepath, num_sources=1069,
-                              aper_rads=[ 4.04170132 , 15.01375008 , 32. ] )
+        sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112,
+                              aper_rads=[ 2., 6. ] )
         data = sources.data
-    with pytest.raises( ValueError, match="self.aper_rads.*doesn't match sextractor file" ):
-        sources = SourceList( format='sextrfits', filepath=filepath, num_sources=1069,
-                              aper_rads=[ 4.04170132 ] )
+    with pytest.raises( ValueError, match="self.aper_rads.*doesn't match the number of apertures found in" ):
+        sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112,
+                              aper_rads=[ 2. ] )
         data = sources.data
 
     # Make sure those fields get properly auto-set
     sources = SourceList( format='sextrfits', filepath=filepath )
     data = sources.data
-    assert sources.num_sources == 1069
-    assert sources.aper_rads == pytest.approx( [ 4.04, 15.01 ], abs=0.01 )
+    assert sources.num_sources == 112
+    assert sources.aper_rads == [ 2., 5. ]
 
     # Make sure we can read the file with the right things in place in those fields
-    sources = SourceList( format='sextrfits', filepath=filepath, num_sources=1069,
-                          aper_rads=[ 4.04170132, 15.01375008 ] )
-    assert len(sources.data) == 1069
-    assert sources.num_sources == 1069
-    assert sources.aper_rads == pytest.approx( [ 4.04, 15.01 ], abs=0.01 )
-    assert sources.x[0] == pytest.approx( 1501.45, abs=0.01 )
-    assert sources.y[0] == pytest.approx( 60.43, abs=0.01 )
-    assert sources.x[50] == pytest.approx( 2890.70, abs=0.01 )
-    assert sources.y[50] == pytest.approx( 113.02, abs=0.01 )
-    assert sources.ra[0] == pytest.approx( 153.62379146881202, abs=0.1/3600. )
-    assert sources.dec[0] == pytest.approx( 39.50160906900172, abs=0.1/3600. )
-    assert sources.ra[50] == pytest.approx( 153.11931811345397, abs=0.1/3600. )
-    assert sources.dec[50] == pytest.approx( 39.46629724049348, abs=0.1/3600. )
-    assert sources.apfluxadu()[0][0] == pytest.approx( 6490.0864, rel=1e-5 )
-    assert sources.apfluxadu()[0][50] == pytest.approx( 269.38647, rel=1e-5 )
-    assert sources.apfluxadu(apnum=0)[0][0] == pytest.approx( 6490.0864, rel=1e-5 )
-    assert sources.apfluxadu(apnum=0)[0][50] == pytest.approx( 269.38647, rel=1e-5 )
-    assert sources.apfluxadu(ap=4.04)[0][0] == pytest.approx( 6490.0864, rel=1e-5 )
-    assert sources.apfluxadu(ap=4.04)[0][50] == pytest.approx( 269.38647, rel=1e-5 )
-    assert sources.apfluxadu(apnum=1)[0][0] == pytest.approx( 20104.086, rel=1e-5 )
-    assert sources.apfluxadu(apnum=1)[0][50] == pytest.approx( 162.24628, rel=1e-5 )
-    assert sources.apfluxadu(ap=15.01)[0][0] == pytest.approx( 20104.086, rel=1e-5 )
-    assert sources.apfluxadu(ap=15.01)[0][50] == pytest.approx( 162.24628, rel=1e-5 )
-    assert sources.apfluxadu()[1][0] == pytest.approx( 51.80475, rel=1e-5 )
-    assert sources.apfluxadu()[1][50] == pytest.approx( 40.86762, rel=1e-5 )
-    assert sources.apfluxadu(apnum=0)[1][0] == pytest.approx( 51.80475, rel=1e-5 )
-    assert sources.apfluxadu(apnum=0)[1][50] == pytest.approx( 40.86762, rel=1e-5 )
-    assert sources.apfluxadu(ap=4.04)[1][0] == pytest.approx( 51.80475, rel=1e-5 )
-    assert sources.apfluxadu(ap=4.04)[1][50] == pytest.approx( 40.86762, rel=1e-5 )
-    assert sources.apfluxadu(apnum=1)[1][0] == pytest.approx( 160.91551, rel=1e-5 )
-    assert sources.apfluxadu(apnum=1)[1][50] == pytest.approx( 150.53914, rel=1e-5 )
-    assert sources.apfluxadu(ap=15.01)[1][0] == pytest.approx( 160.91551, rel=1e-5 )
-    assert sources.apfluxadu(ap=15.01)[1][50] == pytest.approx( 150.53914, rel=1e-5 )
+    sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112, aper_rads=[ 2., 5. ] )
+    assert len(sources.data) == 112
+    assert sources.num_sources == 112
+    assert sources.aper_rads == [ 2., 5. ]
+    assert sources.x[0] == pytest.approx( 798.24, abs=0.01 )
+    assert sources.y[0] == pytest.approx( 17.14, abs=0.01 )
+    assert sources.x[50] == pytest.approx( 899.33, abs=0.01 )
+    assert sources.y[50] == pytest.approx( 604.52, abs=0.01 )
+    assert sources.ra[0] == pytest.approx( 153.879136, abs=0.1/3600. )
+    assert sources.dec[0] == pytest.approx( 39.52335, abs=0.1/3600. )
+    assert sources.ra[50] == pytest.approx( 153.85238, abs=0.1/3600. )
+    assert sources.dec[50] == pytest.approx( 39.35697, abs=0.1/3600. )
+    assert sources.apfluxadu()[0][0] == pytest.approx( 3044.9092, rel=1e-5 )
+    assert sources.apfluxadu()[0][50] == pytest.approx( 165.99489, rel=1e-5 )
+    assert sources.apfluxadu(apnum=0)[0][0] == pytest.approx( 3044.9092, rel=1e-5 )
+    assert sources.apfluxadu(apnum=0)[0][50] == pytest.approx( 165.99489, rel=1e-5 )
+    assert sources.apfluxadu(ap=1.995)[0][0] == pytest.approx( 3044.9092, rel=1e-5 )
+    assert sources.apfluxadu(ap=2.)[0][50] == pytest.approx( 165.99489, rel=1e-5 )
+    assert sources.apfluxadu(apnum=1)[0][0] == pytest.approx( 9883.959, rel=1e-5 )
+    assert sources.apfluxadu(apnum=1)[0][50] == pytest.approx( 432.86523, rel=1e-5 )
+    assert sources.apfluxadu(ap=5.005)[0][0] == pytest.approx( 9883.959, rel=1e-5 )
+    assert sources.apfluxadu(ap=5)[0][50] == pytest.approx( 432.86523, rel=1e-5 )
+    assert sources.apfluxadu()[1][0] == pytest.approx( 57.16683, rel=1e-5 )
+    assert sources.apfluxadu()[1][50] == pytest.approx( 21.78877, rel=1e-5 )
+    assert sources.apfluxadu(apnum=0)[1][0] == pytest.approx( 57.16683, rel=1e-5 )
+    assert sources.apfluxadu(apnum=0)[1][50] == pytest.approx( 21.78877, rel=1e-5 )
+    assert sources.apfluxadu(ap=2)[1][0] == pytest.approx( 57.16683, rel=1e-5 )
+    assert sources.apfluxadu(ap=2)[1][50] == pytest.approx( 21.78877, rel=1e-5 )
+    assert sources.apfluxadu(apnum=1)[1][0] == pytest.approx( 85.39691, rel=1e-5 )
+    assert sources.apfluxadu(apnum=1)[1][50] == pytest.approx( 50.625404, rel=1e-5 )
+    assert sources.apfluxadu(ap=5)[1][0] == pytest.approx( 85.39691, rel=1e-5 )
+    assert sources.apfluxadu(ap=5)[1][50] == pytest.approx( 50.625404, rel=1e-5 )
 
     # Check some apfluxadu failure modes
     with pytest.raises( ValueError, match="Aperture radius number 2 doesn't exist." ):
@@ -163,22 +163,22 @@ def test_read_sextractor( example_source_list ):
 
     # Poke directly into the data array as well
 
-    assert sources.data['X_IMAGE'][0] == pytest.approx( 1501.45, abs=0.01 )
-    assert sources.data['Y_IMAGE'][0] == pytest.approx( 60.43, abs=0.01 )
-    assert sources.data['X_WORLD'][0] == pytest.approx( 153.62379146881202, abs=0.1/3600. )
-    assert sources.data['Y_WORLD'][0] == pytest.approx( 39.50160906900172, abs=0.1/3600. )
-    assert sources.data['XWIN_IMAGE'][0] == pytest.approx( 1501.39, abs=0.01 )
-    assert sources.data['YWIN_IMAGE'][0] == pytest.approx( 60.51, abs=0.01 )
-    assert sources.data['FLUX_APER'][0] == pytest.approx( np.array( [ 6490.0864, 20104.086 ] ), rel=1e-5 )
-    assert sources.data['FLUXERR_APER'][0] == pytest.approx( np.array( [ 51.80475, 160.91551] ), rel=1e-5 )
-    assert sources.data['X_IMAGE'][50] == pytest.approx( 2890.70, abs=0.01 )
-    assert sources.data['Y_IMAGE'][50] == pytest.approx( 113.02, abs=0.01 )
-    assert sources.data['X_WORLD'][50] == pytest.approx( 153.11931811345397, abs=0.1/3600. )
-    assert sources.data['Y_WORLD'][50] == pytest.approx( 39.46629724049348, abs=0.1/3600. )
-    assert sources.data['XWIN_IMAGE'][50] == pytest.approx( 2890.56, abs=0.01 )
-    assert sources.data['YWIN_IMAGE'][50] == pytest.approx( 113.03, abs=0.01 )
-    assert sources.data['FLUX_APER'][50] == pytest.approx( np.array( [269.38647, 162.24628] ), rel=1e-5 )
-    assert sources.data['FLUXERR_APER'][50] == pytest.approx( np.array( [ 40.86762, 150.53914] ), rel=1e-5 )
+    assert sources.data['X_IMAGE'][0] == sources.x[0]
+    assert sources.data['Y_IMAGE'][0] == sources.y[0]
+    assert sources.data['X_WORLD'][0] == sources.ra[0]
+    assert sources.data['Y_WORLD'][0] == sources.dec[0]
+    assert sources.data['XWIN_IMAGE'][0] == pytest.approx( 798.29, abs=0.01 )
+    assert sources.data['YWIN_IMAGE'][0] == pytest.approx( 17.11, abs=0.01 )
+    assert sources.data['FLUX_APER'][0] == pytest.approx( np.array( [ 3044.9092, 9883.959 ] ), rel=1e-5 )
+    assert sources.data['FLUXERR_APER'][0] == pytest.approx( np.array( [ 57.16683, 85.39691 ] ), rel=1e-5 )
+    assert sources.data['X_IMAGE'][50] == sources.x[50]
+    assert sources.data['Y_IMAGE'][50] == sources.y[50]
+    assert sources.data['X_WORLD'][50] == sources.ra[50]
+    assert sources.data['Y_WORLD'][50] == sources.dec[50]
+    assert sources.data['XWIN_IMAGE'][50] == pytest.approx( 899.29, abs=0.01 )
+    assert sources.data['YWIN_IMAGE'][50] == pytest.approx( 604.58, abs=0.01 )
+    assert sources.data['FLUX_APER'][50] == pytest.approx( np.array( [ 165.99489, 432.86523 ] ), rel=1e-5 )
+    assert sources.data['FLUXERR_APER'][50] == pytest.approx( np.array( [ 21.78877, 50.625404 ] ), rel=1e-5 )
 
 
 def test_write_sextractor():

@@ -1,6 +1,7 @@
 import io
 import pathlib
 import random
+import copy
 import subprocess
 
 import numpy as np
@@ -28,8 +29,8 @@ class ParsDetector(Parameters):
 
         self.method = self.add_par( 'method', 'sextractor', str, 'Method to use (sextractor, sep)', critical=True )
 
-        self.measurepsf = self.add_par(
-            'measurepsf',
+        self.measure_psf = self.add_par(
+            'measure_psf',
             False,
             bool,
             ( 'Measure PSF?  If false, will use existing image PSF.  If true, '
@@ -43,14 +44,14 @@ class ParsDetector(Parameters):
             None,
             ( PSF, int, None ),
             ( 'Use this PSF; pass the PSF object, or its integer id. '
-              'If None, will not do PSF photometry (if measurepsf is False)' )
+              'If None, will not do PSF photometry.  Ignored if measure_psf is True.' )
         )
 
         self.apers = self.add_par(
             'apers',
-            [ 1. ],
+            None,
             ( None, list ),
-            'Apertures in which to measure photometry; a list of 1-4 floats',
+            'Apertures in which to measure photometry; a list of floats or None',
             critical=True
         )
         self.add_alias( 'apertures', 'apers' )
@@ -64,19 +65,19 @@ class ParsDetector(Parameters):
         )
         self.add_alias( 'aperture_unit', 'aperunit' )
 
+        self.threshold = self.add_par(
+            'threshold',
+            3.0,
+            [float, int],
+            'The number of standard deviations above the background '
+            'to use as the threshold for detecting a source. '
+        )
+
         self.subtraction = self.add_par(
             'subtraction',
             False,
             bool,
             'Whether this is expected to run on a subtraction image or a regular image. '
-        )
-
-        self.threshold = self.add_par(
-            'threshold',
-            5.0,
-            [float, int],
-            'The number of standard deviations above the background '
-            'to use as the threshold for detecting a source. '
         )
 
         self._enforce_no_new_attrs = True
@@ -91,11 +92,54 @@ class ParsDetector(Parameters):
 
 
 class Detector:
+    """Extract sources (and possibly a psf) from images or subtraction images."""
+
     def __init__(self, **kwargs):
+        """Initialize Detector.
+
+        Parmameters
+        -----------
+          method: str, default sextractor
+            sextractor or sep.  sep is not fully supported
+
+          measure_psf: bool, default False
+            Measure the psf?  Does not make sense to set this True for
+            subtraction images; for subtraction images, you must pass a
+            psf using the psf parameter.
+
+          psf: PSF, default None
+            A PSF object.  Ignored if measure_psf is True.  If passed,
+            will be used to determine the image FWHM to set aperture
+            sizes, and will be used for PSF photometry.
+
+          apers: list of float, default None
+            Apertures in which to do aperture photometry.  If None, will
+            use a default set of apertures that is (1, 2, 3, 4, 5, 7,
+            10) times the FWHM.  (If this is None and no psf is measured
+            or passed, then the apertures will be fixed at (2, 4, 6, 8,
+            10, 14, 20) pixels.)  The "primary" aperture should be the
+            first one on the list.
+
+          aperunit: str, default fwhm
+            The unit (fwhm or pixel) apers is given in; ignored if apers
+            is None.
+
+          threshold: float, default 5.0
+            Threshold for finding sources in units of sigma.
+
+          subtraction: bool, default False
+            Is this Detector intended to find sources on a subtraction?
+            If False, it's for finding sources on a regular image.
+
+        """
+
         self.pars = ParsDetector(**kwargs)
 
     def run(self, *args, **kwargs):
-        """
+
+        """Extract sources (and possibly a psf) from a regular image or a subtraction image.
+
+        Arguments are parsed by the DataStore.parse_args() method.
         Search a regular or subtraction image for new sources, and generate a SourceList.
         Arguments are parsed by the DataStore.parse_args() method.
 
@@ -111,6 +155,8 @@ class Detector:
             detections = ds.get_detections(prov, session=session)
 
             if detections is None:
+                raise NotImplementedError( "This needs to be updated for detection on a subtraction." )
+
                 # load the subtraction image from memory
                 # or load using the provenance given in the
                 # data store's upstream_provs, or just use
@@ -128,8 +174,7 @@ class Detector:
                     detections = self.extract_sources_sep(image)
                 elif self.pars.method == 'sextractor':
                     psffile = None if self.pars.psf is None else self.pars.psf.get_fullpath()
-                    detections = self.extract_sources_sextractor( image, measurepsf=self.pars.measurepsf,
-                                                                  psffile=psffile )
+                    detections, _ = self.extract_sources_sextractor( image, psffile=FIX_THIS )
                 else:
                     raise ValueError( f"Unknown source extraction method: {self.pars.method}" )
 
@@ -145,6 +190,7 @@ class Detector:
 
         else:  # regular image
             sources = ds.get_sources(prov, session=session)
+            psf = ds.get_psf(prov, session=session)
 
             if sources is None:
                 # use the latest image in the data store,
@@ -156,29 +202,108 @@ class Detector:
                 if image is None:
                     raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
 
-                sources = self.extract_sources(image)
+                sources, psf = self.extract_sources( image )
                 sources.image = image
                 if sources.provenance is None:
                     sources.provenance = prov
                 else:
                     if sources.provenance.id != prov.id:
                         raise ValueError('Provenance mismatch for sources and provenance!')
+                psf.image_id = image.id
+                if psf.provenance is None:
+                    psf.provenance = prov
+                else:
+                    if psf.provenance.id != prov.id:
+                        raise ValueError('Provenance mismatch for pfs and provenance!')
 
             ds.sources = sources
+            ds.psf = psf
 
         # make sure this is returned to be used in the next step
         return ds
 
-    def extract_sources( self, *args, **kwargs ):
+    def extract_sources( self, image, *args, **kwargs ):
+        """Extract sources.
+
+        Parmaters
+        ---------
+          image: Image
+             The image object to extract sources from
+
+        Returns
+        -------
+          sourcelist, psf
+             sourcelist : a SourceList
+             psf : a PSF (or None if the method doesn't support this)
+
+        """
+
         if self.pars.method == 'sep':
-            return self.extract_sources_sep( *args, **kwargs )
+            return self.extract_sources_sep( image, *args, **kwargs ), None
         elif self.pars.method == 'sextractor':
-            return self.extract_sources_sextractor( *args, **kwargs )
+            return self.extract_sources_sextractor( image, *args, **kwargs )
         else:
             raise ValueError( "Unknown extraction method {self.pars.method}" )
 
-    def extract_sources_sextractor( self, *args, **kwargs ):
-        return self._run_sextractor_once( *args, **kwargs )
+    def extract_sources_sextractor( self, image, *args, **kwargs ):
+        tempnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
+        sourcepath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.fits'
+        psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
+        psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
+
+        apers = ( np.array( self.pars.apers ) if self.pars.apers is not None
+                  else np.array( [1., 2., 3., 4., 5., 7., 10.] ) )
+
+        if self.pars.measure_psf or ( self.pars.psf is None ):
+            # Run sextractor once without a psf to get objects from
+            # which to build the psf.
+            #
+            # As for the aperture, if the units are FWHM, then we don't
+            # know one yet, so guess that it's 2".  This doesn't really
+            # matter that much, becauser we're not going to save these
+            # values.
+            aperrad = apers[0]
+            if self.pars.aperunit == 'fwhm':
+                if image.instrument_object.pixel_scale is not None:
+                    aperrad *= 2. / image.instrument_object.pixel_scale
+            sources = self._run_sextractor_once( image, apers=[aperrad], *args, tempname=tempnamebase, **kwargs )
+
+            # Get the PSF
+            psf = self._run_psfex( tempnamebase, image.id, do_not_cleanup=True )
+            psf.image = image
+        else:
+            psf = self.pars.psf
+            if psf is not None:
+                psfpath, psfxmlpath = self.psf.get_fullpath( download=download, always_verify_md5=True )
+            else:
+                psfpath = None
+                psfxmlpath = None
+
+        if self.pars.aperunit == 'fwhm':
+            if psf is None:
+                raise RuntimeError( "No psf passed to extract_sources_sextractor, so apertures can "
+                                    "not be based on the FWHM." )
+            else:
+                apers *= psf.fwhm_pixels
+
+        # Now that we have a psf, run sextractor (maybe a second time)
+        # to get the actual measurements.
+        sources = self._run_sextractor_once( image, apers=apers, psffile=psfpath, tempname=tempnamebase )
+
+        snr = sources.apfluxadu()[0] / sources.apfluxadu()[1]
+        if snr.min() > self.pars.threshold:
+            _logger.warning( "SExtractor may not have detected everything down to your threshold." )
+        w = np.where( snr >= self.pars.threshold )
+        sources.data = sources.data[w]
+        sources.num_sources = len( sources.data )
+
+        # Clean up the temporary files created (that weren't already cleaned up by _run_sextractor_once)
+        sourcepath.unlink( missing_ok=True )
+        if self.pars.psf is None:
+            if psfpath is not None: psfpath.unlink( missing_ok=True )
+            if psfxmlpath is not None: psfxmlpath.unlink( missing_ok=True )
+
+        return sources, psf
 
     def _run_sextractor_once( self, image, apers=[5, ], psffile=None, tempname=None, do_not_cleanup=False ):
         """Extract a SourceList from a FITS image using SExtractor.
@@ -194,13 +319,14 @@ class Detector:
           apers: list of float
             Aperture radii in pixels in which to do aperture photometry.
 
-          psffile: Path or str
-            File that has the PSF to use for PSF photometry
+          psffile: Path or str, or None
+            File that has the PSF to use for PSF photometry.  If None,
+            won't do psf photometry.
 
           tempname: str
             A filename base for where the catalog will be written.  The
             source file will be written to
-            "{FileOnDiskMixin.temp_path}/{tempname}_sources.fits".  (A
+            "{FileOnDiskMixin.temp_path}/{tempname}.sources.fits".  (A
             temporary image, weight, and mask file will be written with
             the same name base to the same directory, but will be
             deleted by this routine unless do_not_cleanup is False.)  It
@@ -213,21 +339,23 @@ class Detector:
             redundant with what's already written somewhere.  Normally,
             they're deleted at the end of the routine.  Set this to True
             to keep the files for debugging purposes.  (If tempname is
-            not None, then the sourcelist fill will not be deleted even
-            if this is False.)
+            not None, then the sourcelist file will not be deleted even
+            if this is False; the reasoning is, if you passed a
+            tempname, it's because you needed that file, and indeed
+            extract_sources_sextractor does.)
 
         Returns
         -------
-          SourceList
+          Source List
             Has data and info already loaded
 
         """
         tmpnamebase = tempname
         if tmpnamebase is None: tmpnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
         tmpimage = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tmpnamebase}.fits'
-        tmpweight = tmpimage.parent / f'{tmpnamebase}_weight.fits'
-        tmpflags = tmpimage.parent / f'{tmpnamebase}_flags.fits'
-        tmpsources = tmpimage.parent / f'{tmpnamebase}_sources.fits'
+        tmpweight = tmpimage.parent / f'{tmpnamebase}.weight.fits'
+        tmpflags = tmpimage.parent / f'{tmpnamebase}.flags.fits'
+        tmpsources = tmpimage.parent / f'{tmpnamebase}.sources.fits'
         tmpparams = tmpimage.parent / f'{tmpnamebase}.param'
 
         # For debugging purposes
@@ -261,21 +389,25 @@ class Detector:
         if not ( conv.is_file() and nnw.is_file() ):
             raise FileNotFoundError( f"Can't find SExtractor conv and/or nnw file: {conv} , {nnw}" )
 
-        # The parameters we want SExtractor to write go in a file.
-        # We need to edit it, though, so that the number of apertures
-        # we have matches the parameters we ask for.
-        # TODO : review the default param file and make sure we
-        # have the things we want, and don't have too much.
-        if len(apers) == 1:
-            paramfile = astromatic_dir / "detection_sextractor.param"
+        if psffile is not None:
+            if not pathlib.Path(psffile).is_file():
+                raise FileNotFoundError( f"Can't read PSF file {psffile}" )
+            psfargs = [ '-PSF_NAME', psffile ]
+            paramfilebase = astromatic_dir / "sourcelist_sextractor_with_psf.param"
         else:
-            if len(apers) > 4:
-                # This is evidently a constraint of what gets
-                # written into the info HDU; it only has header
-                # keywords for 4 apertures.
-                raise ValueError( "Supports at most 4 apertures." )
+            psfargs = []
+            paramfilebase = astromatic_dir / "sourcelist_sextractor.param"
+
+        # SExtractor reads the measurements it produes from a parmeters
+        # file.  We need to edit it, though, so that the number of
+        # apertures we have matches the apertures we ask for.
+        # TODO : review the default param file and make sure we have the
+        # things we want, and don't have too much.
+        if len(apers) == 1:
+            paramfile = paramfilebase
+        else:
             paramfile = tmpparams
-            with open( astromatic_dir / "detection_sextractor.param" ) as ifp:
+            with open( paramfilebase ) as ifp:
                 params = [ line.strip() for line in ifp.readlines() ]
             for i in range(len(params)):
                 if params[i] in [ "FLUX_APER", "FLUXERR_APER" ]:
@@ -284,9 +416,6 @@ class Detector:
                 for param in params:
                     ofp.write( f"{param}\n" )
 
-        if psffile is not None:
-            if not pathlib.Path(psffile).is_file():
-                raise FileNotFoundError( f"Can't read PSF file {psffile}" )
 
         try:
 
@@ -315,43 +444,55 @@ class Detector:
             # https://www.astromatic.net/2009/06/02/playing-the-weighting-game-i/
             # and notice the "...to be continued".)
 
-            res = subprocess.run( [ "source-extractor",
-                                    "-CATALOG_NAME", tmpsources,
-                                    "-CATALOG_TYPE", "FITS_LDAC",
-                                    "-PARAMETERS_NAME", paramfile,
-                                    "-FILTER", "Y",
-                                    "-FILTER_NAME", str(conv),
-                                    "-WEIGHT_TYPE", "MAP_WEIGHT",
-                                    "-RESCALE_WEIGHTS", "N",
-                                    "-WEIGHT_IMAGE", str(tmpweight),
-                                    "-WEIGHT_GAIN", "N",
-                                    "-FLAG_IMAGE", str(tmpflags),
-                                    "-FLAG_TYPE", "OR",
-                                    "-PHOT_APERTURES", ",".join( [ str(a) for a in apers ] ),
-                                    "-SATUR_LEVEL", str( image.instrument_object.average_saturation_limit( image ) ),
-                                    "-STARNNW_NAME", nnw,
-                                    "-BACK_TYPE", "AUTO",
-                                    "-BACK_SIZE", str( image.instrument_object.background_box_size ),
-                                    "-BACK_FILTERSIZE", str( image.instrument_object.background_filt_size ),
-                                    "-MEMORY_OBJSTACK", str( 20000 ),  # TODO: make these configurable?
-                                    "-MEMORY_PIXSTACK", str( 1000000 ),
-                                    "-MEMORY_BUFSIZE", str( 4096 ),
-                                    tmpimage
-                                   ],
-                                  cwd=tmpimage.parent,
-                                  capture_output=True
-                                 )
+            # The sextractor DETECT_THRESH and ANALYSIS_THRESH don't
+            # exactly correspond to what we want when we set a
+            # threshold.  (There's also the question as to : which
+            # measurement (i.e. which one of the apertures, or the psf
+            # photometry) are we using to determine threshold?  We'll
+            # use the primary aperture.)  Empirically, we need to set
+            # the sextractor thresholds lower than the threshold we want
+            # in order to get everything that's at least the threshold
+            # we want.  Outside of this function, we'll have to crop it.
+            # (Dividing by 3 may not be enough...)
+
+            args = [ "source-extractor",
+                     "-CATALOG_NAME", tmpsources,
+                     "-CATALOG_TYPE", "FITS_LDAC",
+                     "-PARAMETERS_NAME", paramfile,
+                     "-THRESH_TYPE", "RELATIVE",
+                     "-DETECT_THRESH", str( self.pars.threshold / 3. ),
+                     "-ANALYSIS_THRESH", str( self.pars.threshold / 3. ),
+                     "-FILTER", "Y",
+                     "-FILTER_NAME", str(conv),
+                     "-WEIGHT_TYPE", "MAP_WEIGHT",
+                     "-RESCALE_WEIGHTS", "N",
+                     "-WEIGHT_IMAGE", str(tmpweight),
+                     "-WEIGHT_GAIN", "N",
+                     "-FLAG_IMAGE", str(tmpflags),
+                     "-FLAG_TYPE", "OR",
+                     "-PHOT_APERTURES", ",".join( [ str(a) for a in apers ] ),
+                     "-SATUR_LEVEL", str( image.instrument_object.average_saturation_limit( image ) ),
+                     "-STARNNW_NAME", nnw,
+                     "-BACK_TYPE", "AUTO",
+                     "-BACK_SIZE", str( image.instrument_object.background_box_size ),
+                     "-BACK_FILTERSIZE", str( image.instrument_object.background_filt_size ),
+                     "-MEMORY_OBJSTACK", str( 20000 ),  # TODO: make these configurable?
+                     "-MEMORY_PIXSTACK", str( 1000000 ),
+                     "-MEMORY_BUFSIZE", str( 4096 )
+                    ]
+            args.extend( psfargs )
+            args.append( tmpimage )
+            res = subprocess.run( args, cwd=tmpimage.parent, capture_output=True )
             if res.returncode != 0:
                 _logger.error( f"Got return {res.returncode} from sextractor call; stderr:\n{res.stderr}\n"
                                f"-------\nstdout:\n{res.stdout}" )
                 raise RuntimeError( f"Error return from source-extractor call" )
 
-            sourcelist = SourceList( image=image, format="sextrfits" )
+            sourcelist = SourceList( image=image, format="sextrfits", aper_rads=apers )
             # Since we don't set the filepath to the temp file, manually load
             # the _data and _info fields
             sourcelist.load( tmpsources )
             sourcelist.num_sources = len( sourcelist.data )
-            sourcelist.aper_rads = apers
 
             return sourcelist
 
@@ -381,7 +522,7 @@ class Detector:
         ----------
           tempname: str (required)
             The catalog file is found in
-            {FileOnDiskMixin.temp_path}/{tempname}_sources.fits.
+            {FileOnDiskMixin.temp_path}/{tempname}.sources.fits.
 
           image_id: int
             The id of the Image the sources were extracted from
@@ -396,9 +537,9 @@ class Detector:
             created on the way to building the PSF that's returned.
             (Normally, these temporary files are deleted.)  The psf FITS
             file will be in
-            {FileOnDiskMixin.temp_path}/{tempname}_sources.psf and the
+            {FileOnDiskMixin.temp_path}/{tempname}.sources.psf and the
             psfxml file will be in
-            {FileOnDiskMixin.temp_path}/{tempname}_sources.psf.xml
+            {FileOnDiskMixin.temp_path}/{tempname}.sources.psf.xml
 
 
         Returns
@@ -406,9 +547,9 @@ class Detector:
           A PSF object.
 
         """
-        sourcefile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}_sources.fits'
-        psffile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}_sources.psf'
-        psfxmlfile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}_sources.psf.xml'
+        sourcefile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.sources.fits'
+        psffile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.sources.psf'
+        psfxmlfile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempname}.sources.psf.xml'
 
         if psf_size is not None:
             psf_size = int( psf_size )
@@ -464,7 +605,8 @@ class Detector:
                     if usepsfsize % 2 == 0:
                         usepsfsize += 1
 
-            psf = PSF( format="psfex", image_id=image_id, fwhm_pixels=psfstats.array['FWHM_FromFluxRadius_Mean'][0] )
+            psf = PSF( format="psfex", image_id=image_id,
+                       fwhm_pixels=float(psfstats.array['FWHM_FromFluxRadius_Mean'][0]) )
             psf.load( psfpath=psffile, psfxmlpath=psfxmlfile )
 
             return psf

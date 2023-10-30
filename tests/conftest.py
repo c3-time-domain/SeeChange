@@ -574,12 +574,9 @@ def example_image_with_sources_and_psf():
     return image, weight, flags, sources, psf, psfxml
 
 @pytest.fixture
-def example_source_list():
-    filepath = "test_data/ztf_20190317307639_000712_zg_io.083_sources.fits"
-    fullpath = pathlib.Path( FileOnDiskMixin.local_path ) / filepath
-    if not fullpath.is_file():
-        raise FileNotFoundError( f"Can't read {fullpath}" )
-    return filepath, fullpath
+def example_source_list( example_image_with_sources_and_psf ):
+    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf
+    return sources
 
 @pytest.fixture
 def example_psfex_psf_files():

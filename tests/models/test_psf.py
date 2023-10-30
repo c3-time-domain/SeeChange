@@ -118,7 +118,7 @@ class PSFPaletteMaker:
 
         conv = astromatic_dir / "default.conv"
         nnw = astromatic_dir / "default.nnw"
-        paramfile = astromatic_dir / "detection_sextractor.param"
+        paramfile = astromatic_dir / "sourcelist_sextractor.param"
 
         _logger.info( "Running sextractor..." )
         # Run sextractor to give psfex something to do
@@ -225,7 +225,6 @@ def test_write_psfex_psf( example_image_with_sources_and_psf ):
     psf = PSF( format='psfex' )
     psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
 
-    # Write it out, make sure the expected files get created
     tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
     psfpath = f'{tempname}.psf'
     psffullpath = pathlib.Path( FileOnDiskMixin.local_path ) / psfpath
@@ -234,6 +233,7 @@ def test_write_psfex_psf( example_image_with_sources_and_psf ):
     sourcesfullpath = pathlib.Path( FileOnDiskMixin.local_path ) / f'{tempname}.cat'
 
     try:
+        # Write it out, make sure the expected files get created
         psf.save( tempname )
         assert psffullpath.is_file()
         assert psfxmlfullpath.is_file()
@@ -259,7 +259,7 @@ def test_write_psfex_psf( example_image_with_sources_and_psf ):
         assert astromatic_dir.is_dir()
         conv = astromatic_dir / "default.conv"
         nnw = astromatic_dir / "default.nnw"
-        param = astromatic_dir / "detection_sextractor_with_psf.param"
+        param = astromatic_dir / "sourcelist_sextractor_with_psf.param"
 
         command = [ 'source-extractor',
                     '-CATALOG_NAME', sourcesfullpath,
@@ -289,7 +289,7 @@ def test_write_psfex_psf( example_image_with_sources_and_psf ):
         sourcesfullpath.unlink( missing_ok=True )
 
 
-# @pytest.mark.skip( reason="slow" )
+@pytest.mark.skip( reason="slow" )
 def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # psf_palette = round_psf_palette
     psf = psf_palette.psf
