@@ -423,7 +423,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
             if filename.endswith(('.fits', '.h5', '.hdf5')):
                 filename = os.path.splitext(filename)[0]
 
-            filename += '_sources'
+            filename += '.sources'
             if self.format == 'sepnpy':
                 filename += '.npy'
             elif self.format == 'sextrfits':

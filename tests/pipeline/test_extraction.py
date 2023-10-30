@@ -266,15 +266,12 @@ def test_run_detection_sextractor( decam_example_reduced_image_ds ):
 
     # Make sure all the files exist
     archive = get_archive_object()
-    imdir = pathlib.Path( FileOnDiskMixin )
-    relpaths = [ imdir / f'{base}.fits',
-                 imdir / f'{base}.weight.fits',
-                 imdir / f'{base}.flags.fits',
-                 imdir / f'{base}.sources.fits',
-                 imdir / f'{base}.psf',
-                 imdir / f'{base}.psf.xml' ]
+    imdir = pathlib.Path( FileOnDiskMixin.local_path )
+    base = ds.image.filepath
+    relpaths = [ f'{base}{i}' for i in [ '.image.fits', '.weight.fits', '.flags.fits',
+                                         '.sources.fits', '.psf', '.psf.xml' ] ]
     for relp in relpaths:
-        assert repl.is_file()
+        assert ( imdir / relp ).is_file()
         assert archive.get_info( relp ) is not None
 
 

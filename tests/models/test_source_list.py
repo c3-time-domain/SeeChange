@@ -183,10 +183,10 @@ def test_read_sextractor( example_source_list ):
 
 def test_write_sextractor():
     fname = ''.join( np.random.choice( list('abcdefghijklmnopqrstuvwxyz'), 16 ) )
-    sources = SourceList( format='sextrfits', filepath=f"{fname}_sources.fits" )
+    sources = SourceList( format='sextrfits', filepath=f"{fname}.sources.fits" )
     assert sources.aper_rads is None
     if pathlib.Path( sources.get_fullpath() ).is_file():
-        raise RuntimeError( f"{fname}_sources.fits exists when it shouldn't" )
+        raise RuntimeError( f"{fname}.sources.fits exists when it shouldn't" )
     sources.info = astropy.io.fits.Header( [ ( 'HELLO', 'WORLD', 'Comment' ),
                                              ( 'ANSWER', 42 ) ] )
     sources.data = np.array( [ ( 100.7, 100.2, 42. ),
