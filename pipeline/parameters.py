@@ -702,9 +702,6 @@ class Parameters:
         return prov
 
 
-
-
-
 class ParsDemoSubclass(Parameters):
     def __init__(self, **kwargs):
         super().__init__()  # initialize base Parameters without passing arguments

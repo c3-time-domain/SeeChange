@@ -396,7 +396,6 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
                 if ( ( ( len(self.aper_rads) <= 4 ) and ( len( aps ) != len( self.aper_rads ) ) )
                      or
                      ( not ( np.abs( np.array( aps ) - np.array( self.aper_rads[:len(aps)] ) ) < 0.01 ).all() )
-                    ):
                      raise ValueError( f"self.aper_rads {self.aper_rads} doesn't match sextractor file "
                                        f"aperture radii {aps}" )
 
