@@ -79,7 +79,7 @@ class DataStore:
         self._exposure = None  # single image, entire focal plane
         self._section = None # SensorSection
 
-        self.init_data_products()
+        self._init_data_products()
 
         # The database session parsed in parse_args; it could still be None even after parse_args
         self.session = None
