@@ -167,6 +167,20 @@ class ImageTypeConverter( EnumConverter ):
     _dict_filtered = None
     _dict_inverse = None
 
+class CatalogExcerptFormatConverter( FormatConverter ):
+    _allowed_values = [ 'fitsldac' ]
+    _dict_filtered = None
+    _dict_inverse = None
+
+class CatalogExcerptOriginConverter( EnumConverter ):
+    _dict = {
+        0: 'Unknown',
+        1: 'GaiaDR3'
+    }
+    _allowed_values = None
+    _dict_filtered = None
+    _dict_inverse = None
+
 class CalibratorTypeConverter( EnumConverter ):
     _dict = {
         0: 'unknown',

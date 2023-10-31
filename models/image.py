@@ -12,6 +12,7 @@ from sqlalchemy.schema import CheckConstraint
 from astropy.time import Time
 from astropy.wcs import WCS
 from astropy.io import fits
+import astropy.coordinates
 import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
@@ -329,6 +330,16 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         default=0,
         index=False,
         doc='Bitflag specifying which preprocessing steps have been completed for the image.'
+    )
+
+    astro_cal_done = sa.Column(
+        sa.BOOLEAN,
+        nullable=False,
+        default=False,
+        index=False,
+        doc=( 'Has a WCS been solved for this image.  This should be set to true after astro_cal '
+              'has been run, or for images (like subtractions) that are derived from other images '
+              'with complete WCSes that can be copied.' )
     )
 
     _bitflag = sa.Column(
@@ -654,6 +665,33 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
         self._instrument_object = None
 
+    def set_corners_from_header_wcs( self ):
+        wcs = WCS( self._raw_header )
+        ras = []
+        decs = []
+        data = self.raw_data if self.raw_data is not None else self.data
+        width = data.shape[1]
+        height = data.shape[0]
+        xs = [ 0., width-1., 0., width-1. ]
+        ys = [ 0., height-1., height-1., 0. ]
+        scs = wcs.pixel_to_world( xs, ys )
+        if isinstance( scs[0].ra, astropy.coordinates.Longitude ):
+            ras = [ i.ra.to_value() for i in scs ]
+            decs = [ i.dec.to_value() for i in scs ]
+        else:
+            ras = [ i.ra.value_in(u.deg).value for i in scs ]
+            decs = [ i.dec.value_in(u.deg).value for i in scs ]
+        ras, decs = FourCorners.sort_radec( ras, decs )
+        self.ra_corner_00 = ras[0]
+        self.ra_corner_01 = ras[1]
+        self.ra_corner_10 = ras[2]
+        self.ra_corner_11 = ras[3]
+        self.dec_corner_00 = decs[0]
+        self.dec_corner_01 = decs[1]
+        self.dec_corner_10 = decs[2]
+        self.dec_corner_11 = decs[3]
+
+
     @classmethod
     def from_exposure(cls, exposure, section_id):
         """
@@ -754,23 +792,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         # Figure out the 4 corners  Start by trying to use the WCS
         gotcorners = False
         try:
-            wcs = WCS( new._raw_header )
-            ras = []
-            decs = []
-            xs = [ 0., width-1., 0., width-1. ]
-            ys = [ 0., height-1., height-1., 0. ]
-            scs = wcs.pixel_to_world( xs, ys )
-            ras = [ i.ra.value_in(u.deg).value for i in scs ]
-            decs = [ i.dec.value_in(u.deg).value for i in scs ]
-            ras, decs = FourCorners.sort_radec( ras, decs )
-            new.ra_corner_00 = ras[0]
-            new.ra_corner_01 = ras[1]
-            new.ra_corner_10 = ras[2]
-            new.ra_corner_11 = ras[3]
-            new.dec_corner_00 = decs[0]
-            new.dec_corner_01 = decs[1]
-            new.dec_corner_10 = decs[2]
-            new.dec_corner_11 = decs[3]
+            new.set_corners_from_header_wcs()
             _logger.debug( 'Got corners from WCS' )
             gotcorners = True
         except:

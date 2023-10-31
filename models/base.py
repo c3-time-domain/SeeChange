@@ -1040,6 +1040,8 @@ class SpatiallyIndexed:
         )
 
     def calculate_coordinates(self):
+        """Fill self.gallat, self.gallon, self.ecllat, and self.ecllong based on self.ra and self.dec."""
+
         if self.ra is None or self.dec is None:
             raise ValueError("Object must have RA and Dec set before calculating coordinates! ")
 

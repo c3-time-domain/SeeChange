@@ -516,9 +516,9 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
 
         data = self.data
         with open( regfile, "w" ) as ofp:
-            for row in data:
+            for x, y in zip( self.x, self.y ):
                 # +1 to go from C-coordinates to FITS-coordinates
-                ofp.write( f"image;circle({row['x']+1},{row['y']+1},{radius}) # color={color} width={width}\n" )
+                ofp.write( f"image;circle({x+1},{y+1},{radius}) # color={color} width={width}\n" )
 
 # add "property" attributes to SourceList referencing the image for convenience
 for att in [

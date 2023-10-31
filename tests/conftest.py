@@ -1,4 +1,5 @@
 import os
+import io
 import warnings
 import pytest
 import uuid
@@ -11,7 +12,7 @@ import numpy as np
 import sqlalchemy as sa
 
 from astropy.time import Time
-from astropy.io import fits
+from astropy.io import fits, votable
 
 from util.config import Config
 from models.base import FileOnDiskMixin, SmartSession, CODE_ROOT, _logger
@@ -23,6 +24,8 @@ from models.references import ReferenceEntry
 from models.instrument import Instrument, get_instrument_instance
 from models.decam import DECam
 from models.source_list import SourceList
+from models.psf import PSF
+from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
 from pipeline.detection import Detector
 from util import config
@@ -566,7 +569,7 @@ def decam_default_calibrators():
             df.delete_from_disk_and_database( session=session, commit=False )
         session.commit()
 
-@pytest.fixture
+@pytest.fixture( scope="session" )
 def example_image_with_sources_and_psf():
     image = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.fits"
     weight = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.weight.fits"
@@ -575,6 +578,38 @@ def example_image_with_sources_and_psf():
     psf = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.psf"
     psfxml = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.psf.xml"
     return image, weight, flags, sources, psf, psfxml
+
+@pytest.fixture
+def example_ds_with_sources_and_psf( example_image_with_sources_and_psf ):
+    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf
+    ds = DataStore()
+
+    ds.image = Image( filepath=str( image.relative_to( FileOnDiskMixin.local_path ) ), format='fits' )
+    with fits.open( image ) as hdul:
+        ds.image._data = hdul[0].data
+        ds.image._raw_header = hdul[0].header
+    with fits.open( weight ) as hdul:
+        ds.image._weight = hdul[0].data
+    with fits.open( flags ) as hdul:
+        ds.image_flags = hdul[0].data
+    ds.image.set_corners_from_header_wcs()
+    ds.image.ra = ( ds.image.ra_corner_00 + ds.image.ra_corner_01 +
+                    ds.image.ra_corner_10 + ds.image.ra_corner_11 ) / 4.
+    ds.image.dec = ( ds.image.dec_corner_00 + ds.image.dec_corner_01 +
+                     ds.image.dec_corner_00 + ds.image.dec_corner_11 ) / 4.
+    ds.image.calculate_coordinates()
+
+    ds.sources = SourceList( filepath=str( sources.relative_to( FileOnDiskMixin.local_path ) ), format='sextrfits' )
+    ds.sources.load( sources )
+    ds.sources.num_sources = len( ds.sources.data )
+
+    ds.psf = PSF( filepath=str( psf.relative_to( FileOnDiskMixin.local_path ) ), format='psfex' )
+    ds.psf.load( download=False, psfpath=psf, psfxmlpath=psfxml )
+    bio = io.BytesIO( ds.psf.info.encode( 'utf-8' ) )
+    tab = votable.parse( bio ).get_table_by_index( 1 )
+    ds.psf.fwhm_pixels = float( tab.array['FWHM_FromFluxRadius_Mean'][0] )
+
+    return ds
 
 @pytest.fixture
 def example_source_list( example_image_with_sources_and_psf ):
