@@ -136,7 +136,6 @@ class Detector:
         self.pars = ParsDetector(**kwargs)
 
     def run(self, *args, **kwargs):
-
         """Extract sources (and possibly a psf) from a regular image or a subtraction image.
 
         Arguments are parsed by the DataStore.parse_args() method.

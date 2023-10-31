@@ -21,7 +21,7 @@ def test_expected_failures():
         util.ldac.get_table_from_ldac( "this_file_does_not_exist" )
 
 def test_read_ldac( example_source_list ):
-    filepath, fullpath = example_source_list
+    fullpath = example_source_list
 
     tbl1, tbl2 = util.ldac.get_table_from_ldac( fullpath )
     assert isinstance( tbl1, fits.BinTableHDU )
@@ -32,25 +32,25 @@ def test_read_ldac( example_source_list ):
     assert isinstance( tbl2, Table )
     # Spot check
     assert hdr['SEXNNWF'] == 'default.nnw'
-    assert hdr['SEXAPED1'] == pytest.approx( 4.04, abs=0.01 )
-    assert hdr['SEXAPED2'] == pytest.approx( 15.01,abs=0.01 )
+    assert hdr['SEXAPED1'] == pytest.approx( 2, abs=0.01 )
+    assert hdr['SEXAPED2'] == pytest.approx( 5, abs=0.01 )
     assert hdr['SEXAPED3'] == 0.
     assert hdr['SEXAPED4'] == 0.
-    assert len(tbl2) == 1069
-    assert tbl['X_IMAGE'].min() == pytest.approx( 2.07, abs=0.01 )
-    assert tbl['X_IMAGE'].max() == pytest.approx( 3070.42, abs=0.01 )
-    assert tbl['Y_IMAGE'].min() == pytest.approx( 2.19, abs=0.01 )
-    assert tbl['Y_IMAGE'].max() == pytest.approx( 3080, abs=0.01 )
+    assert len(tbl2) == 112
+    assert tbl['X_IMAGE'].min() == pytest.approx( 4.97, abs=0.01 )
+    assert tbl['X_IMAGE'].max() == pytest.approx( 1023.65, abs=0.01 )
+    assert tbl['Y_IMAGE'].min() == pytest.approx( 1.49, abs=0.01 )
+    assert tbl['Y_IMAGE'].max() == pytest.approx( 993.23, abs=0.01 )
     aper0 = tbl['FLUX_APER'][:, 0]
     aper1 = tbl['FLUX_APER'][:, 1]
-    assert aper0.min() == pytest.approx( 135.14561, rel=1e-5 )
-    assert aper0.max() == pytest.approx( 728981, rel=1e-5 )
-    assert aper0.mean() == pytest.approx( 16760.936, rel=1e-5 )
-    assert aper0.std() == pytest.approx( 79481.17, rel=1e-4 )
-    assert aper1.min() == pytest.approx( 78.13569, rel=1e-5 )
-    assert aper1.max() == pytest.approx( 4648238.5, rel=1e-5 )
-    assert aper1.mean() == pytest.approx( 38672.023, rel=1e-5 )
-    assert aper1.std() == pytest.approx( 257791.81, rel=1e-4 )
+    assert aper0.min() == pytest.approx( 56.979435, rel=1e-5 )
+    assert aper0.max() == pytest.approx( 98965.32, rel=1e-5 )
+    assert aper0.mean() == pytest.approx( 2991.1528, rel=1e-5 )
+    assert aper0.std() == pytest.approx( 12142.842, rel=1e-4 )
+    assert aper1.min() == pytest.approx( 241.75589, rel=1e-5 )
+    assert aper1.max() == pytest.approx( 335792.22, rel=1e-5 )
+    assert aper1.mean() == pytest.approx( 9863.518, rel=1e-5 )
+    assert aper1.std() == pytest.approx( 39851.023, rel=1e-4 )
 
 def test_save_ldac():
     fname = pathlib.Path( ''.join( np.random.choice( list('abcdefghijklmnopqrstuvwxyz'), 16 ) ) + '.fits' )

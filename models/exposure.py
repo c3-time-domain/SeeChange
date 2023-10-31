@@ -9,6 +9,7 @@ from sqlalchemy.orm.session import object_session
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from astropy.time import Time
+from astropy.io import fits
 
 from util.config import Config
 from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_to_deg
@@ -698,6 +699,8 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed):
     def raw_header(self):
         if self._raw_header is None:
             self._raw_header = read_fits_image(self.get_fullpath(), ext=0, output='header')
+        if self._raw_header is None:
+            self._raw_header = fits.Header()
         return self._raw_header
 
     def update_instrument(self, session=None):

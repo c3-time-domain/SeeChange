@@ -158,7 +158,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
     @sa.orm.reconstructor
     def init_on_load( self ):
         Base.init_on_load( self )
-        FileOnDiskMixin.init_on_laod( self )
+        FileOnDiskMixin.init_on_load( self )
         self._header = None
         self._data = None
         self._table = None

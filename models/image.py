@@ -11,6 +11,7 @@ from sqlalchemy.schema import CheckConstraint
 
 from astropy.time import Time
 from astropy.wcs import WCS
+from astropy.io import fits
 import astropy.units as u
 
 from pipeline.utils import read_fits_image, save_fits_image_file
@@ -1185,6 +1186,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
     def raw_header(self):
         if self._raw_header is None and self.filepath is not None:
             self.load()
+        if self._raw_header is None:
+            self._raw_header = fits.Header()
         return self._raw_header
 
     @raw_header.setter

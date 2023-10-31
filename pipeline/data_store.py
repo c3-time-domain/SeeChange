@@ -78,6 +78,14 @@ class DataStore:
         # these are data products that can be cached in the store
         self._exposure = None  # single image, entire focal plane
         self._section = None # SensorSection
+
+        self.init_data_products()
+
+        # The database session parsed in parse_args; it could still be None even after parse_args
+        self.session = None
+        self.parse_args(*args, **kwargs)
+
+    def _init_data_products( self ):
         self.image = None  # single image from one sensor section
         self.sources = None  # extracted sources (a SourceList object, basically a catalog)
         self.psf = None   # psf determined from the extracted sources
@@ -96,10 +104,6 @@ class DataStore:
         self.section_id = None  # corresponds to SensorSection.identifier (*not* .id)
                                 # use this and exposure_id to find the raw image
         self.image_id = None  # use this to specify an image already in the database
-
-        # The database session parsed in parse_args; it could still be None even after parse_args
-        self.session = None
-        self.parse_args(*args, **kwargs)
 
     @property
     def exposure( self ):
@@ -663,7 +667,6 @@ class DataStore:
         return self.psf
 
     def get_wcs(self, provenance=None, session=None):
-
         """
         Get an astrometric solution (in the form of a WorldCoordinates),
         either from memory or from database.
@@ -1199,11 +1202,6 @@ class DataStore:
         All data products in the data store are removed from the DB,
         and all files on disk are deleted.
 
-        WARNING : after calling this, calling this again on the same
-        data_store will cause problems.  (TODO: set all the various _id
-        fields of the objects to None?  Would that fix it?  Or, perhaps
-        set all fields to None?)
-
         NOTE: does *not* delete the exposure.  (There may well be other
         data stores out there with different images from the same
         exposure.)
@@ -1232,3 +1230,5 @@ class DataStore:
             finally:
                 session.autoflush = autoflush_state
 
+        # Make sure all data products are None so that they aren't used again now that they're gone
+        self._init_data_products()

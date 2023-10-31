@@ -12,7 +12,7 @@ from models.source_list import SourceList
 
 from tests.conftest import ImageCleanup
 
-@pytest.mark.skip( reason="slow" )
+# @pytest.mark.skip( reason="slow" )
 def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_extra):
     filenames = []
     with SmartSession() as session:

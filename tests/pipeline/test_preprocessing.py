@@ -58,7 +58,6 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
 
     # Make sure that the expected files get written
     try:
-        import pdb; pdb.set_trace()
         ds.save_and_commit()
         basepath = pathlib.Path( FileOnDiskMixin.local_path ) / ds.image.filepath
         archpath = pathlib.Path( "/archive_storage/base/test" )/ ds.image.filepath
@@ -95,4 +94,5 @@ def test_preprocessing( decam_example_exposure, decam_default_calibrators ):
     assert preppor._ds.exposure.filter[:1] == 'g'
     assert preppor._ds.section_id == 'N1'
     assert set( preppor.stepfiles.keys() ) == { 'linearity' }
+
 

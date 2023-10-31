@@ -92,7 +92,7 @@ def test_sep_save_source_list(decam_small_image, provenance_base, code_version):
         assert os.path.isfile(filename)
 
         # check the naming convention
-        assert re.search(r'.*/\d{3}/c4d_\d{8}_\d{6}_.+_.+_.+_.{6}_sources\.npy', filename)
+        assert re.search(r'.*/\d{3}/c4d_\d{8}_\d{6}_.+_.+_.+_.{6}.sources\.npy', filename)
 
         # check the file contents can be loaded successfully
         data = np.load(filename)
@@ -262,16 +262,18 @@ def test_run_detection_sextractor( decam_example_reduced_image_ds ):
     assert ds.sources.provenance == ds.psf.provenance
     assert ds.sources.provenance.process == 'extraction'
 
-    ds.save_and_commit()
+    try:
+        ds.save_and_commit()
 
-    # Make sure all the files exist
-    archive = get_archive_object()
-    imdir = pathlib.Path( FileOnDiskMixin.local_path )
-    base = ds.image.filepath
-    relpaths = [ f'{base}{i}' for i in [ '.image.fits', '.weight.fits', '.flags.fits',
-                                         '.sources.fits', '.psf', '.psf.xml' ] ]
-    for relp in relpaths:
-        assert ( imdir / relp ).is_file()
-        assert archive.get_info( relp ) is not None
+        # Make sure all the files exist
+        archive = get_archive_object()
+        imdir = pathlib.Path( FileOnDiskMixin.local_path )
+        base = ds.image.filepath
+        relpaths = [ f'{base}{i}' for i in [ '.image.fits', '.weight.fits', '.flags.fits',
+                                             '.sources.fits', '.psf', '.psf.xml' ] ]
+        for relp in relpaths:
+            assert ( imdir / relp ).is_file()
+            assert archive.get_info( relp ) is not None
 
-
+    finally:
+        ds.delete_everything()
