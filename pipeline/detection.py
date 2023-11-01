@@ -139,8 +139,6 @@ class Detector:
         """Extract sources (and possibly a psf) from a regular image or a subtraction image.
 
         Arguments are parsed by the DataStore.parse_args() method.
-        Search a regular or subtraction image for new sources, and generate a SourceList.
-        Arguments are parsed by the DataStore.parse_args() method.
 
         Returns a DataStore object with the products of the processing.
         """
@@ -173,7 +171,7 @@ class Detector:
                     detections = self.extract_sources_sep(image)
                 elif self.pars.method == 'sextractor':
                     psffile = None if self.pars.psf is None else self.pars.psf.get_fullpath()
-                    detections, _ = self.extract_sources_sextractor( image, psffile=FIX_THIS )
+                    detections, _ = self.extract_sources_sextractor( image, psffile=psffile )
                 else:
                     raise ValueError( f"Unknown source extraction method: {self.pars.method}" )
 
@@ -244,10 +242,10 @@ class Detector:
         else:
             raise ValueError( "Unknown extraction method {self.pars.method}" )
 
-    def extract_sources_sextractor( self, image, *args, **kwargs ):
+    def extract_sources_sextractor( self, image, *args, psffile=None, **kwargs ):
         tempnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
         sourcepath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.fits'
-        psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
+        psfpath = pathlib.Path( psffile ) if psffile is not None else None
         psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
 
         apers = ( np.array( self.pars.apers ) if self.pars.apers is not None
@@ -259,7 +257,7 @@ class Detector:
             #
             # As for the aperture, if the units are FWHM, then we don't
             # know one yet, so guess that it's 2".  This doesn't really
-            # matter that much, becauser we're not going to save these
+            # matter that much, because we're not going to save these
             # values.
             aperrad = apers[0]
             if self.pars.aperunit == 'fwhm':
@@ -323,18 +321,21 @@ class Detector:
             won't do psf photometry.
 
           tempname: str
-            A filename base for where the catalog will be written.  The
-            source file will be written to
-            "{FileOnDiskMixin.temp_path}/{tempname}.sources.fits".  (A
-            temporary image, weight, and mask file will be written with
-            the same name base to the same directory, but will be
-            deleted by this routine unless do_not_cleanup is False.)  It
+            If not None, a filename base for where the catalog will be
+            written.  The source file will be written to
+            "{FileOnDiskMixin.temp_path}/{tempname}.sources.fits".  It
             is the responsibility of the calling routine to delete this
-            temporary file.
+            temporary file.  In any event, a number of temporary files
+            will be created and deleted inside this routine (image,
+            weight, mask), all of which will also be deleted by this
+            routine unless do_not_cleanup is True.  If tempname is None,
+            the sources file will also be automatically deleted; only if
+            it is not None is the calling routine always responsible for
+            deleting it.
 
           do_not_cleanup: bool, default False
             This routine writes some temp files with the image, weight,
-            mask, and sourcelist data in it, muchof which is probably
+            mask, and sourcelist data in it, much of which is probably
             redundant with what's already written somewhere.  Normally,
             they're deleted at the end of the routine.  Set this to True
             to keep the files for debugging purposes.  (If tempname is
@@ -509,7 +510,7 @@ class Detector:
 
         Will run psfex twice, to make sure it has the right data size.
         The first pass, it will use a resampled PSF data array size of
-        psf_size in x and y (or 25, of psf_size is None).  The second
+        psf_size in x and y (or 25, if psf_size is None).  The second
         pass, it will use a resampled PSF data array size
         psf_size/psfsamp, where psfsamp is the psf sampling determined
         in the first pass.  In the second pass, psf_size will be what

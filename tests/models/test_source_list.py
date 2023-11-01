@@ -94,8 +94,8 @@ def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_ex
         sources5x = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sources.id not in [s.id for s in sources5x]
 
-def test_read_sextractor( example_source_list ):
-    fullpath = example_source_list
+def test_read_sextractor( example_source_list_filename ):
+    fullpath = example_source_list_filename
     filepath = fullpath.relative_to( pathlib.Path( FileOnDiskMixin.local_path ) )
 
     # Make sure things go haywire when we try to load data with inconsistent
