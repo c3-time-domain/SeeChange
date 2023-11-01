@@ -578,7 +578,7 @@ def example_image_with_sources_and_psf_filenames():
 
 @pytest.fixture
 def example_source_list_filename( example_image_with_sources_and_psf_filenames ):
-    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf
+    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf_filenames
     return sources
 
 @pytest.fixture
