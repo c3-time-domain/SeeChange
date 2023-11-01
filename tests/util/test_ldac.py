@@ -20,8 +20,8 @@ def test_expected_failures():
     with pytest.raises( FileNotFoundError ):
         util.ldac.get_table_from_ldac( "this_file_does_not_exist" )
 
-def test_read_ldac( example_source_list ):
-    fullpath = example_source_list
+def test_read_ldac( example_source_list_filename ):
+    fullpath = example_source_list_filename
 
     tbl1, tbl2 = util.ldac.get_table_from_ldac( fullpath )
     assert isinstance( tbl1, fits.BinTableHDU )

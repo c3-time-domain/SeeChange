@@ -52,7 +52,6 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         sa.ForeignKey( 'images.id', ondelete='CASCADE', name='psfs_image_id_fkey' ),
         nullable=False,
         index=True,
-        unique=True,
         doc="ID of the image for which this is the PSF."
     )
 
@@ -91,13 +90,20 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         )
     )
 
+    __table_args__ = (
+        sa.Index( 'psfs_image_id_provenance_index', 'image_id', 'provenance_id', unique=True ),
+    )
 
     @property
     def data( self ):
-        """The data for this PSF; a numpy array .
+        """The data for this PSF.  It's nature will depend on the format of the psf.
 
         For PSFEx formatted files, this is what's in the HDU 1 data of
-        the output of psfex.
+        the output of psfex, a 3-dimensional numpy array with the basis
+        images used in reconstructing the position-variable PSF at any
+        point along the image.  (The code in get_clip performs this
+        reconstruction.)
+
         """
         if self._data is None and self.filepath is not None:
             self.load()
@@ -292,9 +298,6 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
 
         if self.format != 'psfex':
             raise NotImplementedError( "Only know how to get resampled psf for psfex PSF files" )
-
-        xc = int( np.floor(x + 0.5) )
-        yc = int( np.floor(y + 0.5) )
 
         psforder = int( self.header['POLDEG1'] )
         x0 = float( self.header['POLZERO1'] ) - 1

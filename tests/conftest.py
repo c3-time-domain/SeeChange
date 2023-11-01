@@ -569,8 +569,9 @@ def decam_default_calibrators():
             df.delete_from_disk_and_database( session=session, commit=False )
         session.commit()
 
-@pytest.fixture( scope="session" )
-def example_image_with_sources_and_psf():
+
+@pytest.fixture
+def example_image_with_sources_and_psf_filenames():
     image = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.fits"
     weight = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.weight.fits"
     flags = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.flags.fits"
@@ -580,8 +581,8 @@ def example_image_with_sources_and_psf():
     return image, weight, flags, sources, psf, psfxml
 
 @pytest.fixture
-def example_ds_with_sources_and_psf( example_image_with_sources_and_psf ):
-    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf
+def example_ds_with_sources_and_psf( example_image_with_sources_and_psf_filenames ):
+    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf_filenames
     ds = DataStore()
 
     ds.image = Image( filepath=str( image.relative_to( FileOnDiskMixin.local_path ) ), format='fits' )
@@ -612,8 +613,8 @@ def example_ds_with_sources_and_psf( example_image_with_sources_and_psf ):
     return ds
 
 @pytest.fixture
-def example_source_list( example_image_with_sources_and_psf ):
-    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf
+def example_source_list_filename( example_image_with_sources_and_psf_filenames ):
+    image, weight, flags, sources, psf, psfxml = example_image_with_sources_and_psf_filenames
     return sources
 
 @pytest.fixture
@@ -623,5 +624,5 @@ def example_psfex_psf_files():
     psfxmlpath = ( pathlib.Path( FileOnDiskMixin.local_path )
                    / "test_data/ztf_20190317307639_000712_zg_io.083_sources.psf.xml" )
     if not ( psfpath.is_file() and psfxmlpath.is_file() ):
-        raise FileNotFoundErrro( f"Can't read at leastd one of {psfpath}, {psfxmlpath}" )
+        raise FileNotFoundErrro( f"Can't read at least one of {psfpath}, {psfxmlpath}" )
     return psfpath, psfxmlpath

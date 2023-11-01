@@ -618,7 +618,7 @@ class DataStore:
           consistent with the current code version and critical
           parameters.  If None, will use the latest provenance for the
           "extraction" process.
-        session: sqlalchemy.orm.session.Sesssion or SmartSession
+        session: sqlalchemy.orm.session.Sesssion
           An optional database session.  If not given, will use the
           session stored in the DataStore object, or open and close a
           new session if there isn't one.
