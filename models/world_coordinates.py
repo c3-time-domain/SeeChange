@@ -22,6 +22,7 @@ class WorldCoordinates(Base, AutoIDMixin):
     # string: (float or string) } and store them as a JSONB; that would
     # reduce the size pretty substantially, but it would still be
     # roughly a KB for each header, so the consideration is similar.
+    # (It's also more work to implement....)
     #
     # Yet another option is to store the WCS in an external file, but
     # now we're talking something awfully small (a few kB) for this HPC

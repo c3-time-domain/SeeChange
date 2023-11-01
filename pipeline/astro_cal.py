@@ -338,9 +338,7 @@ class AstroCalibrator:
     # ----------------------------------------------------------------------
 
     def solve_wcs_scamp( self, image, sources, catexp ):
-        """Solve for the WCS of image.
-
-        Will modify the image: updates _raw_header with the new WCS (but does not write out the image).
+        """Solve for the WCS of image, updating image._raw_header.
 
         If scamp does not succed, will raise a SubprocessFailure
         exception (see utils/exceptions.py).
@@ -348,7 +346,9 @@ class AstroCalibrator:
         Parameters
         ----------
           image: Image
-            The image to solve for the WCS for.
+            The image to solve for the WCS for.  If the WCS solution
+            succeeds, then the _raw_header field of the image will be
+            updated with the keywords that define the new WCS.
 
           sources: SourceList
             Sources extracted from image
@@ -372,8 +372,7 @@ class AstroCalibrator:
         try:
 
             # TODO : put in the object reduction that I've used in other
-            # pipelines to help scamp succeed, if we're having trouble
-            # scamping this all.
+            # pipelines to make scamp run faster (and help it succeed).
             command = [ 'scamp', sourcefile,
                         '-ASTREF_CATALOG', 'FILE',
                         '-ASTREFCAT_NAME', catfile,

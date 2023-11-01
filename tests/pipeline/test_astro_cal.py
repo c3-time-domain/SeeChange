@@ -55,23 +55,6 @@ def test_download_GaiaDR3( astrometor ):
         if secondfilepath is not None:
             pathlib.Path( secondfilepath ).unlink( missing_ok=True )
 
-# def test_gaiadr3_excerpt( astrometor, decam_example_raw_image, gaiadr3_excerpt ):
-#     basepath = pathlib.Path( FileOnDiskMixin.local_path )
-#     assert ( gaiadr3_excerpt.get_fullpath() ==
-#              str( basepath / 'GaiaDR3_excerpt/141/Gaia_DR3_115.2818_-26.3313_14.0_18.0.fits' ) )
-#     assert gaiadr3_excerpt.num_items == 1311
-#     # Test reading of cache
-#     catexp = astrometor.secure_GaiaDR3_excerpt( decam_example_raw_image, maxmags=(18.,20.,22.), magrange=4.,
-#                                                 numstars=200, onlycached=True )
-#     assert catexp.id == gaiadr3_excerpt.id
-#     # ****
-#     catexp.ds9_regfile( 'gaia.reg' )
-#     # ****
-#     # Make sure we can't read the cache for something that doesn't exist
-#     with pytest.raises( CatalogNotFoundError, match='Failed to secure Gaia DR3 stars' ):
-#         catexp = astrometor.secure_GaiaDR3_excerpt( decam_example_raw_image, maxmags=(21.), numstars=200,
-#                                                     onlycached=True )
-
 def test_gaiadr3_excerpt( astrometor, gaiadr3_excerpt, example_ds_with_sources_and_psf ):
     catexp = gaiadr3_excerpt
     ds = example_ds_with_sources_and_psf
@@ -90,7 +73,6 @@ def test_gaiadr3_excerpt( astrometor, gaiadr3_excerpt, example_ds_with_sources_a
     assert catexp.data['MAG_G'].max() == pytest.approx( 19.994, abs=0.001 )
     assert catexp.data['MAGERR_G'].min() == pytest.approx( 0.0004, abs=0.0001 )
     assert catexp.data['MAGERR_G'].max() == pytest.approx( 0.018, abs=0.001 )
-    
     
     # Test reading of cache
     newcatexp = astrometor.secure_GaiaDR3_excerpt( ds.image, maxmags=(20.,), magrange=4., numstars=50,
@@ -136,15 +118,4 @@ def test_solve_wcs_scamp( astrometor, gaiadr3_excerpt, example_ds_with_sources_a
         assert scold.dec.value == pytest.approx( scnew.dec.value, abs=1./3600. )
     
     import pdb; pdb.set_trace()
-    pass
-
-
-@pytest.mark.skip( reason="not done yet" )
-def test_solve_wcs( decam_example_reduced_image_source_list_ds ):
-    ds = decam_example_reduced_image_source_list_ds 
-    sl = ds.get_sources()
-    # ****
-    sl.ds9_regfile( 'sources.reg' )
-    # ****
-    # import pdb; pdb.set_trace()
     pass
