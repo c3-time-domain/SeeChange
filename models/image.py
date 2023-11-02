@@ -339,7 +339,9 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         index=False,
         doc=( 'Has a WCS been solved for this image.  This should be set to true after astro_cal '
               'has been run, or for images (like subtractions) that are derived from other images '
-              'with complete WCSes that can be copied.' )
+              'with complete WCSes that can be copied.  This does not promise that the "latest and '
+              'greatest" astrometric calibration is what\'s in the image header, only that there is '
+              'one from the pipeline that should be good for visual identification of positions.' )
     )
 
     _bitflag = sa.Column(
@@ -1059,7 +1061,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         #  and what is a good way to make sure the filename actually depends on them?
         return filename
 
-    def save(self, filename=None, **kwargs ):
+    def save(self, filename=None, only_image=False, just_update_header=True, **kwargs ):
         """Save the data (along with flags, weights, etc.) to disk.
         The format to save is determined by the config file.
         Use the filename to override the default naming convention.
@@ -1074,6 +1076,24 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         filename: str (optional)
             The filename to use to save the data.
             If not provided, the default naming convention will be used.
+
+        only_image: bool, default False
+            If the image is stored as multiple files (i.e. image,
+            weight, and flags extensions are all stored as seperate
+            files, rather than as HDUs within one file), then _only_
+            write the image out.  The use case for this is for
+            "first-look" headers with astrometric and photometric
+            solutions; the image header gets updated in that case, but
+            the weight and flags files stay the same, so they do not
+            need to be updated.  You will usually want just_update_header
+            to be True when only_image is True.
+
+        just_update_header: bool, default True
+            Ignored unless only_image is True and the image is stored as
+            multiple files rather than as FITS extensions.  In this
+            case, if just_udpate_header is True and the file already
+            exists, don't write the data, just update the header.
+        
         **kwargs: passed on to FileOnDiskMixin.save(), include:
             overwrite - bool, set to True if it's OK to overwrite exsiting files
             no_archive - bool, set to True to save only to local disk, otherwise also saves to the archive
@@ -1104,13 +1124,19 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         extensions = []
         files_written = {}
 
+        if not only_image:
+            # In order to ignore just_update_header if only_image is false,
+            # we need to pass it as False on to save_fits_image_file
+            just_update_header = False
+        
         full_path = os.path.join(self.local_path, self.filepath)
 
         if format == 'fits':
             # save the imaging data
-            extensions.append('.image.fits')  # assume the primary extension has no name
+            extensions.append('.image.fits')
             imgpath = save_fits_image_file(full_path, self.data, self.raw_header,
-                                           extname='image', single_file=single_file)
+                                           extname='image', single_file=single_file,
+                                           just_update_header=just_update_header)
             files_written['.image.fits'] = imgpath
             # TODO: we can have extensions at the end of the self.filepath (e.g., foo.fits.flags)
             #  or we can have the extension name carry the file extension (e.g., foo.flags.fits)
@@ -1120,22 +1146,23 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
             array_list = ['flags', 'weight', 'background', 'score']
             # TODO: the list of extensions should be saved somewhere more central
 
-            for array_name in array_list:
-                array = getattr(self, array_name)
-                if array is not None:
-                    extpath = save_fits_image_file(
-                        full_path,
-                        array,
-                        self.raw_header,
-                        extname=array_name,
-                        single_file=single_file
-                    )
-                    array_name = '.' + array_name
-                    if not array_name.endswith('.fits'):
-                        array_name += '.fits'
-                    extensions.append(array_name)
-                    if not single_file:
-                        files_written[array_name] = extpath
+            if single_file or ( not only_image ):
+                for array_name in array_list:
+                    array = getattr(self, array_name)
+                    if array is not None:
+                        extpath = save_fits_image_file(
+                            full_path,
+                            array,
+                            self.raw_header,
+                            extname=array_name,
+                            single_file=single_file
+                        )
+                        array_name = '.' + array_name
+                        if not array_name.endswith('.fits'):
+                            array_name += '.fits'
+                        extensions.append(array_name)
+                        if not single_file:
+                            files_written[array_name] = extpath
 
             if single_file:
                 files_written = files_written['.image.fits']
@@ -1144,7 +1171,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
 
         elif format == 'hdf5':
             # TODO: consider writing a more generic utility to save_image_file that handles either fits or hdf5, etc.
-            raise RuntimeError("HDF5 format is not yet supported.")
+            raise NotImplementedError("HDF5 format is not yet supported.")
         else:
             raise ValueError(f"Unknown image format: {format}. Use 'fits' or 'hdf5'.")
 
@@ -1154,8 +1181,11 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         if single_file:
             FileOnDiskMixin.save( self, files_written, **kwargs )
         else:
-            for ext in extensions:
-                FileOnDiskMixin.save( self, files_written[ext], ext, **kwargs )
+            if just_update_header:
+                FileOnDiskMixin.save( self, files_written['.image.fits'], '.image.fits', **kwargs )
+            else:
+                for ext in extensions:
+                    FileOnDiskMixin.save( self, files_written[ext], ext, **kwargs )
 
     def load(self):
         """
@@ -1184,12 +1214,28 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
             # TODO: add more if needed!
 
         else:  # save each data array to a separate file
-            # assumes there are filepath_extensions so get_fullpath() will return a list (as_list guarantees this)
-            for filename in self.get_fullpath(as_list=True):
-                if not os.path.isfile(filename):
-                    raise FileNotFoundError(f"Could not find the image file: {filename}")
-
-                self._data, self._raw_header = read_fits_image(filename, output='both')
+            if self.filepath_extensions is None:
+                self._data, self._raw_header = read_fits_image( self.get_fullpath(), output='both' )
+            else:
+                gotim = False
+                gotweight = False
+                gotflags = False
+                for extension, filename in zip( self.filepath_extensions, self.get_fullpath(as_list=True) ):
+                    if not os.path.isfile(filename):
+                        raise FileNotFoundError(f"Could not find the image file: {filename}")
+                    if extension == '.image.fits':
+                        self._data, self._raw_header = read_fits_image(filename, output='both')
+                        gotim = True
+                    elif extension == '.weight.fits':
+                        self._weight = read_fits_image(filename, output='data')
+                        gotweight = True
+                    elif extension == '.flags.fits':
+                        self._flags = read_fits_image(filename, output='data')
+                        gotflags = True
+                    else:
+                        raise ValueError( f'Unknown image extension {extension}' )
+                if not ( gotim and gotweight and gotflags ):
+                    raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )
 
     @property
     def data(self):

@@ -272,6 +272,53 @@ def test_image_archive_multifile(exposure, demo_image, provenance_base, archive)
     finally:
         cfg.set_value( 'storage.images.single_file', single_fileness )
 
+def test_image_save_justheader( exposure, demo_image, provenance_base ):
+    demo_image.provenance = provenance_base
+    demo_image.data = np.full( (64, 32), 0.125, dtype=np.float32 )
+    demo_image._weight = np.full( (64, 32), 4., dtype=np.float32 )
+
+    icl = ImageCleanup.save_image( demo_image, archive=False )
+    names = demo_image.get_fullpath( download=False )
+    assert names[0][-11:] == '.image.fits'
+    assert names[1][-12:] == '.weight.fits'
+
+    demo_image._raw_header['ADDEDKW'] = 'This keyword was added'
+    demo_image.data = np.full( (64, 32), 0.5, dtype=np.float32 )
+    demo_image._weight = np.full( (64, 32), 2., dtype=np.float32 )
+
+    demo_image.save( only_image=True, just_update_header=True )
+
+    with fits.open( names[0] ) as hdul:
+        assert hdul[0].header['ADDEDKW'] == 'This keyword was added'
+        assert ( hdul[0].data == np.full( (64, 32), 0.125, dtype=np.float32 ) ).all()
+
+    with fits.open( names[1] ) as hdul:
+        assert ( hdul[0].data == np.full( (64, 32), 4., dtype=np.float32 ) ).all()
+
+def test_image_save_onlyimage( exposure, demo_image, provenance_base ):
+    demo_image.provenance = provenance_base
+    demo_image.data = np.full( (64, 32), 0.125, dtype=np.float32 )
+    demo_image._weight = np.full( (64, 32), 4., dtype=np.float32 )
+
+    icl = ImageCleanup.save_image( demo_image, archive=False )
+    names = demo_image.get_fullpath( download=False )
+    assert names[0][-11:] == '.image.fits'
+    assert names[1][-12:] == '.weight.fits'
+    
+    demo_image._raw_header['ADDEDTOO'] = 'An added keyword'
+    demo_image.data = np.full( (64, 32), 0.0625, dtype=np.float32 )
+
+    with open( names[1], "w" ) as ofp:
+        ofp.write( "Hello, world." )
+
+    demo_image.save( only_image=True, just_update_header=False )
+    with fits.open( names[0] ) as hdul:
+        assert hdul[0].header['ADDEDTOO'] == 'An added keyword'
+        assert ( hdul[0].data == np.full( (64, 32), 0.0625, dtype=np.float32 ) ).all()
+
+    with open( names[1], "r" ) as ifp:
+        assert ifp.read() == "Hello, world."
+        
 
 def test_image_enum_values(exposure, demo_image, provenance_base):
     data_filename = None
@@ -422,7 +469,7 @@ def test_image_badness(demo_image):
         assert demo_image.badness == 'Banding, Shaking, Bright Sky'
 
 
-# @pytest.mark.skip( reason="slow" )
+@pytest.mark.skip( reason="slow" )
 def test_multiple_images_badness(
         demo_image,
         demo_image2,
@@ -1211,3 +1258,5 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
     im.data = np.float32(im.raw_data - np.median(im.raw_data))
 
     # check we can save the image using the filename conventions
+
+    
