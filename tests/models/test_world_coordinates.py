@@ -6,8 +6,8 @@ from astropy.wcs import WCS
 
 from models.world_coordinates import WorldCoordinates
 
-def test_world_coordinates( example_image_with_sources_and_psf ):
-    image = example_image_with_sources_and_psf[0]
+def test_world_coordinates( example_image_with_sources_and_psf_filenames ):
+    image = example_image_with_sources_and_psf_filenames[0]
 
     with fits.open( image ) as ifp:
         hdr = ifp[0].header

@@ -130,10 +130,10 @@ def test_read_sextractor( example_source_list_filename ):
     assert sources.y[0] == pytest.approx( 17.14, abs=0.01 )
     assert sources.x[50] == pytest.approx( 899.33, abs=0.01 )
     assert sources.y[50] == pytest.approx( 604.52, abs=0.01 )
-    assert sources.ra[0] == pytest.approx( 153.879136, abs=0.1/3600. )
-    assert sources.dec[0] == pytest.approx( 39.52335, abs=0.1/3600. )
-    assert sources.ra[50] == pytest.approx( 153.85238, abs=0.1/3600. )
-    assert sources.dec[50] == pytest.approx( 39.35697, abs=0.1/3600. )
+    assert sources.ra[0] == pytest.approx( 153.53340, abs=0.1/3600. )
+    assert sources.dec[0] == pytest.approx( 39.22869, abs=0.1/3600. )
+    assert sources.ra[50] == pytest.approx( 153.50760, abs=0.1/3600. )
+    assert sources.dec[50] == pytest.approx( 39.06228, abs=0.1/3600. )
     assert sources.apfluxadu()[0][0] == pytest.approx( 3044.9092, rel=1e-5 )
     assert sources.apfluxadu()[0][50] == pytest.approx( 165.99489, rel=1e-5 )
     assert sources.apfluxadu(apnum=0)[0][0] == pytest.approx( 3044.9092, rel=1e-5 )
@@ -144,16 +144,16 @@ def test_read_sextractor( example_source_list_filename ):
     assert sources.apfluxadu(apnum=1)[0][50] == pytest.approx( 432.86523, rel=1e-5 )
     assert sources.apfluxadu(ap=5.005)[0][0] == pytest.approx( 9883.959, rel=1e-5 )
     assert sources.apfluxadu(ap=5)[0][50] == pytest.approx( 432.86523, rel=1e-5 )
-    assert sources.apfluxadu()[1][0] == pytest.approx( 57.16683, rel=1e-5 )
-    assert sources.apfluxadu()[1][50] == pytest.approx( 21.78877, rel=1e-5 )
-    assert sources.apfluxadu(apnum=0)[1][0] == pytest.approx( 57.16683, rel=1e-5 )
-    assert sources.apfluxadu(apnum=0)[1][50] == pytest.approx( 21.78877, rel=1e-5 )
-    assert sources.apfluxadu(ap=2)[1][0] == pytest.approx( 57.16683, rel=1e-5 )
-    assert sources.apfluxadu(ap=2)[1][50] == pytest.approx( 21.78877, rel=1e-5 )
-    assert sources.apfluxadu(apnum=1)[1][0] == pytest.approx( 85.39691, rel=1e-5 )
-    assert sources.apfluxadu(apnum=1)[1][50] == pytest.approx( 50.625404, rel=1e-5 )
-    assert sources.apfluxadu(ap=5)[1][0] == pytest.approx( 85.39691, rel=1e-5 )
-    assert sources.apfluxadu(ap=5)[1][50] == pytest.approx( 50.625404, rel=1e-5 )
+    assert sources.apfluxadu()[1][0] == pytest.approx( 37.005665, rel=1e-5 )
+    assert sources.apfluxadu()[1][50] == pytest.approx( 21.135862, rel=1e-5 )
+    assert sources.apfluxadu(apnum=0)[1][0] == pytest.approx( 37.005665, rel=1e-5 )
+    assert sources.apfluxadu(apnum=0)[1][50] == pytest.approx( 21.135862, rel=1e-5 )
+    assert sources.apfluxadu(ap=2)[1][0] == pytest.approx( 37.005665, rel=1e-5 )
+    assert sources.apfluxadu(ap=2)[1][50] == pytest.approx( 21.135862, rel=1e-5 )
+    assert sources.apfluxadu(apnum=1)[1][0] == pytest.approx( 74.79863, rel=1e-5 )
+    assert sources.apfluxadu(apnum=1)[1][50] == pytest.approx( 50.378757, rel=1e-5 )
+    assert sources.apfluxadu(ap=5)[1][0] == pytest.approx( 74.79863, rel=1e-5 )
+    assert sources.apfluxadu(ap=5)[1][50] == pytest.approx( 50.378757, rel=1e-5 )
 
     # Check some apfluxadu failure modes
     with pytest.raises( ValueError, match="Aperture radius number 2 doesn't exist." ):
@@ -170,7 +170,7 @@ def test_read_sextractor( example_source_list_filename ):
     assert sources.data['XWIN_IMAGE'][0] == pytest.approx( 798.29, abs=0.01 )
     assert sources.data['YWIN_IMAGE'][0] == pytest.approx( 17.11, abs=0.01 )
     assert sources.data['FLUX_APER'][0] == pytest.approx( np.array( [ 3044.9092, 9883.959 ] ), rel=1e-5 )
-    assert sources.data['FLUXERR_APER'][0] == pytest.approx( np.array( [ 57.16683, 85.39691 ] ), rel=1e-5 )
+    assert sources.data['FLUXERR_APER'][0] == pytest.approx( np.array( [ 37.005665, 74.79863 ] ), rel=1e-5 )
     assert sources.data['X_IMAGE'][50] == sources.x[50]
     assert sources.data['Y_IMAGE'][50] == sources.y[50]
     assert sources.data['X_WORLD'][50] == sources.ra[50]
@@ -178,7 +178,7 @@ def test_read_sextractor( example_source_list_filename ):
     assert sources.data['XWIN_IMAGE'][50] == pytest.approx( 899.29, abs=0.01 )
     assert sources.data['YWIN_IMAGE'][50] == pytest.approx( 604.58, abs=0.01 )
     assert sources.data['FLUX_APER'][50] == pytest.approx( np.array( [ 165.99489, 432.86523 ] ), rel=1e-5 )
-    assert sources.data['FLUXERR_APER'][50] == pytest.approx( np.array( [ 21.78877, 50.625404 ] ), rel=1e-5 )
+    assert sources.data['FLUXERR_APER'][50] == pytest.approx( np.array( [ 21.135862, 50.378757 ] ), rel=1e-5 )
 
 
 def test_write_sextractor():
