@@ -1139,14 +1139,36 @@ class DataStore:
         else:
             raise ValueError(f'Unknown output format: {output}')
 
-    def save_and_commit(self, exists_ok=False, overwrite=True, no_archive=False, session=None):
+    def save_and_commit( self, exists_ok=False, overwrite=True, no_archive=False,
+                         update_image_header=False, session=None ):
         """Go over all the data products and add them to the session.
+
         If any of the data products are associated with a file on disk,
         that would be saved as well.
 
+        In general, it will *not* save data products that have a
+        non-null md5sum (or md5sum_extensions) line in the database.
+        Reason: once that line is written, it means that that data
+        product is "done" and will not change again.  As such, this
+        routine assumes that it's all happily saved at least to the
+        archive, so nothing needs to be written.
+
+        There is one exception: the "image" (as opposed to weight or
+        flags) extension of an Image.  If "update_image_header" is true,
+        then the DataStore will save and overwrite just the image
+        extension (not the weight or flags extensions) both to disk and
+        to the archive, and will update the database m5sum line
+        accordingly.  The *only* change that should have been made to
+        the image file is in the header; the WCS and zeropoint keywords
+        will have been updated.  The pipeline that uses the DataStore
+        will be set to only do this once for each step (once the
+        astro_cal_done and TODO_PHOTOMETRIC fields change from False to
+        True), as the image headers get "first-look" values, not
+        necessarily the latest and greatest if we tune either process.
+        
         Parameters
         ----------
-        exists_ok: bool
+        exists_ok: bool, default False
             Ignored if overwrite is True.  Otherwise, this indicates
             what to do if the file exists on disk.  If exists_ok is
             True, then the file is assumed to be right on disk (and on
@@ -1155,11 +1177,23 @@ class DataStore:
             saving it again and pushing it to the archive again.  If
             exists_ok is False, raise an exception if the file exists
             (and overwrite is False)
-        overwrite: bool
+
+        overwrite: bool, default True
             If True, will overwrite any existing files on disk.
-        no_archive: bool
+
+        no_archive: bool, default False
             If True, will not push files up to the archive, will only
             save on local disk.
+
+        update_image_header: bool, default False
+            See above.  If this is true, then the if there is an Image
+            object in the data store, its "image" extension will be
+            overwritten both on the local store and on the archive, and
+            appropriate entry in the md5sum_extensions array of the
+            Image object (and in row in the database) will be updated.
+            THIS OPTION SHOULD BE USED WITH CARE.  It's an exception to
+            the basic design of the pipeline.
+
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -1173,14 +1207,31 @@ class DataStore:
             try:
                 # session.autoflush = False
                 for obj in self.get_all_data_products(output='list'):
-                    # print(f'saving {obj} with provenance: {getattr(obj, "provenance", None)}')
+                    # _logger.debug( f'saving {obj} with provenance: {getattr(obj, "provenance", None)}' )
+                    _logger.debug( f'save_and_commit consdering a {obj.__class__.__name__} with filepath '
+                                   f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 
                     if isinstance(obj, FileOnDiskMixin):
-                        try:
-                            obj.save()
-                        except Exception as ex:
-                            _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
-                            raise ex
+                        mustsave = False
+                        if md5sum_extenions is None and md5sum is None:
+                            mustsave = True
+
+                        # Special case handling for update_image_header for existing images.
+                        # (Not needed if the image doesn't already exist, hence the not mustsave.)
+                        if isinstance( obj, Image ) and ( not mustsave ) and update_image_header:
+                            _logger.debug( 'Just updating image header.' )
+                            try:
+                                obj.save( only_image=True, just_update_header=True )
+                            
+                        elif mustsave:
+                            try:
+                                obj.save( overwrite=overwrite, exists_ok=exists_ok )
+                            except Exception as ex:
+                                _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
+                                raise ex
+                        else:
+                            _loggger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
+                                            f'a md5sum in the database' )
 
                     obj = obj.recursive_merge(session)
                     session.add(obj)
