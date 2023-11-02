@@ -1,5 +1,6 @@
 import sys
 import os
+import pathlib
 import git
 from collections import defaultdict
 import numpy as np
@@ -241,7 +242,7 @@ def read_fits_image(filename, ext=0, output='data'):
         The image data.
     header: astropy.io.fits.Header (optional)
         The header of the image.
-    If both are requested, will return a tuple of both.
+    If both are requested, will return a tuple (data, header)
     """
     with fits.open(filename, memmap=False) as hdul:
         if output in ['data', 'both']:
@@ -265,9 +266,10 @@ def read_fits_image(filename, ext=0, output='data'):
         raise ValueError(f'Unknown output type "{output}", use "data", "header" or "both"')
 
 
-def save_fits_image_file(filename, data, header, extname=None, overwrite=True, single_file=False):
-    """
-    Save a single dataset (image data, weight, flags, etc) to a FITS file.
+def save_fits_image_file(filename, data, header, extname=None, overwrite=True, single_file=False,
+                         just_update_header=False):
+    """Save a single dataset (image data, weight, flags, etc) to a FITS file.
+
     The header should be the raw header, with some possible adjustments,
     including all the information (not just the minimal subset saved into the DB).
 
@@ -285,52 +287,75 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
     ----------
     filename: str
         The full path to the file.
+
     data: np.ndarray
         The image data. Can also supply the weight, flags, etc.
+
     header: dict or astropy.io.fits.Header
         The header of the image.
-    extname: str
+
+    extname: str, default None
         The name of the extension to save the data into.
         If writing individual files (default) will just
         append this string to the filename.
         If writing a single file, will use this as the extension name.
-    overwrite: bool
+
+    overwrite: bool, default True
         Whether to overwrite the file if it already exists.
-    single_file: bool
+
+    single_file: bool, default False
         Whether to save each data array into a separate extension of the same file.
         if False (default) will save each data array into a separate file.
         If True, will use the extname to name the FITS extension, and save
         each array into the same file.
 
+    just_update_header: bool, default False
+       Ignored if single_file is True.  Otherwise, if this is True, and
+       the file to be written exists, it will be opened in "update" mode
+       and just the header will be rewritten, rather than the entire
+       image.  (I'm not 100% sure that astropy will really do this
+       right, thereby saving most of the disk I/O, but the existence of
+       "update" mode in astropy.io.fits.open() suggests it does, so
+       we'll use it.)  This option implies overwrite, so will overwrite
+       the file header if overwrite is False.
+    
     Returns
     -------
     The path to the file saved (or written to)
 
     """
+
+    hdu = fits.ImageHDU( data, name=extname ) if single_file else fits.PrimaryHDU( data )
+
+    if isinstance( header, fits.Header ):
+        hdu.header.extend( header )
+    else:
+        for k, v in header.items():
+            hdu.header[k] = v
+    
     if single_file:
         if not filename.endswith('.fits'):
             filename += '.fits'
         safe_mkdir(os.path.dirname(filename))
         with fits.open(filename, memmap=False, mode='append') as hdul:
             if len(hdul) == 0:
-                hdul.append(fits.PrimaryHDU())
-
-            hdu = fits.ImageHDU(data, name=extname)
-            for k, v in header.items():
-                hdu.header[k] = v
-
+                hdul.append( fits.PrimaryHDU() )
             hdul.append(hdu)
         return filename
 
     else:  # multiple files
-        hdu = fits.PrimaryHDU(data)
-        for k, v in header.items():
-            hdu.header[k] = v
         hdul = fits.HDUList([hdu])
-        full_name = filename+'.'+extname
+
+        full_name = filename if extname is None else filename + '.' + extname
         if not full_name.endswith('.fits'):
             full_name += '.fits'
+        full_name = pathlib.Path( full_name )
+        safe_mkdir( str( full_name.parent ) )
+        
+        if just_update_header and full_name.is_file():
+            with fits.open( full_name, mode="update" ) as filehdu:
+                filehdu[0].header = hdul[0].header
+        else:
+            hdul.writeto(full_name, overwrite=overwrite)
 
-        safe_mkdir(os.path.dirname(filename))
-        hdul.writeto(full_name, overwrite=overwrite)
-        return full_name
+        return str( full_name )
