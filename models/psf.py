@@ -170,7 +170,6 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         self._table = None
 
     def save( self, filename=None, **kwargs ):
-
         """Write the PSF to disk.
 
         May or may not upload to the archive and update the
@@ -216,7 +215,7 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         fitscol = fits.Column( name='PSF_MASK', format='3750E', dim=fitsshape, array=[ self._data ] )
         fitsrec = fits.FITS_rec.from_columns( fits.ColDefs( [ fitscol ] ) )
         hdu = fits.BinTableHDU( fitsrec, self._header )
-        hdu.writeto( psfpath )
+        hdu.writeto( psfpath, overwrite=( 'overwrite' in kwargs and kwargs['overwrite'] ) )
 
         with open( psfxmlpath, "w" ) as ofp:
             ofp.write( self._info )

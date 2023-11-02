@@ -14,9 +14,9 @@ def test_world_coordinates( example_image_with_sources_and_psf ):
 
     origwcs = WCS( hdr )
     origscs = origwcs.pixel_to_world( [ 0, 0, 1024, 1024 ], [ 0, 1024, 0, 1024 ] )
-    
+
     # Make sure we can construct a WorldCoordinates object from a WCS object
-    
+
     wcobj = WorldCoordinates()
     wcobj.wcs = origwcs
     md5 = hashlib.md5( wcobj.header_excerpt.encode('ascii') )

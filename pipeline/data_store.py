@@ -1140,7 +1140,7 @@ class DataStore:
             raise ValueError(f'Unknown output format: {output}')
 
     def save_and_commit( self, exists_ok=False, overwrite=True, no_archive=False,
-                         update_image_header=False, session=None ):
+                         update_image_header=False, force_save_everything=True, session=None ):
         """Go over all the data products and add them to the session.
 
         If any of the data products are associated with a file on disk,
@@ -1165,7 +1165,7 @@ class DataStore:
         astro_cal_done and TODO_PHOTOMETRIC fields change from False to
         True), as the image headers get "first-look" values, not
         necessarily the latest and greatest if we tune either process.
-        
+
         Parameters
         ----------
         exists_ok: bool, default False
@@ -1194,7 +1194,12 @@ class DataStore:
             THIS OPTION SHOULD BE USED WITH CARE.  It's an exception to
             the basic design of the pipeline.
 
-        session: sqlalchemy.orm.session.Session or SmartSession
+        force_save_everything: bool, default False
+            Write all files even if the md5sum exists in the database.
+            Usually you don't want to use this, but it may be useful for
+            testing purposes.
+
+        session: sqlalchemy.orm.session.Session
             An optional session to use for the database query.
             If not given, will use the session stored inside the
             DataStore object; if there is none, will open a new session
@@ -1212,9 +1217,20 @@ class DataStore:
                                    f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 
                     if isinstance(obj, FileOnDiskMixin):
-                        mustsave = False
-                        if md5sum_extenions is None and md5sum is None:
-                            mustsave = True
+                        mustsave = True
+                        # TODO : if some extensions have a None md5sum and others don't,
+                        # right now we'll re-save everything.  Improve this to only
+                        # save the necessary extensions.  (In pratice, this should
+                        # hardly ever come up.)
+                        if ( ( not force_save_everything )
+                             and
+                             ( ( obj.md5sum is not None )
+                               or ( ( obj.md5sum_extensions is not None )
+                                    and
+                                    ( all( [ i is not None for i in obj.md5sum_extensions ] ) )
+                                   )
+                              ) ):
+                            mustsave = False
 
                         # Special case handling for update_image_header for existing images.
                         # (Not needed if the image doesn't already exist, hence the not mustsave.)
@@ -1222,16 +1238,20 @@ class DataStore:
                             _logger.debug( 'Just updating image header.' )
                             try:
                                 obj.save( only_image=True, just_update_header=True )
-                            
+                            except Exception as ex:
+                                _logger.error( f"Failed to update image header: {ex}" )
+                                raise ex
+
                         elif mustsave:
                             try:
                                 obj.save( overwrite=overwrite, exists_ok=exists_ok )
                             except Exception as ex:
                                 _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
                                 raise ex
+
                         else:
-                            _loggger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
-                                            f'a md5sum in the database' )
+                            _logger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
+                                           f'a md5sum in the database' )
 
                     obj = obj.recursive_merge(session)
                     session.add(obj)

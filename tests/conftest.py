@@ -285,6 +285,11 @@ def decam_example_reduced_image_ds():
     yield ds
     ds.delete_everything()
 
+# ...this fixture modifies the return value from
+# decam_example_reduced_image_ds, but both are session-scoped fixtures.
+# They're slow, so it would be good to keep them ase session-scoped
+# fixtures, but they're violating the state-restoration assumption of
+# tests.  For now, stick our heads in the sand about this.
 @pytest.fixture(scope="session")
 def decam_example_reduced_image_source_list_ds( decam_example_reduced_image_ds ):
     """Returns the same datastore from decam_example_reduced_image_ds, only now with a source list too"""
@@ -352,9 +357,9 @@ class ImageCleanup:
 
         # if not archive:
         #     image.md5sum = uuid.uuid4()  # spoof the md5 sum
-        return cls(image, archive=archive)  # don't use this, but let it sit there until going out of scope of the test
+        return cls(image, archive=archive) # don't use this, but let it sit there until going out of scope of the test
 
-    def __init__(self, image, archive=True):
+    def __init__(self, image, archive=True, ):
         self.image = image
         self.archive = archive
 

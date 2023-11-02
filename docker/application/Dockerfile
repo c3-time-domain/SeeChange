@@ -87,6 +87,7 @@ RUN ln -sf /usr/bin/SWarp /usr/bin/swarp
 RUN mkdir /home/seechange
 RUN mkdir /home/seechange/.astropy
 ENV HOME /home/seechange
+RUN chmod -R 777 /home/seechange
 
 RUN mkdir /usr/src/seechange
 WORKDIR /usr/src/seechange
@@ -233,6 +234,8 @@ RUN pip install \
 #      typing-extensions==4.5.0 \
 #      zipp==3.15.0 \
 
+# Some final setups for sanity
+ENV LESS -XLRi
 
 # A gratuitous command so that the container will persist
 CMD ["/bin/bash"]

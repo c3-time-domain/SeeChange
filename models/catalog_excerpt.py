@@ -28,7 +28,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
         Y_WORLD  : dec in decimal degrees
         ERRA_WORLD : uncertainty on ra
         ERRB_WORLD : uncertainty on dec
-    
+
     """
 
     __tablename__ = 'catalog_excerpts'
@@ -80,7 +80,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
                 raise ValueError( f"Don't know how to read a CatalogExcerpt of type {self.format}" )
             self._hdr, self._data = util.ldac.get_table_from_ldac( self.get_fullpath() )
         return self._data
-        
+
     num_items = sa.Column(
         sa.Integer,
         index=True,
@@ -115,7 +115,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
     @property
     def object_ras( self ):
         """A numpy array: ra in decimal degrees of the catalog excerpt objects."""
-        
+
         if self.format != 'fitsldac':
             raise ValueError( f"Don't know how to get ra of a CatalogExcerpt of type {self.format}" )
         if self.data is None:
@@ -131,14 +131,14 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
         if self.data is None:
             raise RuntimeError( "Failed to read data file for CatalogExcerpt" )
         return self.data[ 'Y_WORLD' ].value
-        
+
     def __init__(self, *args, **kwargs ):
         FileOnDiskMixin.__init__( self, *args, **kwargs )
         SeeChangeBase.__init__( self )  # don't pass kwargs as they could contain non-column key-values
 
         self._hdr = None
         self._data = None
-        
+
         # manually set all properties (columns or not)
         for key, value in kwargs.items():
             if hasattr( self, key ):
@@ -203,7 +203,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
             catexp.calculate_coordinates()
         else:
             _logger.warning( f"spatial coordinates and min/max mag not set in CatalogExcerpt with origin {origin}" )
-            
+
         return catexp
 
 

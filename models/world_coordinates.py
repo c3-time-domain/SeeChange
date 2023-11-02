@@ -41,7 +41,7 @@ class WorldCoordinates(Base, AutoIDMixin):
         index=False,
         doc="Text that containts FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
     )
-    
+
     source_list_id = sa.Column(
         sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
         nullable=False,
@@ -86,7 +86,7 @@ class WorldCoordinates(Base, AutoIDMixin):
     def wcs( self, value ):
         self._wcs = value
         self.header_excerpt = value.to_header().tostring( sep='\n', padding=False )
-    
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self._wcs = None

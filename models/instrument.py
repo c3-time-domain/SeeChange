@@ -14,6 +14,7 @@ import numpy as np
 import sqlalchemy as sa
 
 import astropy.time
+from astropy.io import fits
 
 from models.base import Base, AutoIDMixin, SmartSession
 
@@ -1711,7 +1712,7 @@ class DemoInstrument(Instrument):
 
     def read_header(self, filepath, section_id=None):
         # return a spoof header
-        return {
+        return fits.Header( {
             'RA': np.random.uniform(0, 360),
             'DEC': np.random.uniform(-90, 90),
             'EXPTIME': 30.0,
@@ -1722,7 +1723,7 @@ class DemoInstrument(Instrument):
             'TELESCOP': self.telescope,
             'INSTRUME': self.name,
             'GAIN': np.random.normal(self.gain, 0.01),
-        }
+        } )
 
     @classmethod
     def get_filename_regex(cls):

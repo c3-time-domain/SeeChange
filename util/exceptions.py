@@ -15,7 +15,7 @@ class RuntimeErrorWithNewlinesInMessage( RuntimeError ):
 
     def __str__( self ):
         return self.message
-        
+
 class SubprocessFailure( RuntimeError ):
     """A subprocess didn't return success."""
 
@@ -33,8 +33,8 @@ class SubprocessFailure( RuntimeError ):
         return self.message
 
 class BadMatchException( RuntimeError ):
-    """A process matching two catalogs found too few matches, or the residuals were too large."""
+    """A process matching two catalogs/source lists found too few matches, or the residuals were too large."""
 
     def __init__( self, *args, **kwargs ):
         super().__init__( self, *args, **kwargs )
-    
+

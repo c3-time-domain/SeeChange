@@ -1,7 +1,7 @@
 """catalog_excerpt
 
 Revision ID: a3d5209ebbf4
-Revises: 61b4bf71e1e6
+Revises: 7b0454fbc6ac
 Create Date: 2023-10-31 13:32:05.440433
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'a3d5209ebbf4'
-down_revision = '61b4bf71e1e6'
+down_revision = '7b0454fbc6ac'
 branch_labels = None
 depends_on = None
 
