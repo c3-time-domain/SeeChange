@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 import util.config as config
 import util.radec
-from models.base import SmartSession
+from models.base import SmartSession, FileOnDiskMixin
 from models.exposure import Exposure
 from models.image import Image
 from tests.conftest import ImageCleanup
@@ -277,16 +277,33 @@ def test_image_save_justheader( exposure, demo_image, provenance_base ):
     demo_image.data = np.full( (64, 32), 0.125, dtype=np.float32 )
     demo_image._weight = np.full( (64, 32), 4., dtype=np.float32 )
 
-    icl = ImageCleanup.save_image( demo_image, archive=False )
+    archive = demo_image.archive
+
+    icl = ImageCleanup.save_image( demo_image, archive=True )
     names = demo_image.get_fullpath( download=False )
     assert names[0][-11:] == '.image.fits'
     assert names[1][-12:] == '.weight.fits'
+
+    # This is tested elsewhere, but for completeness make sure the
+    # md5sum of the file on the archive is what's expected
+    info = archive.get_info( pathlib.Path( names[0] ).relative_to( FileOnDiskMixin.local_path ) )
+    assert uuid.UUID( info['md5sum'] ) == demo_image.md5sum_extensions[0]
 
     demo_image._raw_header['ADDEDKW'] = 'This keyword was added'
     demo_image.data = np.full( (64, 32), 0.5, dtype=np.float32 )
     demo_image._weight = np.full( (64, 32), 2., dtype=np.float32 )
 
+    origimmd5sum = demo_image.md5sum_extensions[0]
+    origwtmd5sum = demo_image.md5sum_extensions[1]
     demo_image.save( only_image=True, just_update_header=True )
+
+    # Make sure the md5sum is different since the image is different, but that the weight is the same
+    assert demo_image.md5sum_extensions[0] != origimmd5sum
+    assert demo_image.md5sum_extensions[1] == origwtmd5sum
+
+    # Make sure the archive has the new image
+    info = archive.get_info( pathlib.Path( names[0] ).relative_to( FileOnDiskMixin.local_path ) )
+    assert uuid.UUID( info['md5sum'] ) == demo_image.md5sum_extensions[0]
 
     with fits.open( names[0] ) as hdul:
         assert hdul[0].header['ADDEDKW'] == 'This keyword was added'
@@ -304,21 +321,21 @@ def test_image_save_onlyimage( exposure, demo_image, provenance_base ):
     names = demo_image.get_fullpath( download=False )
     assert names[0][-11:] == '.image.fits'
     assert names[1][-12:] == '.weight.fits'
-    
+
     demo_image._raw_header['ADDEDTOO'] = 'An added keyword'
     demo_image.data = np.full( (64, 32), 0.0625, dtype=np.float32 )
 
     with open( names[1], "w" ) as ofp:
         ofp.write( "Hello, world." )
 
-    demo_image.save( only_image=True, just_update_header=False )
+    demo_image.save( only_image=True, just_update_header=False, no_archive=True )
     with fits.open( names[0] ) as hdul:
         assert hdul[0].header['ADDEDTOO'] == 'An added keyword'
         assert ( hdul[0].data == np.full( (64, 32), 0.0625, dtype=np.float32 ) ).all()
 
     with open( names[1], "r" ) as ifp:
         assert ifp.read() == "Hello, world."
-        
+
 
 def test_image_enum_values(exposure, demo_image, provenance_base):
     data_filename = None
@@ -1259,4 +1276,4 @@ def test_image_from_decam_exposure(decam_example_file, provenance_base):
 
     # check we can save the image using the filename conventions
 
-    
+
