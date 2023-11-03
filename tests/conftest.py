@@ -574,7 +574,6 @@ def decam_default_calibrators():
             df.delete_from_disk_and_database( session=session, commit=False )
         session.commit()
 
-
 @pytest.fixture
 def example_image_with_sources_and_psf_filenames():
     image = pathlib.Path( FileOnDiskMixin.local_path ) / "test_data/test_ztf_image.fits"

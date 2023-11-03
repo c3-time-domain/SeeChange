@@ -18,12 +18,12 @@
   <PARAM name="Soft_Auth" datatype="char" arraysize="*" ucd="meta.bib.author;meta.software" value="Emmanuel Bertin"/>
   <PARAM name="Soft_Ref" datatype="char" arraysize="*" ucd="meta.bib.bibcode;meta.software" value="2006ASPC..351..112B"/>
   <PARAM name="NThreads" datatype="int" ucd="meta.number;meta.software" value="1"/>
-  <PARAM name="Date" datatype="char" arraysize="*" ucd="time.event.end;meta.software" value="2023-10-31"/>
-  <PARAM name="Time" datatype="char" arraysize="*" ucd="time.event.end;meta.software" value="19:44:32"/>
-  <PARAM name="Duration" datatype="float" ucd="time.event;meta.software" value="2" unit="s"/>
-  <PARAM name="User" datatype="char" arraysize="*" ucd="meta.curation" value="(null)"/>
-  <PARAM name="Host" datatype="char" arraysize="*" ucd="meta.curation" value="22ced5b228d4"/>
-  <PARAM name="Path" datatype="char" arraysize="*" ucd="meta.dataset" value="/seechange/data/test_data"/>
+  <PARAM name="Date" datatype="char" arraysize="*" ucd="time.event.end;meta.software" value="2023-10-30"/>
+  <PARAM name="Time" datatype="char" arraysize="*" ucd="time.event.end;meta.software" value="10:37:59"/>
+  <PARAM name="Duration" datatype="float" ucd="time.event;meta.software" value="1" unit="s"/>
+  <PARAM name="User" datatype="char" arraysize="*" ucd="meta.curation" value="raknop"/>
+  <PARAM name="Host" datatype="char" arraysize="*" ucd="meta.curation" value="(null)"/>
+  <PARAM name="Path" datatype="char" arraysize="*" ucd="meta.dataset" value="/home/raknop/SeeChange/data/test_data"/>
   <TABLE ID="PSF_Fields" name="PSF_Fields">
    <DESCRIPTION>PSF metadata and stats per field gathered by PSFEx</DESCRIPTION>
    <!-- NFields may be 0 if an error occurred early in the processing -->
@@ -104,21 +104,21 @@
    <FIELD name="PixelScale_WCS_Max" unit="arcsec" datatype="float" ucd="instr.scale;stat.max;instr.pixel"/>
    <DATA><TABLEDATA>
     <TR>
-     <TD>firstsources.fits</TD><TD>no ident</TD><TD>1</TD>
+     <TD>test_ztf_image.sources.fits</TD><TD>no ident</TD><TD>1</TD>
      <TD>43</TD><TD>43</TD><TD>43</TD><TD>43</TD>
      <TD>41</TD><TD>41</TD><TD>41</TD><TD>41</TD>
      <TD>3.13377</TD><TD>3.13377</TD><TD>3.13377</TD>
      <TD>0.666761</TD><TD>0.666761</TD><TD>0.666761</TD>
      <TD>1.03838</TD><TD>1.03838</TD><TD>1.03838</TD>
      <TD>2.74967</TD><TD>2.90633</TD><TD>2.97291</TD>
-     <TD>2.75831</TD><TD>2.89576</TD><TD>2.9831</TD>
+     <TD>2.75861</TD><TD>2.89638</TD><TD>2.98396</TD>
      <TD>0.127583</TD><TD>0.135645</TD><TD>0.141126</TD>
      <TD>0.121412</TD><TD>0.129863</TD><TD>0.135925</TD>
      <TD>-0.0404162</TD><TD>-0.039181</TD><TD>-0.0278733</TD>
      <TD>9.38826</TD><TD>9.99979</TD><TD>9.99999</TD>
      <TD>0.0224416</TD><TD>0.0251908</TD><TD>0.0309089</TD>
      <TD>2.64442</TD><TD>2.82258</TD><TD>2.89122</TD>
-     <TD>2.64931</TD><TD>2.80601</TD><TD>2.89819</TD>
+     <TD>2.6496</TD><TD>2.80661</TD><TD>2.89902</TD>
      <TD>0.13487</TD><TD>0.143453</TD><TD>0.149479</TD>
      <TD>0.128525</TD><TD>0.13735</TD><TD>0.143976</TD>
      <TD>-0.042733</TD><TD>-0.0413972</TD><TD>-0.0294484</TD>
@@ -126,7 +126,7 @@
      <TD>0.0219108</TD><TD>0.0244646</TD><TD>0.0298184</TD>
      <TD>0.0349321</TD><TD>0.0364079</TD><TD>0.0485457</TD>
      <TD>20.2776</TD><TD>22.1352</TD><TD>22.945</TD>
-     <TD>1.01231</TD><TD>1.01248</TD><TD>1.01263</TD>
+     <TD>1.01262</TD><TD>1.0127</TD><TD>1.01275</TD>
     </TR>
    </TABLEDATA></DATA>
   </TABLE>
@@ -212,14 +212,14 @@
      <TD>0.666761</TD><TD>0.666761</TD><TD>0.666761</TD>
      <TD>1.03838</TD><TD>1.03838</TD><TD>1.03838</TD>
      <TD>2.74967</TD><TD>2.90633</TD><TD>2.97291</TD>
-     <TD>2.75831</TD><TD>2.89576</TD><TD>2.9831</TD>
+     <TD>2.75861</TD><TD>2.89638</TD><TD>2.98396</TD>
      <TD>0.127583</TD><TD>0.135645</TD><TD>0.141126</TD>
      <TD>0.121412</TD><TD>0.129863</TD><TD>0.135925</TD>
      <TD>-0.0404162</TD><TD>-0.039181</TD><TD>-0.0278733</TD>
      <TD>9.38826</TD><TD>9.99979</TD><TD>9.99999</TD>
      <TD>0.0224416</TD><TD>0.0251908</TD><TD>0.0309089</TD>
      <TD>2.64442</TD><TD>2.82258</TD><TD>2.89122</TD>
-     <TD>2.64931</TD><TD>2.80601</TD><TD>2.89819</TD>
+     <TD>2.6496</TD><TD>2.80661</TD><TD>2.89902</TD>
      <TD>0.13487</TD><TD>0.143453</TD><TD>0.149479</TD>
      <TD>0.128525</TD><TD>0.13735</TD><TD>0.143976</TD>
      <TD>-0.042733</TD><TD>-0.0413972</TD><TD>-0.0294484</TD>
@@ -227,7 +227,7 @@
      <TD>0.0219108</TD><TD>0.0244646</TD><TD>0.0298184</TD>
      <TD>0.0349321</TD><TD>0.0364079</TD><TD>0.0485457</TD>
      <TD>20.2776</TD><TD>22.1352</TD><TD>22.945</TD>
-     <TD>1.01231</TD><TD>1.01248</TD><TD>1.01263</TD>
+     <TD>1.01262</TD><TD>1.0127</TD><TD>1.01275</TD>
     </TR>
    </TABLEDATA></DATA>
   </TABLE>
@@ -237,13 +237,13 @@
    <FIELD name="Time" datatype="char" arraysize="*" ucd="meta;time.event.end"/>
    <FIELD name="Msg" datatype="char" arraysize="*" ucd="meta"/>
    <DATA><TABLEDATA>
-    <TR><TD>2023-10-31</TD><TD>19:44:30</TD><TD>default.psfex not found, using internal defaults</TD></TR>
-    <TR><TD>2023-10-31</TD><TD>19:44:30</TD><TD>XML_URL keyword unknown</TD></TR>
+    <TR><TD>2023-10-30</TD><TD>10:37:58</TD><TD>default.psfex not found, using internal defaults</TD></TR>
+    <TR><TD>2023-10-30</TD><TD>10:37:58</TD><TD>XML_URL keyword unknown</TD></TR>
    </TABLEDATA></DATA>
   </TABLE>
   <RESOURCE ID="Config" name="Config">
    <DESCRIPTION>PSFEx configuration</DESCRIPTION>
-   <PARAM name="Command_Line" datatype="char" arraysize="*" ucd="obs.param" value="psfex -SAMPLE_FWHMRANGE 0.5,5 -SAMPLE_VARIABILITY 0.2 -SAMPLE_IMAFLAGMASK 0xff -CHECKPLOT_DEV NULL -CHECKPLOT_TYPE NONE -CHECKIMAGE_TYPE NONE -WRITE_XML Y -XML_NAME test_ztf_image.psf.xml -XML_URL file:///usr/share/psfex/psfex.xsl firstsources.fits"/>
+   <PARAM name="Command_Line" datatype="char" arraysize="*" ucd="obs.param" value="psfex -SAMPLE_FWHMRANGE 0.5,5 -SAMPLE_VARIABILITY 0.2 -SAMPLE_IMAFLAGMASK 0xff -CHECKPLOT_DEV NULL -CHECKPLOT_TYPE NONE -CHECKIMAGE_TYPE NONE -WRITE_XML Y -XML_NAME test_ztf_image.psf.xml -XML_URL file:///usr/share/psfex/psfex.xsl test_ztf_image.sources.fits"/>
    <PARAM name="Prefs_Name" datatype="char" arraysize="*" ucd="obs.param;meta.file" value="default.psfex"/>
    <PARAM name="Basis_Type" datatype="char" arraysize="*" ucd="meta.code" value="PIXEL_AUTO"/>
    <PARAM name="Basis_Number" datatype="int" ucd="meta.number" value="20"/>
