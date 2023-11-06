@@ -182,52 +182,6 @@ def test_solve_wcs_scamp( gaiadr3_excerpt, example_ds_with_sources_and_psf ):
         assert scold.ra.value == pytest.approx( scnew.ra.value, abs=1./3600. )
         assert scold.dec.value == pytest.approx( scnew.dec.value, abs=1./3600. )
 
-
-# # For the next tests, we want to test database saving, so the smallish
-# # test image used in previous tests won't work; we need something with
-# # an actual instrument.  We're going to be modifying the DataStore
-# # returned by the decam_example_reduced_image_source_list_ds fixture, so
-# # we need to be able to restore it to its previous state after we're
-# # done with it.
-# def backup_ds( ds ):
-#     origrawhdr = ds.image._raw_header
-#     ds.image._raw_header = ds.image._raw_header.copy()
-#     origimpath, origflagspath, origweightpath = ds.image.get_fullpath()
-#     origimpath = pathlib.Path( origimpath )
-#     backupimpath = origimpath.parent / f'{origimpath.name}.backup'
-#     assert not backupimpath.exists()
-#     shutil.move(  origimpath, backupimpath )
-#     shutil.copy2( backupimpath, origimpath )
-
-#     md5 = hashlib.md5()
-#     with open( backupimpath, "rb" ) as ifp:
-#         md5.update( ifp.read() )
-#     origmd5 = uuid.UUID( md5.hexdigest() )
-
-#     return origrawhdr, origimpath, backupimpath, origmd5
-
-# def restore_ds( ds, origrawhdr, origimpath, backupimpath, origmd5 ):
-#     if backupimpath.is_file():
-#         origimpath.unlink( missing_ok=True )
-#         shutil.move( backupimpath, origimpath )
-#     ds.image._raw_header = origrawhdr
-#     ds.wcs = None
-
-#     # Save again to make sure the archive gets restored.
-#     ds.save_and_commit( overwrite=True, force_save_everything=True )
-
-#     # ...and let's make sure that worked right
-#     md5 = hashlib.md5()
-#     with open( origimpath, "rb" ) as ifp:
-#         md5.update( ifp.read() )
-#     assert uuid.UUID( md5.hexdigest() ) == origmd5
-#     with SmartSession() as session:
-#         dbim = session.query( Image ).filter( Image.id==ds.image.id ).first()
-#         assert dbim.md5sum_extensions[0] == origmd5
-#     info = dbim.archive.get_info( f'{ds.image.filepath}.image.fits' )
-#     assert info is not None
-#     assert uuid.UUID( info['md5sum'] ) == origmd5
-
 def actually_run_scamp( ds, astrometor ):
     with open( ds.image.get_fullpath()[0], "rb" ) as ifp:
         md5 = hashlib.md5()

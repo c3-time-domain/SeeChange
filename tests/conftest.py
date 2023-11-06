@@ -438,9 +438,9 @@ class ImageCleanup:
 
         # if not archive:
         #     image.md5sum = uuid.uuid4()  # spoof the md5 sum
-        return cls(image, archive=archive) # don't use this, but let it sit there until going out of scope of the test
+        return cls(image, archive=archive)  # don't use this, but let it sit there until going out of scope of the test
 
-    def __init__(self, image, archive=True, ):
+    def __init__(self, image, archive=True):
         self.image = image
         self.archive = archive
 
