@@ -595,7 +595,8 @@ class AstroCalibrator:
             else:
                 _logger.info( f"Failed to solve for WCS with maxmag {maxmag}, trying the next one." )
 
-
+        if not success:
+            raise RuntimeError( "_run_scamp failed to find a match." )
 
         # Save these in case something outside wants to
         # probe them (e.g. tests)
