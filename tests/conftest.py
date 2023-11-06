@@ -321,11 +321,6 @@ def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
     #     ds.save_and_commit()
     # import pdb; pdb.set_trace()
 
-    # For both speed, and to make this a test-scope fixture rather than
-    # a session-scope fixture (in order to remove inconsistency issues),
-    # load in previously saved versions of the results of the processing
-    # above.
-
     datadir = pathlib.Path( FileOnDiskMixin.local_path )
     filepathbase = 'test_data/DECam_examples/c4d_20221104_074232_N1_g_Sci_VWQNR2'
 
@@ -388,26 +383,6 @@ def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
     finally:
         for f in copiesmade:
             f.unlink( missing_ok=True )
-
-# # Not making this a session scoped fixture because we need to
-# # restore the state of decam_example_reduced_image_ds at the end
-# # of each test.
-# @pytest.fixture
-# def decam_example_reduced_image_source_list_ds( decam_example_reduced_image_ds ):
-#     """Returns the same datastore from decam_example_reduced_image_ds, only now with a source list too"""
-#     det = Detector()
-#     ds = det.run( decam_example_reduced_image_ds )
-#     ds.save_and_commit()
-#     import pdb; pdb.set_trace()
-#     yield ds
-#     with SmartSession() as session:
-#         ds.sources = ds.sources.recursive_merge( session )
-#         ds.psf = ds.psf.recursive_merge( session )
-#         ds.sources.delete_from_disk_and_database( session=session, commit=False )
-#         ds.psf.delete_from_disk_and_database( session=session, commit=False )
-#         session.commit()
-#         ds.sources = None
-#         ds.psf = None
 
 @pytest.fixture
 def decam_small_image(decam_example_raw_image):
