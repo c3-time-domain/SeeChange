@@ -1,0 +1,36 @@
+format: fits
+filepath_extensions: [ '.image.fits', '.weight.fits', '.flags.fits' ]
+md5sum_extensions: [ null, null, null ]
+type: Sci
+mjd: 59887.32121458
+end_mjd: 59887.32232569111
+exp_time: 96.0
+telescope: CTIO 4.0-m telescope
+instrument: DECam
+section_id: N1
+project: 2022A-724693
+target: DECaPS-West
+header: {}
+preproc_bitflag: 0
+astro_cal_done: false
+_bitflag: 0
+ra: 115.27983
+dec: -26.32716
+ra_corner_00: 115.11235785
+dec_corner_00: -26.4000829 
+ra_corner_01: 115.11439068
+dec_corner_01: -26.2506169 
+ra_corner_10: 115.44537467
+dec_corner_10: -26.40352885
+ra_corner_11: 115.44693076
+dec_corner_11: -26.25391063
+
+
+
+
+
+
+
+
+
+  

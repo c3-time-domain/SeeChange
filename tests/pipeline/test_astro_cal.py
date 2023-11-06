@@ -183,137 +183,137 @@ def test_solve_wcs_scamp( gaiadr3_excerpt, example_ds_with_sources_and_psf ):
         assert scold.dec.value == pytest.approx( scnew.dec.value, abs=1./3600. )
 
 
-# For the next tests, we want to test database saving, so the smallish
-# test image used in previous tests won't work; we need something with
-# an actual instrument.  We're going to be modifying the DataStore
-# returned by the decam_example_reduced_image_source_list_ds fixture, so
-# we need to be able to restore it to its previous state after we're
-# done with it.
-def backup_ds( ds ):
-    origrawhdr = ds.image._raw_header
-    ds.image._raw_header = ds.image._raw_header.copy()
-    origimpath, origflagspath, origweightpath = ds.image.get_fullpath()
-    origimpath = pathlib.Path( origimpath )
-    backupimpath = origimpath.parent / f'{origimpath.name}.backup'
-    assert not backupimpath.exists()
-    shutil.move(  origimpath, backupimpath )
-    shutil.copy2( backupimpath, origimpath )
+# # For the next tests, we want to test database saving, so the smallish
+# # test image used in previous tests won't work; we need something with
+# # an actual instrument.  We're going to be modifying the DataStore
+# # returned by the decam_example_reduced_image_source_list_ds fixture, so
+# # we need to be able to restore it to its previous state after we're
+# # done with it.
+# def backup_ds( ds ):
+#     origrawhdr = ds.image._raw_header
+#     ds.image._raw_header = ds.image._raw_header.copy()
+#     origimpath, origflagspath, origweightpath = ds.image.get_fullpath()
+#     origimpath = pathlib.Path( origimpath )
+#     backupimpath = origimpath.parent / f'{origimpath.name}.backup'
+#     assert not backupimpath.exists()
+#     shutil.move(  origimpath, backupimpath )
+#     shutil.copy2( backupimpath, origimpath )
 
-    md5 = hashlib.md5()
-    with open( backupimpath, "rb" ) as ifp:
-        md5.update( ifp.read() )
-    origmd5 = uuid.UUID( md5.hexdigest() )
+#     md5 = hashlib.md5()
+#     with open( backupimpath, "rb" ) as ifp:
+#         md5.update( ifp.read() )
+#     origmd5 = uuid.UUID( md5.hexdigest() )
 
-    return origrawhdr, origimpath, backupimpath, origmd5
+#     return origrawhdr, origimpath, backupimpath, origmd5
 
-def restore_ds( ds, origrawhdr, origimpath, backupimpath, origmd5 ):
-    if backupimpath.is_file():
-        origimpath.unlink( missing_ok=True )
-        shutil.move( backupimpath, origimpath )
-    ds.image._raw_header = origrawhdr
-    ds.wcs = None
+# def restore_ds( ds, origrawhdr, origimpath, backupimpath, origmd5 ):
+#     if backupimpath.is_file():
+#         origimpath.unlink( missing_ok=True )
+#         shutil.move( backupimpath, origimpath )
+#     ds.image._raw_header = origrawhdr
+#     ds.wcs = None
 
-    # Save again to make sure the archive gets restored.
-    ds.save_and_commit( overwrite=True, force_save_everything=True )
+#     # Save again to make sure the archive gets restored.
+#     ds.save_and_commit( overwrite=True, force_save_everything=True )
 
-    # ...and let's make sure that worked right
-    md5 = hashlib.md5()
-    with open( origimpath, "rb" ) as ifp:
-        md5.update( ifp.read() )
-    assert uuid.UUID( md5.hexdigest() ) == origmd5
-    with SmartSession() as session:
-        dbim = session.query( Image ).filter( Image.id==ds.image.id ).first()
-        assert dbim.md5sum_extensions[0] == origmd5
-    info = dbim.archive.get_info( f'{ds.image.filepath}.image.fits' )
-    assert info is not None
-    assert uuid.UUID( info['md5sum'] ) == origmd5
+#     # ...and let's make sure that worked right
+#     md5 = hashlib.md5()
+#     with open( origimpath, "rb" ) as ifp:
+#         md5.update( ifp.read() )
+#     assert uuid.UUID( md5.hexdigest() ) == origmd5
+#     with SmartSession() as session:
+#         dbim = session.query( Image ).filter( Image.id==ds.image.id ).first()
+#         assert dbim.md5sum_extensions[0] == origmd5
+#     info = dbim.archive.get_info( f'{ds.image.filepath}.image.fits' )
+#     assert info is not None
+#     assert uuid.UUID( info['md5sum'] ) == origmd5
 
 def actually_run_scamp( ds, astrometor ):
-    origrawhdr, origimpath, backupimpath, origmd5 = backup_ds( ds )
+    with open( ds.image.get_fullpath()[0], "rb" ) as ifp:
+        md5 = hashlib.md5()
+        md5.update( ifp.read() )
+        origmd5 = uuid.UUID( md5.hexdigest() )
 
-    try:
-        ds = astrometor.run( ds )
+    xvals = [ 0, 0, 2047, 2047 ]
+    yvals = [ 0, 4095, 0, 4095 ]
+    origwcs = WCS( ds.image.raw_header )
 
-        xvals = [ 0, 0, 2047, 2047 ]
-        yvals = [ 0, 4095, 0, 4095 ]
-        origwcs = WCS( origrawhdr )
-        wcs = ds.wcs.wcs
+    ds = astrometor.run( ds )
 
-        # Make sure that the new WCS is different from the original wcs
-        # (since we know the one that came in the decam exposure is approximate)
-        # BUT, make sure that it's within 40", because the original one, while
-        # not great, is *something*
-        origscs = origwcs.pixel_to_world( xvals, yvals )
-        newscs = wcs.pixel_to_world( xvals, yvals )
-        for origsc, newsc in zip( origscs, newscs ):
-            assert not origsc.ra.value == pytest.approx( newsc.ra.value, abs=1./3600. )
-            assert not origsc.dec.value == pytest.approx( newsc.dec.value, abs=1./3600. )
-            assert origsc.ra.value == pytest.approx( newsc.ra.value, abs=40./3600. )   # cos(dec)...
-            assert origsc.dec.value == pytest.approx( newsc.dec.value, abs=40./3600. )
+    wcs = ds.wcs.wcs
 
-        # These next few lines will need to be done after astrometry is done.  Right now,
-        # we don't do saving and committing inside the Astrometor.run method.
-        update_image_header = False
-        if not ds.image.astro_cal_done:
-            ds.image.astro_cal_done = True
-            update_image_header = True
-        ds.save_and_commit( update_image_header=update_image_header, overwrite=True )
+    # Make sure that the new WCS is different from the original wcs
+    # (since we know the one that came in the decam exposure is approximate)
+    # BUT, make sure that it's within 40", because the original one, while
+    # not great, is *something*
+    origscs = origwcs.pixel_to_world( xvals, yvals )
+    newscs = wcs.pixel_to_world( xvals, yvals )
+    for origsc, newsc in zip( origscs, newscs ):
+        assert not origsc.ra.value == pytest.approx( newsc.ra.value, abs=1./3600. )
+        assert not origsc.dec.value == pytest.approx( newsc.dec.value, abs=1./3600. )
+        assert origsc.ra.value == pytest.approx( newsc.ra.value, abs=40./3600. )   # cos(dec)...
+        assert origsc.dec.value == pytest.approx( newsc.dec.value, abs=40./3600. )
 
-        with SmartSession() as session:
-            # Make sure the WCS made it into the databse
-            q = ( session.query( WorldCoordinates )
-                  .filter( WorldCoordinates.source_list_id==ds.sources.id )
-                  .filter( WorldCoordinates.provenance_id==ds.wcs.provenance.id ) )
-            assert q.count() == 1
-            dbwcs = q.first()
-            dbscs = dbwcs.wcs.pixel_to_world( xvals, yvals )
-            for newsc, dbsc in zip( newscs, dbscs ):
-                assert dbsc.ra.value == pytest.approx( newsc.ra.value, abs=0.01/3600. )
-                assert dbsc.dec.value == pytest.approx( newsc.dec.value, abs=0.01/3600. )
+    # These next few lines will need to be done after astrometry is done.  Right now,
+    # we don't do saving and committing inside the Astrometor.run method.
+    update_image_header = False
+    if not ds.image.astro_cal_done:
+        ds.image.astro_cal_done = True
+        update_image_header = True
+    ds.save_and_commit( update_image_header=update_image_header, overwrite=True )
 
-            # Make sure the image got updated properly on the database
-            # and on disk
-            q = session.query( Image ).filter( Image.id==ds.image.id )
-            assert q.count() == 1
-            foundim = q.first()
-            assert foundim.md5sum_extensions[0] == ds.image.md5sum_extensions[0]
-            assert foundim.md5sum_extensions[0] != origmd5
-            with open( foundim.get_fullpath()[0], 'rb' ) as ifp:
-                md5 = hashlib.md5()
-                md5.update( ifp.read() )
-                assert uuid.UUID( md5.hexdigest() ) == foundim.md5sum_extensions[0]
-            # This is probably redundant given the md5sum test we just did....
-            ds.image._raw_header = None
-            for kw in foundim.raw_header:
-                # SIMPLE can't be an index to a Header.  (This is sort
-                # of a weird thing in the astropy Header interface.)
-                # BITPIX doesn't match because the ds.image raw header
-                # was constructed from the exposure that had been
-                # BSCALEd, even though the image we wrote to disk fully
-                # a float (BITPIX=-32).
-                if kw in [ 'SIMPLE', 'BITPIX' ]:
-                    continue
-                assert foundim.raw_header[kw] == ds.image.raw_header[kw]
+    with SmartSession() as session:
+        # Make sure the WCS made it into the databse
+        q = ( session.query( WorldCoordinates )
+              .filter( WorldCoordinates.source_list_id==ds.sources.id )
+              .filter( WorldCoordinates.provenance_id==ds.wcs.provenance.id ) )
+        assert q.count() == 1
+        dbwcs = q.first()
+        dbscs = dbwcs.wcs.pixel_to_world( xvals, yvals )
+        for newsc, dbsc in zip( newscs, dbscs ):
+            assert dbsc.ra.value == pytest.approx( newsc.ra.value, abs=0.01/3600. )
+            assert dbsc.dec.value == pytest.approx( newsc.dec.value, abs=0.01/3600. )
 
-            # Make sure the new WCS got written to the FITS file
-            with fits.open( foundim.get_fullpath()[0] ) as hdul:
-                imhdr = hdul[0].header
-            imwcs = WCS( hdul[0].header )
-            imscs = imwcs.pixel_to_world( xvals, yvals )
-            for newsc, imsc in zip( newscs, imscs ):
-                assert newsc.ra.value == pytest.approx( imsc.ra.value, abs=0.01/3600. )
-                assert newsc.dec.value == pytest.approx( imsc.dec.value, abs=0.01/3600. )
+        # Make sure the image got updated properly on the database
+        # and on disk
+        q = session.query( Image ).filter( Image.id==ds.image.id )
+        assert q.count() == 1
+        foundim = q.first()
+        assert foundim.md5sum_extensions[0] == ds.image.md5sum_extensions[0]
+        assert foundim.md5sum_extensions[0] != origmd5
+        with open( foundim.get_fullpath()[0], 'rb' ) as ifp:
+            md5 = hashlib.md5()
+            md5.update( ifp.read() )
+            assert uuid.UUID( md5.hexdigest() ) == foundim.md5sum_extensions[0]
+        # This is probably redundant given the md5sum test we just did....
+        ds.image._raw_header = None
+        for kw in foundim.raw_header:
+            # SIMPLE can't be an index to a Header.  (This is sort
+            # of a weird thing in the astropy Header interface.)
+            # BITPIX doesn't match because the ds.image raw header
+            # was constructed from the exposure that had been
+            # BSCALEd, even though the image we wrote to disk fully
+            # a float (BITPIX=-32).
+            if kw in [ 'SIMPLE', 'BITPIX' ]:
+                continue
+            assert foundim.raw_header[kw] == ds.image.raw_header[kw]
 
-            # Make sure the archive has the right md5sum
-            info = foundim.archive.get_info( f'{foundim.filepath}.image.fits' )
-            assert info is not None
-            assert uuid.UUID( info['md5sum'] ) == foundim.md5sum_extensions[0]
+        # Make sure the new WCS got written to the FITS file
+        with fits.open( foundim.get_fullpath()[0] ) as hdul:
+            imhdr = hdul[0].header
+        imwcs = WCS( hdul[0].header )
+        imscs = imwcs.pixel_to_world( xvals, yvals )
+        for newsc, imsc in zip( newscs, imscs ):
+            assert newsc.ra.value == pytest.approx( imsc.ra.value, abs=0.01/3600. )
+            assert newsc.dec.value == pytest.approx( imsc.dec.value, abs=0.01/3600. )
 
-    finally:
-        restore_ds( ds, origrawhdr, origimpath, backupimpath, origmd5 )
+        # Make sure the archive has the right md5sum
+        info = foundim.archive.get_info( f'{foundim.filepath}.image.fits' )
+        assert info is not None
+        assert uuid.UUID( info['md5sum'] ) == foundim.md5sum_extensions[0]
 
-def test_run_scamp( decam_example_reduced_image_source_list_ds ):
-    ds = decam_example_reduced_image_source_list_ds
+def test_run_scamp( decam_example_reduced_image_ds ):
+    ds = decam_example_reduced_image_ds
 
     # Do a run that we know should succeed
 

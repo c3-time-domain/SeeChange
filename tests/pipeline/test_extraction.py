@@ -126,21 +126,22 @@ def test_sep_save_source_list(decam_small_image, provenance_base, code_version):
             session.commit()
 
 # This is running sextractor in one particular way that is used by more than one test
-# It deliberately does not have a module scope.
 @pytest.fixture
 def run_sextractor( decam_example_reduced_image_ds ):
+    ds = decam_example_reduced_image_ds
+    ds.sources = None
+    ds.psf = None
+
     detector = Detector( method='sextractor', subtraction=False, apers=[5.], threshold=4.5 )
 
     tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
-    sourcelist = detector._run_sextractor_once( decam_example_reduced_image_ds.image, tempname=tempname )
+    sourcelist = detector._run_sextractor_once( ds.image, tempname=tempname )
     sourcefile = pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}.sources.fits"
     imagefile =  pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}.fits"
     assert not imagefile.exists()
     assert sourcefile.exists()
 
     yield sourcelist, sourcefile
-
-    sourcefile.unlink( missing_ok=True )
 
 def test_sextractor_extract_once( decam_example_reduced_image_ds, run_sextractor ):
     sourcelist, sourcefile = run_sextractor
@@ -224,9 +225,12 @@ def test_run_psfex( run_sextractor ):
 
 
 def test_extract_sources_sextractor( decam_example_reduced_image_ds ):
-    det = Detector( method='sextractor', measure_psf=True, threshold=5.0 )
+    ds = decam_example_reduced_image_ds
+    ds.sources = None
+    ds.psf = None
 
-    sources, psf = det.extract_sources( decam_example_reduced_image_ds.image )
+    det = Detector( method='sextractor', measure_psf=True, threshold=5.0 )
+    sources, psf = det.extract_sources( ds.image )
 
     assert sources.num_sources == 5506
     assert sources.num_sources == len(sources.data)
@@ -234,7 +238,7 @@ def test_extract_sources_sextractor( decam_example_reduced_image_ds ):
     assert psf.fwhm_pixels == pytest.approx( 4.328, abs=0.01 )
     assert psf.fwhm_pixels == pytest.approx( psf.header['PSF_FWHM'], rel=1e-5 )
     assert psf.data.shape == ( 6, 25, 25 )
-    assert psf.image_id == decam_example_reduced_image_ds.image.id
+    assert psf.image_id == ds.image.id
 
     assert sources.apfluxadu()[0].min() == pytest.approx( 146.98804, rel=1e-5 )
     assert sources.apfluxadu()[0].max() == pytest.approx( 645737.44, rel=1e-5 )
@@ -242,8 +246,12 @@ def test_extract_sources_sextractor( decam_example_reduced_image_ds ):
     assert sources.apfluxadu()[0].std() == pytest.approx( 80211.62, rel=1e-5 )
 
 def test_run_detection_sextractor( decam_example_reduced_image_ds ):
+    ds = decam_example_reduced_image_ds
+    ds.sources = None
+    ds.psf = None
+
     det = Detector( method='sextractor', measure_psf=True, threshold=5.0 )
-    ds = det.run( decam_example_reduced_image_ds )
+    ds = det.run( ds )
 
     assert ds.sources.num_sources == 5506
     assert ds.sources.num_sources == len(ds.sources.data)
@@ -251,7 +259,7 @@ def test_run_detection_sextractor( decam_example_reduced_image_ds ):
     assert ds.psf.fwhm_pixels == pytest.approx( 4.328, abs=0.01 )
     assert ds.psf.fwhm_pixels == pytest.approx( ds.psf.header['PSF_FWHM'], rel=1e-5 )
     assert ds.psf.data.shape == ( 6, 25, 25 )
-    assert ds.psf.image_id == decam_example_reduced_image_ds.image.id
+    assert ds.psf.image_id == ds.image.id
 
     assert ds.sources.apfluxadu()[0].min() == pytest.approx( 146.98804, rel=1e-5 )
     assert ds.sources.apfluxadu()[0].max() == pytest.approx( 645737.44, rel=1e-5 )

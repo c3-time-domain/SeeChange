@@ -414,7 +414,7 @@ class AstroCalibrator:
     # ----------------------------------------------------------------------
 
     def _solve_wcs_scamp( self, image, sources, catexp, crossid_rad=2. ):
-        """Solve for the WCS of image, updating image._raw_header.
+        """Solve for the WCS of image, updating image.raw_header.
 
         If scamp does not succed, will raise a SubprocessFailure
         exception (see utils/exceptions.py).
@@ -423,7 +423,7 @@ class AstroCalibrator:
         ----------
           image: Image
             The image to solve for the WCS for.  If the WCS solution
-            succeeds, then the _raw_header field of the image will be
+            succeeds, then the raw_header field of the image will be
             updated with the keywords that define the new WCS.
 
           sources: SourceList
@@ -479,7 +479,7 @@ class AstroCalibrator:
                         '-CHECKPLOT_DEV', 'NULL',
                         '-CHECKPLOT_TYPE', 'NONE',
                         '-CHECKIMAGE_TYPE', 'NONE',
-                        '-SOVLE_ASTROM', 'Y',
+                        '-SOLVE_ASTROM', 'Y',
                         '-PROJECTION_TYPE', 'TPV',
                         '-WRITE_XML', 'Y',
                         '-XML_NAME', xmlfile,
@@ -537,10 +537,10 @@ class AstroCalibrator:
             strio = io.StringIO( hdrtext )
             hdr = astropy.io.fits.Header.fromfile( strio, sep='\n', padding=False, endcard=False )
 
-            # Update image._raw_header with the new wcs.  Process this
+            # Update image.raw_header with the new wcs.  Process this
             # through astropy.wcs.WCS to make sure everything is copacetic.
             wcs = WCS( hdr )
-            image._raw_header.extend( wcs.to_header(), update=True )
+            image.raw_header.extend( wcs.to_header(), update=True )
 
             return wcs
 

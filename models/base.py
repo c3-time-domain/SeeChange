@@ -963,6 +963,8 @@ class FileOnDiskMixin:
         and will attempt to delete from any locations regardless
         of if it existed elsewhere or not.
 
+        TODO : this is sometimes broken if you don't pass a session.
+
         Parameters
         ----------
         session: sqlalchemy session

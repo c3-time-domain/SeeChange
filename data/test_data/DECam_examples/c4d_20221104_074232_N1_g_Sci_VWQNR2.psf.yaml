@@ -1,0 +1,4 @@
+filepath_extensions: [ '.psf', '.psf.xml' ]
+md5sum_extensions: [ null, null ]
+format: psfex
+fwhm_pixels: 4.330699920654297

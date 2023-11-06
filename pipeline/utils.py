@@ -318,7 +318,7 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
        "update" mode in astropy.io.fits.open() suggests it does, so
        we'll use it.)  This option implies overwrite, so will overwrite
        the file header if overwrite is False.
-    
+
     Returns
     -------
     The path to the file saved (or written to)
@@ -332,7 +332,7 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
     else:
         for k, v in header.items():
             hdu.header[k] = v
-    
+
     if single_file:
         if not filename.endswith('.fits'):
             filename += '.fits'
@@ -351,7 +351,7 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
             full_name += '.fits'
         full_name = pathlib.Path( full_name )
         safe_mkdir( str( full_name.parent ) )
-        
+
         if just_update_header and full_name.is_file():
             with fits.open( full_name, mode="update" ) as filehdu:
                 filehdu[0].header = hdul[0].header

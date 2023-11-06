@@ -6,6 +6,7 @@ import uuid
 import wget
 import shutil
 import pathlib
+import yaml
 
 import numpy as np
 
@@ -222,6 +223,17 @@ def exposure_filter_array(exposure_factory):
 
 
 def get_decam_example_file():
+    """Pull a DECam exposure down from the NOIRLab archivges.
+
+    Because this is a slow process (depending on the NOIRLab archive
+    speed, it can take up to minutes), first look for
+    "{filename}_cached", and if it exists, just symlink to it.  If not,
+    actually download the image frmo NOIRLab, rename it to
+    "{filename}_cached", and create the symlink.  That way, until the
+    user manually deletes the _cached file, we won't have to redo the
+    slow NOIRLab download again.
+
+    """
     filename = os.path.join(CODE_ROOT, 'data/test_data/DECam_examples/c4d_221104_074232_ori.fits.fz')
     if not os.path.isfile(filename):
         cachedfilename = f'{filename}_cached'
@@ -232,29 +244,27 @@ def get_decam_example_file():
         os.symlink( cachedfilename, filename )
     return filename
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def decam_example_file():
     yield get_decam_example_file()
 
-def get_decam_example_exposure():
+@pytest.fixture
+def decam_example_exposure(decam_example_file):
     filename = get_decam_example_file()
     decam_example_file_short = filename[len(CODE_ROOT+'/data/'):]
-    with SmartSession() as session:
-        # always destroy this Exposure object and make a new one, to avoid filepath unique constraint violations
-        session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
-        session.commit()
 
-    with fits.open( filename, memmap=False ) as ifp:
+    with fits.open( filename, memmap=True ) as ifp:
         hdr = ifp[0].header
     exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
 
     exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
-    return exposure
 
+    yield exposure
 
-@pytest.fixture
-def decam_example_exposure(decam_example_file):
-    return get_decam_example_exposure()
+    # Just in case this exposure got loaded into the database
+    with SmartSession() as session:
+        session.execute(sa.delete(Exposure).where(Exposure.filepath == decam_example_file_short))
+        session.commit()
 
 @pytest.fixture
 def decam_example_raw_image( decam_example_exposure ):
@@ -263,45 +273,141 @@ def decam_example_raw_image( decam_example_exposure ):
     return image
 
 
-@pytest.fixture(scope="session")
-def decam_example_reduced_image_ds():
-    """Returns a datastore with an image that's been loaded into the database."""
-    exposure = get_decam_example_exposure()
+@pytest.fixture
+def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
+    """Provides a datastore with an image, source list, and psf.
+
+    Preprocessing, source extraction, and PSF estimation were all
+    performed as this fixture was written, and saved to
+    data/test_data/DECam_examples, so that this fixture will return
+    quickly.  That does mean that if the code has evolved since those
+    test files were created, the files may not be exactly consistent
+    with the code_version in the provenances they have attached to them,
+    but hopefully the actual data and database records are still good
+    enough for the tests.
+
+    Has an image (with weight and flags), sources, and psf.  The data
+    has not been loaded into the image, sources, or psf fields, but of
+    course that will happen if you access (for instance)
+    decam_example_reduced_image_ds.image.data.  The provenances *have*
+    been loaded into the session (and committed to the database), but
+    the image, sources, and psf have not been added to the session.
+
+    The DataStore has a session inside it.
+
+    """
+
+    exposure = decam_example_exposure
     # Have to spoof the md5sum field to let us add it to the database even
     # though we're not really saving it to the archive
     exposure.md5sum = uuid.uuid4()
-    with SmartSession() as session:
-        # Spoof md5sum so we can add it
-        # Think: may be better just to actually save the exposure
-        # to the test archive?
-        exposure = exposure.recursive_merge( session )
-        session.add( exposure )
-        session.commit()
-        prepper = Preprocessor()
-        # NOTE: this has a side effect of loading some DECam
-        # calibration files (flats, etc.) into the databse
-        ds = prepper.run( exposure, 'N1', session=session )
-        ds.save_and_commit( session=session )
-    yield ds
-    ds.delete_everything()
 
-# ...this fixture modifies the return value from
-# decam_example_reduced_image_ds, but both are session-scoped fixtures.
-# They're slow, so it would be good to keep them ase session-scoped
-# fixtures, but they're violating the state-restoration assumption of
-# tests.  For now, stick our heads in the sand about this.
-@pytest.fixture(scope="session")
-def decam_example_reduced_image_source_list_ds( decam_example_reduced_image_ds ):
-    """Returns the same datastore from decam_example_reduced_image_ds, only now with a source list too"""
-    det = Detector()
-    ds = det.run( decam_example_reduced_image_ds )
-    ds.save_and_commit()
-    yield ds
-    # This next line may not be necessary since
-    # decam_example_reduced_image_ds will run it
-    # ...indeed, it looks like data_store.delete_everyting()
-    # is not robust to being called more than once
-    # ds.delete_everything()
+    # This next block of code generates the files read in this test
+    #   (though they'll be written to data/115 instead of
+    #   data/test_data/DECam_examples).  Commented out here because
+    #   of course we just want to read them, but leave the commented
+    #   code here in case for whatever reason we want to regenerate them.
+    #   (In that case, run up to the pdb interrupt, and then copy the
+    #   files you want out of data/115.)
+    # with SmartSession() as session:
+    #     # Spoof md5sum so we can add it
+    #     exposure = exposure.recursive_merge( session )
+    #     session.add( exposure )
+    #     session.commit()
+    #     prepper = Preprocessor()
+    #     ds = prepper.run( exposure, 'N1', session=session )
+    #     det =  Detector()
+    #     ds = det.run( ds )
+    #     ds.save_and_commit()
+    # import pdb; pdb.set_trace()
+
+    # For both speed, and to make this a test-scope fixture rather than
+    # a session-scope fixture (in order to remove inconsistency issues),
+    # load in previously saved versions of the results of the processing
+    # above.
+
+    datadir = pathlib.Path( FileOnDiskMixin.local_path )
+    filepathbase = 'test_data/DECam_examples/c4d_20221104_074232_N1_g_Sci_VWQNR2'
+
+    # The "_cached" files are the ones that are saved to the github
+    # archive.  The later call to ds.delete_everything() is going to
+    # blow away the names that match what's in the "filepath" (plus
+    # "filepath_extensions") fields of ds.image, ds.sources, and ds.psf,
+    # so we use these "cached" names as a way of keeping those files
+    # around.  Moreover, some test might modify the .fits files!
+    copiesmade = []
+    try:
+        for ext in [ '.image.fits', '.weight.fits', '.flags.fits', '.sources.fits', '.psf', '.psf.xml' ]:
+            actual = datadir / f'{filepathbase}{ext}'
+            if actual.exists():
+                raise FileExistsError( f"{actual} exists, but at this point in the tests it's not supposed to" )
+            shutil.copy2( datadir / f"{filepathbase}{ext}_cached", actual )
+            copiesmade.append( actual )
+
+        with SmartSession() as session:
+            # The filenames will not match the provenance, because the filenames
+            # are what they are, but as the code evoles the provenance tag is
+            # going to change.  What's more, the provenances are different for
+            # the images and for sources/psf.
+            imgprov = Provenance( process="preprocessing", code_version=code_version, upstreams=[], is_testing=True )
+            srcprov = Provenance( process="extraction", code_version=code_version,
+                                  upstreams=[imgprov], is_testing=True )
+            session.add( imgprov )
+            session.add( srcprov )
+            session.commit()
+            session.refresh( imgprov )
+            session.refresh( srcprov )
+
+            with open( datadir / f'{filepathbase}.image.yaml' ) as ifp:
+                imageyaml = yaml.safe_load( ifp )
+            with open( datadir / f'{filepathbase}.sources.yaml' ) as ifp:
+                sourcesyaml = yaml.safe_load( ifp )
+            with open( datadir / f'{filepathbase}.psf.yaml' ) as ifp:
+                psfyaml = yaml.safe_load( ifp )
+            ds = DataStore( session=session )
+            ds.image = Image( **imageyaml )
+            ds.image.provenance = imgprov
+            ds.image.filepath = filepathbase
+            ds.sources = SourceList( **sourcesyaml )
+            ds.sources.image = ds.image
+            ds.sources.provenance = srcprov
+            ds.sources.filepath = f'{filepathbase}.sources.fits'
+            ds.psf = PSF( **psfyaml )
+            ds.psf.image = ds.image
+            ds.psf.provenance = srcprov
+            ds.psf.filepath = filepathbase
+
+            yield ds
+
+            ds.delete_everything()
+            session.delete( imgprov )
+            session.delete( srcprov )
+            session.commit()
+            session.close()
+
+    finally:
+        for f in copiesmade:
+            f.unlink( missing_ok=True )
+
+# # Not making this a session scoped fixture because we need to
+# # restore the state of decam_example_reduced_image_ds at the end
+# # of each test.
+# @pytest.fixture
+# def decam_example_reduced_image_source_list_ds( decam_example_reduced_image_ds ):
+#     """Returns the same datastore from decam_example_reduced_image_ds, only now with a source list too"""
+#     det = Detector()
+#     ds = det.run( decam_example_reduced_image_ds )
+#     ds.save_and_commit()
+#     import pdb; pdb.set_trace()
+#     yield ds
+#     with SmartSession() as session:
+#         ds.sources = ds.sources.recursive_merge( session )
+#         ds.psf = ds.psf.recursive_merge( session )
+#         ds.sources.delete_from_disk_and_database( session=session, commit=False )
+#         ds.psf.delete_from_disk_and_database( session=session, commit=False )
+#         session.commit()
+#         ds.sources = None
+#         ds.psf = None
 
 @pytest.fixture
 def decam_small_image(decam_example_raw_image):

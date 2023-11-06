@@ -195,8 +195,8 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         if self.format != 'psfex':
             raise NotImplementedError( "Only know how to save psfex PSF files" )
 
-        if ( self._data is None ) or ( self._header is None ) or ( self._info is None ):
-            raise RuntimeError( "_data, _header, and _info must all be non-None" )
+        if ( self.data is None ) or ( self.header is None ) or ( self.info is None ):
+            raise RuntimeError( "data, header, and info must all be non-None" )
 
         self.filepath = filename if filename is not None else self.image.invent_filepath()
         psfpath = pathlib.Path( self.local_path ) / f'{self.filepath}.psf'

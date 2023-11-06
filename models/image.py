@@ -12,7 +12,6 @@ from sqlalchemy.schema import CheckConstraint
 from astropy.time import Time
 from astropy.wcs import WCS
 from astropy.io import fits
-
 import astropy.coordinates
 import astropy.units as u
 
@@ -1094,7 +1093,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
             multiple files rather than as FITS extensions.  In this
             case, if just_udpate_header is True and the file already
             exists, don't write the data, just update the header.
-        
+
         **kwargs: passed on to FileOnDiskMixin.save(), include:
             overwrite - bool, set to True if it's OK to overwrite exsiting files
             no_archive - bool, set to True to save only to local disk, otherwise also saves to the archive
@@ -1129,7 +1128,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
             # In order to ignore just_update_header if only_image is false,
             # we need to pass it as False on to save_fits_image_file
             just_update_header = False
-        
+
         full_path = os.path.join(self.local_path, self.filepath)
 
         if format == 'fits':
