@@ -1157,7 +1157,7 @@ class DataStore:
         flags) extension of an Image.  If "update_image_header" is true,
         then the DataStore will save and overwrite just the image
         extension (not the weight or flags extensions) both to disk and
-        to the archive, and will update the database m5sum line
+        to the archive, and will update the database md5sum line
         accordingly.  The *only* change that should have been made to
         the image file is in the header; the WCS and zeropoint keywords
         will have been updated.  The pipeline that uses the DataStore

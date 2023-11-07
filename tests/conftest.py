@@ -223,12 +223,12 @@ def exposure_filter_array(exposure_factory):
 
 
 def get_decam_example_file():
-    """Pull a DECam exposure down from the NOIRLab archivges.
+    """Pull a DECam exposure down from the NOIRLab archives.
 
     Because this is a slow process (depending on the NOIRLab archive
     speed, it can take up to minutes), first look for
     "{filename}_cached", and if it exists, just symlink to it.  If not,
-    actually download the image frmo NOIRLab, rename it to
+    actually download the image from NOIRLab, rename it to
     "{filename}_cached", and create the symlink.  That way, until the
     user manually deletes the _cached file, we won't have to redo the
     slow NOIRLab download again.

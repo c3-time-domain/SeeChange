@@ -168,7 +168,7 @@ class AstroCalibrator:
         padding: float
            A fraction of the width/height by which we expand the area searched on each side.
         minmag: float
-           Only get starts dimmer than this g magnitude.  (Useful for images that are
+           Only get stars dimmer than this g magnitude.  (Useful for images that are
            deep enough that brighter stars will have saturated.)  Make it None to
            turn off the limit.
         maxmag: float
@@ -192,13 +192,9 @@ class AstroCalibrator:
 
         # Sanity check
         if maxra < minra:
-            tmp = maxra
-            maxra = minra
-            minra = tmp
+            minra, maxra = maxra, minra
         if maxdec < mindec:
-            tmp = maxdec
-            maxdec = mindec
-            mindec = tmp
+            mindec, maxdec = maxdec, mindec
 
         ra = ( maxra + minra ) / 2.
         dec = ( maxdec + mindec ) / 2.
@@ -327,7 +323,7 @@ class AstroCalibrator:
             expanded by 5% on all sides.  Any catalog excerpt that fully
             includes that footprint is a potential match.
 
-          session : Session or SmartSession, optional
+          session : sqlalchemy.orm.session.Session, optional
             If not None, use this session for communication with the
             database; otherwise, will create and close a new
             SmartSession.
@@ -352,7 +348,7 @@ class AstroCalibrator:
         maxdec = max( image.dec_corner_00, image.dec_corner_01, image.dec_corner_10, image.dec_corner_11 )
         dra = ( maxra - minra ) * math.cos( ( maxdec + mindec ) / 2. * math.pi / 180. )
         ddec = maxdec - mindec
-        # Limits we'll us when searching cached CatalogExcerpts.
+        # Limits we'll use when searching cached CatalogExcerpts.
         # Put in a 5% padding, assuming that the initial corners
         # on the image are at least that good.
         ralow = minra - 0.05 * dra
@@ -416,13 +412,13 @@ class AstroCalibrator:
     def _solve_wcs_scamp( self, image, sources, catexp, crossid_rad=2. ):
         """Solve for the WCS of image, updating image.raw_header.
 
-        If scamp does not succed, will raise a SubprocessFailure
+        If scamp does not succeed, will raise a SubprocessFailure
         exception (see utils/exceptions.py).
 
         Parameters
         ----------
           image: Image
-            The image to solve for the WCS for.  If the WCS solution
+            The image to solve the WCS for.  If the WCS solution
             succeeds, then the raw_header field of the image will be
             updated with the keywords that define the new WCS.
 
