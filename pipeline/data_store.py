@@ -1192,7 +1192,12 @@ class DataStore:
             appropriate entry in the md5sum_extensions array of the
             Image object (and in row in the database) will be updated.
             THIS OPTION SHOULD BE USED WITH CARE.  It's an exception to
-            the basic design of the pipeline.
+            the basic design of the pipeline, and adds redundant I/O
+            (since the data hasn't changed, but at the very least the
+            entire image will be sent back to the archive).  This should
+            only be used when there are changes to the image header that
+            need to be saved (e.g. to save a "first look" WCS or
+            zeropoint).
 
         force_save_everything: bool, default False
             Write all files even if the md5sum exists in the database.
@@ -1212,7 +1217,6 @@ class DataStore:
             try:
                 # session.autoflush = False
                 for obj in self.get_all_data_products(output='list'):
-                    # _logger.debug( f'saving {obj} with provenance: {getattr(obj, "provenance", None)}' )
                     _logger.debug( f'save_and_commit consdering a {obj.__class__.__name__} with filepath '
                                    f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 

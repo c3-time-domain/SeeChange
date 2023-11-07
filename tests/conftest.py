@@ -1,4 +1,5 @@
 import os
+import re
 import io
 import warnings
 import pytest
@@ -302,34 +303,71 @@ def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
     # though we're not really saving it to the archive
     exposure.md5sum = uuid.uuid4()
 
-    # This next block of code generates the files read in this test
-    #   (though they'll be written to data/115 instead of
-    #   data/test_data/DECam_examples).  Commented out here because
-    #   of course we just want to read them, but leave the commented
-    #   code here in case for whatever reason we want to regenerate them.
-    #   (In that case, run up to the pdb interrupt, and then copy the
-    #   files you want out of data/115.)
-    # with SmartSession() as session:
-    #     # Spoof md5sum so we can add it
-    #     exposure = exposure.recursive_merge( session )
-    #     session.add( exposure )
-    #     session.commit()
-    #     prepper = Preprocessor()
-    #     ds = prepper.run( exposure, 'N1', session=session )
-    #     det =  Detector()
-    #     ds = det.run( ds )
-    #     ds.save_and_commit()
-    # import pdb; pdb.set_trace()
-
     datadir = pathlib.Path( FileOnDiskMixin.local_path )
     filepathbase = 'test_data/DECam_examples/c4d_20221104_074232_N1_g_Sci_VWQNR2'
+    fileextensions = { '.image.fits', '.weight.fits', '.flags.fits', '.sources.fits', '.psf', '.psf.xml' }
 
-    # The "_cached" files are the ones that are saved to the github
-    # archive.  The later call to ds.delete_everything() is going to
-    # blow away the names that match what's in the "filepath" (plus
-    # "filepath_extensions") fields of ds.image, ds.sources, and ds.psf,
-    # so we use these "cached" names as a way of keeping those files
-    # around.  Moreover, some test might modify the .fits files!
+    # This next block of code generates the files read in this test.  We
+    # don't want to rerun the code to generate them every single time,
+    # because it's a fairly slow process and this is a function-scope
+    # fixture.  As such, generate files with names ending in "_cached"
+    # that we won't delete at fixture teardown.  Then, we'll copy those
+    # files to the ones that the fixture really needs, and those copies
+    # will be deleted at fixture teardown.  (We need this to be a
+    # function-scope fixture because the tests that use the DataStore we
+    # return may well modify it, and may well modify the files on disk.)
+
+    # (Note: this will not regenerate the .yaml files
+    # test_data/DECam_examples, which are used to reconstruct the
+    # database object fields.  If tests fail after regenerating these
+    # files, review those .yaml files to make sure they're still
+    # current.)
+
+    # First check if those files exist; if they don't, generate them.
+    mustregenerate = False
+    for ext in fileextensions:
+        if not ( datadir / f'{filepathbase}{ext}_cached' ).is_file():
+            _logger.info( f"{filepathbase}{ext}_cached missing, decam_example_reduced_image_ds fixture "
+                          f"will regenerate all _cached files" )
+            mustregenerate = True
+
+    if mustregenerate:
+        with SmartSession() as session:
+            exposure = exposure.recursive_merge( session )
+            session.add( exposure )
+            session.commit()              # This will get cleaned up in the decam_example_exposure teardown
+            prepper = Preprocessor()
+            ds = prepper.run( exposure, 'N1', session=session )
+            try:
+                det = Detector()
+                ds = det.run( ds )
+                ds.save_and_commit()
+
+                paths = []
+                for obj in [ ds.image, ds.sources, ds.psf ]:
+                    paths.extend( obj.get_fullpath( as_list=True ) )
+
+                extextract = re.compile( '^(?P<base>.*)(?P<extension>\..*\.fits|\.psf|\.psf.xml)$' )
+                extscopied = set()
+                for src in paths:
+                    match = extextract.search( src )
+                    if match is None:
+                        raise RuntimeError( f"Failed to parse {src}" )
+                    if match.group('extension') not in fileextensions:
+                        raise RuntimeError( f"Unexpected file extension on {src}" )
+                    shutil.copy2( src, datadir/ f'{filepathbase}{match.group("extension")}_cached' )
+                    extscopied.add( match.group('extension') )
+
+                if extscopied != fileextensions:
+                    raise RuntimeError( f"Extensions copied {extcopied} doesn't match expected {extstocopy}" )
+            finally:
+                ds.delete_everything()
+    else:
+        _logger.info( f"decam_example_reduced_image_ds fixture found all _cached files, not regenerating" )
+
+    # Now make sure that the actual files needed are there by copying
+    # the _cached files
+
     copiesmade = []
     try:
         for ext in [ '.image.fits', '.weight.fits', '.flags.fits', '.sources.fits', '.psf', '.psf.xml' ]:

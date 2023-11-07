@@ -165,13 +165,13 @@ class AstroCalibrator:
            Minimum dec of the image we're trying to match.
         maxdec: float
            Maximum dec of the image we're tryhing to match.
-        padding: float
+        padding: float, default 0.1
            A fraction of the width/height by which we expand the area searched on each side.
-        minmag: float
+        minmag: float, default 18.
            Only get stars dimmer than this g magnitude.  (Useful for images that are
            deep enough that brighter stars will have saturated.)  Make it None to
            turn off the limit.
-        maxmag: float
+        maxmag: float, default 22.
            Only get stars brigther than this g magnitude.  (Useful for images that aren't
            as deep as Gaia, or for galacitc fields that have huge numbers of stars.)  Make
            it None to turn off the limit.
@@ -183,7 +183,7 @@ class AstroCalibrator:
         str
           The absolute path where the catalog was saved
         str
-          The absolute path to where the catalog should be saved if it is to be saved to the file store
+          The absolute path to where the catalog should be saved if it is to be saved to the local file store
 
         Filename is the path where the file was stored; pass this to save() to
         properly save things to the database.
@@ -221,21 +221,20 @@ class AstroCalibrator:
             gaia_query += f"AND phot_g_mean_mag<={maxmag} "
         _logger.debug( f'gaia_query is "{gaia_query}"' )
 
-        countdown = 5
-        while countdown > 0:
+        for i in range(5):
             try:
                 qresult = queryClient.query( sql=gaia_query )
-                countdown = 0
+                break
             except Exception as e:
-                countdown -= 1
-                if countdown > 0:
-                    _logger.info( f"Sleeping 5s and retrying gaia query after failed attempt ({str(e)})" )
+                _logger.info( f"Failed Gaia download: {str(e)}" )
+                if i < 4:
+                    _logger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
                     time.sleep(5)
-                    continue
-                else:
-                    _logger.info( f"Gaia query failed attempt ({str(e)}" )
-                    err = "Giving up after repeated failures querying NOIRLab for gaia stars"
-                    raise RuntimeError( err )
+        else:
+            errstr = f"Gaia query failed after {countdown} repeated failures."
+            _logger.error( errstr )
+            raise RuntimeError( errstr )
+
         df = dl.helpers.utils.convert( qresult, "pandas" )
 
         # Convert this into a FITS file format that scamp would recognize.
