@@ -293,7 +293,7 @@ class AstroCalibrator:
 
     # ----------------------------------------------------------------------
 
-    def secure_GaiaDR3_excerpt( self, image, maxmags=(22.,), magrange=4.,
+    def fetch_GaiaDR3_excerpt( self, image, maxmags=(22.,), magrange=4.,
                                 numstars=200, session=None, onlycached=False ):
         """Search catalog exertps for a compatible GaiaDR3 excerpt; if not found, make one.
 
@@ -400,7 +400,7 @@ class AstroCalibrator:
                         pathlib.Path( localfile ).unlink( missing_ok=True )
 
             if catexp is None:
-                s = f"Failed to secure Gaia DR3 stars at ( {(minra+maxra)/2.:.04f},{(mindec+maxdec)/2.:.04f} )"
+                s = f"Failed to fetch Gaia DR3 stars at ( {(minra+maxra)/2.:.04f},{(mindec+maxdec)/2.:.04f} )"
                 _logger.error( s )
                 raise CatalogNotFoundError( s )
 
@@ -561,11 +561,11 @@ class AstroCalibrator:
         success = False
         for maxmag in self.pars.max_catalog_mag:
             try:
-                catexp = self.secure_GaiaDR3_excerpt( image,
-                                                      maxmags=(maxmag,),
-                                                      magrange=self.pars.mag_range_catalog,
-                                                      numstars=self.pars.min_catalog_stars,
-                                                      session=session )
+                catexp = self.fetch_GaiaDR3_excerpt( image,
+                                                     maxmags=(maxmag,),
+                                                     magrange=self.pars.mag_range_catalog,
+                                                     numstars=self.pars.min_catalog_stars,
+                                                     session=session )
             except CatalogNotFoundError as ex:
                 _logger.info( f"Failed to get a catalog excerpt with enough stars with maxmag {maxmag}, "
                               f"trying the next one." )
