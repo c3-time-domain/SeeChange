@@ -272,6 +272,34 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         else:
             raise ValueError( "Unknown format {self.format}" )
 
+    @property
+    def good( self ):
+        """A numpy array of boolean with length num_sources.
+
+        Each element of returned array corresponds to the corresponding
+        element of the arrays returned by the x and y properties, the
+        apfluxadu() function, etc.
+
+        True means the object is "good"; False means it's "bad".  Bad
+        usually means that there was a saturated pixel, there was as bad
+        pixel within some defined area around the center, or there was
+        some issue with the extraction (which could be deblending, too
+        close to the edge, etc.).
+
+        For sextractor, "bad" is anything that has FLAGS != 0, or that
+        has IMAFLGAS_ISO & 0x7fff != 0 (the bitwise AND chosen because
+        empirically many objects have bit 0x8000 set; this probably is
+        an issue having to do with signed vs. unsigned integers, and
+        saving and loading of the FITS files, and should be
+        investigated).
+
+        """
+
+        if self.format != 'sextrfits':
+            raise NotImplementedError( f"good not currently implemented for format {self.format}" )
+
+        return ( self.data['IMAFLAGS_ISO'] & 0x7fff == 0 ) & ( self.data['FLAGS'] == 0 )
+
     def apfluxadu( self, apnum=0, ap=None ):
         """Return two numpy arrays with aperture flux values and errors
 
