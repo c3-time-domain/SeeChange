@@ -56,6 +56,15 @@ class ParsDetector(Parameters):
         )
         self.add_alias( 'apertures', 'apers' )
 
+        self.inf_aper_num = self.add_par(
+            'inf_aper_num',
+            None,
+            ( None, int ),
+            ( 'Which of apers is the one to use as the "infinite" aperture for aperture corrections; '
+              'default is to use the last one.  Ignored if self.apers is None.' ),
+            critical=True
+        )
+        
         self.aperunit = self.add_par(
             'aperunit',
             'fwhm',
@@ -248,8 +257,25 @@ class Detector:
         psfpath = pathlib.Path( psffile ) if psffile is not None else None
         psfxmlpath = None
 
-        apers = ( np.array( self.pars.apers ) if self.pars.apers is not None
-                  else np.array( [1., 2., 3., 4., 5., 7., 10.] ) )
+        if self.pars.apers is None:
+            apers = np.array( [1., 2., 3., 4., 5., 7., 10.] )
+            # By default, we want to use 5*FWHM radius as the "infinite"
+            # aperture.  Empirically, if we get bigger, things seem to
+            # get increasingly pathological (e.g. comparing sextractor to
+            # photutils).  This may be because the isophotal radius no
+            # longer includes all (or even most) of the pixels in the
+            # aperture, so edge effects, bad pixels, etc. aren't getting
+            # flagged by sextractor.  Note that for a 2d Gaussian,
+            # r=5*FWHM has 1-3.7×10⁻⁶ of the flux.  Keep the bigger ones,
+            # though, for diagnostic purposes.
+            #
+            # It might be worth thinking about replacing the sextractor
+            # photometry with photutils photometry.
+            inf_aper_num = 4
+        else:
+            apers = self.pars.apers
+            inf_aper_num = self.pars.inf_aper_num
+            inf_aper_num = len( apers ) - 1 if inf_aper_num is None
 
         if self.pars.measure_psf:
             # Run sextractor once without a psf to get objects from
@@ -278,7 +304,7 @@ class Detector:
 
         if self.pars.aperunit == 'fwhm':
             if psf is None:
-                raise RuntimeError( "No psf passed to extract_sources_sextractor, so apertures can "
+                raise RuntimeError( "No psf measured or passed to extract_sources_sextractor, so apertures can "
                                     "not be based on the FWHM." )
             else:
                 apers *= psf.fwhm_pixels
@@ -293,6 +319,7 @@ class Detector:
         w = np.where( snr >= self.pars.threshold )
         sources.data = sources.data[w]
         sources.num_sources = len( sources.data )
+        sources.inf_aper_num = inf_aper_num
 
         # Clean up the temporary files created (that weren't already cleaned up by _run_sextractor_once)
         sourcepath.unlink( missing_ok=True )

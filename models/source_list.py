@@ -89,7 +89,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
     def is_sub(cls):
         return sa.select(Image.is_sub).where(Image.id == cls.image_id).label('is_sub')
 
-    aper_rads= sa.Column(
+    aper_rads = sa.Column(
         sa.ARRAY( sa.REAL ),
         nullable=True,
         default=None,
@@ -97,6 +97,14 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         doc="Radius of apertures used for aperture photometry in pixels."
     )
 
+    inf_aper_num = sa.Column(
+        sa.SMALLINT
+        nullable=True,
+        default=None,
+        index=False,
+        doc="Which element of aper_rads to use as the 'infinite' aperture; null = last one"
+    )
+    
     num_sources = sa.Column(
         sa.Integer,
         nullable=False,

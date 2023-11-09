@@ -1,12 +1,17 @@
 import pytest
 import os
+
 import numpy as np
+from matplotlib import pyplot
+
 import sep
 from photutils.aperture import CircularAperture, aperture_photometry
 
 from models.base import _logger
 
-@pytest.mark.skipif( os.getenv('MUCKABOUT') is None, reason='Set MUCKABOUT to run this test' )
+
+
+@pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
 def test_compare_sextr_photutils( decam_example_reduced_image_ds ):
     ds = decam_example_reduced_image_ds
     image = ds.get_image()
@@ -22,8 +27,6 @@ def test_compare_sextr_photutils( decam_example_reduced_image_ds ):
     pos[ :, 0 ] = sources.x
     pos[ :, 1 ] = sources.y
 
-    import pdb; pdb.set_trace()
-    
     phot = np.empty( ( sources.num_sources, len(sources.aper_rads) ), dtype=float )
     dphot = np.empty( ( sources.num_sources, len(sources.aper_rads) ), dtype=float )
     
@@ -36,6 +39,24 @@ def test_compare_sextr_photutils( decam_example_reduced_image_ds ):
 
     _logger.info( "Done with aperture photometry." )
 
-    import pdb; pdb.set_trace()
-    pass
+    for i, aperrad in enumerate( sources.aper_rads ):
+        wgood = ( dphot[ :, i ] > 0 ) & ( sources.good )
+        sextrphot = sources.apfluxadu( apnum=i )[0][wgood]
+        sextrdphot = sources.apfluxadu( apnum=i )[1][wgood]
+        puphot = phot[ :, i ][wgood]
+        pudphot = dphot[ :, i ][wgood]
 
+        reldiff = ( sextrphot - puphot ) / puphot
+        dreldiff = np.sqrt( ( sextrdphot / puphot ) **2 + ( ( sextrphot / puphot**2 ) * pudphot ) **2 )
+        import pdb; pdb.set_trace()
+        
+        fig = pyplot.figure()
+        ax = fig.add_subplot( 1, 1, 1 )
+        ax.set_title( f"Aperrad = {aperrad}" )
+        ax.set_xlabel( "PhotUtils ADU" )
+        ax.set_ylabel( "( Sextractor - Photutils ) / PhotUtils" )
+        ax.plot( [ puphot.min(), puphot.max() ], [ 0., 0. ] )
+        ax.errorbar( puphot, reldiff, dreldiff, linestyle='none', marker='.' )
+        ax.set_ylim( -1., 1. )
+        fig.savefig( f'{i}.svg' )
+        pyplot.close()
