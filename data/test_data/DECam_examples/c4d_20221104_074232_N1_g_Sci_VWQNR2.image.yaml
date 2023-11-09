@@ -2,6 +2,7 @@ format: fits
 filepath_extensions: [ '.image.fits', '.weight.fits', '.flags.fits' ]
 md5sum_extensions: [ null, null, null ]
 type: Sci
+filter: g something something
 mjd: 59887.32121458
 end_mjd: 59887.32232569111
 exp_time: 96.0

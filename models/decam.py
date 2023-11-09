@@ -312,6 +312,26 @@ class DECam(Instrument):
         """
         return filter[0:1]
 
+    @classmethod
+    def get_GaiaDR3_transformation( cls, filter ):
+        """Return a polynomial transformation from Gaia MAG_G to instrument magnitude.
+
+        See Instrument.get_GaiaDR3_transformation.
+
+        """
+
+        # Emily Ramey came up with these by fitting polynomials to Gaia
+        # magnitudes and DECaLS magnitudes
+        transformations = {
+            'g': np.array( [  0.07926061, -0.18958323, -0.50588824, 0.11476034 ] ),
+            'r': np.array( [ -0.28526417, 0.65444024, -0.25415955, -0.00204337 ] ),
+            'i': np.array( [ -0.2491122, 0.51709843, 0.02919352, -0.02097517 ] ),
+            'z': np.array( [ -0.38939061, 0.70406435, 0.04190059, -0.01617815 ] )
+        }
+        if filter not in transformations:
+            raise ValueError( f"Unknown short DECam filter name {filter}" )
+        return transformations[ filter ]
+
     def _get_default_calibrator( self, mjd, section, calibtype='dark', filter=None, session=None ):
         # Just going to use the 56876 versions for everything
         # (configured in the yaml files), even though there are earlier

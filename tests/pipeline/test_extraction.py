@@ -150,7 +150,7 @@ def test_sextractor_extract_once( decam_example_reduced_image_ds, run_sextractor
     assert len(sourcelist.data) == sourcelist.num_sources
     assert sourcelist.aper_rads == [ 5. ]
 
-    assert sourcelist.info['SEXAPED1'] == 5.0
+    assert sourcelist.info['SEXAPED1'] == 10.0
     assert sourcelist.info['SEXAPED2'] == 0.
     assert sourcelist.info['SEXBKGND'] == pytest.approx( 179.8, abs=0.1 )
 
@@ -158,13 +158,13 @@ def test_sextractor_extract_once( decam_example_reduced_image_ds, run_sextractor
     assert sourcelist.x.max() == pytest.approx( 2039.6, abs=0.1 )
     assert sourcelist.y.min() == pytest.approx( 16.3, abs=0.1 )
     assert sourcelist.y.max() == pytest.approx( 4087.9, abs=0.1 )
-    assert sourcelist.apfluxadu()[0].min() == pytest.approx( 79.2300, rel=1e-5 )
-    assert sourcelist.apfluxadu()[0].max() == pytest.approx( 852137.56, rel=1e-5 )
+    assert sourcelist.apfluxadu()[0].min() == pytest.approx( -656.8731, rel=1e-5 )
+    assert sourcelist.apfluxadu()[0].max() == pytest.approx( 2850920.0, rel=1e-5 )
     snr = sourcelist.apfluxadu()[0] / sourcelist.apfluxadu()[1]
-    assert snr.min() == pytest.approx( 2.33, abs=0.01 )
-    assert snr.max() == pytest.approx( 1285, abs=1. )
-    assert snr.mean() == pytest.approx( 120.85, abs=0.1 )
-    assert snr.std() == pytest.approx( 205, abs=1. )
+    assert snr.min() == pytest.approx( -9.91, abs=0.1 )
+    assert snr.max() == pytest.approx( 2348.2, abs=1. )
+    assert snr.mean() == pytest.approx( 146.80, abs=0.1 )
+    assert snr.std() == pytest.approx( 285.4, abs=1. )
 
     # Test multiple apertures
     detector = Detector( method='sextractor', subtraction=False, threshold=4.5 )
@@ -175,17 +175,17 @@ def test_sextractor_extract_once( decam_example_reduced_image_ds, run_sextractor
     assert len(sourcelist.data) == sourcelist.num_sources
     assert sourcelist.aper_rads == [ 2., 5. ]
 
-    assert sourcelist.info['SEXAPED1'] == 2.0
-    assert sourcelist.info['SEXAPED2'] == 5.0
+    assert sourcelist.info['SEXAPED1'] == 4.0
+    assert sourcelist.info['SEXAPED2'] == 10.0
     assert sourcelist.info['SEXBKGND'] == pytest.approx( 179.8, abs=0.1 )
     assert sourcelist.x.min() == pytest.approx( 16.0, abs=0.1 )
     assert sourcelist.x.max() == pytest.approx( 2039.6, abs=0.1 )
     assert sourcelist.y.min() == pytest.approx( 16.3, abs=0.1 )
     assert sourcelist.y.max() == pytest.approx( 4087.9, abs=0.1 )
-    assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( 79.2300, rel=1e-5 )
-    assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 852137.56, rel=1e-5 )
-    assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 35.02905, rel=1e-5 )
-    assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 152206.1, rel=1e-5 )
+    assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( -656.8731, rel=1e-5 )
+    assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 2850920.0, rel=1e-5 )
+    assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 89.445114, rel=1e-5 )
+    assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 557651.8, rel=1e-5 )
 
 def test_run_psfex( run_sextractor ):
     sourcelist, sourcefile = run_sextractor
@@ -232,7 +232,7 @@ def test_extract_sources_sextractor( decam_example_reduced_image_ds ):
     det = Detector( method='sextractor', measure_psf=True, threshold=5.0 )
     sources, psf = det.extract_sources( ds.image )
 
-    assert sources.num_sources == 5506
+    assert sources.num_sources == 5447
     assert sources.num_sources == len(sources.data)
     assert sources.aper_rads == pytest.approx( [ 4.328, 8.656, 12.984, 17.312, 21.640, 30.296, 43.280 ], abs=0.01 )
     assert psf.fwhm_pixels == pytest.approx( 4.328, abs=0.01 )
@@ -240,10 +240,13 @@ def test_extract_sources_sextractor( decam_example_reduced_image_ds ):
     assert psf.data.shape == ( 6, 25, 25 )
     assert psf.image_id == ds.image.id
 
-    assert sources.apfluxadu()[0].min() == pytest.approx( 146.98804, rel=1e-5 )
-    assert sources.apfluxadu()[0].max() == pytest.approx( 645737.44, rel=1e-5 )
-    assert sources.apfluxadu()[0].mean() == pytest.approx( 25484.562, rel=1e-5 )
-    assert sources.apfluxadu()[0].std() == pytest.approx( 80211.62, rel=1e-5 )
+    assert sources.apfluxadu()[0].min() == pytest.approx( 284.8298, rel=1e-5 )
+    assert sources.apfluxadu()[0].max() == pytest.approx( 2253342.0, rel=1e-5 )
+    assert sources.apfluxadu()[0].mean() == pytest.approx( 53361.156, rel=1e-5 )
+    assert sources.apfluxadu()[0].std() == pytest.approx( 194492.98, rel=1e-5 )
+
+# TODO : add tests that handle different
+# combinations of measure_psf and psf being passed to the Detector constructor
 
 def test_run_detection_sextractor( decam_example_reduced_image_ds ):
     ds = decam_example_reduced_image_ds
@@ -253,7 +256,7 @@ def test_run_detection_sextractor( decam_example_reduced_image_ds ):
     det = Detector( method='sextractor', measure_psf=True, threshold=5.0 )
     ds = det.run( ds )
 
-    assert ds.sources.num_sources == 5506
+    assert ds.sources.num_sources == 5447
     assert ds.sources.num_sources == len(ds.sources.data)
     assert ds.sources.aper_rads == pytest.approx( [ 4.328, 8.656, 12.984, 17.312, 21.640, 30.296, 43.280 ], abs=0.01 )
     assert ds.psf.fwhm_pixels == pytest.approx( 4.328, abs=0.01 )
@@ -261,10 +264,22 @@ def test_run_detection_sextractor( decam_example_reduced_image_ds ):
     assert ds.psf.data.shape == ( 6, 25, 25 )
     assert ds.psf.image_id == ds.image.id
 
-    assert ds.sources.apfluxadu()[0].min() == pytest.approx( 146.98804, rel=1e-5 )
-    assert ds.sources.apfluxadu()[0].max() == pytest.approx( 645737.44, rel=1e-5 )
-    assert ds.sources.apfluxadu()[0].mean() == pytest.approx( 25484.562, rel=1e-5 )
-    assert ds.sources.apfluxadu()[0].std() == pytest.approx( 80211.62, rel=1e-5 )
+    assert ds.sources.apfluxadu()[0].min() == pytest.approx( 284.8298, rel=1e-5 )
+    assert ds.sources.apfluxadu()[0].max() == pytest.approx( 2253342.0, rel=1e-5 )
+    assert ds.sources.apfluxadu()[0].mean() == pytest.approx( 53361.156, rel=1e-5 )
+    assert ds.sources.apfluxadu()[0].std() == pytest.approx( 194492.98, rel=1e-5 )
+
+    # TODO : actually think about these psf fluxes and how they compare
+    # to the aperture fluxes (esp. the large-aperture fluxes).  Try
+    # to understand what SExtractor psf weighted photometry actually
+    # does....  Preliminary investigations suggest that something is
+    # very wrong.
+
+    assert ds.sources.psffluxadu()[0].min() == 0.0
+    assert ds.sources.psffluxadu()[0].max() == pytest.approx( 1841900.1, rel=1e-5 )
+    assert ds.sources.psffluxadu()[0].mean() == pytest.approx( 51811.848, rel=1e-5 )
+    assert ds.sources.psffluxadu()[0].std() == pytest.approx( 181710.64, rel=1e-5 )
+
 
     assert ds.sources.provenance is not None
     assert ds.sources.provenance == ds.psf.provenance

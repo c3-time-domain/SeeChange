@@ -272,22 +272,6 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         else:
             raise ValueError( "Unknown format {self.format}" )
 
-    @property
-    def ra( self ):
-        """RA of all sources in degrees."""
-        if self.format == 'sextrfits':
-            return self.data['X_WORLD']
-        else:
-            raise ValueError( "Can't get RA for source list format {self.format}" )
-
-    @property
-    def dec( self ):
-        """Dec of all sources in degrees."""
-        if self.format == 'sextrfits':
-            return self.data['Y_WORLD']
-        else:
-            raise ValueError( "Can't get Dec for source list format {self.format}" )
-
     def apfluxadu( self, apnum=0, ap=None ):
         """Return two numpy arrays with aperture flux values and errors
 
@@ -328,6 +312,21 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         else:
             return self.data['FLUX_APER'][:, apnum], self.data['FLUXERR_APER'][:, apnum]
 
+
+    def psffluxadu( self ):
+        """Return two numpy arrays with psf-weighted flux values and errors.
+
+        Returns
+        -------
+          flux, dflux : numpy arrays
+
+        """
+
+        if self.format != 'sextrfits':
+            raise NotImplementedError( f"Not currently implemented for format {self.format}" )
+        if 'FLUX_PSF' not in self.data.dtype.names:
+            raise ValueError( "Source list doesn't have PSF photometry" )
+        return self.data['FLUX_PSF'], self.data['FLUXERR_PSF']
 
     def load(self, filepath=None):
         """Load this source list from the file.
@@ -379,7 +378,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
                 if kw in info:
                     if info[kw] == 0.:
                         break
-                    aps.append( info[kw] )
+                    aps.append( info[kw] / 2. )
 
             if self.aper_rads is None:
                 if ( len( tbl['FLUX_APER'].shape ) > 1 ) and ( tbl['FLUX_APER'].shape[1] > 4 ):

@@ -17,8 +17,18 @@ class ZeroPoint(Base, AutoIDMixin):
 
     source_list = orm.relationship(
         'SourceList',
+        lazy='selectin',
         doc="The source list this zero point is associated with. "
     )
+
+    # TODO : figure this out
+    # image = orm.relationship(
+    #     'Image',
+    #     secondary='source_lists',
+    #     primaryjoin='zero_points.c.source_list_id == source_lists.c.id',
+    #     secondaryjoin='source_lists.c.image_id == images.c.id',
+    #     single_parent=True
+    # )
 
     provenance_id = sa.Column(
         sa.ForeignKey('provenances.id', ondelete="CASCADE", name='zero_points_provenance_id_fkey'),
@@ -40,4 +50,18 @@ class ZeroPoint(Base, AutoIDMixin):
             "The provenance will contain a record of the code version"
             "and the parameters used to produce this zero point. "
         )
+    )
+
+    zp = sa.Column(
+        sa.Float,
+        nullable=False,
+        index=False,
+        doc="Zeropoint: -2.5*log10(flux_psf) + zp = mag"
+    )
+
+    dzp = sa.Column(
+        sa.Float,
+        nullable=False,
+        index=False,
+        doc="Uncertainty on zp"
     )

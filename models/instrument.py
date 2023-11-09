@@ -1150,6 +1150,29 @@ class Instrument:
 
         return filter
 
+    @classmethod
+    def get_GaiaDR3_transformation( cls, filter ):
+        """Return a polynomial transformation from Gaia MAG_G to instrument magnitude.
+
+        The returned array trns allows a conversion from Gaia MAG_G to
+        the magnitude through the desired filter using:
+
+          MAG_filter = Gaia_MAG_G - sum( trns[i] * ( Gaia_MAG _BP - Gaia_MAG_RP ) ** i )
+
+        (with i running from 0 to len(trns)-1).
+
+        Parmaeters
+        ----------
+          filter: str
+            The short filter name of the magnitudes we want.
+
+        Returns
+        -------
+          numpy array
+
+        """
+        return NotImplementedError( f"{self.__class__.__name__} needs to implement get_GaiaDR3_transformation" )
+
     # ----------------------------------------
     # Preprocessing functions.  These live here rather than
     # in pipeline/preprocessing.py because individual instruments

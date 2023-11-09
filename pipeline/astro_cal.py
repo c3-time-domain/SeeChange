@@ -293,8 +293,7 @@ class AstroCalibrator:
 
     # ----------------------------------------------------------------------
 
-    def fetch_GaiaDR3_excerpt( self, image, maxmags=(22.,), magrange=4.,
-                                numstars=200, session=None, onlycached=False ):
+    def fetch_GaiaDR3_excerpt( self, image, maxmags=None, session=None, onlycached=False ):
         """Search catalog exertps for a compatible GaiaDR3 excerpt; if not found, make one.
 
         If multiple matching catalogs are found, will return the first
@@ -322,6 +321,12 @@ class AstroCalibrator:
             expanded by 5% on all sides.  Any catalog excerpt that fully
             includes that footprint is a potential match.
 
+          maxmags: sequence of float, optional
+            The maximum magnitudes to try pulling, using them in order
+            until we get a catalog excerpt with at least
+            self.pars.min_catalog_stars stars.  If None, will use
+            self.pars.max_catalog_mag
+
           session : sqlalchemy.orm.session.Session, optional
             If not None, use this session for communication with the
             database; otherwise, will create and close a new
@@ -337,7 +342,8 @@ class AstroCalibrator:
 
         """
 
-        maxmags = self.pars.max_catalog_mag
+        if maxmags is None:
+            maxmags = self.pars.max_catalog_mag
         magrange = self.pars.mag_range_catalog
         numstars = self.pars.min_catalog_stars
 
@@ -561,11 +567,7 @@ class AstroCalibrator:
         success = False
         for maxmag in self.pars.max_catalog_mag:
             try:
-                catexp = self.fetch_GaiaDR3_excerpt( image,
-                                                     maxmags=(maxmag,),
-                                                     magrange=self.pars.mag_range_catalog,
-                                                     numstars=self.pars.min_catalog_stars,
-                                                     session=session )
+                catexp = self.fetch_GaiaDR3_excerpt( image, maxmags=(maxmag,), session=session )
             except CatalogNotFoundError as ex:
                 _logger.info( f"Failed to get a catalog excerpt with enough stars with maxmag {maxmag}, "
                               f"trying the next one." )

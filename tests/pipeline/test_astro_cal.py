@@ -182,26 +182,15 @@ def test_solve_wcs_scamp( gaiadr3_excerpt, example_ds_with_sources_and_psf ):
         assert scold.ra.value == pytest.approx( scnew.ra.value, abs=1./3600. )
         assert scold.dec.value == pytest.approx( scnew.dec.value, abs=1./3600. )
 
-def actually_run_scamp( ds, astrometor ):
-    with open( ds.image.get_fullpath()[0], "rb" ) as ifp:
-        md5 = hashlib.md5()
-        md5.update( ifp.read() )
-        origmd5 = uuid.UUID( md5.hexdigest() )
-
-    xvals = [ 0, 0, 2047, 2047 ]
-    yvals = [ 0, 4095, 0, 4095 ]
-    origwcs = WCS( ds.image.raw_header )
-
-    ds = astrometor.run( ds )
-
-    wcs = ds.wcs.wcs
+def test_run_scamp( decam_example_reduced_image_ds_with_wcs ):
+    ds, origwcs, xvals, yvals, origmd5 = decam_example_reduced_image_ds_with_wcs
 
     # Make sure that the new WCS is different from the original wcs
     # (since we know the one that came in the decam exposure is approximate)
     # BUT, make sure that it's within 40", because the original one, while
     # not great, is *something*
     origscs = origwcs.pixel_to_world( xvals, yvals )
-    newscs = wcs.pixel_to_world( xvals, yvals )
+    newscs = ds.wcs.wcs.pixel_to_world( xvals, yvals )
     for origsc, newsc in zip( origscs, newscs ):
         assert not origsc.ra.value == pytest.approx( newsc.ra.value, abs=1./3600. )
         assert not origsc.dec.value == pytest.approx( newsc.dec.value, abs=1./3600. )
@@ -266,15 +255,6 @@ def actually_run_scamp( ds, astrometor ):
         assert info is not None
         assert uuid.UUID( info['md5sum'] ) == foundim.md5sum_extensions[0]
 
-def test_run_scamp( decam_example_reduced_image_ds ):
-    ds = decam_example_reduced_image_ds
-
-    # Do a run that we know should succeed
-
-    astrometor = AstroCalibrator( catalog='GaiaDR3', method='scamp', max_mag=[22.], mag_range=4.,
-                                  min_stars=50, max_resid=0.15, crossid_radius=[2.0],
-                                  min_frac_matched=0.1, min_matched_stars=10 )
-    actually_run_scamp( ds, astrometor )
 
 # TODO : test that it fails when it's supposed to
 
