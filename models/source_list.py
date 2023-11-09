@@ -89,12 +89,20 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
     def is_sub(cls):
         return sa.select(Image.is_sub).where(Image.id == cls.image_id).label('is_sub')
 
-    aper_rads= sa.Column(
+    aper_rads = sa.Column(
         sa.ARRAY( sa.REAL ),
         nullable=True,
         default=None,
         index=False,
         doc="Radius of apertures used for aperture photometry in pixels."
+    )
+
+    inf_aper_num = sa.Column(
+        sa.SMALLINT
+        nullable=True,
+        default=None,
+        index=False,
+        doc="Which element of aper_rads to use as the 'infinite' aperture; null = last one"
     )
 
     num_sources = sa.Column(
@@ -273,20 +281,32 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
             raise ValueError( "Unknown format {self.format}" )
 
     @property
-    def ra( self ):
-        """RA of all sources in degrees."""
-        if self.format == 'sextrfits':
-            return self.data['X_WORLD']
-        else:
-            raise ValueError( "Can't get RA for source list format {self.format}" )
+    def good( self ):
+        """A numpy array of boolean with length num_sources.
 
-    @property
-    def dec( self ):
-        """Dec of all sources in degrees."""
-        if self.format == 'sextrfits':
-            return self.data['Y_WORLD']
-        else:
-            raise ValueError( "Can't get Dec for source list format {self.format}" )
+        Each element of returned array corresponds to the corresponding
+        element of the arrays returned by the x and y properties, the
+        apfluxadu() function, etc.
+
+        True means the object is "good"; False means it's "bad".  Bad
+        usually means that there was a saturated pixel, there was as bad
+        pixel within some defined area around the center, or there was
+        some issue with the extraction (which could be deblending, too
+        close to the edge, etc.).
+
+        For sextractor, "bad" is anything that has FLAGS != 0, or that
+        has IMAFLGAS_ISO & 0x7fff != 0 (the bitwise AND chosen because
+        empirically many objects have bit 0x8000 set; this probably is
+        an issue having to do with signed vs. unsigned integers, and
+        saving and loading of the FITS files, and should be
+        investigated).
+
+        """
+
+        if self.format != 'sextrfits':
+            raise NotImplementedError( f"good not currently implemented for format {self.format}" )
+
+        return ( self.data['IMAFLAGS_ISO'] & 0x7fff == 0 ) & ( self.data['FLAGS'] == 0 )
 
     def apfluxadu( self, apnum=0, ap=None ):
         """Return two numpy arrays with aperture flux values and errors
@@ -328,6 +348,21 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         else:
             return self.data['FLUX_APER'][:, apnum], self.data['FLUXERR_APER'][:, apnum]
 
+
+    def psffluxadu( self ):
+        """Return two numpy arrays with psf-weighted flux values and errors.
+
+        Returns
+        -------
+          flux, dflux : numpy arrays
+
+        """
+
+        if self.format != 'sextrfits':
+            raise NotImplementedError( f"Not currently implemented for format {self.format}" )
+        if 'FLUX_PSF' not in self.data.dtype.names:
+            raise ValueError( "Source list doesn't have PSF photometry" )
+        return self.data['FLUX_PSF'], self.data['FLUXERR_PSF']
 
     def load(self, filepath=None):
         """Load this source list from the file.
@@ -379,7 +414,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
                 if kw in info:
                     if info[kw] == 0.:
                         break
-                    aps.append( info[kw] )
+                    aps.append( info[kw] / 2. )
 
             if self.aper_rads is None:
                 if ( len( tbl['FLUX_APER'].shape ) > 1 ) and ( tbl['FLUX_APER'].shape[1] > 4 ):

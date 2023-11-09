@@ -56,6 +56,15 @@ class ParsDetector(Parameters):
         )
         self.add_alias( 'apertures', 'apers' )
 
+        self.inf_aper_num = self.add_par(
+            'inf_aper_num',
+            None,
+            ( None, int ),
+            ( 'Which of apers is the one to use as the "infinite" aperture for aperture corrections; '
+              'default is to use the last one.  Ignored if self.apers is None.' ),
+            critical=True
+        )
+
         self.aperunit = self.add_par(
             'aperunit',
             'fwhm',
@@ -246,12 +255,29 @@ class Detector:
         tempnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
         sourcepath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.fits'
         psfpath = pathlib.Path( psffile ) if psffile is not None else None
-        psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
+        psfxmlpath = None
 
-        apers = ( np.array( self.pars.apers ) if self.pars.apers is not None
-                  else np.array( [1., 2., 3., 4., 5., 7., 10.] ) )
+        if self.pars.apers is None:
+            apers = np.array( [1., 2., 3., 4., 5., 7., 10.] )
+            # By default, we want to use 5*FWHM radius as the "infinite"
+            # aperture.  Empirically, if we get bigger, things seem to
+            # get increasingly pathological (e.g. comparing sextractor to
+            # photutils).  This may be because the isophotal radius no
+            # longer includes all (or even most) of the pixels in the
+            # aperture, so edge effects, bad pixels, etc. aren't getting
+            # flagged by sextractor.  Note that for a 2d Gaussian,
+            # r=5*FWHM has 1-3.7×10⁻⁶ of the flux.  Keep the bigger ones,
+            # though, for diagnostic purposes.
+            #
+            # It might be worth thinking about replacing the sextractor
+            # photometry with photutils photometry.
+            inf_aper_num = 4
+        else:
+            apers = self.pars.apers
+            inf_aper_num = self.pars.inf_aper_num
+            inf_aper_num = len( apers ) - 1 if inf_aper_num is None
 
-        if self.pars.measure_psf or ( self.pars.psf is None ):
+        if self.pars.measure_psf:
             # Run sextractor once without a psf to get objects from
             # which to build the psf.
             #
@@ -267,18 +293,18 @@ class Detector:
 
             # Get the PSF
             psf = self._run_psfex( tempnamebase, image.id, do_not_cleanup=True )
+            psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
+            psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
             psf.image = image
-        else:
+        elif self.pars.psf is not None:
             psf = self.pars.psf
-            if psf is not None:
-                psfpath, psfxmlpath = self.psf.get_fullpath( download=download, always_verify_md5=True )
-            else:
-                psfpath = None
-                psfxmlpath = None
+            psfpath, psfxmlpath = psf.get_fullpath()
+        else:
+            psf = None
 
         if self.pars.aperunit == 'fwhm':
             if psf is None:
-                raise RuntimeError( "No psf passed to extract_sources_sextractor, so apertures can "
+                raise RuntimeError( "No psf measured or passed to extract_sources_sextractor, so apertures can "
                                     "not be based on the FWHM." )
             else:
                 apers *= psf.fwhm_pixels
@@ -293,10 +319,11 @@ class Detector:
         w = np.where( snr >= self.pars.threshold )
         sources.data = sources.data[w]
         sources.num_sources = len( sources.data )
+        sources.inf_aper_num = inf_aper_num
 
         # Clean up the temporary files created (that weren't already cleaned up by _run_sextractor_once)
         sourcepath.unlink( missing_ok=True )
-        if self.pars.psf is None:
+        if ( psffile is None ) and ( self.pars.psf is None ):
             if psfpath is not None: psfpath.unlink( missing_ok=True )
             if psfxmlpath is not None: psfxmlpath.unlink( missing_ok=True )
 
@@ -470,7 +497,7 @@ class Detector:
                      "-WEIGHT_GAIN", "N",
                      "-FLAG_IMAGE", str(tmpflags),
                      "-FLAG_TYPE", "OR",
-                     "-PHOT_APERTURES", ",".join( [ str(a) for a in apers ] ),
+                     "-PHOT_APERTURES", ",".join( [ str(a*2.) for a in apers ] ),
                      "-SATUR_LEVEL", str( image.instrument_object.average_saturation_limit( image ) ),
                      "-STARNNW_NAME", nnw,
                      "-BACK_TYPE", "AUTO",

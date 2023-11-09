@@ -7,6 +7,7 @@ import uuid
 import wget
 import shutil
 import pathlib
+import hashlib
 import yaml
 
 import numpy as np
@@ -15,6 +16,7 @@ import sqlalchemy as sa
 
 from astropy.time import Time
 from astropy.io import fits, votable
+from astropy.wcs import WCS
 
 from util.config import Config
 from models.base import FileOnDiskMixin, SmartSession, CODE_ROOT, _logger
@@ -30,6 +32,7 @@ from models.psf import PSF
 from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
 from pipeline.detection import Detector
+from pipeline.astro_cal import AstroCalibrator
 from util import config
 from util.archive import Archive
 
@@ -339,7 +342,7 @@ def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
             prepper = Preprocessor()
             ds = prepper.run( exposure, 'N1', session=session )
             try:
-                det = Detector()
+                det = Detector( measure_psf=True )
                 ds = det.run( ds )
                 ds.save_and_commit()
 
@@ -347,7 +350,7 @@ def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
                 for obj in [ ds.image, ds.sources, ds.psf ]:
                     paths.extend( obj.get_fullpath( as_list=True ) )
 
-                extextract = re.compile( '^(?P<base>.*)(?P<extension>\..*\.fits|\.psf|\.psf.xml)$' )
+                extextract = re.compile( '^(?P<base>.*)(?P<extension>\\..*\\.fits|\\.psf|\\.psf.xml)$' )
                 extscopied = set()
                 for src in paths:
                     match = extextract.search( src )
@@ -421,6 +424,33 @@ def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
     finally:
         for f in copiesmade:
             f.unlink( missing_ok=True )
+
+# TODO : cache the results of this just like in
+# decam_example_reduced_image_ds so they don't have to be regenerated
+# every time this fixture is used.
+@pytest.fixture
+def decam_example_reduced_image_ds_with_wcs( decam_example_reduced_image_ds ):
+    ds = decam_example_reduced_image_ds
+    with open( ds.image.get_fullpath()[0], "rb" ) as ifp:
+        md5 = hashlib.md5()
+        md5.update( ifp.read() )
+        origmd5 = uuid.UUID( md5.hexdigest() )
+
+    xvals = [ 0, 0, 2047, 2047 ]
+    yvals = [ 0, 4095, 0, 4095 ]
+    origwcs = WCS( ds.image.raw_header )
+
+    astrometor = AstroCalibrator( catalog='GaiaDR3', method='scamp', max_mag=[22.], mag_range=4.,
+                                  min_stars=50, max_resid=0.15, crossid_radius=[2.0],
+                                  min_frac_matched=0.1, min_matched_stars=10 )
+    ds = astrometor.run( ds )
+
+    return ds, origwcs, xvals, yvals, origmd5
+
+    # Don't need to do any cleaning up, because no files were written
+    # doing the WCS (it's all database), and the
+    # decam_example_reduced_image_ds is going to do a
+    # ds.delete_everything()
 
 @pytest.fixture
 def decam_small_image(decam_example_raw_image):
