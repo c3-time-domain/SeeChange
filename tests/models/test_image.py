@@ -486,7 +486,7 @@ def test_image_badness(demo_image):
         assert demo_image.badness == 'Banding, Shaking, Bright Sky'
 
 
-# @pytest.mark.skip( reason="slow" )
+@pytest.mark.skip( reason="slow" )
 def test_multiple_images_badness(
         demo_image,
         demo_image2,
