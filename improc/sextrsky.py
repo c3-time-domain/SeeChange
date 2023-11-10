@@ -29,7 +29,7 @@ def single_sextrsky( imagedata, maskdata=None, sigcut=3 ):
 
       sigcut: float, default 3
          Number of sigmas to clip each iteration (see above).
-    
+
     Returns:
     -------
       sky, skysig
@@ -92,7 +92,7 @@ def sextrsky( imagedata, maskdata=None, sigcut=3, boxsize=200, filtsize=3 ):
       filtsize: int, default 3
          The size of the median filter to apply to the sky values
          determined in each box.  Currently must be either 1 or 3.
-    
+
     Returns:
     -------
       sky, skysig
@@ -108,10 +108,10 @@ def sextrsky( imagedata, maskdata=None, sigcut=3, boxsize=200, filtsize=3 ):
     filtsize = int(filtsize)
     if filtsize%2 == 0:
         filtsize += 1
-    
+
     if ( filtsize != 1 ) and ( filtsize != 3 ):
         raise ValueError( "Code currently has hardcoded filtsize=1 or 3 assumption" )
-    
+
     xgrid0 = np.arange( 0, imagedata.shape[0], boxsize )
     if imagedata.shape[0] - xgrid0[-1] < boxsize/2:
         xgrid0 = xgrid0[:-1]
@@ -148,7 +148,7 @@ def sextrsky( imagedata, maskdata=None, sigcut=3, boxsize=200, filtsize=3 ):
         filt_backvals[-1,  0] = np.median( backvals[-filtsize//2-2:, :filtsize//2+1] )
         filt_backvals[-1, -1] = np.median( backvals[-filtsize//2-2:, -filtsize//2-2:] )
         backvals = filt_backvals
-    
+
     # Spline extrapolation is a complete disaster.  Avoid this by anchoring the spline
 
     anchored_backvals = np.empty( [ backvals.shape[0]+2, backvals.shape[1]+2 ] )
@@ -169,7 +169,7 @@ def sextrsky( imagedata, maskdata=None, sigcut=3, boxsize=200, filtsize=3 ):
     anchored_ygrid[1:-1] = ygrid
     anchored_ygrid[0] = 0
     anchored_ygrid[-1] = imagedata.shape[1]
-    
+
     interpoler = RectBivariateSpline( anchored_xgrid, anchored_ygrid, anchored_backvals,
                                       bbox=[ 0, imagedata.shape[0], 0, imagedata.shape[1] ] )
     sky = interpoler( np.arange(imagedata.shape[0]), np.arange(imagedata.shape[1]) )
@@ -202,7 +202,7 @@ def main():
         _logger.setLevel( logging.DEBUG )
     else:
         _logger.setLevel( logging.INFO )
-        
+
     with fits.open( args.image ) as hdu:
         imagedata = hdu[args.hdunum].data
         imageheader = hdu[args.hdunum].header
@@ -241,5 +241,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    
+
+
