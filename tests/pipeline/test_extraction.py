@@ -296,8 +296,6 @@ def test_run_detection_sextractor( decam_example_reduced_image_ds ):
     # does....  Preliminary investigations suggest that something may be
     # wrong.
 
-    import pdb; pdb.set_trace()
-
     assert ds.sources.psffluxadu()[0].min() == 0.0
     assert ds.sources.psffluxadu()[0].max() == pytest.approx( 1841900.1, rel=1e-5 )
     assert ds.sources.psffluxadu()[0].mean() == pytest.approx( 51811.848, rel=1e-5 )
