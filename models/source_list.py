@@ -97,13 +97,23 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         doc="Radius of apertures used for aperture photometry in pixels."
     )
 
-    inf_aper_num = sa.Column(
-        sa.SMALLINT
+    _inf_aper_num = sa.Column(
+        sa.SMALLINT,
         nullable=True,
         default=None,
         index=False,
         doc="Which element of aper_rads to use as the 'infinite' aperture; null = last one"
     )
+
+    @property
+    def inf_aper_num( self ):
+        if self._inf_aper_num is None:
+            if self.aper_rads is None:
+                return None
+            else:
+                return len(self.aper_rads) - 1
+        else:
+            return self._inf_aper_num
 
     num_sources = sa.Column(
         sa.Integer,
@@ -308,7 +318,50 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
 
         return ( self.data['IMAFLAGS_ISO'] & 0x7fff == 0 ) & ( self.data['FLAGS'] == 0 )
 
+    @property
+    def is_star( self ):
+        """A numpy array of booleans with length num_sources.
+
+        Each element of returned array corresponds to the corresponding
+        element of the arrays returned by the x and y properties, the
+        apfluxadu() function, etc.
+
+        True means the object is likely a star, under the assumption
+        that the image is clean.
+
+        Don't expect this to be perfect, or even that good.  For
+        SExtractor, it uses the CLASS_STAR parameter.  On at least one
+        test image, this only produces a ~1/4 subset of the stars
+        identified using the SPREAD_MODEL parameter.  However, adding
+        SPREAD_MODEL to the list of parameters produced increases
+        SExtractor runtime from several seconds to a minute or more.
+        Currently, we're hoping that CLASS_STAR is good enough for our
+        purposes.  This should be evaluated.
+
+        See
+          https://sextractor.readthedocs.io/en/latest/Position.html#class-star-def
+          https://sextractor.readthedocs.io/en/latest/Model.html#spread-model-def
+
+        """
+
+        if hasattr( self, '_is_star' ) and ( self._is_star is not None ):
+            return self._is_star
+
+        if self.format != 'sextrfits':
+            raise NotImplementedError( f'is_star is only implemented for format sextrfits' )
+
+        # epsilon_2 = 5e-3 ** 2
+        # kappa_2 = 4 ** 2
+        # thresh = np.sqrt( epsilon_2 + kappa_2 * self.data['SPREADERR_MODEL']**2 )
+        # self._is_star = self.data['SPREAD_MODEL'] < thresh
+
+        self._is_star = self.data['CLASS_STAR'] > 0.8
+
+        return self._is_star
+
+
     def apfluxadu( self, apnum=0, ap=None ):
+
         """Return two numpy arrays with aperture flux values and errors
 
         Parameters
@@ -364,7 +417,63 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
             raise ValueError( "Source list doesn't have PSF photometry" )
         return self.data['FLUX_PSF'], self.data['FLUXERR_PSF']
 
+    def calc_aper_cor( self, aper_num=0, inf_aper_num=None, min_stars=20 ):
+        """Calculate an aperture correction based on the photometry in this source list.
+
+        The aperture correction apercor is defined so that for a star (or other point source):
+
+           mag = -2.5*log10(fluxadu) + zeropoint + apercor
+
+        where zeropoint is determined through photometric calibration.
+        apercor will in general be negative because an aperture will
+        have less than the total flux of a star.
+
+        Parameters
+        ----------
+          aper_num: int, default 0
+            The index into self.aper_rads to calculate the aperture correction for.
+
+          inf_aper_num: int
+            The index into self.aper_rads to use as the "infinite" aperture.  If None,
+            will use self.inf_aper_num
+
+          min_stars: int, default 20
+            Must have at least this many stars to measure the aperture correction from.
+
+        Returns
+        -------
+          apercor: float
+
+        """
+
+        if inf_aper_num is None:
+            inf_aper_num = self.inf_aper_num
+        if inf_aper_num is None:
+            raise RuntimeError( f"Can't determine which aperture to use as the \"infinite\" aperture" )
+        if ( inf_aper_num < 0 ) or ( inf_aper_num >= len(self.aper_rads) ):
+            raise ValueError( f"inf_aper_num {inf_aper_num} is outside available list of {len(self.aper_rads)}" )
+
+        bigflux, bigfluxerr = self.apfluxadu( apnum=inf_aper_num )
+        smallflux, smallfluxerr = self.apfluxadu( apnum=aper_num )
+        wgood = self.is_star & self.good & ( bigflux > 5.*bigfluxerr ) & ( smallflux > 5.*smallfluxerr )
+
+        if wgood.sum() < min_stars:
+            raise RuntimeError( f'Only {wgood.sum()} stars, less than the minimum of {min_stars} '
+                                f'requested for measuring the aperture correction.' )
+
+        bigflux = bigflux[wgood]
+        bigfluxerr = bigfluxerr[wgood]
+        smallflux = smallflux[wgood]
+        smallfluxerr = smallfluxerr[wgood]
+
+        rat = bigflux / smallflux
+        ratvar = ( bigfluxerr / smallflux ) **2 + ( smallfluxerr * bigflux / (smallflux)**2 ) **2
+        meanrat = ( rat / ratvar ).sum() / ( 1. / ratvar ).sum()
+
+        return -2.5 * np.log10( meanrat )
+
     def load(self, filepath=None):
+
         """Load this source list from the file.
 
         Updates self._data and self._info.
@@ -534,7 +643,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         return arr
 
 
-    def ds9_regfile( self, regfile, color='green', radius=2, width=2, clobber=True ):
+    def ds9_regfile( self, regfile, color='green', radius=2, width=2, whichsources='all', clobber=True ):
         """Write a DS9 region file with circles on the sources.
 
         See https://ds9.si.edu/doc/ref/region.html for file format
@@ -543,22 +652,41 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         ----------
         regfile: str or Path
            The output region file
+
         color: str, default 'green'
            The color to use in the region file (using something standard to DS9)
+
         radius: float
            The radius of the circles in pixels
+
         width: float
            The width of the circle line (in whatever unigs DS9 uses)
+
+        whichsources: str, one of 'all', 'stars', 'nonstars'
+           Which objects to write regions for.  If 'all', all of them.
+           If 'stars', only the ones for which self.is_star is True.  If
+           'nonstar', only the ones for which self.is_star is False.
+
         clobber: bool, default True
            If the file exists, overwrite it
+
         """
         ensure_file_does_not_exist( regfile, delete=clobber )
 
-        data = self.data
+        if whichsources == 'stars':
+            which = self.is_star
+        elif whichsources == 'nonstars':
+            which = ~self.is_star
+        elif whichsources == 'all':
+            which = np.full( ( self.num_sources, ), True )
+        else:
+            raise ValueError( f'whichsources must be one of all, stars, or nonstars, not {whichsources}' )
+
         with open( regfile, "w" ) as ofp:
-            for x, y in zip( self.x, self.y ):
-                # +1 to go from C-coordinates to FITS-coordinates
-                ofp.write( f"image;circle({x+1},{y+1},{radius}) # color={color} width={width}\n" )
+            for x, y, use in zip( self.x, self.y, which ):
+                if use:
+                    # +1 to go from C-coordinates to FITS-coordinates
+                    ofp.write( f"image;circle({x+1},{y+1},{radius}) # color={color} width={width}\n" )
 
 # add "property" attributes to SourceList referencing the image for convenience
 for att in [
