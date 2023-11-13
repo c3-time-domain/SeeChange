@@ -1,8 +1,8 @@
-"""zeropoint_in_zeropoint
+"""zeropoint_in_zerpoint
 
-Revision ID: 637eb690f408
-Revises: a9c1d480a229
-Create Date: 2023-11-08 21:28:33.886444
+Revision ID: 6cabf4251810
+Revises: 406abb705c55
+Create Date: 2023-11-13 17:41:03.697416
 
 """
 from alembic import op
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '637eb690f408'
-down_revision = 'a9c1d480a229'
+revision = '6cabf4251810'
+down_revision = '406abb705c55'
 branch_labels = None
 depends_on = None
 
