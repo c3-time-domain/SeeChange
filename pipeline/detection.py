@@ -258,20 +258,8 @@ class Detector:
         psfxmlpath = None
 
         if self.pars.apers is None:
-            apers = np.array( [1., 2., 3., 4., 5., 7., 10.] )
-            # By default, we want to use 5*FWHM radius as the "infinite"
-            # aperture.  Empirically, if we get bigger, things seem to
-            # get increasingly pathological (e.g. comparing sextractor to
-            # photutils).  This may be because the isophotal radius no
-            # longer includes all (or even most) of the pixels in the
-            # aperture, so edge effects, bad pixels, etc. aren't getting
-            # flagged by sextractor.  Note that for a 2d Gaussian,
-            # r=5*FWHM has 1-10^-30 of the flux.  Keep the bigger ones,
-            # though, for diagnostic purposes.
-            #
-            # It might be worth thinking about replacing the sextractor
-            # photometry with photutils photometry.
-            inf_aper_num = 4
+            apers = np.array( image.instrument_object.standard_apertures() )
+            inf_aper_num = image.instrument_object.fiducial_aperture()
         else:
             apers = self.pars.apers
             inf_aper_num = self.pars.inf_aper_num
@@ -516,6 +504,7 @@ class Detector:
                      "-FLAG_TYPE", "OR",
                      "-PHOT_APERTURES", ",".join( [ str(a*2.) for a in apers ] ),
                      "-SATUR_LEVEL", str( image.instrument_object.average_saturation_limit( image ) ),
+                     "-GAIN", "1.0",
                      "-STARNNW_NAME", nnw,
                      "-BACK_TYPE", "AUTO",
                      "-BACK_SIZE", str( image.instrument_object.background_box_size ),
@@ -523,7 +512,6 @@ class Detector:
                      "-MEMORY_OBJSTACK", str( 20000 ),  # TODO: make these configurable?
                      "-MEMORY_PIXSTACK", str( 1000000 ),
                      "-MEMORY_BUFSIZE", str( 4096 ),
-                     "-NTHREADS", "8"
                     ]
             args.extend( psfargs )
             args.append( tmpimage )

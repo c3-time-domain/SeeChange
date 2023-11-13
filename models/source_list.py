@@ -329,14 +329,15 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         True means the object is likely a star, under the assumption
         that the image is clean.
 
-        Don't expect this to be perfect, or even that good.  For
-        SExtractor, it uses the CLASS_STAR parameter.  On at least one
-        test image, this only produces a ~1/4 subset of the stars
-        identified using the SPREAD_MODEL parameter.  However, adding
-        SPREAD_MODEL to the list of parameters produced increases
-        SExtractor runtime from several seconds to a minute or more.
-        Currently, we're hoping that CLASS_STAR is good enough for our
-        purposes.  This should be evaluated.
+        Right now, the code is using the SPREAD_MODEL parmaeter produced
+        by SExtractor.  However, use of that comes at a nontrivial time
+        cost; on at least one test image, this made the runtime of
+        SExtractor go from a few seconds to more than a minute.
+        However, CLASS_STAR identified fewer than 1/4 of the stars that
+        a SPREAD_MODEL cut did.
+
+        We need to evaluate whether CLASS_STAR is good enough, or if
+        it's OK to take the time hit.
 
         See
           https://sextractor.readthedocs.io/en/latest/Position.html#class-star-def
@@ -350,12 +351,12 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         if self.format != 'sextrfits':
             raise NotImplementedError( f'is_star is only implemented for format sextrfits' )
 
-        # epsilon_2 = 5e-3 ** 2
-        # kappa_2 = 4 ** 2
-        # thresh = np.sqrt( epsilon_2 + kappa_2 * self.data['SPREADERR_MODEL']**2 )
-        # self._is_star = self.data['SPREAD_MODEL'] < thresh
+        epsilon_2 = 5e-3 ** 2
+        kappa_2 = 4 ** 2
+        thresh = np.sqrt( epsilon_2 + kappa_2 * self.data['SPREADERR_MODEL']**2 )
+        self._is_star = self.data['SPREAD_MODEL'] < thresh
 
-        self._is_star = self.data['CLASS_STAR'] > 0.8
+        # self._is_star = self.data['CLASS_STAR'] > 0.8
 
         return self._is_star
 

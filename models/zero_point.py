@@ -1,3 +1,4 @@
+import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -56,7 +57,7 @@ class ZeroPoint(Base, AutoIDMixin):
         sa.Float,
         nullable=False,
         index=False,
-        doc="Zeropoint: -2.5*log10(flux_psf) + zp = mag"
+        doc="Zeropoint: -2.5*log10(adu_psf) + zp = mag"
     )
 
     dzp = sa.Column(
@@ -65,3 +66,51 @@ class ZeroPoint(Base, AutoIDMixin):
         index=False,
         doc="Uncertainty on zp"
     )
+
+    aper_cor_apers = sa.Column(
+        sa.ARRAY( sa.REAL ),
+        nullable=True,
+        default=None,
+        index=False,
+        doc="Pixel radii of apertures whose aperture corrections are in aper_cor_aper."
+    )
+
+    aper_cors = sa.Column(
+        sa.ARRAY( sa.REAL ),
+        nullable=True,
+        default=None,
+        index=False,
+        doc=( "Aperture corrections for apertures with radii in aper_cor_apers.  Defined so that "
+              "mag = -2.5*log10(adu_aper) + zp + aper_cor, where adu_aper is the number of ADU "
+              "in the aperture with the specfiied radius.  There is a built-in approximation that a "
+              "single aperture applies across the entire image, which should be OK given that the "
+              "pipeline isn't expected to have photometry to better than a couple of percent." )
+    )
+
+    def get_aper_cor( self, rad ):
+        """Return the aperture correction for a given aperture radius in pixels.
+
+        Requires rad to be within 0.01 pixels of one of the tabluated
+        aperture corrections.  If the requested one isn't found, will
+        raise a ValueError.
+
+        Parameteters
+        ------------
+          rad: float
+            The radius of the aperture in pixels
+
+        Returns
+        -------
+          aper_cor: float
+             Defined so that mag = -2.5*log10(aperflux_adu) + zp + aper_cor
+
+        """
+
+        if self.aper_cor_apers is None:
+            raise ValueError( "No aperture corrections tabulated." )
+
+        for aprad, apcor in zip( self.aper_cor_apers, self.aper_cors ):
+            if np.fabs( rad - aprad ) <= 0.01:
+                return apcor
+
+        raise ValueError( f"No aperture correction tabulated for aperture radius within 0.01 pixels of {rad}" )

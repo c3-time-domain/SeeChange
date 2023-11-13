@@ -9,6 +9,13 @@ from models.zero_point import ZeroPoint
 
 from util.exceptions import BadMatchException
 
+# TODO: Make max_catalog_mag and mag_range_catalog defaults be supplied
+# by the instrument, since there are going to be different sane defaults
+# for different instruments.
+# (E.g., LS4 can probably see stars down to 11th magnitude without
+# saturating, whereas for DECam we don't want to go brighter than 15th
+# or 16th magnitude.)
+
 class ParsPhotCalibrator(Parameters):
     def __init__(self, **kwargs):
         super().__init__()
@@ -124,31 +131,30 @@ class PhotCalibrator:
         gaiamaxbp_rp = 3.0
         col = catexp.data[ 'MAG_BP' ] - catexp.data[ 'MAG_RP' ]
         catdata = catexp.data[ ( col >= gaiaminbp_rp ) & ( col <= gaiamaxbp_rp ) ]
-        _logger.debug( f"{len(subcatexp)} Gaia stars with {gaiaminbp_rp}<BP-RP<{gaiamaxbp_rp}" )
+        _logger.debug( f"{len(catdata)} Gaia stars with {gaiaminbp_rp}<BP-RP<{gaiamaxbp_rp}" )
 
-        # Pull out the source information. We're going to assume that
-        # the last aperture in the array is the biggest aperture (which
-        # is the case for the default set of apertures in detection.py),
-        # and use that, hoping it's effectively ∞.  Only keep things
-        # with a non-NaN flux, and fluxerr, and with flux > 3*fluxerr.
+        # Pull out the source information. Use the aperture that the
+        # source list has designated as the "infinite" aperture, so that
+        # there's no need to add an aperture correction into the
+        # calculated zeropoint.
 
-        # TODO : we don't have any check to see if a source is saturated
-        # before using it!  This probably requires something in
-        # source_list to be implemented to return "good" flags for
-        # individual objects.
-
-        sourceflux, sourcefluxerr = sources.apfluxadu( apnum=len(sources.aper_rads)-1 )
+        sourceflux, sourcefluxerr = sources.apfluxadu( apnum=sources.inf_aper_num )
         skycoords = wcs.wcs.pixel_to_world( sources.x, sources.y )
         sourcera = skycoords.ra.deg
         sourcedec = skycoords.dec.deg
 
-        wgood = ( ( ~np.isnan( sourceflux) ) & ( ~np.isnan( sourcefluxerr ) )
-                  & ( sourceflux > 3.*sourcefluxerr ) )  
+        # Only use stars that are "good" and that have flux > 3*fluxerr
+
+        wgood = ( sources.good & sources.is_star
+                  & ( ~np.isnan( sourceflux) ) & ( ~np.isnan( sourcefluxerr ) )
+                  & ( sourceflux > 3.*sourcefluxerr ) )
         sourcera = sourcera[wgood]
         sourcedec = sourcedec[wgood]
         sourceflux = sourceflux[wgood]
         sourcefluxerr = sourcefluxerr[wgood]
-        _logger.debug( f"{len(sourcera)} of {sources.num_sources} image sources with biggest aperture >3σ" )
+        _logger.debug( f"{len(sourcera)} of {sources.num_sources} image sources chosen; "
+                       f"{(sources.good & sources.is_star).sum()} are good stars, of those "
+                       f"{len(sourcera)} have flux in 'infinite' aperture >3σ" )
 
         # Match catalog excerpt RA/Dec to source RA/Dec
 
@@ -201,28 +207,33 @@ class PhotCalibrator:
         fitorder = len(trns) - 1
 
         cols = catdata[ 'MAG_BP' ] - catdata[ 'MAG_RP' ]
-        colerrs = numpy.sqrt( catdata[ 'MAGERR_BP' ]**2 + catdata[ 'MAGERR_RP' ]**2 )
+        colerrs = np.sqrt( catdata[ 'MAGERR_BP' ]**2 + catdata[ 'MAGERR_RP' ]**2 )
         colton = cols[ :, np.newaxis ] ** np.arange( 0, fitorder+1, 1 )
         coltonminus1 = np.zeros( colton.shape )
-        contonminus1[ :, 1: ] = cols[ :, np.newaxis ] ** np.arange( 0, fitorder, 1 )
+        coltonminus1[ :, 1: ] = cols[ :, np.newaxis ] ** np.arange( 0, fitorder, 1 )
         coltonerr = np.zeros( colton.shape )
-        coltonerr[ :, 1: ] = np.arange( 1, fitorder+1, 1 ) * coltonminus1 * colerrs[ :, np.newaxis ]
+        coltonerr[ :, 1: ] = np.arange( 1, fitorder+1, 1 ) * coltonminus1[ :, 1: ] * colerrs.value[ :, np.newaxis ]
 
-        zps = ( subcatexp['MAG_G'] - ( trns[ np.newaxis, : ] * colton ).sum( axis=1 )
+        zps = ( catdata['MAG_G'] - ( trns[ np.newaxis, : ] * colton ).sum( axis=1 )
                 + 2.5*np.log10( sourceflux ) )
-        dzps = numpy.sqrt(
-            catdata[ 'MAGERR_G' ]**2 +
-            ( trns[np.newaxis, : ] * contolnerr ).sum( axis=1 )**2 + 
-            ( 1.0857362 * subsources['FLUXERR_PSF'] / subsources['FLUXERR'] )**2
-        )
+        zpvars = ( catdata[ 'MAGERR_G' ]**2 +
+                   ( trns[np.newaxis, : ] * coltonerr ).sum( axis=1 )**2 +
+                   ( 1.0857362 * sourcefluxerr / sourceflux )**2
+                  )
 
-        wgood = ( ( ~np.isnan( zps ) ) & ( ~np.isnan( dzps ) ) & ( dzps > 0 ) )
+        # Save these values so that tests outside can pull them and interrogate them
+        self.individual_zps = zps
+        self.individual_zpvars = zpvars
+        self.individual_cols = cols
+        self.individual_mags = catdata[ 'MAG_G' ]
+
+        wgood = ( ~np.isnan( zps ) ) & ( ~np.isnan( zpvars ) )
         zps = zps[wgood]
-        dzps = dzps[wgood]
-        _loger.debug( f"{len(zps)} stars survived the not-NaN zeropoint check" )
+        zpvars = zpvars[wgood]
+        _logger.debug( f"{len(zps)} stars survived the not-NaN zeropoint check" )
 
-        zpval = np.sum( zp / (dzp*dzp) ) / np.sum( 1. / (dzp*dzp) )
-        dzpval = 1. / np.sum( 1. / (dzp*dzp) )
+        zpval = np.sum( zps / zpvars ) / np.sum( 1. / zpvars )
+        dzpval = 1. / np.sum( 1. / (zpvars ) )
 
         return zpval, dzpval
 
@@ -235,6 +246,8 @@ class PhotCalibrator:
         Arguments are parsed by the DataStore.parse_args() method.
 
         Returns a DataStore object with the products of the processing.
+        In addition to potentially loading previous products, this one
+        will add a ZeroPoint object to the .zp field of the DataStore.
 
         """
         ds, session = DataStore.from_args(*args, **kwargs)
@@ -265,11 +278,22 @@ class PhotCalibrator:
             self.astrometor = AstroCalibrator( cross_match_catalog=self.pars.cross_match_catalog,
                                                max_catalog_mag=self.pars.max_catalog_mag,
                                                mag_range_catalog=self.pars.mag_range_catalog,
-                                               min_catalog_stars=self.pars.min_catalog_sdars )
+                                               min_catalog_stars=self.pars.min_catalog_stars )
             catexp = self.astrometor.fetch_GaiaDR3_excerpt( image, session )
 
             zpval, dzpval = self._solve_zp_GaiaDR3( image, sources, wcs, catexp )
-            ds.zp = ZeroPoint( source_list=ds.sources, provenance=prov, zp=zpval, dzp=dzpval )
+
+            # Add the aperture corrections
+            apercors = []
+            for i, rad in enumerate( sources.aper_rads ):
+                if i == sources.inf_aper_num:
+                    apercors.append( 0. )
+                else:
+                    apercors.append( sources.calc_aper_cor( aper_num=i ) )
+
+            # Make the ZeroPoint object
+            ds.zp = ZeroPoint( source_list=ds.sources, provenance=prov, zp=zpval, dzp=dzpval,
+                               aper_cor_apers=sources.aper_rads, aper_cors=apercors )
 
         # make sure the DataStore is returned to be used in the next step
         return ds
