@@ -305,7 +305,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         close to the edge, etc.).
 
         For sextractor, "bad" is anything that has FLAGS != 0, or that
-        has IMAFLGAS_ISO & 0x7fff != 0 (the bitwise AND chosen because
+        has IMAFLAGS_ISO & 0x7fff != 0 (the bitwise AND chosen because
         empirically many objects have bit 0x8000 set; this probably is
         an issue having to do with signed vs. unsigned integers, and
         saving and loading of the FITS files, and should be
