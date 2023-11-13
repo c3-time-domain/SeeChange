@@ -66,6 +66,19 @@ def tests_setup_and_teardown():
         session.commit()
 
 
+@pytest.fixture
+def headless_plots():
+    import matplotlib
+
+    backend = matplotlib.get_backend()
+    # ref: https://stackoverflow.com/questions/15713279/calling-pylab-savefig-without-display-in-ipython
+    matplotlib.use("Agg")
+
+    yield None
+
+    matplotlib.use(backend)
+
+
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
 
