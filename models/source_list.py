@@ -97,8 +97,8 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         doc="Radius of apertures used for aperture photometry in pixels."
     )
 
-    inf_aper_num = sa.Column(
-        sa.SMALLINT
+    _inf_aper_num = sa.Column(
+        sa.SMALLINT,
         nullable=True,
         default=None,
         index=False,
