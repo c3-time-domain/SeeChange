@@ -131,6 +131,8 @@ def test_read_sextractor( example_source_list_filename ):
     assert sources.num_sources == 112
     assert sources.good.sum() == 105
     assert sources.aper_rads == [ 1.0, 2.5 ]
+    assert sources._inf_aper_num is None
+    assert sources.inf_aper_num == 1
     assert sources.x[0] == pytest.approx( 798.24, abs=0.01 )
     assert sources.y[0] == pytest.approx( 17.14, abs=0.01 )
     assert sources.x[50] == pytest.approx( 899.33, abs=0.01 )
@@ -210,3 +212,23 @@ def test_write_sextractor():
             assert hdr.cards[0].comment == 'Comment'
     finally:
         pathlib.Path( sources.get_fullpath() ).unlink( missing_ok=True )
+
+def test_calc_apercor( decam_example_reduced_image_ds ):
+    sources = decam_example_reduced_image_ds.get_sources()
+
+    assert sources.calc_aper_cor() == pytest.approx( -0.180, abs=0.001 )
+    assert sources.calc_aper_cor( inf_aper_num=6 ) == pytest.approx( -0.183, abs=0.001 )
+    assert sources.calc_aper_cor( inf_aper_num=2 ) == pytest.approx( -0.170, abs=0.001 )
+    assert sources.calc_aper_cor( aper_num=2 ) == pytest.approx( -0.010, abs=0.001 )
+    assert sources.calc_aper_cor( aper_num=2, inf_aper_num=6 ) == pytest.approx( -0.012, abs=0.001 )
+
+    # The numbers below are what you get if you use the SPREAD_MODEL
+    # parameter in SourceList.is_star instead of CLASS_STAR
+    # ...all of this should make us conclude that we should really not be claiming
+    # to do photometry to better than a couple of percent!
+    # assert sources.calc_aper_cor() == pytest.approx( -0.174, abs=0.001 )
+    # assert sources.calc_aper_cor( inf_aper_num=6 ) == pytest.approx( -0.172, abs=0.001 )
+    # assert sources.calc_aper_cor( inf_aper_num=2 ) == pytest.approx( -0.167, abs=0.001 )
+    # assert sources.calc_aper_cor( aper_num=2 ) == pytest.approx( -0.007, abs=0.001 )
+    # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=6 ) == pytest.approx( -0.004, abs=0.001 )
+

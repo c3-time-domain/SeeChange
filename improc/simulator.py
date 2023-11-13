@@ -81,6 +81,7 @@ class SimPars(Parameters):
 
         self.atmos_psf_mode = self.add_par('atmos_psf_mode', 'gaussian', str, 'Atmospheric PSF mode')
         self.atmos_psf_pars = self.add_par('atmos_psf_pars', {'sigma': 1.0}, dict, 'Atmospheric PSF parameters')
+        self.oversampling = self.add_par('oversampling', 5, int, 'Oversampling of the PSF')
 
         self.star_number = self.add_par('star_number', 1000, int, 'Number of stars (on average) to simulate')
         self.star_min_flux = self.add_par('star_min_flux', 100, (int, float), 'Minimum flux for the star power law')
@@ -184,12 +185,22 @@ class SimTruth:
         self.star_mean_x_pos = None  # for each star, the mean x position
         self.star_mean_y_pos = None  # for each star, the mean y position
         self.star_position_std = None  # for each star, the variation in position (in both x and y)
+        self.star_real_x_pos = None  # for each star, the real position on the image plane
+        self.star_real_y_pos = None  # for each star, the real position on the image plane
+        self.star_real_flux = None  # for each star, the real flux measured on the sky (before vignette, etc.)
 
         # additional random things that are unique to each image
         self.cosmic_ray_x_pos = None  # where each cosmic ray was
         self.cosmic_ray_y_pos = None  # where each cosmic ray was
 
         # TODO: add satellite trails
+
+        # the noise and PSF info used to make the image
+        self.psf = None  # the PSF used to make this image
+        self.psf_downsampled = None  # the PSF, correctly downsampled as to retain the symmetric single peak pixel
+        self.average_counts = None  # the final counts, not including noise
+        self.noise_var_map = None  # the total variance from read, dark, sky b/g, and source noise
+        self.total_bkg_var = None  # the total variance from read, dark, and sky b/g (not including source noise)
 
 
 class SimSensor:
@@ -261,7 +272,7 @@ class SimCamera:
         self.optic_psf_image = None  # the final shape of the PSF for this image
         self.optic_psf_fwhm = None  # e.g., the total effect of optical aberrations on the width
 
-    def make_optic_psf(self, oversampling):
+    def make_optic_psf(self):
         """
         Make the optical PSF.
         Uses the optic_psf_mode to generate the PSF map
@@ -270,9 +281,7 @@ class SimCamera:
         Saves the results into optic_psf_image and optic_psf_fwhm.
 
         """
-        self.oversampling = oversampling
-
-        if self.optic_psf_mode.lower() == 'gaussian':
+        if self.optic_psf_mode.lower().startswith('gauss'):
             self.optic_psf_image = make_gaussian(self.optic_psf_pars['sigma'] * self.oversampling)
             self.optic_psf_fwhm = self.optic_psf_pars['sigma'] * 2.355
         else:
@@ -320,16 +329,14 @@ class SimSky:
         self.atmos_psf_image = None  # the final shape of the PSF for this image
         self.atmos_psf_fwhm = None  # e.g., the seeing
 
-    def make_atmos_psf(self, oversampling):
+    def make_atmos_psf(self):
         """
         Use the psf mode, pars and the seeing_instance
         to produce an atmospheric PSF.
         This PSF is used to convolve the optical PSF to get the total PSF.
 
         """
-        self.oversampling = oversampling
-
-        if self.atmos_psf_mode.lower() == 'gaussian':
+        if self.atmos_psf_mode.lower().startswith('gauss'):
             self.atmos_psf_image = make_gaussian(self.atmos_psf_pars['sigma'] * self.oversampling)
             self.atmos_psf_fwhm = self.atmos_psf_pars['sigma'] * 2.355
         else:
@@ -349,7 +356,7 @@ class SimStars:
         self.star_mean_y_pos = None  # for each star, the mean y position
         self.star_position_std = None  # for each star, the variation in position (in both x and y)
 
-    def make_star_field(self, imsize):
+    def make_star_list(self, imsize):
         """
         Make a field of stars.
         Uses the power law to draw random mean fluxes,
@@ -362,6 +369,53 @@ class SimStars:
         self.star_mean_x_pos = rng.uniform(-0.01, 1.01, self.star_number) * imsize[1]
         self.star_mean_y_pos = rng.uniform(-0.01, 1.01, self.star_number) * imsize[0]
 
+    def add_extra_stars(self, imsize, flux=None, x=None, y=None, number=1):
+        """Add one more star to the star field. This is explicitly added by the user on top of the star_number.
+
+        Parameters
+        ----------
+        imsize: tuple
+            The size of the image (y, x)
+        flux: float (optional)
+            The flux of the new star. If None (default), will randomly choose a flux from the power law.
+        x: float (optional)
+            The x position of the new star. If None (default), will randomly choose a position.
+        y: float (optional)
+            The y position of the new star. If None (default), will randomly choose a position.
+        number: int
+            The number of stars to add. Default is 1.
+            If any of (flux, x, y) are given as an array, then
+            the number must match the length of that array.
+            If all are given, number is ignored.
+
+        """
+        rng = np.random.default_rng()
+        alpha = abs(self.star_flux_power_law) - 1
+        flux = self.star_min_flux / rng.power(alpha, number) if flux is None else flux
+        x = rng.uniform(-0.01, 1.01, number) * imsize[1] if x is None else x
+        y = rng.uniform(-0.01, 1.01, number) * imsize[0] if y is None else y
+
+        if not isinstance(x, np.ndarray):
+            x = np.array([x])
+        if not isinstance(y, np.ndarray):
+            y = np.array([y])
+        if not isinstance(flux, np.ndarray):
+            flux = np.array([flux])
+
+        if len(x) != len(y) or len(flux) != len(x):
+            raise ValueError(f'Size mismatch between flux ({len(flux)}), x ({len(x)}) and y ({len(y)}).')
+
+        self.star_mean_fluxes = np.append(self.star_mean_fluxes, np.array(flux))
+        self.star_mean_x_pos = np.append(self.star_mean_x_pos, np.array(x))
+        self.star_mean_y_pos = np.append(self.star_mean_y_pos, np.array(y))
+
+    def remove_stars(self, number=1):
+        """Remove the latest few stars (default is only one) from the star field. """
+        if number > 0:
+            self.star_mean_fluxes = self.star_mean_fluxes[:-number]
+            self.star_mean_x_pos = self.star_mean_x_pos[:-number]
+            self.star_mean_y_pos = self.star_mean_y_pos[:-number]
+
     def get_star_x_values(self):
         """
         Return the positions of the stars (in pixel coordinates)
@@ -369,9 +423,9 @@ class SimStars:
         to the mean star positions.
 
         """
-        x = self.star_mean_x_pos
+        x = self.star_mean_x_pos.copy()
         if self.star_position_std is not None:
-            x += np.random.normal(0, self.star_position_std, self.star_number)
+            x += np.random.normal(0, self.star_position_std, len(x))
 
         return x
 
@@ -382,9 +436,9 @@ class SimStars:
         to the mean star positions.
 
         """
-        y = self.star_mean_y_pos
+        y = self.star_mean_y_pos.copy()
         if self.star_position_std is not None:
-            y += np.random.normal(0, self.star_position_std, self.star_number)
+            y += np.random.normal(0, self.star_position_std, len(y))
 
         return y
 
@@ -423,7 +477,7 @@ class Simulator:
         self.star_f = None
 
         self.psf = None  # we are cheating because this includes both the optical and atmospheric PSFs
-        self.oversampling = None  # how much oversampling (integer) do we need to express fluxes?
+        self.psf_downsampled = None # the PSF, correctly downsampled as to retain the symmetric single peak pixel
         self.flux_top = None  # this is the mean number of photons hitting the top of the atmosphere
 
         # adding the sky into the mix
@@ -437,6 +491,7 @@ class Simulator:
 
         self.average_counts = None  # the final counts, not including noise
         self.noise_var_map = None  # the total variance from read, dark, sky b/g, and source noise
+        self.total_bkg_var = None  # the total variance from read, dark, and sky b/g (not including source noise)
 
         # outputs:
         self.image = None
@@ -497,9 +552,6 @@ class Simulator:
 
         self.camera.optic_psf_mode = self.pars.optic_psf_mode
         self.camera.optic_psf_pars = self.pars.optic_psf_pars
-
-        oversampling = 10
-        self.camera.make_optic_psf(oversampling)  # use a large oversampling just to get the FWHM
 
     def make_sky(self):
         """
@@ -568,7 +620,27 @@ class Simulator:
         self.stars.star_flux_power_law = self.pars.star_flux_power_law
         self.stars.star_position_std = self.pars.star_position_std
 
-        self.stars.make_star_field(self.pars.imsize)
+        self.stars.make_star_list(self.pars.imsize)
+
+    def add_extra_stars(self, flux=None, x=None, y=None, number=1):
+        """Add one more star to the star field. This is explicitly added by the user on top of the star_number.
+
+        Parameters
+        ----------
+        flux: float (optional)
+            The flux of the new star. If None (default), will randomly choose a flux from the power law.
+        x: float (optional)
+            The x position of the new star. If None (default), will randomly choose a position.
+        y: float (optional)
+            The y position of the new star. If None (default), will randomly choose a position.
+        number: int
+            The number of stars to add. Default is 1.
+
+        """
+        if self.stars is None:
+            self.make_stars()
+
+        self.stars.add_extra_stars(self.pars.imsize, flux, x, y, number)
 
     def make_image(self, new_sensor=False, new_camera=False, new_sky=False, new_stars=False):
         """
@@ -606,7 +678,24 @@ class Simulator:
             if self.pars.show_runtimes:
                 print(f'time to make stars: {time.time() - t0:.2f}s')
 
+        # make a PSF
+        # fwhm = np.sqrt(self.camera.optic_psf_fwhm ** 2 + self.sky.seeing_instance ** 2)
+        # oversample_estimate = int(np.ceil(10 / fwhm))  # allow 10 pixels across the PSF's width
+        # oversample_estimate += (oversample_estimate + 1) % 2  # make sure the oversampling is an odd number
+        self.camera.oversampling = self.pars.oversampling
+        self.sky.oversampling = self.pars.oversampling
+
+        # produce the atmospheric and optical PSF
+        self.camera.make_optic_psf()
+        self.sky.make_atmos_psf()
+
+        self.psf = scipy.signal.convolve(self.sky.atmos_psf_image, self.camera.optic_psf_image, mode='full')
+        self.psf /= np.sum(self.psf)
+
         # stars:
+
+        # make sure to update this parameter before calling get_star_x_values and get_star_y_values
+        self.stars.star_position_std = self.pars.star_position_std
         self.star_x = self.stars.get_star_x_values()
         self.star_y = self.stars.get_star_y_values()
         self.star_f = self.stars.get_star_flux_values()
@@ -661,33 +750,42 @@ class Simulator:
         Will calculate the oversampled instrumental, atmospheric and total PSF.
         Will calculate the flux_top image.
         """
-        fwhm = np.sqrt(self.camera.optic_psf_fwhm ** 2 + self.sky.seeing_instance ** 2)
-        oversample_estimate = int(np.ceil(10 / fwhm))  # allow 10 pixels across the PSF's width
-        oversampling = max(1, oversample_estimate)
-        self.oversampling = oversampling
-
-        self.camera.make_optic_psf(oversampling)
-        self.sky.make_atmos_psf(oversampling)
-        self.psf = scipy.signal.convolve(self.sky.atmos_psf_image, self.camera.optic_psf_image, mode='full')
-
+        ovsmp = self.pars.oversampling
         imsize = self.pars.imsize
         buffer = (int(np.ceil(imsize[0] * 0.02)), int(np.ceil(imsize[1] * 0.02)))
         imsize = (imsize[0] + buffer[0] * 2, imsize[1] + buffer[1] * 2)
-        imsize = (imsize[0] * self.oversampling, imsize[1] * self.oversampling)
+        imsize = (imsize[0] * ovsmp, imsize[1] * ovsmp)
         self.flux_top = np.zeros(imsize, dtype=float)
 
         for x, y, f in zip(self.star_x, self.star_y, self.star_f):
-            self.flux_top[round((y + buffer[0]) * self.oversampling), round((x + buffer[1]) * self.oversampling)] += f
+            x_im = round((x + buffer[1]) * ovsmp)
+            y_im = round((y + buffer[0]) * ovsmp)
+            if x_im < 0 or x_im >= imsize[1] or y_im < 0 or y_im >= imsize[0]:
+                continue
+            self.flux_top[y_im, x_im] += f
 
         self.flux_top = scipy.signal.convolve(self.flux_top, self.psf, mode='same')
 
         # downsample back to pixel resolution
-        if oversampling > 1:
+        if ovsmp > 1:
             # this convolution means that each new pixel is the SUM of all the pixels in the kernel
-            kernel = np.ones((oversampling, oversampling), dtype=float)
+            kernel = np.ones((ovsmp, ovsmp), dtype=float)
+
+            # correctly downsample the PSF to retain the symmetric single peak pixel
+            psf_conv = scipy.signal.convolve(self.psf, kernel, mode='same')
+            peak_indices = np.unravel_index(np.argmax(psf_conv), psf_conv.shape)
+            offset = tuple(p % ovsmp for p in peak_indices)
+
+            self.psf_downsampled = self.psf[offset[0]::ovsmp, offset[1]::ovsmp].copy()
+            self.psf_downsampled /= np.sum(self.psf_downsampled)
+
+            # now downsample the flux image
             self.flux_top = scipy.signal.convolve(self.flux_top, kernel, mode='same')
-            self.flux_top = self.flux_top[oversampling//2::oversampling, oversampling//2::oversampling]
-            self.flux_top = self.flux_top[buffer[0]:-buffer[0], buffer[1]:-buffer[1]]
+            self.flux_top = self.flux_top[ovsmp // 2::ovsmp, ovsmp // 2::ovsmp].copy()
+            self.flux_top = self.flux_top[buffer[0]:-buffer[0], buffer[1]:-buffer[1]].copy()
+
+        else:
+            self.psf_downsampled = self.psf.copy()
 
     def add_atmosphere(self):
         """
@@ -762,6 +860,11 @@ class Simulator:
         self.average_counts = self.electrons * self.sensor.pixel_gain_map
         self.noise_var_map = self.electrons + self.sensor.read_noise ** 2
 
+        # this is the background noise variance, not including source noise
+        self.total_bkg_var = self.sensor.read_noise ** 2
+        self.total_bkg_var += self.sensor.dark_current * self.pars.exposure_time
+        self.total_bkg_var += self.sky.background_instance
+
     def add_noise(self):
         """
         Combine the noise variance map and the counts without noise to make
@@ -773,6 +876,7 @@ class Simulator:
         )
         self.image *= self.sensor.pixel_gain_map
         self.noise_var_map *= self.sensor.pixel_gain_map ** 2
+        self.total_bkg_var *= self.sensor.pixel_gain_map ** 2
         self.image = np.round(self.image).astype(int)
 
     def apply_bias_correction(self, image):
@@ -821,7 +925,7 @@ class Simulator:
         t.vignette_offset_y = self.camera.vignette_offset_y
         t.vignette_map = self.camera.vignette_map
 
-        t.oversampling = self.oversampling
+        t.oversampling = self.camera.oversampling
         t.optic_psf_mode = self.camera.optic_psf_mode
         t.optic_psf_pars = self.camera.optic_psf_pars
         t.optic_psf_image = self.camera.optic_psf_image
@@ -854,6 +958,15 @@ class Simulator:
         t.star_mean_x_pos = self.stars.star_mean_x_pos
         t.star_mean_y_pos = self.stars.star_mean_y_pos
         t.star_position_std = self.stars.star_position_std
+        t.star_real_x_pos = self.star_x
+        t.star_real_y_pos = self.star_y
+        t.star_real_flux = self.star_f
+
+        t.psf = self.psf
+        t.psf_downsampled = self.psf_downsampled
+        t.average_counts = self.average_counts
+        t.noise_var_map = self.noise_var_map
+        t.total_bkg_var = self.total_bkg_var
 
         self.truth = t
 

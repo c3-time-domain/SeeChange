@@ -66,6 +66,19 @@ def tests_setup_and_teardown():
         session.commit()
 
 
+@pytest.fixture
+def headless_plots():
+    import matplotlib
+
+    backend = matplotlib.get_backend()
+    # ref: https://stackoverflow.com/questions/15713279/calling-pylab-savefig-without-display-in-ipython
+    matplotlib.use("Agg")
+
+    yield None
+
+    matplotlib.use(backend)
+
+
 def rnd_str(n):
     return ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyz'), n))
 
@@ -431,9 +444,6 @@ def decam_example_reduced_image_ds( code_version, decam_example_exposure ):
 @pytest.fixture
 def decam_example_reduced_image_ds_with_wcs( decam_example_reduced_image_ds ):
     ds = decam_example_reduced_image_ds
-    astrometor = AstroCalibrator( catalog='GaiaDR3', method='scamp', max_mag=[22.], mag_range=4.,
-                                  min_stars=50, max_resid=0.15, crossid_radius=[2.0],
-                                  min_frac_matched=0.1, min_matched_stars=10 )
     with open( ds.image.get_fullpath()[0], "rb" ) as ifp:
         md5 = hashlib.md5()
         md5.update( ifp.read() )
@@ -443,11 +453,17 @@ def decam_example_reduced_image_ds_with_wcs( decam_example_reduced_image_ds ):
     yvals = [ 0, 4095, 0, 4095 ]
     origwcs = WCS( ds.image.raw_header )
 
+    astrometor = AstroCalibrator( catalog='GaiaDR3', method='scamp', max_mag=[22.], mag_range=4.,
+                                  min_stars=50, max_resid=0.15, crossid_radius=[2.0],
+                                  min_frac_matched=0.1, min_matched_stars=10 )
     ds = astrometor.run( ds )
 
-    yield ds, origwcs, xvals, yvals, origmd5
+    return ds, origwcs, xvals, yvals, origmd5
 
-    #TODO : cleanup
+    # Don't need to do any cleaning up, because no files were written
+    # doing the WCS (it's all database), and the
+    # decam_example_reduced_image_ds is going to do a
+    # ds.delete_everything()
 
 @pytest.fixture
 def decam_small_image(decam_example_raw_image):

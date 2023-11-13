@@ -446,7 +446,6 @@ class FileOnDiskMixin:
                 override the _do_not_require_file_to_exist() method.
                 # TODO: add the check that file exists before committing?
         """
-        _logger.debug( f"In FileOnDiskMixin.__init__ for {self.__class__.__name__}" )
         if len(args) == 1 and isinstance(args[0], str):
             self.filepath = args[0]
 

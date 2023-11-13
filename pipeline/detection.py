@@ -64,7 +64,7 @@ class ParsDetector(Parameters):
               'default is to use the last one.  Ignored if self.apers is None.' ),
             critical=True
         )
-        
+
         self.aperunit = self.add_par(
             'aperunit',
             'fwhm',
@@ -266,7 +266,7 @@ class Detector:
             # longer includes all (or even most) of the pixels in the
             # aperture, so edge effects, bad pixels, etc. aren't getting
             # flagged by sextractor.  Note that for a 2d Gaussian,
-            # r=5*FWHM has 1-3.7×10⁻⁶ of the flux.  Keep the bigger ones,
+            # r=5*FWHM has 1-10^-30 of the flux.  Keep the bigger ones,
             # though, for diagnostic purposes.
             #
             # It might be worth thinking about replacing the sextractor
@@ -275,7 +275,8 @@ class Detector:
         else:
             apers = self.pars.apers
             inf_aper_num = self.pars.inf_aper_num
-            inf_aper_num = len( apers ) - 1 if inf_aper_num is None
+            if inf_aper_num is None:
+                inf_aper_num = len( apers ) - 1
 
         if self.pars.measure_psf:
             # Run sextractor once without a psf to get objects from
@@ -289,9 +290,11 @@ class Detector:
             if self.pars.aperunit == 'fwhm':
                 if image.instrument_object.pixel_scale is not None:
                     aperrad *= 2. / image.instrument_object.pixel_scale
-            sources = self._run_sextractor_once( image, apers=[aperrad], *args, tempname=tempnamebase, **kwargs )
+            _logger.debug( "detection: running sextractor once without PSF to get sources" )
+            sources = self._run_sextractor_once( image, apers=[aperrad], psffile=None, tempname=tempnamebase )
 
             # Get the PSF
+            _logger.debug( "detection: determining psf" )
             psf = self._run_psfex( tempnamebase, image.id, do_not_cleanup=True )
             psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
             psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
@@ -311,7 +314,9 @@ class Detector:
 
         # Now that we have a psf, run sextractor (maybe a second time)
         # to get the actual measurements.
+        _logger.debug( "detection: running sextractor with psf to get final source list" )
         sources = self._run_sextractor_once( image, apers=apers, psffile=psfpath, tempname=tempnamebase )
+        _logger.debug( f"detection: sextractor found {len(sources.data)} sources" )
 
         snr = sources.apfluxadu()[0] / sources.apfluxadu()[1]
         if snr.min() > self.pars.threshold:
@@ -319,7 +324,7 @@ class Detector:
         w = np.where( snr >= self.pars.threshold )
         sources.data = sources.data[w]
         sources.num_sources = len( sources.data )
-        sources.inf_aper_num = inf_aper_num
+        sources._inf_aper_num = inf_aper_num
 
         # Clean up the temporary files created (that weren't already cleaned up by _run_sextractor_once)
         sourcepath.unlink( missing_ok=True )
@@ -430,6 +435,18 @@ class Detector:
         # apertures we have matches the apertures we ask for.
         # TODO : review the default param file and make sure we have the
         # things we want, and don't have too much.
+        #
+        # (Note that adding the SPREAD_MODEL parameter seems to add
+        # substantially to sextractor runtime-- on the decam test image
+        # on my desktop, it goes from a several seconds to a minute and
+        # a half.  SPREAD_MODEL is supposed to be a much better
+        # star/galaxy separator than the older CLASS_STAR parameter.
+        # Right now, it's in there, as source_list uses it in the
+        # is_star property.  Investigate whether there's a way to
+        # parallelize this (using -NTHREADS 8 doesn't lead sextractor to
+        # using more than one CPU), or even GPUize it....  (I.e.,
+        # rewrite sextractor....)
+
         if len(apers) == 1:
             paramfile = paramfilebase
         else:
@@ -505,7 +522,8 @@ class Detector:
                      "-BACK_FILTERSIZE", str( image.instrument_object.background_filt_size ),
                      "-MEMORY_OBJSTACK", str( 20000 ),  # TODO: make these configurable?
                      "-MEMORY_PIXSTACK", str( 1000000 ),
-                     "-MEMORY_BUFSIZE", str( 4096 )
+                     "-MEMORY_BUFSIZE", str( 4096 ),
+                     "-NTHREADS", "8"
                     ]
             args.extend( psfargs )
             args.append( tmpimage )
