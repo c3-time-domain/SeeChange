@@ -162,6 +162,7 @@ class ImageTypeConverter( EnumConverter ):
         13: 'TwiFlat',
         14: 'ComTwiFlat',
         15: 'Fringe',
+        16: 'Warped',
     }
     _allowed_values = None
     _dict_filtered = None

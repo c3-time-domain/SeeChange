@@ -9,6 +9,7 @@ import shutil
 import pathlib
 import hashlib
 import yaml
+import subprocess
 
 import numpy as np
 
@@ -35,6 +36,8 @@ from pipeline.detection import Detector
 from pipeline.astro_cal import AstroCalibrator
 from util import config
 from util.archive import Archive
+from util.retrydownload import retry_download
+from util.exceptions import SubprocessFailure
 
 
 # idea taken from: https://shay-palachy.medium.com/temp-environment-variables-for-pytest-7253230bd777
@@ -120,6 +123,7 @@ def provenance_base(code_version):
     )
 
     with SmartSession() as session:
+        p.code_version=session.merge(code_version)
         session.add(p)
         session.commit()
         session.refresh(p)
@@ -465,6 +469,44 @@ def decam_example_reduced_image_ds_with_wcs( decam_example_reduced_image_ds ):
     # decam_example_reduced_image_ds is going to do a
     # ds.delete_everything()
 
+@pytest.fixture
+def ref_for_decam_example_image( provenance_base ):
+    datadir = pathlib.Path( FileOnDiskMixin.local_path ) / 'test_data/DECam_examples'
+    filebase = 'DECaPS-West_20220112.g.32'
+
+    urlmap = { '.image.fits': '.fits.fz',
+               '.weight.fits': '.weight.fits.fz',
+               '.flags.fits': '.bpm.fits.fz' }
+    for ext in [ '.image.fits', '.weight.fits', '.flags.fits' ]:
+        path = datadir / f'{filebase}{ext}'
+        cachedpath = datadir / f'{filebase}{ext}_cached'
+        fzpath = datadir / f'{filebase}{ext}_cached.fz'
+        if cachedpath.is_file():
+            _logger.info( f"{path} exists, not redownloading." )
+        else:
+            url = ( f'https://portal.nersc.gov/cfs/m2218/decat/decat/templatecache/DECaPS-West_20220112.g/'
+                    f'{filebase}{urlmap[ext]}' )
+            import pdb; pdb.set_trace()
+            retry_download( url, fzpath )
+            res = subprocess.run( [ 'funpack', '-D', fzpath ] )
+            if res.returncode != 0:
+                raise SubprocessFailure( res )
+        shutil.copy2( cachedpath, path )
+
+    prov = provenance_base
+            
+    with open( datadir / f'{filebase}.image.yaml' ) as ifp:
+        refyaml = yaml.safe_load( ifp )
+    image = Image( **refyaml )
+    image.provenance = prov
+    image.filepath = f'test_data/DECam_examples/{filebase}'
+
+    yield image
+
+    # Just in case the image got added to the database:
+    image.delete_from_disk_and_database()
+
+    
 @pytest.fixture
 def decam_small_image(decam_example_raw_image):
     image = decam_example_raw_image

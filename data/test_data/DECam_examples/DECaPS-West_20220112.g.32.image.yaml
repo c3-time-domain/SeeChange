@@ -1,0 +1,28 @@
+format: fits
+filepath: test_data/DECam_examples/DECaPS-West_20220112.g.32
+filepath_extensions: [ '.image.fits', '.weight.fits', '.flags.fits' ]
+md5sum_extensions: [ null, null, null ]
+type: Sci
+filter: g something something
+mjd: 59592.21
+end_mjd: 59592.217
+exp_time: 576
+instrument: DECam
+telescope: CTIO 4.0-m telescope
+section_id: N1            # instr/telesc/section_id not really right since this is from DECaPS DR coadd.
+project: DECaPS
+target: DECaPS-West
+header: {}
+preproc_bitflag: 0
+astro_cal_done: false
+_bitflag: 0
+ra: 115.283504963811
+dec: -26.3293385572882
+ra_corner_00: 115.116736531468
+ra_corner_01: 115.116736531468
+ra_corner_10: 115.450273396154
+ra_corner_11: 115.450273396154
+dec_corner_00: -26.4040077833119
+dec_corner_01: -26.2546693312645
+dec_corner_10: -26.4040077833119
+dec_corner_11: -26.2546693312645
