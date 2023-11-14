@@ -1,15 +1,16 @@
 import pytest
+import pathlib
 
 import numpy as np
 from matplotlib import pyplot
 
-from models.base import SmartSession
+from models.base import SmartSession, CODE_ROOT
 from models.zero_point import ZeroPoint
 
 from pipeline.photo_cal import PhotCalibrator
 
 
-def test_decam_photo_cal( decam_example_reduced_image_ds_with_wcs ):
+def test_decam_photo_cal( decam_example_reduced_image_ds_with_wcs, headless_plots ):
     ds = decam_example_reduced_image_ds_with_wcs[0]
     ds.save_and_commit()
     with SmartSession() as session:
@@ -47,7 +48,7 @@ def test_decam_photo_cal( decam_example_reduced_image_ds_with_wcs ):
             ax.set_ylabel( "zp" )
             ax.set_ylim( ( ds.zp.zp-0.3, ds.zp.zp+0.3 ) )
 
-            fig.savefig( 'test_decam_photo_cal.svg' )
+            fig.savefig( pathlib.Path( CODE_ROOT ) / 'tests/plots/test_decam_photo_cal.svg' )
             pyplot.close( fig )
 
         # WORRY : zp + apercor (for the first aperture) is off from the
@@ -56,9 +57,9 @@ def test_decam_photo_cal( decam_example_reduced_image_ds_with_wcs ):
         # either DECaPS or PanSTARRS (investigate this), and it's
         # entirely possible that it's the lensgrinder zeropoint that is
         # off.
-        assert ds.zp.zp == pytest.approx( 30.165, abs=0.001 )
+        assert ds.zp.zp == pytest.approx( 30.168, abs=0.001 )
         assert ds.zp.dzp == pytest.approx( 1.38e-7, rel=0.01 )   # That number is absurd, but oh well
-        assert ds.zp.aper_cor_apers == pytest.approx( [ 2.915, 4.331, 8.661, 12.992,
+        assert ds.zp.aper_cor_radii == pytest.approx( [ 2.915, 4.331, 8.661, 12.992,
                                                         17.323, 21.653, 30.315, 43.307 ], abs=0.001 )
-        assert ds.zp.aper_cors == pytest.approx( [-0.450, -0.173, -0.025, -0.005,
-                                                  0.0, 0.002, 0.003, 0.009 ], abs=0.001 )
+        assert ds.zp.aper_cors == pytest.approx( [-0.457, -0.177, -0.028, -0.007,
+                                                  0.0, 0.003, 0.005, 0.006 ], abs=0.001 )

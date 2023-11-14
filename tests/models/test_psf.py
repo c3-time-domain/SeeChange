@@ -1,5 +1,6 @@
 import pytest
 import io
+import os
 import random
 import math
 import pathlib
@@ -289,7 +290,7 @@ def test_write_psfex_psf( example_image_with_sources_and_psf_filenames ):
         sourcesfullpath.unlink( missing_ok=True )
 
 
-# @pytest.mark.skip( reason="slow" )
+@pytest.mark.skipif( os.getenv('RUN_SLOW_TESTS') is None, reason="Set RUN_SLOW_TESTS to run this test" )
 def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # psf_palette = round_psf_palette
     psf = psf_palette.psf

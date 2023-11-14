@@ -11,6 +11,7 @@ from astropy.wcs import WCS
 from astropy.io import fits
 
 from util.exceptions import CatalogNotFoundError, BadMatchException
+from util import ldac
 from models.base import SmartSession, FileOnDiskMixin
 from models.catalog_excerpt import CatalogExcerpt
 from models.image import Image
@@ -53,6 +54,14 @@ def test_download_GaiaDR3():
         assert catexp.num_items == 59
         assert catexp.minmag == 17.
         assert catexp.maxmag == 19.
+
+        hdr, tbl = ldac.get_table_from_ldac( secondfilepath, imghdr_as_header=True )
+        for col in [ 'X_WORLD', 'Y_WORLD', 'ERRA_WORLD', 'ERRB_WORLD', 'PM', 'PMRA', 'PMDEC',
+                     'MAG_G', 'MAGERR_G', 'MAG_BP', 'MAGERR_BP', 'MAG_RP', 'MAGERR_RP', 'STARPROB',
+                     'OBSDATE', 'FLAGS' ]:
+            assert col in tbl.columns
+        assert ( tbl['STARPROB'] > 0.95 ).sum() == 59
+
     finally:
         if firstfilepath is not None:
             pathlib.Path( firstfilepath ).unlink( missing_ok=True )

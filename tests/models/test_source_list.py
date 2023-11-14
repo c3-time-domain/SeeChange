@@ -1,4 +1,5 @@
 import pytest
+import os
 import pathlib
 import numpy as np
 
@@ -12,7 +13,7 @@ from models.source_list import SourceList
 
 from tests.conftest import ImageCleanup
 
-@pytest.mark.skip( reason="slow" )
+@pytest.mark.skipif( os.getenv('RUN_SLOW_TESTS') is None, reason="Set RUN_SLOW_TESTS to run this test" )
 def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_extra):
     filenames = []
     with SmartSession() as session:
@@ -217,22 +218,21 @@ def test_calc_apercor( decam_example_reduced_image_ds ):
     sources = decam_example_reduced_image_ds.get_sources()
 
     # The numbers below are what you get when you use CLASS_STAR in SourceList.is_star
-    # assert sources.calc_aper_cor() == pytest.approx( -0.457, abs=0.001 )
-    # assert sources.calc_aper_cor( aper_num=1 ) == pytest.approx( -0.177, abs=0.001 )
-    # assert sources.calc_aper_cor( inf_aper_num=7 ) == pytest.approx( -0.463, abs=0.001 )
-    # assert sources.calc_aper_cor( inf_aper_num=2 ) == pytest.approx( -0.428, abs=0.001 )
-    # assert sources.calc_aper_cor( aper_num=2 ) == pytest.approx( -0.028, abs=0.001 )
-    # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.034, abs=0.001 )
+    assert sources.calc_aper_cor() == pytest.approx( -0.457, abs=0.001 )
+    assert sources.calc_aper_cor( aper_num=1 ) == pytest.approx( -0.177, abs=0.001 )
+    assert sources.calc_aper_cor( inf_aper_num=7 ) == pytest.approx( -0.463, abs=0.001 )
+    assert sources.calc_aper_cor( inf_aper_num=2 ) == pytest.approx( -0.428, abs=0.001 )
+    assert sources.calc_aper_cor( aper_num=2 ) == pytest.approx( -0.028, abs=0.001 )
+    assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.034, abs=0.001 )
 
     # The numbers below are what you get if you use the SPREAD_MODEL
     # parameter in SourceList.is_star instead of CLASS_STAR
     # ...all of this should make us conclude that we should really not be claiming
     # to do photometry to better than a couple of percent!
-    # apertures.  They should be updated if we ever try to use them.
-    assert sources.calc_aper_cor() == pytest.approx( -0.450, abs=0.001 )
-    assert sources.calc_aper_cor( aper_num=1 ) == pytest.approx( -0.173, abs=0.001 )
-    assert sources.calc_aper_cor( inf_aper_num=7 ) == pytest.approx( -0.450, abs=0.001 )
-    assert sources.calc_aper_cor( inf_aper_num=2 ) == pytest.approx( -0.425, abs=0.001 )
-    assert sources.calc_aper_cor( aper_num=2 ) == pytest.approx( -0.025, abs=0.001 )
-    assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.024, abs=0.001 )
+    # assert sources.calc_aper_cor() == pytest.approx( -0.450, abs=0.001 )
+    # assert sources.calc_aper_cor( aper_num=1 ) == pytest.approx( -0.173, abs=0.001 )
+    # assert sources.calc_aper_cor( inf_aper_num=7 ) == pytest.approx( -0.450, abs=0.001 )
+    # assert sources.calc_aper_cor( inf_aper_num=2 ) == pytest.approx( -0.425, abs=0.001 )
+    # assert sources.calc_aper_cor( aper_num=2 ) == pytest.approx( -0.025, abs=0.001 )
+    # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.024, abs=0.001 )
 

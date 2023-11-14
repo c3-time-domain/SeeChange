@@ -327,21 +327,26 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         apfluxadu() function, etc.
 
         True means the object is likely a star, under the assumption
-        that the image is clean.
+        that the image is clean... but see below.
 
-        Right now, the code is using the SPREAD_MODEL parmaeter produced
-        by SExtractor.  However, use of that comes at a nontrivial time
-        cost; on at least one test image, this made the runtime of
-        SExtractor go from a few seconds to more than a minute.
-        However, CLASS_STAR identified fewer than 1/4 of the stars that
-        a SPREAD_MODEL cut did.
+        Notes for SExtractor:
 
-        We need to evaluate whether CLASS_STAR is good enough, or if
-        it's OK to take the time hit.
+        SExtrator has two different star/galaxy cateogorizers, CLASS_STAR and SPREAD_MODEL:
 
-        See
           https://sextractor.readthedocs.io/en/latest/Position.html#class-star-def
           https://sextractor.readthedocs.io/en/latest/Model.html#spread-model-def
+
+        SPREAD_MODEL is the more reliable one (based on the
+        documentation, and also based on experimentation with one test
+        image); CLASS_STAR that test images misses most of the stars.
+        However, SPREAD_MODEL takes a lot longer to run (see the
+        documentation linked above for a description of what it does).
+        Runtime on the test image goes from a few seconds to roughly a
+        minute.
+
+        Right now, the code doesn't run SPREAD_MODEL, and the
+        classification below is based on CLASS_STAR.  As such, this
+        classification should not be considered very reliable.
 
         """
 
@@ -351,12 +356,12 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         if self.format != 'sextrfits':
             raise NotImplementedError( f'is_star is only implemented for format sextrfits' )
 
-        epsilon_2 = 5e-3 ** 2
-        kappa_2 = 4 ** 2
-        thresh = np.sqrt( epsilon_2 + kappa_2 * self.data['SPREADERR_MODEL']**2 )
-        self._is_star = self.data['SPREAD_MODEL'] < thresh
+        # epsilon_2 = 5e-3 ** 2
+        # kappa_2 = 4 ** 2
+        # thresh = np.sqrt( epsilon_2 + kappa_2 * self.data['SPREADERR_MODEL']**2 )
+        # self._is_star = self.data['SPREAD_MODEL'] < thresh
 
-        # self._is_star = self.data['CLASS_STAR'] > 0.8
+        self._is_star = self.data['CLASS_STAR'] > 0.8
 
         return self._is_star
 

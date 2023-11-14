@@ -2,6 +2,7 @@ import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy import orm
+from sqlalchemy.ext.associationproxy import association_proxy
 
 from models.base import Base, AutoIDMixin
 
@@ -22,14 +23,7 @@ class ZeroPoint(Base, AutoIDMixin):
         doc="The source list this zero point is associated with. "
     )
 
-    # TODO : figure this out
-    # image = orm.relationship(
-    #     'Image',
-    #     secondary='source_lists',
-    #     primaryjoin='zero_points.c.source_list_id == source_lists.c.id',
-    #     secondaryjoin='source_lists.c.image_id == images.c.id',
-    #     single_parent=True
-    # )
+    image = association_proxy( "source_list", "image" )
 
     provenance_id = sa.Column(
         sa.ForeignKey('provenances.id', ondelete="CASCADE", name='zero_points_provenance_id_fkey'),
@@ -67,12 +61,12 @@ class ZeroPoint(Base, AutoIDMixin):
         doc="Uncertainty on zp"
     )
 
-    aper_cor_apers = sa.Column(
+    aper_cor_radii = sa.Column(
         sa.ARRAY( sa.REAL ),
         nullable=True,
         default=None,
         index=False,
-        doc="Pixel radii of apertures whose aperture corrections are in aper_cor_aper."
+        doc="Pixel radii of apertures whose aperture corrections are in aper_cors."
     )
 
     aper_cors = sa.Column(
@@ -80,7 +74,7 @@ class ZeroPoint(Base, AutoIDMixin):
         nullable=True,
         default=None,
         index=False,
-        doc=( "Aperture corrections for apertures with radii in aper_cor_apers.  Defined so that "
+        doc=( "Aperture corrections for apertures with radii in aper_cor_radii.  Defined so that "
               "mag = -2.5*log10(adu_aper) + zp + aper_cor, where adu_aper is the number of ADU "
               "in the aperture with the specfiied radius.  There is a built-in approximation that a "
               "single aperture applies across the entire image, which should be OK given that the "
@@ -106,10 +100,10 @@ class ZeroPoint(Base, AutoIDMixin):
 
         """
 
-        if self.aper_cor_apers is None:
+        if self.aper_cor_radii is None:
             raise ValueError( "No aperture corrections tabulated." )
 
-        for aprad, apcor in zip( self.aper_cor_apers, self.aper_cors ):
+        for aprad, apcor in zip( self.aper_cor_radii, self.aper_cors ):
             if np.fabs( rad - aprad ) <= 0.01:
                 return apcor
 

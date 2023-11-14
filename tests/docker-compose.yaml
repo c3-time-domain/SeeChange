@@ -79,6 +79,7 @@ services:
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
       SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
+      RUN_SLOW_TESTS: 1
     depends_on:
       setuptables:
         condition: service_completed_successfully

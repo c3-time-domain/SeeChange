@@ -70,7 +70,7 @@ class PhotCalibrator:
     def __init__(self, **kwargs):
         self.pars = ParsPhotCalibrator(**kwargs)
 
-    def _solve_zp_GaiaDR3( self, image, sources, wcs, catexp, min_matches=10, match_size=1. ):
+    def _solve_zp_GaiaDR3( self, image, sources, wcs, catexp, min_matches=10, match_radius=1. ):
         """Get the instrument zeropoint using a GaiaDR3 reference catalog.
 
         Assumes that a single zeropoint is good enough, and that there's
@@ -99,7 +99,7 @@ class PhotCalibrator:
             Minimum number of matches between the two catalogs to return
             a zeropoint.
 
-          match_size : float, default 1.
+          match_radius : float, default 1.
             Maximum arcseconds away an image source and a catalog object
             may be from each other in both RA and Dec to be considered a
             match.
@@ -130,7 +130,8 @@ class PhotCalibrator:
         gaiaminbp_rp = 0.5
         gaiamaxbp_rp = 3.0
         col = catexp.data[ 'MAG_BP' ] - catexp.data[ 'MAG_RP' ]
-        catdata = catexp.data[ ( col >= gaiaminbp_rp ) & ( col <= gaiamaxbp_rp ) ]
+        catdata = catexp.data[ ( col >= gaiaminbp_rp ) & ( col <= gaiamaxbp_rp ) &
+                               ( catexp.data['STARPROB'] > 0.95 ) ]
         _logger.debug( f"{len(catdata)} Gaia stars with {gaiaminbp_rp}<BP-RP<{gaiamaxbp_rp}" )
 
         # Pull out the source information. Use the aperture that the
@@ -145,16 +146,15 @@ class PhotCalibrator:
 
         # Only use stars that are "good" and that have flux > 3*fluxerr
 
-        wgood = ( sources.good & sources.is_star
+        wgood = ( sources.good
                   & ( ~np.isnan( sourceflux) ) & ( ~np.isnan( sourcefluxerr ) )
                   & ( sourceflux > 3.*sourcefluxerr ) )
         sourcera = sourcera[wgood]
         sourcedec = sourcedec[wgood]
         sourceflux = sourceflux[wgood]
         sourcefluxerr = sourcefluxerr[wgood]
-        _logger.debug( f"{len(sourcera)} of {sources.num_sources} image sources chosen; "
-                       f"{(sources.good & sources.is_star).sum()} are good stars, of those "
-                       f"{len(sourcera)} have flux in 'infinite' aperture >3σ" )
+        _logger.debug( f"{len(sourcera)} of {sources.num_sources} image sources "
+                       f"have flux in 'infinite' aperture >3σ" )
 
         # Match catalog excerpt RA/Dec to source RA/Dec
 
@@ -166,8 +166,8 @@ class PhotCalibrator:
             # Astropy.Longitude could come to our rescue?
             dra = sourcera - catdata[i]['X_WORLD']
             ddec = sourcedec - catdata[i]['Y_WORLD']
-            w = np.where( ( np.fabs( dra ) < match_size/3600./np.cos( sourcedec ) )
-                          & ( np.fabs( ddec ) < match_size/3600. ) )[0]
+            w = np.where( ( np.fabs( dra ) < match_radius/3600./np.cos( sourcedec ) )
+                          & ( np.fabs( ddec ) < match_radius/3600. ) )[0]
             if len(w) == 0:
                 continue
             else:
@@ -188,6 +188,14 @@ class PhotCalibrator:
         sourceflux = sourceflux[ sourcedex ]
         sourcefluxerr = sourcefluxerr[ sourcedex ]
         catdata = catdata[ catdex ]
+
+        # Save this in the object for testing/evaluation purposes
+
+        self.sourcera = sourcera
+        self.sourcedec = sourcedec
+        self.sourceflux = sourceflux
+        self.sourcefluxerr = sourcefluxerr
+        self.catdata = catdata
 
         # At this point we have an Astropy Table in catdata with the
         # catalog information, and we have the image source information
@@ -234,6 +242,12 @@ class PhotCalibrator:
 
         zpval = np.sum( zps / zpvars ) / np.sum( 1. / zpvars )
         dzpval = 1. / np.sum( 1. / (zpvars ) )
+        # TODO : right now, this dzpval is way too low, looking at the scatter in the plots
+        # produced in test_photo_cal.py:test_decam_photo_cal.  Make the estimate more
+        # reasonable by implementing some sort of outlier rejection, and then expanding
+        # errorbars to make the reduced chisq 1.  However, the systematic error on the
+        # zeropoint is probably bigger than this statistical uncertainty anyway, so
+        # even after we do that this estimate is likely to be too small.
 
         return zpval, dzpval
 
@@ -281,6 +295,9 @@ class PhotCalibrator:
                                                min_catalog_stars=self.pars.min_catalog_stars )
             catexp = self.astrometor.fetch_GaiaDR3_excerpt( image, session )
 
+            # Save for testing/evaluation purposes
+            self.catexp = catexp
+
             zpval, dzpval = self._solve_zp_GaiaDR3( image, sources, wcs, catexp )
 
             # Add the aperture corrections
@@ -293,7 +310,7 @@ class PhotCalibrator:
 
             # Make the ZeroPoint object
             ds.zp = ZeroPoint( source_list=ds.sources, provenance=prov, zp=zpval, dzp=dzpval,
-                               aper_cor_apers=sources.aper_rads, aper_cors=apercors )
+                               aper_cor_radii=sources.aper_rads, aper_cors=apercors )
 
         # make sure the DataStore is returned to be used in the next step
         return ds

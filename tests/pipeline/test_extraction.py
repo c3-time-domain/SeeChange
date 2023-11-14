@@ -231,7 +231,6 @@ def test_run_psfex( decam_example_reduced_image_ds ):
         tmppsfxmlfile.unlink( missing_ok=True )
 
 
-@pytest.mark.skip( "Slow, and the same code is tested in test_run_detection_sextractor" )
 def test_extract_sources_sextractor( decam_example_reduced_image_ds ):
     ds = decam_example_reduced_image_ds
     ds.sources = None
@@ -265,13 +264,16 @@ def test_extract_sources_sextractor( decam_example_reduced_image_ds ):
 
     assert sources.apfluxadu()[0].min() == pytest.approx( 204.55038, rel=1e-5 )
     assert sources.apfluxadu()[0].max() == pytest.approx( 1131884.6, rel=1e-5 )
-    assert sources.apfluxadu()[0].mean() == pytest.approx( 37177.227, rel=1e-5 )
-    assert sources.apfluxadu()[0].std() == pytest.approx( 123492.35, rel=1e-5 )
+    assert sources.apfluxadu()[0].mean() == pytest.approx( 37183.51, rel=1e-5 )
+    assert sources.apfluxadu()[0].std() == pytest.approx( 123518.94, rel=1e-5 )
 
     assert sources.good.sum() == 3642
     # This value is what you get using the SPREAD_MODEL parameter
-    assert sources.is_star.sum() == 4870
-    assert ( sources.good & sources.is_star ).sum() == 3593
+    # assert sources.is_star.sum() == 4870
+    # assert ( sources.good & sources.is_star ).sum() == 3593
+    # This is what you get with CLASS_STAR
+    assert sources.is_star.sum() == 337
+    assert ( sources.good & sources.is_star ).sum() == 63
 
 
 # TODO : add tests that handle different
@@ -303,8 +305,11 @@ def test_run_detection_sextractor( decam_example_reduced_image_ds ):
 
     assert ds.sources.good.sum() == 3642
     # This value is what you get using the SPREAD_MODEL parameter
-    assert ds.sources.is_star.sum() == 4882
-    assert ( ds.sources.good & ds.sources.is_star ).sum() == 3593
+    # assert ds.sources.is_star.sum() == 4870
+    # assert ( ds.sources.good & ds.sources.is_star ).sum() == 3593
+    # This value is what you get using the CLASS_STAR parameter
+    assert ds.sources.is_star.sum() == 337
+    assert ( ds.sources.good & ds.sources.is_star ).sum() == 63
 
     # TODO : actually think about these psf fluxes and how they compare
     # to the aperture fluxes (esp. the large-aperture fluxes).  Try to

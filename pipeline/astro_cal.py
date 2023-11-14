@@ -211,7 +211,8 @@ class AstroCalibrator:
             f"SELECT ra, dec, ra_error, dec_error, pm, pmra, pmdec, "
             f"       phot_g_mean_mag, phot_g_mean_flux_over_error, "
             f"       phot_bp_mean_mag, phot_bp_mean_flux_over_error, "
-            f"       phot_rp_mean_mag, phot_rp_mean_flux_over_error "
+            f"       phot_rp_mean_mag, phot_rp_mean_flux_over_error, "
+            f"       classprob_dsc_combmod_star "
             f"FROM gaia_dr3.gaia_source "
             f"WHERE ra>={ralow} AND ra<={rahigh} AND dec>={declow} AND dec<={dechigh} "
         )
@@ -258,7 +259,8 @@ class AstroCalibrator:
                 "phot_rp_mean_flux_over_error": "MAGERR_RP",
                 "pm": "PM",
                 "pmra": "PMRA",
-                "pmdec": "PMDEC" },
+                "pmdec": "PMDEC",
+                "classprob_dsc_combmod_star": "STARPROB" },
             inplace=True
         )
         # Make the errors actual magnitude errors.  (1.0857 = 2.5/ln(10))
