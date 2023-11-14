@@ -1,18 +1,15 @@
 import os
-import io
 import pathlib
 import math
 import time
-import random
 import collections
-import subprocess
 
 import astropy.table
-import astropy.io
 from astropy.wcs import WCS
 
 import healpy
 
+import improc.scamp
 from util import ldac
 from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchException
 from models.base import SmartSession, FileOnDiskMixin, _logger
@@ -448,108 +445,25 @@ class AstroCalibrator:
             raise ValueError( f'_solve_wcs_scamp requires a fitsldac catalog excerpt, not {catexp.format}' )
         if sources.format != 'sextrfits':
             raise ValueError( f'_solve_wcs_scamp requires a sextrffits source list, not {sources.format}' )
+        if catexp.origin != 'GaiaDR3':
+            raise NotImplementedError( f"Don't know what magnitude key to choose for astrometric reference "
+                                       f"{catexp.origin}; only GaiaDR3 is implemented." )
 
         sourcefile = pathlib.Path( sources.get_fullpath() )
         catfile = pathlib.Path( catexp.get_fullpath() )
-        barf = ''.join( random.choices( 'abcdefghijlkmnopqrstuvwxyz', k=10 ) )
-        xmlfile = pathlib.Path( FileOnDiskMixin.temp_path ) / f'scamp_{barf}.xml'
-        # Scamp will have written a file stripping .fits from sourcefile and adding .head
-        # I'm sad that there's not an option to scamp to explicitly specify this output filename.
-        headfile = sourcefile.parent / f"{sourcefile.name[:-5]}.head"
 
-        max_nmatch = 0
-        if sources.num_sources > self.pars.max_sources_to_use:
-            max_nmatch = self.pars.max_sources_to_use
+        wcs = improc.scamp._solve_wcs_scamp( sourcefile, catfile, crossid_rad=crossid_rad,
+                                             max_sources_to_use=self.pars.max_sources_to_use,
+                                             min_frac_matched=self.pars.min_frac_matched,
+                                             min_matched=self.pars.min_matched_stars,
+                                             max_arcsec_residual=self.pars.max_arcsec_residual,
+                                             magkey='MAG_G', magerrkey='MAGERR_G' )
 
-        try:
-            # Something I don't know : does scamp only use MATCH_NMAX
-            # stars for the whole astrometric solution?  Back in the day
-            # (we're talking ca. 1999 or 2000) when I wrote my own
-            # transformation software, I had a parameter that allowed it
-            # to use a subset of the list to get an initial match
-            # (because that's an N² process), but then once I had that
-            # initial match I used it to match all of the stars on the
-            # list, and then used all of those stars on the list in the
-            # solution.  I don't know if scamp works that way, or if it
-            # just does the entire astrometric solution on MATCH_NMAX
-            # stars.  The documentation is silent on this....
-            command = [ 'scamp', sourcefile,
-                        '-ASTREF_CATALOG', 'FILE',
-                        '-ASTREFCAT_NAME', catfile,
-                        '-MATCH', 'Y',
-                        '-MATCH_NMAX', str( max_nmatch ),
-                        '-SOLVE_PHOTOM', 'N',
-                        '-CHECKPLOT_DEV', 'NULL',
-                        '-CHECKPLOT_TYPE', 'NONE',
-                        '-CHECKIMAGE_TYPE', 'NONE',
-                        '-SOLVE_ASTROM', 'Y',
-                        '-PROJECTION_TYPE', 'TPV',
-                        '-WRITE_XML', 'Y',
-                        '-XML_NAME', xmlfile,
-                        '-CROSSID_RADIUS', str( crossid_rad )
-                       ]
+        # Update image.raw_header with the new wcs.  Process this
+        # through astropy.wcs.WCS to make sure everything is copacetic.
+        image.raw_header.extend( wcs.to_header(), update=True )
 
-            # TODO : use a different gaia magnitude for different image
-            # filters (see Issue #107)
-
-            t0 = time.perf_counter()
-            if catexp.origin == 'GaiaDR3':
-                command.extend( [ '-ASTREFMAG_KEY', 'MAG_G', '-ASTREFMAGERR_KEY', 'MAGERR_G' ] )
-            else:
-                raise NotImplementedError( f"Don't know what magnitude key to choose for astrometric reference "
-                                           f"{catexp.origin}; only GaiaDR3 is implemented." )
-
-            res = subprocess.run( command, capture_output=True )
-            t1 = time.perf_counter()
-            _logger.debug( f"Scamp with {sources.num_sources} sources and {catexp.num_items} catalog stars "
-                           f"(with match_nmax={max_nmatch}) took {t1-t0:.2f} seconds" )
-            if res.returncode != 0:
-                raise SubprocessFailure( res )
-
-            scampstat = astropy.io.votable.parse( xmlfile ).get_table_by_index( 1 )
-            nmatch = scampstat.array["AstromNDets_Reference"][0]
-            sig0 = scampstat.array["AstromSigma_Reference"][0][0]
-            sig1 = scampstat.array["AstromSigma_Reference"][0][1]
-            infostr = ( f"Scamp on {pathlib.Path(catfile).name} to catalog with nominal magnitude "
-                        f"range {catexp.minmag}-{catexp.maxmag} yielded {nmatch} matches out of "
-                        f"{len(sources.data)} sources and {len(catexp.data)} catalog objects, "
-                        f"with position sigmas of ({sig0:.2f}\", {sig1:.2f}\")" )
-            if not ( ( nmatch > self.pars.min_frac_matched * min( len(sources.data), len(catexp.data ) ) )
-                     and ( nmatch > self.pars.min_matched_stars )
-                     and ( ( sig0 + sig1 ) / 2. <= self.pars.max_arcsec_residual )
-                    ):
-                infostr += ( f", which isn't good enough.\n"
-                             f"Scamp command: {res.args}\n"
-                             f"-------------\nScamp stderr:\n{res.stderr.decode('utf-8')}\n"
-                             f"-------------\nScamp stdout:\n{res.stdout.decode('utf-8')}\n" )
-                # A warning not an error in case something outside is iterating
-                _logger.warning( infostr )
-                raise BadMatchException( infostr )
-
-            _logger.info( infostr )
-
-            # Move the header information written in the ".head" file
-            # scamp created to the image header, and to a WCS object
-            # we're going to return.
-            with open( headfile ) as ifp:
-                hdrtext = ifp.read()
-            # The FITS spec says ASCII, but Emmanuel put a non-ASCII latin-1
-            # character in his comments... and astropy.io.fits.Header is
-            # anal about only ASCII.  Sigh.
-            hdrtext = hdrtext.replace( 'é', 'e' )
-            strio = io.StringIO( hdrtext )
-            hdr = astropy.io.fits.Header.fromfile( strio, sep='\n', padding=False, endcard=False )
-
-            # Update image.raw_header with the new wcs.  Process this
-            # through astropy.wcs.WCS to make sure everything is copacetic.
-            wcs = WCS( hdr )
-            image.raw_header.extend( wcs.to_header(), update=True )
-
-            return wcs
-
-        finally:
-            xmlfile.unlink( missing_ok=True )
-            headfile.unlink( missing_ok=True )
+        return wcs
 
     # ----------------------------------------------------------------------
 
