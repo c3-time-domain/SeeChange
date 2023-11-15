@@ -494,7 +494,6 @@ def ref_for_decam_example_image( provenance_base ):
         else:
             url = ( f'https://portal.nersc.gov/cfs/m2218/decat/decat/templatecache/DECaPS-West_20220112.g/'
                     f'{filebase}{urlmap[ext]}' )
-            import pdb; pdb.set_trace()
             retry_download( url, fzpath )
             res = subprocess.run( [ 'funpack', '-D', fzpath ] )
             if res.returncode != 0:
