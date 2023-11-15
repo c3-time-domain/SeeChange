@@ -149,9 +149,6 @@ def provenance_extra( provenance_base ):
         upstreams=[provenance_base],
         is_testing=True,
     )
-    # This next line fails if you run pytest models/test_provenance.py by itself,
-    # but does *not* fail if you just do pytest.  Something in some other test
-    # is setting up state that makes this line succeed.
     p.update_id()
 
     with SmartSession() as session:

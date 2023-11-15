@@ -310,10 +310,6 @@ class Provenance(Base):
         if done_list is None:
             done_list = set()
 
-        # This doesn't work... if the same provenance shows up more than
-        # once in the upstream tree (which it could), then the object
-        # for which that upstream provenance shows up the second time
-        # won't have it's upstream property updated.
         if self in done_list:
             return self
 
