@@ -34,6 +34,7 @@ from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
 from pipeline.detection import Detector
 from pipeline.astro_cal import AstroCalibrator
+from pipeline.photo_cal import PhotCalibrator
 from util import config
 from util.archive import Archive
 from util.retrydownload import retry_download
@@ -148,6 +149,9 @@ def provenance_extra(code_version, provenance_base):
         upstreams=[provenance_base],
         is_testing=True,
     )
+    # This next line fails if you run pytest models/test_provenance.py by itself,
+    # but does *not* fail if you just do pytest.  Something in some other test
+    # is setting up state that makes this line succeed.
     p.update_id()
 
     with SmartSession() as session:
@@ -470,6 +474,15 @@ def decam_example_reduced_image_ds_with_wcs( decam_example_reduced_image_ds ):
     # ds.delete_everything()
 
 @pytest.fixture
+def decam_example_reduced_image_ds_with_zp( decam_example_reduced_image_ds_with_wcs ):
+    ds = decam_example_reduced_image_ds_with_wcs[0]
+    ds.save_and_commit()
+    photomotor = PhotCalibrator( cross_match_catalog='GaiaDR3' )
+    ds = photomotor.run( ds )
+
+    return ds, photomotor
+    
+@pytest.fixture
 def ref_for_decam_example_image( provenance_base ):
     datadir = pathlib.Path( FileOnDiskMixin.local_path ) / 'test_data/DECam_examples'
     filebase = 'DECaPS-West_20220112.g.32'
@@ -506,6 +519,9 @@ def ref_for_decam_example_image( provenance_base ):
     # Just in case the image got added to the database:
     image.delete_from_disk_and_database()
 
+    # And just in case the image was added to the database with a different name:
+    for ext in [ '.image.fits', '.weight.fits', '.flags.fits' ]:
+        ( datadir / f'{filebase}{ext}' ).unlink( missing_ok=True )
     
 @pytest.fixture
 def decam_small_image(decam_example_raw_image):

@@ -24,6 +24,7 @@ UPSTREAM_NAMES = {
     'detection': ['subtraction'],
     'cutting': ['detection'],
     'measurement': ['detection', 'photo_cal'],
+    'warp': [ 'photo_cal' ]
 }
 
 UPSTREAM_OBJECTS = {

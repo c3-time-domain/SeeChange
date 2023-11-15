@@ -260,3 +260,19 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
         # extra_downstream_ids = [p.id for p in provenance_extra.downstreams]
         # assert all([pid not in extra_downstream_ids for pid in new_ids])
 
+# def test_recursive_merge( code_version, provenance_base, provenance_extra ):
+#     prov3 = Provenance( process="test_secondary_process",
+#                         code_version=code_version,
+#                         parameters={},
+#                         upstreams=[ provenance_extra ],
+#                         is_testing=True )
+#     prov4 = Provenance( process="test_tertiary_process",
+#                         code_version=code_version,
+#                         parameters={},
+#                         upstreams=[ provenance_base, prov3 ],
+#                         is_testing=True )
+#     with SmartSession() as session:
+#         mergedprov = prov4.recursive_merge( session )
+#         import pdb; pdb.set_trace()
+#         pass
+    

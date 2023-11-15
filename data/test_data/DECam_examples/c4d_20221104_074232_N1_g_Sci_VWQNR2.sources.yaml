@@ -1,3 +1,4 @@
+filepath: test_data/DECam_examples/c4d_20221104_074232_N1_g_Sci_VWQNR2.sources.fits
 format: sextrfits
 aper_rads:
   - 2.914994

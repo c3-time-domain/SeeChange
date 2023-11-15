@@ -194,7 +194,6 @@ def psf_palette():
 
     palette.cleanup()
 
-
 def check_example_psfex_psf_values( psf ):
     assert psf.header[ 'TTYPE1' ] == 'PSF_MASK'
     assert psf.header[ 'POLDEG1' ] == 2

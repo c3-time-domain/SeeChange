@@ -1,4 +1,5 @@
 import os
+import re
 import pathlib
 
 from functools import partial
@@ -290,6 +291,41 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
         else:
             raise ValueError( "Unknown format {self.format}" )
 
+    @property
+    def varx( self ):
+        """A numpy array with variances on y position"""
+        if self.format == 'sextrfits':
+            return self.data['ERRY2_IMAGE']
+        elif self.foramt == 'sepnpy':
+            # The sep documentation says this is "Second Moment Errors",
+            # which may not really be what we want.
+            return self.data['erry2']
+        else:
+            raise ValueError( "Unknown format {self.format}" )
+        
+    @property
+    def vary( self ):
+        """A numpy array with variances on x position"""
+        if self.format == 'sextrfits':
+            return self.data['ERRX2_IMAGE']
+        elif self.foramt == 'sepnpy':
+            # The sep documentation says this is "Second Moment Errors",
+            # which may not really be what we want.
+            return self.data['errx2']
+        else:
+            raise ValueError( "Unknown format {self.format}" )
+        
+    @property
+    def errx( self ):
+        """A numpy array with uncertainties on x position"""
+        return np.sqrt( self.varx )
+
+    @property
+    def erry( self ):
+        """A numpy array with uncertainties on y position"""
+        return np.sqrt( self.vary )
+    
+    
     @property
     def good( self ):
         """A numpy array of boolean with length num_sources.

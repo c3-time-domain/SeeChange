@@ -1,14 +1,19 @@
 import pathlib
 import random
 import time
+import subprocess
 
 import numpy as np
 
 import astropy.table
+import astropy.wcs.utils
 
 from util import ldac
 from util.exceptions import SubprocessFailure, BadMatchException
 import improc.scamp
+from models.base import FileOnDiskMixin, _logger
+from models.image import Image
+from pipeline.data_store import DataStore
 from pipeline.parameters import Parameters
 from pipeline.utils import read_fits_image
 
@@ -27,12 +32,15 @@ class ParsImageAligner(Parameters):
         self.enforce_no_new_attrs = True
         self.override( kwargs )
 
+    def get_process_name(self):
+        return 'warp'
+        
 class ImageAligner:
     def __init__( self, **kwargs ):
         self.pars = ParsImageAligner( **kwargs )
 
 
-    def _align_swarp( self, image, target, sources, targetsources, session=None ):
+    def _align_swarp( self, image, target, sources, targetsources, imagezp, session=None ):
         """Use scamp and swarp to align image to target.
 
         Parameters
@@ -51,9 +59,12 @@ class ImageAligner:
           sources: SourceList
             A SourceList from the image, with good RA/Dec values
 
-          targetsourcs: SourceList
+          targetsources: SourceList
             A SourceList from the other image to which this image should
             be aligned, with good RA/Dec values
+
+          imagezp: ZeroPoint
+            A zeropoint for image
 
         Returns
         -------
@@ -117,10 +128,10 @@ class ImageAligner:
             ldac.save_table_as_ldac( astropy.table.Table( sources.data ), imagecat,
                                      imghdr=sources.info, overwrite=True )
             ldac.save_table_as_ldac( astropy.table.Table( targetsources.data ), targetcat,
-                                     imhdr=targetsources.info, overwrite=True )
+                                     imghdr=targetsources.info, overwrite=True )
 
             # Scamp it up
-            wcs = improc.scamp._solve_wcs_scamp( sourcefile, catfile, magkey='MAG', magerrkey='MAGERR' )
+            wcs = improc.scamp._solve_wcs_scamp( targetcat, imagecat, magkey='MAG', magerrkey='MAGERR' )
 
             # Write out the .head file that swarp will use to figure out what to do
             wcs.to_header().tofile( outimhead )
@@ -150,7 +161,7 @@ class ImageAligner:
                         '-WRITE_XML', 'N' ]
 
             t0 = time.perf_counter()
-            subprocess.run( command, capture_output=True )
+            res = subprocess.run( command, capture_output=True )
             t1 = time.perf_counter()
             _logger.debug( f"swarp took {t1-t0:.2f} seconds" )
             if res.returncode != 0:
@@ -198,8 +209,9 @@ class ImageAligner:
         Parameters
         ----------
           ds_image: DataStore
-             A DataStore with the image that will get warped.
-             Will use the image, sources, and wcs fields of the datastore.
+             A DataStore with the image that will get warped.  Image must have
+             already been through astrometric and photometric calibration.
+             Will use the image, sources, wcs, and zp fields of the datastore.
 
           ds_target: DataStore
              A DataStore with the image to which the image in ds_image will
@@ -221,10 +233,11 @@ class ImageAligner:
         image = ds_image.get_image( session=session )
         sources = ds_image.get_sources( session=session )
         imagewcs = ds_image.get_wcs( session=session )
+        imagezp = ds_image.get_zp( session=session )
         target = ds_target.get_image( session=session )
         targetsources = ds_target.get_sources( session=session )
         targetwcs = ds_target.get_wcs( session=session )
-
+        
         if any( [ f is None for f in [ image, sources, imagewcs, target, targetsources, targetwcs ] ] ):
             raise RuntimeError( f'Both the image and the target image must have image, sources, and wcs available.' )
 
@@ -234,22 +247,47 @@ class ImageAligner:
             if ( sources.format != 'sextrfits' ) or ( targetsources.format != 'sextrfits' ):
                 raise RuntimeError( f'swarp ImageAligner requires sextrfits sources' )
             
-            # We need good RA/Dec values in both source lists
+            # We need good RA/Dec values, and a magnitude, in the object list
+            # that's serving as the catalog to scamp
             imskyco = imagewcs.wcs.pixel_to_world( sources.x, sources.y )
-            sources.data['X_WORLD'] = imskyco.ra.deg
-            sources.data['Y_WORLD'] = imskyco.dec.deg
-            targskyco = targetwcs.wcs.pixel_to_world( targetsources.x, targetsources.y )
-            targetsources.data['X_WORLD'] = targskyco.ra.deg
-            targetsources.data['Y_WORLD'] = targskyco.dec.deg
+            # ...the choice of a numpy recarray is inconvenient here, since
+            # adding a column requires making a new datatype, copying data, etc.
+            # Take the shortcut of using astropy.Table.  (Could also use Pandas.)
+            datatab = astropy.table.Table( sources.data )
+            datatab['X_WORLD'] = imskyco.ra.deg
+            datatab['Y_WORLD'] = imskyco.dec.deg
+            # TODO: the astropy doc says this returns the pixel scale along
+            # each axis in the same units as the WCS yields.  Can we assume
+            # that the WCS is always yielding degrees?
+            pixsc = astropy.wcs.utils.proj_plane_pixel_scales( imagewcs.wcs ).mean()
+            datatab['ERRA_WORLD'] = sources.errx * pixsc
+            datatab['ERRB_WORLD'] = sources.erry * pixsc
+            flux, dflux = sources.apfluxadu()
+            datatab['MAG'] = -2.5*np.log10( flux ) + imagezp.zp + imagezp.get_aper_cor( sources.aper_rads[0] )
+            datatab['MAGERR'] = 1.0857 * dflux / flux
+            sources.data = datatab.as_array()
+
+            # targskyco = targetwcs.wcs.pixel_to_world( targetsources.x, targetsources.y )
+            # datatab = astropy.table.Table( targetsources.data )
+            # datatab['X_WORLD'] = targskyco.ra.deg
+            # datatab['Y_WORLD'] = targskyco.dec.deg
+            # pixsc = astropy.wcs.utils.proj_plane_pixel_scales( targetwcs.wcs ).mean()
+            # datatab['ERRA_IMAGE'] = sources.
+            # targetsources.data = datatab.as_array()
         
-            warped_image = self._align_swarp( image, target, sources, targetsources, session=session )
+            warped_image = self._align_swarp( image, target, sources, targetsources, imagezp, session=session )
         else:
             raise ValueError( f'alignment method {self.pars.method} is unknown' )
 
         # Make and return the resultant datastore
         
         ds = DataStore()
+        ds.session = session
+        import pdb; pdb.set_trace()
+        prov = ds.get_provenance( self.pars.get_process_name(), self.pars.get_critical_pars(),
+                                  upstream_provs=[imagezp.provenance], session=session )
         ds.image = warped_image
+        ds.image.provenance = prov
 
         return ds
         

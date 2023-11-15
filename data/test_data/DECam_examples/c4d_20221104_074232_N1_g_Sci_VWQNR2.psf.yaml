@@ -1,3 +1,4 @@
+filepath: test_data/DECam_Examples/c4d_20221104_074232_N1_g_Sci_VWQNR2
 filepath_extensions: [ '.psf', '.psf.xml' ]
 md5sum_extensions: [ null, null ]
 format: psfex

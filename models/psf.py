@@ -198,7 +198,12 @@ class PSF( Base, AutoIDMixin, FileOnDiskMixin ):
         if ( self.data is None ) or ( self.header is None ) or ( self.info is None ):
             raise RuntimeError( "data, header, and info must all be non-None" )
 
-        self.filepath = filename if filename is not None else self.image.invent_filepath()
+        if filename is not None:
+            self.filepath = filename
+        elif self.image.filepath is not None:
+            self.filepath = self.image.filepath
+        else:
+            self.filepath = self.image.invent_filepath()
         psfpath = pathlib.Path( self.local_path ) / f'{self.filepath}.psf'
         psfxmlpath = pathlib.Path( self.local_path ) / f'{self.filepath}.psf.xml'
 

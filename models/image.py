@@ -1116,7 +1116,10 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         if self.provenance is None:
             raise RuntimeError("The image provenance is not set. Cannot save.")
 
-        self.filepath = filename if filename is not None else self.invent_filepath()
+        if filename is not None:
+            self.filepath = filename
+        if self.filepath is None:
+            self.filepath = self.invent_filepath()
 
         cfg = config.Config.get()
         single_file = cfg.value('storage.images.single_file', default=False)

@@ -1,4 +1,5 @@
 format: fits
+filepath: test_data/DECam_examples/c4d_20221104_074232_N1_g_Sci_VWQNR2
 filepath_extensions: [ '.image.fits', '.weight.fits', '.flags.fits' ]
 md5sum_extensions: [ null, null, null ]
 type: Sci

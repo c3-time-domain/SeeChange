@@ -161,6 +161,12 @@ def test_sextractor_extract_once( decam_example_reduced_image_ds, run_sextractor
     assert sourcelist.x.max() == pytest.approx( 2039.6, abs=0.1 )
     assert sourcelist.y.min() == pytest.approx( 16.3, abs=0.1 )
     assert sourcelist.y.max() == pytest.approx( 4087.9, abs=0.1 )
+    assert sourcelist.errx.min() == pytest.approx( 0.0005, abs=1e-4 )
+    assert sourcelist.errx.max() == pytest.approx( 1.05, abs=0.01 )
+    assert sourcelist.erry.min() == pytest.approx( 0.001, abs=1e-3 )
+    assert sourcelist.erry.max() == pytest.approx( 0.62, abs=0.01 )
+    assert ( np.sqrt( sourcelist.varx ) == sourcelist.errx ).all()
+    assert ( np.sqrt( sourcelist.vary ) == sourcelist.erry ).all()
     assert sourcelist.apfluxadu()[0].min() == pytest.approx( -656.8731, rel=1e-5 )
     assert sourcelist.apfluxadu()[0].max() == pytest.approx( 2850920.0, rel=1e-5 )
     snr = sourcelist.apfluxadu()[0] / sourcelist.apfluxadu()[1]

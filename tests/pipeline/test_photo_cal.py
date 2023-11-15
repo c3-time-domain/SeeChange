@@ -10,13 +10,10 @@ from models.zero_point import ZeroPoint
 from pipeline.photo_cal import PhotCalibrator
 
 
-def test_decam_photo_cal( decam_example_reduced_image_ds_with_wcs, headless_plots ):
-    ds = decam_example_reduced_image_ds_with_wcs[0]
-    ds.save_and_commit()
+def test_decam_photo_cal( decam_example_reduced_image_ds_with_zp, headless_plots ):
+    ds, photomotor = decam_example_reduced_image_ds_with_zp
+    
     with SmartSession() as session:
-        photomotor = PhotCalibrator( cross_match_catalog='GaiaDR3' )
-        ds = photomotor.run( ds )
-
         # Make True to make some diagnostic plots
         if True:
             fig = pyplot.Figure( figsize=(6,8), dpi=150, layout='tight' )

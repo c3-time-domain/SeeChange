@@ -9,6 +9,7 @@ import astropy.table
 import astropy.io.fits
 
 from models.base import SmartSession, FileOnDiskMixin
+from models.image import Image
 from models.source_list import SourceList
 
 from tests.conftest import ImageCleanup
@@ -94,6 +95,31 @@ def test_source_list_bitflag(sources, demo_image, provenance_base, provenance_ex
         assert sources.id in [s.id for s in sources5]
         sources5x = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sources.id not in [s.id for s in sources5x]
+
+def test_invent_filepath( provenance_base ):
+    base = pathlib.Path( FileOnDiskMixin.local_path )
+    imgargs = { 'instrument': 'DemoInstrument',
+                'section_id': 0,
+                'type': "Sci",
+                'format': "fits",
+                'ra': 12.3456,
+                'dec': -0.42,
+                'mjd': 64738.64,
+                'filter': 'r',
+                'provenance': provenance_base }
+
+    image = Image( filepath="testing", **imgargs )
+    sources = SourceList( image=image, format='sextrfits' )
+    assert sources.invent_filepath() == f'{image.filepath}.sources.fits'
+
+    image = Image( **imgargs )
+    sources = SourceList( image=image, format='sextrfits' )
+    assert sources.invent_filepath() == f'012/Demo_20360215_152136_0_r_Sci_{provenance_base.id[:6]}.sources.fits'
+
+    image = Image( filepath="this.is.a.test", **imgargs )
+    sources = SourceList( image=image, format='sextrfits' )
+    assert sources.invent_filepath() == 'this.is.a.test.sources.fits'
+
 
 def test_read_sextractor( example_source_list_filename ):
     fullpath = example_source_list_filename
