@@ -479,7 +479,7 @@ def decam_example_reduced_image_ds_with_zp( decam_example_reduced_image_ds_with_
     ds = photomotor.run( ds )
 
     return ds, photomotor
-    
+
 @pytest.fixture
 def ref_for_decam_example_image( provenance_base ):
     datadir = pathlib.Path( FileOnDiskMixin.local_path ) / 'test_data/DECam_examples'
@@ -505,7 +505,7 @@ def ref_for_decam_example_image( provenance_base ):
         shutil.copy2( cachedpath, path )
 
     prov = provenance_base
-            
+
     with open( datadir / f'{filebase}.image.yaml' ) as ifp:
         refyaml = yaml.safe_load( ifp )
     image = Image( **refyaml )
@@ -520,7 +520,7 @@ def ref_for_decam_example_image( provenance_base ):
     # And just in case the image was added to the database with a different name:
     for ext in [ '.image.fits', '.weight.fits', '.flags.fits' ]:
         ( datadir / f'{filebase}{ext}' ).unlink( missing_ok=True )
-    
+
 @pytest.fixture
 def decam_small_image(decam_example_raw_image):
     image = decam_example_raw_image

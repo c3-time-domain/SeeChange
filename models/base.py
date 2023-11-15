@@ -225,7 +225,8 @@ class SeeChangeBase:
 
         # only do the sub-properties if the object was already added to the session
         attributes = ['provenance', 'code_version',
-                      'exposure', 'image', 'datafile', 'ref_image', 'new_image', 'sub_image', 'source_list']
+                      'exposure', 'image', 'datafile', 'ref_image', 'new_image', 'sub_image', 'source_images',
+                      'source_list']
 
         # recursively call this on the provenance and other parent objects
         for att in attributes:

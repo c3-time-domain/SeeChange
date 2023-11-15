@@ -34,7 +34,7 @@ class ParsImageAligner(Parameters):
 
     def get_process_name(self):
         return 'warp'
-        
+
 class ImageAligner:
     def __init__( self, **kwargs ):
         self.pars = ParsImageAligner( **kwargs )
@@ -51,11 +51,10 @@ class ImageAligner:
             Assumes that the weight image will be 0 everywhere flags is
             non-0.  (This is the case for a weight image created by
             pipeline/preprocessing.)
-        
+
           target: Image
-            The target image we're aligning with.  Won't need the data,
-            but will use some information like RA, Dec.
-        
+            The target image we're aligning with.
+
           sources: SourceList
             A SourceList from the image, with good RA/Dec values
 
@@ -66,11 +65,15 @@ class ImageAligner:
           imagezp: ZeroPoint
             A zeropoint for image
 
+          session: sqlalchemy session, optional
+            If given, will use this session for all fetching, and will
+            set the session of the returned DataStore to this.
+
         Returns
         -------
           Image
             An image with the warped image.  image, raw_header, weight, and flags are all populated.
-        
+
         """
 
         tmppath = pathlib.Path( image.temp_path )
@@ -79,7 +82,7 @@ class ImageAligner:
         targetcat = tmppath / f'{tmpname}_target.sources.fits'
         outim = tmppath / f'{tmpname}_warped.image.fits'
         outwt = tmppath / f'{tmpname}_warped.weight.fits'
-        outimhead = tmppath / f'{tmpname}_warped.head'
+        outimhead = tmppath / f'{tmpname}_warped.image.head'
 
         # Writing this all out because several times I've looked at code
         # like this elsewhere and wondered why the heck it was doing what
@@ -116,7 +119,10 @@ class ImageAligner:
         # the source image the same RA/Dec that they have right now,
         # only using the WCS that was derived for the target
         # image... meaning the source image has been aligned with the
-        # target image.
+        # target image.  There is one more wrinkle: we have to tell
+        # SWarp the shape of the output image, since it will default
+        # to the shape of the input image.  But, we want it to have
+        # the shape of the target image.
         #
         # (This mode of operation is not well-documented in the SWarp
         # manual, which assumes most people want to coadd with cropping,
@@ -134,7 +140,11 @@ class ImageAligner:
             wcs = improc.scamp._solve_wcs_scamp( targetcat, imagecat, magkey='MAG', magerrkey='MAGERR' )
 
             # Write out the .head file that swarp will use to figure out what to do
-            wcs.to_header().tofile( outimhead )
+            hdr = wcs.to_header()
+            hdr['NAXIS'] = 2
+            hdr['NAXIS1'] = target.data.shape[1]
+            hdr['NAXIS2'] = target.data.shape[0]
+            hdr.tofile( outimhead )
 
             # Warp the image
             # TODO : support single image.  (I hope swarp is smart
@@ -191,18 +201,18 @@ class ImageAligner:
             # will have a pixel with noise above 100000,
             # hence the 1e-10.
             warpedim.flags[ warpedim.weight < 1e-10 ] = 1
-            
+
             return warpedim
-            
+
         finally:
             imagecat.unlink( missing_ok=True )
             targetcat.unlink( missing_ok=True )
             outim.unlink( missing_ok=True )
             outwt.unlink( missing_ok=True )
             outimhead.unlink( missing_ok=True )
-        
-        
-        
+
+
+
     def run( self, ds_image, ds_target, session=None ):
         """Warp source image so that it is aligned with target image.
 
@@ -237,16 +247,16 @@ class ImageAligner:
         target = ds_target.get_image( session=session )
         targetsources = ds_target.get_sources( session=session )
         targetwcs = ds_target.get_wcs( session=session )
-        
+
         if any( [ f is None for f in [ image, sources, imagewcs, target, targetsources, targetwcs ] ] ):
             raise RuntimeError( f'Both the image and the target image must have image, sources, and wcs available.' )
 
         # Do the warp
-        
+
         if self.pars.method == 'swarp':
             if ( sources.format != 'sextrfits' ) or ( targetsources.format != 'sextrfits' ):
                 raise RuntimeError( f'swarp ImageAligner requires sextrfits sources' )
-            
+
             # We need good RA/Dec values, and a magnitude, in the object list
             # that's serving as the catalog to scamp
             imskyco = imagewcs.wcs.pixel_to_world( sources.x, sources.y )
@@ -274,20 +284,20 @@ class ImageAligner:
             # pixsc = astropy.wcs.utils.proj_plane_pixel_scales( targetwcs.wcs ).mean()
             # datatab['ERRA_IMAGE'] = sources.
             # targetsources.data = datatab.as_array()
-        
+
             warped_image = self._align_swarp( image, target, sources, targetsources, imagezp, session=session )
         else:
             raise ValueError( f'alignment method {self.pars.method} is unknown' )
 
         # Make and return the resultant datastore
-        
+
         ds = DataStore()
         ds.session = session
         with SmartSession( session ) as sess:
             prov = ds.get_provenance( self.pars.get_process_name(), self.pars.get_critical_pars(),
                                       upstream_provs=[imagezp.provenance], session=sess )
-            ds.image = warped_image
-            ds.image.provenance = prov
+            warped_image.provenance = prov
+            ds.image = warped_image.recursive_merge( sess )
 
         return ds
-        
+

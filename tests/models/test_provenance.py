@@ -270,40 +270,45 @@ def test_recursive_merge( provenance_base ):
                          upstreams=[ provenance_base ],
                          is_testing=True )
         p1.update_id()
-        session.add( p1 )
+        # session.add( p1 )
         p2 = Provenance( process="test_secondary_process_2",
                          code_version=provenance_base.code_version,
                          parmeters={},
                          upstreams=[ p1 ],
                          is_testing=True )
         p2.update_id()
-        session.add( p2 )
+        # session.add( p2 )
         p3 = Provenance( process="test_tertiary_process",
                          code_version=provenance_base.code_version,
                          paremeters={},
-                         upstreams=[ p1, p2 ],
+                         upstreams=[ p2, p1 ],
                          is_testing=True )
         p3.update_id()
-        session.add( p3 )
+        # session.add( p3 )
         p4 = Provenance( process="test_final_process",
                          code_version=provenance_base.code_version,
                          parmeters={},
                          upstreams=[ p3 ],
                          is_testing=True )
         p4.update_id()
-        session.add( p4 )
-        session.commit()
+        # session.add( p4 )
+        # session.commit()
 
         # Now, in another session....
         with SmartSession() as different_session:
             merged_p4 = p4.recursive_merge( different_session )
             different_session.add( merged_p4 )
             found = set()
-            for obj in different_session.identity_map.values():
+            for obj in different_session:
                 if isinstance( obj, Provenance ):
                     found.add( obj.id )
 
             for p in [ p1, p2, p3, p4, provenance_base ]:
                 assert p.id in found
-        
-    
+
+            def check_in_session( sess, obj ):
+                assert obj in sess
+                for upstr in obj.upstreams:
+                    check_in_session( sess, upstr )
+
+            check_in_session( different_session, merged_p4 )

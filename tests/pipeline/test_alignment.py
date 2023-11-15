@@ -9,6 +9,7 @@ def test_warp_decam( decam_example_reduced_image_ds_with_zp, ref_for_decam_examp
     ds.save_and_commit()
     refds = DataStore()
     refds.image = ref_for_decam_example_image
+    warpds = None
 
     try:
         # Need a source list and wcs for the ref image before we can warp it
@@ -31,3 +32,6 @@ def test_warp_decam( decam_example_reduced_image_ds_with_zp, ref_for_decam_examp
         pass
     finally:
         refds.delete_everything()
+        if warpds is not None:
+            warpds.delete_everything()
+

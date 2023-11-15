@@ -302,7 +302,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
             return self.data['erry2']
         else:
             raise ValueError( "Unknown format {self.format}" )
-        
+
     @property
     def vary( self ):
         """A numpy array with variances on x position"""
@@ -314,7 +314,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
             return self.data['errx2']
         else:
             raise ValueError( "Unknown format {self.format}" )
-        
+
     @property
     def errx( self ):
         """A numpy array with uncertainties on x position"""
@@ -324,8 +324,8 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin):
     def erry( self ):
         """A numpy array with uncertainties on y position"""
         return np.sqrt( self.vary )
-    
-    
+
+
     @property
     def good( self ):
         """A numpy array of boolean with length num_sources.
