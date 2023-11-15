@@ -94,7 +94,30 @@ services:
         target: /archive_storage
     working_dir: /seechange
     user: ${USERID:-0}:${GROUPID:-0}
-    entrypoint: [ "pytest", "-v", "/seechange/tests/", ]
+    entrypoint: "pytest -v /seechange/tests/$TEST_SUBFOLDER"
+
+  runalltests:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build:
+      context: ../docker/application
+    environment:
+      SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
+      SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
+    depends_on:
+      setuptables:
+        condition: service_completed_successfully
+      archive:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+      - type: volume
+        source: archive-storage
+        target: /archive_storage
+    working_dir: /seechange
+    user: ${USERID:-0}:${GROUPID:-0}
+    entrypoint: "pytest -v /seechange/tests"
 
   shell:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange

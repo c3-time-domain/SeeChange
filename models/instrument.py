@@ -1372,7 +1372,7 @@ class Instrument:
                     else:
                         if calibquery.count() > 1:
                             _logger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
-                                             f"{instrument.name} {section}, randomly using one." )
+                                             f"{self.name} {section}, randomly using one." )
                         calib = calibquery.first()
                 finally:
                     # Make sure that the calibrator_files table gets

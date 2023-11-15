@@ -16,6 +16,8 @@ import pandas
 import astropy.time
 from astropy.io import fits
 
+import sqlalchemy as sa
+
 from models.base import _logger, SmartSession, FileOnDiskMixin
 from models.instrument import Instrument, InstrumentOrientation, SensorSection
 from models.image import Image
@@ -373,7 +375,7 @@ class DECam(Instrument):
 
         with SmartSession( session ) as dbsess:
             if calibtype in [ 'flat', 'fringe' ]:
-                dbtype = 'Fringe' if calibtype=='fringe' else 'SkyFlat'
+                dbtype = 'Fringe' if calibtype == 'fringe' else 'SkyFlat'
                 mjd = float( cfg.value( "DECam.calibfiles.mjd" ) )
                 image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
                                telescope='CTIO4m', filter=filter, section_id=section, filepath=str(filepath),
@@ -399,10 +401,14 @@ class DECam(Instrument):
                 dbsess.add( calfile )
                 dbsess.commit()
             else:
-                datafile = DataFile( filepath=str(filepath), provenance=prov )
-                datafile.save( str(fileabspath) )
-                datafile = datafile.recursive_merge( dbsess )
-                dbsess.add( datafile )
+                datafile = dbsess.scalars(sa.select(DataFile).where(DataFile.filepath == str(filepath))).first()
+                # TODO: what happens if the provenance doesn't match??
+
+                if datafile is None:
+                    datafile = DataFile( filepath=str(filepath), provenance=prov )
+                    datafile.save( str(fileabspath) )
+                    datafile = datafile.recursive_merge( dbsess )
+                    dbsess.add( datafile )
                 # Linearity file applies for all chips, so load the database accordingly
                 for ssec in self._chip_radec_off.keys():
                     calfile = CalibratorFile( type='Linearity',
@@ -410,7 +416,8 @@ class DECam(Instrument):
                                               flat_type=None,
                                               instrument='DECam',
                                               sensor_section=ssec,
-                                              datafile=datafile )
+                                              datafile=datafile
+                                              )
                     calfile = calfile.recursive_merge( dbsess )
                     dbsess.add( calfile )
                 dbsess.commit()
