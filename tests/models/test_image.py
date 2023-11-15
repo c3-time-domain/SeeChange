@@ -1140,6 +1140,13 @@ def test_image_filename_conventions(demo_image, provenance_base):
 
         new_convention = '{ra_int:03d}/foo_{date}_{time}_{section_id_int:02d}_{filter}'
         cfg.set_value('storage.images.name_convention', new_convention)
+        # This next line was added because I changed image.save() so
+        # that it will use self.filepath if it is non-None.  (I needed
+        # this change in behavior ato be able to control filenames when
+        # called from a DataStore save method; the other option would be
+        # to add options to those methods and then pass those options
+        # on, and that is very cumbersome.)
+        demo_image.filepath = None
         demo_image.save( no_archive=True )
         assert re.search(r'\d{3}/foo_\d{8}_\d{6}_\d{2}_.\.image\.fits', demo_image.get_fullpath()[0])
         for f in demo_image.get_fullpath(as_list=True):
@@ -1151,6 +1158,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
 
         new_convention = 'bar_{date}_{time}_{section_id_int:02d}_{ra_int_h:02d}{dec_int:+03d}'
         cfg.set_value('storage.images.name_convention', new_convention)
+        demo_image.filepath = None
         demo_image.save( no_archive=True )
         assert re.search(r'bar_\d{8}_\d{6}_\d{2}_\d{2}[+-]\d{2}\.image\.fits', demo_image.get_fullpath()[0])
         for f in demo_image.get_fullpath(as_list=True):
@@ -1199,6 +1207,7 @@ def test_image_multifile(demo_image, provenance_base):
 
         # now test multiple files
         cfg.set_value('storage.images.single_file', False)
+        demo_image.filepath = None
         demo_image.save( no_archive=True )
 
         assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}', demo_image.filepath)

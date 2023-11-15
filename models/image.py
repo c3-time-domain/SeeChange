@@ -1074,8 +1074,10 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
         Parameters
         ----------
         filename: str (optional)
-            The filename to use to save the data.
-            If not provided, the default naming convention will be used.
+            The filename to use to save the data.  If not provided, will
+            use what is in self.filepath; if that is None, then the
+            default naming convention willbe used.  self.filepath will
+            be updated to this name
 
         only_image: bool, default False
             If the image is stored as multiple files (i.e. image,

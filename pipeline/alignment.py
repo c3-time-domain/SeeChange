@@ -11,7 +11,7 @@ import astropy.wcs.utils
 from util import ldac
 from util.exceptions import SubprocessFailure, BadMatchException
 import improc.scamp
-from models.base import FileOnDiskMixin, _logger
+from models.base import SmartSession, FileOnDiskMixin, _logger
 from models.image import Image
 from pipeline.data_store import DataStore
 from pipeline.parameters import Parameters
@@ -283,11 +283,11 @@ class ImageAligner:
         
         ds = DataStore()
         ds.session = session
-        import pdb; pdb.set_trace()
-        prov = ds.get_provenance( self.pars.get_process_name(), self.pars.get_critical_pars(),
-                                  upstream_provs=[imagezp.provenance], session=session )
-        ds.image = warped_image
-        ds.image.provenance = prov
+        with SmartSession( session ) as sess:
+            prov = ds.get_provenance( self.pars.get_process_name(), self.pars.get_critical_pars(),
+                                      upstream_provs=[imagezp.provenance], session=sess )
+            ds.image = warped_image
+            ds.image.provenance = prov
 
         return ds
         

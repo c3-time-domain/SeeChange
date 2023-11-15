@@ -141,10 +141,10 @@ def provenance_base(code_version):
 
 
 @pytest.fixture
-def provenance_extra(code_version, provenance_base):
+def provenance_extra( provenance_base ):
     p = Provenance(
         process="test_base_process",
-        code_version=code_version,
+        code_version=provenance_base.code_version,
         parameters={"test_key": uuid.uuid4().hex},
         upstreams=[provenance_base],
         is_testing=True,

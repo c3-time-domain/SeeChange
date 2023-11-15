@@ -178,7 +178,7 @@ def test_unique_provenance_hash(code_version):
                 session.commit()
 
 
-def test_upstream_relationship(code_version, provenance_base, provenance_extra):
+def test_upstream_relationship( provenance_base, provenance_extra ):
     new_ids = []
     fixture_ids = []
 
@@ -189,7 +189,7 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
             fixture_ids = [provenance_base.id, provenance_extra.id]
             p1 = Provenance(
                 process="test_downstream_process",
-                code_version=code_version,
+                code_version=provenance_base.code_version,
                 parameters={"test_key": "test_value1"},
                 upstreams=[provenance_base],
             )
@@ -205,7 +205,7 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
 
             p2 = Provenance(
                 process="test_downstream_process",
-                code_version=code_version,
+                code_version=provenance_base.code_version,
                 parameters={"test_key": "test_value1"},
                 upstreams=[provenance_base, provenance_extra],
             )
@@ -222,7 +222,7 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
 
             # check that new provenances get added via relationship cascade
             p3 = Provenance(
-                code_version=code_version,
+                code_version=provenance_base.code_version,
                 parameters={"test_key": "test_value1"},
                 process="test_downstream_process",
                 upstreams=[],
@@ -248,7 +248,8 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
 
             fixture_provenances = session.scalars(sa.select(Provenance).where(Provenance.id.in_(fixture_ids))).all()
             assert len(fixture_provenances) == 2
-            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == code_version.id)).first()
+            cv = session.scalars(sa.select(CodeVersion)
+                                 .where(CodeVersion.id == provenance_base.code_version.id)).first()
             assert cv is not None
 
         # # the deletion of the new provenances should have cascaded to the downstreams
@@ -260,19 +261,49 @@ def test_upstream_relationship(code_version, provenance_base, provenance_extra):
         # extra_downstream_ids = [p.id for p in provenance_extra.downstreams]
         # assert all([pid not in extra_downstream_ids for pid in new_ids])
 
-# def test_recursive_merge( code_version, provenance_base, provenance_extra ):
-#     prov3 = Provenance( process="test_secondary_process",
-#                         code_version=code_version,
-#                         parameters={},
-#                         upstreams=[ provenance_extra ],
-#                         is_testing=True )
-#     prov4 = Provenance( process="test_tertiary_process",
-#                         code_version=code_version,
-#                         parameters={},
-#                         upstreams=[ provenance_base, prov3 ],
-#                         is_testing=True )
-#     with SmartSession() as session:
-#         mergedprov = prov4.recursive_merge( session )
-#         import pdb; pdb.set_trace()
-#         pass
+def test_recursive_merge( provenance_base ):
+    with SmartSession() as session:
+        session.add( provenance_base )
+        p1 = Provenance( process="test_secondary_process_1",
+                         code_version=provenance_base.code_version,
+                         parameters={},
+                         upstreams=[ provenance_base ],
+                         is_testing=True )
+        p1.update_id()
+        session.add( p1 )
+        p2 = Provenance( process="test_secondary_process_2",
+                         code_version=provenance_base.code_version,
+                         parmeters={},
+                         upstreams=[ p1 ],
+                         is_testing=True )
+        p2.update_id()
+        session.add( p2 )
+        p3 = Provenance( process="test_tertiary_process",
+                         code_version=provenance_base.code_version,
+                         paremeters={},
+                         upstreams=[ p1, p2 ],
+                         is_testing=True )
+        p3.update_id()
+        session.add( p3 )
+        p4 = Provenance( process="test_final_process",
+                         code_version=provenance_base.code_version,
+                         parmeters={},
+                         upstreams=[ p3 ],
+                         is_testing=True )
+        p4.update_id()
+        session.add( p4 )
+        session.commit()
+
+        # Now, in another session....
+        with SmartSession() as different_session:
+            merged_p4 = p4.recursive_merge( different_session )
+            different_session.add( merged_p4 )
+            found = set()
+            for obj in different_session.identity_map.values():
+                if isinstance( obj, Provenance ):
+                    found.add( obj.id )
+
+            for p in [ p1, p2, p3, p4, provenance_base ]:
+                assert p.id in found
+        
     
