@@ -131,9 +131,11 @@ class ImageAligner:
 
         try:
             # Write out the source lists for scamp to chew on
-            ldac.save_table_as_ldac( astropy.table.Table( sources.data ), imagecat,
+            sourcedat = sources._convert_to_sextractor_for_saving( sources.data )
+            targetdat = targetsources._convert_to_sextractor_for_saving( targetsources.data )
+            ldac.save_table_as_ldac( astropy.table.Table( sourcedat), imagecat,
                                      imghdr=sources.info, overwrite=True )
-            ldac.save_table_as_ldac( astropy.table.Table( targetsources.data ), targetcat,
+            ldac.save_table_as_ldac( astropy.table.Table( targetdat ), targetcat,
                                      imghdr=targetsources.info, overwrite=True )
 
             # Scamp it up
