@@ -1142,7 +1142,7 @@ def test_image_filename_conventions(demo_image, provenance_base):
         cfg.set_value('storage.images.name_convention', new_convention)
         # This next line was added because I changed image.save() so
         # that it will use self.filepath if it is non-None.  (I needed
-        # this change in behavior ato be able to control filenames when
+        # this change in behavior to be able to control filenames when
         # called from a DataStore save method; the other option would be
         # to add options to those methods and then pass those options
         # on, and that is very cumbersome.)
