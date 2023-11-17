@@ -20,7 +20,7 @@ UPSTREAM_NAMES = {
     'extraction': ['preprocessing'],
     'astro_cal': ['extraction'],
     'photo_cal': ['extraction', 'astro_cal'],
-    'alignment': [ 'photo_cal' ]
+    'alignment': [ 'photo_cal' ],
     'subtraction': ['preprocessing', 'extraction', 'astro_cal', 'photo_cal'],
     'detection': ['subtraction'],
     'cutting': ['detection'],
