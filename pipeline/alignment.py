@@ -33,7 +33,7 @@ class ParsImageAligner(Parameters):
         self.override( kwargs )
 
     def get_process_name(self):
-        return 'warp'
+        return 'alignment'
 
 class ImageAligner:
     def __init__( self, **kwargs ):
