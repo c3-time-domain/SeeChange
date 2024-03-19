@@ -6,7 +6,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
-from models.base import CODE_ROOT
+from models.base import CODE_ROOT, _logger
 from improc.simulator import Simulator, SimGalaxies, SimStreaks, SimCosmicRays
 from improc.sky_flat import sigma_clipping
 
@@ -34,8 +34,8 @@ def test_make_galaxy_field(blocking_plots):
     s = Simulator( image_size_x=256, star_number=0, galaxy_number=1000, galaxy_min_width=1, galaxy_min_flux=1000 )
     t0 = time.time()
     s.make_image()
-    print(s.truth.oversampling)
-    print(f'Generating image took {time.time() - t0:.1f} seconds')
+    _logger.debug(s.truth.oversampling)
+    _logger.debug(f'Generating image took {time.time() - t0:.1f} seconds')
 
     mu, sig = sigma_clipping(s.image.astype(float))
 
@@ -131,8 +131,8 @@ def test_bleeding_pixels(blocking_plots):
     original_electrons_in_pixel = 1000
     expected_total_electrons = expected_down_electrons + expected_up_electrons + original_electrons_in_pixel
     standard_deviation = 256  # one per pixel, 256*256 pixels, sqrt
-    # print(expected_total_electrons)
-    # print(np.sum(im_bleed))
+    # _logger.debug(expected_total_electrons)
+    # _logger.debug(np.sum(im_bleed))
     assert abs(np.sum(im_bleed) - expected_total_electrons) < 3 * standard_deviation
 
     # add another pixel
@@ -143,8 +143,8 @@ def test_bleeding_pixels(blocking_plots):
     expected_up_electrons = 1000 * 183 * 0.5 - 2000
     original_electrons_in_pixel = 2000
     expected_total_electrons = expected_down_electrons + expected_up_electrons + original_electrons_in_pixel
-    # print(expected_total_electrons)
-    # print(np.sum(im_bleed))
+    # _logger.debug(expected_total_electrons)
+    # _logger.debug(np.sum(im_bleed))
     assert abs(np.sum(im_bleed) - expected_total_electrons) < 3 * standard_deviation
 
     # test horizontal bleeding
