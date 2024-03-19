@@ -3,7 +3,7 @@ import pytest
 import shutil
 import sqlalchemy as sa
 
-from models.base import SmartSession, FileOnDiskMixin
+from models.base import SmartSession, FileOnDiskMixin, _logger
 from models.provenance import Provenance
 from models.image import Image, image_upstreams_association_table
 from models.source_list import SourceList
@@ -208,7 +208,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
         for i in range(len(attributes)):
             for j in range(i + 1):
                 setattr(ds, attributes[j], None)  # get rid of all data up to the current attribute
-            # print(f'removing attributes up to {attributes[i]}')
+            # _logger.debug(f'removing attributes up to {attributes[i]}')
             ds = p.run(ds)  # for each iteration, we should be able to recreate the data
 
             # commit to DB using this session

@@ -7,7 +7,7 @@ import scipy
 import matplotlib
 import matplotlib.pyplot as plt
 
-from models.base import CODE_ROOT, safe_mkdir
+from models.base import CODE_ROOT, safe_mkdir, _logger
 from improc.simulator import Simulator
 from improc.zogy import zogy_subtract
 
@@ -226,7 +226,7 @@ def test_subtraction_snr_histograms(blocking_plots):
     # exp = np.mean(expected, axis=0)
     # mea = np.mean(measured, axis=0)
     # p1 = np.polyfit(exp, mea, 1)
-    # print(p1)
+    # _logger.debug(p1)
 
     matplotlib.rcParams["font.size"] = 22
     fig, axes = plt.subplots(2, 2, figsize=[14, 10], )
@@ -373,7 +373,7 @@ def test_subtraction_seeing_background():
         for new_seeing in seeing_values:
             for ref_bkg in background_values:
                 for new_bkg in background_values:
-                    # print(f'seeing: {ref_seeing}, {new_seeing} | bkg: {ref_bkg}, {new_bkg}')
+                    # _logger.debug(f'seeing: {ref_seeing}, {new_seeing} | bkg: {ref_bkg}, {new_bkg}')
 
                     sim.pars.seeing_mean = ref_seeing
                     sim.pars.background_mean = ref_bkg
@@ -421,7 +421,7 @@ def test_subtraction_seeing_background():
                         # the combination of background variance with source-noise variance
                         expected = f * np.sqrt(np.sum(P ** 2) / (B + f * np.sum(P ** 2)))
                         measured = np.nanmax(c)
-                        # print((expected - measured) / expected)
+                        # _logger.debug((expected - measured) / expected)
                         # TODO: figure out why we still have cases where the S/N is reduced by 35%
                         if abs((expected - measured) / expected) > 0.35:
                             raise ValueError(
@@ -480,7 +480,7 @@ def test_subtraction_jitter_noise():
         sim.add_extra_stars(flux=f, x=p, y=p)
 
     for jitter in jitter_values:
-        # print(f'jitter: {jitter}')
+        # _logger.debug(f'jitter: {jitter}')
         sim.pars.seeing_mean = new_seeing  # a little worse seeing than the ref
         sim.pars.background_mean = new_bkg  # a little worse background than the ref
         sim.pars.star_position_std = jitter  # add some jitter to the star positions
@@ -520,7 +520,7 @@ def test_subtraction_jitter_noise():
             # the combination of background variance with source-noise variance
             expected = f * np.sqrt(np.sum(P ** 2) / (B + f * np.sum(P ** 2)))
             measured = np.nanmax(c)
-            # print((expected - measured) / expected)
+            # _logger.debug((expected - measured) / expected)
             # TODO: figure out why we still have cases where the S/N is reduced by 50%
             if abs((expected - measured) / expected) > 0.5:
                 raise ValueError(

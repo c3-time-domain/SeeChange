@@ -7,6 +7,7 @@ _rundir = pathlib.Path(__file__).parent
 if not str(_rundir.parent) in sys.path:
     sys.path.insert(0, str(_rundir.parent ) )
 from util import config
+from models.base import _logger
 
 # A note about pytest: Things aren't completely sandboxed.  When I call
 # config.Config.get(), it sets Config._default, and that carries over
@@ -17,7 +18,7 @@ from util import config
 class TestConfig:
     @pytest.fixture(scope='class')
     def cfg(self):
-        # print('setting up a config object with a spoof yaml file just for testing the config mechanism. ')
+        # _logger.debug('setting up a config object with a spoof yaml file just for testing the config mechanism. ')
         return config.Config.get(_rundir / 'test.yaml', setdefault=False)  # retain the default for other tests
 
     def test_default_default( self ):
