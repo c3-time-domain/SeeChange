@@ -219,7 +219,7 @@ def main():
         skyim, sig = sextrsky( imagedata, bpmdata, sigcut=args.sigcut,
                                filtsize=args.filtsize, boxsize=args.boxwid, logger=logger )
         sky = np.median( skyim )
-    print( f'Sky: {sky}; σ: {sig}' )
+    _logger.debug( f'Sky: {sky}; σ: {sig}' )
 
     if args.output is not None:
         hdr = imageheader.copy()

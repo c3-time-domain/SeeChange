@@ -8,6 +8,9 @@ from scipy.stats.distributions import norm, chi2
 
 from improc.bitmask_tools import dilate_bitflag
 
+from models.base import _logger
+
+
 
 def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, flux_ref, flux_new, dx=None, dy=None):
     """Perform ZOGY image subtraction.
@@ -376,7 +379,7 @@ if __name__ == "__main__":
         F_r = 1 / np.sqrt(np.sum(P_r ** 2) / B_r)
         F_n = 1 / np.sqrt(np.sum(P_n ** 2) / B_n)
         output = zogy_subtract(R, N, P_r, P_n, np.sqrt(B_r), np.sqrt(B_n), F_r, F_n)
-        print(
+        _logger.debug(
             f'std(D)= {np.std(output["sub_image"])}, '
             f'std(S)= {np.std(output["score"])}, '
             f'std(Sc)= {np.std(output["Score_corr"])}'

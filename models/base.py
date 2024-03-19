@@ -167,10 +167,10 @@ def get_all_database_objects(display=False, session=None):
             output[model] = object_ids
 
             if display:
-                print(f"{model.__name__:16s}: ", end='')
+                _logger.debug(f"{model.__name__:16s}: ", end='')
                 for obj_id in object_ids:
-                    print(obj_id, end=', ')
-                print()
+                    _logger.debug(obj_id, end=', ')
+                _logger.debug()
 
     return output
 
