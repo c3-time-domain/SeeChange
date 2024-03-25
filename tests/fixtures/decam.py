@@ -501,7 +501,7 @@ def decam_subtraction(decam_reference, decam_processed_image, subtractor, decam_
             aligned_new = None
             aligned_ref_file = '115/c4d_20220113_050224_N1_g_Warped_ZBELGP'
             if os.path.isfile(os.path.join(decam_cache_dir, aligned_ref_file + '.image.fits.json')):
-                aligned_ref = Image.copy_from_cache(cache_dir, aligned_ref_file + '.image.fits.json')
+                aligned_ref = Image.copy_from_cache(decam_cache_dir, aligned_ref_file + '.image.fits.json')
                 aligned_ref.info['original_image_id'] = decam_reference.image.id
                 aligned_ref.provenance = align_ref_prov
 
