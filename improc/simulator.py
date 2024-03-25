@@ -5,6 +5,9 @@ from collections import defaultdict
 
 from scipy.ndimage import gaussian_filter
 
+from models.base import _logger
+
+
 # import pylandau
 
 from pipeline.parameters import Parameters
@@ -1799,41 +1802,41 @@ class Simulator:
         if new_sensor or self.sensor is None:
             self.make_sensor()
             if self.pars.show_runtimes:
-                print(f'time to make sensor: {time.time() - t0:.2f}s')
+                _logger.debug(f'time to make sensor: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         if new_camera or self.camera is None:
             self.make_camera()
             if self.pars.show_runtimes:
-                print(f'time to make camera: {time.time() - t0:.2f}s')
+                _logger.debug(f'time to make camera: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         if new_sky or self.sky is None:
             self.make_sky()
             if self.pars.show_runtimes:
-                print(f'time to make sky: {time.time() - t0:.2f}s')
+                _logger.debug(f'time to make sky: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         if new_stars or self.stars is None:
             self.make_stars()
             if self.pars.show_runtimes:
-                print(f'time to make stars: {time.time() - t0:.2f}s')
+                _logger.debug(f'time to make stars: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         if new_galaxies or self.galaxies is None:
             self.make_galaxies()
             if self.pars.show_runtimes:
-                print(f'time to make galaxies: {time.time() - t0:.2f}s')
+                _logger.debug(f'time to make galaxies: {time.time() - t0:.2f}s')
 
         if new_streaks or self.streaks is None:
             self.make_streaks()
             if self.pars.show_runtimes:
-                print(f'time to make streaks: {time.time() - t0:.2f}s')
+                _logger.debug(f'time to make streaks: {time.time() - t0:.2f}s')
 
         if new_cosmic_rays or self.cosmic_rays is None:
             self.make_cosmic_rays()
             if self.pars.show_runtimes:
-                print(f'time to make cosmic rays: {time.time() - t0:.2f}s')
+                _logger.debug(f'time to make cosmic rays: {time.time() - t0:.2f}s')
 
         # make a PSF
         # fwhm = np.sqrt(self.camera.optic_psf_fwhm ** 2 + self.sky.seeing_instance ** 2)
@@ -1865,37 +1868,37 @@ class Simulator:
         t0 = time.time()
         self.make_raw_star_flux_map()  # image of the flux of stars after PSF convolution (no sky, no noise)
         if self.pars.show_runtimes:
-            print(f'time to make raw star flux map: {time.time() - t0:.2f}s')
+            _logger.debug(f'time to make raw star flux map: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         self.add_atmosphere()  # add the transmission and sky background to the image, with oversampling, without noise
         if self.pars.show_runtimes:
-            print(f'time to add atmosphere: {time.time() - t0:.2f}s')
+            _logger.debug(f'time to add atmosphere: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         self.add_camera()
         if self.pars.show_runtimes:
-            print(f'time to add camera: {time.time() - t0:.2f}s')
+            _logger.debug(f'time to add camera: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         self.flux_to_electrons()
         if self.pars.show_runtimes:
-            print(f'time to convert flux to electrons: {time.time() - t0:.2f}s')
+            _logger.debug(f'time to convert flux to electrons: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         self.add_cosmic_rays()
         if self.pars.show_runtimes:
-            print(f'time to add cosmic rays: {time.time() - t0:.2f}s')
+            _logger.debug(f'time to add cosmic rays: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         self.electrons_to_adu()
         if self.pars.show_runtimes:
-            print(f'time to convert electrons to ADU: {time.time() - t0:.2f}s')
+            _logger.debug(f'time to convert electrons to ADU: {time.time() - t0:.2f}s')
 
         t0 = time.time()
         self.add_noise()
         if self.pars.show_runtimes:
-            print(f'time to add noise: {time.time() - t0:.2f}s')
+            _logger.debug(f'time to add noise: {time.time() - t0:.2f}s')
 
         # make sure to collect all the parameters used in each part
         self.save_truth()

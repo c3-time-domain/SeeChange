@@ -34,7 +34,7 @@ ARCHIVE_PATH = None
 # (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionstart(session):
     # Will be executed before the first test
-    # print('Initial setup fixture loaded! ')
+    # _logger.debug('Initial setup fixture loaded! ')
 
     # make sure to load the test config
     test_config_file = str((pathlib.Path(__file__).parent.parent / 'tests' / 'seechange_config_test.yaml').resolve())
@@ -44,7 +44,7 @@ def pytest_sessionstart(session):
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionfinish(session, exitstatus):
-    # print('Final teardown fixture executed! ')
+    # _logger.debug('Final teardown fixture executed! ')
     with SmartSession() as dbsession:
         # first get rid of any Exposure loading Provenances, if they have no Exposures attached
         provs = dbsession.scalars(sa.select(Provenance).where(Provenance.process == 'load_exposure'))
@@ -61,12 +61,12 @@ def pytest_sessionfinish(session, exitstatus):
             if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt', 'Provenance']:
                 _logger.info(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             elif len(ids) > 0:
-                print(
+                _logger.debug(
                     f'There are {len(ids)} {Class.__name__} objects in the database. Please make sure to cleanup!'
                 )
                 for id in ids:
                     obj = dbsession.scalars(sa.select(Class).where(Class.id == id)).first()
-                    print(f'  {obj}')
+                    _logger.debug(f'  {obj}')
                     any_objects = True
 
         # delete the CodeVersion object (this should remove all provenances as well)
@@ -125,7 +125,7 @@ def data_dir():
     with open(os.path.join(temp_data_folder, 'placeholder'), 'w'):
         pass  # make an empty file inside this folder to make sure it doesn't get deleted on "remove_data_from_disk"
 
-    # print(f'temp_data_folder: {temp_data_folder}')
+    # _logger.debug(f'temp_data_folder: {temp_data_folder}')
 
     yield temp_data_folder
 

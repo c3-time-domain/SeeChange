@@ -368,7 +368,7 @@ def datastore_factory(
                     warnings.warn(f'cache path {cache_path} does not match output path {output_path}')
                 elif cache_dir is not None and cache_base_name is None:
                     ds.cache_base_name = output_path
-                    print(f'Saving image to cache at: {output_path}')
+                    _logger.debug(f'Saving image to cache at: {output_path}')
 
             # check if background was calculated
             if ds.image.bkg_mean_estimate is None or ds.image.bkg_rms_estimate is None:

@@ -22,6 +22,7 @@ from models.base import (
     SpatiallyIndexed,
     SmartSession,
     HasBitFlagBadness,
+    _logger
 )
 from models.instrument import guess_instrument, get_instrument_instance
 from models.provenance import Provenance
@@ -740,4 +741,4 @@ if __name__ == '__main__':
     ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     filepath = os.path.join(ROOT_FOLDER, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
     e = Exposure(filepath)
-    print(e)
+    _logger.debug(e)

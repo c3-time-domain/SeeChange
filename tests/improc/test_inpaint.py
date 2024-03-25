@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 
 from improc.inpainting import Inpainter
+from models.base import _logger
 
 
 def test_trivial_inpaint():
@@ -101,4 +102,4 @@ def test_inpaint_aligned_images(ptf_aligned_images, blocking_plots):
         ax[2].imshow(flagcube[0][0:160, 0:150])
         ax[2].set_title('flags')
         plt.show(block=True)
-        print('done')
+        _logger.debug('done')

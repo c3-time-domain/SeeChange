@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from astropy.io import fits
 from astropy.time import Time
 
-from models.base import SmartSession
+from models.base import SmartSession, _logger
 from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
@@ -151,7 +151,7 @@ class ImageCleanup:
         self.archive = archive
 
     def __del__(self):
-        # print('removing file at end of test!')
+        # _logger.debug('removing file at end of test!')
         try:
             if self.archive:
                 self.image.delete_from_disk_and_database()

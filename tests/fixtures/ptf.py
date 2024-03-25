@@ -232,9 +232,9 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
 
             except Exception as e:
                 # I think we should fix this along with issue #150
-                print(f'Error processing {url}')  # this will also leave behind exposure and image data on disk only
+                _logger.debug(f'Error processing {url}')  # this will also leave behind exposure and image data on disk only
                 raise e
-                # print(e)  # TODO: should we be worried that some of these images can't complete their processing?
+                # _logger.debug(e)  # TODO: should we be worried that some of these images can't complete their processing?
                 continue
 
             images.append(ds.image)

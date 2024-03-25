@@ -11,6 +11,7 @@ from models.source_list import SourceList
 from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
+from models.base import _logger
 
 from improc.simulator import Simulator
 from improc.tools import sigma_clipping
@@ -176,7 +177,7 @@ def test_zogy_simulation(coadder, blocking_plots):
     fwhms_est = np.array(fwhms_est)
     fwhms_est2 = np.sqrt(fwhms_est ** 2 - 1.5)  # add the pixelization width
     deltas = np.abs((fwhms - fwhms_est2) / fwhms)
-    # print(
+    # _logger.debug(
     #     f'max(deltas) = {np.max(deltas) * 100:.1f}%, '
     #     f'mean(deltas) = {np.mean(deltas) * 100:.1f}%, '
     #     f'std(deltas)= {np.std(deltas) * 100 :.1f}% '
