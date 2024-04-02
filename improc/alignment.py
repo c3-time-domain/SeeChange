@@ -365,7 +365,7 @@ class ImageAligner:
             warpedim.flags[ np.logical_and(not_flagged, low_weight) ] = 8 # 'out of bounds'
             flags0, flags8 = (warpedim.flags == 0).sum(), (warpedim.flags == 8).sum()
             assert flags_before == flags0 + flags8  # only 0 flags were changed
-            # warpedim.flags[ warpedim.weight < 1e-10 ] = 1   # original code
+            # warpedim.flags[ warpedim.weight < 1e-10 ] = 1  # original code
 
             # WJH 04-2024: For debuggging 
             # plt.imshow(warpedim.flags)
