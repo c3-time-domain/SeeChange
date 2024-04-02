@@ -345,12 +345,35 @@ class ImageAligner:
             # expand bad pixel mask to allow for warping that smears the badness
             warpedim.flags = dilate_bitflag(warpedim.flags, iterations=1)  # use the default structure
 
+            # WJH 04-2024: For debuggging 
+            # import matplotlib.pyplot as plt
+            # plt.figure()
+            # plt.imshow(warpedim.flags)
+            # plt.savefig("test_alignment_01before.png")
+            # # assert 0  # debugging breakpoint
+
             # warpedim.flags = np.zeros( warpedim.weight.shape, dtype=np.uint16 )  # Do I want int16 or uint16?
             # TODO : a good cutoff for this weight
             #  For most images I've seen, no image
             #  will have a pixel with noise above 100000,
             #  hence the 1e-10.
-            warpedim.flags[ warpedim.weight < 1e-10 ] = 1
+            # WH: to get the out of bounds pixels from the alignment
+            #  flag all such pixels that were not already flagged bad
+            flags_before = (warpedim.flags == 0).sum()
+            not_flagged = warpedim.flags == 0
+            low_weight = warpedim.weight < 1e-10
+            warpedim.flags[ np.logical_and(not_flagged, low_weight) ] = 8 # 'out of bounds'
+            flags0, flags8 = (warpedim.flags == 0).sum(), (warpedim.flags == 8).sum()
+            assert flags_before == flags0 + flags8  # only 0 flags were changed
+            # warpedim.flags[ warpedim.weight < 1e-10 ] = 1   # original code
+
+            # WJH 04-2024: For debuggging 
+            # plt.imshow(warpedim.flags)
+            # plt.savefig("test_alignment_02after.png")
+
+            # plt.imshow(warpedim.flags == 8)
+            # plt.savefig("test_alignment_03onlyFlaggedOOB.png")
+            # # assert 0  # debugging breakpoint
 
             return warpedim
 
