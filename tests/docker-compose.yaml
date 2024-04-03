@@ -12,7 +12,7 @@ services:
       - type: volume
         source: archive-storage
         target: /storage
-    entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:-0}:${GROUPID:-0} /storage/base"
+    entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:-0}:${GROUPID:-0} /storage/base && chmod a+rwx /storage/base"
 
   archive:
     depends_on:
