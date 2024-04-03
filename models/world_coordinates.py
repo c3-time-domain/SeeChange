@@ -1,3 +1,4 @@
+import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -6,6 +7,7 @@ from sqlalchemy.schema import UniqueConstraint
 
 from astropy.wcs import WCS
 from astropy.io import fits
+from astropy.wcs import utils
 
 from models.base import Base, AutoIDMixin, HasBitFlagBadness
 from models.enums_and_bitflags import catalog_match_badness_inverse
@@ -110,3 +112,10 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
     def init_on_load( self ):
         Base.init_on_load( self )
         self._wcs = None
+
+    def get_pixel_scale(self):
+        """Calculate the mean pixel scale using the WCS, in units of arcseconds per pixel."""
+        if self.wcs is None:
+            return None
+        pixel_scales = utils.proj_plane_pixel_scales(self.wcs)  # the scale in x and y direction
+        return np.mean(pixel_scales) * 3600.0

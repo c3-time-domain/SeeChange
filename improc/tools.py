@@ -81,7 +81,7 @@ def sigma_clipping(values, nsigma=3.0, iterations=5, axis=None, median=False):
     return mean, rms
 
 
-def make_gaussian(sigma_x=2.0, sigma_y=None, rotation=0.0, norm=1, imsize=None):
+def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotation=0.0, norm=1, imsize=None):
     """
     Create a small image of a Gaussian centered around the middle of the image.
 
@@ -93,6 +93,10 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, rotation=0.0, norm=1, imsize=None):
     sigma_y: float or None
         The sigma width parameter.
         If None, will use sigma_x for both axes.
+    offset_x: float
+        The offset in the x direction.
+    offset_y: float
+        The offset in the y direction.
     rotation: float
         The rotation angle in degrees.
         The Gaussian will be rotated counter-clockwise by this angle.
@@ -126,8 +130,8 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, rotation=0.0, norm=1, imsize=None):
     y = np.arange(imsize)
     x, y = np.meshgrid(x, y)
 
-    x0 = imsize // 2
-    y0 = imsize // 2
+    x0 = imsize // 2 + offset_x
+    y0 = imsize // 2 + offset_y
     # TODO: what happens if imsize is even?
 
     x = x - x0

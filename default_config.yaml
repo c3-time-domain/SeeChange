@@ -90,12 +90,19 @@ detection:
   threshold: 5.0
 
 cutting:
-  cutout_size: 20
+  cutout_size: 25
 
-measurement:
-  photometry_method: aperture
-  aperture_radius: 3.0
-  real_bogus_version: null
+measuring:
+  annulus_radii: [10, 15]
+  annulus_units: pixels
+  chosen_aperture: 0
+  analytical_cuts: ['negatives', 'bad pixels', 'offsets', 'filter bank']
+  negative_positive_threshold: 0.3
+  bad_pixel_radius: 3.0
+  bad_pixel_exclude: []
+  streak_filter_angle_step: 5.0
+  width_filter_multipliers: [0.25, 2.0, 5.0, 10.0]
+
 
 # Specific configuration for specific instruments.
 # Instruments should override the two defaults from

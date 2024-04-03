@@ -253,13 +253,18 @@ class Provenance(Base):
         self.update_id()  # too many times I've forgotten to do this!
 
     def __repr__(self):
+        try:
+            upstream_hashes = [h[:6] for h in self.upstream_hashes]
+        except:
+            upstream_hashes = '[...]'
+
         return (
             '<Provenance('
             f'id= {self.id[:6] if self.id else "<None>"}, '
             f'process="{self.process}", '
             f'code_version="{self.code_version.id}", '
             f'parameters={self.parameters}, '
-            f'upstreams={[h[:6] for h in self.upstream_hashes]})>'
+            f'upstreams={upstream_hashes})>'
         )
 
     def __setattr__(self, key, value):

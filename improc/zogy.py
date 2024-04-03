@@ -104,7 +104,7 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         translient: numpy.ndarray
             The "translational transient" score for moving
             objects or slightly misaligned images.
-            See the paper: ... TODO: add reference once paper is out!
+            See the paper: https://arxiv.org/abs/2403.09771
         translient_sigma: numpy.ndarray
             The translient score, converted to S/N units assuming a chi2 distribution.
         translient_corr: numpy.ndarray

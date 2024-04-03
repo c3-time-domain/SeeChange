@@ -785,9 +785,6 @@ def test_image_coordinates():
     assert image.gallat is None
     assert image.gallon is None
 
-    with pytest.raises(ValueError, match='Object must have RA and Dec set'):
-        image.calculate_coordinates()
-
     image = Image('coordinates.fits', ra=123.4, dec=None, nofile=True)
     assert image.ecllat is None
     assert image.ecllon is None

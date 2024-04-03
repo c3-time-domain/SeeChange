@@ -387,8 +387,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         # Allow passed keywords to override what's detected from the header
         self.set_attributes_from_dict( kwargs )
 
-        if self.ra is not None and self.dec is not None:
-            self.calculate_coordinates()  # galactic and ecliptic coordinates
+        self.calculate_coordinates()  # galactic and ecliptic coordinates
 
     def make_provenance(self):
         """Generate a Provenance for this exposure.

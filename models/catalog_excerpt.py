@@ -5,11 +5,9 @@ import sqlalchemy.types
 from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 
-
-
 import util.ldac
 from util.util import ensure_file_does_not_exist
-from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
+from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, _logger
 from models.enums_and_bitflags import CatalogExcerptFormatConverter, CatalogExcerptOriginConverter
 
 
@@ -143,6 +141,8 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
         for key, value in kwargs.items():
             if hasattr( self, key ):
                 setattr( self, key, value )
+
+        self.calculate_coordinates()
 
     @orm.reconstructor
     def init_on_load(self):

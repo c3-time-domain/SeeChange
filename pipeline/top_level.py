@@ -7,7 +7,7 @@ from pipeline.photo_cal import PhotCalibrator
 from pipeline.subtraction import Subtractor
 from pipeline.detection import Detector
 from pipeline.cutting import Cutter
-from pipeline.measurement import Measurer
+from pipeline.measuring import Measurer
 
 from util.config import Config
 
@@ -82,8 +82,8 @@ class Pipeline:
         self.cutter = Cutter(**cutting_config)
 
         # measure photometry, analytical cuts, and deep learning models on the Cutouts:
-        measurement_config = self.config.value('measurement', {})
-        measurement_config.update(kwargs.get('measurement', {}))
+        measurement_config = self.config.value('measuring', {})
+        measurement_config.update(kwargs.get('measuring', {}))
         self.pars.add_defaults_to_dict(measurement_config)
         self.measurer = Measurer(**measurement_config)
 

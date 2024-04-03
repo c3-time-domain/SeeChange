@@ -98,11 +98,11 @@ Here is a list of the processes and their data products (including the object cl
    and the new image, and saves those stamps as a `Cutouts` object. 
    Additional pixel data could optionally be scraped from other surveys (like PanSTARRS or DECaLS).
    Each source that was detected in the difference image gets a separate `Cutouts` object. 
- - measurement: this part of the pipeline measures the fluxes and shapes of the sources 
+ - measuring: this part of the pipeline measures the fluxes and shapes of the sources 
    in the cutouts. It uses a set of analytical cuts to and also a deep neural network classifier 
    to distinguish between astronomical sources and artefacts. 
-   This process uses the `SourceList` as well as each `Cutouts` object 
-   to produce a `Measurements` object, one for each source in the list. 
+   This process uses the list of `Cutouts` objects 
+   to produce a list of `Measurements` objects, one for each source. 
 
 The final stage of the pipeline adds the new measurements to the database 
 and attempts to link them to existing `Object`s. 
@@ -186,7 +186,7 @@ Each part of the pipeline (each process) is conducted using a dedicated object.
  - subtraction: using the `Subtractor` object defined in `pipeline/subtraction.py`.
  - detection: again using the `Detector` object, with a different set of parameters.
  - cutting: using the `Cutter` object defined in `pipeline/cutting.py`.
- - measurement: using the `Measurer` object defined in `pipeline/measurement.py`.
+ - measuring: using the `Measurer` object defined in `pipeline/measuring.py`.
 
 All these objects are initialized as attributes of a top level `Pipeline` object,
 which is defined in `pipeline/top_level.py`. 

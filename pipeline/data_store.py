@@ -16,7 +16,7 @@ from models.measurements import Measurements
 
 
 UPSTREAM_NAMES = {
-    'exposure': [], # no upstreams
+    'exposure': [],  # no upstreams
     'preprocessing': ['exposure'],
     'extraction': ['preprocessing'],
     'astro_cal': ['extraction'],
@@ -24,7 +24,7 @@ UPSTREAM_NAMES = {
     'subtraction': ['reference', 'preprocessing', 'extraction', 'astro_cal', 'photo_cal'],
     'detection': ['subtraction'],
     'cutting': ['detection'],
-    'measurement': ['detection', 'photo_cal'],
+    'measuring': ['cutting'],
 }
 
 UPSTREAM_OBJECTS = {
@@ -38,7 +38,7 @@ UPSTREAM_OBJECTS = {
     'subtraction': 'sub_image',
     'detection': 'detections',
     'cutting': 'cutouts',
-    'measurement': 'measurements',
+    'measuring': 'measurements',
 }
 
 
@@ -407,6 +407,8 @@ class DataStore:
             for name in UPSTREAM_NAMES[process]:
                 # first try to load an upstream that was given explicitly:
                 obj = getattr(self, UPSTREAM_OBJECTS[name], None)
+                if isinstance(obj, list):
+                    obj = obj[0]  # for cutouts or measurements just use the first one
                 if upstream_provs is not None and name in [p.process for p in upstream_provs]:
                     prov = [p for p in upstream_provs if p.process == name][0]
 
@@ -1155,6 +1157,15 @@ class DataStore:
             with SmartSession(session, self.session) as session:
                 sub_image = self.get_subtraction(session=session)
 
+                if sub_image is None:
+                    return None
+
+                if sub_image.sources is None:
+                    sub_image.sources = self.get_detections(session=session)
+
+                if sub_image.sources is None:
+                    return None
+
                 # this happens when the cutouts are required as an upstream for another process (but aren't in memory)
                 if provenance is None:
                     provenance = self._get_provenance_for_an_upstream(process_name, session=session)
@@ -1162,7 +1173,7 @@ class DataStore:
                 if provenance is not None:  # if None, it means we can't find it on the DB
                     self.cutouts = session.scalars(
                         sa.select(Cutouts).where(
-                            Cutouts.sub_image_id == sub_image.id,
+                            Cutouts.sources_id == sub_image.sources.id,
                             Cutouts.provenance.has(id=provenance.id),
                         )
                     ).all()
@@ -1415,11 +1426,15 @@ class DataStore:
                 self.detections = self.sub_image.sources
 
             if self.detections is not None:
-                for cutout in self.cutouts:
-                    cutout.sources = self.detections
-                self.cutouts = Cutouts.merge_list(self.cutouts, session)
+                if self.cutouts is not None:
+                    for cutout in self.cutouts:
+                        cutout.sources = self.detections
+                    self.cutouts = Cutouts.merge_list(self.cutouts, session)
 
-            # TODO: handle measurements
+                if self.measurements is not None:
+                    for i, m in enumerate(self.measurements):
+                        self.measurements[i].cutouts = self.cutouts[i]  # use the new, merged cutouts
+                        self.measurements[i] = session.merge(m)
 
             self.psf = self.image.psf
             self.sources = self.image.sources
@@ -1428,7 +1443,7 @@ class DataStore:
 
             session.commit()
 
-    def delete_everything(self, session=None):
+    def delete_everything(self, session=None, commit=True):
         """Delete everything associated with this sub-image.
 
         All data products in the data store are removed from the DB,
@@ -1447,8 +1462,15 @@ class DataStore:
             DataStore object; if there is none, will open a new session
             and close it at the end of the function.
             Note that this method calls session.commit()
-
+        commit: bool, default True
+            If True, will commit the transaction.  If False, will not
+            commit the transaction, so the caller can do more work
+            before committing.
+            If session is None, commit must also be True.
         """
+        if session is None and not commit:
+            raise ValueError('If session is None, commit must be True')
+
         with SmartSession( session, self.session ) as session:
             autoflush_state = session.autoflush
             try:
@@ -1471,7 +1493,8 @@ class DataStore:
                     # call the special delete method for list-arranged objects (e.g., cutouts, measurements)
                     if isinstance(obj, list):
                         if len(obj) > 0:
-                            obj[0].delete_list(obj, session=session, commit=False, archive=True)
+                            if hasattr(obj[0], 'delete_list'):
+                                obj[0].delete_list(obj, session=session, commit=False)
                         continue
                     if isinstance(obj, FileOnDiskMixin):
                         obj.delete_from_disk_and_database(session=session, commit=False, archive=True)
@@ -1483,14 +1506,27 @@ class DataStore:
                     if hasattr(obj, 'provenance') and obj.provenance is not None and obj.provenance in session:
                         session.expunge(obj.provenance)
 
+                # verify that the objects are in fact deleted by deleting the image at the root of the datastore
+                if self.image is not None and self.image.id is not None:
+                    session.execute(sa.delete(Image).where(Image.id == self.image.id))
+
+                # verify that no objects were accidentally added to the session's "new" set
+                for obj in obj_list:
+                    if isinstance(obj, list):
+                        continue  # skip cutouts and measurements, as they could be slow to check
+
+                    for new_obj in session.new:
+                        if type(obj) is type(new_obj) and obj.id is not None and obj.id == new_obj.id:
+                            session.expunge(new_obj)  # remove this object
+
                 session.commit()
 
             finally:
                 session.autoflush = autoflush_state
 
         # Make sure all data products are None so that they aren't used again now that they're gone
-        for att in self.attributes_to_save:
-            setattr(self, att, None)
-
-        for att in self.attributes_to_clear:
-            setattr(self, att, None)
+        # for att in self.attributes_to_save:
+        #     setattr(self, att, None)
+        #
+        # for att in self.attributes_to_clear:
+        #     setattr(self, att, None)

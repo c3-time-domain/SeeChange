@@ -142,9 +142,6 @@ def test_exposure_coordinates():
     assert e.gallat is None
     assert e.gallon is None
 
-    with pytest.raises(ValueError, match='Object must have RA and Dec set'):
-        e.calculate_coordinates()
-
     e = Exposure(filepath='foo.fits', ra=123.4, dec=None, nofile=True)
     assert e.ecllat is None
     assert e.ecllon is None

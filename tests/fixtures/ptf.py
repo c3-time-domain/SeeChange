@@ -23,6 +23,8 @@ from models.reference import Reference
 
 from pipeline.coaddition import CoaddPipeline
 
+from improc.alignment import ImageAligner
+
 from util.retrydownload import retry_download
 
 
@@ -139,7 +141,7 @@ def ptf_exposure(ptf_downloader):
 
 
 @pytest.fixture
-def ptf_datastore(datastore_factory, ptf_exposure, ptf_cache_dir, ptf_bad_pixel_map):
+def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map):
     ptf_exposure.instrument_object.fetch_sections()
     ds = datastore_factory(
         ptf_exposure,
@@ -151,6 +153,8 @@ def ptf_datastore(datastore_factory, ptf_exposure, ptf_cache_dir, ptf_bad_pixel_
     )
     yield ds
     ds.delete_everything()
+
+    ImageAligner.cleanup_temp_images()
 
 
 @pytest.fixture(scope='session')

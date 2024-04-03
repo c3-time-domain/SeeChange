@@ -84,7 +84,7 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
         index=False,
         doc=( "Aperture corrections for apertures with radii in aper_cor_radii.  Defined so that "
               "mag = -2.5*log10(adu_aper) + zp + aper_cor, where adu_aper is the number of ADU "
-              "in the aperture with the specfiied radius.  There is a built-in approximation that a "
+              "in the aperture with the specified radius.  There is a built-in approximation that a "
               "single aperture applies across the entire image, which should be OK given that the "
               "pipeline isn't expected to have photometry to better than a couple of percent." )
     )
@@ -96,11 +96,11 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
     def get_aper_cor( self, rad ):
         """Return the aperture correction for a given aperture radius in pixels.
 
-        Requires rad to be within 0.01 pixels of one of the tabluated
+        Requires rad to be within 0.01 pixels of one of the tabulated
         aperture corrections.  If the requested one isn't found, will
         raise a ValueError.
 
-        Parameteters
+        Parameters
         ------------
           rad: float
             The radius of the aperture in pixels

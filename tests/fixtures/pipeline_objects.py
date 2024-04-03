@@ -17,6 +17,8 @@ from models.source_list import SourceList
 from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
+from models.cutouts import Cutouts
+from models.measurements import Measurements
 
 from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
@@ -26,7 +28,7 @@ from pipeline.photo_cal import PhotCalibrator
 from pipeline.coaddition import Coadder
 from pipeline.subtraction import Subtractor
 from pipeline.cutting import Cutter
-from pipeline.measurement import Measurer
+from pipeline.measuring import Measurer
 
 from improc.bitmask_tools import make_saturated_flag
 
@@ -202,7 +204,7 @@ def cutter(cutter_factory):
 def measurer_factory(test_config):
 
     def make_measurer():
-        meas = Measurer(**test_config.value('measurement'))
+        meas = Measurer(**test_config.value('measuring'))
         meas.pars._enforce_no_new_attrs = False
         meas.pars.test_parameter = meas.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -291,6 +293,7 @@ def datastore_factory(
         measurer = measurer_factory()
         measurer.pars.override(overrides.get('measurement', {}))
         measurer.pars.augment(augments.get('measurement', {}))
+
         with SmartSession(session) as session:
             code_version = session.merge(code_version)
             if ds.image is not None:  # if starting from an externally provided Image, must merge it first
@@ -426,14 +429,6 @@ def datastore_factory(
                     ds.sources.save(verify_md5=False)
 
                 # try to get the PSF from cache
-                # prov = Provenance(  # this is the same provenance as the SourceList (Issue #176)
-                #     code_version=code_version,
-                #     process='extraction',
-                #     upstreams=[ds.image.provenance],
-                #     parameters=extractor.pars.get_critical_pars(),
-                #     is_testing=True,
-                # )
-                # prov = session.merge(prov)
                 cache_name = f'{cache_base_name}.psf_{prov.id[:6]}.fits.json'
                 cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(cache_path):
@@ -563,6 +558,109 @@ def datastore_factory(
                     output_path = ds.zp.copy_to_cache(cache_dir, cache_name)
                     if output_path != cache_path:
                         warnings.warn(f'cache path {cache_path} does not match output path {output_path}')
+
+            ds.save_and_commit(session=session)
+
+
+            try:  # if no reference is found, simply return the datastore without the rest of the products
+                ref = ds.get_reference()  # first make sure this actually manages to find the reference image
+            except ValueError as e:
+                if 'No reference image found' in str(e):
+                    return ds
+                raise e  # if any other error comes up, raise it
+
+            # try to find the subtraction image in the cache
+            if cache_dir is not None:
+                prov = Provenance(
+                    code_version=code_version,
+                    process='subtraction',
+                    upstreams=[
+                        ds.image.provenance,
+                        ds.sources.provenance,
+                        ds.wcs.provenance,
+                        ds.zp.provenance,
+                        ref.image.provenance,
+                        ref.sources.provenance,
+                        ref.wcs.provenance,
+                        ref.zp.provenance,
+                    ],
+                    parameters=subtractor.pars.get_critical_pars(),
+                    is_testing=True,
+                )
+                sub_im = Image.from_new_and_ref(ds.image, ref.image)
+                sub_im.provenance = prov
+                cache_sub_name = sub_im.invent_filepath()
+                cache_name = cache_sub_name + '.image.fits.json'
+                if os.path.isfile(os.path.join(cache_dir, cache_name)):
+                    _logger.debug('loading subtraction image from cache. ')
+                    ds.sub_image = Image.copy_from_cache(cache_dir, cache_name)
+                    ds.sub_image.provenance = prov
+                    ds.sub_image.upstream_images.append(ref.image)
+                    ds.sub_image.ref_image_id = ref.image_id
+                    ds.sub_image.new_image = ds.image
+                    ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
+            if ds.sub_image is None:  # no hit in the cache
+                ds = subtractor.run(ds)
+
+            prov = Provenance(
+                code_version=code_version,
+                process='detection',
+                upstreams=[ds.sub_image.provenance],
+                parameters=detector.pars.get_critical_pars(),
+                is_testing=True,
+            )
+            cache_name = os.path.join(cache_dir, cache_sub_name + f'.sources_{prov.id[:6]}.npy.json')
+            if os.path.isfile(cache_name):
+                _logger.debug('loading detections from cache. ')
+                ds.detections = SourceList.copy_from_cache(cache_dir, cache_name)
+                ds.detections.provenance = prov
+                ds.detections.image = ds.sub_image
+                ds.sub_image.sources = ds.detections
+                ds.detections.save(verify_md5=False)
+            else:  # cannot find detections on cache
+                ds = detector.run(ds)
+                ds.detections.save(verify_md5=False)
+                ds.detections.copy_to_cache(cache_dir, cache_name)
+
+            prov = Provenance(
+                code_version=code_version,
+                process='cutting',
+                upstreams=[ds.detections.provenance],
+                parameters=cutter.pars.get_critical_pars(),
+                is_testing=True,
+            )
+            cache_name = os.path.join(cache_dir, cache_sub_name + f'.cutouts_{prov.id[:6]}.h5')
+            if os.path.isfile(cache_name):
+                _logger.debug('loading cutouts from cache. ')
+                ds.cutouts = Cutouts.copy_list_from_cache(cache_dir, cache_name)
+                ds.cutouts = Cutouts.load_list(os.path.join(ds.cutouts[0].local_path, ds.cutouts[0].filepath))
+                [setattr(c, 'provenance', prov) for c in ds.cutouts]
+                [setattr(c, 'sources', ds.detections) for c in ds.cutouts]
+                Cutouts.save_list(ds.cutouts)  # make sure to save to archive as well
+            else:  # cannot find cutouts on cache
+                ds = cutter.run(ds)
+                Cutouts.save_list(ds.cutouts)
+                Cutouts.copy_list_to_cache(ds.cutouts, cache_dir)
+
+            prov = Provenance(
+                code_version=code_version,
+                process='measuring',
+                upstreams=[ds.cutouts[0].provenance],
+                parameters=measurer.pars.get_critical_pars(),
+                is_testing=True,
+            )
+
+            cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{prov.id[:6]}.json')
+
+            if os.path.isfile(cache_name):
+                _logger.debug('loading measurements from cache. ')
+                ds.measurements = Measurements.copy_list_from_cache(cache_dir, cache_name)
+                [setattr(m, 'provenance', prov) for m in ds.measurements]
+                [setattr(m, 'cutouts', c) for m, c in zip(ds.measurements, ds.cutouts)]
+                # no need to save list because Measurements is not a FileOnDiskMixin!
+            else:  # cannot find measurements on cache
+                ds = measurer.run(ds)
+                Measurements.copy_list_to_cache(ds.measurements, cache_dir, cache_name)  # must provide filepath!
 
             # TODO: add the same cache/load and processing for the rest of the pipeline
 

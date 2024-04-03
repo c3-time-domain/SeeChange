@@ -57,10 +57,10 @@ def make_template_bank(imsize=15, psf_sigma=1.0):
             a = np.tan(np.radians(angle))
             b = 0  # impact parameter is zero for centered streak
             d = np.abs(a * x - y + b) / np.sqrt(1 + a ** 2)  # distance from line
-            streak = (1 / np.sqrt(2.0 * np.pi) / psf_sigma) * np.exp(
-                -0.5 * d ** 2 / psf_sigma ** 2
-            )
-            streak /= np.sum(streak ** 2)  # verify that the template is normalized
+        streak = (1 / np.sqrt(2.0 * np.pi) / psf_sigma) * np.exp(
+            -0.5 * d ** 2 / psf_sigma ** 2
+        )
+        streak /= np.sum(streak ** 2)  # verify that the template is normalized
 
         templates.append(streak)
 

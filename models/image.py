@@ -130,9 +130,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         sa.ForeignKey('images.id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
         nullable=True,
         index=True,
-        doc=(
-            "ID of the reference image used to produce this image, in the upstream_images list. "
-        )
+        doc="ID of the reference image used to produce this image, in the upstream_images list. "
     )
 
     ref_image = orm.relationship(
@@ -142,9 +140,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         cascade='save-update, merge, refresh-expire, expunge',
         uselist=False,
         lazy='selectin',
-        doc=(
-            "Reference image used to produce this image, in the upstream_images list. "
-        )
+        doc="Reference image used to produce this image, in the upstream_images list. "
     )
 
     @property
@@ -161,11 +157,16 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             raise ValueError('Do not assign None to new_image. Simply clear the upstream_images list.')
         if not isinstance(value, Image):
             raise ValueError("The new_image must be an Image object.")
-        if len(self.upstream_images) != 2:
-            raise ValueError("This only works for subtractions with exactly two upstream images.")
+        if len(self.upstream_images) not in [1, 2]:
+            raise ValueError("This only works for subtractions that have one or two upstream images.")
 
         if self.upstream_images[0].id == self.ref_image_id:
-            self.upstream_images[1] = value
+            if len(self.upstream_images) == 1:
+                self.upstream_images.append(value)
+            elif len(self.upstream_images) == 2:
+                self.upstream_images[1] = value
+            else:
+                raise ValueError('This should not happen!')
         elif self.upstream_images[1].id == self.ref_image_id:
             self.upstream_images[0] = value
         else:
@@ -490,8 +491,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             if hasattr(self, key):
                 setattr(self, key, value)
 
-        if self.ra is not None and self.dec is not None:
-            self.calculate_coordinates()  # galactic and ecliptic coordinates
+        self.calculate_coordinates()  # galactic and ecliptic coordinates
 
     def __setattr__(self, key, value):
         if key == 'upstream_images':
@@ -721,6 +721,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         new.exposure_id = exposure.id
         new.exposure = exposure
 
+        new.calculate_coordinates()  # galactic and ecliptic coordinates
+
         return new
 
     @classmethod
@@ -739,6 +741,10 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         simple_attributes = [
             'ra',
             'dec',
+            'gallon',
+            'gallat',
+            'ecllon',
+            'ecllat',
             'mjd',
             'end_mjd',
             'exp_time',
@@ -776,8 +782,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         for axis in ['ra', 'dec']:
             for corner in ['00', '01', '10', '11']:
                 setattr(new, f'{axis}_corner_{corner}', getattr(image, f'{axis}_corner_{corner}'))
-
-        new.calculate_coordinates()
 
         return new
 
@@ -831,6 +835,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             copy_by_index_attributes.append(att)
             for corner in ['00', '01', '10', '11']:
                 copy_by_index_attributes.append(f'{att}_corner_{corner}')
+
+        copy_by_index_attributes += ['gallon', 'gallat', 'ecllon', 'ecllat']
 
         for att in fail_if_not_consistent_attributes:
             if len(set([getattr(image, att) for image in images])) > 1:
@@ -959,7 +965,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         # get some more attributes from the new image
         for att in ['section_id', 'instrument', 'telescope', 'project', 'target',
-                    'exp_time', 'mjd', 'end_mjd', 'info', 'header', 'ra', 'dec',
+                    'exp_time', 'mjd', 'end_mjd', 'info', 'header',
+                    'gallon', 'gallat', 'ecllon', 'ecllat', 'ra', 'dec',
                     'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
                     'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11' ]:
             output.__setattr__(att, getattr(new_image, att))
@@ -1727,6 +1734,17 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             downstreams += images
 
             return downstreams
+
+    def get_psf(self):
+        """Load the PSF object for this image.
+
+        If it is a sub image, it will load the PSF from the new image.
+        """
+        if self.psf is not None:
+            return self.psf
+        if self.new_image is not None:
+            return self.new_image.psf
+        return None
 
     @property
     def data(self):

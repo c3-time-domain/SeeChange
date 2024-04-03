@@ -795,11 +795,11 @@ class Detector:
         if score is None:
             raise NotImplementedError('Still need to add the matched-filter cross correlation! ')
 
-        psf_image = None
-        if image.psf is not None:
-            psf_image = image.psf.get_clip()
-        elif getattr(image, 'zogy_psf', None) is not None:
-            psf_image = image.zogy_psf
+        # psf_image = None
+        # if image.psf is not None:
+        #     psf_image = image.psf.get_clip()
+        # elif getattr(image, 'zogy_psf', None) is not None:
+        #     psf_image = image.zogy_psf
 
         fwhm = image.fwhm_estimate
         if fwhm is None:

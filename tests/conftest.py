@@ -74,8 +74,9 @@ def pytest_sessionfinish(session, exitstatus):
 
         dbsession.commit()
 
-        # comment this line out if you just want tests to pass quietly
-        if any_objects:
+        verify_archive_database_empty = True  # set to False to avoid spurious errors at end of tests (when debugging)
+
+        if any_objects and verify_archive_database_empty:
             raise RuntimeError('There are objects in the database. Some tests are not properly cleaning up!')
 
         # remove empty folders from the archive
@@ -95,8 +96,15 @@ def pytest_sessionfinish(session, exitstatus):
             # check that there's nothing left in the archive after tests cleanup
             if os.path.isdir(ARCHIVE_PATH):
                 files = list(pathlib.Path(ARCHIVE_PATH).rglob('*'))
-                if len(files) > 0:
+
+                if len(files) > 0 and verify_archive_database_empty:
                     raise RuntimeError(f'There are files left in the archive after tests cleanup: {files}')
+
+
+@pytest.fixture(scope='session')
+def download_url():
+    return 'https://portal.nersc.gov/cfs/m4616/SeeChange_testing_data'
+
 
 @pytest.fixture(scope='session')
 def download_url():

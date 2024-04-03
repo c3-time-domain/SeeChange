@@ -359,6 +359,14 @@ class SeeChangeBase:
         output = {}
         for key in sa.inspect(self).mapper.columns.keys():
             value = getattr(self, key)
+            # get rid of numpy types
+            if isinstance(value, np.number):
+                value = value.item()  # convert numpy number to python primitive
+            if isinstance(value, list):
+                value = [v.item() if isinstance(v, np.number) else v for v in value]
+            if isinstance(value, dict):
+                value = {k: v.item() if isinstance(v, np.number) else v for k, v in value.items()}
+
             if key == 'md5sum' and value is not None:
                 if isinstance(value, UUID):
                     value = value.hex
@@ -366,18 +374,17 @@ class SeeChangeBase:
                 if isinstance(value, list):
                     value = [v.hex if isinstance(v, UUID) else v for v in value]
 
-            if key == 'aper_rads' and isinstance(value, np.ndarray):
-                value = list(value)
-            if key == 'aper_cors' and isinstance(value, np.ndarray):
-                value = list(value)
-            if key == 'aper_cor_radii' and isinstance(value, np.ndarray):
+            if isinstance(value, np.ndarray) and key in [
+                'aper_rads', 'aper_radii', 'aper_cors', 'aper_cor_radii',
+                'flux_apertures', 'flux_apertures_err', 'area_apertures',
+            ]:
                 value = list(value)
 
             if key in ['modified', 'created_at'] and isinstance(value, datetime.datetime):
                 value = value.isoformat()
 
             if isinstance(value, (datetime.datetime, np.ndarray)):
-                raise TypeError('Found some columns we non-standard types. Please parse all columns! ')
+                raise TypeError('Found some columns with non-standard types. Please parse all columns! ')
 
             output[key] = value
 
@@ -426,7 +433,10 @@ class SeeChangeBase:
             The path to the output JSON file.
         """
         with open(filename, 'w') as fp:
-            json.dump(self.to_dict(), fp, indent=2)
+            try:
+                json.dump(self.to_dict(), fp, indent=2)
+            except:
+                raise
 
     def copy_to_cache(self, cache_dir, filepath=None):
         """Save a copy of the object (and associated files) into a cache directory.
@@ -456,6 +466,9 @@ class SeeChangeBase:
         str
             The full path to the output json file.
         """
+        if filepath is not None and filepath.endswith('.json'):  # remove .json if it exists
+            filepath = filepath[:-5]
+
         json_filepath = filepath
         if not isinstance(self, FileOnDiskMixin):
             if filepath is None:
@@ -487,6 +500,50 @@ class SeeChangeBase:
         if not json_filepath.endswith('.json'):
             json_filepath += '.json'
         self.to_json(json_filepath)
+
+        return json_filepath
+
+    @classmethod
+    def copy_list_to_cache(cls, obj_list, cache_dir, filepath=None):
+        """Copy a list of objects to the cache directory.
+
+        The first object on the list will be used to copy any associated files
+        (if it is a FileOnDiskMixin). The filepath argument must be given
+        if the objects are not FileOnDiskMixin.
+        The type and filepath of all objects on the list must be the same!
+
+        The object's column data is saved into the JSON file as a list of dictionaries.
+
+        Parameters
+        ----------
+        obj_list: list
+            A list of objects to save to the cache directory.
+        cache_dir: str or path
+            The path to the cache directory.
+        filepath: str or path (optional)
+            Must be given if the objects are not FileOnDiskMixin.
+            If it is a FileOnDiskMixin, it will be used to name
+            the data files and the JSON file in the cache folder.
+
+        Returns
+        -------
+        str
+            The full path to the output JSON file.
+        """
+        types = set([type(obj) for obj in obj_list])
+        if len(types) != 1:
+            raise ValueError("All objects must be of the same type!")
+
+        filepaths = set([getattr(obj, 'filepath', None) for obj in obj_list])
+        if len(filepaths) != 1:
+            raise ValueError("All objects must have the same filepath!")
+
+        # save the JSON file and copy associated files
+        json_filepath = obj_list[0].copy_to_cache(cache_dir, filepath=filepath)
+
+        # overwrite the JSON file with the list of dictionaries
+        with open(json_filepath, 'w') as fp:
+            json.dump([obj.to_dict() for obj in obj_list], fp, indent=2)
 
         return json_filepath
 
@@ -546,6 +603,67 @@ class SeeChangeBase:
                 source_f = os.path.join(cache_dir, full_path)
                 if output.filepath_extensions is not None and i < len(output.filepath_extensions):
                     source_f += output.filepath_extensions[i]
+                _logger.debug(f"Copying {source_f} to {target_f}")
+                os.makedirs(os.path.dirname(target_f), exist_ok=True)
+                shutil.copyfile(source_f, target_f)
+
+        return output
+
+    @classmethod
+    def copy_list_from_cache(cls, cache_dir, filepath):
+        """Copy and reconstruct a list of objects from the cache directory.
+
+        Will need the JSON file that contains all the column attributes of the file.
+        Once those are successfully loaded, and if the object is a FileOnDiskMixin,
+        it will be able to figure out where all the associated files are saved
+        based on the filepath and extensions in the JSON file.
+
+        Parameters
+        ----------
+        cache_dir: str or path
+            The path to the cache directory.
+        filepath: str or path
+            The name of the JSON file that holds the column attributes.
+
+        Returns
+        -------
+        output: list
+            The list of reconstructed objects, of the same type as the class.
+        """
+        # allow user to give an absolute path, so long as it is in the cache dir
+        if filepath.startswith(cache_dir):
+            filepath = filepath[len(cache_dir) + 1:]
+
+        # allow the user to give the filepath with or without the .json extension
+        if filepath.endswith('.json'):
+            filepath = filepath[:-5]
+
+        full_path = os.path.join(cache_dir, filepath)
+        with open(full_path + '.json', 'r') as fp:
+            json_list = json.load(fp)
+
+        output = []
+        for obj_dict in json_list:
+            output.append(cls.from_dict(obj_dict))
+
+        if len(output) == 0:
+            return []
+
+        if isinstance(output[0], FileOnDiskMixin):
+            # if fullpath ends in filepath_extensions[0]
+            if (
+                    output[0].filepath_extensions is not None and
+                    output[0].filepath_extensions[0] is not None and
+                    full_path.endswith(output[0].filepath_extensions[0])
+            ):
+                full_path = full_path[:-len(output[0].filepath_extensions[0])]
+
+            for i, target_f in enumerate(output[0].get_fullpath(as_list=True)):
+                if target_f is None:
+                    continue
+                source_f = os.path.join(cache_dir, full_path)
+                if output[0].filepath_extensions is not None and i < len(output[0].filepath_extensions):
+                    source_f += output[0].filepath_extensions[i]
                 _logger.debug(f"Copying {source_f} to {target_f}")
                 os.makedirs(os.path.dirname(target_f), exist_ok=True)
                 shutil.copyfile(source_f, target_f)
@@ -1436,7 +1554,7 @@ class SpatiallyIndexed:
         """Fill self.gallat, self.gallon, self.ecllat, and self.ecllong based on self.ra and self.dec."""
 
         if self.ra is None or self.dec is None:
-            raise ValueError("Object must have RA and Dec set before calculating coordinates! ")
+            return
 
         coords = SkyCoord(self.ra, self.dec, unit="deg", frame="icrs")
         self.gallat = coords.galactic.b.deg
