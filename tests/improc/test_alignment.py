@@ -25,6 +25,7 @@ def test_warp_decam( decam_datastore, decam_reference ):
         warped.filepath = f'warp_test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
 
         assert warped.data.shape == ds.image.data.shape
+        assert (warped.flags == 8).sum() > (warped.flags == 1).sum()
 
         # Check a couple of spots on the image
         # First, around a star:
