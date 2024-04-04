@@ -286,3 +286,6 @@ def test_datastore_delete_everything(decam_datastore):
         assert session.scalars(
             sa.select(Measurements).where(Measurements.id == measurements_list[0].id)
         ).first() is None
+
+def test_trivial_failure():
+    assert 0
