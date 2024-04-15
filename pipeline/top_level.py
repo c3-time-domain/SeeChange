@@ -34,6 +34,10 @@ class Pipeline:
     def __init__(self, **kwargs):
         self.config = Config.get()
 
+        # WH for debugging
+        # assert 0
+        # breakpoint()
+
         # top level parameters
         self.pars = ParsPipeline(**(self.config.value('pipeline', {})))
         self.pars.augment(kwargs.get('pipeline', {}))
