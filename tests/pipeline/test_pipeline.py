@@ -299,7 +299,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
     """
     exposure = decam_exposure
 
-    # breakpoint()
+    # breakpoint() 
 
     ref = decam_reference
     sec_id = ref.section_id
