@@ -350,13 +350,8 @@ class ImageAligner:
             #  For most images I've seen, no image
             #  will have a pixel with noise above 100000,
             #  hence the 1e-10.
-            # WH: to get the out of bounds pixels from the alignment
-            #  flag all such pixels that were not already flagged bad
 
-            flags_before = np.logical_or(warpedim.flags == 0, warpedim.flags == 8).sum()
             warpedim.flags[ np.logical_and(warpedim.flags == 0, warpedim.weight < 1e-10)] = 8
-            flags_after = np.logical_or(warpedim.flags == 0, warpedim.flags == 8).sum()
-            assert flags_before == flags_after, "Something besides 0 or 8 was changed"
             # warpedim.flags[ warpedim.weight < 1e-10 ] = 1  # original code
 
             return warpedim
