@@ -245,7 +245,6 @@ class SeeChangeBase:
             self._bitflag = 0
         if hasattr(self, 'upstream__bitflag'):
             self._upstream_bitflag = 0
-            
 
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -1767,10 +1766,6 @@ class HasBitFlagBadness:
             'The bitflag will include this value, bit-wise-or-ed with the bitflags of the '
             'upstream object that were used to make this one. '
     )
-
-    # not so simple
-    # def __init__(self, **kwargs):
-    #     self.update_downstream_badness()
 
     @declared_attr
     def _upstream_bitflag(cls):
