@@ -311,9 +311,11 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         exposure.badness = 'banding'  # add a bitflag to check for propagation
         ds = p.run(exposure, sec_id)
 
-        # breakpoint() # check various ds objects for the bitflag
+        breakpoint() # check various ds objects for the bitflag
         assert ds.image.badness == 'banding'   # test propagation to image PASS
         assert ds.psf.badness == 'banding'     # test propagation to psf   FAIL
+        assert ds.wcs.badness == 'banding'     # test propagation to wcs   FAIL
+
 
         # commit to DB using this session
         with SmartSession() as session:

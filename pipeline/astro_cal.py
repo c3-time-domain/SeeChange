@@ -185,6 +185,9 @@ class AstroCalibrator:
         # through astropy.wcs.WCS to make sure everything is copacetic.
         image.header.extend( wcs.to_header(), update=True )
 
+        # should perhaps also check for bitflags from each source/from the sourcelist
+        wcs._upstream_bitflag = 0
+        wcs._upstream_bitflag |= image.bitflag
         return wcs
 
     # ----------------------------------------------------------------------

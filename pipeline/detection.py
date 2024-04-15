@@ -708,6 +708,8 @@ class Detector:
                 hdul[1].header['IMAXIS2'] = image.data.shape[0]
                 # TODO: any more information about the Image or SourceList we want to save here?
 
+            psf._upstream_bitflag = 0
+            psf._upstream_bitflag |= image.bitflag
             return psf
 
         finally:
