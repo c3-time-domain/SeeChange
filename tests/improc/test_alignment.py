@@ -26,10 +26,9 @@ def test_warp_decam( decam_datastore, decam_reference ):
         warped.filepath = f'warp_test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
 
         assert warped.data.shape == ds.image.data.shape
+
         oob_bitflag = string_to_bitflag( 'out of bounds', flag_image_bits_inverse)
         badpixel_bitflag = string_to_bitflag( 'bad pixel', flag_image_bits_inverse)
-
-
         assert (warped.flags == oob_bitflag).sum() > (warped.flags == badpixel_bitflag).sum()
 
         # Check a couple of spots on the image
