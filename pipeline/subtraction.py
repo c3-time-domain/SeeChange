@@ -288,11 +288,11 @@ class Subtractor:
                     raise ValueError('Cannot find the reference image in the aligned images')
                 ref_image = ref_image[0]
 
-                if self.pars.method.lower() == 'naive':
+                if self.pars.method == 'naive':
                     outdict = self._subtract_naive(new_image, ref_image)
-                elif self.pars.method.lower() == 'hotpants':
+                elif self.pars.method == 'hotpants':
                     outdict = self._subtract_hotpants(new_image, ref_image)
-                elif self.pars.method.lower() == 'zogy':
+                elif self.pars.method == 'zogy':
                     outdict = self._subtract_zogy(new_image, ref_image)
                 else:
                     raise ValueError(f'Unknown subtraction method {self.pars.method}')

@@ -35,10 +35,10 @@ def test_source_list_bitflag(sim_sources):
         session.commit()
 
         assert sim_sources.image.bitflag == 2 ** 1 + 2 ** 3
-        assert sim_sources.image.badness == 'Banding, Saturation'
+        assert sim_sources.image.badness == 'banding, saturation'
 
         assert sim_sources.bitflag == 2 ** 1 + 2 ** 3
-        assert sim_sources.badness == 'Banding, Saturation'
+        assert sim_sources.badness == 'banding, saturation'
 
         # try to find this using the bitflag hybrid property
         sim_sources3 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 1 + 2 ** 3)).all()
@@ -58,7 +58,7 @@ def test_source_list_bitflag(sim_sources):
         session.commit()
 
         assert sim_sources.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16
-        assert sim_sources.badness == 'Banding, Saturation, Few Sources'
+        assert sim_sources.badness == 'banding, saturation, few sources'
 
         # try to find this using the bitflag hybrid property
         sim_sources4 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16)).all()
@@ -72,8 +72,8 @@ def test_source_list_bitflag(sim_sources):
         session.add(sim_sources.image)
         session.commit()
 
-        assert sim_sources.image.badness == 'Saturation'
-        assert sim_sources.badness == 'Saturation, Few Sources'
+        assert sim_sources.image.badness == 'saturation'
+        assert sim_sources.badness == 'saturation, few sources'
 
         # check the database queries still work
         sim_sources5 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 3 + 2 ** 16)).all()
@@ -83,7 +83,7 @@ def test_source_list_bitflag(sim_sources):
 
         # make sure new SourceList object gets the badness from the Image
         new_sources = SourceList(image=sim_sources.image)
-        assert new_sources.badness == 'Saturation'
+        assert new_sources.badness == 'saturation'
 
 
 def test_invent_filepath( provenance_base, provenance_extra ):

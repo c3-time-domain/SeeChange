@@ -12,7 +12,7 @@ services:
       - type: volume
         source: archive-storage
         target: /storage
-    entrypoint: bash -c "mkdir -p /storage/base && chmod a+rwx /storage/base"
+    entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:-0}:${GROUPID:-0} /storage/base && chmod a+rwx /storage/base"
 
   archive:
     depends_on:
@@ -42,6 +42,7 @@ services:
         read_only: true
     secrets:
       - connector_tokens
+    user: ${USERID:-0}:${GROUPID:-0}
 
   seechange_postgres:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres

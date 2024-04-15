@@ -13,7 +13,7 @@ from models.source_list import SourceList
 from models.psf import PSF
 
 from pipeline.data_store import DataStore
-from pipeline.catalog_tools import fetch_GaiaDR3_excerpt
+from pipeline.catalog_tools import fetch_gaia_dr3_excerpt
 
 from util.retrydownload import retry_download
 
@@ -110,9 +110,9 @@ def ztf_filepath_sources( ztf_filepaths_image_sources_psf ):
 
 
 @pytest.fixture
-def ztf_gaiadr3_excerpt( ztf_datastore_uncommitted ):
+def ztf_gaia_dr3_excerpt( ztf_datastore_uncommitted ):
     ds = ztf_datastore_uncommitted
-    catexp = fetch_GaiaDR3_excerpt( ds.image, minstars=50, maxmags=20, magrange=4 )
+    catexp = fetch_gaia_dr3_excerpt( ds.image, minstars=50, maxmags=20, magrange=4 )
     assert catexp is not None
 
     yield catexp

@@ -184,8 +184,8 @@ class CatalogExcerptFormatConverter( FormatConverter ):
 
 class CatalogExcerptOriginConverter( EnumConverter ):
     _dict = {
-        0: 'Unknown',
-        1: 'GaiaDR3'
+        0: 'unknown',
+        1: 'gaia_dr3'
     }
     _allowed_values = None
     _dict_filtered = None
@@ -242,7 +242,7 @@ class PSFFormatConverter( EnumConverter ):
 def bitflag_to_string(value, dictionary):
 
     """
-    Takes a 64 bit integer bit-flag and converts it to a comma separated string,
+    Takes a 64-bit integer bit-flag and converts it to a comma separated string,
     using the given dictionary.
     If any of the bits are not recognized, will raise a ValueError.
 
@@ -256,7 +256,7 @@ def bitflag_to_string(value, dictionary):
     Parameters
     ----------
     value: int or None.
-        64 bit integer bit-flag.
+        64-bit integer bit-flag.
     dictionary: dict
         Dictionary with the bit-flag values as keys, and the corresponding strings as values.
 
@@ -285,7 +285,7 @@ def bitflag_to_string(value, dictionary):
 
 def string_to_bitflag(value, dictionary):
     """
-    Takes a comma separated string, and converts it to a 64 bit integer bit-flag,
+    Takes a comma separated string, and converts it to a 64-bit integer bit-flag,
     using the given dictionary (the inverse dictionary).
     If any of the keywords are not recognized, will raise a ValueError.
 
@@ -307,7 +307,7 @@ def string_to_bitflag(value, dictionary):
     Returns
     -------
     output: int or None
-        64 bit integer bit-flag.
+        64-bit integer bit-flag.
         If given None, will return None.
         If given zero, will return an empty string.
     """
@@ -327,26 +327,26 @@ def string_to_bitflag(value, dictionary):
 
 # these are the ways an Image or Exposure are allowed to be bad
 image_badness_dict = {
-    1: 'Banding',
-    2: 'Shaking',
-    3: 'Saturation',
-    4: 'Bad Subtraction',
-    5: 'Bright Sky',
+    1: 'banding',
+    2: 'shaking',
+    3: 'saturation',
+    4: 'bad subtraction',
+    5: 'bright sky',
 }
 image_badness_inverse = {EnumConverter.c(v): k for k, v in image_badness_dict.items()}
 
 
 # these are all the ways a PSF object is allowed to be bad
 psf_badness_dict = {
-    11: 'PSF Fit Failed',
+    11: 'psf fit failed',
 }
 psf_badness_inverse = {EnumConverter.c(v): k for k, v in psf_badness_dict.items()}
 
 
 # these are the ways a SourceList object is allowed to be bad
 source_list_badness_dict = {
-    16: 'Few Sources',
-    17: 'Many Sources',
+    16: 'few sources',
+    17: 'many sources',
 }
 source_list_badness_inverse = {EnumConverter.c(v): k for k, v in source_list_badness_dict.items()}
 
@@ -354,27 +354,27 @@ source_list_badness_inverse = {EnumConverter.c(v): k for k, v in source_list_bad
 # these are the ways a WorldCoordinates/ZeroPoint object is allowed to be bad
 # mostly due to bad matches to the catalog
 catalog_match_badness_dict = {
-    21: 'No Catalog',
-    22: 'X-Match Failed',
-    23: 'Big Residuals',
+    21: 'no catalog',
+    22: 'x-match failed',
+    23: 'big residuals',
 }
 catalog_match_badness_inverse = {EnumConverter.c(v): k for k, v in catalog_match_badness_dict.items()}
 
 
 # these are the ways a Cutouts object is allowed to be bad
 cutouts_badness_dict = {
-    41: 'Cosmic Ray',
-    42: 'Ghost',
-    43: 'Satellite',
-    44: 'Offset',
-    45: 'Bad Pixel',
-    46: 'Bleed Trail',
+    41: 'cosmic ray',
+    42: 'ghost',
+    43: 'satellite',
+    44: 'offset',
+    45: 'bad pixel',
+    46: 'bleed trail',
 }
 cutouts_badness_inverse = {EnumConverter.c(v): k for k, v in cutouts_badness_dict.items()}
 
 
 # join the badness:
-data_badness_dict = {0: 'Good'}
+data_badness_dict = {0: 'good'}
 data_badness_dict.update(image_badness_dict)
 data_badness_dict.update(cutouts_badness_dict)
 data_badness_dict.update(source_list_badness_dict)

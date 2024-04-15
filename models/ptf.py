@@ -95,7 +95,7 @@ class PTF(Instrument):
         pass
 
     @classmethod
-    def GaiaDR3_to_instrument_mag(cls, filter, catdata):
+    def gaia_dr3_to_instrument_mag(cls, filter, catdata):
         """Transform Gaia DR3 magnitudes to instrument magnitudes.
 
         Uses a polynomial transformation from Gaia MAG_G to instrument magnitude.

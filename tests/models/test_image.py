@@ -563,20 +563,20 @@ def test_image_badness(sim_image1):
             sim_image1.badness = 'foo'
 
         # this is a legit keyword, but for cutouts, not for images
-        with pytest.raises(ValueError, match='Keyword "Cosmic Ray" not recognized'):
-            sim_image1.badness = 'Cosmic Ray'
+        with pytest.raises(ValueError, match='Keyword "cosmic ray" not recognized'):
+            sim_image1.badness = 'cosmic ray'
 
         # this is a legit keyword, but for images, using no space and no capitalization
         sim_image1.badness = 'brightsky'
 
         # retrieving this keyword, we do get it capitalized and with a space:
-        assert sim_image1.badness == 'Bright Sky'
+        assert sim_image1.badness == 'bright sky'
         assert sim_image1.bitflag == 2 ** 5  # the bright sky bit is number 5
 
         # what happens when we add a second keyword?
-        sim_image1.badness = 'brightsky, banding'
+        sim_image1.badness = 'Bright_sky, Banding'  # try this with capitalization and underscores
         assert sim_image1.bitflag == 2 ** 5 + 2 ** 1  # the bright sky bit is number 5, banding is number 1
-        assert sim_image1.badness == 'Banding, Bright Sky'
+        assert sim_image1.badness == 'banding, bright sky'
 
         # now add a third keyword, but on the Exposure
         sim_image1.exposure.badness = 'saturation'
@@ -587,19 +587,19 @@ def test_image_badness(sim_image1):
         sim_image1.exposure.update_downstream_badness(session)  # make sure the downstreams get the new badness
         session.commit()
         assert sim_image1.bitflag == 2 ** 5 + 2 ** 3 + 2 ** 1  # saturation bit is 3
-        assert sim_image1.badness == 'Banding, Saturation, Bright Sky'
+        assert sim_image1.badness == 'banding, saturation, bright sky'
 
         # adding the same keyword on the exposure and the image makes no difference
-        sim_image1.exposure.badness = 'banding'
+        sim_image1.exposure.badness = 'Banding'
         sim_image1.exposure.update_downstream_badness(session)  # make sure the downstreams get the new badness
         session.commit()
         assert sim_image1.bitflag == 2 ** 5 + 2 ** 1
-        assert sim_image1.badness == 'Banding, Bright Sky'
+        assert sim_image1.badness == 'banding, bright sky'
 
         # try appending keywords to the image
         sim_image1.append_badness('shaking')
         assert sim_image1.bitflag == 2 ** 5 + 2 ** 2 + 2 ** 1  # shaking bit is 2
-        assert sim_image1.badness == 'Banding, Shaking, Bright Sky'
+        assert sim_image1.badness == 'banding, shaking, bright sky'
 
 
 def test_multiple_images_badness(
@@ -632,8 +632,8 @@ def test_multiple_images_badness(
             session.commit()
 
             # the image itself is marked bad because of bright sky
-            sim_image2.badness = 'brightsky'
-            assert sim_image2.badness == 'Bright Sky'
+            sim_image2.badness = 'BrightSky'
+            assert sim_image2.badness == 'bright sky'
             assert sim_image2.bitflag == 2 ** 5
             session.commit()
 
@@ -642,7 +642,7 @@ def test_multiple_images_badness(
             sim_image3.exposure.update_downstream_badness(session)
             session.commit()
 
-            assert sim_image3.badness == 'Banding'
+            assert sim_image3.badness == 'banding'
             assert sim_image1._bitflag == 0  # the exposure is bad!
             assert sim_image3.bitflag == 2 ** 1
             session.commit()
@@ -670,7 +670,7 @@ def test_multiple_images_badness(
             assert sim_image4.new_image == sim_image3
 
             # check that badness is loaded correctly from both parents
-            assert sim_image4.badness == 'Banding, Bright Sky'
+            assert sim_image4.badness == 'banding, bright sky'
             assert sim_image4._bitflag == 0  # the image itself is not flagged
             assert sim_image4.bitflag == 2 ** 1 + 2 ** 5
 
@@ -684,7 +684,7 @@ def test_multiple_images_badness(
             sim_image4.badness = 'saturation'
             session.add(sim_image4)
             session.commit()
-            assert sim_image4.badness == 'Banding, Saturation, Bright Sky'
+            assert sim_image4.badness == 'banding, saturation, bright sky'
             assert sim_image4._bitflag == 2 ** 3  # only this bit is from the image itself
 
             # make a new subtraction:
@@ -711,9 +711,9 @@ def test_multiple_images_badness(
             assert sim_image7.id not in [i.id for i in bad_images]
 
             # let's try to coadd an image based on some good and bad images
-            # as a reminder, sim_image2 has Bright Sky (5),
+            # as a reminder, sim_image2 has bright sky (5),
             # sim_image3's exposure has banding (1), while
-            # sim_image4 has Saturation (3).
+            # sim_image4 has saturation (3).
 
             # make a coadded image (without including the subtraction sim_image4):
             sim_image8 = Image.from_images([sim_image1, sim_image2, sim_image3, sim_image5, sim_image6])
@@ -723,7 +723,7 @@ def test_multiple_images_badness(
             sim_image8 = session.merge(sim_image8)
             session.commit()
 
-            assert sim_image8.badness == 'Banding, Bright Sky'
+            assert sim_image8.badness == 'banding, bright sky'
             assert sim_image8.bitflag == 2 ** 1 + 2 ** 5
 
             # does this work in queries (i.e., using the bitflag hybrid expression)?
@@ -746,7 +746,7 @@ def test_multiple_images_badness(
             images.append(sim_image8)
             session.commit()
 
-            assert sim_image8.badness == 'Banding, Saturation, Bright Sky'
+            assert sim_image8.badness == 'banding, saturation, bright sky'
             assert sim_image8.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 5  # this should be 42
 
             # does this work in queries (i.e., using the bitflag hybrid expression)?
@@ -756,13 +756,13 @@ def test_multiple_images_badness(
             assert sim_image8.id in [i.id for i in bad_coadd]
 
             # try to add some badness to one of the underlying exposures
-            sim_image1.exposure.badness = 'Shaking'
+            sim_image1.exposure.badness = 'shaking'
             session.add(sim_image1)
             sim_image1.exposure.update_downstream_badness(session)
             session.commit()
 
-            assert 'Shaking' in sim_image1.badness
-            assert 'Shaking' in sim_image8.badness
+            assert 'shaking' in sim_image1.badness
+            assert 'shaking' in sim_image8.badness
 
     finally:  # cleanup
         with SmartSession() as session:

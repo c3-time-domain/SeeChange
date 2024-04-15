@@ -324,7 +324,7 @@ def catexp(data_dir, cache_dir, download_url):
     if not os.path.isfile(filepath):
         shutil.copy2(cachepath, filepath)
 
-    yield CatalogExcerpt.create_from_file( filepath, 'GaiaDR3' )
+    yield CatalogExcerpt.create_from_file( filepath, 'gaia_dr3' )
 
     if os.path.isfile(filepath):
         os.remove(filepath)

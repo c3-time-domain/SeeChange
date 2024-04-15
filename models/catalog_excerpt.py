@@ -186,7 +186,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
         catexp._data = tbl
         catexp._hdr = hdr
         catexp.num_items = len( tbl )
-        if origin == 'GaiaDR3':
+        if origin == 'gaia_dr3':
             catexp.filters = [ 'G', 'BP', 'RP' ]
             catexp.minmag = tbl[ 'MAG_G' ].min()
             catexp.maxmag = tbl[ 'MAG_G' ].max()

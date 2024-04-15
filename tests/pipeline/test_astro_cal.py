@@ -14,8 +14,8 @@ from models.image import Image
 from models.world_coordinates import WorldCoordinates
 
 
-def test_solve_wcs_scamp_failures( ztf_gaiadr3_excerpt, ztf_datastore_uncommitted, astrometor ):
-    catexp = ztf_gaiadr3_excerpt
+def test_solve_wcs_scamp_failures( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astrometor ):
+    catexp = ztf_gaia_dr3_excerpt
     ds = ztf_datastore_uncommitted
 
     astrometor.pars.method = 'scamp'
@@ -43,8 +43,8 @@ def test_solve_wcs_scamp_failures( ztf_gaiadr3_excerpt, ztf_datastore_uncommitte
         wcs = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp )
 
 
-def test_solve_wcs_scamp( ztf_gaiadr3_excerpt, ztf_datastore_uncommitted, astrometor, blocking_plots ):
-    catexp = ztf_gaiadr3_excerpt
+def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astrometor, blocking_plots ):
+    catexp = ztf_gaia_dr3_excerpt
     ds = ztf_datastore_uncommitted
 
     # Make True for visual testing purposes
@@ -93,7 +93,7 @@ def test_run_scamp( decam_datastore, astrometor ):
     with fits.open(original_filename) as hdu:
         origwcs = WCS(hdu[ds.section_id].header)
 
-    astrometor.pars.cross_match_catalog = 'GaiaDR3'
+    astrometor.pars.cross_match_catalog = 'gaia_dr3'
     astrometor.pars.solution_method = 'scamp'
     astrometor.pars.max_catalog_mag = [20.]
     astrometor.pars.mag_range_catalog = 4.

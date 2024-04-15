@@ -2,7 +2,7 @@ import pytest
 
 
 def test_create_from_file( catexp ):
-    assert catexp.origin == 'GaiaDR3'
+    assert catexp.origin == 'gaia_dr3'
     assert catexp.format == 'fitsldac'
     assert catexp.filters == [ 'G', 'BP', 'RP' ]
     assert catexp.num_items == 59

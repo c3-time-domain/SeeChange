@@ -8,10 +8,7 @@ tests/local_overrides.yaml
 tests/local_augments.yaml
 tests/improc/cache/*
 data/cache/*
-data/test_data/DECam_examples/c4d_221104_074232_ori.fits.fz
-data/test_data/DECam_examples/*_cached
 data/DECam_default_calibrators
-data/GaiaDR3_excerpt
 .pytest.ini
 tests/plots
 tests/temp_data

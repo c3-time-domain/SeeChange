@@ -4,26 +4,26 @@ import pytest
 
 from util.exceptions import CatalogNotFoundError
 from util import ldac
-from pipeline.catalog_tools import download_GaiaDR3, fetch_GaiaDR3_excerpt
+from pipeline.catalog_tools import download_gaia_dr3, fetch_gaia_dr3_excerpt
 
 
-def test_download_GaiaDR3(data_dir):
+def test_download_gaia_dr3(data_dir):
     firstfilepath = None
     secondfilepath = None
     try:
-        catexp, firstfilepath, dbfile = download_GaiaDR3( 150.9427, 151.2425, 1.75582, 1.90649,
+        catexp, firstfilepath, dbfile = download_gaia_dr3( 150.9427, 151.2425, 1.75582, 1.90649,
                                                                      padding=0.1, minmag=18., maxmag=22. )
-        assert firstfilepath == os.path.join(data_dir, 'GaiaDR3_excerpt/94/Gaia_DR3_151.0926_1.8312_18.0_22.0.fits')
+        assert firstfilepath == os.path.join(data_dir, 'gaia_dr3_excerpt/94/Gaia_DR3_151.0926_1.8312_18.0_22.0.fits')
         assert dbfile == firstfilepath
         assert catexp.num_items == 178
         assert catexp.format == 'fitsldac'
-        assert catexp.origin == 'GaiaDR3'
+        assert catexp.origin == 'gaia_dr3'
         assert catexp.minmag == 18.
         assert catexp.maxmag == 22.
         assert ( catexp.dec_corner_11 - catexp.dec_corner_00 ) == pytest.approx( 1.2 * (1.90649-1.75582), abs=1e-4 )
-        catexp, secondfilepath, dbfile = download_GaiaDR3( 150.9427, 151.2425, 1.75582, 1.90649,
+        catexp, secondfilepath, dbfile = download_gaia_dr3( 150.9427, 151.2425, 1.75582, 1.90649,
                                                                       padding=0.1, minmag=17., maxmag=19. )
-        assert secondfilepath == os.path.join(data_dir, 'GaiaDR3_excerpt/94/Gaia_DR3_151.0926_1.8312_17.0_19.0.fits')
+        assert secondfilepath == os.path.join(data_dir, 'gaia_dr3_excerpt/94/Gaia_DR3_151.0926_1.8312_17.0_19.0.fits')
         assert dbfile == secondfilepath
         assert catexp.num_items == 59
         assert catexp.minmag == 17.
@@ -43,36 +43,36 @@ def test_download_GaiaDR3(data_dir):
             pathlib.Path( secondfilepath ).unlink( missing_ok=True )
 
 
-def test_gaiadr3_excerpt_failures( ztf_datastore_uncommitted, ztf_gaiadr3_excerpt ):
+def test_gaia_dr3_excerpt_failures( ztf_datastore_uncommitted, ztf_gaia_dr3_excerpt ):
     ds = ztf_datastore_uncommitted
     try:
         # Make sure it fails if we give it a ridiculous max mag
         with pytest.raises( CatalogNotFoundError, match="Failed to fetch Gaia DR3 stars at" ):
-            catexp = fetch_GaiaDR3_excerpt( ds.image, maxmags=5.0, magrange=4, minstars=50 )
+            catexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=5.0, magrange=4, minstars=50 )
 
         # ...but make sure it succeeds if we also give it a reasonable max mag
-        catexp = fetch_GaiaDR3_excerpt( ds.image, maxmags=[5.0, 20.0], magrange=4.0, minstars=50 )
-        assert catexp.id == ztf_gaiadr3_excerpt.id
+        catexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=[5.0, 20.0], magrange=4.0, minstars=50 )
+        assert catexp.id == ztf_gaia_dr3_excerpt.id
 
         # Make sure it fails if we ask for too many stars
         with pytest.raises( CatalogNotFoundError, match="Failed to fetch Gaia DR3 stars at" ):
-            catexp = fetch_GaiaDR3_excerpt( ds.image, maxmags=[20.0], magrange=4.0, minstars=50000 )
+            catexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=[20.0], magrange=4.0, minstars=50000 )
 
         # Make sure it fails if mag range is too small
         with pytest.raises( CatalogNotFoundError, match="Failed to fetch Gaia DR3 stars at" ):
-            catexp = fetch_GaiaDR3_excerpt( ds.image, maxmags=[20.0], magrange=0.01, minstars=50 )
+            catexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=[20.0], magrange=0.01, minstars=50 )
 
     finally:
         catexp.delete_from_disk_and_database()
 
 
-def test_gaiadr3_excerpt( ztf_datastore_uncommitted, ztf_gaiadr3_excerpt ):
-    catexp = ztf_gaiadr3_excerpt
+def test_gaia_dr3_excerpt( ztf_datastore_uncommitted, ztf_gaia_dr3_excerpt ):
+    catexp = ztf_gaia_dr3_excerpt
     ds = ztf_datastore_uncommitted
 
     assert catexp.num_items == 172
     assert catexp.num_items == len( catexp.data )
-    assert catexp.filepath == 'GaiaDR3_excerpt/30/Gaia_DR3_153.6459_39.0937_16.0_20.0.fits'
+    assert catexp.filepath == 'gaia_dr3_excerpt/30/Gaia_DR3_153.6459_39.0937_16.0_20.0.fits'
     assert pathlib.Path( catexp.get_fullpath() ).is_file()
     assert catexp.object_ras.min() == pytest.approx( 153.413563, abs=0.1/3600. )
     assert catexp.object_ras.max() == pytest.approx( 153.877110, abs=0.1/3600. )
@@ -86,9 +86,9 @@ def test_gaiadr3_excerpt( ztf_datastore_uncommitted, ztf_gaiadr3_excerpt ):
     assert catexp.data['MAGERR_G'].max() == pytest.approx( 0.018, abs=0.001 )
 
     # Test reading of cache
-    newcatexp = fetch_GaiaDR3_excerpt( ds.image, maxmags=[20.0], magrange=4.0, minstars=50, onlycached=True )
+    newcatexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=[20.0], magrange=4.0, minstars=50, onlycached=True )
     assert newcatexp.id == catexp.id
 
     # Make sure we can't read the cache for something that doesn't exist
     with pytest.raises( CatalogNotFoundError, match='Failed to fetch Gaia DR3 stars' ):
-        newcatexp = fetch_GaiaDR3_excerpt( ds.image, maxmags=[20.5], magrange=4.0, minstars=50, onlycached=True )
+        newcatexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=[20.5], magrange=4.0, minstars=50, onlycached=True )

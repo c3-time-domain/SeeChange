@@ -65,14 +65,14 @@ extraction:
   method: sextractor
 
 astro_cal:
-  cross_match_catalog: GaiaDR3
+  cross_match_catalog: gaia_dr3
   solution_method: scamp
   max_catalog_mag: [20.0]
   mag_range_catalog: 4.0
   min_catalog_stars: 50
 
 photo_cal:
-  cross_match_catalog: GaiaDR3
+  cross_match_catalog: gaia_dr3
   max_catalog_mag: [20.0]
   mag_range_catalog: 4.0
   min_catalog_stars: 50
@@ -142,14 +142,14 @@ coaddition:
     method: sextractor
     # The following are used to override the regular "astro_cal" parameters
   astro_cal:
-    cross_match_catalog: GaiaDR3
+    cross_match_catalog: gaia_dr3
     solution_method: scamp
     max_catalog_mag: [22.0]
     mag_range_catalog: 6.0
     min_catalog_stars: 50
     # The following are used to override the regular "photo_cal" parameters
   photo_cal:
-    cross_match_catalog: GaiaDR3
+    cross_match_catalog: gaia_dr3
     max_catalog_mag: [22.0]
     mag_range_catalog: 6.0
     min_catalog_stars: 50
