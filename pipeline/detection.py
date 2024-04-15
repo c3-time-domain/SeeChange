@@ -584,6 +584,9 @@ class Detector:
             sourcelist.load( tmpsources )
             sourcelist.num_sources = len( sourcelist.data )
 
+            sourcelist._upstream_bitflag = 0
+            sourcelist._upstream_bitflag |= image.bitflag
+
             return sourcelist
 
         finally:

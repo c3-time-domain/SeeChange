@@ -188,6 +188,7 @@ class AstroCalibrator:
         # should perhaps also check for bitflags from each source/from the sourcelist
         wcs._upstream_bitflag = 0
         wcs._upstream_bitflag |= image.bitflag
+        
         return wcs
 
     # ----------------------------------------------------------------------
