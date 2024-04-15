@@ -352,11 +352,8 @@ class ImageAligner:
             #  will have a pixel with noise above 100000,
             #  hence the 1e-10.
 
-            # warpedim.flags[ np.logical_and(warpedim.flags == 0, warpedim.weight < 1e-10)] = 8
             oob_bitflag = string_to_bitflag( 'out of bounds', flag_image_bits_inverse)
             warpedim.flags[ np.logical_and(warpedim.flags == 0, warpedim.weight < 1e-10)] = oob_bitflag
-
-            # warpedim.flags[ warpedim.weight < 1e-10 ] = 1  # original code
 
             return warpedim
 
