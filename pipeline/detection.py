@@ -306,6 +306,9 @@ class Detector:
         else:
             raise ValueError(f'Unknown extraction method "{self.pars.method}"')
 
+        # psf._upstream_bitflag = 0   # perhaps this spot will end up being better
+        # psf._upstream_bitflag |= image.bitflag
+
         return sources, psf
 
     def extract_sources_sextractor( self, image, psffile=None ):
@@ -713,6 +716,7 @@ class Detector:
 
             psf._upstream_bitflag = 0
             psf._upstream_bitflag |= image.bitflag
+            
             return psf
 
         finally:
