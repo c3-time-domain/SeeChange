@@ -737,7 +737,7 @@ class FileOnDiskMixin:
     exists locally, and then it will import it from archive if missing
     (and if archive is defined).  If you want to avoid downloading, use
     get_fullpath(download=False) or get_fullpath(nofile=True).  (The
-    latter case won't even try to find the file on the lcoal disk, it
+    latter case won't even try to find the file on the local disk, it
     will just tell you what the path should be.)  If you want to always
     get a list of filepaths (even if filepath_extensions=None) use
     get_fullpath(as_list=True).  If the file is missing locally, and
