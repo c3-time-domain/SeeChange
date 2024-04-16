@@ -314,6 +314,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # breakpoint() # check various ds objects for the bitflag
         assert ds.image.badness == 'banding'   # test propagation to image PASS
         assert ds.psf.badness == 'banding'     # test propagation to psf   FAIL
+        assert ds.wcs._upstream_bitflag == 2
         assert ds.wcs.badness == 'banding'     # test propagation to wcs   FAIL
         assert ds.sources.badness == 'banding' # test propagation to sourcelist FAIL
 
