@@ -182,10 +182,10 @@ class AstroCalibrator:
         )
 
 
-        # should perhaps also check for bitflags from each source/from the sourcelist
-        wcs._upstream_bitflag = 0
-        wcs._upstream_bitflag |= image.bitflag
-        wcs._upstream_bitflag |= sources.bitflag
+        # # should perhaps also check for bitflags from each source/from the sourcelist
+        # wcs._upstream_bitflag = 0
+        # wcs._upstream_bitflag |= image.bitflag
+        # wcs._upstream_bitflag |= sources.bitflag
 
         # Update image.header with the new wcs.  Process this
         # through astropy.wcs.WCS to make sure everything is copacetic.
@@ -257,6 +257,11 @@ class AstroCalibrator:
 
         ds.wcs = WorldCoordinates( sources=sources, provenance=prov )
         ds.wcs.wcs = wcs
+
+        ds.wcs._upstream_bitflag = 0
+        ds.wcs._upstream_bitflag |= image.bitflag
+        ds.wcs._upstream_bitflag |= sources.bitflag
+
         if session is not None:
             ds.wcs = session.merge( ds.wcs )
 
