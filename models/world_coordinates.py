@@ -51,7 +51,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         sa.Text,
         nullable=False,
         index=False,
-        doc="Text that containts FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
+        doc="Text that contains FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
     )
 
     sources_id = sa.Column(
