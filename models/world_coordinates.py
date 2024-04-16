@@ -9,11 +9,14 @@ from astropy.wcs import WCS
 from astropy.io import fits
 from astropy.wcs import utils
 
-from models.base import Base, AutoIDMixin, HasBitFlagBadness
+from models.base import (Base, 
+                         AutoIDMixin,
+                         FileOnDiskMixin, 
+                         HasBitFlagBadness)
 from models.enums_and_bitflags import catalog_match_badness_inverse
 
 
-class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
+class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'world_coordinates'
 
     __table_args__ = (
