@@ -5,7 +5,7 @@ from scipy import signal
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
-from pipeline.utils import parse_session
+from util.util import parse_session
 
 from models.base import SmartSession
 from models.cutouts import Cutouts

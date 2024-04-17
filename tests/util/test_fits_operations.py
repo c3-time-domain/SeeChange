@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 from models.base import CODE_ROOT
-from pipeline.utils import read_fits_image
+from util.util import read_fits_image
 
 
 def test_read_fits_image(decam_fits_image_filename, cache_dir):

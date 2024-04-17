@@ -11,6 +11,7 @@ import astropy.wcs.utils
 
 from util import ldac
 from util.exceptions import SubprocessFailure
+from util.util import read_fits_image
 import improc.scamp
 
 
@@ -21,7 +22,6 @@ from models.image import Image
 from pipeline.data_store import DataStore
 from pipeline.parameters import Parameters
 from pipeline.detection import Detector
-from pipeline.utils import read_fits_image
 from improc.bitmask_tools import dilate_bitflag
 
 
