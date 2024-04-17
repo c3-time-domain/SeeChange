@@ -257,8 +257,9 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
 
     try:  # cleanup the file at the end
         p = Pipeline()
-
         exposure.badness = 'banding'  # add a bitflag to check for propagation
+
+        # first run the pipeline and check for basic propagation of the single bitflag
         ds = p.run(exposure, sec_id)
 
         assert ds.exposure._bitflag == 2     # 2 is the bitflag for 'banding'
@@ -271,6 +272,18 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.detections._upstream_bitflag == 2
         for cutout in ds.cutouts:   # cutouts is a list of cutout objects
             assert cutout._upstream_bitflag == 2
+
+        # Add a second bitflag partway through and check it propagates to future downstreams
+        # delete downstreams of ds.sources
+        with SmartSession() as session:
+            ds.wcs.delete_from_databse(session=session)
+            ds.zp.delete_from_database(session=session)
+            ds.sub_image.delete_from_disk_and_database(session=session)
+        
+        ds.sources._bitflag = 2**17  # bitflag 17 is 'many sources'
+        desired_bitflag = 2**1 + 2**17 # bitflag for 'banding' and 'many sources'
+
+        assert ds.sources.bitflag == desired_bitflag
 
     finally:
         if 'ds' in locals():
