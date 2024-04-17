@@ -246,6 +246,45 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
         shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
         shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
 
+def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, archive):
+    """
+    Test that adding a bitflag to the exposure propagates to all downstreams as they are created
+    Does not check measurements, as they do not have the HasBitflagBadness Mixin.
+    """
+    exposure = decam_exposure
+    ref = decam_reference
+    sec_id = ref.section_id
+
+    try:  # cleanup the file at the end
+        p = Pipeline()
+        assert p.extractor.pars.threshold != 3.14
+        assert p.detector.pars.threshold != 3.14
+
+        exposure.badness = 'banding'  # add a bitflag to check for propagation
+        ds = p.run(exposure, sec_id)
+
+        assert ds.image._upstream_bitflag == 2    # 2 is the bitflag for 'banding'
+        assert ds.sources._upstream_bitflag == 2
+        assert ds.psf._upstream_bitflag == 2
+        assert ds.wcs._upstream_bitflag == 2
+        assert ds.zp._upstream_bitflag == 2
+        assert ds.sub_image._upstream_bitflag == 2
+        assert ds.detections._upstream_bitflag == 2
+        for cutout in ds.cutouts:   # cutouts is a list of cutout objects
+            assert cutout._upstream_bitflag == 2
+
+        # commit to DB using this session
+        with SmartSession() as session:
+            ds.save_and_commit(session=session)
+
+    finally:
+        if 'ds' in locals():
+            ds.delete_everything()
+        # added this cleanup to make sure the temp data folder is cleaned up
+        # this should be removed after we add datastore failure modes (issue #150)
+        shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
+        shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
+
 
 def test_datastore_delete_everything(decam_datastore):
     im = decam_datastore.image
@@ -286,46 +325,3 @@ def test_datastore_delete_everything(decam_datastore):
         assert session.scalars(
             sa.select(Measurements).where(Measurements.id == measurements_list[0].id)
         ).first() is None
-
-# def test_trivial_failure():
-#     assert 0
-
-
-def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, archive):
-    """
-    Test that adding a bitflag to the exposure propagates to all downstreams as they are created
-    Does not check measurements, as they do not have the HasBitflagBadness Mixin.
-    """
-    exposure = decam_exposure
-    ref = decam_reference
-    sec_id = ref.section_id
-
-    try:  # cleanup the file at the end
-        p = Pipeline()
-        assert p.extractor.pars.threshold != 3.14
-        assert p.detector.pars.threshold != 3.14
-
-        exposure.badness = 'banding'  # add a bitflag to check for propagation
-        ds = p.run(exposure, sec_id)
-
-        assert ds.image._upstream_bitflag == 2    # 2 is the bitflag for 'banding'
-        assert ds.sources._upstream_bitflag == 2
-        assert ds.psf._upstream_bitflag == 2
-        assert ds.wcs._upstream_bitflag == 2
-        assert ds.zp._upstream_bitflag == 2
-        assert ds.sub_image._upstream_bitflag == 2
-        assert ds.detections._upstream_bitflag == 2
-        for cutout in ds.cutouts:   # cutouts is a list of cutout objects
-            assert cutout._upstream_bitflag == 2
-
-        # commit to DB using this session
-        with SmartSession() as session:
-            ds.save_and_commit(session=session)
-
-    finally:
-        if 'ds' in locals():
-            ds.delete_everything()
-        # added this cleanup to make sure the temp data folder is cleaned up
-        # this should be removed after we add datastore failure modes (issue #150)
-        shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
-        shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
