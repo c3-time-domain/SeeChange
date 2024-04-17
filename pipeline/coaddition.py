@@ -16,7 +16,8 @@ from pipeline.parameters import Parameters
 from pipeline.detection import Detector
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
-from pipeline.utils import parse_session, parse_ra_hms_to_deg, parse_dec_dms_to_deg, get_latest_provenance
+from util.util import get_latest_provenance, parse_session
+from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
 
 from improc.bitmask_tools import dilate_bitflag
 from improc.inpainting import Inpainter

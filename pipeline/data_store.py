@@ -1,6 +1,6 @@
 import sqlalchemy as sa
 
-from pipeline.utils import get_latest_provenance, parse_session
+from util.util import get_latest_provenance, parse_session
 
 from models.base import SmartSession, FileOnDiskMixin, _logger
 from models.provenance import CodeVersion, Provenance

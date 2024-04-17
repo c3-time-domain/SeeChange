@@ -2,7 +2,7 @@ import copy
 
 import sqlalchemy as sa
 
-from pipeline.utils import get_git_hash, get_latest_provenance
+from util.util import get_git_hash, get_latest_provenance
 
 from models.base import SmartSession, _logger
 from models.provenance import CodeHash, CodeVersion, Provenance

@@ -17,7 +17,7 @@ from astropy.io import fits
 import astropy.coordinates
 import astropy.units as u
 
-from pipeline.utils import read_fits_image, save_fits_image_file
+from util.util import read_fits_image, save_fits_image_file
 
 from models.base import (
     Base,

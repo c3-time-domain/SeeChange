@@ -18,7 +18,7 @@ from astropy.coordinates import SkyCoord
 from models.base import Base, SmartSession, AutoIDMixin,_logger
 
 from pipeline.catalog_tools import Bandpass
-from pipeline.utils import parse_dateobs, read_fits_image
+from util.util import parse_dateobs, read_fits_image
 
 
 # dictionary of regex for filenames, pointing at instrument names
@@ -738,7 +738,7 @@ class Instrument:
     def load_section_image(self, filepath, section_id):
         """
         Load one section of an exposure file.
-        The default loader uses the pipeline.utils.read_fits_image function,
+        The default loader uses the util.util.read_fits_image function,
         which is a basic FITS reader utility. More advanced instruments should
         override this function to use more complex file reading code.
 
@@ -778,7 +778,7 @@ class Instrument:
         Load the header from file.
 
         By default, instruments use a "standard" FITS header that is read
-        out using pipeline.utils.read_fits_image.
+        out using util.util.read_fits_image.
         Subclasses can override this method to use a different header format.
         Note that all keyword translations and value conversions happen later,
         in the extract_header_info function.
