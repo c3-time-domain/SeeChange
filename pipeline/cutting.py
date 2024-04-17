@@ -98,6 +98,8 @@ class Cutter:
                 cutout.new_data = new_stamps_data[i]
                 cutout.new_weight = new_stamps_weight[i]
                 cutout.new_flags = new_stamps_flags[i]
+                cutout._upstream_bitflag = 0
+                cutout._upstream_bitflag |= detections.bitflag
                 cutout_list.append(cutout)
 
         # add the resulting list to the data store
