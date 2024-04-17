@@ -294,15 +294,12 @@ def test_datastore_delete_everything(decam_datastore):
 def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, archive):
     """
     Test that adding a bitflag to the exposure propagates to all downstreams as they are created
-    
-    (maybe) Eventually, add a new flag at each stage to check it works at each stage
+    Does not check measurements, as they do not have the HasBitflagBadness Mixin.
     """
     exposure = decam_exposure
-
-    # breakpoint() 
-
     ref = decam_reference
     sec_id = ref.section_id
+
     try:  # cleanup the file at the end
         p = Pipeline()
         assert p.extractor.pars.threshold != 3.14
@@ -311,29 +308,19 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         exposure.badness = 'banding'  # add a bitflag to check for propagation
         ds = p.run(exposure, sec_id)
 
-        # breakpoint() # check various ds objects for the bitflag
-        # assert ds.image.badness == 'banding'   # test propagation to image PASS
-        # assert ds.psf.badness == 'banding'     # test propagation to psf   FAIL
-        # assert ds.wcs._upstream_bitflag == 2
-        # assert ds.wcs.badness == 'banding'     # test propagation to wcs   FAIL
-        # assert ds.sources.badness == 'banding' # test propagation to sourcelist FAIL
-
         assert ds.image._upstream_bitflag == 2    # 2 is the bitflag for 'banding'
         assert ds.sources._upstream_bitflag == 2
         assert ds.psf._upstream_bitflag == 2
         assert ds.wcs._upstream_bitflag == 2
         assert ds.zp._upstream_bitflag == 2
+        assert ds.sub_image._upstream_bitflag == 2
         assert ds.detections._upstream_bitflag == 2
         for cutout in ds.cutouts:   # cutouts is a list of cutout objects
             assert cutout._upstream_bitflag == 2
-        
-
-
 
         # commit to DB using this session
         with SmartSession() as session:
             ds.save_and_commit(session=session)
-
 
     finally:
         if 'ds' in locals():

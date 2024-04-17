@@ -306,7 +306,8 @@ class Detector:
         else:
             raise ValueError(f'Unknown extraction method "{self.pars.method}"')
 
-        # psf._upstream_bitflag = 0   # perhaps this spot will end up being better
+        # perhaps this spot will end up being better, as it catches all methods and catches both psf and sourcelist 
+        # psf._upstream_bitflag = 0   # perhaps this spot will end up being better, as it catches all methods
         # psf._upstream_bitflag |= image.bitflag
 
         return sources, psf

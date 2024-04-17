@@ -181,12 +181,6 @@ class AstroCalibrator:
             magkey='MAG_G', magerrkey='MAGERR_G',
         )
 
-
-        # # should perhaps also check for bitflags from each source/from the sourcelist
-        # wcs._upstream_bitflag = 0
-        # wcs._upstream_bitflag |= image.bitflag
-        # wcs._upstream_bitflag |= sources.bitflag
-
         # Update image.header with the new wcs.  Process this
         # through astropy.wcs.WCS to make sure everything is copacetic.
         image.header.extend( wcs.to_header(), update=True )
@@ -259,7 +253,7 @@ class AstroCalibrator:
         ds.wcs.wcs = wcs
 
         ds.wcs._upstream_bitflag = 0
-        ds.wcs._upstream_bitflag |= image.bitflag
+        # ds.wcs._upstream_bitflag |= image.bitflag  # the direct upstream of wcs is sources, so maybe unnecessary?
         ds.wcs._upstream_bitflag |= sources.bitflag
 
         if session is not None:
