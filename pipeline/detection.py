@@ -309,10 +309,12 @@ class Detector:
         # perhaps this spot will end up being better, as it catches all methods and catches both psf and sourcelist 
         # psf._upstream_bitflag = 0   # perhaps this spot will end up being better, as it catches all methods
         # psf._upstream_bitflag |= image.bitflag
-        psf._upstream_bitflag = 0
-        psf._upstream_bitflag |= image.bitflag
-        sources._upstream_bitflag = 0
-        sources._upstream_bitflag |= image.bitflag
+        if psf is not None:
+            psf._upstream_bitflag = 0
+            psf._upstream_bitflag |= image.bitflag
+        if sources is not None:
+            sources._upstream_bitflag = 0
+            sources._upstream_bitflag |= image.bitflag
         
 
         return sources, psf
