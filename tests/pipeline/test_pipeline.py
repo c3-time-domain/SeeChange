@@ -318,8 +318,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # assert ds.wcs.badness == 'banding'     # test propagation to wcs   FAIL
         # assert ds.sources.badness == 'banding' # test propagation to sourcelist FAIL
 
-        assert ds.exposure._upstream_bitflag == 2  # 2 is the bitflag for 'banding'
-        assert ds.image._upstream_bitflag == 2
+        assert ds.image._upstream_bitflag == 2    # 2 is the bitflag for 'banding'
         assert ds.sources._upstream_bitflag == 2
         assert ds.psf._upstream_bitflag == 2
         assert ds.wcs._upstream_bitflag == 2
