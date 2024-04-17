@@ -253,7 +253,6 @@ class AstroCalibrator:
         ds.wcs.wcs = wcs
 
         ds.wcs._upstream_bitflag = 0
-        # ds.wcs._upstream_bitflag |= image.bitflag  # the direct upstream of wcs is sources, so maybe unnecessary?
         ds.wcs._upstream_bitflag |= sources.bitflag
 
         if session is not None:

@@ -257,13 +257,12 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
 
     try:  # cleanup the file at the end
         p = Pipeline()
-        assert p.extractor.pars.threshold != 3.14
-        assert p.detector.pars.threshold != 3.14
 
         exposure.badness = 'banding'  # add a bitflag to check for propagation
         ds = p.run(exposure, sec_id)
 
-        assert ds.image._upstream_bitflag == 2    # 2 is the bitflag for 'banding'
+        assert ds.exposure._bitflag == 2     # 2 is the bitflag for 'banding'
+        assert ds.image._upstream_bitflag == 2
         assert ds.sources._upstream_bitflag == 2
         assert ds.psf._upstream_bitflag == 2
         assert ds.wcs._upstream_bitflag == 2
@@ -272,10 +271,6 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.detections._upstream_bitflag == 2
         for cutout in ds.cutouts:   # cutouts is a list of cutout objects
             assert cutout._upstream_bitflag == 2
-
-        # commit to DB using this session
-        with SmartSession() as session:
-            ds.save_and_commit(session=session)
 
     finally:
         if 'ds' in locals():
