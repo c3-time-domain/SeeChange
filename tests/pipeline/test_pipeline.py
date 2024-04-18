@@ -351,7 +351,7 @@ def test_get_upstreams(decam_exposure, decam_reference, decam_default_calibrator
         # commit to DB using this session
         with SmartSession() as session:
             ds.save_and_commit(session=session)
-            breakpoint()
+            # breakpoint()
             assert ds.exposure.get_upstreams() == []
             assert [upstream.id for upstream in ds.image.get_upstreams()] == [ds.exposure.id]
             assert [upstream.id for upstream in ds.sources.get_upstreams()] == [ds.image.id]
@@ -368,6 +368,7 @@ def test_get_upstreams(decam_exposure, decam_reference, decam_default_calibrator
             for cutout in ds.cutouts:
                 assert [upstream.id for upstream in cutout.get_upstreams()] == [ds.detections.id]
 
+            # need to be creative with measurements, maybe just test a couple instead of all
 
             
 
