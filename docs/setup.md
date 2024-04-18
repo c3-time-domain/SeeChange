@@ -13,7 +13,7 @@ but in the meantime, install Docker Engine instead of Docker Desktop; instructio
 
 #### Development shell -- local database
 
-The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment varaibles.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
+The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment variables.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
 ```
   COMPOSE_PROJECT_NAME=<yourname>
   USERID=<UID>
