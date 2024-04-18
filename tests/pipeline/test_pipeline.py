@@ -276,7 +276,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # Add a second bitflag partway through and check it propagates to future downstreams
         # delete downstreams of ds.sources
         with SmartSession() as session:
-            ds.wcs.delete_from_databse(session=session)
+            ds.wcs.delete_from_database(session=session)
             ds.zp.delete_from_database(session=session)
             ds.sub_image.delete_from_disk_and_database(session=session)
         
