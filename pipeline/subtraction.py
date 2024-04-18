@@ -314,6 +314,11 @@ class Subtractor:
                     sub_image.psffluxerr = outdict['alpha_err']
 
                 sub_image.subtraction_output = outdict  # save the full output for debugging
+        
+        if sub_image._upstream_bitflag is None:
+            sub_image._upstream_bitflag = 0
+        sub_image._upstream_bitflag |= ds.sources.bitflag   # I don't see where sources actually act as an upstream for
+                                                            # sub_image, so I am placing this here. May need to revisit
 
         ds.sub_image = sub_image
 

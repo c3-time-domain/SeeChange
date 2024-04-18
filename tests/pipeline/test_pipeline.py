@@ -262,7 +262,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # first run the pipeline and check for basic propagation of the single bitflag
         ds = p.run(exposure, sec_id)
 
-        assert ds.exposure._bitflag == 2     # 2 is the bitflag for 'banding'
+        assert ds.exposure._bitflag == 2     # 2**1 is the bitflag for 'banding'
         assert ds.image._upstream_bitflag == 2
         assert ds.sources._upstream_bitflag == 2
         assert ds.psf._upstream_bitflag == 2
@@ -273,17 +273,55 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         for cutout in ds.cutouts:   # cutouts is a list of cutout objects
             assert cutout._upstream_bitflag == 2
 
-        # Add a second bitflag partway through and check it propagates to future downstreams
-        # delete downstreams of ds.sources
-        with SmartSession() as session:
-            ds.wcs.delete_from_database(session=session)
-            ds.zp.delete_from_database(session=session)
-            ds.sub_image.delete_from_disk_and_database(session=session)
-        
-        ds.sources._bitflag = 2**17  # bitflag 17 is 'many sources'
-        desired_bitflag = 2**1 + 2**17 # bitflag for 'banding' and 'many sources'
 
-        assert ds.sources.bitflag == desired_bitflag
+        # test part 2: Add a second bitflag partway through and check it propagates to downstreams
+        # This test 2 is working as implemented here: see my apology in the PR for the mess
+
+        # delete downstreams of ds.sources
+        # i think this session is unnecessary, however I am worried about potentially not cleaning
+        # up properly after the following assignments to None (losing track of the old objects).
+        # not sure if garbage cleaner will get em
+        with SmartSession() as session:
+            # ds.wcs.delete_from_database(session=session)
+            ds.wcs = None
+            # ds.zp.delete_from_database(session=session)
+            ds.zp = None
+            # ds.sub_image.delete_from_disk_and_database(session=session)
+            ds.sub_image = None
+            # probably need a session.commit() somewhere here if I need the commented lins
+
+        ds.sources._bitflag = 2**17  # bitflag 2**17 is 'many sources'
+        desired_bitflag = 2**1 + 2**17 # bitflag for 'banding' and 'many sources'
+        ds = p.run(ds) #ugly solution to cleanup could be make this ds2, then ds2.delete_everything()
+
+        assert ds.wcs._upstream_bitflag == desired_bitflag
+        assert ds.zp._upstream_bitflag == desired_bitflag
+        assert ds.sub_image._upstream_bitflag == desired_bitflag # note my comment in subtraction.py
+                                                                 # only passes if gets bitflag from sources
+
+
+        # test part 3: test update_downstream_badness() function by adding and removing flags
+        # and observing propagation
+        # to Guy: this is partially tested already in test_image.py::test_image_badness,
+        #   but perhaps this is still useful due to testing propagation all the way downstream
+        # ALSO this function will not run on a full ds until get_upstreams has been defined in all the
+        #   downstream classes (currently just sources, image, exposure)
+
+        # commit to DB using this session
+        # with SmartSession() as session:
+        #     ds.save_and_commit(session=session)
+
+        #     ds.image = session.merge(ds.image)
+        #     ds.image._bitflag = 16  # 16=2**4 is the bitflag for 'bad subtraction'  
+        #     session.add(ds.image)
+        #     session.commit()
+
+        #     ds.image.exposure.update_downstream_badness(session)
+        #     session.commit()
+        #     ...rest of test
+
+            
+
 
     finally:
         if 'ds' in locals():

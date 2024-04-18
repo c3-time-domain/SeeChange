@@ -246,6 +246,7 @@ class Detector:
                         raise ValueError('Provenance mismatch for detections and provenance!')
 
             ds.sub_image.sources = detections
+            ds.sub_image._upstream_bitflag |= detections.bitflag
             ds.detections = detections
 
         else:  # regular image
@@ -310,12 +311,13 @@ class Detector:
         # psf._upstream_bitflag = 0   # perhaps this spot will end up being better, as it catches all methods
         # psf._upstream_bitflag |= image.bitflag
         if psf is not None:
-            psf._upstream_bitflag = 0
+            if psf._upstream_bitflag is None:
+                psf._upstream_bitflag = 0
             psf._upstream_bitflag |= image.bitflag
         if sources is not None:
-            sources._upstream_bitflag = 0
+            if sources._upstream_bitflag is None:
+                sources._upstream_bitflag = 0
             sources._upstream_bitflag |= image.bitflag
-        
 
         return sources, psf
 
@@ -722,9 +724,6 @@ class Detector:
                 hdul[1].header['IMAXIS2'] = image.data.shape[0]
                 # TODO: any more information about the Image or SourceList we want to save here?
 
-            psf._upstream_bitflag = 0
-            psf._upstream_bitflag |= image.bitflag
-            
             return psf
 
         finally:
