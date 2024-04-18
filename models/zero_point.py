@@ -5,9 +5,10 @@ from sqlalchemy import orm
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.schema import UniqueConstraint
 
-from models.base import Base, AutoIDMixin, HasBitFlagBadness
+from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness
 from models.enums_and_bitflags import catalog_match_badness_inverse
-
+from models.world_coordinates import WorldCoordinates
+from models.source_list import SourceList
 
 class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
     __tablename__ = 'zero_points'
@@ -120,3 +121,21 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
                 return apcor
 
         raise ValueError( f"No aperture correction tabulated for aperture radius within 0.01 pixels of {rad}" )
+
+    def get_upstreams(self, session=None):
+        """Get the extraction SourceList and WorldCoordinates used to make this ZeroPoint"""
+        with SmartSession(session) as session:
+            upstreams = []
+            # get the SourceList
+            source_list = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+            # upstreams.append(source_list)
+            upstreams += source_list
+
+            # get the WCS (Not 100% sure if there is a 1-1 relationship between SourceList and derived WCS
+            # so this may be erroneous)
+            wcs = session.scalars(sa.select(WorldCoordinates)
+                                  .where(WorldCoordinates.sources_id == self.sources_id)).all()
+            # upstreams.append(wcs)
+            upstreams += wcs
+
+        return upstreams

@@ -9,8 +9,9 @@ from astropy.wcs import WCS
 from astropy.io import fits
 from astropy.wcs import utils
 
-from models.base import Base, AutoIDMixin, HasBitFlagBadness
+from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness
 from models.enums_and_bitflags import catalog_match_badness_inverse
+from models.source_list import SourceList
 
 
 class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
@@ -119,3 +120,8 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
             return None
         pixel_scales = utils.proj_plane_pixel_scales(self.wcs)  # the scale in x and y direction
         return np.mean(pixel_scales) * 3600.0
+    
+    def get_upstreams(self, session=None):
+        """Get the extraction SourceList that was used to make this WorldCoordinates"""
+        with SmartSession(session) as session:
+            return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
