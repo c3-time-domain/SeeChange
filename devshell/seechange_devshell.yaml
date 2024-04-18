@@ -19,6 +19,3 @@ archive:
   local_read_dir: null
   local_write_dir: null
   token: insecure
-
-subtraction:
-  method: zogy

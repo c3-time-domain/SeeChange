@@ -109,8 +109,7 @@ After editing any schema, you have to create new database migrations to apply th
 The comment will go in the filename, so it should really be short.  
 Look out for any warnings, and review the created migration file before applying it (with `alembic upgrade head`).
 
-Note that in the devshell and test docker environments above, database migrations are automatically run when you create the environment.  In those cases, you will only need to run `alembic upgrade head` if you've created a new databse migration since you started up your docker environment.
-
+Note that in the devshell and test docker environments above, database migrations are automatically run when you create the environment with `docker compose up -d`, so there is no need for an initial `alembic upgrade head`.   However, if you then create additional migrations, and you haven't since run `docker compose down -v` (the `-v` being the thing that deletes the database), then you will need to run `alembic upgrade head` to apply those migrations to the running database inside your docker environment.
 
 ### Installing SeeChange on a local machine (not dockerized)
 
