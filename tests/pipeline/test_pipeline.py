@@ -281,23 +281,26 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # i think this session is unnecessary, however I am worried about potentially not cleaning
         # up properly after the following assignments to None (losing track of the old objects).
         # not sure if garbage cleaner will get em
-        with SmartSession() as session:
-            # ds.wcs.delete_from_database(session=session)
-            ds.wcs = None
-            # ds.zp.delete_from_database(session=session)
-            ds.zp = None
-            # ds.sub_image.delete_from_disk_and_database(session=session)
-            ds.sub_image = None
-            # probably need a session.commit() somewhere here if I need the commented lins
+        ds.wcs = None
+        ds.zp = None
+        ds.sub_image = None
+        ds.detections = None
+        ds.cutouts = None
 
         ds.sources._bitflag = 2**17  # bitflag 2**17 is 'many sources'
         desired_bitflag = 2**1 + 2**17 # bitflag for 'banding' and 'many sources'
-        ds = p.run(ds) #ugly solution to cleanup could be make this ds2, then ds2.delete_everything()
+        ds = p.run(ds)
 
+        assert ds.sources.bitflag == desired_bitflag 
         assert ds.wcs._upstream_bitflag == desired_bitflag
         assert ds.zp._upstream_bitflag == desired_bitflag
         assert ds.sub_image._upstream_bitflag == desired_bitflag # note my comment in subtraction.py
                                                                  # only passes if gets bitflag from sources
+        assert ds.detections._upstream_bitflag == desired_bitflag
+        for cutout in ds.cutouts:
+            assert cutout._upstream_bitflag == desired_bitflag
+        assert ds.image.bitflag == 2 # not in the downstream of sources
+
 
 
         # test part 3: test update_downstream_badness() function by adding and removing flags
@@ -322,6 +325,51 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
 
             
 
+
+    finally:
+        if 'ds' in locals():
+            ds.delete_everything()
+        # added this cleanup to make sure the temp data folder is cleaned up
+        # this should be removed after we add datastore failure modes (issue #150)
+        shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
+        shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
+
+
+def test_get_upstreams(decam_exposure, decam_reference, decam_default_calibrators, archive):
+    """
+    Test that adding a bitflag to the exposure propagates to all downstreams as they are created
+    Does not check measurements, as they do not have the HasBitflagBadness Mixin.
+    """
+    exposure = decam_exposure
+    ref = decam_reference
+    sec_id = ref.section_id
+
+    try:  # cleanup the file at the end
+        p = Pipeline()
+        ds = p.run(exposure, sec_id)
+
+        # commit to DB using this session
+        with SmartSession() as session:
+            ds.save_and_commit(session=session)
+            breakpoint()
+            assert ds.exposure.get_upstreams() == []
+            assert [upstream.id for upstream in ds.image.get_upstreams()] == [ds.exposure.id]
+            assert [upstream.id for upstream in ds.sources.get_upstreams()] == [ds.image.id]
+            assert [upstream.id for upstream in ds.wcs.get_upstreams()] == [ds.sources.id]
+            assert [upstream.id for upstream in ds.zp.get_upstreams()] == [ds.sources.id, ds.wcs.id]
+
+            # Temporarily NOT testing upstreams of sub_image, as the get_upstreams implementation is
+            # more complicated and I need to look at it more
+            # assert [upstream.id for upstream in ds.sub_image.get_upstreams()] == [ds.image.id,
+            #                                                                       ds.sources.id,
+            #                                                                       ds.wcs.id,
+            #                                                                       ds.zp.id]
+            assert [upstream.id for upstream in ds.detections.get_upstreams()] == [ds.sub_image.id]
+            for cutout in ds.cutouts:
+                assert [upstream.id for upstream in cutout.get_upstreams()] == [ds.detections.id]
+
+
+            
 
     finally:
         if 'ds' in locals():
