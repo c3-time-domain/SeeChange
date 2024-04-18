@@ -631,6 +631,19 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self.num_sources = len( self.data )
         super().save(fullname, **kwargs)
 
+
+    def free( self, ):
+        """Free loaded source list memory.
+
+        Wipe out the data and info fields, freeing memory.  Depends on
+        python garbage collection, so if there are other references to
+        those objects, the memory won't actually be freed.
+
+        """
+        self._data = None
+        self._info = None
+
+
     @staticmethod
     def _convert_from_sextractor_to_numpy( arr, copy=False ):
         """Convert from 1-offset to 0-offset coordinates.
