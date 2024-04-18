@@ -1380,7 +1380,6 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
 
 
 def test_free( decam_exposure, decam_raw_image, ptf_ref ):
-    import pdb; pdb.set_trace()
     proc = psutil.Process()
     origmem = proc.memory_info()
 
