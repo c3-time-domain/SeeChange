@@ -12,7 +12,8 @@ from astropy.time import Time
 from astropy.io import fits
 
 from util.config import Config
-from pipeline.utils import read_fits_image, parse_ra_hms_to_deg, parse_dec_dms_to_deg
+from util.util import read_fits_image 
+from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
 
 from models.base import (
     Base,

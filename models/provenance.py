@@ -6,7 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 
-from pipeline.utils import get_git_hash
+from util.util import get_git_hash
 
 from models.base import Base, SeeChangeBase, SmartSession, safe_merge
 
