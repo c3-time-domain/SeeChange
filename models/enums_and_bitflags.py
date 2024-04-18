@@ -399,6 +399,7 @@ flag_image_bits = {
     0: 'bad pixel',        # Bad pixel flagged by the instrument
     1: 'zero weight',
     2: 'saturated',
+    3: 'out of bounds',     # caused by alignment (swarp etc)
 }
 flag_image_bits_inverse = { EnumConverter.c(v):k for k, v in flag_image_bits.items() }
 

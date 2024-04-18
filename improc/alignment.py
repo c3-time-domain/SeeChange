@@ -18,6 +18,7 @@ import improc.scamp
 from models.base import FileOnDiskMixin, _logger
 from models.provenance import Provenance
 from models.image import Image
+from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
 from pipeline.data_store import DataStore
 from pipeline.parameters import Parameters
@@ -350,7 +351,9 @@ class ImageAligner:
             #  For most images I've seen, no image
             #  will have a pixel with noise above 100000,
             #  hence the 1e-10.
-            warpedim.flags[ warpedim.weight < 1e-10 ] = 1
+
+            oob_bitflag = string_to_bitflag( 'out of bounds', flag_image_bits_inverse)
+            warpedim.flags[ np.logical_and(warpedim.flags == 0, warpedim.weight < 1e-10)] = oob_bitflag
 
             return warpedim
 
