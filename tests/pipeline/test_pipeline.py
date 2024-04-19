@@ -311,16 +311,20 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         #   downstream classes (currently just sources, image, exposure)
 
         # commit to DB using this session
+        with SmartSession() as session:
+            ds.save_and_commit(session=session)
+            # breakpoint()
+
         # with SmartSession() as session:
-        #     ds.save_and_commit(session=session)
 
-        #     ds.image = session.merge(ds.image)
-        #     ds.image._bitflag = 16  # 16=2**4 is the bitflag for 'bad subtraction'  
-        #     session.add(ds.image)
-        #     session.commit()
+            ds.image = session.merge(ds.image)
+            ds.image._bitflag = 16  # 16=2**4 is the bitflag for 'bad subtraction'  
+            session.add(ds.image)
+            session.commit()
+            # breakpoint()
 
-        #     ds.image.exposure.update_downstream_badness(session)
-        #     session.commit()
+            ds.image.exposure.update_downstream_badness(session)
+            session.commit()
         #     ...rest of test
 
             
