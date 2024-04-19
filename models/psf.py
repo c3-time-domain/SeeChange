@@ -303,6 +303,20 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with open( psfxmlpath ) as ifp:
             self._info = ifp.read()
 
+
+    def free( self ):
+        """Free loaded world coordinates memory.
+
+        Wipe out the data, info, and header fields, freeing memory.
+        Depends on python garbage collection, so if there are other
+        references to those objects, the memory won't actually be freed.
+
+        """
+        self._data = None
+        self._info = None
+        self._header = None
+
+
     def get_resampled_psf( self, x, y, dtype=np.float64 ):
         """Return an image fragment with the PSF at the underlying sampling of the PSF model.
 
