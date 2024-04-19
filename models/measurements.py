@@ -285,6 +285,10 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
         with SmartSession(session) as session:
             return session.scalars(sa.select(Cutouts).where(Cutouts.id == self.cutouts_id)).all()
         
+    def get_upstreams(self, session=None):
+        """Get the downstreams of this Measurements"""
+        return []
+            
     @classmethod
     def delete_list(cls, measurements_list, session=None, commit=True):
         """

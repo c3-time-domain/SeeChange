@@ -125,3 +125,15 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
         """Get the extraction SourceList that was used to make this WorldCoordinates"""
         with SmartSession(session) as session:
             return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+        
+    def get_downstreams(self, session=None):
+        """Get the downstreams of this WorldCoordinates"""
+        # get the ZeroPoint that uses the same SourceList as this WCS
+        from models.zero_point import ZeroPoint
+        with SmartSession(session) as session:
+            zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.sources_id)).all()
+            
+        # TODO figure out how to get subtraction image downstreams
+        downstreams = zps # + subs
+        return downstreams
+    

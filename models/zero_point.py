@@ -139,3 +139,8 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
             upstreams += wcs
 
         return upstreams
+    
+    def get_downstreams(self, session=None):
+        """Get the downstreams of this ZeroPoint"""
+        # TODO add subtractions?
+        return []
