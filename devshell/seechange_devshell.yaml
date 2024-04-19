@@ -1,5 +1,21 @@
 preloads:
   - ../default_config.yaml
+overrides:
+  - local_overrides.yaml
+augments:
+  - local_augments.yaml
+
+path:
+  data_root: 'devshell/temp_data'
+  data_temp: 'devshell/temp_data'
 
 db:
-  host: seechange_postgres
+  host: devshell_seechange_postgres
+
+archive:
+  archive_url: http://devshell_archive:8080/
+  verify_cert: false
+  path_base: test/
+  local_read_dir: null
+  local_write_dir: null
+  token: insecure
