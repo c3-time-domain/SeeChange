@@ -125,22 +125,18 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
     def get_upstreams(self, session=None):
         """Get the extraction SourceList and WorldCoordinates used to make this ZeroPoint"""
         with SmartSession(session) as session:
-            upstreams = []
             # get the SourceList
             source_list = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
-            # upstreams.append(source_list)
-            upstreams += source_list
 
             # get the WCS (Not 100% sure if there is a 1-1 relationship between SourceList and derived WCS
-            # so this may be erroneous)
+            # so this may be erroneous) (now sure its wrong, must do properly)
             wcs = session.scalars(sa.select(WorldCoordinates)
                                   .where(WorldCoordinates.sources_id == self.sources_id)).all()
-            # upstreams.append(wcs)
-            upstreams += wcs
 
-        return upstreams
+        return source_list + wcs
     
     def get_downstreams(self, session=None):
         """Get the downstreams of this ZeroPoint"""
         # TODO add subtractions?
+        # see question in SourceList
         return []
