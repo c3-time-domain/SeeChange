@@ -334,11 +334,8 @@ def test_free( decam_datastore ):
     freemem = proc.memory_info()
 
     # Grr... last time I tried this on github actions, it didn't
-    #  release any memory.  This is almost certainly the garbage
-    #  collector being "smart".  Further thought required to see
-    #  if there's a way to figure out how much memory is really
-    #  being used.  Comment out this test for now.
-
+    #   release any memory.  Further thought required.
+    # assert ( origmem.rss - freemem.rss ) > ( 64 * 1024 * 1024 )
     # assert ( origmem.rss - freemem.rss ) > ( 30 * 1024 * 1024 )
 
 

@@ -8,16 +8,18 @@ import numpy as np
 
 import astropy.table
 import astropy.wcs.utils
+from astropy.io import fits
 
 from util import ldac
 from util.exceptions import SubprocessFailure
 from util.util import read_fits_image
 import improc.scamp
-
+import improc.tools
 
 from models.base import FileOnDiskMixin, _logger
 from models.provenance import Provenance
 from models.image import Image
+from models.source_list import SourceList
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
 from pipeline.data_store import DataStore
@@ -133,7 +135,13 @@ class ImageAligner:
         Returns
         -------
         warpedim: Image
-            A new Image object with the warped image data.
+            A new Image object.  NOTE: the image has not yet actually
+            been warped!  This method doesn't do the warping, it just
+            sets up the structure.  The image data in warpedim is just a
+            copy of what was in image.  The ra, dec, and four corner
+            attributes are copied from target (to which the image will
+            be warped when the image is actually warped).
+
         """
         warpedim = Image.copy_image(image)
         for att in ['ra', 'dec']:
@@ -144,6 +152,7 @@ class ImageAligner:
         warpedim.calculate_coordinates()
         warpedim.zp = image.zp  # zp not available when loading from DB (zp.image_id doesn't point to warpedim)
         # TODO: are the WorldCoordinates also included? Are they valid for the warped image?
+        # --> warpedim should get a copy of target.wcs
 
         warpedim.type = 'Warped'
         warpedim.bitflag = 0
@@ -169,11 +178,13 @@ class ImageAligner:
             The target image we're aligning with.
 
           sources: SourceList
-            A SourceList from the image, with good RA/Dec values
+            A SourceList from the image, with good RA/Dec values.
+            Assumed to be in sextrfits format.
 
           target_sources: SourceList
             A SourceList from the other image to which this image should
-            be aligned, with good RA/Dec values
+            be aligned, with good RA/Dec values.  Assumed to be in
+            sextrfits format.
 
         Returns
         -------
@@ -183,8 +194,12 @@ class ImageAligner:
         """
         tmppath = pathlib.Path( image.temp_path )
         tmpname = ''.join( random.choices( 'abcdefghijlkmnopqrstuvwxyz', k=10 ) )
-        imagecat = tmppath / f'{tmpname}_image.sources.fits'
-        targetcat = tmppath / f'{tmpname}_target.sources.fits'
+
+        tmpimagecat = tmppath / f'{tmpname}_image.sources.fits'
+        tmptargetcat = tmppath / f'{tmpname}_target.sources.fits'
+        tmpim = tmppath / f'{tmpname}_image.fits'
+        tmpflags = tmppath / f'{tmpname}_flags.fits'
+
         outim = tmppath / f'{tmpname}_warped.image.fits'
         outwt = tmppath / f'{tmpname}_warped.weight.fits'
         outfl = tmppath / f'{tmpname}_warped.flags.fits'
@@ -237,18 +252,43 @@ class ImageAligner:
         # works!)
 
         try:
-            # Write out the source lists for scamp to chew on
-            sourcedat = sources._convert_to_sextractor_for_saving( sources.data )
-            targetdat = target_sources._convert_to_sextractor_for_saving( target_sources.data )
-            ldac.save_table_as_ldac( astropy.table.Table( sourcedat), imagecat,
-                                     imghdr=sources.info, overwrite=True )
-            ldac.save_table_as_ldac( astropy.table.Table( targetdat ), targetcat,
-                                     imghdr=target_sources.info, overwrite=True )
+            # For everything to work as described above, we need the
+            # "sources" object to have current ra and dec (X_WORLD and
+            # Y_WORLD) fields based on image's current wcs, as this will
+            # be serving as the faux-astrometric-reference catalog for
+            # scamp.
+
+            imagewcs = image.wcs
+            imskyco = imagewcs.wcs.pixel_to_world( sources.x, sources.y )
+            # ...the choice of a numpy recarray is inconvenient here, since
+            # adding a column requires making a new datatype, copying data, etc.
+            # Take the shortcut of using astropy.table.Table.  (Could also use Pandas.)
+            datatab = astropy.table.Table( sources.data )
+            datatab['X_WORLD'] = imskyco.ra.deg
+            datatab['Y_WORLD'] = imskyco.dec.deg
+            # TODO: the astropy doc says this returns the pixel scale along
+            # each axis in the same units as the WCS yields.  Can we assume
+            # that the WCS is always yielding degrees?
+            pixsc = astropy.wcs.utils.proj_plane_pixel_scales( imagewcs.wcs ).mean()
+            datatab['ERRA_WORLD'] = sources.errx * pixsc
+            datatab['ERRB_WORLD'] = sources.erry * pixsc
+            flux, dflux = sources.apfluxadu()
+            datatab['MAG'] = -2.5 * np.log10( flux ) + image.zp.zp
+            # TODO: Issue #251
+            datatab['MAG'] += image.zp.get_aper_cor( sources.aper_rads[0] )
+            datatab['MAGERR'] = 1.0857 * dflux / flux
+
+            # Convert from numpy convention to FITS convention and write
+            # out LDAC files for scamp to chew on.
+            datatab = SourceList._convert_to_sextractor_for_saving( datatab )
+            targetdat = astropy.table.Table( SourceList._convert_to_sextractor_for_saving( target_sources.data ) )
+            ldac.save_table_as_ldac( datatab, tmpimagecat, imghdr=sources.info, overwrite=True )
+            ldac.save_table_as_ldac( targetdat, tmptargetcat, imghdr=target_sources.info, overwrite=True )
 
             # Scamp it up
-            wcs = improc.scamp.solve_wcs_scamp(
-                targetcat,
-                imagecat,
+            swarp_fodder_wcs = improc.scamp.solve_wcs_scamp(
+                tmptargetcat,
+                tmpimagecat,
                 magkey='MAG',
                 magerrkey='MAGERR',
                 crossid_radius=self.pars.crossid_radius,
@@ -259,16 +299,20 @@ class ImageAligner:
             )
 
             # Write out the .head file that swarp will use to figure out what to do
-            hdr = wcs.to_header()
+            hdr = swarp_fodder_wcs.to_header()
             hdr['NAXIS'] = 2
             hdr['NAXIS1'] = target.data.shape[1]
             hdr['NAXIS2'] = target.data.shape[0]
             hdr.tofile( outimhead )
             hdr.tofile( outflhead )
+
             # Warp the image
-            # TODO : support single image.  (I hope swarp is smart
-            #  enough that you could do imagepat[1] to get HDU 1, but
-            #  I don't know if that's the case.)
+            # TODO : support single image with image, weight, flags in
+            #  different HDUs.  Right now, the code below assumes that
+            #  image, weight, and flags are each single-HDU FITS files.
+            #  (I hope swarp is smart enough that you could do
+            #  imagepat[1] to get HDU 1, but I don't know if that's the
+            #  case.)
             if image.filepath_extensions is None:
                 raise NotImplementedError( "Only separate image/weight/flags images currently supported." )
             impaths = image.get_fullpath( as_list=True )
@@ -276,7 +320,23 @@ class ImageAligner:
             wtdex = image.filepath_extensions.index( '.weight.fits' )
             fldex = image.filepath_extensions.index( '.flags.fits' )
 
-            command = [ 'swarp', impaths[imdex],
+            # For swarp to work right, the header of image must have the
+            # WCS we assumed it had when calculating the transformation
+            # with scamp above.
+            # (TODO: I think I can get away with writing a head file and
+            # putting in a symbolic link for the full FITS, instead of
+            # copying the FITS data as here.  Look into that.)
+
+            with fits.open( impaths[imdex], mode='readonly' ) as hdul:
+                improc.tools.strip_wcs_keywords( hdul[0].header )
+                hdul[0].header.update( imagewcs.wcs.to_header() )
+                hdul.writeto( tmpim )
+            with fits.open( impaths[fldex], mode='readonly' ) as hdul:
+                improc.tools.strip_wcs_keywords( hdul[0].header )
+                hdul[0].header.update( imagewcs.wcs.to_header() )
+                hdul.writeto( tmpflags )
+
+            command = [ 'swarp', tmpim,
                         '-IMAGEOUT_NAME', outim,
                         '-WEIGHTOUT_NAME', outwt,
                         '-SUBTRACT_BACK', 'N',
@@ -292,12 +352,12 @@ class ImageAligner:
             t0 = time.perf_counter()
             res = subprocess.run( command, capture_output=True )
             t1 = time.perf_counter()
-            _logger.debug( f"swarp took {t1-t0:.2f} seconds" )
+            _logger.debug( f"swarp of image took {t1-t0:.2f} seconds" )
             if res.returncode != 0:
                 raise SubprocessFailure( res )
 
             # do the same for flags
-            command = ['swarp', impaths[fldex],
+            command = ['swarp', tmpflags,
                        '-IMAGEOUT_NAME', outfl,
                        '-RESAMPLING_TYPE', 'NEAREST',
                        '-SUBTRACT_BACK', 'N',
@@ -310,13 +370,16 @@ class ImageAligner:
             t0 = time.perf_counter()
             res = subprocess.run(command, capture_output=True)
             t1 = time.perf_counter()
-            _logger.debug(f"swarp took {t1 - t0:.2f} seconds")
+            _logger.debug(f"swarp of flags took {t1 - t0:.2f} seconds")
             if res.returncode != 0:
                 raise SubprocessFailure(res)
 
             warpedim = self.image_source_warped_to_target(image, target)
 
             warpedim.data, warpedim.header = read_fits_image( outim, output="both" )
+            # TODO: either make this not a hardcoded header value, or verify
+            # that we've constructed these images to have these hardcoded values
+            # (which would probably be a mistake, since it a priori assumes two amps).
             for att in ['SATURATA', 'SATURATB']:
                 if att in image.header:
                     warpedim.header[att] = image.header[att]
@@ -358,8 +421,10 @@ class ImageAligner:
             return warpedim
 
         finally:
-            imagecat.unlink( missing_ok=True )
-            targetcat.unlink( missing_ok=True )
+            tmpimagecat.unlink( missing_ok=True )
+            tmptargetcat.unlink( missing_ok=True )
+            tmpim.unlink( missing_ok=True )
+            tmpflags.unlink( missing_ok=True )
             outim.unlink( missing_ok=True )
             outwt.unlink( missing_ok=True )
             outfl.unlink( missing_ok=True )
@@ -419,40 +484,10 @@ class ImageAligner:
             warped_image.wcs = source_image.wcs
             # TODO: what about SourceList?
         else:  # Do the warp
-
             if self.pars.method == 'swarp':
+                _logger.debug( 'Aligning with swarp' )
                 if ( source_sources.format != 'sextrfits' ) or ( target_sources.format != 'sextrfits' ):
                     raise RuntimeError( f'swarp ImageAligner requires sextrfits sources' )
-
-                # We need good RA/Dec values, and a magnitude, in the object list
-                # that's serving as the catalog to scamp
-                imskyco = source_wcs.wcs.pixel_to_world( source_sources.x, source_sources.y )
-                # ...the choice of a numpy recarray is inconvenient here, since
-                # adding a column requires making a new datatype, copying data, etc.
-                # Take the shortcut of using astropy.Table.  (Could also use Pandas.)
-                datatab = astropy.table.Table( source_sources.data )
-                datatab['X_WORLD'] = imskyco.ra.deg
-                datatab['Y_WORLD'] = imskyco.dec.deg
-                # TODO: the astropy doc says this returns the pixel scale along
-                # each axis in the same units as the WCS yields.  Can we assume
-                # that the WCS is always yielding degrees?
-                pixsc = astropy.wcs.utils.proj_plane_pixel_scales( source_wcs.wcs ).mean()
-                datatab['ERRA_WORLD'] = source_sources.errx * pixsc
-                datatab['ERRB_WORLD'] = source_sources.erry * pixsc
-                flux, dflux = source_sources.apfluxadu()
-                datatab['MAG'] = -2.5 * np.log10( flux ) + source_zp.zp
-                datatab['MAG'] += source_zp.get_aper_cor( source_sources.aper_rads[0] )
-                datatab['MAGERR'] = 1.0857 * dflux / flux
-                source_sources.data = datatab.as_array()
-
-                # targskyco = target_wcs.wcs.pixel_to_world( target_sources.x, target_sources.y )
-                # datatab = astropy.table.Table( target_sources.data )
-                # datatab['X_WORLD'] = targskyco.ra.deg
-                # datatab['Y_WORLD'] = targskyco.dec.deg
-                # pixsc = astropy.wcs.utils.proj_plane_pixel_scales( target_wcs.wcs ).mean()
-                # datatab['ERRA_IMAGE'] = source_sources.
-                # target_sources.data = datatab.as_array()
-
                 warped_image = self._align_swarp(source_image, target_image, source_sources, target_sources)
             else:
                 raise ValueError( f'alignment method {self.pars.method} is unknown' )
