@@ -723,8 +723,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         new.calculate_coordinates()  # galactic and ecliptic coordinates
 
-        new._upstream_bitflag = 0
-        new._upstream_bitflag |= exposure.bitflag
+        # new._upstream_bitflag = 0     # moved to   
+        # new._upstream_bitflag |= exposure.bitflag
 
         return new
 
