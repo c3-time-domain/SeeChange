@@ -13,59 +13,52 @@ but in the meantime, install Docker Engine instead of Docker Desktop; instructio
 
 #### Development shell -- local database
 
-To create a database on your local machine and get a development shell in which to run code, 
-cd into the `devshell` directory and run
+The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment variables.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
 ```
-   USERID=<UID> GROUPID=<GID> docker compose up -d
-```
-replacing `<UID>` with your uid, and `<GID>` with your GID.  
-You can avoid typing this all the time by creating a file `.env` in the `devshell` directory with contents
-```
+  COMPOSE_PROJECT_NAME=<yourname>
   USERID=<UID>
   GROUPID=<GID>
 ```
-again replacing `<UID>` and `<GID>` with the right things (you can find your uid and gid with `id -u` and `id -g`). 
 
-Once things are started, there will be two containers running, 
-one for your database, one to which you can attach with a shell.  Do
-```
-   docker ps
-```
-to see what the created containers are named; the shell container is usually `devshell-seechange-1`.  
-You can then get a shell inside that environment with
-```
-   docker exec -it devshell-seechange-1 /bin/bash
-```
-and you're in.  (Put in the right name for the container if it's not devshell-seechange-1.)
+`<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)
 
-This docker image bind-mounts your seechange checkout 
-(the parent directory of the `devshell` directory where you're working) at `/seechange`.  
-That means if you work in that directory, it's the same as working in the checkout.  
-If you edit something outside the container, 
-the differences will be immediately available inside the container (since it's the same physical filesystem).  
-This means there's no need to rebuild the container every time you change any bit of code.
-
-When you're done, exit the container, and run
+Once you've set these environment variables— either in a `.env` file, with three `export` commands, or by prepending them to every `docker compose` command you see below, you can start up a development shell in which to run code by running, while in the `devshell` subdirectory:
 ```
-  USERID=<UID> GROUPID=<GID> docker compose down
+  docker compose up -d seechange
 ```
-to stop and delete the container images.  (If you created the `.env` file mentioned above, 
-you don't need the USERID and GROUPID definitions, and can just type `docker compose down`.)
 
-The `docker-compose.yaml` file in this directory defines a volume where postgres stores its data.  
-This means that every time you restart the environment, 
-the database will still be as it was before.  
-This isn't what you want for running tests, but it's often what you want for development.  
-You can see what volumes are defined with
+That will start several services.  You can see what's there by running
+```
+   docker compose ps
+```
+
+The services started include an archive server, a postgres database server, and a shell host.  The database server should have all of the schema necessary for SeeChange already created.  To connect to the shell host in order to run within this environment, run
+```
+   docker compose exec -it seechange /bin/bash
+```
+
+Do whatever you want inside that shell; most likely, this will involve running `python` together with either some SeeChange test, or some SeeChange executable. This docker image bind-mounts your seechange checkout (the parent directory of the `devshell` directory where you're working) at `/seechange`.  That means if you work in that directory, it's the same as working in the checkout.  If you edit something outside the container, the differences will be immediately available inside the container (since it's the same physical filesystem).  This means there's no need to rebuild the container every time you change any bit of code.
+
+When you're done running things, you can just `exit` out of the seechange shell.  Making sure you're back in a shell on the host machine, and in the `devshell` subdirectory, bring down all of the services you started with:
+```
+   docker compose down
+```
+
+By default, the volumes with archived files and the database files will still be there, so next time you run `docker compose up -d seechange`, the database contents and archived images will all still be there.  If you want to create a completely fresh environment, instead run
+```
+   docker compose down -v
+```
+
+If all is well, the `-v` will delete the volumnes that stored the database and archive files.
+
+You can see what volumes docker knows about with
 ```
   docker volume list
 ```
-In that list, you should see something that has a name `devshell_seechange-postgres-dbdata`.  
-If you want to wipe this volume out and start with a fresh database, you can run
-```
-  docker volume rm devshell_seechange-postgres-dbdata
-```
 
+Note that this will almost certainly show you more than you care about; it will show all volumes that you or anybody else have on the system for any context.
+
+There is one other bit of cleanup.  Any images created while you work in the devshell docker image will be written under the `devshell/temp_data` directory.  When you exit and come back into the docker compose environment, all those files will still be there.  If you want to clean up, in addition to adding `-v` to `docker compose down`, you will also want to `rm -rf temp_data`.
 
 #### Development shell -- using an external existing database
 
@@ -78,11 +71,13 @@ To run the tests on your local system in an environment that approximates how th
 cd into `tests` and run the following command (which requires the "docker compose CLI plugin" installed to work):
 ```
    export GITHUB_REPOSITORY_OWNER=<yourname>
+   export USERID=<uid>
+   export GROUPID=<gid>
    docker compose build
-   USERID=<uid> GROUIP=<gid> docker compose run runtests
+   COMPOSE_PROJECT_NAME=<yourname> docker compose run runtests
 ```
-where you replace `<uid>` and `<gid>` with your own userid and groupid; if you don't do this, the tests will run, 
-but various pycache files will get created in your checkout owned by root, which is annoying. 
+where you replace `<uid>` and `<gid>` with your own userid and groupid; if you don't do this, the tests will run, but various pycache files will get created in your checkout owned by root, which is annoying.  `<yourname>` can be any string you want.  If you are working on a single-user machine, you can omit the `COMPOSE_PROJECT_NAME` variable; the purpose if it is to avoid colliding with other users on the same machine.
+
 At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  
 (The output you see to the screen should tell you the same information.)  
 This will take a long time the first time you do it, as it has to build the docker images, 
@@ -93,7 +88,7 @@ making tokens on github.  (The docker-compose.yaml file is written to run on git
 
 After the test is complete, run
 ```
-    docker compose down
+    COMPOSE_PROJECT_NAME=<yourname> docker compose down -v
 ```
 (otherwise, the postgres container will still be running).
 
@@ -114,6 +109,7 @@ After editing any schema, you have to create new database migrations to apply th
 The comment will go in the filename, so it should really be short.  
 Look out for any warnings, and review the created migration file before applying it (with `alembic upgrade head`).
 
+Note that in the devshell and test docker environments above, database migrations are automatically run when you create the environment with `docker compose up -d`, so there is no need for an initial `alembic upgrade head`.   However, if you then create additional migrations, and you haven't since run `docker compose down -v` (the `-v` being the thing that deletes the database), then you will need to run `alembic upgrade head` to apply those migrations to the running database inside your docker environment.
 
 ### Installing SeeChange on a local machine (not dockerized)
 
