@@ -1468,9 +1468,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
              psfflux, psffluxerr, nandata, and nanscore.
 
         """
-        allfree = { 'raw_data', 'data', 'weight', 'flags', 'background',
-                    'score', 'psfflux', 'psffluxerr',
-                    'nandata', 'nanscore' }
+        allfree = set( Image.saved_extensions )
+        allfree.add( "raw_data" )
         tofree = set( only_free ) if only_free is not None else allfree
 
         for prop in tofree:
