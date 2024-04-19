@@ -275,12 +275,8 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
 
 
         # test part 2: Add a second bitflag partway through and check it propagates to downstreams
-        # This test 2 is working as implemented here: see my apology in the PR for the mess
 
         # delete downstreams of ds.sources
-        # i think this session is unnecessary, however I am worried about potentially not cleaning
-        # up properly after the following assignments to None (losing track of the old objects).
-        # not sure if garbage cleaner will get em
         ds.wcs = None
         ds.zp = None
         ds.sub_image = None
@@ -302,32 +298,49 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.image.bitflag == 2 # not in the downstream of sources
 
 
-
         # test part 3: test update_downstream_badness() function by adding and removing flags
         # and observing propagation
-        # to Guy: this is partially tested already in test_image.py::test_image_badness,
-        #   but perhaps this is still useful due to testing propagation all the way downstream
-        # ALSO this function will not run on a full ds until get_upstreams has been defined in all the
-        #   downstream classes (currently just sources, image, exposure)
 
         # commit to DB using this session
         with SmartSession() as session:
             ds.save_and_commit(session=session)
-            # breakpoint()
-
-        # with SmartSession() as session:
-
             ds.image = session.merge(ds.image)
+
+            # add a bitflag and check that it appears in downstreams
             ds.image._bitflag = 16  # 16=2**4 is the bitflag for 'bad subtraction'  
             session.add(ds.image)
             session.commit()
-            # breakpoint()
-
             ds.image.exposure.update_downstream_badness(session)
             session.commit()
-        #     ...rest of test
 
-            
+            desired_bitflag = 2**1 + 2**4 + 2**17  # 'banding' 'bad subtraction' 'many sources
+            assert ds.exposure.bitflag == 2**1
+            assert ds.image.bitflag == 2**1 + 2**4  # 'banding' and 'bad subtraction'
+            assert ds.sources.bitflag == desired_bitflag
+            # assert ds.psf.bitflag == desired_bitflag  #THIS NEEDS TO BE FIXED/DECIDED 
+            assert ds.wcs.bitflag == desired_bitflag
+            assert ds.zp.bitflag == desired_bitflag
+            assert ds.sub_image.bitflag == desired_bitflag
+            assert ds.detections.bitflag == desired_bitflag
+            for cutout in ds.cutouts:
+                assert cutout.bitflag == desired_bitflag
+
+            # remove the bitflag and check that it disappears in downstreams
+            ds.image._bitflag = 0  # remove 'bad subtraction'  
+            session.commit()
+            ds.image.exposure.update_downstream_badness(session)
+            session.commit()
+            desired_bitflag = 2**1 + 2**17  # 'banding' 'many sources'
+            assert ds.exposure.bitflag == 2**1
+            assert ds.image.bitflag == 2**1  # just 'banding' left on image
+            assert ds.sources.bitflag == desired_bitflag
+            # assert ds.psf.bitflag == 2**1 + 2**4 + 2**17  #THIS NEEDS TO BE FIXED/DECIDED 
+            assert ds.wcs.bitflag == desired_bitflag
+            assert ds.zp.bitflag == desired_bitflag
+            assert ds.sub_image.bitflag == desired_bitflag
+            assert ds.detections.bitflag == desired_bitflag
+            for cutout in ds.cutouts:
+                assert cutout.bitflag == desired_bitflag
 
 
     finally:
@@ -339,10 +352,9 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
 
 
-def test_get_upstreams(decam_exposure, decam_reference, decam_default_calibrators, archive):
+def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_default_calibrators, archive):
     """
-    Test that adding a bitflag to the exposure propagates to all downstreams as they are created
-    Does not check measurements, as they do not have the HasBitflagBadness Mixin.
+    Test that get_upstreams() and get_downstreams() return the proper objects.
     """
     exposure = decam_exposure
     ref = decam_reference
@@ -355,13 +367,13 @@ def test_get_upstreams(decam_exposure, decam_reference, decam_default_calibrator
         # commit to DB using this session
         with SmartSession() as session:
             ds.save_and_commit(session=session)
-            # breakpoint()
+
+            # test get_upstreams()
             assert ds.exposure.get_upstreams() == []
             assert [upstream.id for upstream in ds.image.get_upstreams()] == [ds.exposure.id]
             assert [upstream.id for upstream in ds.sources.get_upstreams()] == [ds.image.id]
             assert [upstream.id for upstream in ds.wcs.get_upstreams()] == [ds.sources.id]
             assert [upstream.id for upstream in ds.zp.get_upstreams()] == [ds.sources.id, ds.wcs.id]
-
             # Temporarily NOT testing upstreams of sub_image, as the get_upstreams implementation is
             # more complicated and I need to look at it more
             # assert [upstream.id for upstream in ds.sub_image.get_upstreams()] == [ds.image.id,
@@ -371,9 +383,20 @@ def test_get_upstreams(decam_exposure, decam_reference, decam_default_calibrator
             assert [upstream.id for upstream in ds.detections.get_upstreams()] == [ds.sub_image.id]
             for cutout in ds.cutouts:
                 assert [upstream.id for upstream in cutout.get_upstreams()] == [ds.detections.id]
-
             # need to be creative with measurements, maybe just test a couple instead of all
 
+            # test get_downstreams
+            assert [downstream.id for downstream in ds.exposure.get_downstreams()] == [ds.image.id]
+            # image case is complicated 
+            assert [downstream.id for downstream in ds.sources.get_downstreams()] == [ds.wcs.id, ds.zp.id, ds.psf.id]
+            assert [downstream.id for downstream in ds.psf.get_downstreams()] == []
+            assert [downstream.id for downstream in ds.wcs.get_downstreams()] == [ds.zp.id]
+            assert [downstream.id for downstream in ds.zp.get_downstreams()] == []
+            # sub_image case is complicated
+            # detections case is complicated due to cutouts
+            # cutouts case is complicated due to measurements
+            for measurement in ds.measurements:
+                assert [downstream.id for downstream in measurement.get_downstreams()] == []
             
 
     finally:
