@@ -313,7 +313,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
             ds.image.exposure.update_downstream_badness(session)
             session.commit()
 
-            desired_bitflag = 2**1 + 2**4 + 2**17  # 'banding' 'bad subtraction' 'many sources
+            desired_bitflag = 2**1 + 2**4 + 2**17  # 'banding' 'bad subtraction' 'many sources'
             assert ds.exposure.bitflag == 2**1
             assert ds.image.bitflag == 2**1 + 2**4  # 'banding' and 'bad subtraction'
             assert ds.sources.bitflag == desired_bitflag
