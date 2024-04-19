@@ -279,7 +279,8 @@ class PhotCalibrator:
             ds.zp = ZeroPoint( sources=ds.sources, provenance=prov, zp=zpval, dzp=dzpval,
                                aper_cor_radii=sources.aper_rads, aper_cors=apercors )
             
-            ds.zp._upstream_bitflag = 0
+            if ds.zp._upstream_bitflag is None:
+                ds.zp._upstream_bitflag = 0
             ds.zp._upstream_bitflag |= sources.bitflag
             ds.zp._upstream_bitflag |= wcs.bitflag
 
