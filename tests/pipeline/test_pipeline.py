@@ -2,6 +2,7 @@ import os
 import pytest
 import shutil
 import sqlalchemy as sa
+import numpy as np
 
 from models.base import SmartSession, FileOnDiskMixin, _logger
 from models.provenance import Provenance
@@ -317,7 +318,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
             assert ds.exposure.bitflag == 2**1
             assert ds.image.bitflag == 2**1 + 2**4  # 'banding' and 'bad subtraction'
             assert ds.sources.bitflag == desired_bitflag
-            # assert ds.psf.bitflag == desired_bitflag  #THIS NEEDS TO BE FIXED/DECIDED 
+            assert ds.psf.bitflag == 2**1 + 2**4 # pending psf re-structure, only downstream of image
             assert ds.wcs.bitflag == desired_bitflag
             assert ds.zp.bitflag == desired_bitflag
             assert ds.sub_image.bitflag == desired_bitflag
@@ -334,7 +335,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
             assert ds.exposure.bitflag == 2**1
             assert ds.image.bitflag == 2**1  # just 'banding' left on image
             assert ds.sources.bitflag == desired_bitflag
-            # assert ds.psf.bitflag == 2**1 + 2**4 + 2**17  #THIS NEEDS TO BE FIXED/DECIDED 
+            assert ds.psf.bitflag == 2**1 #  pending psf re-structure, only downstream of image
             assert ds.wcs.bitflag == desired_bitflag
             assert ds.zp.bitflag == desired_bitflag
             assert ds.sub_image.bitflag == desired_bitflag
@@ -373,28 +374,53 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.image.get_upstreams()] == [ds.exposure.id]
             assert [upstream.id for upstream in ds.sources.get_upstreams()] == [ds.image.id]
             assert [upstream.id for upstream in ds.wcs.get_upstreams()] == [ds.sources.id]
+            assert [upstream.id for upstream in ds.psf.get_upstreams()] == [ds.image.id] # until PSF upstreams settled
             assert [upstream.id for upstream in ds.zp.get_upstreams()] == [ds.sources.id, ds.wcs.id]
-            # Temporarily NOT testing upstreams of sub_image, as the get_upstreams implementation is
-            # more complicated and I need to look at it more
-            # assert [upstream.id for upstream in ds.sub_image.get_upstreams()] == [ds.image.id,
-            #                                                                       ds.sources.id,
-            #                                                                       ds.wcs.id,
-            #                                                                       ds.zp.id]
+            assert [upstream.id for upstream in ds.sub_image.get_upstreams()] == [ref.image.id,
+                                                                                  ref.image.sources.id,
+                                                                                  ref.image.psf.id,
+                                                                                  ref.image.wcs.id,
+                                                                                  ref.image.zp.id,
+                                                                                  ds.image.id,
+                                                                                  ds.sources.id,
+                                                                                  ds.psf.id,
+                                                                                  ds.wcs.id,
+                                                                                  ds.zp.id]
             assert [upstream.id for upstream in ds.detections.get_upstreams()] == [ds.sub_image.id]
             for cutout in ds.cutouts:
                 assert [upstream.id for upstream in cutout.get_upstreams()] == [ds.detections.id]
-            # need to be creative with measurements, maybe just test a couple instead of all
+            #  measurements are a challenge to make sure the *right* measurement is with the right cutout
+            # for the time being, check that the measurements upstream is one of the cutouts
+            cutout_ids = np.unique([cutout.id for cutout in ds.cutouts])
+            for measurement in ds.measurements:
+                m_upstream_ids =  np.array([upstream.id for upstream in measurement.get_upstreams()])
+                assert np.all(np.isin(m_upstream_ids, cutout_ids)) 
+
 
             # test get_downstreams
+            # SEE question in source_list.py regarding whether/how to query for objects with downstream=sub_image
             assert [downstream.id for downstream in ds.exposure.get_downstreams()] == [ds.image.id]
-            # image case is complicated 
-            assert [downstream.id for downstream in ds.sources.get_downstreams()] == [ds.wcs.id, ds.zp.id, ds.psf.id]
-            assert [downstream.id for downstream in ds.psf.get_downstreams()] == []
+            # image get_downstreams appears to give duplicated results
+            assert [downstream.id for downstream in ds.image.get_downstreams()] == [ds.psf.id,
+                                                                                    ds.psf.id,
+                                                                                    ds.sources.id,
+                                                                                    ds.sources.id,
+                                                                                    ds.wcs.id,
+                                                                                    ds.wcs.id,
+                                                                                    ds.zp.id,
+                                                                                    ds.zp.id,
+                                                                                    ds.sub_image.id]
+            assert [downstream.id for downstream in ds.sources.get_downstreams()] == [ds.wcs.id, ds.zp.id]
+            assert [downstream.id for downstream in ds.psf.get_downstreams()] == [] # until PSF downstreams settled
             assert [downstream.id for downstream in ds.wcs.get_downstreams()] == [ds.zp.id]
             assert [downstream.id for downstream in ds.zp.get_downstreams()] == []
-            # sub_image case is complicated
-            # detections case is complicated due to cutouts
-            # cutouts case is complicated due to measurements
+            assert [downstream.id for downstream in ds.sub_image.get_downstreams()] == [ds.detections.id, ds.detections.id]
+            assert np.all(np.isin([downstream.id for downstream in ds.detections.get_downstreams()], cutout_ids))
+            # basic test: check the downstreams of cutouts is one of the measurements
+            measurement_ids = np.unique([measurement.id for measurement in ds.measurements])
+            for cutout in ds.cutouts:
+                c_downstream_ids = [downstream.id for downstream in cutout.get_downstreams()]
+                assert np.all(np.isin(c_downstream_ids, measurement_ids))
             for measurement in ds.measurements:
                 assert [downstream.id for downstream in measurement.get_downstreams()] == []
             
