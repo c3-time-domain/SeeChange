@@ -738,10 +738,11 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with SmartSession(session) as session:
             wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
             zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
-            psfs = session.scalars(sa.select(PSF).where(PSF.image_id == self.image_id)).all()
             cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
+            # should I query for the subtraction here too?
+            # would I try and query SourceList->image->downstream_images? Then do I take all or just sub images with this sourcelist
              
-        return wcs + zps + psfs + cutouts
+        return wcs + zps + cutouts
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.
