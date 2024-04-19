@@ -676,18 +676,25 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         Parmaeters
         ----------
-          arr: numpy array with named records
+          arr: numpy array with named records, or astropy.table.Table
 
         Returns
         -------
-          numpy array with named records; will be a copy, arr is not touched
+          A copy of arr, with pixel positions incremented by 1
         """
-        arr = np.copy( arr, subok=True )
-        for col in arr.dtype.names:
-            if col in [ 'XMIN_IMAGE', 'XMAX_IMAGE', 'YMIN_IMAGE', 'YMAX_IMAGE',
-                        'X_IMAGE', 'Y_IMAGE', 'XPEAK_IMAGE', 'YPEAK_IMAGE',
-                        'XWIN_IMAGE', 'YWIN_IMAGE' ]:
-                arr[col] +=1
+        cols = { 'XMIN_IMAGE', 'XMAX_IMAGE', 'YMIN_IMAGE', 'YMAX_IMAGE',
+                 'X_IMAGE', 'Y_IMAGE', 'XPEAK_IMAGE', 'YPEAK_IMAGE',
+                 'XWIN_IMAGE', 'YWIN_IMAGE' }
+        if isinstance( arr, np.ndarray ):
+            cols = cols.intersection( set(arr.dtype.names) )
+            arr = np.copy( arr, subok=True )
+        elif isinstance( arr, astropy.table.Table ):
+            cols = cols.intersection( set(arr.columns) )
+            arr = astropy.table.Table( arr )
+
+        for col in cols:
+            arr[col] +=1
+
         return arr
 
     def ds9_regfile( self, regfile, color='green', radius=2, width=2, whichsources='all', clobber=True ):
