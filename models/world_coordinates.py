@@ -136,11 +136,11 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
             # severe a problem that will be in practice.
             zps_untrimmed = session.scalars(sa.select(ZeroPoint)
                                   .where(ZeroPoint.sources_id == self.sources_id)).all()
-            zps = []
+            zps_trimmed = []
             for zp in zps_untrimmed:
                 if np.any(np.isin(self.provenance_id, [upstream.id for upstream in zp.provenance.upstreams])):
-                    zps += [zp]
+                    zps_trimmed += [zp]
         # TODO figure out how to get subtraction image downstreams
-        downstreams = zps # + subs
+        downstreams = zps_trimmed # + subs
         return downstreams
     
