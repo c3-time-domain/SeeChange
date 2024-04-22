@@ -761,8 +761,16 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
             # should I query for the subtraction here too?
             # would I try and query SourceList->image->downstream_images? Then do I take all or just sub images with this sourcelist
+            # This is a python workaround to avoid the trickier sa query
+            # TODO make this an sa query
+            # img = session.scalars(sa.select(Image).where(Image.id == self.image_id)) # could maybe just use self.image
+            # subs = []
+            # for img in self.image.downstream_images:
+            #     if img.sources.id == self.id:
+            #         subs += [img]
+
              
-        return wcs + zps + cutouts
+        return wcs + zps + cutouts # + subs
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.
