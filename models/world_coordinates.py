@@ -131,9 +131,15 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
         # get the ZeroPoint that uses the same SourceList as this WCS
         from models.zero_point import ZeroPoint
         with SmartSession(session) as session:
-            # this may not be an accurate 1-1 query. Better way?
-            zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.sources_id)).all()
-            
+            # this is not an accurate 1-1 query. I don't know sa well enough, so I handle it in python below
+            # This is inefficient in that it pulls ZP objects it does not need, but I am not sure how
+            # severe a problem that will be in practice.
+            zps_untrimmed = session.scalars(sa.select(ZeroPoint)
+                                  .where(ZeroPoint.sources_id == self.sources_id)).all()
+            zps = []
+            for zp in zps_untrimmed:
+                if np.any(np.isin(self.provenance_id, [upstream.id for upstream in zp.provenance.upstreams])):
+                    zps += [zp]
         # TODO figure out how to get subtraction image downstreams
         downstreams = zps # + subs
         return downstreams
