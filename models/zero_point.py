@@ -129,11 +129,16 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
             source_list = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
 
             # get the WCS (Not 100% sure if there is a 1-1 relationship between SourceList and derived WCS
-            # so this may be erroneous) (now sure its wrong, must do properly)
-            wcs = session.scalars(sa.select(WorldCoordinates)
-                                  .where(WorldCoordinates.sources_id == self.sources_id)).all()
+            # so this may be erroneous) (Handling this in python below, similar to WCS, but sa would be better)
+            wcs_untrimmed = session.scalars(sa.select(WorldCoordinates)
+                                            .where(WorldCoordinates.sources_id == self.sources_id)).all()
+            wcs_trimmed = []
+            for wcs in wcs_untrimmed:
+                if np.any(np.isin(wcs.provenance.id, [upstream.id for upstream in self.provenance.upstreams])):
+                    wcs_trimmed += [wcs]
 
-        return source_list + wcs
+
+        return source_list + wcs_trimmed
     
     def get_downstreams(self, session=None):
         """Get the downstreams of this ZeroPoint"""
