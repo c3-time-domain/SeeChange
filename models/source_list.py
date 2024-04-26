@@ -753,24 +753,19 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.zero_point import ZeroPoint
         from models.cutouts import Cutouts
         from models.psf import PSF
+        from models.provenance import Provenance
 
         # TODO: Add Measurements? Can reach them recursively through cutouts
         with SmartSession(session) as session:
             wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
             zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
             cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
-            # should I query for the subtraction here too?
-            # would I try and query SourceList->image->downstream_images? Then do I take all or just sub images with this sourcelist
-            # This is a python workaround to avoid the trickier sa query
-            # TODO make this an sa query
-            # img = session.scalars(sa.select(Image).where(Image.id == self.image_id)) # could maybe just use self.image
-            # subs = []
-            # for img in self.image.downstream_images:
-            #     if img.sources.id == self.id:
-            #         subs += [img]
-
+            subs = session.scalars(sa.select(Image)
+                                   .where(Image.provenance
+                                          .has(Provenance.upstreams
+                                               .any(Provenance.id == self.provenance.id)))).all()
              
-        return wcs + zps + cutouts # + subs
+        return wcs + zps + cutouts + subs
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.

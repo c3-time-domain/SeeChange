@@ -124,21 +124,21 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
 
     def get_upstreams(self, session=None):
         """Get the extraction SourceList and WorldCoordinates used to make this ZeroPoint"""
+        from models.provenance import Provenance
         with SmartSession(session) as session:
-            # get the SourceList
             source_list = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
 
-            # get the WCS (Not 100% sure if there is a 1-1 relationship between SourceList and derived WCS
-            # so this may be erroneous) (Handling this in python below, similar to WCS, but sa would be better)
-            wcs_untrimmed = session.scalars(sa.select(WorldCoordinates)
-                                            .where(WorldCoordinates.sources_id == self.sources_id)).all()
-            wcs_trimmed = []
-            for wcs in wcs_untrimmed:
-                if np.any(np.isin(wcs.provenance.id, [upstream.id for upstream in self.provenance.upstreams])):
-                    wcs_trimmed += [wcs]
+            wcs_prov_id = None
+            for prov in self.provenance.upstreams:
+                if prov.process == "astro_cal":
+                    wcs_prov_id = prov.id
+            wcs = []
+            if wcs_prov_id is not None:
+                wcs = session.scalars(sa.select(WorldCoordinates) 
+                                    .where(WorldCoordinates.provenance 
+                                            .has(Provenance.id == wcs_prov_id))).all()
 
-
-        return source_list + wcs_trimmed
+        return source_list + wcs
     
     def get_downstreams(self, session=None):
         """Get the downstreams of this ZeroPoint"""
