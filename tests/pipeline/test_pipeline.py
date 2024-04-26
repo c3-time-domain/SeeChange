@@ -291,8 +291,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.sources.bitflag == desired_bitflag 
         assert ds.wcs._upstream_bitflag == desired_bitflag
         assert ds.zp._upstream_bitflag == desired_bitflag
-        assert ds.sub_image._upstream_bitflag == desired_bitflag # note my comment in subtraction.py
-                                                                 # only passes if gets bitflag from sources
+        assert ds.sub_image._upstream_bitflag == desired_bitflag
         assert ds.detections._upstream_bitflag == desired_bitflag
         for cutout in ds.cutouts:
             assert cutout._upstream_bitflag == desired_bitflag
@@ -398,9 +397,8 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
 
 
             # test get_downstreams
-            # SEE question in source_list.py regarding whether/how to query for objects with downstream=sub_image
             assert [downstream.id for downstream in ds.exposure.get_downstreams()] == [ds.image.id]
-            # image get_downstreams appears to give duplicated results
+            # image get_downstreams appears to give duplicated results, does not seem too harmful but making note
             assert [downstream.id for downstream in ds.image.get_downstreams()] == [ds.psf.id,
                                                                                     ds.psf.id,
                                                                                     ds.sources.id,
@@ -410,9 +408,9 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
                                                                                     ds.zp.id,
                                                                                     ds.zp.id,
                                                                                     ds.sub_image.id]
-            assert [downstream.id for downstream in ds.sources.get_downstreams()] == [ds.wcs.id, ds.zp.id]
+            assert [downstream.id for downstream in ds.sources.get_downstreams()] == [ds.wcs.id, ds.zp.id, ds.sub_image.id]
             assert [downstream.id for downstream in ds.psf.get_downstreams()] == [] # until PSF downstreams settled
-            assert [downstream.id for downstream in ds.wcs.get_downstreams()] == [ds.zp.id]
+            assert [downstream.id for downstream in ds.wcs.get_downstreams()] == [ds.zp.id, ds.sub_image.id]
             assert [downstream.id for downstream in ds.zp.get_downstreams()] == []
             assert [downstream.id for downstream in ds.sub_image.get_downstreams()] == [ds.detections.id, ds.detections.id]
             assert np.all(np.isin([downstream.id for downstream in ds.detections.get_downstreams()], cutout_ids))
