@@ -317,8 +317,7 @@ class Subtractor:
         
         if sub_image._upstream_bitflag is None:
             sub_image._upstream_bitflag = 0
-        sub_image._upstream_bitflag |= ds.sources.bitflag   # I don't see where sources actually act as an upstream for
-                                                            # sub_image, so I am placing this here. May need to revisit
+        sub_image._upstream_bitflag |= ds.sources.bitflag
         sub_image._upstream_bitflag |= ds.image.bitflag
         sub_image._upstream_bitflag |= ds.wcs.bitflag
         sub_image._upstream_bitflag |= ds.zp.bitflag
