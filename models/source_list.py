@@ -755,7 +755,6 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.psf import PSF
         from models.provenance import Provenance
 
-        # TODO: Add Measurements? Can reach them recursively through cutouts
         with SmartSession(session) as session:
             wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
             zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
