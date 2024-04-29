@@ -142,6 +142,11 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
     
     def get_downstreams(self, session=None):
         """Get the downstreams of this ZeroPoint"""
-        # TODO add subtractions?
-        # see question in SourceList
-        return []
+        from models.image import Image
+        from models.provenance import Provenance
+        with SmartSession(session) as session:
+            subs = session.scalars(sa.select(Image)
+                                    .where(Image.provenance
+                                            .has(Provenance.upstreams
+                                                .any(Provenance.id == self.provenance.id)))).all()
+        return subs
