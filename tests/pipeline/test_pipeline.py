@@ -370,12 +370,12 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
 
             # test get_upstreams()
             assert ds.exposure.get_upstreams() == []
-            assert [upstream.id for upstream in ds.image.get_upstreams()] == [ds.exposure.id]
-            assert [upstream.id for upstream in ds.sources.get_upstreams()] == [ds.image.id]
-            assert [upstream.id for upstream in ds.wcs.get_upstreams()] == [ds.sources.id]
-            assert [upstream.id for upstream in ds.psf.get_upstreams()] == [ds.image.id] # until PSF upstreams settled
-            assert [upstream.id for upstream in ds.zp.get_upstreams()] == [ds.sources.id, ds.wcs.id]
-            assert [upstream.id for upstream in ds.sub_image.get_upstreams()] == [ref.image.id,
+            assert [upstream.id for upstream in ds.image.get_upstreams(session)] == [ds.exposure.id]
+            assert [upstream.id for upstream in ds.sources.get_upstreams(session)] == [ds.image.id]
+            assert [upstream.id for upstream in ds.wcs.get_upstreams(session)] == [ds.sources.id]
+            assert [upstream.id for upstream in ds.psf.get_upstreams(session)] == [ds.image.id] # until PSF upstreams settled
+            assert [upstream.id for upstream in ds.zp.get_upstreams(session)] == [ds.sources.id, ds.wcs.id]
+            assert [upstream.id for upstream in ds.sub_image.get_upstreams(session)] == [ref.image.id,
                                                                                   ref.image.sources.id,
                                                                                   ref.image.psf.id,
                                                                                   ref.image.wcs.id,
@@ -385,42 +385,37 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
                                                                                   ds.psf.id,
                                                                                   ds.wcs.id,
                                                                                   ds.zp.id]
-            assert [upstream.id for upstream in ds.detections.get_upstreams()] == [ds.sub_image.id]
+            assert [upstream.id for upstream in ds.detections.get_upstreams(session)] == [ds.sub_image.id]
             for cutout in ds.cutouts:
-                assert [upstream.id for upstream in cutout.get_upstreams()] == [ds.detections.id]
+                assert [upstream.id for upstream in cutout.get_upstreams(session)] == [ds.detections.id]
             #  measurements are a challenge to make sure the *right* measurement is with the right cutout
             # for the time being, check that the measurements upstream is one of the cutouts
             cutout_ids = np.unique([cutout.id for cutout in ds.cutouts])
             for measurement in ds.measurements:
-                m_upstream_ids =  np.array([upstream.id for upstream in measurement.get_upstreams()])
+                m_upstream_ids =  np.array([upstream.id for upstream in measurement.get_upstreams(session)])
                 assert np.all(np.isin(m_upstream_ids, cutout_ids)) 
 
-
             # test get_downstreams
-            assert [downstream.id for downstream in ds.exposure.get_downstreams()] == [ds.image.id]
+            assert [downstream.id for downstream in ds.exposure.get_downstreams(session)] == [ds.image.id]
             # image get_downstreams appears to give duplicated results, does not seem too harmful but making note
-            assert [downstream.id for downstream in ds.image.get_downstreams()] == [ds.psf.id,
-                                                                                    ds.psf.id,
-                                                                                    ds.sources.id,
+            assert [downstream.id for downstream in ds.image.get_downstreams(session)] == [ds.psf.id,
                                                                                     ds.sources.id,
                                                                                     ds.wcs.id,
-                                                                                    ds.wcs.id,
-                                                                                    ds.zp.id,
                                                                                     ds.zp.id,
                                                                                     ds.sub_image.id]
-            assert [downstream.id for downstream in ds.sources.get_downstreams()] == [ds.wcs.id, ds.zp.id, ds.sub_image.id]
-            assert [downstream.id for downstream in ds.psf.get_downstreams()] == [] # until PSF downstreams settled
-            assert [downstream.id for downstream in ds.wcs.get_downstreams()] == [ds.zp.id, ds.sub_image.id]
-            assert [downstream.id for downstream in ds.zp.get_downstreams()] == []
-            assert [downstream.id for downstream in ds.sub_image.get_downstreams()] == [ds.detections.id, ds.detections.id]
-            assert np.all(np.isin([downstream.id for downstream in ds.detections.get_downstreams()], cutout_ids))
+            assert [downstream.id for downstream in ds.sources.get_downstreams(session)] == [ds.wcs.id, ds.zp.id, ds.sub_image.id]
+            assert [downstream.id for downstream in ds.psf.get_downstreams(session)] == [] # until PSF downstreams settled
+            assert [downstream.id for downstream in ds.wcs.get_downstreams(session)] == [ds.zp.id, ds.sub_image.id]
+            assert [downstream.id for downstream in ds.zp.get_downstreams(session)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.sub_image.get_downstreams(session)] == [ds.detections.id]
+            assert np.all(np.isin([downstream.id for downstream in ds.detections.get_downstreams(session)], cutout_ids))
             # basic test: check the downstreams of cutouts is one of the measurements
             measurement_ids = np.unique([measurement.id for measurement in ds.measurements])
             for cutout in ds.cutouts:
-                c_downstream_ids = [downstream.id for downstream in cutout.get_downstreams()]
+                c_downstream_ids = [downstream.id for downstream in cutout.get_downstreams(session)]
                 assert np.all(np.isin(c_downstream_ids, measurement_ids))
             for measurement in ds.measurements:
-                assert [downstream.id for downstream in measurement.get_downstreams()] == []
+                assert [downstream.id for downstream in measurement.get_downstreams(session)] == []
             
 
     finally:
