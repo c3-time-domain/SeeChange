@@ -397,7 +397,6 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
 
             # test get_downstreams
             assert [downstream.id for downstream in ds.exposure.get_downstreams(session)] == [ds.image.id]
-            # image get_downstreams appears to give duplicated results, does not seem too harmful but making note
             assert [downstream.id for downstream in ds.image.get_downstreams(session)] == [ds.psf.id,
                                                                                     ds.sources.id,
                                                                                     ds.wcs.id,

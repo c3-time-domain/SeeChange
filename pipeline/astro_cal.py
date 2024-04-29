@@ -251,12 +251,6 @@ class AstroCalibrator:
 
         ds.wcs = WorldCoordinates( sources=sources, provenance=prov )
         ds.wcs.wcs = wcs
-
-        # run calls this method, but perhaps I should still move this into run()?
-        # if ds.wcs._upstream_bitflag is None:
-        #     ds.wcs._upstream_bitflag = 0
-        # ds.wcs._upstream_bitflag |= sources.bitflag
-
         if session is not None:
             ds.wcs = session.merge( ds.wcs )
 
