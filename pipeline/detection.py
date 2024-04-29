@@ -245,8 +245,8 @@ class Detector:
                     if detections.provenance.id != prov.id:
                         raise ValueError('Provenance mismatch for detections and provenance!')
 
+            detections._upstream_bitflag |= ds.sub_image.bitflag
             ds.sub_image.sources = detections
-            ds.sub_image._upstream_bitflag |= detections.bitflag
             ds.detections = detections
 
         else:  # regular image
