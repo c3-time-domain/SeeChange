@@ -51,7 +51,7 @@ class Preprocessor:
           * flatfielding
           * fringe correction
           * illumination correction
-        
+
         After initialization, just call run() to perform the
         preprocessing.  This will return a DataStore with the
         preprocessed image.
