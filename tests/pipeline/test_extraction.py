@@ -131,7 +131,8 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
         extractor.pars.test_parameter = uuid.uuid4().hex
         sourcelist, sourcefile, bkg, bkgsig = run_sextractor(decam_datastore.image, extractor)
 
-        import pdb; pdb.set_trace()
+        assert bkg == pytest.approx( 179.82, abs=0.1 )
+        assert bkgsig == pytest.approx( 7.533, abs=0.01 )
 
         assert sourcelist.num_sources == 5611
         assert len(sourcelist.data) == sourcelist.num_sources
@@ -162,7 +163,7 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
         assert snr.std() == pytest.approx( 285.4, abs=1. )
 
         # Test multiple apertures
-        sourcelist = extractor._run_sextractor_once( decam_datastore.image, apers=[2, 5] )
+        sourcelist, _, _ = extractor._run_sextractor_once( decam_datastore.image, apers=[2, 5] )
 
         assert sourcelist.num_sources == 5611    # It *finds* the same things
         assert len(sourcelist.data) == sourcelist.num_sources
@@ -236,7 +237,8 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
     extractor.pars.threshold = 5.0
     sources, psf, bkg, bkgsig = extractor.extract_sources( ds.image )
 
-    import pdb; pdb.set_trace()
+    assert bkg == pytest.approx( 179.82, abs=0.1 )
+    assert bkgsig == pytest.approx( 7.533, abs=0.01 )
 
     # Make True to write some ds9 regions
     if os.getenv('INTERACTIVE', False):
@@ -345,6 +347,9 @@ def test_run_detection_sextractor( decam_datastore, extractor ):
     assert ds.sources.provenance == ds.psf.provenance
     assert ds.sources.provenance.process == 'extraction'
 
+    assert ds.image.bkg_mean_estimate == pytest.approx( 179.82, abs=0.1 )
+    assert ds.image.bkg_rms_estimate == pytest.approx( 7.533, abs=0.01 )
+
     from sqlalchemy.exc import IntegrityError
 
     try:
@@ -360,6 +365,14 @@ def test_run_detection_sextractor( decam_datastore, extractor ):
         for relp in relpaths:
             assert ( imdir / relp ).is_file()
             assert archive.get_info( relp ) is not None
+
+        # Make sure the bkg fields in the image database table aren't empty
+
+        with SmartSession() as sess:
+            imgs = sess.query( Image ).filter( Image.id == ds.image.id ).all()
+            assert len(imgs) == 1
+            assert imgs[0].bkg_mean_estimate == pytest.approx( 179.82, abs=0.1 )
+            assert imgs[0].bkg_rms_estimate == pytest.approx( 7.533, abs=0.01 )
 
     finally:
         ds.delete_everything()

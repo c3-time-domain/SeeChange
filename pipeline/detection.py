@@ -235,7 +235,7 @@ class Detector:
                 #  in any event, need a way of passing parameters
                 #  Question: why is it not enough to just define what you need in the Parameters object?
                 #  Related to issue #50
-                detections, _ = self.extract_sources( image )
+                detections, _, _, _ = self.extract_sources( image )
 
                 detections.image = image
 
@@ -282,8 +282,8 @@ class Detector:
             ds.psf = psf
             ds.image.fwhm_estimate = psf.fwhm_pixels  # TODO: should we only write if the property is None?
             if self.has_recalculated:
-                ds.image.bkg_mean_estimate = bkg
-                ds.image.bkg_rms_estimate = bkgsig
+                ds.image.bkg_mean_estimate = float( bkg )
+                ds.image.bkg_rms_estimate = float( bkgsig )
 
         # make sure this is returned to be used in the next step
         return ds
@@ -430,8 +430,8 @@ class Detector:
 
         Returns
         -------
-          Source List: source_list, bkg: float, bkgsig: float
-            Source List has data already loaded
+          sources: SourceList, bkg: float, bkgsig: float
+            sources has data already loaded
             bkg and bkgsig are the sky background estimates sextractor calculates
 
         """
