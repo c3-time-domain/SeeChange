@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.associationproxy import association_proxy
 
 from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, SpatiallyIndexed
+from models.cutouts import Cutouts
 
 
 class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
@@ -279,6 +280,15 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
 
         raise ValueError('Filter number too high for the filter bank. ')
 
+    def get_upstreams(self, session=None):
+        """Get the image that was used to make this source list. """
+        with SmartSession(session) as session:
+            return session.scalars(sa.select(Cutouts).where(Cutouts.id == self.cutouts_id)).all()
+        
+    def get_downstreams(self, session=None):
+        """Get the downstreams of this Measurements"""
+        return []
+            
     @classmethod
     def delete_list(cls, measurements_list, session=None, commit=True):
         """

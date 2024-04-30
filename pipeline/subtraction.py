@@ -314,7 +314,16 @@ class Subtractor:
                     sub_image.psffluxerr = outdict['alpha_err']
 
                 sub_image.subtraction_output = outdict  # save the full output for debugging
-
+        
+        if sub_image._upstream_bitflag is None:
+            sub_image._upstream_bitflag = 0
+        sub_image._upstream_bitflag |= ds.sources.bitflag
+        sub_image._upstream_bitflag |= ds.image.bitflag
+        sub_image._upstream_bitflag |= ds.wcs.bitflag
+        sub_image._upstream_bitflag |= ds.zp.bitflag
+        if 'ref_image' in locals():
+            sub_image._upstream_bitflag |= ref_image.bitflag
+        
         ds.sub_image = sub_image
 
         # make sure this is returned to be used in the next step

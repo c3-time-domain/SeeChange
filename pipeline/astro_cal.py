@@ -282,6 +282,14 @@ class AstroCalibrator:
                 self._run_scamp( ds, prov, session=session )
             else:
                 raise ValueError( f'Unknown solution method {self.pars.solution_method}' )
+            
+            # update the upstream bitflag
+            sources = ds.get_sources( session=session )
+            if sources is None:
+                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+            if ds.wcs._upstream_bitflag is None:
+                ds.wcs._upstream_bitflag = 0
+            ds.wcs._upstream_bitflag |= sources.bitflag
 
         # make sure this is returned to be used in the next step
         return ds
