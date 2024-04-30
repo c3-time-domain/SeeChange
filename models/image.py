@@ -427,8 +427,9 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         nullable=True,
         index=True,
         doc=(
-            'Background RMS estimate for the image, '
-            'from the first time the image was processed.'
+            'Background RMS residual (i.e. sky noise ) '
+            'estimate for the image, from the first time '
+            'the image was processed.'
         )
     )
 
