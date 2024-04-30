@@ -10,8 +10,9 @@ from sqlalchemy.schema import UniqueConstraint
 
 from astropy.io import fits
 
-from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness, _logger
+from models.base import Base, SmartSession, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness, _logger
 from models.enums_and_bitflags import PSFFormatConverter, psf_badness_inverse
+from models.image import Image
 
 # NOTE.  As of this writing, the only format for PSFs we were
 # considering was the output of PSFEx.  As such, some stuff here may not
@@ -522,3 +523,12 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                                                      )
                                               )
 
+    def get_upstreams(self, session=None):
+        """Get the image that was used to make this source list. """
+        with SmartSession(session) as session:
+            return session.scalars(sa.select(Image).where(Image.id == self.image_id)).all()
+        
+    def get_downstreams(self, session=None):
+        """Get the downstreams of this PSF (currently none)"""
+        return []
+    

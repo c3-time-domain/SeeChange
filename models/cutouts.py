@@ -21,6 +21,7 @@ from models.base import (
     HasBitFlagBadness,
 )
 from models.enums_and_bitflags import CutoutsFormatConverter
+from models.source_list import SourceList
 
 
 class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBadness):
@@ -649,6 +650,17 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
         self.md5sum = None
         self.md5sum_extensions = None
 
+    def get_upstreams(self, session=None):
+        """Get the detections SourceList that was used to make this cutout. """
+        with SmartSession(session) as session:
+            return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+        
+    def get_downstreams(self, session=None):
+        """Get the downstream Measurements that were made from this Cutouts. """
+        from models.measurements import Measurements
+        with SmartSession(session) as session:
+            return session.scalars(sa.select(Measurements).where(Measurements.cutouts_id == self.id)).all()
+
     @classmethod
     def merge_list(cls, cutouts_list, session):
         """Merge (or add) the list of Cutouts to the given session. """
@@ -753,3 +765,4 @@ for att in Cutouts.get_data_attributes():
             fset=lambda self, value, att=att: set_attribute(self, att, value),
         )
     )
+

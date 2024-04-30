@@ -245,6 +245,7 @@ class Detector:
                     if detections.provenance.id != prov.id:
                         raise ValueError('Provenance mismatch for detections and provenance!')
 
+            detections._upstream_bitflag |= ds.sub_image.bitflag
             ds.sub_image.sources = detections
             ds.detections = detections
 
@@ -309,6 +310,15 @@ class Detector:
                 raise ValueError('Cannot use "filter" method on regular image!')
         else:
             raise ValueError(f'Unknown extraction method "{self.pars.method}"')
+
+        if psf is not None:
+            if psf._upstream_bitflag is None:
+                psf._upstream_bitflag = 0
+            psf._upstream_bitflag |= image.bitflag
+        if sources is not None:
+            if sources._upstream_bitflag is None:
+                sources._upstream_bitflag = 0
+            sources._upstream_bitflag |= image.bitflag
 
         return sources, psf, bkg, bkgsig
 

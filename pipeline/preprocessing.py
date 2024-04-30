@@ -304,5 +304,10 @@ class Preprocessor:
         image.filepath = image.invent_filepath()
         _logger.debug( f"Done with {pathlib.Path(image.filepath).name}" )
 
+        if image._upstream_bitflag is None:
+            image._upstream_bitflag = 0
+        image._upstream_bitflag |= ds.exposure.bitflag
+
         ds.image = image
+        
         return ds

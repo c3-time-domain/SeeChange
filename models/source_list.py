@@ -751,13 +751,20 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """Get all the data products (WCSs and ZPs) that are made using this source list. """
         from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
+        from models.cutouts import Cutouts
+        from models.psf import PSF
+        from models.provenance import Provenance
 
-        # TODO: add Cutouts and Measurements?
         with SmartSession(session) as session:
             wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
             zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
-
-        return wcs + zps
+            cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
+            subs = session.scalars(sa.select(Image)
+                                   .where(Image.provenance
+                                          .has(Provenance.upstreams
+                                               .any(Provenance.id == self.provenance.id)))).all()
+             
+        return wcs + zps + cutouts + subs
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.
