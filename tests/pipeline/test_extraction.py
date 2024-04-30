@@ -237,7 +237,7 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
     sources, psf, bkg, bkgsig = extractor.extract_sources( ds.image )
 
     import pdb; pdb.set_trace()
-    
+
     # Make True to write some ds9 regions
     if os.getenv('INTERACTIVE', False):
         basepath = os.path.join(CODE_ROOT, 'tests/plots/test_sources')

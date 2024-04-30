@@ -593,7 +593,7 @@ class Detector:
             sextrstat = votable.parse( tmpxml ).get_table_by_index( 1 )
             bkg = sextrstat.array['Background_Mean'][0][0]
             bkgsig = sextrstat.array['Background_StDev'][0][0]
-            
+
             sourcelist = SourceList( image=image, format="sextrfits", aper_rads=apers )
             # Since we don't set the filepath to the temp file, manually load
             # the _data and _info fields
