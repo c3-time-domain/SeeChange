@@ -12,6 +12,9 @@ data/DECam_default_calibrators
 .pytest.ini
 tests/plots
 tests/temp_data
+webap/seechange_webap_config.py
+webap/static/rkwebutil.js
+webap/install
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -74,6 +74,19 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
     entrypoint: [ "alembic", "upgrade", "head" ]
 
+  webap:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap
+    build:
+      context: ../webap
+    user: ${USERID:-0}:${GROUPID:-0}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: nc -w 1 localhost 8080
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
   runtests:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build:
@@ -88,6 +101,8 @@ services:
         condition: service_completed_successfully
       archive:
         condition: service_healthy
+      # webap:
+      #   condition: service_healthy
     volumes:
       - type: bind
         source: ..
@@ -113,6 +128,8 @@ services:
         condition: service_completed_successfully
       archive:
         condition: service_healthy
+      # webap:
+      #   condition: service_healthy
     volumes:
       - type: bind
         source: ..
@@ -136,6 +153,8 @@ services:
       setuptables:
         condition: service_completed_successfully
       archive:
+        condition: service_healthy
+      webap:
         condition: service_healthy
     volumes:
       - type: bind
