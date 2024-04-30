@@ -218,12 +218,14 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
         # TODO : deal with provenance!
         # TODO : r/b and sorting
 
-        q = ( 'SELECT z.zp, z.dzp, i.id, ROB YOU ARE EDITING HERE '
-              'FROM zero_points z '
-              'INNER JOIN source_lists sl ON sl.id=z.sources_id '
-              'INNER JOIN images i ON sl.image_id=i.id '
-              'INNER JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
-              'WHERE ias.downstream_id=%(subid)s ')
+        q = ( 'SELECT z.zp, z.dzp, i.id, i.bkg_mean_estimate '
+              'FROM images s '
+              'INNER JOIN image_upstreams_association ias ON ias.downstream_id=s.id '
+              '   AND s.ref_image_id != ias.upstream_id '
+              'INNER JOIN images i ON ias.upstream_id=i.id '
+              'INNER JOIN source_lists sl ON sl.image_id=i.id '
+              'INNER JOIN zero_points z ON sl.id=z.sources_id '
+              'WHERE s.id=%(subid)s ')
         cursor.execute( q, { 'subid': subid } )
         rows = cursor.fetchall()
         if len(rows) > 0:
@@ -236,7 +238,8 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
         zp = rows[0][0]
         dzp = rows[0][1]
         imageid = rows[0][2]
-        app.logger.debug( f"Got zp={zp:.2f}±{dzp:.2f} for subid {subid}, imageid {imageid}" )
+        newbkg = rows[0][3]
+        # app.logger.debug( f"Got zp={zp:.2f}±{dzp:.2f}, new bkg={newbkg:.2f} for subid {subid}, imageid {imageid}" )
         
         app.logger.debug( f"Getting cutouts for sub image {subid}" )
         q = ( 'SELECT c.id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources, '
@@ -253,7 +256,6 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
         if limit is not None:
             q += 'LIMIT %(limit)s OFFSET %(offset)s'
         subdict = { 'subid': subid, 'limit': limit, 'offset': offset }
-        app.logger.debug( f"Sending query : {cursor.mogrify(q, subdict)}" )
         cursor.execute( q, subdict );
         cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
@@ -291,8 +293,11 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             grp = hdf5files[row[cols['filepath']]][f'source_{row[cols["index_in_sources"]]}']
             vmin, vmax = scaler.get_limits( grp['new_data'] )
             scalednew = ( grp['new_data'] - vmin ) * 255. / ( vmax - vmin )
-            # TODO : there's an assumption of background subtraction here (or, at least,
-            #   new and ref having the same backdround).  Fix if that assumption is wrong.
+            # TODO : there's an assumption here that the ref is background
+            #   subtracted. They probably usually will be -- that tends to be
+            #   part of a coadd process.
+            vmin -= newbkg
+            vmax -= newbkg
             scaledref = ( grp['ref_data'] - vmin ) * 255. / ( vmax - vmin )
             vmin, vmax = scaler.get_limits( grp['sub_data'] )
             scaledsub = ( grp['sub_data'] - vmin ) * 255. / ( vmax - vmin )

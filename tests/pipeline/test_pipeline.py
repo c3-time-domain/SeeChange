@@ -186,12 +186,14 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
 
         ds = p.run(exposure, sec_id)
 
+        import pdb; pdb.set_trace()
+
         # commit to DB using this session
         with SmartSession() as session:
             ds.save_and_commit(session=session)
 
         import pdb; pdb.set_trace()
-            
+
         # use a new session to query for the results
         with SmartSession() as session:
             # check that everything is in the database
