@@ -23,6 +23,7 @@ import base64
 import psycopg2
 import psycopg2.extras
 import numpy
+import h5py
 import PIL
 import astropy.time
 import astropy.visualization
@@ -95,7 +96,7 @@ def exposures():
                 if t0 is not None: q += ' AND '
                 q += 'e.mjd <= %(t1)s'
                 subdict['t1'] = t1
-        q += ( ' GROUP BY e.id,e.filepath,e.mjd,e.target,e.filter,e.filter_array,e.exp_time '
+        q += ( ' GROUP BY e.id ' # ,e.filepath,e.mjd,e.target,e.filter,e.filter_array,e.exp_time '
                'ORDER BY e.mjd, e.filter, e.filter_array ' )
         cursor.execute( q, subdict )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
@@ -174,7 +175,7 @@ def exposure_images( expid ):
         app.logger.debug( f"Got {len(columns)} columns, {cursor.rowcount} rows" )
 
         fields = ( 'id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
-                   'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate', 'numsources' )
+                   'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate', 'numsources', 'subid' )
 
         retval = { 'status': 'ok', 'name': [] }
         for field in fields :
@@ -209,17 +210,41 @@ def exposure_images( expid ):
 def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
     try:
         data = { 'sortby': 'index' }
-        if flask.is_json:
+        if flask.request.is_json:
             data.update( flask.request.json )
 
         conn = next( dbconn() )
         cursor = conn.cursor()
         # TODO : deal with provenance!
         # TODO : r/b and sorting
-        q = ( 'SELECT c.id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources '
+
+        q = ( 'SELECT z.zp, z.dzp, i.id, ROB YOU ARE EDITING HERE '
+              'FROM zero_points z '
+              'INNER JOIN source_lists sl ON sl.id=z.sources_id '
+              'INNER JOIN images i ON sl.image_id=i.id '
+              'INNER JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
+              'WHERE ias.downstream_id=%(subid)s ')
+        cursor.execute( q, { 'subid': subid } )
+        rows = cursor.fetchall()
+        if len(rows) > 0:
+            app.logger.warning( f"Multiple zeropoints for subid {subid}, deal with provenance" )
+        if len(rows) == 0:
+            app.logger.error( f"Couldn't find a zeropoint for subid {subid}" )
+            zp = -99
+            dzp = -99
+            imageid = -99
+        zp = rows[0][0]
+        dzp = rows[0][1]
+        imageid = rows[0][2]
+        app.logger.debug( f"Got zp={zp:.2f}±{dzp:.2f} for subid {subid}, imageid {imageid}" )
+        
+        app.logger.debug( f"Getting cutouts for sub image {subid}" )
+        q = ( 'SELECT c.id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources, '
+              '       m.flux_psf, m.flux_psf_err, m.ra AS measra, m.dec AS measdec '
               'FROM cutouts c '
               'INNER JOIN source_lists sl ON c.sources_id=sl.id '
               'INNER JOIN images s ON sl.image_id=s.id '
+              'INNER JOIN measurements m ON m.cutouts_id=c.id '
               'WHERE s.id=%(subid)s ' )
         if data['sortby'] == 'index':
             q += 'ORDER BY c.index_in_sources '
@@ -227,19 +252,31 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             raise RuntimeError( f"Unknown sort criterion {data['sortby']}" )
         if limit is not None:
             q += 'LIMIT %(limit)s OFFSET %(offset)s'
-        cursor.execute( q, { 'subid': subid, 'limit': limit, 'offset': offset } )
+        subdict = { 'subid': subid, 'limit': limit, 'offset': offset }
+        app.logger.debug( f"Sending query : {cursor.mogrify(q, subdict)}" )
+        cursor.execute( q, subdict );
         cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
-
+        app.logger.info( f"Got {len(cols)} columns, {len(rows)} rows" )
+        
         hdf5files = {}
         retval = { 'status': 'ok',
-                   'image_id': subid,
+                   'sub_id': subid,
+                   'image_id': imageid,
+                   'zp': zp,
+                   'dzp': dzp,
                    'cutouts': {
                        'id': [],
                        'ra': [],
                        'dec': [],
+                       'measra': [],
+                       'measdec': [],
+                       'flux_psf': [],
+                       'flux_psf_err': [],
                        'x': [],
                        'y': [],
+                       'w': [],
+                       'h': [],
                        'new_png': [],
                        'ref_png': [],
                        'sub_png': []
@@ -251,7 +288,7 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
         for row in rows:
             if row[cols['filepath']] not in hdf5files:
                 hdf5files[row[cols['filepath']]] = h5py.File( ARCHIVE_DIR / row[cols['filepath']], 'r' )
-            grp = hdf5files[row[cols[['filepath']]]][f'source_{row["index_in_sources"]}']
+            grp = hdf5files[row[cols['filepath']]][f'source_{row[cols["index_in_sources"]]}']
             vmin, vmax = scaler.get_limits( grp['new_data'] )
             scalednew = ( grp['new_data'] - vmin ) * 255. / ( vmax - vmin )
             # TODO : there's an assumption of background subtraction here (or, at least,
@@ -268,10 +305,12 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             scaledsub[ scaledsub > 255 ] = 255
 
             scalednew = numpy.array( scalednew, dtype=numpy.uint8 )
-            scaledref = numpy.array( scalednew, dtype=numpy.uint8 )
-            scaledsub = numpy.array( scalednew, dtype=numpy.uint8 )
+            scaledref = numpy.array( scaledref, dtype=numpy.uint8 )
+            scaledsub = numpy.array( scaledsub, dtype=numpy.uint8 )
 
             # TODO : transpose, flip for principle of least surprise
+            # Figure out what PIL.Image does.
+            #  (this will affect w and h below)
 
             newim = io.BytesIO()
             refim = io.BytesIO()
@@ -280,14 +319,20 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             PIL.Image.fromarray( scaledref ).save( refim, format='png' )
             PIL.Image.fromarray( scaledsub ).save( subim, format='png' )
 
-            retval['new_png'].append( base64.b64encode( newim.getvalue() ).encode('ascii') )
-            retval['ref_png'].append( base64.b64encode( refim.getvalue() ).encode('ascii') )
-            retval['sub_png'].append( base64.b64encode( subim.getvalue() ).encode('ascii') )
-            retval['id'].append( row[cols['id']] )
-            retval['ra'].append( row[cols['ra']] )
-            retval['dec'].append( row[cols['dec']] )
-            retval['x'].append( row[cols['x']] )
-            retval['y'].append( row[cols['y']] )
+            retval['cutouts']['new_png'].append( base64.b64encode( newim.getvalue() ).decode('ascii') )
+            retval['cutouts']['ref_png'].append( base64.b64encode( refim.getvalue() ).decode('ascii') )
+            retval['cutouts']['sub_png'].append( base64.b64encode( subim.getvalue() ).decode('ascii') )
+            retval['cutouts']['id'].append( row[cols['id']] )
+            retval['cutouts']['ra'].append( row[cols['ra']] )
+            retval['cutouts']['dec'].append( row[cols['dec']] )
+            retval['cutouts']['measra'].append( row[cols['measra']] )
+            retval['cutouts']['measdec'].append( row[cols['measdec']] )
+            retval['cutouts']['flux_psf'].append( row[cols['flux_psf']] )
+            retval['cutouts']['flux_psf_err'].append( row[cols['flux_psf_err']] )
+            retval['cutouts']['x'].append( row[cols['x']] )
+            retval['cutouts']['y'].append( row[cols['y']] )
+            retval['cutouts']['w'].append( scalednew.shape[0] )
+            retval['cutouts']['h'].append( scalednew.shape[1] )
 
         for f in hdf5files.values():
             f.close()

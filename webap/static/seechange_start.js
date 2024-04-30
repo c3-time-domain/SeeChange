@@ -13,7 +13,7 @@ seechange.init_interval = window.setInterval(
     function()
     {
         var requestdata, renderer;
-        
+
         if (document.readyState == "complete")
         {
             // console.log( "document.readyState is complete" );

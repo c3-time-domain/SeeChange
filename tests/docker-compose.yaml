@@ -82,10 +82,14 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: nc -w 1 localhost 8080
+      test: netcat -w 1 localhost 8080
       interval: 5s
       timeout: 10s
       retries: 5
+    volumes:
+      - type: volume
+        source: archive-storage
+        target: /archive-storage
 
   runtests:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange

@@ -24,7 +24,7 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
     det.pars.subtraction = False
     det.pars.threshold = 3.0
     det.pars.test_parameter = uuid.uuid4().hex
-    sources, _ = det.extract_sources(decam_small_image)
+    sources, _, _, _ = det.extract_sources(decam_small_image)
 
     assert sources.num_sources == 158
     assert max(sources.data['flux']) == 3670450.0
@@ -54,7 +54,7 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
 
     # increasing the threshold should find fewer sources
     det.pars.threshold = 7.5
-    sources2, _ = det.extract_sources(decam_small_image)
+    sources2, _, _, _ = det.extract_sources(decam_small_image)
     assert sources2.num_sources < sources.num_sources
 
     # flux will change with new threshold, but not by more than 10%
@@ -74,7 +74,7 @@ def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
     extractor.pars.subtraction = False
     extractor.pars.threshold = 3.0
     extractor.pars.test_parameter = uuid.uuid4().hex
-    sources, _ = extractor.extract_sources(decam_small_image)
+    sources, _, _, _ = extractor.extract_sources(decam_small_image)
     prov = Provenance(
         process='extraction',
         code_version=provenance_base.code_version,
@@ -113,13 +113,13 @@ def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
 # This is running sextractor in one particular way that is used by more than one test
 def run_sextractor( image, extractor ):
     tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
-    sourcelist = extractor._run_sextractor_once( image, tempname=tempname )
+    sourcelist, bkg, bkgsig = extractor._run_sextractor_once( image, tempname=tempname )
     sourcefile = pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}.sources.fits"
     imagefile =  pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}.fits"
     assert not imagefile.exists()
     assert sourcefile.exists()
 
-    return sourcelist, sourcefile
+    return sourcelist, sourcefile, bkg, bkgsig
 
 
 def test_sextractor_extract_once( decam_datastore, extractor ):
@@ -129,7 +129,9 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
         extractor.pars.apers = [ 5. ]
         extractor.pars.threshold = 4.5
         extractor.pars.test_parameter = uuid.uuid4().hex
-        sourcelist, sourcefile = run_sextractor(decam_datastore.image, extractor)
+        sourcelist, sourcefile, bkg, bkgsig = run_sextractor(decam_datastore.image, extractor)
+
+        import pdb; pdb.set_trace()
 
         assert sourcelist.num_sources == 5611
         assert len(sourcelist.data) == sourcelist.num_sources
@@ -232,8 +234,10 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
     extractor.pars.method = 'sextractor'
     extractor.measure_psf = True
     extractor.pars.threshold = 5.0
-    sources, psf = extractor.extract_sources( ds.image )
+    sources, psf, bkg, bkgsig = extractor.extract_sources( ds.image )
 
+    import pdb; pdb.set_trace()
+    
     # Make True to write some ds9 regions
     if os.getenv('INTERACTIVE', False):
         basepath = os.path.join(CODE_ROOT, 'tests/plots/test_sources')

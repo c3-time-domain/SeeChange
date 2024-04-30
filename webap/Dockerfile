@@ -2,7 +2,8 @@
 #
 # create the dockerfile with
 #
-#   PG_HOST=<host> PG_PORT=<port> PG_USER=<user> PG_PASS=<pass> PGNAME=<name> docker build -t seechange-webap .
+#   PG_HOST=<host> PG_PORT=<port> PG_USER=<user> PG_PASS=<pass> PGNAME=<name> \
+#     ARCHIVE_DIR=<dir> docker build -t seechange-webap .
 #
 # ...you might want to use a name other than "seechange-webap", to
 # reflect the specifics of the database you built for.  If you
@@ -39,7 +40,7 @@ ARG PG_PORT=5432
 ARG PG_USER=postgres
 ARG PG_PASS=fragile
 ARG PG_NAME=seechange
-ARG ARCHIVE_DIR=/archive
+ARG ARCHIVE_DIR=/archive-storage/base/test
 
 RUN apt-get update \
     && DEBIAN_FRONTEND="noninteractive" apt-get -y upgrade \
@@ -51,10 +52,11 @@ RUN apt-get update \
          pkg-config \
          libhdf5-dev \
          build-essential \
+         netcat-openbsd \
     && apt-get -y autoremove \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-      
+
 RUN rm /usr/lib/python3.11/EXTERNALLY-MANAGED
 
 RUN pip install gunicorn flask pyyaml numpy pandas matplotlib astropy h5py pillow \
@@ -75,6 +77,7 @@ COPY rkwebutil/rkwebutil.js /build/seechange_webap/rkwebutil/
 WORKDIR /build/seechange_webap
 RUN make INSTALLDIR=/code \
     PG_HOST=${PG_HOST} PG_PORT=${PG_PORT} PG_USER=${PG_USER} PG_PASS=${PG_PASS} PG_NAME=${PG_NAME} \
+    ARCHIVE_DIR=${ARCHIVE_DIR} \
     install
 RUN rm -rf /build/seechange_webap
 
