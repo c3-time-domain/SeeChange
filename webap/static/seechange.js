@@ -386,21 +386,17 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
         td = rkWebUtil.elemaker( "td", tr );
         let subdiv = rkWebUtil.elemaker( "div", td );
         subdiv.innerHTML = ( "<b>chip:</b> " + this.data['section_id'][dex] + "<br>" +
-                             "<b>cutout (α, δ):</b> (" + data.cutouts['ra'][i].toFixed(5) + " , "
-                             + data.cutouts['dec'][i].toFixed(5) + ")<br>" +
-                             "<b>( α, δ):</b> (" + data.cutouts['measra'][i].toFixed(5) + " , "
+                             // "<b>cutout (α, δ):</b> (" + data.cutouts['ra'][i].toFixed(5) + " , "
+                             // + data.cutouts['dec'][i].toFixed(5) + ")<br>" +
+                             "<b>(α, δ):</b> (" + data.cutouts['measra'][i].toFixed(5) + " , "
                              + data.cutouts['measdec'][i].toFixed(5) + ")<br>" +
-                             "<b>(x, y):</b> " + data.cutouts['x'][i].toFixed(2) + " , "
+                             "<b>(x, y):</b> (" + data.cutouts['x'][i].toFixed(2) + " , "
                              + data.cutouts['y'][i].toFixed(2) + ")<br>" +
-                             "<b>Flux:</b> " + data.cutouts['flux_psf'][i].toFixed(0) +
-                             + " ± " + data.cutouts['flux_psf_err'][i].toFixed(0) + "<br>" +
-                             "<b>Mag:</b> "
-                             + ( ( data.zp > 0 && data.cutouts['flux_psf'][i] > 0 ) ?
-                                 ( -2.5 * Math.log10( data.cutouts['flux_psf'][i] ) + data.zp )
-                                 + " ± " + ( 1.0857 * data.cutouts['flux_psf_err'][i] /
-                                             data.cutouts['flux_psf'][i] )
-                                 :
-                                 ( "—" ) )
+                             "<b>Flux:</b> " + data.cutouts['flux'][i].toFixed(0)
+                             + " ± " + data.cutouts['dflux'][i].toFixed(0)
+                             + "  (aper r=" + data.cutouts['aperrad'][i].toFixed(2) + " px)" + "<br>" +
+                             "<b>Mag:</b> " + data.cutouts['mag'][i].toFixed(2)
+                             + " ± " + data.cutouts['dmag'][i].toFixed(2)
                            );
     }
 }

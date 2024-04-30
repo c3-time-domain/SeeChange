@@ -25,11 +25,11 @@
         color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
 .tabunsel { background: var(--half-faded-color);
-            border: 2px outset var(--some-faded-color);
+            border: 2px outset var(--full-color-border);
             margin-left: 0.5ex;
             margin-right: 0.5ex; }
 .tabsel { background: var(--most-faded-color);
-          border: 2px inset var(--some-faded-color);
+          border: 2px inset var(--full-color-border);
           margin-left: 0.5ex;
           margin-right: 0.5ex; }
 div.tabdiv {}

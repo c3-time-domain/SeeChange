@@ -13,6 +13,7 @@ from matplotlib import pyplot
 
 import sys
 import traceback
+import math
 import io
 import re
 import json
@@ -218,7 +219,7 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
         # TODO : deal with provenance!
         # TODO : r/b and sorting
 
-        q = ( 'SELECT z.zp, z.dzp, i.id, i.bkg_mean_estimate '
+        q = ( 'SELECT z.zp, z.dzp, z.aper_cor_radii, z.aper_cors, i.id, i.bkg_mean_estimate '
               'FROM images s '
               'INNER JOIN image_upstreams_association ias ON ias.downstream_id=s.id '
               '   AND s.ref_image_id != ias.upstream_id '
@@ -227,6 +228,7 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
               'INNER JOIN zero_points z ON sl.id=z.sources_id '
               'WHERE s.id=%(subid)s ')
         cursor.execute( q, { 'subid': subid } )
+        cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
         if len(rows) > 0:
             app.logger.warning( f"Multiple zeropoints for subid {subid}, deal with provenance" )
@@ -235,15 +237,19 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             zp = -99
             dzp = -99
             imageid = -99
-        zp = rows[0][0]
-        dzp = rows[0][1]
-        imageid = rows[0][2]
-        newbkg = rows[0][3]
+        zp = rows[0][cols['zp']]
+        dzp = rows[0][cols['dzp']]
+        imageid = rows[0][cols['id']]
+        newbkg = rows[0][cols['bkg_mean_estimate']]
+        aperrads = rows[0][cols['aper_cor_radii']]
+        apercors = rows[0][cols['aper_cors']]
+
         # app.logger.debug( f"Got zp={zp:.2f}±{dzp:.2f}, new bkg={newbkg:.2f} for subid {subid}, imageid {imageid}" )
-        
+
         app.logger.debug( f"Getting cutouts for sub image {subid}" )
-        q = ( 'SELECT c.id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources, '
-              '       m.flux_psf, m.flux_psf_err, m.ra AS measra, m.dec AS measdec '
+        q = ( 'SELECT c.id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources, m.best_aperture, '
+              '       m.flux_apertures[m.best_aperture+1] AS flux, m.flux_apertures_err[m.best_aperture+1] AS dflux, '
+              '       m.ra AS measra, m.dec AS measdec '
               'FROM cutouts c '
               'INNER JOIN source_lists sl ON c.sources_id=sl.id '
               'INNER JOIN images s ON sl.image_id=s.id '
@@ -260,21 +266,22 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
         cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
         app.logger.info( f"Got {len(cols)} columns, {len(rows)} rows" )
-        
+
         hdf5files = {}
         retval = { 'status': 'ok',
                    'sub_id': subid,
                    'image_id': imageid,
-                   'zp': zp,
-                   'dzp': dzp,
                    'cutouts': {
                        'id': [],
                        'ra': [],
                        'dec': [],
                        'measra': [],
                        'measdec': [],
-                       'flux_psf': [],
-                       'flux_psf_err': [],
+                       'flux': [],
+                       'dflux': [],
+                       'aperrad': [],
+                       'mag': [],
+                       'dmag': [],
                        'x': [],
                        'y': [],
                        'w': [],
@@ -332,12 +339,28 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             retval['cutouts']['dec'].append( row[cols['dec']] )
             retval['cutouts']['measra'].append( row[cols['measra']] )
             retval['cutouts']['measdec'].append( row[cols['measdec']] )
-            retval['cutouts']['flux_psf'].append( row[cols['flux_psf']] )
-            retval['cutouts']['flux_psf_err'].append( row[cols['flux_psf_err']] )
             retval['cutouts']['x'].append( row[cols['x']] )
             retval['cutouts']['y'].append( row[cols['y']] )
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
+
+            # WARNING : assumption here that the aper cor radii list in the
+            #   zero point is the same as was used in the measurements.
+            # (I think that's a good assumption, but still.)
+
+            flux = row[cols['flux']]
+            dflux = row[cols['dflux']]
+            mag = -99
+            dmag = -99
+            if ( zp > 0 ) and ( flux > 0 ):
+                mag = -2.5 * math.log10( flux ) + zp + apercors[ row[cols['best_aperture']] ]
+                # Ignore zp and apercor uncertainties
+                dmag = 1.0857 * dflux / flux
+            retval['cutouts']['flux'].append( flux )
+            retval['cutouts']['dflux'].append( dflux )
+            retval['cutouts']['aperrad'].append( aperrads[ row[cols['best_aperture']] ] )
+            retval['cutouts']['mag'].append( mag )
+            retval['cutouts']['dmag'].append( dmag )
 
         for f in hdf5files.values():
             f.close()
