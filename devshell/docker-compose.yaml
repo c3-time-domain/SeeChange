@@ -1,10 +1,55 @@
 version: "3.3"
+
 services:
-  seechange_postgres:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
-    build: ../docker/postgres
+  devshell_make-archive-directories:
+    image: rknop/upload-connector:tests
+    build:
+      context: ../extern/nersc-upload-connector
+      args:
+        UID: 0
+        GID: 0
     volumes:
-      - seechange-postgres-dbdata:/var/lib/postgresql/data
+      - type: volume
+        source: devshell-archive-storage
+        target: /storage
+    entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:?err}:${GROUPID:?err} /storage/base && chmod a+rwx /storage/base"
+
+  devshell_archive:
+    depends_on:
+      devshell_make-archive-directories:
+        condition: service_completed_successfully
+    image: rknop/upload-connector:tests
+    build:
+      context: ../extern/nersc-upload-connector
+      args:
+        UID: 0
+        GID: 0
+    healthcheck:
+      test: netcat -w 1 localhost 8080 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    environment:
+      - CONNECTOR_READ_STORAGE=/storage_ro/base
+      - CONNECTOR_WRITE_STORAGE=/storage/base
+    volumes:
+      - type: volume
+        source: devshell-archive-storage
+        target: /storage
+      - type: volume
+        source: devshell-archive-storage
+        target: /storage_ro
+        read_only: true
+    secrets:
+      - connector_tokens
+    user: ${USERID:?err}:${GROUPID:?err}
+
+  devshell_seechange_postgres:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
+    build:
+      context: ../docker/postgres
+    volumes:
+      - seechange-devshell-postgres-dbdata:/var/lib/postgresql/data
     environment:
       POSTGRES_DATA_DIR: /var/lib/postgresql/data
     healthcheck:
@@ -13,76 +58,104 @@ services:
       timeout: 10s
       retries: 5
 
-  seechange_dbmigrate:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
-    build: ../docker/application
+  devshell_setuptables:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build:
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
-      seechange_postgres:
+      devshell_seechange_postgres:
          condition: service_healthy
     volumes:
       - type: bind
         source: ..
         target: /seechange
     working_dir: /seechange
-    user: "${USERID:?err}:${GROUPID:?err}"
+    user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: [ "alembic", "upgrade", "head" ]
 
-  seechange:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+  devshell_make_data_dir:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build:
-      context: ..
-      dockerfile: docker/application/Dockerfile
-    environment:
-      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
-    depends_on:
-      seechange_postgres:
-         condition: service_healthy
-      seechange_dbmigrate:
-         condition: service_completed_successfully
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
     volumes:
       - type: bind
         source: ..
         target: /seechange
     working_dir: /seechange
-    user: "${USERID:?err}:${GROUPID:?err}"
-    # A hack to keep the image up
+    user: ${USERID:?err}:${GROUPID:?err}
+    entrypoint: bash -c "mkdir -p /seechange/devshell/temp_data"
+
+  seechange:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build:
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
+    environment:
+      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
+    depends_on:
+      devshell_setuptables:
+        condition: service_completed_successfully
+      devshell_archive:
+        condition: service_healthy
+      devshell_make_data_dir:
+        condition: service_completed_successfully
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+      - type: volume
+        source: devshell-archive-storage
+        target: /archive_storage
+    working_dir: /seechange
+    user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: [ "tail", "-f", "/etc/issue" ]
 
   seechange_nodb:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
     build:
-      context: ..
-      dockerfile: docker/application/Dockerfile
-    environment:
-      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
-    volumes:
-      - type: bind
-        source: ..
-        target: /seechange
-    working_dir: /seechange
-    user: "${USERID:?err}:${GROUPID:?err}"
-    entrypoint: [ "tail", "-f", "/etc/issue" ]
-
-  seechange_nomigrate:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
-    build:
-      context: ..
-      dockerfile: docker/application/Dockerfile
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
-      seechange_postgres:
-         condition: service_healthy
+      devshell_make_data_dir:
+        condition: service_completed_successfully
     volumes:
       - type: bind
         source: ..
         target: /seechange
     working_dir: /seechange
-    user: "${USERID:?err}:${GROUPID:?err}"
+    user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: [ "tail", "-f", "/etc/issue" ]
 
+  seechange_nomigrate:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    build:
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
+    environment:
+      SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
+    depends_on:
+      devshell_seechange_postgres:
+        condition: service_healthy
+      devshell_make_data_dir:
+        condition: service_completed_successfully
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+    working_dir: /seechange
+    user: ${USERID:?err}:${GROUPID:?err}
+    entrypoint: [ "tail", "-f", "/etc/issue" ]
+
+secrets:
+  connector_tokens:
+    file: ../tests/connector_tokens.txt
 
 volumes:
-  seechange-postgres-dbdata:
+  devshell-archive-storage:
+  seechange-devshell-postgres-dbdata:

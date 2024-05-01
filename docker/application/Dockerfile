@@ -16,9 +16,8 @@ SHELL ["/bin/bash", "-c"]
 #  version conflict with stuff installed later as a dependency by pip3.
 #  (Gotta love duelling package managers.)
 
-RUN DEBIAN_FRONTEND="nonintearctive" TZ="US/Pacific" \
-    apt-get update && \
-    apt-get -y upgrade && \
+RUN apt-get update && \
+    DEBIAN_FRONTEND="noninteractive" apt-get -y upgrade && \
     DEBIAN_FRONTEND="nonintearctive" TZ="US/Pacific" apt-get -y install -y \
       autoconf \
       automake \

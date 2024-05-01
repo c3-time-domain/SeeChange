@@ -1,6 +1,8 @@
 import os
 import pytest
 import re
+import psutil
+import gc
 import hashlib
 import pathlib
 import uuid
@@ -1375,3 +1377,74 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
 
     for file in archive_files:
         assert not os.path.isfile(file)
+
+
+def test_free( decam_exposure, decam_raw_image, ptf_ref ):
+    proc = psutil.Process()
+    origmem = proc.memory_info()
+
+    # Make sure that only_free behaves as expected
+    decam_raw_image._weight = 'placeholder'
+    decam_raw_image.free( only_free={'weight'} )
+    assert decam_raw_image._weight is None
+    assert decam_raw_image._data is not None
+    assert decam_raw_image.raw_data is not None
+
+    with pytest.raises( RuntimeError, match="Unknown image property to free" ):
+        decam_raw_image.free( only_free={'this_is_not_a_property_that_actually_exists'} )
+
+    # Make sure that things are None and that we get the memory back
+    # when we free
+
+    decam_raw_image.free( )
+    assert decam_raw_image._data is None
+    # The image is ~4k by 2k, data is 32-bit
+    # so expect to free ~( 4000*2000 ) *4 >~ 30MiB of data
+    gc.collect()
+    freemem = proc.memory_info()
+    assert origmem.rss - freemem.rss > 30 * 1024 * 1024
+
+    # Make sure that if we clear the exposure's caches, the raw_data is now gone too
+    # decam_exposure has session scope, but that file is on disk so it can reload
+    # as necessary):
+
+    assert decam_raw_image.raw_data is None
+    decam_exposure.data.clear_cache()
+    decam_exposure.section_headers.clear_cache()
+    gc.collect()
+    freemem = proc.memory_info()
+    assert origmem.rss - freemem.rss > 45 * 1024 * 1024
+
+    # Note that decam_raw_image.data will now raise an exception,
+    #  because the weight and flags files aren't yet written to disk for
+    #  this fixture.  (It was constructed in the fixture by manually
+    #  setting data to a float32 copy of raw_data.)  decam_raw_image
+    #  has test scope, not session scope, so that should be OK.
+
+
+    # This next test is only meaningful if the ptf_ref fixture had to
+    # rebuild the coadded ref.  If it loaded it from cache, then the
+    # data for ptf_ref.image.aligned_images will not have been loaded.
+    # So, make sure that happened before even bothering with the test.
+    # (Our github actions tests always start with a clean environment,
+    # so it will get run there.  If you want to run it locally, you
+    # have to make sure your test cache is cleaned out.)
+
+    # NOTE: at some point in the future, we may have coadd do
+    # the freeing of the aligned images, at which point this
+    # test will fail.  This note is here for you to find if
+    # you're the one who made coadd do the freeing....
+
+    if ptf_ref.image.aligned_images[0]._data is not None:
+        origmem = proc.memory_info()
+        # Make sure that the ref image data has been loaded
+        _ = ptf_ref.image.data
+        # Free the image and all the refs.  Expected savings: 6 4k × 2k
+        # 32-bit images =~ 6 * (4000*2000) * 4 >~ 180MiB.
+        ptf_ref.image.free( free_aligned=True )
+        gc.collect()
+        freemem = proc.memory_info()
+        assert origmem.rss - freemem.rss > 180 * 1024 * 1024
+
+    # the free_derived_products parameter is tested in test_source_list.py
+    # and test_psf.py

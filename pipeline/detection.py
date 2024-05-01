@@ -235,7 +235,7 @@ class Detector:
                 #  in any event, need a way of passing parameters
                 #  Question: why is it not enough to just define what you need in the Parameters object?
                 #  Related to issue #50
-                detections, _ = self.extract_sources( image )
+                detections, _, _, _ = self.extract_sources( image )
 
                 detections.image = image
 
@@ -245,6 +245,7 @@ class Detector:
                     if detections.provenance.id != prov.id:
                         raise ValueError('Provenance mismatch for detections and provenance!')
 
+            detections._upstream_bitflag |= ds.sub_image.bitflag
             ds.sub_image.sources = detections
             ds.detections = detections
 
@@ -263,7 +264,7 @@ class Detector:
                 if image is None:
                     raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
 
-                sources, psf = self.extract_sources( image )
+                sources, psf, bkg, bkgsig = self.extract_sources( image )
                 sources.image = image
                 if sources.provenance is None:
                     sources.provenance = prov
@@ -281,7 +282,9 @@ class Detector:
             ds.sources = sources
             ds.psf = psf
             ds.image.fwhm_estimate = psf.fwhm_pixels  # TODO: should we only write if the property is None?
-            # TODO: where do we get the background mean/rms from?
+            if self.has_recalculated:
+                ds.image.bkg_mean_estimate = float( bkg )
+                ds.image.bkg_rms_estimate = float( bkgsig )
 
         # make sure this is returned to be used in the next step
         return ds
@@ -290,14 +293,16 @@ class Detector:
         """Calls one of the extraction methods, based on self.pars.method. """
         sources = None
         psf = None
+        bkg = None
+        bkgsig = None
         if self.pars.method == 'sep':
             sources = self.extract_sources_sep(image)
         elif self.pars.method == 'sextractor':
             if self.pars.subtraction:
                 psffile = None if self.pars.psf is None else self.pars.psf.get_fullpath()
-                sources, _ = self.extract_sources_sextractor(image, psffile=psffile)
+                sources, _, _, _ = self.extract_sources_sextractor(image, psffile=psffile)
             else:
-                sources, psf = self.extract_sources_sextractor(image)
+                sources, psf, bkg, bkgsig = self.extract_sources_sextractor(image)
         elif self.pars.method == 'filter':
             if self.pars.subtraction:
                 sources = self.extract_sources_filter(image)
@@ -306,7 +311,16 @@ class Detector:
         else:
             raise ValueError(f'Unknown extraction method "{self.pars.method}"')
 
-        return sources, psf
+        if psf is not None:
+            if psf._upstream_bitflag is None:
+                psf._upstream_bitflag = 0
+            psf._upstream_bitflag |= image.bitflag
+        if sources is not None:
+            if sources._upstream_bitflag is None:
+                sources._upstream_bitflag = 0
+            sources._upstream_bitflag |= image.bitflag
+
+        return sources, psf, bkg, bkgsig
 
     def extract_sources_sextractor( self, image, psffile=None ):
         tempnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
@@ -337,7 +351,8 @@ class Detector:
                     if image.instrument_object.pixel_scale is not None:
                         aperrad *= 2. / image.instrument_object.pixel_scale
                 _logger.debug( "detection: running sextractor once without PSF to get sources" )
-                sources = self._run_sextractor_once( image, apers=[aperrad], psffile=None, tempname=tempnamebase )
+                sources, _, _ = self._run_sextractor_once( image, apers=[aperrad],
+                                                           psffile=None, tempname=tempnamebase )
 
                 # Get the PSF
                 _logger.debug( "detection: determining psf" )
@@ -360,7 +375,8 @@ class Detector:
             # Now that we have a psf, run sextractor (maybe a second time)
             # to get the actual measurements.
             _logger.debug( "detection: running sextractor with psf to get final source list" )
-            sources = self._run_sextractor_once( image, apers=apers, psffile=psfpath, tempname=tempnamebase )
+            sources, bkg, bkgsig = self._run_sextractor_once( image, apers=apers,
+                                                              psffile=psfpath, tempname=tempnamebase )
             _logger.debug( f"detection: sextractor found {len(sources.data)} sources" )
 
             snr = sources.apfluxadu()[0] / sources.apfluxadu()[1]
@@ -378,7 +394,7 @@ class Detector:
                 if psfpath is not None: psfpath.unlink( missing_ok=True )
                 if psfxmlpath is not None: psfxmlpath.unlink( missing_ok=True )
 
-        return sources, psf
+        return sources, psf, bkg, bkgsig
 
     def _run_sextractor_once( self, image, apers=[5, ], psffile=None, tempname=None, do_not_cleanup=False ):
         """Extract a SourceList from a FITS image using SExtractor.
@@ -424,8 +440,9 @@ class Detector:
 
         Returns
         -------
-          Source List
-            Has data and info already loaded
+          sources: SourceList, bkg: float, bkgsig: float
+            sources has data already loaded
+            bkg and bkgsig are the sky background estimates sextractor calculates
 
         """
         tmpnamebase = tempname
@@ -434,6 +451,7 @@ class Detector:
         tmpweight = tmpimage.parent / f'{tmpnamebase}.weight.fits'
         tmpflags = tmpimage.parent / f'{tmpnamebase}.flags.fits'
         tmpsources = tmpimage.parent / f'{tmpnamebase}.sources.fits'
+        tmpxml = tmpimage.parent / f'{tmpnamebase}.sources.xml'
         tmpparams = tmpimage.parent / f'{tmpnamebase}.param'
 
         # For debugging purposes
@@ -441,6 +459,7 @@ class Detector:
         self._tmpweight = tmpweight
         self._tmpflags = tmpflags
         self._tmpsources = tmpsources
+        self._tmpxml = tmpxml
 
         if image.data is None or image.weight is None or image.flags is None:
             raise RuntimeError( f"Must have all of image data, weight, and flags" )
@@ -547,6 +566,8 @@ class Detector:
             args = [ "source-extractor",
                      "-CATALOG_NAME", tmpsources,
                      "-CATALOG_TYPE", "FITS_LDAC",
+                     "-WRITE_XML", "Y",
+                     "-XML_NAME", tmpxml,
                      "-PARAMETERS_NAME", paramfile,
                      "-THRESH_TYPE", "RELATIVE",
                      "-DETECT_THRESH", str( self.pars.threshold / 3. ),
@@ -578,13 +599,18 @@ class Detector:
                                f"-------\nstdout:\n{res.stdout}" )
                 raise RuntimeError( f"Error return from source-extractor call" )
 
+            # Get the background from the xml file that sextractor wrote
+            sextrstat = votable.parse( tmpxml ).get_table_by_index( 1 )
+            bkg = sextrstat.array['Background_Mean'][0][0]
+            bkgsig = sextrstat.array['Background_StDev'][0][0]
+
             sourcelist = SourceList( image=image, format="sextrfits", aper_rads=apers )
             # Since we don't set the filepath to the temp file, manually load
             # the _data and _info fields
             sourcelist.load( tmpsources )
             sourcelist.num_sources = len( sourcelist.data )
 
-            return sourcelist
+            return sourcelist, bkg, bkgsig
 
         finally:
             if not do_not_cleanup:
@@ -592,6 +618,7 @@ class Detector:
                 tmpweight.unlink( missing_ok=True )
                 tmpflags.unlink( missing_ok=True )
                 tmpparams.unlink( missing_ok=True )
+                tmpxml.unlink( missing_ok=True )
                 if tempname is None: tmpsources.unlink( missing_ok=True )
 
     def _run_psfex( self, tempname, image, psf_size=None, do_not_cleanup=False ):

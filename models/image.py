@@ -427,8 +427,9 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         nullable=True,
         index=True,
         doc=(
-            'Background RMS estimate for the image, '
-            'from the first time the image was processed.'
+            'Background RMS residual (i.e. sky noise ) '
+            'estimate for the image, from the first time '
+            'the image was processed.'
         )
     )
 
@@ -1435,6 +1436,67 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
                 if not ( gotim and gotweight and gotflags ):
                     raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )
+
+
+    def free( self, free_derived_products=True, free_aligned=True, only_free=None ):
+        """Free loaded image memory.  Does not delete anything from disk.
+
+        Will wipe out any loaded image, weight, flags, background,
+        score, psfflux, psffluxerr, nandata, and nanscore data, for
+        purposes of saving memory.  Doesn't make sure anything is saved
+        to disk, so only use this when you know you can use it.
+
+        (This is accomplished by setting the parameters of self that
+        store that data to None, and otherwise depends on the python
+        garbage collector.  If there are other references to the data
+        pointed to by those parameters, the memory of course won't
+        actually be freed.)
+
+        Parameters
+        ----------
+          free_derived_products: bool, default True
+             If True, will also call free on self.sources, self.psf, and
+             self.wcs
+
+          free_aligned: bool, default True
+             Will call free() on each of the aligned images referenced
+             by this image (if any).
+
+          only_free: set or list of strings
+             If you pass this string, it will not free everything, but
+             only the things you specify here.  Members of the string
+             can include raw_data, data, weight, flags, background, score,
+             psfflux, psffluxerr, nandata, and nanscore.
+
+        """
+        allfree = set( Image.saved_extensions )
+        allfree.add( "raw_data" )
+        tofree = set( only_free ) if only_free is not None else allfree
+
+        for prop in tofree:
+            if prop not in allfree:
+                raise RuntimeError( f"Unknown image property to free: {prop}" )
+            if prop == 'raw_data':
+                self.raw_data = None
+            else:
+                setattr( self, f'_{prop}', None )
+
+        if free_derived_products:
+            if self.sources is not None:
+                self.sources.free()
+            if self.psf is not None:
+                self.psf.free()
+            # This implementation in WCS should be done after PR167 is done.
+            # Not a big deal if it's not done, because WCSes will not use
+            # very much memory
+            # if self.wcs is not None:
+            #     self.wcs.free()
+        if free_aligned:
+            if self._aligned_images is not None:
+                for alim in self._aligned_images:
+                    alim.free( free_derived_products=free_derived_products, only_free=only_free )
+
+
 
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.

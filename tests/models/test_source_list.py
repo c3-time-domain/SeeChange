@@ -1,5 +1,7 @@
 import pytest
 import os
+import psutil
+import gc
 import pathlib
 import numpy as np
 
@@ -265,4 +267,75 @@ def test_calc_apercor( decam_datastore ):
     # assert sources.calc_aper_cor( inf_aper_num=2 ) == pytest.approx( -0.425, abs=0.001 )
     # assert sources.calc_aper_cor( aper_num=2 ) == pytest.approx( -0.025, abs=0.001 )
     # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.024, abs=0.001 )
+
+
+def test_free( decam_datastore ):
+    ds = decam_datastore
+    ds.get_sources()
+    proc = psutil.Process()
+
+    # Make sure image and source data is loaded into memory,
+    #  then try freeing just the source data
+    _ = ds.image.data
+    _ = ds.sources.data
+    _ = None
+
+    assert ds.image._data is not None
+    assert ds.sources._data is not None
+    assert ds.sources._info is not None
+    origmem = proc.memory_info()
+
+    ds.sources.free()
+    assert ds.sources._data is None
+    assert ds.sources._info is None
+    gc.collect()
+    freemem = proc.memory_info()
+
+    # Empirically, ds.sources._data.nbytes is about 10MiB That sounds
+    #   like a lot for ~6000 sources, but oh well.  Right now, no memory
+    #   seems to be freed.  I'm distressed.  gc.get_referrers only
+    #   showed one thing referring to ds.sources._data, so setting that
+    #   to None and garbage collecting should have freed stuff up.
+    #   TODO: worry about this.  (Since at the moment we seem to be able
+    #   to free image memory, and that is bigger, we've at least made
+    #   some progress.)
+
+    # assert ( origmem.rss - freemem.rss ) > ( 10 * 1024 * 1024 )
+
+    # Make sure that if we free_derived_products from the image, then
+    #   the sources get freed.  The image is 4096x2048 32-bit, so should
+    #   use 4096*2046*4 = 32MiB.  There is also a 32-bit weight image,
+    #   and a 16-bit flags image, so we expect to free 80MB of memory
+    #   (plus whatever gets freed from the sources), but empirically I
+    #   only got 64MB back on my home machine, and the google actions
+    #   server only got just under 32MB back.  (All off ds.image._data,
+    #   ds.image._weight, and ds.image._flags have a single referrer,
+    #   based on gc.get_referrers.)  Memory management under the hood is
+    #   almost certainly complicated, with the gc system (or whatever)
+    #   deciding to keep some memory allocated and ready to be assigned
+    #   to something new vs. actually returning it to the system.  I'd
+    #   have to learn more about how all that works to understand why we
+    #   don't get back everything we're freeing.  (Or, we could just
+    #   give up on python and go back to pure C and manage all our
+    #   memory ourselves.)
+
+    _ = ds.image.data
+    _ = ds.sources.data
+    _ = None
+    origmem = proc.memory_info()
+
+    ds.image.free( free_derived_products=True )
+    assert ds.image._data is None
+    assert ds.image._weight is None
+    assert ds.image._flags is None
+    assert ds.sources._data is None
+    assert ds.sources._info is None
+    gc.collect()
+    freemem = proc.memory_info()
+
+    # Grr... last time I tried this on github actions, it didn't
+    #   release any memory.  Further thought required.
+    # assert ( origmem.rss - freemem.rss ) > ( 64 * 1024 * 1024 )
+    # assert ( origmem.rss - freemem.rss ) > ( 30 * 1024 * 1024 )
+
 

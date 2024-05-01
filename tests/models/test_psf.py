@@ -1,6 +1,8 @@
 import pytest
 import io
 import os
+import psutil
+import gc
 import uuid
 import random
 import math
@@ -338,6 +340,49 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
                 psf2.delete_from_disk_and_database(session=session)
             if 'im' in locals():
                 im.delete_from_disk_and_database(session=session)
+
+
+def test_free( decam_datastore ):
+    ds = decam_datastore
+    ds.get_psf()
+    proc = psutil.Process()
+
+    # Make sure memory is loaded
+    _ = ds.image.data
+    _ = ds.psf.data
+    _ = None
+
+    assert ds.image._data is not None
+    assert ds.psf._data is not None
+    assert ds.psf._info is not None
+    assert ds.psf._header is not None
+
+    origmem = proc.memory_info()
+    ds.psf.free()
+    assert ds.psf._data is None
+    assert ds.psf._info is None
+    assert ds.psf._header is None
+    freemem = proc.memory_info()
+
+    # psf._data.nbytes was 15k, so it's going to be in the noise of free
+    #  memory.  (High-school me with his commodore 64 is facepalming at
+    #  that statement.)  Empirically, origmem.rss and freemem.rss are
+    #  the same right now.
+
+    _ = ds.psf.data
+    assert ds.psf._data is not None
+    assert ds.psf._info is not None
+    assert ds.psf._header is not None
+
+    origmem = proc.memory_info()
+    ds.image.free( free_derived_products=True )
+    assert ds.psf._data is None
+    assert ds.psf._info is None
+    assert ds.psf._header is None
+    freemem = proc.memory_info()
+
+    assert origmem.rss - freemem.rss > 60 * 1024 * 1024
+
 
 
 @pytest.mark.skipif( os.getenv('RUN_SLOW_TESTS') is None, reason="Set RUN_SLOW_TESTS to run this test" )

@@ -1,6 +1,7 @@
 # various functions and tools used for image processing
 
 import numpy as np
+import re
 
 
 def sigma_clipping(values, nsigma=3.0, iterations=5, axis=None, median=False):
@@ -218,3 +219,28 @@ def make_cutouts(data, x, y, size=15):
             raise
 
     return cutouts
+
+def strip_wcs_keywords( hdr ):
+    """Attempt to strip all WCS information from a FITS header.
+
+    This may not be complete, as it pattern matches expected keywords.
+    If it's missing some patterns, those won't get stripped.
+
+    Parameters
+    ----------
+      hdr: The header from which to strip all WCS-related keywords.
+
+    """
+
+    basematch = re.compile( "^C(RVAL|RPIX|UNIT|DELT|TYPE)[12]$" )
+    cdmatch = re.compile( "^CD[12]_[12]$" )
+    sipmatch = re.compile( "^[AB]P?_(ORDER|(\d+)_(\d+))$" )
+    tpvmatch = re.compile( "^P[CV]\d+_\d+$" )
+
+    tonuke = set()
+    for kw in hdr.keys():
+        if ( basematch.search(kw) or cdmatch.search(kw) or sipmatch.search(kw) or tpvmatch.search(kw) ):
+            tonuke.add( kw )
+
+    for kw in tonuke:
+        del hdr[kw]

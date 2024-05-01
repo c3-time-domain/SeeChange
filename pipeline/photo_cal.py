@@ -278,6 +278,11 @@ class PhotCalibrator:
             # Make the ZeroPoint object
             ds.zp = ZeroPoint( sources=ds.sources, provenance=prov, zp=zpval, dzp=dzpval,
                                aper_cor_radii=sources.aper_rads, aper_cors=apercors )
+            
+            if ds.zp._upstream_bitflag is None:
+                ds.zp._upstream_bitflag = 0
+            ds.zp._upstream_bitflag |= sources.bitflag
+            ds.zp._upstream_bitflag |= wcs.bitflag
 
             ds.image.zero_point_estimate = ds.zp.zp  # TODO: should we only write if the property is None?
             # TODO: we should also add a limiting magnitude calculation here.
