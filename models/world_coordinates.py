@@ -9,7 +9,7 @@ from astropy.wcs import WCS
 from astropy.io import fits
 from astropy.wcs import utils
 
-from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness
+from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.source_list import SourceList
 
