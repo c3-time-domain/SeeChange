@@ -254,6 +254,11 @@ class Detector:
             psf = ds.get_psf(prov, session=session)
 
             if sources is None or psf is None:
+                # TODO: when only one of these is not found (which is a strange situation)
+                #  we may end up with a new version of the existing object
+                #  (if sources is missing, we will end up with one sources and two psfs).
+                #  This could get us in trouble when saving (the object will have the same provenance)
+                #  Right now this is taken care of using "safe_merge" but I don't know if that's the right thing.
                 self.has_recalculated = True
                 # use the latest image in the data store,
                 # or load using the provenance given in the

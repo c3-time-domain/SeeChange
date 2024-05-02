@@ -4,6 +4,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 
 from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness
 from models.enums_and_bitflags import catalog_match_badness_inverse
@@ -57,21 +58,21 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
     )
 
     zp = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         index=False,
         doc="Zeropoint: -2.5*log10(adu_psf) + zp = mag"
     )
 
     dzp = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         index=False,
         doc="Uncertainty on zp"
     )
 
     aper_cor_radii = sa.Column(
-        sa.ARRAY( sa.REAL ),
+        ARRAY( sa.REAL, zero_indexes=True ),
         nullable=True,
         default=None,
         index=False,
@@ -79,7 +80,7 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
     )
 
     aper_cors = sa.Column(
-        sa.ARRAY( sa.REAL ),
+        ARRAY( sa.REAL, zero_indexes=True ),
         nullable=True,
         default=None,
         index=False,

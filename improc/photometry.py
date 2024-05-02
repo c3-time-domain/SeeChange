@@ -190,6 +190,9 @@ def iterative_photometry(
     if not np.all(radii > 0):
         raise ValueError("Apertures must be positive numbers")
 
+    # order the radii in descending order:
+    radii = np.sort(radii)[::-1]
+
     xgrid, ygrid = np.meshgrid(np.arange(image.shape[1]), np.arange(image.shape[0]))
     xgrid -= image.shape[1] // 2
     ygrid -= image.shape[0] // 2
@@ -239,9 +242,11 @@ def iterative_photometry(
         need_break = False
 
         # reposition based on the last centroids
+        # TODO: move the reposition into the aperture loop?
+        #  That would mean we close in on the best position, but is that the right thing to do?
         reposition_cx = cx
         reposition_cy = cy
-        for j, r in enumerate(radii):
+        for j, r in enumerate(radii):  # go over radii in order (from large to small!)
             # make a circle-mask based on the centroid position
             if not np.isfinite(reposition_cx) or not np.isfinite(reposition_cy):
                 raise ValueError("Centroid is not finite, cannot proceed with photometry")
@@ -260,10 +265,12 @@ def iterative_photometry(
             # background and variance only need to be calculated once (they are the same for all apertures)
             # but moments/centroids can be calculated for each aperture, but we will only want to save one
             # so how about we use the smallest one?
-            if j == 0:  # smallest aperture only
+            if j == 0:  # largest aperture only
+                # TODO: if we move the reposition into the aperture loop, this will need to be updated!
+                #  We would have to calculate the background/variance on the last positions, or all positions?
                 # TODO: consider replacing this with a hard-edge annulus and do median or sigma clipping on the pixels
                 background = np.nansum(nandata * annulus_map) / np.nansum(annulus_map)  # b/g per pixel
-                variance = np.nansum((nandata - background) * annulus_map) ** 2 / np.nansum(annulus_map)  # per pixel
+                variance = np.nansum(((nandata - background) * annulus_map) ** 2) / np.nansum(annulus_map)  # per pixel
 
                 normalization = (fluxes[j] - background * areas[j])
                 masked_data_bg = (nandata - background) * mask
@@ -296,9 +303,9 @@ def iterative_photometry(
         photometry['psf_flux'] = 0.0  # TODO: update this!
         photometry['psf_err'] = 0.0  # TODO: update this!
         photometry['psf_area'] = 0.0  # TODO: update this!
-        photometry['radii'] = radii
-        photometry['fluxes'] = fluxes
-        photometry['areas'] = areas
+        photometry['radii'] = radii[::-1]  # return radii and fluxes in increasing order
+        photometry['fluxes'] = fluxes[::-1]  # return radii and fluxes in increasing order
+        photometry['areas'] = areas[::-1]  # return radii and fluxes in increasing order
         photometry['background'] = background
         photometry['variance'] = variance
         photometry['offset_x'] = cx

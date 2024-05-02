@@ -9,6 +9,7 @@ import util.ldac
 from util.util import ensure_file_does_not_exist
 from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, _logger
 from models.enums_and_bitflags import CatalogExcerptFormatConverter, CatalogExcerptOriginConverter
+from sqlalchemy.dialects.postgresql import ARRAY
 
 
 class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
@@ -101,7 +102,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
     )
 
     filters = sa.Column(
-        sa.ARRAY(sa.Text),
+        ARRAY(sa.Text, zero_indexes=True),
         nullable=False,
         default=[],
         doc=( "Filters covered by the catalog; names of the filters will be "

@@ -3,11 +3,14 @@ import os
 import numpy as np
 import pandas as pd
 
+from collections import defaultdict
+
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 
 import astropy.table
 
@@ -69,7 +72,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     )
 
     image = orm.relationship(
-        'Image',
+        Image,
         lazy='selectin',
         cascade='save-update, merge, refresh-expire, expunge',
         passive_deletes=True,
@@ -80,7 +83,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     is_coadd = association_proxy('image', 'is_coadd')
 
     aper_rads = sa.Column(
-        sa.ARRAY( sa.REAL ),
+        ARRAY( sa.REAL, zero_indexes=True ),
         nullable=True,
         default=None,
         index=False,
@@ -203,7 +206,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 new_list = []
                 for item in sub_obj:
                     item.sources = new_sources  # make sure to first point this relationship back to new_sources
-                    new_list.append(item.safe_merge(session=session))
+                    new_list.append(session.merge(item))
                 setattr(new_sources, att, new_list)
 
         return new_sources
@@ -765,6 +768,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                                                .any(Provenance.id == self.provenance.id)))).all()
              
         return wcs + zps + cutouts + subs
+
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.

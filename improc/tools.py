@@ -107,7 +107,7 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
         0- do not normalize, peak will have a value of 1.0
         1- normalize so the sum of the image is equal to 1.0
         2- normalize the squares: the sqrt of the sum of squares is equal to 1.0
-    imsize: int or None
+    imsize: int or 2-tuple of ints (optional)
         Number of pixels on a side for the output.
         If None, will automatically choose the smallest odd integer that is larger than max(sigma_x, sigma_y) * 10.
 
@@ -124,15 +124,18 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
         if imsize % 2 == 0:
             imsize += 1
 
+    if isinstance(imsize, int):
+        imsize = (imsize, imsize)
+
     if norm not in [0, 1, 2]:
         raise ValueError('norm must be 0, 1, or 2')
 
-    x = np.arange(imsize)
-    y = np.arange(imsize)
+    x = np.arange(imsize[1])
+    y = np.arange(imsize[0])
     x, y = np.meshgrid(x, y)
 
-    x0 = imsize // 2 + offset_x
-    y0 = imsize // 2 + offset_y
+    x0 = imsize[1] // 2 + offset_x
+    y0 = imsize[0] // 2 + offset_y
     # TODO: what happens if imsize is even?
 
     x = x - x0

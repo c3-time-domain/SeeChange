@@ -231,31 +231,31 @@ class SensorSection(Base, AutoIDMixin):
     #  general low-precision instrument comparison.
 
     read_noise = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         doc='Read noise of the sensor section (in electrons). '
     )
 
     dark_current = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         doc='Dark current of the sensor section (in electrons/pixel/second). '
     )
 
     gain = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         doc='Gain of the sensor section (in electrons/ADU). '
     )
 
     saturation_limit = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         doc='Saturation level of the sensor section (in electrons). '
     )
 
     non_linearity_limit = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         doc='Non-linearity of the sensor section (in electrons). '
     )
@@ -1833,6 +1833,8 @@ class Instrument:
 
 
 class DemoInstrument(Instrument):
+    fake_image_size_x = 512
+    fake_image_size_y = 1024
 
     def __init__(self, **kwargs):
         self.name = 'DemoInstrument'
@@ -1883,7 +1885,7 @@ class DemoInstrument(Instrument):
         section: SensorSection
             A new section for this instrument.
         """
-        return SensorSection(identifier, self.name, size_x=512, size_y=1024)
+        return SensorSection(identifier, self.name, size_x=self.fake_image_size_x, size_y=self.fake_image_size_y)
 
     def load_section_image(self, filepath, section_id):
         """

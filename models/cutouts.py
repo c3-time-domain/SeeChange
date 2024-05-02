@@ -64,7 +64,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
     )
 
     sources = orm.relationship(
-        'SourceList',
+        SourceList,
         cascade='save-update, merge, refresh-expire, expunge',
         passive_deletes=True,
         lazy='selectin',
@@ -246,6 +246,9 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
         cutout.sources = detections
         cutout.index_in_sources = source_index
         cutout.source_row = dict(Table(detections.data)[source_index])
+        for key, value in cutout.source_row.items():
+            if isinstance(value, np.number):
+                cutout.source_row[key] = value.item()  # convert numpy number to python primitive
         cutout.x = detections.x[source_index]
         cutout.y = detections.y[source_index]
         cutout.ra = cutout.source_row['ra']
@@ -568,7 +571,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
         cutouts.sort(key=lambda x: x.index_in_sources)
         return cutouts
 
-    def remove_data_from_disk(self, remove_folders=True, remove_downstream_data=False):
+    def remove_data_from_disk(self, remove_folders=True, remove_downstreams=False):
         """Delete the data from local disk, if it exists.
         Will remove the dataset for this specific cutout from the file,
         and remove the file if this is the last cutout in the file.
@@ -585,7 +588,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
         remove_folders: bool
             If True, will remove any folders on the path to the files
             associated to this object, if they are empty.
-        remove_downstream_data: bool
+        remove_downstreams: bool
             This is not used, but kept here for backward compatibility with the base class.
         """
         raise NotImplementedError(
@@ -620,7 +623,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
                                 else:
                                     break
 
-    def delete_from_archive(self, remove_downstream_data=False):
+    def delete_from_archive(self, remove_downstreams=False):
         """Delete the file from the archive, if it exists.
         Will only
         This will not remove the file from local disk, nor
@@ -629,7 +632,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
 
         Parameters
         ----------
-        remove_downstream_data: bool
+        remove_downstreams: bool
             If True, will also remove any downstream data.
             Will recursively call get_downstreams() and find any objects
             that have remove_data_from_disk() implemented, and call it.
@@ -675,7 +678,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
         return cutouts_list
 
     @classmethod
-    def delete_list(cls, cutouts_list, remove_local=True, archive=True, session=None, commit=True):
+    def delete_list(cls, cutouts_list, remove_local=True, archive=True, database=True, session=None, commit=True):
         """
         Remove a list of Cutouts objects from local disk and/or the archive and/or the database.
         This removes the file that includes all the cutouts.
@@ -691,6 +694,8 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
             If True, will remove the file from local disk.
         archive: bool
             If True, will remove the file from the archive.
+        database: bool
+            If True, will remove the cutouts from the database.
         session: Session, optional
             The database session to use. If not given, will create a new session.
         commit: bool
@@ -698,12 +703,14 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
             If False, will not commit the changes to the database.
             If session is not given, commit must be True.
         """
-        if session is None and not commit:
+        if database and session is None and not commit:
             raise ValueError('If session is not given, commit must be True.')
 
         filepath = set([c.filepath for c in cutouts_list])
         if len(filepath) > 1:
-            raise ValueError('All cutouts must share the same filepath to be deleted together.')
+            raise ValueError(
+                f'All cutouts must share the same filepath to be deleted together. Got: {filepath}'
+            )
 
         if remove_local:
             fullpath = cutouts_list[0].get_fullpath()
@@ -714,14 +721,18 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
             if cutouts_list[0].filepath is not None:
                 cutouts_list[0].archive.delete(cutouts_list[0].filepath, okifmissing=True)
 
-        with SmartSession(session) as session:
-            for cutout in cutouts_list:
-                cutout.delete_from_database(session=session, commit=False)
-            if commit:
-                session.commit()
+        if database:
+            with SmartSession(session) as session:
+                for cutout in cutouts_list:
+                    cutout.delete_from_database(session=session, commit=False)
+                if commit:
+                    session.commit()
 
-    def __eq__(self, other):
+    def check_equals(self, other):
         """Compare if two cutouts have the same data. """
+        if not isinstance(other, Cutouts):
+            return super().__eq__(other)  # any other comparisons use the base class
+
         attributes = self.get_data_attributes()
         attributes += ['ra', 'dec', 'x', 'y', 'filepath', 'format']
 

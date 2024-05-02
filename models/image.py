@@ -311,7 +311,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     )
 
     exp_time = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         index=True,
         doc="Exposure time in seconds. Multi-exposure images will have the total exposure time."
@@ -383,7 +383,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     )
 
     fwhm_estimate = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         index=True,
         doc=(
@@ -393,7 +393,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     )
 
     zero_point_estimate = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         index=True,
         doc=(
@@ -403,7 +403,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     )
 
     lim_mag_estimate = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         index=True,
         doc=(
@@ -413,7 +413,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     )
 
     bkg_mean_estimate = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         index=True,
         doc=(
@@ -423,7 +423,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     )
 
     bkg_rms_estimate = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=True,
         index=True,
         doc=(
@@ -527,7 +527,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             self.load_upstream_products(this_object_session)
 
     def merge_all(self, session):
-        """Use safe_merge to merge all the downstream products and assign them back to self.
+        """Merge self and all its downstream products and assign them back to self.
 
         This includes: sources, psf, wcs, zp.
         This will also merge relationships, such as exposure or upstream_images,
@@ -539,16 +539,42 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         """
         new_image = self.safe_merge(session=session)
         session.flush()  # make sure new_image gets an ID
+
         if self.sources is not None:
             self.sources.image = new_image
             self.sources.image_id = new_image.id
             self.sources.provenance_id = self.sources.provenance.id if self.sources.provenance is not None else None
             new_image.sources = self.sources.merge_all(session=session)
+
             new_image.wcs = new_image.sources.wcs
+            if new_image.wcs is not None:
+                new_image.wcs.sources = new_image.sources
+                new_image.wcs.sources_id = new_image.sources.id
+                new_image.wcs.provenance_id = new_image.wcs.provenance.id if new_image.wcs.provenance is not None else None
+
             new_image.zp = new_image.sources.zp
+            if new_image.zp is not None:
+                new_image.zp.sources = new_image.sources
+                new_image.zp.sources_id = new_image.sources.id
+                new_image.zp.provenance_id = new_image.zp.provenance.id if new_image.zp.provenance is not None else None
+
             new_image.cutouts = new_image.sources.cutouts
             new_image.measurements = new_image.sources.measurements
             new_image._aligned_images = self._aligned_images
+
+            # if self.wcs is not None:
+            #     self.wcs.sources = new_image.sources
+            #     self.wcs.sources_id = new_image.sources.id
+            #     self.wcs.provenance_id = self.wcs.provenance.id if self.wcs.provenance is not None else None
+            #     # new_image.wcs = self.wcs.safe_merge(session=session)
+            #     new_image.wcs = session.merge(self.wcs)
+            #
+            # if self.zp is not None:
+            #     self.zp.sources = new_image.sources
+            #     self.zp.sources_id = new_image.sources.id
+            #     self.zp.provenance_id = self.zp.provenance.id if self.zp.provenance is not None else None
+            #     # new_image.zp = self.zp.safe_merge(session=session)
+            #     new_image.zp = session.merge(self.zp)
 
         if self.psf is not None:
             self.psf.image = new_image
@@ -559,6 +585,22 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 new_image.psf._bitflag = 0
             if new_image.psf._upstream_bitflag is None:  # I don't know why this isn't set to 0 using the default
                 new_image.psf._upstream_bitflag = 0
+
+        # take care of the upstream images and their products
+        # if sa.inspect(self).detached:  # self can't load the images, but new_image has them
+        #     upstream_list = new_image.upstream_images
+        # else:
+        #     upstream_list = self.upstream_images  # can use the original images, before merging into new_image
+        try:
+            upstream_list = self.upstream_images  # can use the original images, before merging into new_image
+        except DetachedInstanceError as e:
+            if "lazy load operation of attribute 'upstream_images' cannot proceed" in str(e):
+                upstream_list = []  # can't access the upstream images, so just we have no use calling merge_all
+            else:  # other errors should be treated normally
+                raise e
+
+        for i, im in enumerate(upstream_list):
+            new_image.upstream_images[i] = im.merge_all(session)
 
         return new_image
 
@@ -1027,7 +1069,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         for i, image in enumerate(self.upstream_images):
             new_image = self._aligner.run(image, alignment_target)
             aligned.append(new_image)
-            ImageAligner.temp_images.append(new_image)  # keep track of all these images for cleanup purposes
+            # ImageAligner.temp_images.append(new_image)  # keep track of all these images for cleanup purposes
 
         self._aligned_images = aligned
 

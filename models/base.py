@@ -24,7 +24,10 @@ from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.dialects.postgresql import array as sqlarray
+from sqlalchemy.dialects.postgresql import ARRAY
+
 from sqlalchemy.schema import CheckConstraint
+
 
 from models.enums_and_bitflags import (
     data_badness_dict,
@@ -45,7 +48,8 @@ if len(_logger.handlers) == 0:
     _logger.addHandler( _logout )
     _formatter = logging.Formatter( f"[%(asctime)s - %(levelname)s] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S" )
     _logout.setFormatter( _formatter )
-# _logout.setLevel( logging.DEBUG )
+# _logger.setLevel( logging.INFO )
+
 
 # this is the root SeeChange folder
 CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
@@ -149,6 +153,7 @@ def get_all_database_objects(display=False, session=None):
     from models.zero_point import ZeroPoint
     from models.cutouts import Cutouts
     from models.measurements import Measurements
+    from models.objects import Object
     from models.calibratorfile import CalibratorFile
     from models.catalog_excerpt import CatalogExcerpt
     from models.reference import Reference
@@ -156,7 +161,7 @@ def get_all_database_objects(display=False, session=None):
 
     models = [
         CodeHash, CodeVersion, Provenance, DataFile, Exposure, Image,
-        SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements,
+        SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, Object,
         CalibratorFile, CatalogExcerpt, Reference, SensorSection
     ]
 
@@ -298,7 +303,7 @@ class SeeChangeBase:
         """Get all data products that were created directly from this object (non-recursive)."""
         raise NotImplementedError('get_downstreams not implemented for this class')
 
-    def delete_from_database(self, session=None, commit=True):
+    def delete_from_database(self, session=None, commit=True, remove_downstreams=False):
         """Remove the object from the database.
 
         This does not remove any associated files (if this is a FileOnDiskMixin)
@@ -314,13 +319,30 @@ class SeeChangeBase:
             Default is True. When session=None then commit must be True,
             otherwise the session will exit without committing
             (in this case the function will raise a RuntimeException).
+        remove_downstreams: bool
+            If True, will also remove all downstream data products.
+            Default is False.
         """
         if session is None and not commit:
             raise RuntimeError("When session=None, commit must be True!")
 
         with SmartSession(session) as session:
-            info = sa.inspect(self)
             need_commit = False
+            if remove_downstreams:
+                try:
+                    downstreams = self.get_downstreams()
+                    for d in downstreams:
+                        if hasattr(d, 'delete_from_database'):
+                            if d.delete_from_database(session=session, commit=False, remove_downstreams=True):
+                                need_commit = True
+                        if isinstance(d, list) and len(d) > 0 and hasattr(d[0], 'delete_list'):
+                            d[0].delete_list(d, remove_local=False, archive=False, commit=False, session=session)
+                            need_commit = True
+                except NotImplementedError as e:
+                    pass  # if this object does not implement get_downstreams, it is ok
+
+            info = sa.inspect(self)
+
             if info.persistent:
                 session.delete(self)
                 need_commit = True
@@ -328,11 +350,15 @@ class SeeChangeBase:
                 session.expunge(self)
                 need_commit = True
             elif info.detached:
-                session.execute(sa.delete(self.__class__).where(self.__class__.id == self.id))
-                need_commit = True
+                obj = session.scalars(sa.select(self.__class__).where(self.__class__.id == self.id)).first()
+                if obj is not None:
+                    session.delete(obj)
+                    need_commit = True
 
             if commit and need_commit:
                 session.commit()
+
+        return need_commit  # to be able to recursively report back if there's a need to commit
 
     def to_dict(self):
         """Translate all the SQLAlchemy columns into a dictionary.
@@ -530,16 +556,23 @@ class SeeChangeBase:
         str
             The full path to the output JSON file.
         """
-        types = set([type(obj) for obj in obj_list])
-        if len(types) != 1:
-            raise ValueError("All objects must be of the same type!")
+        if len(obj_list) == 0:
+            if filepath is None:
+                return  # can't do anything without a filepath
+            json_filepath = os.path.join(cache_dir, filepath)
+            if not json_filepath.endswith('.json'):
+                json_filepath += '.json'
+        else:
+            types = set([type(obj) for obj in obj_list])
+            if len(types) != 1:
+                raise ValueError("All objects must be of the same type!")
 
-        filepaths = set([getattr(obj, 'filepath', None) for obj in obj_list])
-        if len(filepaths) != 1:
-            raise ValueError("All objects must have the same filepath!")
+            filepaths = set([getattr(obj, 'filepath', None) for obj in obj_list])
+            if len(filepaths) != 1:
+                raise ValueError("All objects must have the same filepath!")
 
-        # save the JSON file and copy associated files
-        json_filepath = obj_list[0].copy_to_cache(cache_dir, filepath=filepath)
+            # save the JSON file and copy associated files
+            json_filepath = obj_list[0].copy_to_cache(cache_dir, filepath=filepath)
 
         # overwrite the JSON file with the list of dictionaries
         with open(json_filepath, 'w') as fp:
@@ -832,9 +865,8 @@ class FileOnDiskMixin:
             doc="Base path (relative to the data root) for a stored file"
         )
 
-
     filepath_extensions = sa.Column(
-        sa.ARRAY(sa.Text),
+        ARRAY(sa.Text, zero_indexes=True),
         nullable=True,
         doc="If non-null, array of text appended to filepath to get actual saved filenames."
     )
@@ -847,7 +879,7 @@ class FileOnDiskMixin:
     )
 
     md5sum_extensions = sa.Column(
-        sa.ARRAY(sqlUUID(as_uuid=True)),
+        ARRAY(sqlUUID(as_uuid=True), zero_indexes=True),
         nullable=True,
         default=None,
         doc="md5sum of extension files; must have same number of elements as filepath_extensions"
@@ -1369,11 +1401,11 @@ class FileOnDiskMixin:
             else:
                 self.md5sum = remmd5
 
-    def remove_data_from_disk(self, remove_folders=True, remove_downstream_data=False):
+    def remove_data_from_disk(self, remove_folders=True, remove_downstreams=False):
         """Delete the data from local disk, if it exists.
         If remove_folders=True, will also remove any folders
         if they are empty after the deletion.
-        Use remove_downstream_data=True to also remove any
+        Use remove_downstreams=True to also remove any
         downstream data (e.g., for an Image, that would be the
         data for the SourceLists and PSFs that depend on this Image).
         This function will not remove database rows or archive files,
@@ -1387,7 +1419,7 @@ class FileOnDiskMixin:
         remove_folders: bool
             If True, will remove any folders on the path to the files
             associated to this object, if they are empty.
-        remove_downstream_data: bool
+        remove_downstreams: bool
             If True, will also remove any downstream data.
             Will recursively call get_downstreams() and find any objects
             that have remove_data_from_disk() implemented, and call it.
@@ -1407,17 +1439,18 @@ class FileOnDiskMixin:
                             else:
                                 break
 
-        if remove_downstream_data:
+        if remove_downstreams:
             try:
                 downstreams = self.get_downstreams()
                 for d in downstreams:
                     if hasattr(d, 'remove_data_from_disk'):
-                        d.remove_data_from_disk(remove_folders=remove_folders, remove_downstream_data=True)
-
+                        d.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=True)
+                    if isinstance(d, list) and len(d) > 0 and hasattr(d[0], 'delete_list'):
+                        d[0].delete_list(d, remove_local=True, archive=False, database=False)
             except NotImplementedError as e:
                 pass  # if this object does not implement get_downstreams, it is ok
 
-    def delete_from_archive(self, remove_downstream_data=False):
+    def delete_from_archive(self, remove_downstreams=False):
         """Delete the file from the archive, if it exists.
         This will not remove the file from local disk, nor
         from the database.  Use delete_from_disk_and_database()
@@ -1425,19 +1458,20 @@ class FileOnDiskMixin:
 
         Parameters
         ----------
-        remove_downstream_data: bool
+        remove_downstreams: bool
             If True, will also remove any downstream data.
             Will recursively call get_downstreams() and find any objects
-            that have remove_data_from_disk() implemented, and call it.
+            that have delete_from_archive() implemented, and call it.
             Default is False.
         """
-        if remove_downstream_data:
+        if remove_downstreams:
             try:
                 downstreams = self.get_downstreams()
                 for d in downstreams:
                     if hasattr(d, 'delete_from_archive'):
-                        d.delete_from_archive(remove_downstream_data=True)  # TODO: do we need remove_folders?
-
+                        d.delete_from_archive(remove_downstreams=True)  # TODO: do we need remove_folders?
+                    if isinstance(d, list) and len(d) > 0 and hasattr(d[0], 'delete_list'):
+                        d[0].delete_list(d, remove_local=False, archive=True, database=False)
             except NotImplementedError as e:
                 pass  # if this object does not implement get_downstreams, it is ok
 
@@ -1447,13 +1481,14 @@ class FileOnDiskMixin:
             else:
                 for ext in self.filepath_extensions:
                     self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
+
         # make sure these are set to null just in case we fail
         # to commit later on, we will at least know something is wrong
         self.md5sum = None
         self.md5sum_extensions = None
 
     def delete_from_disk_and_database(
-            self, session=None, commit=True, remove_folders=True, remove_downstream_data=False, archive=True,
+            self, session=None, commit=True, remove_folders=True, remove_downstreams=False, archive=True,
     ):
         """
         Delete the data from disk, archive and the database.
@@ -1483,10 +1518,10 @@ class FileOnDiskMixin:
         remove_folders: bool
             If True, will remove any folders on the path to the files
             associated to this object, if they are empty.
-        remove_downstream_data: bool
+        remove_downstreams: bool
             If True, will also remove any downstream data.
             Will recursively call get_downstreams() and find any objects
-            that have remove_data_from_disk() implemented, and call it.
+            that can have their data deleted from disk, archive and database.
             Default is False.
         archive: bool
             If True, will also delete the file from the archive.
@@ -1495,19 +1530,17 @@ class FileOnDiskMixin:
         if session is None and not commit:
             raise RuntimeError("When session=None, commit must be True!")
 
-        self.remove_data_from_disk(remove_folders=remove_folders, remove_downstream_data=remove_downstream_data)
+        SeeChangeBase.delete_from_database(self, session=session, commit=commit, remove_downstreams=remove_downstreams)
+
+        self.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=remove_downstreams)
 
         if archive:
-            self.delete_from_archive(remove_downstream_data=remove_downstream_data)
+            self.delete_from_archive(remove_downstreams=remove_downstreams)
 
         # make sure these are set to null just in case we fail
         # to commit later on, we will at least know something is wrong
-        self.md5sum = None
-        self.md5sum_extensions = None
         self.filepath_extensions = None
         self.filepath = None
-
-        SeeChangeBase.delete_from_database(self, session=session, commit=commit)
 
 
 # load the default paths from the config
@@ -1557,10 +1590,10 @@ class SpatiallyIndexed:
             return
 
         coords = SkyCoord(self.ra, self.dec, unit="deg", frame="icrs")
-        self.gallat = coords.galactic.b.deg
-        self.gallon = coords.galactic.l.deg
-        self.ecllat = coords.barycentrictrueecliptic.lat.deg
-        self.ecllon = coords.barycentrictrueecliptic.lon.deg
+        self.gallat = float(coords.galactic.b.deg)
+        self.gallon = float(coords.galactic.l.deg)
+        self.ecllat = float(coords.barycentrictrueecliptic.lat.deg)
+        self.ecllon = float(coords.barycentrictrueecliptic.lon.deg)
 
     @hybrid_method
     def within( self, fourcorn ):
@@ -1582,6 +1615,52 @@ class SpatiallyIndexed:
                                                 fourcorn.ra_corner_01, fourcorn.dec_corner_01,
                                                 fourcorn.ra_corner_11, fourcorn.dec_corner_11,
                                                 fourcorn.ra_corner_10, fourcorn.dec_corner_10 ] ) )
+
+    @classmethod
+    def cone_search( cls, ra, dec, rad, radunit='arcsec', ra_col='ra', dec_col='dec' ):
+        """Find all objects of this class that are within a cone.
+
+        Parameters
+        ----------
+          ra: float
+            The central right ascension in decimal degrees
+          dec: float
+            The central declination in decimal degrees
+          rad: float
+            The radius of the circle on the sky
+          radunit: str
+            The units of rad.  One of 'arcsec', 'arcmin', 'degrees', or
+            'radians'.  Defaults to 'arcsec'.
+          ra_col: str
+            The name of the ra column in the table.  Defaults to 'ra'.
+          dec_col: str
+            The name of the dec column in the table.  Defaults to 'dec'.
+
+        Returns
+        -------
+          A query with the cone search.
+
+        """
+        if radunit == 'arcmin':
+            rad /= 60.
+        elif radunit == 'arcsec':
+            rad /= 3600.
+        elif radunit == 'radians':
+            rad *= 180. / math.pi
+        elif radunit != 'degrees':
+            raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
+
+        return func.q3c_radial_query( getattr(cls, ra_col), getattr(cls, dec_col), ra, dec, rad )
+
+    def distance_to(self, other, units='arcsec'):
+        """Calculate the angular distance between this object and another object."""
+        if not isinstance(other, (SpatiallyIndexed, SkyCoord)):
+            raise ValueError(f'Cannot calculate distance between {type(self)} and {type(other)}')
+
+        coord1 = SkyCoord(self.ra, self.dec, unit='deg')
+        coord2 = SkyCoord(other.ra, other.dec, unit='deg')
+
+        return coord1.separation(coord2).to(units).value
 
 
 class FourCorners:
@@ -1719,39 +1798,6 @@ class FourCorners:
             objs = sess.scalars( sa.select( cls ).from_statement( query ) ).all()
             sess.execute( sa.text( "DROP TABLE temp_find_containing" ) )
             return objs
-
-    @hybrid_method
-    def cone_search( self, ra, dec, rad, radunit='arcsec' ):
-        """Find all objects of this class that are within a cone.
-
-        Parameters
-        ----------
-          ra: float
-            The central right ascension in decimal degrees
-          dec: float
-            The central declination in decimal degrees
-          rad: float
-            The radius of the circle on the sky
-          radunit: str
-            The units of rad.  One of 'arcsec', 'arcmin', 'degrees', or
-            'radians'.  Defaults to 'arcsec'.
-
-        Returns
-        -------
-          A query with the cone search.
-
-        """
-
-        if radunit == 'arcmin':
-            rad /= 60.
-        elif radunit == 'arcsec':
-            rad /= 3600.
-        elif radunit == 'radians':
-            rad *= 180. / math.pi
-        elif radunit != 'degrees':
-            raise ValueError( f'SpatiallyIndexed.cone_search: unknown radius unit {radunit}' )
-
-        return func.q3c_radial_query( self.ra, self.dec, ra, dec, rad )
 
 
 class HasBitFlagBadness:
