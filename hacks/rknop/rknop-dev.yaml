@@ -1,0 +1,29 @@
+preloads:
+  - ../../default_config.yaml
+overrides:
+  - /secrets/ls4-rknop-dev.yaml
+#   - local_overrides.yaml
+#augments:
+#   - local_augments.yaml
+
+path:
+  data_root: '/data/seechange'
+  data_temp: '/data/temp'
+
+db:
+  host: postgres-loadbalancer.ls4-rknop-dev.production.svc.spin.nersc.org
+  password: placeholder
+  
+archive:
+  archive_url: https://ls4-rknop-dev-archive.lbl.gov/
+  verify_cert: true
+  # archive_url: https://archive.ls4-rknop-dev.production.svc.spin.nersc.org/
+  # verify_cert: false
+  path_base: base/
+  local_read_dir: null
+  local_write_dir: null
+  token: placeholder
+
+subtraction:
+  method: zogy
+
