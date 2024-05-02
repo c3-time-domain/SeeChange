@@ -1,0 +1,9 @@
+apiVersion: v1
+data:
+  tls.crt: PUT THE RIGHT THING HERE
+  tls.key: PUT THE RIGHT THING HERE
+kind: Secret
+metadata:
+  name: ls4-rknop-dev-archive-cert
+  namespace: ls4-rknop-dev
+type: kubernetes.io/tls

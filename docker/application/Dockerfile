@@ -1,3 +1,11 @@
+# To build this Dockerfile, you must be in the seechange root directory
+#
+# Do
+#
+#   docker build -t <imagename> -f docker/application/Dockerfile .
+#
+# ( rknop on nersc : image = registry.nersc.gov/m4616/raknop/seechange )
+
 FROM rknop/devuan-daedalus-rknop
 
 MAINTAINER Rob Knop <raknop@lbl.gov>
