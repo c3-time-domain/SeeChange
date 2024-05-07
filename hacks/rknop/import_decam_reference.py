@@ -35,7 +35,7 @@ def main():
     parser.add_argument( "-s", "--section-id", required=True,
                          help="The section_id (chip, using N1, S1, etc. notation)" )
     args = parser.parse_args()
-    
+
     with SmartSession() as sess:
 
         # Get the provenance we'll use for the imported references
@@ -72,7 +72,7 @@ def main():
                 if len( iprov.upstreams ) == 0:
                     prov = iprov
                     break
-    
+
         with fits.open( args.image ) as img, fits.open( args.weight ) as wgt, fits.open( args.mask) as msk:
             img_hdr = img[ args.hdu ].header
             img_data = img[ args.hdu ].data
@@ -84,7 +84,7 @@ def main():
 
         # Trust the WCS that's in there to start
         #  for purposes of ra/dec fields
-        
+
         radec = wcs.pixel_to_world( img_data.shape[1] / 2., img_data.shape[0] / 2. )
         ra = radec.ra.to(u.deg).value
         dec = radec.dec.to(u.deg).value
@@ -93,7 +93,7 @@ def main():
         ecl = radec.transform_to( 'geocentricmeanecliptic' )
         ecl_lat = ecl.lat.to(u.deg).value
         ecl_lon = ecl.lon.to(u.deg).value
-        
+
         xcorner = [ 0., img_data.shape[1]-1., img_data.shape[1]-1., 0. ]
         ycorner = [ 0., 0., img_data.shape[0]-1., img_data.shape[0]-1. ]
         radec = wcs.pixel_to_world( xcorner, ycorner )
@@ -113,7 +113,7 @@ def main():
                 dec_corner_11 = cdec
             else:
                 raise RuntimeError( "This should never happen" )
-        
+
         image = Image( provenance=prov,
                        format='fits',
                        type='ComSci',       # Not really right, but we don't currently have a definition

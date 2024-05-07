@@ -472,7 +472,7 @@ def test_coaddition_pipeline_outputs(ptf_reference_images, ptf_aligned_images):
 
     finally:
         if 'coadd_image' in locals():
-            coadd_image.delete_from_disk_and_database(commit=True, remove_downstream_data=True)
+            coadd_image.delete_from_disk_and_database(commit=True, remove_downstreams=True)
 
 
 def test_coadded_reference(ptf_ref):

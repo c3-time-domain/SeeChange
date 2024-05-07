@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.schema import CheckConstraint
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -250,7 +250,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         doc="Modified Julian date of the start of the exposure (MJD=JD-2400000.5)."
     )
 
-    exp_time = sa.Column(sa.Float, nullable=False, index=True, doc="Exposure time in seconds. ")
+    exp_time = sa.Column(sa.REAL, nullable=False, index=True, doc="Exposure time in seconds. ")
 
     filter = sa.Column(sa.Text, nullable=True, index=True, doc="Name of the filter used to make this exposure. ")
 
@@ -261,7 +261,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         return self.instrument_object.get_short_filter_name(self.filter)
 
     filter_array = sa.Column(
-        sa.ARRAY(sa.Text),
+        ARRAY(sa.Text, zero_indexes=True),
         nullable=True,
         index=True,
         doc="Array of filter names, if multiple filters were used. "

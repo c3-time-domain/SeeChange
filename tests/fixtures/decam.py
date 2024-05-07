@@ -206,13 +206,16 @@ def decam_exposure(decam_filename, data_dir):
         hdr = ifp[0].header
     exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
 
-    exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
-    exposure.save()  # save to archive and get an MD5 sum
-
     with SmartSession() as session:
-        exposure.provenance = session.merge(exposure.provenance)
-        session.add(exposure)
-        session.commit()
+        # first try to recover an existing exposure
+        exposure = session.scalars(sa.select(Exposure).where(Exposure.filepath == filename)).first()
+        if exposure is None:
+            exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
+            exposure.save()  # save to archive and get an MD5 sum
+
+            exposure.provenance = session.merge(exposure.provenance)
+            session.add(exposure)
+            session.commit()
 
     yield exposure
 
@@ -397,7 +400,6 @@ def decam_ref_datastore( code_version, download_url, decam_cache_dir, data_dir, 
             assert os.path.isfile(filename)
 
         ds.save_and_commit(session)
-        session.commit()
 
     delete_list = [
         ds.image, ds.sources, ds.psf, ds.wcs, ds.zp, ds.sub_image, ds.detections, ds.cutouts, ds.measurements
@@ -447,7 +449,7 @@ def decam_reference(decam_ref_datastore):
 
         ref = ref.merge_all(session=session)
         if not sa.inspect(ref).persistent:
-            session.add(ref)
+            ref = session.merge(ref)
         session.commit()
 
     yield ref

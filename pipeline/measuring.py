@@ -1,5 +1,4 @@
 import numpy as np
-import sqlalchemy as sa
 
 from scipy import signal
 
@@ -7,7 +6,7 @@ from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 from util.util import parse_session
 
-from models.base import SmartSession
+from models.base import _logger
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.enums_and_bitflags import BitFlagConverter
@@ -55,12 +54,12 @@ class ParsMeasurer(Parameters):
             'Which kinds of analytic cuts are used to give scores to this measurement. '
         )
 
-        self.negative_positive_threshold = self.add_par(
-            'negative_positive_threshold',
+        self.outlier_sigma = self.add_par(
+            'outlier_sigma',
             3.0,
             float,
             'How many times the local background RMS for each pixel counts '
-            'as being a negative or positive pixel. '
+            'as being a negative or positive outlier pixel. '
         )
 
         self.bad_pixel_radius = self.add_par(
@@ -93,6 +92,26 @@ class ParsMeasurer(Parameters):
             'to compare against the real width (x1.0) when running psf width filter. '
         )
 
+        self.thresholds = self.add_par(
+            'thresholds',
+            {
+                'negatives': 0.3,
+                'bad pixels': 1,
+                'offsets': 5.0,
+                'filter bank': 1,
+            },
+            dict,
+            'Thresholds for the disqualifier scores. '
+            'If the score is higher than (or equal to) the threshold, the measurement is disqualified. '
+        )
+
+        self.association_radius = self.add_par(
+            'association_radius',
+            2.0,
+            float,
+            'Radius in arcseconds to associate measurements with an object. '
+        )
+
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -113,21 +132,22 @@ class Measurer:
         self._filter_psf_fwhm = None  # recall the FWHM used to produce this filter bank, recalculate if it changes
 
     def run(self, *args, **kwargs):
-        """
-        Go over the cutouts from an image and measure all sorts of things
+        """Go over the cutouts from an image and measure all sorts of things
         for each cutout: photometry (flux, centroids), etc.
 
         Returns a DataStore object with the products of the processing.
         """
         # most likely to get a Cutouts object or list of Cutouts
         if isinstance(args[0], Cutouts):
-            args[0] = [args[0]]  # make it a list if we got a single Cutouts object for some reason
+            new_args = [args[0]]  # make it a list if we got a single Cutouts object for some reason
+            new_args += list(args[1:])
+            args = tuple(new_args)
 
         if isinstance(args[0], list) and all([isinstance(c, Cutouts) for c in args[0]]):
             args, kwargs, session = parse_session(*args, **kwargs)
             ds = DataStore()
             ds.cutouts = args[0]
-            ds.detections = args[0][0].sources
+            ds.detections = ds.cutouts[0].sources
             ds.sub_image = ds.detections.image
             ds.image = ds.sub_image.new_image
         else:
@@ -140,6 +160,7 @@ class Measurer:
         # try to find some measurements in memory or in the database:
         measurements_list = ds.get_measurements(prov, session=session)
 
+        # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
         if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements
             self.has_recalculated = True
             # use the latest source list in the data store,
@@ -159,8 +180,11 @@ class Measurer:
 
             # go over each cutouts object and produce a measurements object
             measurements_list = []
-            for c in cutouts:
+            for i, c in enumerate(cutouts):
                 m = Measurements(cutouts=c)
+                # make sure to remember which cutout belongs to this measurement,
+                # before either of them is in the DB and then use the cutouts_id instead
+                m._cutouts_list_index = i
 
                 m.aper_radii = c.sources.image.new_image.zp.aper_cor_radii  # zero point corrected aperture radii
 
@@ -173,7 +197,7 @@ class Measurer:
 
                 annulus_radii_pixels = self.pars.annulus_radii
                 if self.pars.annulus_units == 'fwhm':
-                    annulus_radii_pixels /= c.source.image.get_psf().fwhm_pixels
+                    annulus_radii_pixels = [rad * c.source.image.get_psf().fwhm_pixels for rad in annulus_radii_pixels]
 
                 # TODO: consider if there are any additional parameters that photometry needs
                 output = iterative_photometry(
@@ -217,13 +241,14 @@ class Measurer:
 
                 # Apply analytic cuts to each stamp image, to rule out artefacts.
                 m.disqualifier_scores = {}
-                if m.background != 0 and m.background_err > 0:
+                if m.background != 0 and m.background_err > 0.1:
                     norm_data = (c.sub_nandata - m.background) / m.background_err  # normalize
                 else:
+                    _logger.warning(f'Background mean= {m.background}, std= {m.background_err}, normalization skipped!')
                     norm_data = c.sub_nandata  # no good background measurement, do not normalize!
 
-                positives = np.sum(norm_data > 3)
-                negatives = np.sum(norm_data < -3)
+                positives = np.sum(norm_data > self.pars.outlier_sigma)
+                negatives = np.sum(norm_data < -self.pars.outlier_sigma)
                 if negatives == 0:
                     m.disqualifier_scores['negatives'] = 0.0
                 elif positives == 0:
@@ -235,7 +260,7 @@ class Measurer:
                 x = x - c.sub_data.shape[1] // 2 - m.offset_x
                 y = y - c.sub_data.shape[0] // 2 - m.offset_y
                 r = np.sqrt(x ** 2 + y ** 2)
-                bad_pixel_inclusion = r < self.pars.bad_pixel_radius
+                bad_pixel_inclusion = r <= self.pars.bad_pixel_radius + 0.5
                 m.disqualifier_scores['bad pixels'] = np.sum(flags[bad_pixel_inclusion] > 0)
 
                 norm_data_no_nans = norm_data.copy()
@@ -259,8 +284,16 @@ class Measurer:
 
                 measurements_list.append(m)
 
-            # add the resulting list to the data store
-            ds.measurements = measurements_list
+            saved_measurements = []
+            for m in measurements_list:
+                if m.passes():  # all disqualifiers are below threshold
+                    saved_measurements.append(m)
+
+            # add the resulting measurements to the data store
+            ds.all_measurements = measurements_list  # debugging only
+            ds.failed_measurements = [m for m in measurements_list if m not in saved_measurements]  # debugging only
+            ds.measurements = saved_measurements  # only keep measurements that passed the disqualifiers cuts.
+            ds.sub_image.measurements = saved_measurements
 
         # make sure this is returned to be used in the next step
         return ds

@@ -120,6 +120,7 @@ class DataStore:
         self.detections = None  # a SourceList object for sources detected in the subtraction image
         self.cutouts = None  # cutouts around sources
         self.measurements = None  # photometry and other measurements for each source
+        self.objects = None  # a list of Object associations of Measurements
 
         # these need to be added to the attributes_to_clear list
         self.ref_image = None  # to be used to make subtractions
@@ -436,6 +437,7 @@ class DataStore:
                 code_version=code_version,
                 parameters=pars_dict,
                 upstreams=upstreams,
+                is_testing="test_parameter" in pars_dict, # this is a flag for testing purposes
             )
             db_prov = session.scalars(sa.select(Provenance).where(Provenance.id == prov.id)).first()
             if db_prov is not None:  # only merge if this provenance already exists
@@ -710,7 +712,7 @@ class DataStore:
 
         return self.sources
 
-    def get_psf( self, provenance=None, session=None ):
+    def get_psf(self, provenance=None, session=None):
         """Get a PSF for the image, either from memory or the database.
 
         Parameters
@@ -1244,7 +1246,7 @@ class DataStore:
 
         return self.measurements
 
-    def get_all_data_products(self, output='dict', omit_exposure=False ):
+    def get_all_data_products(self, output='dict', omit_exposure=False):
         """Get all the data products associated with this Exposure.
 
         By default, this returns a dict with named entries.
@@ -1279,8 +1281,8 @@ class DataStore:
         else:
             raise ValueError(f'Unknown output format: {output}')
 
-    def save_and_commit( self, exists_ok=False, overwrite=True, no_archive=False,
-                         update_image_header=False, force_save_everything=True, session=None ):
+    def save_and_commit(self, exists_ok=False, overwrite=True, no_archive=False,
+                        update_image_header=False, force_save_everything=True, session=None):
         """Go over all the data products and add them to the session.
 
         If any of the data products are associated with a file on disk,
@@ -1422,19 +1424,25 @@ class DataStore:
             if self.sub_image is not None:
                 self.sub_image.new_image = self.image  # update with the now-merged image
                 self.sub_image = self.sub_image.merge_all(session)  # merges the upstream_images and downstream products
-                self.ref_image.id = self.sub_image.ref_image_id  # just to make sure the ref has an ID for merging
+                self.sub_image.ref_image.id = self.sub_image.ref_image_id  # just to make sure the ref has an ID for merging
                 self.detections = self.sub_image.sources
 
             if self.detections is not None:
                 if self.cutouts is not None:
+                    if self.measurements is not None:  # keep track of which cutouts goes to which measurements
+                        for m in self.measurements:
+                            m._cutouts_list_index = self.cutouts.index(m.cutouts)
                     for cutout in self.cutouts:
                         cutout.sources = self.detections
                     self.cutouts = Cutouts.merge_list(self.cutouts, session)
 
                 if self.measurements is not None:
                     for i, m in enumerate(self.measurements):
-                        self.measurements[i].cutouts = self.cutouts[i]  # use the new, merged cutouts
-                        self.measurements[i] = session.merge(m)
+                        # use the new, merged cutouts
+                        self.measurements[i].cutouts = self.measurements[i].find_cutouts_in_list(self.cutouts)
+                        self.measurements[i].associate_object(session)
+                        self.measurements[i] = session.merge(self.measurements[i])
+                        self.measurements[i].object.measurements.append(self.measurements[i])
 
             self.psf = self.image.psf
             self.sources = self.image.sources
@@ -1482,11 +1490,13 @@ class DataStore:
                         for j, o in enumerate(obj):
                             if o.id is not None:
                                 for att in ['image', 'sources']:
-                                    if hasattr(o, att):
+                                    try:
                                         setattr(o, att, None)  # clear any back references before merging
+                                    except AttributeError:
+                                        pass  # ignore when the object doesn't have attribute, or it has no setter
                                 obj_list[i][j] = session.merge(o)
                         continue
-                    if obj.id is not None:  # don't merge new objects, as that just "adds" them to DB!
+                    if sa.inspect(obj).transient:  # don't merge new objects, as that just "adds" them to DB!
                         obj_list[i] = session.merge(obj)
 
                 for obj in obj_list:  # now do the deleting without flushing
@@ -1503,7 +1513,12 @@ class DataStore:
                     if obj in session and sa.inspect(obj).persistent:
                         session.delete(obj)
 
-                    if hasattr(obj, 'provenance') and obj.provenance is not None and obj.provenance in session:
+                    if (
+                            not sa.inspect(obj).detached and
+                            hasattr(obj, 'provenance') and
+                            obj.provenance is not None
+                            and obj.provenance in session
+                    ):
                         session.expunge(obj.provenance)
 
                 # verify that the objects are in fact deleted by deleting the image at the root of the datastore

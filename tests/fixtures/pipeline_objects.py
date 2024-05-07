@@ -561,7 +561,6 @@ def datastore_factory(
 
             ds.save_and_commit(session=session)
 
-
             try:  # if no reference is found, simply return the datastore without the rest of the products
                 ref = ds.get_reference()  # first make sure this actually manages to find the reference image
             except ValueError as e:
@@ -652,17 +651,17 @@ def datastore_factory(
 
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{prov.id[:6]}.json')
 
-            if os.path.isfile(cache_name):
+            if os.path.isfile(cache_name):  # note that the cache contains ALL the measurements, not only the good ones
                 _logger.debug('loading measurements from cache. ')
-                ds.measurements = Measurements.copy_list_from_cache(cache_dir, cache_name)
-                [setattr(m, 'provenance', prov) for m in ds.measurements]
-                [setattr(m, 'cutouts', c) for m, c in zip(ds.measurements, ds.cutouts)]
+                ds.all_measurements = Measurements.copy_list_from_cache(cache_dir, cache_name)
+                [setattr(m, 'provenance', prov) for m in ds.all_measurements]
+                [setattr(m, 'cutouts', c) for m, c in zip(ds.all_measurements, ds.cutouts)]
+                ds.measurements = [m for m in ds.all_measurements if m.passes()]
+                [m.associate_object(session) for m in ds.measurements]  # create or find an object for each measurement
                 # no need to save list because Measurements is not a FileOnDiskMixin!
             else:  # cannot find measurements on cache
                 ds = measurer.run(ds)
-                Measurements.copy_list_to_cache(ds.measurements, cache_dir, cache_name)  # must provide filepath!
-
-            # TODO: add the same cache/load and processing for the rest of the pipeline
+                Measurements.copy_list_to_cache(ds.all_measurements, cache_dir, cache_name)  # must provide filepath!
 
             ds.save_and_commit(session=session)
 

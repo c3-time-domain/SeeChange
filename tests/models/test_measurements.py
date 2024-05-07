@@ -13,13 +13,12 @@ from models.cutouts import Cutouts
 from models.measurements import Measurements
 
 
-def test_measurements(measurer, decam_cutouts, decam_measurements):
-    ds = measurer.run(decam_cutouts)
+def test_measurements_attributes(measurer, ptf_datastore):
 
-    assert len(ds.measurements) == len(ds.cutouts)
-
+    ds = measurer.run(ptf_datastore.cutouts)
     # check that the measurer actually loaded the measurements from db, and not recalculated
-    assert ds.measurements[0].id == decam_measurements[0].id
+    assert len(ds.measurements) <= len(ds.cutouts)  # not all cutouts have saved measurements
+    assert len(ds.measurements) == len(ptf_datastore.measurements)
     assert ds.measurements[0].from_db
     assert not measurer.has_recalculated
 
@@ -73,49 +72,65 @@ def test_measurements(measurer, decam_cutouts, decam_measurements):
 
     # TODO: add test for limiting magnitude (issue #143)
 
+
+def test_filtering_measurements(ptf_datastore):
+    measurements = ptf_datastore.measurements
+    m = measurements[0]  # grab the first one as an example
+
     # test that we can filter on some measurements properties
     with SmartSession() as session:
-        ms = session.scalars(sa.select(Measurements).where(Measurements.flux_psf > 0)).all()
-        assert len(ms) < len(ds.measurements)  # only some of the measurements have positive flux
+        ms = session.scalars(sa.select(Measurements).where(Measurements.flux_apertures[0] > 0)).all()
+        assert len(ms) == len(measurements)  # saved measurements will probably have a positive flux
+
+        ms = session.scalars(sa.select(Measurements).where(Measurements.flux_apertures[0] > 100)).all()
+        assert len(ms) < len(measurements)  # only some measurements have a flux above 100
 
         ms = session.scalars(
             sa.select(Measurements).join(Cutouts).join(SourceList).join(Image).where(
                 Image.mjd == m.mjd, Measurements.provenance_id == m.provenance.id
             )).all()
-        assert len(ms) == len(ds.measurements)  # all measurements have the same MJD
+        assert len(ms) == len(measurements)  # all measurements have the same MJD
 
         ms = session.scalars(
             sa.select(Measurements).join(Cutouts).join(SourceList).join(Image).where(
                 Image.exp_time == m.exp_time, Measurements.provenance_id == m.provenance.id
             )).all()
-        assert len(ms) == len(ds.measurements)  # all measurements have the same exposure time
+        assert len(ms) == len(measurements)  # all measurements have the same exposure time
 
         ms = session.scalars(
             sa.select(Measurements).join(Cutouts).join(SourceList).join(Image).where(
                 Image.filter == m.filter, Measurements.provenance_id == m.provenance.id
             )).all()
-        assert len(ms) == len(ds.measurements)  # all measurements have the same filter
+        assert len(ms) == len(measurements)  # all measurements have the same filter
 
         ms = session.scalars(sa.select(Measurements).where(Measurements.background > 0)).all()
-        assert len(ms) <= len(ds.measurements)  # only some of the measurements have positive background
+        assert len(ms) <= len(measurements)  # only some of the measurements have positive background
 
         ms = session.scalars(sa.select(Measurements).where(
             Measurements.offset_x > 0, Measurements.provenance_id == m.provenance.id
         )).all()
-        assert len(ms) <= len(ds.measurements)  # only some of the measurements have positive offsets
+        assert len(ms) <= len(measurements)  # only some of the measurements have positive offsets
 
         ms = session.scalars(sa.select(Measurements).where(
             Measurements.area_psf >= 0, Measurements.provenance_id == m.provenance.id
         )).all()
-        assert len(ms) == len(ds.measurements)  # all measurements have positive psf area
+        assert len(ms) == len(measurements)  # all measurements have positive psf area
 
         ms = session.scalars(sa.select(Measurements).where(
             Measurements.width >= 0, Measurements.provenance_id == m.provenance.id
         )).all()
-        assert len(ms) == len(ds.measurements)  # all measurements have positive width
+        assert len(ms) == len(measurements)  # all measurements have positive width
 
-        # TODO: filter on a specific disqulaifier score
+        # filter on a specific disqualifier score
+        ms = session.scalars(sa.select(Measurements).where(
+            Measurements.disqualifier_scores['negatives'].astext.cast(sa.REAL) < 0.1,
+            Measurements.provenance_id == m.provenance.id
+        )).all()
+        assert len(ms) <= len(measurements)
 
+
+def test_measurements_cannot_be_saved_twice(ptf_datastore):
+    m = ptf_datastore.measurements[0]  # grab the first measurement as an example
     # test that we cannot save the same measurements object twice
     m2 = Measurements()
     for key, val in m.__dict__.items():

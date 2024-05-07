@@ -1,9 +1,11 @@
 import numpy as np
 
+from collections import defaultdict
+
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.schema import UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.ext.associationproxy import association_proxy
 
 from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, SpatiallyIndexed
@@ -27,11 +29,26 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
     )
 
     cutouts = orm.relationship(
-        'Cutouts',
+        Cutouts,
         cascade='save-update, merge, refresh-expire, expunge',
         passive_deletes=True,
         lazy='selectin',
         doc="The cutouts object that this measurements object is associated with. "
+    )
+
+    object_id = sa.Column(
+        sa.ForeignKey('objects.id', ondelete="CASCADE", name='measurements_object_id_fkey'),
+        nullable=False,  # every saved Measurements object must have an associated Object
+        index=True,
+        doc="ID of the object that this measurement is associated with. "
+    )
+
+    object = orm.relationship(
+        'Object',
+        cascade='save-update, merge, refresh-expire, expunge',
+        passive_deletes=True,
+        lazy='selectin',
+        doc="The object that this measurement is associated with. "
     )
 
     provenance_id = sa.Column(
@@ -49,33 +66,33 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
     )
 
     flux_psf = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="PSF flux of the measurement. "
             "This measurement has not had a background from a local annulus subtracted from it. "
     )
 
     flux_psf_err = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="PSF flux error of the measurement. "
     )
 
     flux_apertures = sa.Column(
-        sa.ARRAY(sa.Float),
+        ARRAY(sa.REAL, zero_indexes=True),
         nullable=False,
         doc="Aperture fluxes of the measurement. "
             "This measurement has not had a background from a local annulus subtracted from it. "
     )
 
     flux_apertures_err = sa.Column(
-        sa.ARRAY(sa.Float),
+        ARRAY(sa.REAL, zero_indexes=True),
         nullable=False,
         doc="Aperture flux errors of the measurement. "
     )
 
     aper_radii = sa.Column(
-        sa.ARRAY(sa.Float),
+        ARRAY(sa.REAL, zero_indexes=True),
         nullable=False,
         doc="Radii of the apertures used for calculating flux, in pixels. "
     )
@@ -145,44 +162,62 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
     def pixel_scale(self):
         return self.cutouts.sources.image.new_image.wcs.get_pixel_scale()
 
+    @property
+    def sources(self):
+        if self.cutouts is None:
+            return None
+        return self.cutouts.sources
+
+    @property
+    def image(self):
+        if self.cutouts is None or self.cutouts.sources is None:
+            return None
+        return self.cutouts.sources.image
+
+    @property
+    def instrument_object(self):
+        if self.cutouts is None or self.cutouts.sources is None or self.cutouts.sources.image is None:
+            return None
+        return self.cutouts.sources.image.instrument_object
+
     background = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="Background of the measurement, from a local annulus. Given as counts per pixel. "
     )
 
     background_err = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="RMS error of the background measurement, from a local annulus. Given as counts per pixel. "
     )
 
     area_psf = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="Area of the PSF used for calculating flux. Remove a * background from the flux measurement. "
     )
 
     area_apertures = sa.Column(
-        sa.ARRAY(sa.Float),
+        ARRAY(sa.REAL, zero_indexes=True),
         nullable=False,
         doc="Areas of the apertures used for calculating flux. Remove a * background from the flux measurement. "
     )
 
     offset_x = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="Offset in x from the center of the cutout. "
     )
 
     offset_y = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="Offset in y from the center of the cutout. "
     )
 
     width = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         index=True,
         doc="Width of the source in the cutout. "
@@ -190,7 +225,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
     )
 
     elongation = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="Elongation of the source in the cutout. "
             "Given by the ratio of the 2nd moments of the distribution of counts in the aperture. "
@@ -198,7 +233,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
     )
 
     position_angle = sa.Column(
-        sa.Float,
+        sa.REAL,
         nullable=False,
         doc="Position angle of the source in the cutout. "
             "Given by the angle of the major axis of the distribution of counts in the aperture. "
@@ -216,6 +251,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
 
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
+        self._cutouts_list_index = None  # helper (transient) attribute that helps find the right cutouts in a list
 
         # manually set all properties (columns or not)
         for key, value in kwargs.items():
@@ -280,6 +316,65 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
 
         raise ValueError('Filter number too high for the filter bank. ')
 
+    def find_cutouts_in_list(self, cutouts_list):
+        """Given a list of cutouts, find the one that matches this object. """
+        # this is faster, and works without needing DB indices to be set
+        if self._cutouts_list_index is not None:
+            return cutouts_list[self._cutouts_list_index]
+
+        # after loading from DB (or merging) we must use the cutouts_id to associate these
+        if self.cutouts_id is not None:
+            for i, cutouts in enumerate(cutouts_list):
+                if cutouts.id == self.cutouts_id:
+                    self._cutouts_list_index = i
+                    return cutouts
+
+        raise ValueError('Cutouts not found in the list. ')
+
+    def passes(self):
+        """check if there are disqualifiers above the threshold
+
+        Note that if a threshold is missing or None, that disqualifier is not checked
+        """
+        for key, value in self.provenance.parameters['thresholds'].items():
+            if value is not None and self.disqualifier_scores[key] >= value:
+                return False
+        return True
+
+    def associate_object(self, session=None):
+        """Find or create a new object and associate it with this measurement.
+
+        Objects must have sufficiently close coordinates to be associated with this
+        measurement (set by the provenance.parameters['association_radius'], in arcsec).
+
+        If no Object is found, a new one is created, and its coordinates will be identical
+        to those of this Measurements object.
+
+        This should only be done for measurements that have passed all preliminary cuts,
+        which mostly rules out obvious artefacts.
+        """
+        from models.objects import Object  # avoid circular import
+
+        with SmartSession(session) as session:
+            obj = session.scalars(sa.select(Object).where(
+                Object.cone_search(
+                    self.ra,
+                    self.dec,
+                    self.provenance.parameters['association_radius'],
+                    radunit='arcsec',
+                ),
+                Object.is_test.is_(self.provenance.is_testing),  # keep testing sources separate
+            )).first()
+
+            if obj is None:  # no object exists, make one based on these measurements
+                obj = Object(
+                    ra=self.ra,
+                    dec=self.dec,
+                )
+                obj.is_test = self.provenance.is_testing
+
+            self.object = obj
+
     def get_upstreams(self, session=None):
         """Get the image that was used to make this source list. """
         with SmartSession(session) as session:
@@ -288,7 +383,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
     def get_downstreams(self, session=None):
         """Get the downstreams of this Measurements"""
         return []
-            
+
     @classmethod
     def delete_list(cls, measurements_list, session=None, commit=True):
         """

@@ -262,7 +262,7 @@ def ptf_reference_images(ptf_images_factory):
         for image in images:
             image = session.merge(image)
             image.exposure.delete_from_disk_and_database(session=session, commit=False)
-            image.delete_from_disk_and_database(session=session, commit=False, remove_downstream_data=True)
+            image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
         session.commit()
 
 
@@ -278,7 +278,7 @@ def ptf_supernova_images(ptf_images_factory):
         for image in images:
             image = session.merge(image)
             # first delete the image and all it's products and the associated data (locally and on archive)
-            image.delete_from_disk_and_database(session=session, commit=False, remove_downstream_data=True)
+            image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
             # only then delete the exposure, so it doesn't cascade delete the image and prevent deleting products
             image.exposure.delete_from_disk_and_database(session=session, commit=False)
 
@@ -351,7 +351,7 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
             for image in ptf_reference_images:
                 image = session.merge(image)
                 image.exposure.delete_from_disk_and_database(commit=False, session=session)
-                image.delete_from_disk_and_database(commit=False, session=session, remove_downstream_data=True)
+                image.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
             session.commit()
 
 
@@ -474,7 +474,7 @@ def ptf_ref(ptf_reference_images, ptf_aligned_images, coadder, ptf_cache_dir, da
 
     with SmartSession() as session:
         coadd_image = session.merge(coadd_image)
-        coadd_image.delete_from_disk_and_database(commit=False, session=session, remove_downstream_data=True)
+        coadd_image.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
         session.commit()
         ref_in_db = session.scalars(sa.select(Reference).where(Reference.id == ref.id)).first()
         assert ref_in_db is None  # should have been deleted by cascade when image is deleted
@@ -512,4 +512,5 @@ def ptf_subtraction1(ptf_ref, ptf_supernova_images, subtractor, ptf_cache_dir):
 
     yield im
 
-    im.delete_from_disk_and_database(remove_downstream_data=True)
+    im.delete_from_disk_and_database(remove_downstreams=True)
+

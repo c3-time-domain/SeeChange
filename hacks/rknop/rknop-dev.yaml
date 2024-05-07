@@ -13,7 +13,7 @@ path:
 db:
   host: postgres-loadbalancer.ls4-rknop-dev.production.svc.spin.nersc.org
   password: placeholder
-  
+
 archive:
   archive_url: https://ls4-rknop-dev-archive.lbl.gov/
   verify_cert: true

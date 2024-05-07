@@ -663,8 +663,8 @@ def test_multiple_images_badness(
             sim_image4.provenance = provenance_extra
             sim_image4.provenance.upstreams = sim_image4.get_upstream_provenances()
             cleanups.append(ImageCleanup.save_image(sim_image4))
-            images.append(sim_image4)
             sim_image4 = session.merge(sim_image4)
+            images.append(sim_image4)
             session.commit()
 
             assert sim_image4.id is not None
@@ -693,8 +693,8 @@ def test_multiple_images_badness(
             sim_image7 = Image.from_ref_and_new(sim_image6, sim_image5)
             sim_image7.provenance = provenance_extra
             cleanups.append(ImageCleanup.save_image(sim_image7))
-            images.append(sim_image7)
             sim_image7 = session.merge(sim_image7)
+            images.append(sim_image7)
             session.commit()
 
             # check that the new subtraction is not flagged
@@ -1079,38 +1079,40 @@ def test_image_from_exposure_filter_array(sim_exposure_filter_array):
 
 
 def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_base):
-    sim_exposure1.update_instrument()
-    sim_exposure2.update_instrument()
-
-    # make sure exposures are in chronological order...
-    if sim_exposure1.mjd > sim_exposure2.mjd:
-        sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
-
-    # get a couple of images from exposure objects
-    im1 = Image.from_exposure(sim_exposure1, section_id=0)
-    im2 = Image.from_exposure(sim_exposure2, section_id=0)
-    im2.filter = im1.filter
-    im2.target = im1.target
-
-    im1.provenance = provenance_base
-    _1 = ImageCleanup.save_image(im1)
-
-    im2.provenance = provenance_base
-    _2 = ImageCleanup.save_image(im2)
-
-    # make a coadd image from the two
-    im = Image.from_images([im1, im2])
-    im.provenance = provenance_base
-    _3 = ImageCleanup.save_image(im)
 
     try:
-        im_id = None
-        im1_id = None
-        im2_id = None
         with SmartSession() as session:
+            sim_exposure1.update_instrument()
+            sim_exposure2.update_instrument()
+
+            # make sure exposures are in chronological order...
+            if sim_exposure1.mjd > sim_exposure2.mjd:
+                sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
+
+            # get a couple of images from exposure objects
+            im1 = Image.from_exposure(sim_exposure1, section_id=0)
+            im1.weight = np.ones_like(im1.raw_data)
+            im1.flags = np.zeros_like(im1.raw_data)
+            im2 = Image.from_exposure(sim_exposure2, section_id=0)
+            im2.weight = np.ones_like(im2.raw_data)
+            im2.flags = np.zeros_like(im2.raw_data)
+            im2.filter = im1.filter
+            im2.target = im1.target
+
+            im1.provenance = provenance_base
+            _1 = ImageCleanup.save_image(im1)
+            im1 = im1.merge_all(session)
+
+            im2.provenance = provenance_base
+            _2 = ImageCleanup.save_image(im2)
+            im2 = im2.merge_all(session)
+
+            # make a coadd image from the two
+            im = Image.from_images([im1, im2])
+            im.provenance = provenance_base
+            _3 = ImageCleanup.save_image(im)
             im = im.merge_all( session )
-            im1 = im1.merge_all( session )
-            im2 = im2.merge_all( session )
+
             sim_exposure1 = session.merge(sim_exposure1)
             sim_exposure2 = session.merge(sim_exposure2)
 
@@ -1144,34 +1146,38 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
 
 
 def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):
-    sim_exposure1.update_instrument()
-    sim_exposure2.update_instrument()
-
-    # make sure exposures are in chronological order...
-    if sim_exposure1.mjd > sim_exposure2.mjd:
-        sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
-
-    # get a couple of images from exposure objects
-    im1 = Image.from_exposure(sim_exposure1, section_id=0)
-    im2 = Image.from_exposure(sim_exposure2, section_id=0)
-    im2.filter = im1.filter
-    im2.target = im1.target
-
-    im1.provenance = provenance_base
-    _1 = ImageCleanup.save_image(im1)
-    im2.provenance = provenance_base
-    _2 = ImageCleanup.save_image(im2)
-
-    # make a coadd image from the two
-    im = Image.from_ref_and_new(im1, im2)
-    im.provenance = provenance_base
-    _3 = ImageCleanup.save_image(im)
-
     try:
-        im_id = None
-        im1_id = None
-        im2_id = None
         with SmartSession() as session:
+            sim_exposure1.update_instrument()
+            sim_exposure2.update_instrument()
+
+            # make sure exposures are in chronological order...
+            if sim_exposure1.mjd > sim_exposure2.mjd:
+                sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
+
+            # get a couple of images from exposure objects
+            im1 = Image.from_exposure(sim_exposure1, section_id=0)
+            im1.weight = np.ones_like(im1.raw_data)
+            im1.flags = np.zeros_like(im1.raw_data)
+            im2 = Image.from_exposure(sim_exposure2, section_id=0)
+            im2.weight = np.ones_like(im2.raw_data)
+            im2.flags = np.zeros_like(im2.raw_data)
+            im2.filter = im1.filter
+            im2.target = im1.target
+
+            im1.provenance = provenance_base
+            _1 = ImageCleanup.save_image(im1)
+            im1 = im1.merge_all(session)
+
+            im2.provenance = provenance_base
+            _2 = ImageCleanup.save_image(im2)
+            im2 = im2.merge_all(session)
+
+            # make a coadd image from the two
+            im = Image.from_ref_and_new(im1, im2)
+            im.provenance = provenance_base
+            _3 = ImageCleanup.save_image(im)
+
             im = im.merge_all( session )
             im1 = im1.merge_all( session )
             im2 = im2.merge_all( session )
@@ -1369,7 +1375,7 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
             archive_files.append(archive_file)
 
     # delete the image and all its downstreams
-    im.delete_from_disk_and_database(remove_folders=True, remove_downstream_data=True)
+    im.delete_from_disk_and_database(remove_folders=True, remove_downstreams=True)
 
     # make sure the files are gone
     for file in local_files:
