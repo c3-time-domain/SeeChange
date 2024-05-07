@@ -1322,6 +1322,7 @@ class FileOnDiskMixin:
             if origmd5 is None:
                 origmd5 = hashlib.md5()
                 origmd5.update( data )
+            localpath.parent.mkdir( exist_ok=True, parents=True )
             with open( localpath, "wb" ) as ofp:
                 ofp.write( data )
             # Verify written file

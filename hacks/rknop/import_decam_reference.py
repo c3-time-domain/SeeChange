@@ -9,7 +9,9 @@ import astropy.units as u
 from astropy.io import fits
 from astropy.wcs import WCS
 
-from models.base import SmartSession
+from util.config import Config
+
+from models.base import SmartSession, safe_merge
 import models.instrument
 import models.decam
 from models.image import Image
@@ -50,6 +52,8 @@ def main():
                          help="The section_id (chip, using N1, S1, etc. notation)" )
     args = parser.parse_args()
 
+    config = Config.get()
+    
     with SmartSession() as sess:
 
         # Get the provenance we'll use for the imported references
@@ -172,13 +176,13 @@ def main():
         # image.save()
         # sess.add( image )
 
-        ds = DataStore( image )
+        ds = DataStore( image, session=sess )
         
         # Extract sources
 
         _logger.info( "Extracting sources" )
 
-        extraction_config = self.config.value( 'extraction', {} )
+        extraction_config = config.value( 'extraction', {} )
         extractor = Detector( **extraction_config )
         ds = extractor.run( ds )
 
@@ -186,7 +190,7 @@ def main():
 
         _logger.info( "Astrometric calibration" )
 
-        astro_cal_config = self.config.value( 'astro_cal', {} )
+        astro_cal_config = config.value( 'astro_cal', {} )
         astrometor = AstroCalibrator( **astro_cal_config )
         ds = astrometor.run( ds )
 
@@ -194,17 +198,24 @@ def main():
 
         _logger.info( "Photometric calibration" )
 
-        photo_cal_config = self.config.value( 'photo_cal', {} )
+        photo_cal_config = config.value( 'photo_cal', {} )
         photomotor = PhotCalibrator( **photo_cal_config )
         ds = photomotor.run( ds )
 
         _logger.info( "Saving data products" )
 
         ds.save_and_commit()
-        
+
         # Make the reference
 
         _logger.info( "Creating reference entry" )
+
+        # Because SQLAlchmey is annoying and confusing and generally
+        # makes me want to break everything around me whenever I have to
+        # interact with it, we have to make sure to use the object that
+        # SQLAlchemy has properly blessed when referring to the iamge.
+
+        image = ds.image
 
         ref = Reference( image=image, target=image.target, filter=image.filter, section_id=image.section_id,
                          validity_start='2010-01-01', validity_end='2099-12-31' )
