@@ -13,6 +13,7 @@ from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.objects import Object
 
 
 UPSTREAM_NAMES = {
