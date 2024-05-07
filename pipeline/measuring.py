@@ -9,6 +9,7 @@ from util.util import parse_session
 from models.base import _logger
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.object import Object
 from models.enums_and_bitflags import BitFlagConverter
 
 from improc.photometry import iterative_photometry
