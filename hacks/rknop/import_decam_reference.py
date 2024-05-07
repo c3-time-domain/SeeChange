@@ -39,7 +39,7 @@ def main():
     with SmartSession() as sess:
 
         # Get the provenance we'll use for the imported references
-        
+
         cvs = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).all()
         if len( cvs ) == 0:
             code_ver = CodeVersion( id='hack_0.1' )
