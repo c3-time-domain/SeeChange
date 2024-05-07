@@ -13,8 +13,14 @@ from models.base import SmartSession
 import models.instrument
 import models.decam
 from models.image import Image
+from models.reference import Reference
 from models.provenance import Provenance, CodeVersion
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
+
+from pipeline.data_store import DataStore
+from pipeline.detection import Detector
+from pipeline.astro_cal import AstroCalibrator
+from pipeline.photo_cal import PhotCalibrator
 
 # TODO : figure out what the right way is to get code versions when we aren't
 #   using test fixtures...
@@ -22,6 +28,14 @@ codeversion_id = 'hack_0.1'
 prov_process = 'import_image'
 prov_params = {}
 prov_upstreams = []
+
+_logger = logging.getLogger( __name__ )
+if not _logger.hasHandlers():
+    _logout = logging.StreamHandler( sys.stderr )
+    _logger.addHandler( _logout )
+    _logout.setFormatter( logging.Formatter( f'[%(asctime)s - %(levelname)s] - %(message)s' ) )
+
+_logger.setLevel( logging.INFO )
 
 def main():
     parser = argparse.ArgumentParser( 'Import a DECam image as a reference' )
@@ -73,6 +87,8 @@ def main():
                     prov = iprov
                     break
 
+        _logger.info( "Reading image" )
+                
         with fits.open( args.image ) as img, fits.open( args.weight ) as wgt, fits.open( args.mask) as msk:
             img_hdr = img[ args.hdu ].header
             img_data = img[ args.hdu ].data
@@ -153,8 +169,48 @@ def main():
         image.flags = numpy.zeros_like( msk_data, dtype=numpy.uint16 )
         image.flags[ msk_data != 0 ] = string_to_bitflag( 'bad pixel', flag_image_bits_inverse )
 
-        image.save()
-        sess.add( image )
+        # image.save()
+        # sess.add( image )
+
+        ds = DataStore( image )
+        
+        # Extract sources
+
+        _logger.info( "Extracting sources" )
+
+        extraction_config = self.config.value( 'extraction', {} )
+        extractor = Detector( **extraction_config )
+        ds = extractor.run( ds )
+
+        # WCS
+
+        _logger.info( "Astrometric calibration" )
+
+        astro_cal_config = self.config.value( 'astro_cal', {} )
+        astrometor = AstroCalibrator( **astro_cal_config )
+        ds = astrometor.run( ds )
+
+        # ZP
+
+        _logger.info( "Photometric calibration" )
+
+        photo_cal_config = self.config.value( 'photo_cal', {} )
+        photomotor = PhotCalibrator( **photo_cal_config )
+        ds = photomotor.run( ds )
+
+        _logger.info( "Saving data products" )
+
+        ds.save_and_commit()
+        
+        # Make the reference
+
+        _logger.info( "Creating reference entry" )
+
+        ref = Reference( image=image, target=image.target, filter=image.filter, section_id=image.section_id,
+                         validity_start='2010-01-01', validity_end='2099-12-31' )
+        ref.make_provenance()
+        sess.add( ref )
+        
         sess.commit()
 
 # ======================================================================

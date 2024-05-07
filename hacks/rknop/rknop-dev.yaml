@@ -1,3 +1,6 @@
+# This is the config file for rknop's dev environment on Perlmutter
+# Rob: see README.md for setup and podman docs
+
 preloads:
   - ../../default_config.yaml
 overrides:
@@ -17,8 +20,6 @@ db:
 archive:
   archive_url: https://ls4-rknop-dev-archive.lbl.gov/
   verify_cert: true
-  # archive_url: https://archive.ls4-rknop-dev.production.svc.spin.nersc.org/
-  # verify_cert: false
   path_base: base/
   local_read_dir: null
   local_write_dir: null
