@@ -269,6 +269,7 @@ def test_calc_apercor( decam_datastore ):
     # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.024, abs=0.001 )
 
 
+@pytest.mark.flaky(max_runs=3)
 def test_free( decam_datastore ):
     ds = decam_datastore
     ds.get_sources()

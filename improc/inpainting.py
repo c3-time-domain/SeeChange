@@ -139,6 +139,7 @@ class Inpainter:
         with warnings.catch_warnings():
             # we definitely expect all images to have NaNs on the same spot for at least some pixels (e.g., saturation)
             warnings.filterwarnings(action='ignore', message='All-NaN slice encountered')
+            warnings.filterwarnings(action='ignore', message='Mean of empty slice')
             if self.pars.multi_image_method == 'mean':
                 replacements = np.nanmean(self.images_nan / scaling, axis=0)
             elif self.pars.multi_image_method == 'median':

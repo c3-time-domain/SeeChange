@@ -1,4 +1,6 @@
 import logging
+import warnings
+
 import pytest
 import random
 import re
@@ -129,12 +131,13 @@ def check_aligned(image1, image2):
     d1[image1.flags > 0] = np.nan
     d2 = image2.data.copy()
     d2[image2.flags > 0] = np.nan
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=r'.*All-NaN slice encountered.*')
+        row_func1 = np.nansum(d1 - np.nanmedian(d1, axis=1, keepdims=True), axis=1)
+        row_func2 = np.nansum(d2 - np.nanmedian(d2, axis=1, keepdims=True), axis=1)
 
-    row_func1 = np.nansum(d1 - np.nanmedian(d1, axis=1, keepdims=True), axis=1)
-    row_func2 = np.nansum(d2 - np.nanmedian(d2, axis=1, keepdims=True), axis=1)
-
-    col_func1 = np.nansum(d1 - np.nanmedian(d1, axis=0, keepdims=True), axis=0)
-    col_func2 = np.nansum(d2 - np.nanmedian(d2, axis=0, keepdims=True), axis=0)
+        col_func1 = np.nansum(d1 - np.nanmedian(d1, axis=0, keepdims=True), axis=0)
+        col_func2 = np.nansum(d2 - np.nanmedian(d2, axis=0, keepdims=True), axis=0)
 
     xcorr_rows = np.correlate(row_func1, row_func2, mode='full')
     xcorr_cols = np.correlate(col_func1, col_func2, mode='full')

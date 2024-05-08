@@ -13,7 +13,7 @@ import sqlalchemy as sa
 import astropy.time
 from astropy.io import fits
 import astropy.units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, Distance
 
 from models.base import Base, SmartSession, AutoIDMixin,_logger
 
@@ -1268,6 +1268,7 @@ class Instrument:
             ra=catdata['X_WORLD'] * u.deg,
             dec=catdata['Y_WORLD'] * u.deg,
             # distance=Distance(parallax=wd_cat['parallax'][i] * u.mas) if wd_cat['parallax'][i] > 0 else None,
+            distance=Distance(1 * u.kpc),  # the distance is not really relevant for on-sky motion
             pm_ra_cosdec=catdata['PMRA'] * u.mas / u.yr,
             pm_dec=catdata['PMDEC'] * u.mas / u.yr,
             obstime=astropy.time.Time('2016.0', format='jyear', scale='tdb'),
@@ -1563,7 +1564,7 @@ class Instrument:
 
         """
 
-        arrparse = re.compile( '^\s*\[\s*(?P<x0>\d+)\s*:\s*(?P<x1>\d+)\s*,\s*(?P<y0>\d+)\s*:\s*(?P<y1>\d+)\s*\]\s*$' )
+        arrparse = re.compile( r'^\s*\[\s*(?P<x0>\d+)\s*:\s*(?P<x1>\d+)\s*,\s*(?P<y0>\d+)\s*:\s*(?P<y1>\d+)\s*\]\s*$' )
         retval = []
         for letter in [ 'A', 'B' ]:
             if ( f'BIASSEC{letter}' not in header ) or ( f'DATASEC{letter}' not in header ):

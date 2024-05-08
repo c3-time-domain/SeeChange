@@ -113,22 +113,35 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
 
     @property
     def mag_psf(self):
-        return -2.5 * np.log10(self.flux_psf) + self.zp.zp  # what about aperture correction?
+        if self.flux_psf <= 0:
+            return np.nan
+        return -2.5 * np.log10(self.flux_psf) + self.zp.zp
 
     @property
     def mag_psf_err(self):
-        return np.sqrt( (2.5 / np.log(10) * self.flux_psf_err / self.flux_psf) ** 2 + self.zp.dzp ** 2)
+        if self.flux_psf <= 0:
+            return np.nan
+        return np.sqrt((2.5 / np.log(10) * self.flux_psf_err / self.flux_psf) ** 2 + self.zp.dzp ** 2)
 
     @property
     def mag_apertures(self):
-        return [-2.5 * np.log10(f) + self.zp.zp + self.zp.aper_cors[i] for i, f in enumerate(self.flux_apertures)]
+        mags = []
+        for flux, correction in zip(self.flux_apertures, self.zp.aper_cors):
+            new_mag = -2.5 * np.log10(flux) + self.zp.zp + correction if flux > 0 else np.nan
+            mags.append(new_mag)
+
+        return mags
 
     @property
     def mag_apertures_err(self):
-        return [
-            np.sqrt( (2.5 / np.log(10) * ferr / f) ** 2 + self.zp.dzp ** 2)
-            for f, ferr in zip(self.flux_apertures, self.flux_apertures_err)
-        ]
+        errs = []
+        for flux, flux_err in zip(self.flux_apertures, self.flux_apertures_err):
+            if flux > 0:
+                new_err = np.sqrt((2.5 / np.log(10) * flux_err / flux) ** 2 + self.zp.dzp ** 2)
+            else:
+                new_err = np.nan
+            errs.append(new_err)
+        return errs
 
     @property
     def magnitude(self):
@@ -408,3 +421,4 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
                 m.delete_from_database(session=session, commit=False)
             if commit:
                 session.commit()
+

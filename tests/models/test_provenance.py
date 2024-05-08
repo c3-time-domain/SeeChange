@@ -154,6 +154,8 @@ def test_unique_provenance_hash(code_version):
             assert len(p.id) == 20
             hash = p.id
 
+        # start new session
+        with SmartSession() as session:
             p2 = Provenance(
                 process='test_process',
                 code_version=code_version,

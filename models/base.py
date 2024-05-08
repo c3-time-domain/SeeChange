@@ -1,3 +1,4 @@
+import warnings
 import sys
 import os
 import math
@@ -28,7 +29,6 @@ from sqlalchemy.dialects.postgresql import ARRAY
 
 from sqlalchemy.schema import CheckConstraint
 
-
 from models.enums_and_bitflags import (
     data_badness_dict,
     data_badness_inverse,
@@ -53,6 +53,41 @@ if len(_logger.handlers) == 0:
 
 # this is the root SeeChange folder
 CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
+
+
+# This is a list of warnings that are categorically ignored in the pipeline. Beware:
+def setup_warning_filters():
+    # ignore FITS file warnings
+    warnings.filterwarnings('ignore', message=r'.*Removed redundant SIP distortion parameters.*')
+    warnings.filterwarnings('ignore', message=r".*'datfix' made the change 'Set MJD-OBS to.*")
+    warnings.filterwarnings('ignore', message=r"(?s).*the RADECSYS keyword is deprecated, use RADESYSa.*")
+
+    # if you want to add the provenance, you should do it explicitly, not by adding it to a CodeVersion
+    warnings.filterwarnings(
+        'ignore',
+        message=r".*Object of type <Provenance> not in session, "
+                r"add operation along 'CodeVersion\.provenances' will not proceed.*"
+    )
+
+    # if the object is not in the session, why do I care that we removed some related object from it?
+    warnings.filterwarnings(
+        'ignore',
+        message=r".*Object of type .* not in session, delete operation along .* won't proceed.*"
+    )
+
+    # this happens when loading/merging something that refers to another thing that refers back to the original thing
+    warnings.filterwarnings(
+        'ignore',
+        message=r".*Loader depth for query is excessively deep; caching will be disabled for additional loaders.*"
+    )
+
+    warnings.filterwarnings(
+        'ignore',
+        "Can't emit change event for attribute 'Image.md5sum' "
+        "- parent object of type <Image> has been garbage collected",
+    )
+
+setup_warning_filters()  # need to call this here and also call it explicitly when setting up tests
 
 _engine = None
 _Session = None

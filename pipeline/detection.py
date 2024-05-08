@@ -598,7 +598,7 @@ class Detector:
                     ]
             args.extend( psfargs )
             args.append( tmpimage )
-            res = subprocess.run( args, cwd=tmpimage.parent, capture_output=True )
+            res = subprocess.run( args, cwd=tmpimage.parent, capture_output=True, timeout=120 )
             if res.returncode != 0:
                 _logger.error( f"Got return {res.returncode} from sextractor call; stderr:\n{res.stderr}\n"
                                f"-------\nstdout:\n{res.stdout}" )
@@ -708,7 +708,7 @@ class Detector:
                                 '-XML_URL', 'file:///usr/share/psfex/psfex.xsl',
                                 # '-PSFVAR_DEGREES', '4',  # polynomial order for PSF fitting across image
                                 sourcefile ]
-                    res = subprocess.run( command, cwd=sourcefile.parent, capture_output=True )
+                    res = subprocess.run( command, cwd=sourcefile.parent, capture_output=True, timeout=120 )
                     if res.returncode == 0:
                         fwhmmaxtotry = [ fwhmmax ]
                         break

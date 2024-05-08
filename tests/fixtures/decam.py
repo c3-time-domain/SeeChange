@@ -440,8 +440,8 @@ def decam_reference(decam_ref_datastore):
         ref = Reference()
         ref.image = ds.image
         ref.provenance = prov
-        ref.validity_start = Time(50000, format='mjd', scale='utc').isot
-        ref.validity_end = Time(65000, format='mjd', scale='utc').isot
+        ref.validity_start = Time(55000, format='mjd', scale='tai').isot
+        ref.validity_end = Time(65000, format='mjd', scale='tai').isot
         ref.section_id = ds.image.section_id
         ref.filter = ds.image.filter
         ref.target = ds.image.target

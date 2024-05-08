@@ -32,6 +32,7 @@ from pipeline.measuring import Measurer
 
 from improc.bitmask_tools import make_saturated_flag
 
+
 @pytest.fixture(scope='session')
 def preprocessor_factory(test_config):
 
@@ -46,6 +47,7 @@ def preprocessor_factory(test_config):
         return prep
 
     return make_preprocessor
+
 
 @pytest.fixture
 def preprocessor(preprocessor_factory):
@@ -300,7 +302,6 @@ def datastore_factory(
                 ds.image = ds.image.merge_all(session)
 
             ############ preprocessing to create image ############
-
             if ds.image is None and cache_dir is not None and cache_base_name is not None:
                 # check if preprocessed image is in cache
                 cache_name = cache_base_name + '.image.fits.json'
@@ -314,7 +315,7 @@ def datastore_factory(
                     if ds.exposure is not None:
                         ds.image.exposure = ds.exposure
 
-                    # add the preprocessing steps from instruement (TODO: remove this as part of Issue #142)
+                    # add the preprocessing steps from instrument (TODO: remove this as part of Issue #142)
                     preprocessing_steps = ds.image.instrument_object.preprocessing_steps
                     prep_pars = preprocessor.pars.get_critical_pars()
                     prep_pars['preprocessing_steps'] = preprocessing_steps
@@ -467,7 +468,6 @@ def datastore_factory(
                     warnings.warn(f'cache path {cache_path} does not match output path {output_path}')
 
             ############## astro_cal to create wcs ################
-
             if cache_dir is not None and cache_base_name is not None:
                 cache_name = cache_base_name + '.wcs.json'
                 cache_path = os.path.join(cache_dir, cache_name)
@@ -514,7 +514,6 @@ def datastore_factory(
                         warnings.warn(f'cache path {cache_path} does not match output path {output_path}')
 
             ########### photo_cal to create zero point ############
-
             if cache_dir is not None and cache_base_name is not None:
                 cache_name = cache_base_name + '.zp.json'
                 cache_path = os.path.join(cache_dir, cache_name)

@@ -1,6 +1,5 @@
 import os
 import warnings
-import logging
 import pytest
 import uuid
 import shutil
@@ -11,7 +10,14 @@ import numpy as np
 import sqlalchemy as sa
 
 from util.config import Config
-from models.base import FileOnDiskMixin, SmartSession, CODE_ROOT, get_all_database_objects, _logger
+from models.base import (
+    FileOnDiskMixin,
+    SmartSession,
+    CODE_ROOT,
+    get_all_database_objects,
+    _logger,
+    setup_warning_filters
+)
 from models.provenance import CodeVersion, Provenance
 from models.catalog_excerpt import CatalogExcerpt
 from models.exposure import Exposure
@@ -37,7 +43,15 @@ ARCHIVE_PATH = None
 # (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionstart(session):
     # Will be executed before the first test
-    # _logger.debug('Initial setup fixture loaded! ')
+
+    # this is only to make the warnings into errors, so it is easier to track them down...
+    warnings.filterwarnings('error', append=True)  # comment this out in regular usage
+
+    setup_warning_filters()  # load the list of warnings that are to be ignored (not just in tests)
+    # below are additional warnings that are ignored only during tests:
+
+    # ignore warnings from photometry code that occur for cutouts with mostly zero values
+    warnings.filterwarnings('ignore', message=r'.*Background mean=.*, std=.*, normalization skipped!.*')
 
     # make sure to load the test config
     test_config_file = str((pathlib.Path(__file__).parent.parent / 'tests' / 'seechange_config_test.yaml').resolve())

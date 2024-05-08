@@ -1522,6 +1522,7 @@ class DataStore:
                     ):
                         session.expunge(obj.provenance)
 
+                session.flush()  # flush to finalize deletion of objects before we delete the Image
                 # verify that the objects are in fact deleted by deleting the image at the root of the datastore
                 if self.image is not None and self.image.id is not None:
                     session.execute(sa.delete(Image).where(Image.id == self.image.id))

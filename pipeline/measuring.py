@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 
 from scipy import signal
@@ -12,7 +13,7 @@ from models.measurements import Measurements
 from models.objects import Object
 from models.enums_and_bitflags import BitFlagConverter
 
-from improc.photometry import iterative_photometry
+from improc.photometry import iterative_cutouts_photometry
 from improc.tools import make_gaussian
 
 
@@ -201,7 +202,7 @@ class Measurer:
                     annulus_radii_pixels = [rad * c.source.image.get_psf().fwhm_pixels for rad in annulus_radii_pixels]
 
                 # TODO: consider if there are any additional parameters that photometry needs
-                output = iterative_photometry(
+                output = iterative_cutouts_photometry(
                     c.sub_data,
                     c.sub_weight,
                     flags,
@@ -245,7 +246,7 @@ class Measurer:
                 if m.background != 0 and m.background_err > 0.1:
                     norm_data = (c.sub_nandata - m.background) / m.background_err  # normalize
                 else:
-                    _logger.warning(f'Background mean= {m.background}, std= {m.background_err}, normalization skipped!')
+                    warnings.warn(f'Background mean= {m.background}, std= {m.background_err}, normalization skipped!')
                     norm_data = c.sub_nandata  # no good background measurement, do not normalize!
 
                 positives = np.sum(norm_data > self.pars.outlier_sigma)

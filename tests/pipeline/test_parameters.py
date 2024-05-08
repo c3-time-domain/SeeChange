@@ -1,7 +1,6 @@
 import pytest
 
 import numpy as np
-
 from pipeline.parameters import Parameters, ParsDemoSubclass
 
 

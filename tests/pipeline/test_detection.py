@@ -95,7 +95,7 @@ def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cac
             # analytical cuts:
             positives = np.sum(cutout > 3)
             negatives = np.sum(cutout < -3)
-            if negatives / positives > 0.3:  # too many negative pixels
+            if positives == 0 or negatives / positives > 0.3:  # too many negative pixels
                 hist_ok[i] = False
 
             if np.sum(np.isnan(cutout)) > 0.1 * cutout.size:  # too many bad pixels

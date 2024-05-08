@@ -156,7 +156,7 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
     return output
 
 
-def make_cutouts(data, x, y, size=15):
+def make_cutouts(data, x, y, size=15, fillvalue=np.nan):
     """Make square cutouts around the given positions in the data.
 
     Parameters
@@ -169,13 +169,16 @@ def make_cutouts(data, x, y, size=15):
         The y positions of the cutouts.
     size: int
         The size of the cutouts. Default is 15.
+    fillvalue: float
+        The value to fill the cutouts with if they are partially off the edge of the data.
+        Default is np.nan, but also 0 could be useful for integer arrays.
 
     Returns
     -------
     cutouts: 3D np.ndarray
         The cutouts, with shape (len(x), size, size).
     """
-    cutouts = np.full((len(x), size, size), np.nan)  # preallocate!
+    cutouts = np.full((len(x), size, size), fillvalue)  # preallocate!
     down = int(np.floor((size - 1) / 2))
     up = int(np.ceil((size - 1) / 2))
 
@@ -183,7 +186,7 @@ def make_cutouts(data, x, y, size=15):
         x0, y0 = int(np.round(x0)), int(np.round(y0))
         if x0 - down < 0:
             if x0 + up < 0:
-                continue  # leave the cutout as NaNs
+                continue  # leave the cutout as fillvalue
             left = 0
             offset_left = down - x0
         else:
@@ -192,7 +195,7 @@ def make_cutouts(data, x, y, size=15):
 
         if x0 + up >= data.shape[1]:
             if x0 - down >= data.shape[1]:
-                continue  # leave the cutout as NaNs
+                continue  # leave the cutout as fillvalue
             right = data.shape[1]
             offset_right = size - (x0 + up - data.shape[1] + 1)
         else:
@@ -201,7 +204,7 @@ def make_cutouts(data, x, y, size=15):
 
         if y0 - down < 0:
             if y0 + up < 0:
-                continue  # leave the cutout as NaNs
+                continue  # leave the cutout as fillvalue
             bottom = 0
             offset_bottom = down - y0
         else:
@@ -210,18 +213,17 @@ def make_cutouts(data, x, y, size=15):
 
         if y0 + up >= data.shape[0]:
             if y0 - down >= data.shape[0]:
-                continue  # leave the cutout as NaNs
+                continue  # leave the cutout as fillvalue
             top = data.shape[0]
             offset_top = size - (y0 + up - data.shape[0] + 1)
         else:
             top = y0 + up
             offset_top = size
-        try:
-            cutouts[i][offset_bottom:offset_top, offset_left:offset_right] = data[bottom:top + 1, left:right + 1]
-        except:
-            raise
+
+        cutouts[i][offset_bottom:offset_top, offset_left:offset_right] = data[bottom:top + 1, left:right + 1]
 
     return cutouts
+
 
 def strip_wcs_keywords( hdr ):
     """Attempt to strip all WCS information from a FITS header.

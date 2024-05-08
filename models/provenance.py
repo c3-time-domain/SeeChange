@@ -75,6 +75,10 @@ provenance_self_association_table = sa.Table(
 class Provenance(Base):
     __tablename__ = "provenances"
 
+    __mapper_args__ = {
+        "confirm_deleted_rows": False,
+    }
+
     id = sa.Column(
         sa.String,
         primary_key=True,

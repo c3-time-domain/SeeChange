@@ -77,14 +77,14 @@ class Cutter:
             y = detections.y
             sz = self.pars.cutout_size
             sub_stamps_data = make_cutouts(ds.sub_image.data, x, y, sz)
-            sub_stamps_weight = make_cutouts(ds.sub_image.weight, x, y, sz)
-            sub_stamps_flags = make_cutouts(ds.sub_image.flags, x, y, sz)
+            sub_stamps_weight = make_cutouts(ds.sub_image.weight, x, y, sz, fillvalue=0)
+            sub_stamps_flags = make_cutouts(ds.sub_image.flags, x, y, sz, fillvalue=0)
             ref_stamps_data = make_cutouts(ds.sub_image.ref_aligned_image.data, x, y, sz)
-            ref_stamps_weight = make_cutouts(ds.sub_image.ref_aligned_image.weight, x, y, sz)
-            ref_stamps_flags = make_cutouts(ds.sub_image.ref_aligned_image.flags, x, y, sz)
+            ref_stamps_weight = make_cutouts(ds.sub_image.ref_aligned_image.weight, x, y, sz, fillvalue=0)
+            ref_stamps_flags = make_cutouts(ds.sub_image.ref_aligned_image.flags, x, y, sz, fillvalue=0)
             new_stamps_data = make_cutouts(ds.sub_image.new_aligned_image.data, x, y, sz)
-            new_stamps_weight = make_cutouts(ds.sub_image.new_aligned_image.weight, x, y, sz)
-            new_stamps_flags = make_cutouts(ds.sub_image.new_aligned_image.flags, x, y, sz)
+            new_stamps_weight = make_cutouts(ds.sub_image.new_aligned_image.weight, x, y, sz, fillvalue=0)
+            new_stamps_flags = make_cutouts(ds.sub_image.new_aligned_image.flags, x, y, sz, fillvalue=0)
 
             for i, source in enumerate(detections.data):
                 # get the cutouts

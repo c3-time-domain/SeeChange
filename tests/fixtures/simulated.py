@@ -163,6 +163,12 @@ class ImageCleanup:
             else:
                 self.image.remove_data_from_disk()
         except Exception as e:
+            if (
+                    "Can't emit change event for attribute 'Image.md5sum' "
+                    "- parent object of type <Image> has been garbage collected"
+            ) in str(e):
+                # no need to worry about md5sum if the underlying Image is already gone
+                pass
             warnings.warn(str(e))
 
 
