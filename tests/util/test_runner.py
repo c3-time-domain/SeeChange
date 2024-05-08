@@ -6,7 +6,7 @@ class twoxplusone:
     def __init__( self ):
         self.vals = []
         self.tot = 0
-        
+
     def calc( self, x ):
         return 2 * x + 1
 
@@ -32,7 +32,7 @@ class sometimesfails:
 
 def test_runner():
     numprocs = 4
-    
+
     for persist in ( True, False ):
         # Test when the number of values is < the number of processes
 
@@ -84,5 +84,5 @@ def test_runner():
         assert nsuccess == 4
         assert nfail == 3
         assert doer.vals == [ 0, 1, None, 3, None, None, 6 ]
-        
+
 
