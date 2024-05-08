@@ -80,7 +80,7 @@ def main():
             prov = Provenance( process = prov_process, code_version = code_ver,
                                parameters = prov_params, upstreams = prov_upstreams )
             prov.update_id()
-            sess.merge( prov )
+            prov = sess.merge( prov )
             sess.commit()
             provs = ( sess.query( Provenance )
                       .filter( Provenance.process == prov_process )
@@ -220,7 +220,7 @@ def main():
         ref = Reference( image=image, target=image.target, filter=image.filter, section_id=image.section_id,
                          validity_start='2010-01-01', validity_end='2099-12-31' )
         ref.make_provenance()
-        sess.add( ref )
+        ref = sess.merge( ref )
         
         sess.commit()
 
