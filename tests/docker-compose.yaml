@@ -2,7 +2,7 @@ version: "3.3"
 
 services:
   make-archive-directories:
-    image: rknop/upload-connector:tests
+    image: rknop/upload-connector:${IMGTAG:-tests}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -18,7 +18,7 @@ services:
     depends_on:
       make-archive-directories:
         condition: service_completed_successfully
-    image: rknop/upload-connector:tests
+    image: rknop/upload-connector:${IMGTAG:-tests}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -45,7 +45,7 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
 
   seechange_postgres:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres:${IMGTAG:-tests}
     build:
       context: ../docker/postgres
     environment:
@@ -57,7 +57,7 @@ services:
       retries: 5
 
   setuptables:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-tests}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -75,7 +75,7 @@ services:
     entrypoint: [ "alembic", "upgrade", "head" ]
 
   runtests:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-tests}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -100,7 +100,7 @@ services:
     entrypoint: "pytest -v /seechange/tests/$TEST_SUBFOLDER"
 
   runalltests:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-tests}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -125,7 +125,7 @@ services:
     entrypoint: "pytest -v /seechange/tests"
 
   shell:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-tests}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
