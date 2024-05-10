@@ -53,16 +53,19 @@ def main():
     args = parser.parse_args()
 
     config = Config.get()
-    
+
     with SmartSession() as sess:
 
         # Get the provenance we'll use for the imported references
+        # TODO : when I run a bunch of processes at once I'm getting
+        #   errors about the code version already existing.
+        # Need to really understand how to cope with this sort of thing.
 
         cvs = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).all()
         if len( cvs ) == 0:
             code_ver = CodeVersion( id='hack_0.1' )
             code_ver.update()
-            sess.add( code_ver )
+            sess.merge( code_ver )
             sess.commit()
         code_ver = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).first()
 
@@ -92,7 +95,7 @@ def main():
                     break
 
         _logger.info( "Reading image" )
-                
+
         with fits.open( args.image ) as img, fits.open( args.weight ) as wgt, fits.open( args.mask) as msk:
             img_hdr = img[ args.hdu ].header
             img_data = img[ args.hdu ].data
@@ -173,11 +176,8 @@ def main():
         image.flags = numpy.zeros_like( msk_data, dtype=numpy.uint16 )
         image.flags[ msk_data != 0 ] = string_to_bitflag( 'bad pixel', flag_image_bits_inverse )
 
-        # image.save()
-        # sess.add( image )
-
         ds = DataStore( image, session=sess )
-        
+
         # Extract sources
 
         _logger.info( "Extracting sources" )
@@ -221,7 +221,7 @@ def main():
                          validity_start='2010-01-01', validity_end='2099-12-31' )
         ref.make_provenance()
         ref = sess.merge( ref )
-        
+
         sess.commit()
 
 # ======================================================================

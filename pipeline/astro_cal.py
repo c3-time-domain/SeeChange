@@ -126,6 +126,7 @@ class AstroCalibrator:
         # this is useful for tests, where we can know if
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
+
     # ----------------------------------------------------------------------
 
     def _solve_wcs_scamp( self, image, sources, catexp, crossid_radius=2. ):
@@ -282,7 +283,7 @@ class AstroCalibrator:
                 self._run_scamp( ds, prov, session=session )
             else:
                 raise ValueError( f'Unknown solution method {self.pars.solution_method}' )
-            
+
             # update the upstream bitflag
             sources = ds.get_sources( session=session )
             if sources is None:
@@ -290,6 +291,12 @@ class AstroCalibrator:
             if ds.wcs._upstream_bitflag is None:
                 ds.wcs._upstream_bitflag = 0
             ds.wcs._upstream_bitflag |= sources.bitflag
+
+            # If an astro cal wasn't previously run on this image,
+            # update the image's ra/dec and corners attributes based on this new wcs
+            if not image.astro_cal_done:
+                image.set_corners_from_header_wcs( wcs=ds.wcs.wcs, setradec=True )
+                image.astro_cal_done = True
 
         # make sure this is returned to be used in the next step
         return ds

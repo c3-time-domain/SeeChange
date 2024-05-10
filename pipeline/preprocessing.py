@@ -188,6 +188,8 @@ class Preprocessor:
             # Overscan is always first (as it reshapes the image)
             if 'overscan' in self._stepstodo:
                 image.data = self.instrument.overscan_and_trim( image )
+                # Update the header ra/dec calculations now that we know the real width/height
+                image.set_corners_from_header_wcs( setradec=True )
                 image.preproc_bitflag |= string_to_bitflag( 'overscan', image_preprocessing_inverse )
 
             # Apply steps in the order expected by the instrument

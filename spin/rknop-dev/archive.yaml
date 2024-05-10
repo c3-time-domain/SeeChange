@@ -132,7 +132,7 @@ metadata:
   name: archive
   namespace: ls4-rknop-dev
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: 500m
+    nginx.ingress.kubernetes.io/proxy-body-size: 2048m
 spec:
   rules:
   - host: archive.ls4-rknop-dev.production.svc.spin.nersc.org
