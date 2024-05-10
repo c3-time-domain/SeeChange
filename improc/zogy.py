@@ -11,7 +11,6 @@ from improc.bitmask_tools import dilate_bitflag
 from models.base import _logger
 
 
-
 def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, flux_ref, flux_new, dx=None, dy=None):
     """Perform ZOGY image subtraction.
 
@@ -353,9 +352,10 @@ def zogy_add_weights_flags(ref_weight, new_weight, ref_flags, new_flags, ref_psf
     """
     # combine the weights
     mask = (ref_weight == 0) | (new_weight == 0)
-    w1 = np.where(ref_weight == 0, 0, 1 / ref_weight)
-    w2 = np.where(new_weight == 0, 0, 1 / new_weight)
-    outwt = np.where(mask, 0, 1 / (w1 + w2))
+    # divide without dividing by zero (ref: https://stackoverflow.com/a/37977222)
+    w1 = np.divide(1, ref_weight, out=np.zeros_like(ref_weight), where=ref_weight != 0)
+    w2 = np.divide(1, new_weight, out=np.zeros_like(new_weight), where=new_weight != 0)
+    outwt = np.divide(1, w1 + w2, out=np.zeros_like(w1), where=(mask != 0) & ((w1 + w2) != 0))
 
     # expand the flags of the new image
     splash_pixels = int(np.ceil(max(ref_psf_fwhm, new_psf_fwhm)))

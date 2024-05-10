@@ -125,7 +125,15 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session
     assert len(ds.cutouts) == len(cutouts)
     assert set([c.id for c in ds.cutouts]) == set([c.id for c in cutouts])
 
-    # TODO: add the measurements, but we need to produce them first!
+    # Measurements
+    measurements = session.scalars(
+        sa.select(Measurements).where(
+            Measurements.cutouts_id.in_([c.id for c in cutouts]),
+            Measurements.provenance_id == ds.measurements[0].provenance_id,
+        )
+    ).all()
+    assert len(measurements) > 0
+    assert len(ds.measurements) == len(measurements)
 
 
 def test_parameters( test_config ):
@@ -247,6 +255,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
         shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
         shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
 
+
 def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, archive):
     """
     Test that adding a bitflag to the exposure propagates to all downstreams as they are created
@@ -274,7 +283,6 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         for cutout in ds.cutouts:   # cutouts is a list of cutout objects
             assert cutout._upstream_bitflag == 2
 
-
         # test part 2: Add a second bitflag partway through and check it propagates to downstreams
 
         # delete downstreams of ds.sources
@@ -283,6 +291,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         ds.sub_image = None
         ds.detections = None
         ds.cutouts = None
+        ds.measurements = None
 
         ds.sources._bitflag = 2**17  # bitflag 2**17 is 'many sources'
         desired_bitflag = 2**1 + 2**17 # bitflag for 'banding' and 'many sources'
@@ -296,7 +305,6 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         for cutout in ds.cutouts:
             assert cutout._upstream_bitflag == desired_bitflag
         assert ds.image.bitflag == 2 # not in the downstream of sources
-
 
         # test part 3: test update_downstream_badness() function by adding and removing flags
         # and observing propagation
@@ -313,11 +321,11 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
             ds.image.exposure.update_downstream_badness(session)
             session.commit()
 
-            desired_bitflag = 2**1 + 2**4 + 2**17  # 'banding' 'bad subtraction' 'many sources'
-            assert ds.exposure.bitflag == 2**1
-            assert ds.image.bitflag == 2**1 + 2**4  # 'banding' and 'bad subtraction'
+            desired_bitflag = 2 ** 1 + 2 ** 4 + 2 ** 17  # 'banding' 'bad subtraction' 'many sources'
+            assert ds.exposure.bitflag == 2 ** 1
+            assert ds.image.bitflag == 2 ** 1 + 2 ** 4  # 'banding' and 'bad subtraction'
             assert ds.sources.bitflag == desired_bitflag
-            assert ds.psf.bitflag == 2**1 + 2**4 # pending psf re-structure, only downstream of image
+            assert ds.psf.bitflag == 2 ** 1 + 2 ** 4  # pending psf re-structure, only downstream of image
             assert ds.wcs.bitflag == desired_bitflag
             assert ds.zp.bitflag == desired_bitflag
             assert ds.sub_image.bitflag == desired_bitflag
@@ -330,18 +338,17 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
             session.commit()
             ds.image.exposure.update_downstream_badness(session)
             session.commit()
-            desired_bitflag = 2**1 + 2**17  # 'banding' 'many sources'
-            assert ds.exposure.bitflag == 2**1
-            assert ds.image.bitflag == 2**1  # just 'banding' left on image
+            desired_bitflag = 2 ** 1 + 2 ** 17  # 'banding' 'many sources'
+            assert ds.exposure.bitflag == 2 ** 1
+            assert ds.image.bitflag == 2 ** 1  # just 'banding' left on image
             assert ds.sources.bitflag == desired_bitflag
-            assert ds.psf.bitflag == 2**1 #  pending psf re-structure, only downstream of image
+            assert ds.psf.bitflag == 2 ** 1  # pending psf re-structure, only downstream of image
             assert ds.wcs.bitflag == desired_bitflag
             assert ds.zp.bitflag == desired_bitflag
             assert ds.sub_image.bitflag == desired_bitflag
             assert ds.detections.bitflag == desired_bitflag
             for cutout in ds.cutouts:
                 assert cutout.bitflag == desired_bitflag
-
 
     finally:
         if 'ds' in locals():
@@ -428,31 +435,37 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
 
 def test_datastore_delete_everything(decam_datastore):
     im = decam_datastore.image
+    im_paths = im.get_fullpath(as_list=True)
     sources = decam_datastore.sources
+    sources_path = sources.get_fullpath()
     psf = decam_datastore.psf
+    psf_paths = psf.get_fullpath(as_list=True)
     sub = decam_datastore.sub_image
+    sub_paths = sub.get_fullpath(as_list=True)
     det = decam_datastore.detections
+    det_path = det.get_fullpath()
     cutouts_list = decam_datastore.cutouts
+    cutouts_file_path = cutouts_list[0].get_fullpath()
     measurements_list = decam_datastore.measurements
 
     # make sure we can delete everything
     decam_datastore.delete_everything()
 
     # make sure everything is deleted
-    for path in im.get_fullpath(as_list=True):
+    for path in im_paths:
         assert not os.path.exists(path)
 
-    assert not os.path.exists(sources.get_fullpath())
+    assert not os.path.exists(sources_path)
 
-    for path in psf.get_fullpath(as_list=True):
+    for path in psf_paths:
         assert not os.path.exists(path)
 
-    for path in sub.get_fullpath(as_list=True):
+    for path in sub_paths:
         assert not os.path.exists(path)
 
-    assert not os.path.exists(det.get_fullpath())
+    assert not os.path.exists(det_path)
 
-    assert not os.path.exists(cutouts_list[0].get_fullpath())
+    assert not os.path.exists(cutouts_file_path)
 
     # check these don't exist on the DB:
     with SmartSession() as session:
@@ -462,6 +475,7 @@ def test_datastore_delete_everything(decam_datastore):
         assert session.scalars(sa.select(Image).where(Image.id == sub.id)).first() is None
         assert session.scalars(sa.select(SourceList).where(SourceList.id == det.id)).first() is None
         assert session.scalars(sa.select(Cutouts).where(Cutouts.id == cutouts_list[0].id)).first() is None
-        assert session.scalars(
-            sa.select(Measurements).where(Measurements.id == measurements_list[0].id)
-        ).first() is None
+        if len(measurements_list) > 0:
+            assert session.scalars(
+                sa.select(Measurements).where(Measurements.id == measurements_list[0].id)
+            ).first() is None

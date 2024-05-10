@@ -54,7 +54,7 @@ def test_make_save_load_cutouts(decam_detection_list, cutter):
 
         # load it from file and compare
         c2 = Cutouts.from_file(c.get_fullpath(), source_number=0)
-        assert c == c2
+        assert c.check_equals(c2)
 
         assert c2.bitflag == 0  # should not load all column data from file (e.g., bitflag)
 
@@ -79,7 +79,7 @@ def test_make_save_load_cutouts(decam_detection_list, cutter):
         loaded_cutouts = Cutouts.load_list(c.get_fullpath())
 
         for cut1, cut2 in zip(ds.cutouts, loaded_cutouts):
-            assert cut1 == cut2
+            assert cut1.check_equals(cut2)
 
         # make sure that deleting one cutout does not delete the file
         with pytest.raises(NotImplementedError, match='no support for removing one Cutout at a time'):
@@ -104,7 +104,7 @@ def test_make_save_load_cutouts(decam_detection_list, cutter):
                 sa.select(Cutouts).where(Cutouts.provenance_id == ds.cutouts[0].provenance.id)
             ).all()
             for cut1, cut2 in zip(ds.cutouts, loaded_cutouts):
-                assert cut1 == cut2
+                assert cut1.check_equals(cut2)
 
     finally:
         if 'ds' in locals() and ds.cutouts is not None:

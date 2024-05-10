@@ -23,7 +23,7 @@ class Reference(Base, AutoIDMixin):
     based on the provenance given when it was created.
     """
 
-    __tablename__ = 'references'
+    __tablename__ = 'refs'   # 'references' is a reserved postgres word
 
     image_id = sa.Column(
         sa.ForeignKey('images.id', ondelete='CASCADE', name='references_image_id_fkey'),

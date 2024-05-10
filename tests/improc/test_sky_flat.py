@@ -67,11 +67,6 @@ def test_simple_sky_flat(num_images):
         assert expected_noise / 2 < np.nanstd(delta) < expected_noise * 2
         assert np.nanmean(delta) > expected_bias * 3  # lots of bias because the stars are not removed with few images
     else:
-        # I have no idea why this test would have failed; I didn't touch
-        # anything in the "improc" directory, and git shows no difference
-        # in that directory from main.
-        # assert np.nanstd(delta) < expected_noise * 2
-        # assert np.nanmean(delta) < expected_bias * 2
         assert np.nanstd(delta) < expected_noise * 5
         assert np.nanmean(delta) < expected_bias * 5
 

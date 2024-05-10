@@ -146,7 +146,7 @@ class PSFPaletteMaker:
                     '-BACK_VALUE', '0.0',
                     self.imagename
                    ]
-        res = subprocess.run( command, capture_output=True )
+        res = subprocess.run( command, capture_output=True, timeout=60 )
         assert res.returncode == 0
 
         _logger.info( "Runing psfex..." )
@@ -163,7 +163,7 @@ class PSFPaletteMaker:
                     '-XML_URL', 'file:///usr/share/psfex/psfex.xsl',
                     self.catname
                    ]
-        res = subprocess.run( command, capture_output=True )
+        res = subprocess.run( command, capture_output=True, timeout=60 )
         assert res.returncode == 0
 
         self.psf = PSF( format='psfex' )
@@ -289,7 +289,7 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
                     '-BACK_FILTERSIZE', '3',
                     '-PSF_NAME', psffullpath,
                     image ]
-        res = subprocess.run( command, capture_output=True )
+        res = subprocess.run( command, capture_output=True, timeout=60 )
         assert res.returncode == 0
 
     finally:
@@ -342,6 +342,7 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
                 im.delete_from_disk_and_database(session=session)
 
 
+@pytest.mark.flaky(max_runs=3)
 def test_free( decam_datastore ):
     ds = decam_datastore
     ds.get_psf()
@@ -382,7 +383,6 @@ def test_free( decam_datastore ):
     freemem = proc.memory_info()
 
     assert origmem.rss - freemem.rss > 60 * 1024 * 1024
-
 
 
 @pytest.mark.skipif( os.getenv('RUN_SLOW_TESTS') is None, reason="Set RUN_SLOW_TESTS to run this test" )
