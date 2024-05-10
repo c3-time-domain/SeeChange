@@ -76,7 +76,11 @@ cd into `tests` and run the following command (which requires the "docker compos
    docker compose build
    COMPOSE_PROJECT_NAME=<yourname> docker compose run runtests
 ```
-where you replace `<uid>` and `<gid>` with your own userid and groupid; if you don't do this, the tests will run, but various pycache files will get created in your checkout owned by root, which is annoying.  `<yourname>` can be any string you want.  If you are working on a single-user machine, you can omit the `IMGTAG` and `COMPOSE_PROJECT_NAME` variables; the purpose if it is to avoid colliding with other users on the same machine.  To avoid tying this all the time, you can create a file `.env` in the `tests` subdirectory with contents:
+where you replace `<uid>` and `<gid>` with your own userid and groupid; 
+if you don't do this, the tests will run, but various pycache files will get created in your checkout owned by root, which is annoying.  
+`<yourname>` can be any string you want.  If you are working on a single-user machine, you can omit the `IMGTAG` and `COMPOSE_PROJECT_NAME` variables; 
+the purpose of it is to avoid colliding with other users on the same machine.  
+To avoid typing this all the time, you can create a file called `.env` in the `tests` subdirectory with contents:
 ```
   IMGTAG=<yourname>_dev
   COMPOSE_PROJECT_NAME=<yourname>
