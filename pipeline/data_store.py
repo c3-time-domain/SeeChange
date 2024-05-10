@@ -1398,57 +1398,6 @@ class DataStore:
         else:
             raise ValueError(f'Unknown output format: {output}')
 
-    def _save_obj( self, obj, exists_ok=False, overwrite=True, no_archive=False,
-                   update_image_header=False, force_save_everything=True ):
-        if obj is None:
-            return
-
-        if isinstance(obj, list) and len(obj) > 0:  # handle cutouts and measurements
-            if hasattr(obj[0], 'save_list'):
-                obj[0].save_list(obj, overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive)
-            return
-
-        _logger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
-                       f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
-
-        if isinstance(obj, FileOnDiskMixin):
-            mustsave = True
-            # TODO : if some extensions have a None md5sum and others don't,
-            #  right now we'll re-save everything.  Improve this to only
-            #  save the necessary extensions.  (In practice, this should
-            #  hardly ever come up.)
-            if ( ( not force_save_everything )
-                 and
-                 ( ( obj.md5sum is not None )
-                   or ( ( obj.md5sum_extensions is not None )
-                        and
-                        ( all( [ i is not None for i in obj.md5sum_extensions ] ) )
-                       )
-                  ) ):
-                mustsave = False
-
-            # Special case handling for update_image_header for existing images.
-            # (Not needed if the image doesn't already exist, hence the not mustsave.)
-            if isinstance( obj, Image ) and ( not mustsave ) and update_image_header:
-                _logger.debug( 'Just updating image header.' )
-                try:
-                    obj.save( only_image=True, just_update_header=True )
-                except Exception as ex:
-                    _logger.error( f"Failed to update image header: {ex}" )
-                    raise ex
-
-            elif mustsave:
-                try:
-                    obj.save( overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive )
-                except Exception as ex:
-                    _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
-                    raise ex
-
-            else:
-                _logger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
-                               f'a md5sum in the database' )
-
-
     def save_and_commit(self, exists_ok=False, overwrite=True, no_archive=False,
                         update_image_header=False, force_save_everything=True, session=None):
         """Go over all the data products and add them to the session.
@@ -1522,22 +1471,72 @@ class DataStore:
             Note that this method calls session.commit()
 
         """
+        # To avoid problems with lazy load failures if the things aren't
+        #   all yet attached to a session:
+        if self.image is not None:
+            if self.psf is not None:
+                self.psf.image = self.image
+        
+        # save to disk whatever is FileOnDiskMixin
+        for att in self.attributes_to_save:
+            obj = getattr(self, att, None)
+            if obj is None:
+                continue
+
+            if isinstance(obj, list) and len(obj) > 0:  # handle cutouts and measurements
+                if hasattr(obj[0], 'save_list'):
+                    obj[0].save_list(obj, overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive)
+                continue
+
+            _logger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
+                           f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
+
+            if isinstance(obj, FileOnDiskMixin):
+                mustsave = True
+                # TODO : if some extensions have a None md5sum and others don't,
+                #  right now we'll re-save everything.  Improve this to only
+                #  save the necessary extensions.  (In practice, this should
+                #  hardly ever come up.)
+                if ( ( not force_save_everything )
+                     and
+                     ( ( obj.md5sum is not None )
+                       or ( ( obj.md5sum_extensions is not None )
+                            and
+                            ( all( [ i is not None for i in obj.md5sum_extensions ] ) )
+                           )
+                      ) ):
+                    mustsave = False
+
+                # Special case handling for update_image_header for existing images.
+                # (Not needed if the image doesn't already exist, hence the not mustsave.)
+                if isinstance( obj, Image ) and ( not mustsave ) and update_image_header:
+                    _logger.debug( 'Just updating image header.' )
+                    try:
+                        obj.save( only_image=True, just_update_header=True )
+                    except Exception as ex:
+                        _logger.error( f"Failed to update image header: {ex}" )
+                        raise ex
+
+                elif mustsave:
+                    try:
+                        obj.save( overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive )
+                    except Exception as ex:
+                        _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
+                        raise ex
+
+                else:
+                    _logger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
+                                   f'a md5sum in the database' )
+
         # carefully merge all the objects including the products
-        save_obj_kwargs = { 'exists_ok': exists_ok,
-                            'overwrite': overwrite,
-                            'no_archive': no_archive,
-                            'update_image_header': update_image_header,
-                            'force_save_everything': force_save_everything }
         with SmartSession(session, self.session) as session:
             if self.image is not None:
-                self._save_obj( self.image, **save_obj_kwargs )
                 self.image = self.image.merge_all(session)
                 for att in ['sources', 'psf', 'wcs', 'zp']:
                     setattr(self, att, None)  # avoid automatically appending to the image self's non-merged products
                 for att in ['exposure', 'sources', 'psf', 'wcs', 'zp']:
                     if getattr(self.image, att, None) is not None:
                         setattr(self, att, getattr(self.image, att))
-                        self._save_obj( getattr( self, att ), **save_obj_kwargs )
 
             # This may well have updated some ids, as objects got added to the database
             if self.exposure_id is None and self._exposure is not None:
@@ -1546,18 +1545,14 @@ class DataStore:
                 self.image_id = self.image.id
 
             if self.sub_image is not None:
-                self._save_obj( self.sub_image, **save_obj_kwargs )
                 self.sub_image.new_image = self.image  # update with the now-merged image
                 self.sub_image = self.sub_image.merge_all(session)  # merges the upstream_images and downstream products
                 self.sub_image.ref_image.id = self.sub_image.ref_image_id  # just to make sure the ref has an ID for merging
                 self.detections = self.sub_image.sources
 
             if self.detections is not None:
-                self._save_obj( self.detections, **save_obj_kwargs )
                 if self.cutouts is not None:
-                    self._save_obj( self.cutouts, **save_obj_kwargs )
                     if self.measurements is not None:  # keep track of which cutouts goes to which measurements
-                        self._save_obj( self.measurements, **save_obj_kwargs )
                         for m in self.measurements:
                             m._cutouts_list_index = self.cutouts.index(m.cutouts)
                     for cutout in self.cutouts:
