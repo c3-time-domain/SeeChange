@@ -15,13 +15,13 @@ but in the meantime, install Docker Engine instead of Docker Desktop; instructio
 
 The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment variables.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
 ```
+  IMGTAG=<yourname>_dev
   COMPOSE_PROJECT_NAME=<yourname>
   USERID=<UID>
   GROUPID=<GID>
 ```
 
 `<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)
-
 Once you've set these environment variables— either in a `.env` file, with three `export` commands, or by prepending them to every `docker compose` command you see below, you can start up a development shell in which to run code by running, while in the `devshell` subdirectory:
 ```
   docker compose up -d seechange
@@ -70,13 +70,23 @@ TBD
 To run the tests on your local system in an environment that approximates how they'll be run on github, 
 cd into `tests` and run the following command (which requires the "docker compose CLI plugin" installed to work):
 ```
-   export GITHUB_REPOSITORY_OWNER=<yourname>
+   export IMGTAG=<yourname>_tests
    export USERID=<uid>
    export GROUPID=<gid>
    docker compose build
    COMPOSE_PROJECT_NAME=<yourname> docker compose run runtests
 ```
-where you replace `<uid>` and `<gid>` with your own userid and groupid; if you don't do this, the tests will run, but various pycache files will get created in your checkout owned by root, which is annoying.  `<yourname>` can be any string you want.  If you are working on a single-user machine, you can omit the `COMPOSE_PROJECT_NAME` variable; the purpose if it is to avoid colliding with other users on the same machine.
+where you replace `<uid>` and `<gid>` with your own userid and groupid; 
+if you don't do this, the tests will run, but various pycache files will get created in your checkout owned by root, which is annoying.  
+`<yourname>` can be any string you want.  If you are working on a single-user machine, you can omit the `IMGTAG` and `COMPOSE_PROJECT_NAME` variables; 
+the purpose of it is to avoid colliding with other users on the same machine.  
+To avoid typing this all the time, you can create a file called `.env` in the `tests` subdirectory with contents:
+```
+  IMGTAG=<yourname>_dev
+  COMPOSE_PROJECT_NAME=<yourname>
+  USERID=<UID>
+  GROUPID=<GID>
+```
 
 At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  
 (The output you see to the screen should tell you the same information.)  

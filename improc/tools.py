@@ -52,7 +52,7 @@ def sigma_clipping(values, nsigma=3.0, iterations=5, axis=None, median=False):
             raise ValueError("values must be a vector, image, or cube")
 
     values = values.copy()
-
+    
     # first iteration:
     mean = np.nanmedian(values, axis=axis)
     rms = np.nanstd(values, axis=axis)

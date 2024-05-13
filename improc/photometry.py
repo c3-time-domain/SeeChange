@@ -1,15 +1,14 @@
 
 import numpy as np
 
-from improc.tools import make_gaussian
-
+from improc.tools import make_gaussian, sigma_clipping
 
 # caching the soft-edge circles for faster calculations
 CACHED_CIRCLES = []
 CACHED_RADIUS_RESOLUTION = 0.01
 
 
-def get_circle(radius, imsize=15, oversampling=100):
+def get_circle(radius, imsize=15, oversampling=100, soft=True):
     """Get a soft-edge circle.
 
     This function will return a 2D array with a soft-edge circle of the given radius.
@@ -23,6 +22,8 @@ def get_circle(radius, imsize=15, oversampling=100):
     oversampling: int
         The oversampling factor for the circle.
         Default is 100.
+    soft: bool
+        Toggle the soft edge of the circle. Default is True (soft edge on).
 
     Returns
     -------
@@ -32,11 +33,11 @@ def get_circle(radius, imsize=15, oversampling=100):
     """
     # Check if the circle is already cached
     for circ in CACHED_CIRCLES:
-        if np.abs(circ.radius - radius) < CACHED_RADIUS_RESOLUTION:
+        if np.abs(circ.radius - radius) < CACHED_RADIUS_RESOLUTION and circ.imsize == imsize and circ.soft == soft:
             return circ
 
     # Create the circle
-    circ = Circle(radius, imsize=imsize, oversampling=oversampling)
+    circ = Circle(radius, imsize=imsize, oversampling=oversampling, soft=soft)
 
     # Cache the circle
     CACHED_CIRCLES.append(circ)
@@ -45,10 +46,11 @@ def get_circle(radius, imsize=15, oversampling=100):
 
 
 class Circle:
-    def __init__(self, radius, imsize=15, oversampling=100):
+    def __init__(self, radius, imsize=15, oversampling=100, soft=True):
         self.radius = radius
         self.imsize = imsize
         self.oversampling = oversampling
+        self.soft = soft
 
         # these include the circle, after being moved by sub-pixel shifts for all possible positions in x and y
         self.datacube = np.zeros((oversampling ** 2, imsize, imsize))
@@ -70,9 +72,15 @@ class Circle:
         xgrid = xgrid - self.imsize // 2 - x
         ygrid = ygrid - self.imsize // 2 - y
         r = np.sqrt(xgrid ** 2 + ygrid ** 2)
-        im = 1 + self.radius - r
-        im[r <= self.radius] = 1
-        im[r > self.radius + 1] = 0
+        if self.soft==True:
+            im = 1 + self.radius - r
+            im[r <= self.radius] = 1
+            im[r > self.radius + 1] = 0
+        else: 
+            im = r
+            im[r <= self.radius] = 1
+            im[r > self.radius] = 0
+        
         # TODO: improve this with a better soft-edge function
 
         return im
@@ -264,9 +272,10 @@ def iterative_cutouts_photometry(
             areas[j] = np.nansum(mask)  # save the number of pixels in the aperture
 
             # get an offset annulus to get a local background estimate
-            inner = get_circle(radius=annulus[0], imsize=nandata.shape[0]).get_image(reposition_cx, reposition_cy)
-            outer = get_circle(radius=annulus[1], imsize=nandata.shape[0]).get_image(reposition_cx, reposition_cy)
+            inner = get_circle(radius=annulus[0], imsize=nandata.shape[0], soft=False).get_image(reposition_cx, reposition_cy)
+            outer = get_circle(radius=annulus[1], imsize=nandata.shape[0], soft=False).get_image(reposition_cx, reposition_cy)
             annulus_map = outer - inner
+            annulus_map[annulus_map == 0.] = np.nan # flag pixels outside annulus as nan
 
             # background and variance only need to be calculated once (they are the same for all apertures)
             # but moments/centroids can be calculated for each aperture, but we will only want to save one
@@ -274,15 +283,14 @@ def iterative_cutouts_photometry(
             if j == 0:  # largest aperture only
                 # TODO: if we move the reposition into the aperture loop, this will need to be updated!
                 #  We would have to calculate the background/variance on the last positions, or all positions?
-                # TODO: consider replacing this with a hard-edge annulus and do median or sigma clipping on the pixels
                 annulus_map_sum = np.nansum(annulus_map)
                 if annulus_map_sum == 0:  # this should only happen in tests or if the annulus is way too large
                     background = 0
                     variance = 0
                 else:
                     # b/g mean and variance (per pixel)
-                    background = np.nansum(nandata * annulus_map) / annulus_map_sum
-                    variance = np.nansum(((nandata - background) * annulus_map) ** 2) / annulus_map_sum
+                    background, standard_dev = sigma_clipping(nandata * annulus_map, nsigma=5.0, median=True)
+                    variance = standard_dev ** 2
 
                 normalization = (fluxes[j] - background * areas[j])
                 masked_data_bg = (nandata - background) * mask
