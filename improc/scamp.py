@@ -102,7 +102,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
             # solution.  I don't know if scamp works that way, or if it
             # just does the entire astrometric solution on MATCH_NMAX
             # stars.  The documentation is silent on this....
-            SCLogger.get().debug( f"Trying scamp with MATCH_NMAX {match_nmax}" )
+            SCLogger.get().debug( f"Trying scamp with MATCH_NMAX {max_nmatch}" )
             command = [ 'scamp', sourcefile,
                         '-ASTREF_CATALOG', 'FILE',
                         '-ASTREFCAT_NAME', catfile,

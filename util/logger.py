@@ -5,7 +5,7 @@ import logging
 class SCLogger:
     _instance = None
     _ordinal = 0
-    
+
     @classmethod
     def instance( cls, midformat=None, datefmt='%Y-%m-%d %H:%M:%S', level=logging.WARNING ):
         if cls._instance is None:
@@ -37,7 +37,7 @@ class SCLogger:
 
         self.midformat = midformat
         self.datefmt = datefmt
-            
+
         logout = logging.StreamHandler( sys.stderr )
         fmtstr = f"[%(asctime)s - "
         if midformat is not None:
@@ -47,6 +47,6 @@ class SCLogger:
         logout.setFormatter( formatter )
         self._logger.addHandler( logout )
         self._logger.setLevel( level )
-        
-        
-        
+
+
+
