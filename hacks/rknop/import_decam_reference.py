@@ -54,7 +54,7 @@ def main():
 
     config = Config.get()
 
-    # This is bad.  It opens sessions and holes them open.  If too many
+    # This is bad.  It opens sessions and holds them open.  If too many
     #   are running at once, it will overload the database server.
     # Hopefully since this is a hack one-off, we can just cope.
     with SmartSession() as sess:
@@ -66,10 +66,15 @@ def main():
 
         cvs = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).all()
         if len( cvs ) == 0:
-            code_ver = CodeVersion( id='hack_0.1' )
-            code_ver.update()
-            sess.merge( code_ver )
-            sess.commit()
+            try:
+                code_ver = CodeVersion( id='hack_0.1' )
+                code_ver.update()
+                sess.merge( code_ver )
+                sess.commit()
+            except Exception as ex:
+                _logger.warning( "Got error trying to create code version, "
+                                 "going to assume it's a race condition and all is well." )
+                sess.rollback()
         code_ver = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).first()
 
         # We should make a get_or_create method for Provenance

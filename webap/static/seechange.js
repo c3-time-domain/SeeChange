@@ -260,9 +260,11 @@ seechange.Exposure.prototype.render_page = function()
     }
 
     p = rkWebUtil.elemaker( "p", this.imagesdiv,
+                            { "text": "Exposure has " + this.data.id.length + " completed subtractions." } )
+    p = rkWebUtil.elemaker( "p", this.imagesdiv,
                             { "text": ( totnsources.toString() + " out of " +
                                         totncutouts.toString() + " sources pass preliminary cuts." ) } );
-    
+
     p = rkWebUtil.elemaker( "p", this.imagesdiv );
 
     this.cutoutsallimages_checkbox =
@@ -282,7 +284,7 @@ seechange.Exposure.prototype.render_page = function()
     rkWebUtil.elemaker( "label", p, { "text": "Show cutouts that failed the preliminary cuts",
                                       "attributes": { "for": "cutouts_sans_measurements_checkbox" } } );
 
-    
+
     table = rkWebUtil.elemaker( "table", this.imagesdiv, { "classes": [ "exposurelist" ] } );
     tr = rkWebUtil.elemaker( "tr", table );
     th = rkWebUtil.elemaker( "th", tr );
@@ -333,9 +335,9 @@ seechange.Exposure.prototype.render_page = function()
 seechange.Exposure.prototype.update_cutouts = function()
 {
     var self = this;
-    
+
     rkWebUtil.wipeDiv( this.cutoutsdiv );
-    
+
     let withnomeas = this.cutoutssansmeasurements_checkbox.checked ? 1 : 0;
 
     if ( this.cutoutsallimages_checkbox.checked ) {
@@ -371,11 +373,11 @@ seechange.Exposure.prototype.update_cutouts = function()
                 rkWebUtil.elemaker( "p", div,
                                     { "text": "...updating cutouts...",
                                       "classes": [ "bold", "italic", "warning" ] } )
-                
+
                 // TODO : offset and limit
 
                 let prop = this.data['id'][i].toString() + "_" + withnomeas;
-                
+
                 if ( this.cutouts_pngs.hasOwnProperty( prop ) ) {
                     this.show_cutouts_for_image( div, prop, this.cutouts_pngs[ prop ] );
                 }
@@ -386,7 +388,7 @@ seechange.Exposure.prototype.update_cutouts = function()
                         (data) => { self.show_cutouts_for_image( div, prop, data ); }
                     );
                 }
-                
+
                 return;
             }
         }
@@ -405,7 +407,7 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
     var data = this.cutouts_pngs[dex];
 
     rkWebUtil.wipeDiv( div );
-    
+
     table = rkWebUtil.elemaker( "table", div );
     tr = rkWebUtil.elemaker( "tr", table );
     th = rkWebUtil.elemaker( "th", tr, { "text": "new" } );
@@ -415,7 +417,7 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
     // Sorting is now done server-side... TODO, think about this
     // // TODO : sort by r/b, make sort configurable
     // let dexen = [...Array(data.cutouts.sub_id.length).keys()];
-    // dexen.sort( (a, b) => { 
+    // dexen.sort( (a, b) => {
     //     if ( ( data.cutouts['flux'][a] == null ) && ( data.cutouts['flux'][b] == null ) ) return 0;
     //     else if ( data.cutouts['flux'][a] == null ) return 1;
     //     else if ( data.cutouts['flux'][b] == null ) return -1;

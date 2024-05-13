@@ -52,7 +52,7 @@ class ExposureProcessor:
 
         # Load this exposure into the database if it's not there already
         # (And fill the self.exposure property)
-                
+
         with Session() as sess:
             self.exposure = sess.scalars( sa.select(Exposure).where( Exposure.filepath == relpath ) ).first()
             if self.exposure is None:
@@ -68,7 +68,7 @@ class ExposureProcessor:
 
         _logger.info( f"Exposure id is {self.exposure.id}" )
         self.results = {}
-                
+
 
     def processchip( self, chip ):
         try:
@@ -85,9 +85,9 @@ class ExposureProcessor:
     def collate( self, res ):
         chip, succ = res
         self.results[ chip ] = res
-                
+
 # ======================================================================
-        
+
 def main():
     parser = argparse.ArgumentParser( 'Run a DECam exposure through the pipeline',
                                       formatter_class=argparse.ArgumentDefaultsHelpFormatter )
@@ -116,7 +116,7 @@ def main():
     # aquiring the file.  So, just pre-import it for current purposes.
 
     _logger.info( "Ensuring presence of DECam linearity calibrator file" )
-    
+
     with Session() as session:
         df = ( session.query( DataFile )
                .filter( DataFile.filepath=='DECam_default_calibrators/linearity/linearity_table_v0.4.fits' ) )
@@ -144,19 +144,19 @@ def main():
                                      datafile=df )
                 cf = session.merge( cf )
         session.commit()
-                
+
     _logger.info( "DECam linearity calibrator file is accounted for" )
 
 
     # Now on to the real work
-    
+
     exproc = ExposureProcessor( args.exposure, decam )
 
     chips = args.chips
     if len(chips) == 0:
         decam_bad_chips = [ 'S7', 'N30' ]
         chips = [ i for i in decam.get_section_ids() if i not in decam_bad_chips ]
-    
+
     if args.numprocs > 1:
         _logger.info( f"Creating Pool of {args.numprocs} processes to do {len(chips)} chips" )
         with multiprocessing.pool.Pool( args.numprocs, maxtasksperchild=1 ) as pool:
@@ -179,8 +179,8 @@ def main():
                   f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
     _logger.info( f"Succeeded (maybe): {succeeded}" )
     _logger.info( f"Failed (definitely): {failed}" )
-    
-            
+
+
 # ======================================================================
 
 if __name__ == "__main__":

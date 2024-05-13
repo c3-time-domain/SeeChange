@@ -234,7 +234,7 @@ def png_cutouts_for_sub_image( exporsubid, issubid, nomeas, limit=None, offset=0
         else:
             app.logger.debug( f"Looking for cutouts from exposure {exporsubid} ({'with' if nomeas else 'without'} "
                               f"missing-measurements)" )
-            
+
         conn = next( dbconn() )
         cursor = conn.cursor()
         # TODO : deal with provenance!
@@ -249,7 +249,7 @@ def png_cutouts_for_sub_image( exporsubid, issubid, nomeas, limit=None, offset=0
         newbkgs = {}
         aperradses = {}
         apercorses = {}
-        
+
         q = ( 'SELECT s.id AS subid, z.zp, z.dzp, z.aper_cor_radii, z.aper_cors, '
               '  i.id AS imageid, i.bkg_mean_estimate '
               'FROM images s '
@@ -400,7 +400,7 @@ def png_cutouts_for_sub_image( exporsubid, issubid, nomeas, limit=None, offset=0
             retval['cutouts']['h'].append( scalednew.shape[1] )
 
             # Measurements columns
-            
+
             # WARNING : assumption here that the aper cor radii list in the
             #   zero point is the same as was used in the measurements.
             # (I think that's a good assumption, but still.)

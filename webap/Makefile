@@ -8,7 +8,7 @@ PG_NAME = placeholder
 ARCHIVE_DIR = placeholder
 
 toinstall = seechange_webap_config.py seechange_webap.py \
-	static/seechange.css static/seechange.js static/seechange_start.js static/rkwebutil.js \
+	static/seechange.css static/seechange.js static/seechange_start.js static/rkwebutil.js static/favicon.ico \
 	templates/base.html templates/seechange_webap.html
 
 .PHONY: install seechange_webap_config.py

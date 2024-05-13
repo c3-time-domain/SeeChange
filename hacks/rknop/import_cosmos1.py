@@ -18,7 +18,7 @@ class Importer:
         self.filts = filts
         self.ccdnums = ccdnums
         self.success = { f: { c: None for c in self.ccdnums } for f in self.filts }
-    
+
     def importref( self, fbase, target, filt, ccdnum, logger ):
         try:
             me = multiprocessing.current_process()
@@ -97,7 +97,7 @@ class Importer:
                     nfail += 1
 
         return ntot, nsucc, nfail, nunknown
-        
+
 # ======================================================================
 
 def main():
@@ -123,7 +123,7 @@ def main():
     ompnthreads = int( ncpus / args.numprocs )
     logger.info( f"Setting OMP_NUM_THREADS={ompnthreads} for {ncpus} cpus and {args.numprocs} processes" )
     os.environ[ "OMP_NUM_THREADS" ] = str(ompnthreads)
-    
+
 
     ccds = args.ccdnums
     if len(ccds) == 0:

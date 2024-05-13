@@ -1476,7 +1476,7 @@ class DataStore:
         if self.image is not None:
             if self.psf is not None:
                 self.psf.image = self.image
-        
+
         # save to disk whatever is FileOnDiskMixin
         for att in self.attributes_to_save:
             obj = getattr(self, att, None)
