@@ -28,7 +28,6 @@ from models.base import (
     SpatiallyIndexed,
     FourCorners,
     HasBitFlagBadness,
-    _logger
 )
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance

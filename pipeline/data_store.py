@@ -2,8 +2,9 @@ import math
 import sqlalchemy as sa
 
 from util.util import get_latest_provenance, parse_session
+from util.logger import SCLogger
 
-from models.base import SmartSession, FileOnDiskMixin, _logger
+from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image, image_upstreams_association_table
@@ -1488,7 +1489,7 @@ class DataStore:
                     obj[0].save_list(obj, overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive)
                 continue
 
-            _logger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
+            SCLogger.get().debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
                            f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 
             if isinstance(obj, FileOnDiskMixin):
@@ -1510,23 +1511,23 @@ class DataStore:
                 # Special case handling for update_image_header for existing images.
                 # (Not needed if the image doesn't already exist, hence the not mustsave.)
                 if isinstance( obj, Image ) and ( not mustsave ) and update_image_header:
-                    _logger.debug( 'Just updating image header.' )
+                    SCLogger.get().debug( 'Just updating image header.' )
                     try:
                         obj.save( only_image=True, just_update_header=True )
                     except Exception as ex:
-                        _logger.error( f"Failed to update image header: {ex}" )
+                        SCLogger.get().error( f"Failed to update image header: {ex}" )
                         raise ex
 
                 elif mustsave:
                     try:
                         obj.save( overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive )
                     except Exception as ex:
-                        _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
+                        SCLogger.get().error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
                         raise ex
 
                 else:
-                    _logger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
-                                   f'a md5sum in the database' )
+                    SCLogger.get().debug( f'Not saving the {obj.__class__.__name__} because it already has '
+                                          f'a md5sum in the database' )
 
         # carefully merge all the objects including the products
         with SmartSession(session, self.session) as session:

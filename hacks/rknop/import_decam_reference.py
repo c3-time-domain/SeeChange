@@ -181,7 +181,7 @@ def main():
         #   image rather than trying to figure out details.
         # (lensgrinder ended up not worrying about details)
 
-        image.flags = numpy.zeros_like( msk_data, dtype=numpy.uint16 )
+        image.flags = numpy.zeros_like( msk_data, dtype=numpy.int16 )
         image.flags[ msk_data != 0 ] = string_to_bitflag( 'bad pixel', flag_image_bits_inverse )
 
         ds = DataStore( image, session=sess )

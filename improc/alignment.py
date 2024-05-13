@@ -13,10 +13,11 @@ from astropy.io import fits
 from util import ldac
 from util.exceptions import SubprocessFailure
 from util.util import read_fits_image
+from util.logger import SCLogger
 import improc.scamp
 import improc.tools
 
-from models.base import FileOnDiskMixin, _logger
+from models.base import FileOnDiskMixin
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
@@ -352,7 +353,7 @@ class ImageAligner:
             t0 = time.perf_counter()
             res = subprocess.run( command, capture_output=True, timeout=60 )
             t1 = time.perf_counter()
-            _logger.debug( f"swarp of image took {t1-t0:.2f} seconds" )
+            SCLogger.get().debug( f"swarp of image took {t1-t0:.2f} seconds" )
             if res.returncode != 0:
                 raise SubprocessFailure( res )
 
@@ -370,7 +371,7 @@ class ImageAligner:
             t0 = time.perf_counter()
             res = subprocess.run(command, capture_output=True, timeout=60)
             t1 = time.perf_counter()
-            _logger.debug(f"swarp of flags took {t1 - t0:.2f} seconds")
+            SCLogger.get().debug(f"swarp of flags took {t1 - t0:.2f} seconds")
             if res.returncode != 0:
                 raise SubprocessFailure(res)
 
@@ -485,7 +486,7 @@ class ImageAligner:
             # TODO: what about SourceList?
         else:  # Do the warp
             if self.pars.method == 'swarp':
-                _logger.debug( 'Aligning with swarp' )
+                SCLogger.get().debug( 'Aligning with swarp' )
                 if ( source_sources.format != 'sextrfits' ) or ( target_sources.format != 'sextrfits' ):
                     raise RuntimeError( f'swarp ImageAligner requires sextrfits sources' )
                 warped_image = self._align_swarp(source_image, target_image, source_sources, target_sources)

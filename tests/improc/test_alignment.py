@@ -10,7 +10,7 @@ import astropy.wcs
 
 import sqlalchemy as sa
 
-from models.base import SmartSession, _logger
+from models.base import SmartSession
 from models.provenance import Provenance
 from models.image import Image
 

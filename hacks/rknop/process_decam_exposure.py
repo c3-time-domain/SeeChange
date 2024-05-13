@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import logging
 import argparse
 import pathlib
@@ -10,6 +11,7 @@ import sqlalchemy as sa
 from astropy.io import fits
 
 from util.config import Config
+from util.logger import SCLogger
 
 from models.base import Session
 from models.exposure import Exposure
@@ -22,13 +24,6 @@ from pipeline.top_level import Pipeline
 
 _config = Config.get()
 
-_logger = logging.getLogger(__name__)
-_logout = logging.StreamHandler( sys.stderr )
-_logger.addHandler( _logout )
-_formatter = logging.Formatter( f'[%(asctime)s - %(levelname)s] - %(message)s',
-                                datefmt='%Y-%m-%d %H:%M:%S' )
-_logout.setFormatter( _formatter )
-_logger.setLevel( logging.INFO )
 
 # ======================================================================
 
@@ -56,7 +51,7 @@ class ExposureProcessor:
         with Session() as sess:
             self.exposure = sess.scalars( sa.select(Exposure).where( Exposure.filepath == relpath ) ).first()
             if self.exposure is None:
-                _logger.info( f"Loading exposure {relpath} into database" )
+                SCLogger.get().info( f"Loading exposure {relpath} into database" )
                 self.exposure = Exposure( filepath=relpath, instrument='DECam', **exphdrinfo )
                 self.exposure.save()
 
@@ -64,22 +59,29 @@ class ExposureProcessor:
                 sess.merge( self.exposure )
                 sess.commit()
             else:
-                _logger.info( f"Exposure {relpath} is already in the database" )
+                SCLogger.get().info( f"Exposure {relpath} is already in the database" )
 
-        _logger.info( f"Exposure id is {self.exposure.id}" )
+        SCLogger.get().info( f"Exposure id is {self.exposure.id}" )
         self.results = {}
 
 
     def processchip( self, chip ):
         try:
             me = multiprocessing.current_process()
-            _logger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
+            match = re.search( '(\d+)', me.name )
+            if match is not None:
+                me.name = f'{int(match.group(1)):3d}'
+            else:
+                me.name = str( me.pid )
+            SCLogger.replace( me.name )
+            SCLogger.get().info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
             pipeline = Pipeline()
             ds = pipeline.run( self.exposure, chip )
+            import pdb; pdb.set_trace()
             ds.save_and_commit()
             return ( chip, True )
         except Exception as ex:
-            _logger.exception( f"Exception processing chip {chip}: {ex}" )
+            SCLogger.get().exception( f"Exception processing chip {chip}: {ex}" )
             return ( chip, False )
 
     def collate( self, res ):
@@ -98,7 +100,9 @@ def main():
 
     ncpus = multiprocessing.cpu_count()
     ompnumthreads = int( ncpus / args.numprocs )
-    _logger.info( f"Setting OMP_NUM_THREADS={ompnumthreads} for {ncpus} cpus and {args.numprocs} processes" )
+    SCLogger.set_level( logging.DEBUG )
+    SCLogger.get().error( f'log level is {SCLogger.get().level}' )
+    SCLogger.get().info( f"Setting OMP_NUM_THREADS={ompnumthreads} for {ncpus} cpus and {args.numprocs} processes" )
     os.environ[ "OMP_NUM_THREADS" ] = str( ompnumthreads )
 
     decam = get_instrument_instance( 'DECam' )
@@ -115,7 +119,7 @@ def main():
     # wasteful to have them all repeating each other's effort of
     # aquiring the file.  So, just pre-import it for current purposes.
 
-    _logger.info( "Ensuring presence of DECam linearity calibrator file" )
+    SCLogger.get().info( "Ensuring presence of DECam linearity calibrator file" )
 
     with Session() as session:
         df = ( session.query( DataFile )
@@ -145,7 +149,7 @@ def main():
                 cf = session.merge( cf )
         session.commit()
 
-    _logger.info( "DECam linearity calibrator file is accounted for" )
+    SCLogger.get().info( "DECam linearity calibrator file is accounted for" )
 
 
     # Now on to the real work
@@ -158,27 +162,27 @@ def main():
         chips = [ i for i in decam.get_section_ids() if i not in decam_bad_chips ]
 
     if args.numprocs > 1:
-        _logger.info( f"Creating Pool of {args.numprocs} processes to do {len(chips)} chips" )
+        SCLogger.get().info( f"Creating Pool of {args.numprocs} processes to do {len(chips)} chips" )
         with multiprocessing.pool.Pool( args.numprocs, maxtasksperchild=1 ) as pool:
             for chip in chips:
                 pool.apply_async( exproc.processchip, ( chip, ), {}, exproc.collate )
 
-            _logger.info( f"Submitted all worker jobs, waiting for them to finish." )
+            SCLogger.get().info( f"Submitted all worker jobs, waiting for them to finish." )
             pool.close()
             pool.join()
     else:
         # This is useful for some debugging (though it can't catch
         # process interaction issues (like database locks)).
-        _logger.info( f"Running {len(chips)} chips serially" )
+        SCLogger.get().info( f"Running {len(chips)} chips serially" )
         for chip in chips:
             exproc.collate( exproc.processchip( chip ) )
 
     succeeded = { k for k, v in exproc.results.items() if v }
     failed = { k for k, v in exproc.results.items() if not v }
-    _logger.info( f"{len(succeeded)+len(failed)} chips processed; "
+    SCLogger.get().info( f"{len(succeeded)+len(failed)} chips processed; "
                   f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
-    _logger.info( f"Succeeded (maybe): {succeeded}" )
-    _logger.info( f"Failed (definitely): {failed}" )
+    SCLogger.get().info( f"Succeeded (maybe): {succeeded}" )
+    SCLogger.get().info( f"Failed (definitely): {failed}" )
 
 
 # ======================================================================

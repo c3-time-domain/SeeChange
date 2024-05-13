@@ -7,7 +7,6 @@ from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 from util.util import parse_session
 
-from models.base import _logger
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.objects import Object
