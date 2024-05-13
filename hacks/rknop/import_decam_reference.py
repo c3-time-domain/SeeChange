@@ -54,6 +54,9 @@ def main():
 
     config = Config.get()
 
+    # This is bad.  It opens sessions and holes them open.  If too many
+    #   are running at once, it will overload the database server.
+    # Hopefully since this is a hack one-off, we can just cope.
     with SmartSession() as sess:
 
         # Get the provenance we'll use for the imported references

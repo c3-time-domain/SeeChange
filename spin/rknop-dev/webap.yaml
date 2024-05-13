@@ -46,9 +46,9 @@ spec:
         volumeMounts:
         - mountPath: /archive
           name: seechange-archive-dir
-        # Comment this out to use the code baked into the Dockerfile
-        # - mountPath: /code
-        #   name: seechange-webap-code
+        # Comment the next two lines out to use the code baked into the Dockerfile
+        - mountPath: /code
+          name: seechange-webap-code
       dnsConfig: {}
       dnsPolicy: ClusterFirst
       restartPolicy: Always
@@ -64,7 +64,7 @@ spec:
           type: Directory
         name: seechange-webap-code
       - hostPath:
-          path: /global/cfs/cdirs/m4616/archive-rknop-dev/base
+          path: /global/cfs/cdirs/m4616/archive-rknop-dev
           type: Directory
         name: seechange-archive-dir
 ---
@@ -122,17 +122,17 @@ spec:
             port:
               number: 8080
         pathType: ImplementationSpecific
-  # - host: ls4-rknop-dev-webap.lbl.gov
-  #   http:
-  #     paths:
-  #     - backend:
-  #         service:
-  #           name: webap-ingress
-  #           port:
-  #             number: 8080
-  #       pathType: ImplementationSpecific
-  # tls:
-  # - hosts:
-  #   - ls4-rknop-dev-webap.lbl.gov
-  #   secretName: webap-cert
+  - host: ls4-rknop-dev-webap.lbl.gov
+    http:
+      paths:
+      - backend:
+          service:
+            name: webap-ingress
+            port:
+              number: 8080
+        pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - ls4-rknop-dev-webap.lbl.gov
+    secretName: ls4-rknop-dev-webap-cert
 ---

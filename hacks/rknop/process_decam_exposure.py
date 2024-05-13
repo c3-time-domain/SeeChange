@@ -76,11 +76,7 @@ class ExposureProcessor:
             _logger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
             pipeline = Pipeline()
             ds = pipeline.run( self.exposure, chip )
-            with Session() as sess:
-                # Don't put the session outside the pipeline.run, because
-                #   we don't want the session to persist for a long time
-                #   (will use up available database connections).
-                ds.save_and_commit( session=sess )
+            ds.save_and_commit()
             return ( chip, True )
         except Exception as ex:
             _logger.exception( f"Exception processing chip {chip}: {ex}" )

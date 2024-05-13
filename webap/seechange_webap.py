@@ -1,3 +1,8 @@
+# MASSIVE TODO : this whole webap doesn't handle provenances at all
+# We need a way to choose provenances.  I sugest some sort of tag
+# table that allows us to associate tags with provenances so that
+# we can choose a set of provenances based a simple tag name.
+
 # Put this first so we can be sure that there are no calls that subvert
 #  this in other includes.
 import matplotlib
@@ -80,13 +85,14 @@ def exposures():
         cursor = conn.cursor()
         # TODO : deal with provenance!
         q = ( 'SELECT e.id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
-              '       COUNT(DISTINCT(i.id)) AS n_images, COUNT(c.id) AS n_sources '
+              '       COUNT(DISTINCT(i.id)) AS n_images, COUNT(c.id) AS n_cutouts, COUNT(m.id) AS n_measurements '
               'FROM exposures e '
               'LEFT JOIN images i ON i.exposure_id=e.id '
               'LEFT JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
               'LEFT JOIN images s ON s.id = ias.downstream_id AND s.is_sub '
               'LEFT JOIN source_lists sl ON sl.image_id=s.id '
-              'LEFT JOIN cutouts c ON c.sources_id=sl.id ' )
+              'LEFT JOIN cutouts c ON c.sources_id=sl.id '
+              'LEFT JOIN measurements m ON m.cutouts_id=c.id ' )
         subdict = {}
         if ( t0 is not None ) or ( t1 is not None ):
             q += "WHERE "
@@ -109,6 +115,7 @@ def exposures():
         filtername = []
         exp_time = []
         n_images = []
+        n_cutouts = []
         n_sources = []
 
         slashre = re.compile( '^.*/([^/]+)$' )
@@ -126,7 +133,8 @@ def exposures():
             filtername.append( row[columns['filter']] )
             exp_time.append( row[columns['exp_time']] )
             n_images.append( row[columns['n_images']] )
-            n_sources.append( row[columns[ 'n_sources']] )
+            n_cutouts.append( row[columns['n_cutouts']] )
+            n_sources.append( row[columns[ 'n_measurements']] )
 
         return { 'status': 'ok',
                  'startdate': t0,
@@ -139,6 +147,7 @@ def exposures():
                      'filter': filtername,
                      'exp_time': exp_time,
                      'n_images': n_images,
+                     'n_cutouts': n_cutouts,
                      'n_sources': n_sources
                  }
                 }
@@ -161,12 +170,13 @@ def exposure_images( expid ):
         # TODO : deal with provenance!
         q = ( 'SELECT i.id, i.filepath, i.ra, i.dec, i.gallat, i.section_id, i.fwhm_estimate, '
               '       i.zero_point_estimate, i.lim_mag_estimate, i.bkg_mean_estimate, i.bkg_rms_estimate, '
-              '       s.id AS subid, COUNT(c.id) AS numsources '
+              '       s.id AS subid, COUNT(c.id) AS numcutouts, COUNT(m.id) AS nummeasurements '
               'FROM images i '
               'LEFT JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
               'LEFT JOIN images s ON s.id = ias.downstream_id AND s.is_sub '
               'LEFT JOIN source_lists sl ON sl.image_id=s.id '
               'LEFT JOIN cutouts c ON  c.sources_id=sl.id '
+              'LEFT JOIN measurements m ON c.id=m.cutouts_id '
               'WHERE i.is_sub=false AND i.exposure_id=%(expid)s '
               'GROUP BY i.id,s.id '
               'ORDER BY i.section_id,s.id ' )
@@ -176,7 +186,8 @@ def exposure_images( expid ):
         app.logger.debug( f"Got {len(columns)} columns, {cursor.rowcount} rows" )
 
         fields = ( 'id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
-                   'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate', 'numsources', 'subid' )
+                   'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate',
+                   'numcutouts', 'nummeasurements', 'subid' )
 
         retval = { 'status': 'ok', 'name': [] }
         for field in fields :
@@ -204,74 +215,116 @@ def exposure_images( expid ):
 
 # **********************************************************************
 
-@app.route( "/png_cutouts_for_sub_image/<int:subid>", methods=['GET', 'POST'], strict_slashes=False )
-@app.route( "/png_cutouts_for_sub_image/<int:subid>/<int:limit>", methods=['GET', 'POST'], strict_slashes=False )
-@app.route( "/png_cutouts_for_sub_image/<int:subid>/<int:limit>/<int:offset>",
+@app.route( "/png_cutouts_for_sub_image/<int:exporsubid>/<int:issubid>/<int:nomeas>",
             methods=['GET', 'POST'], strict_slashes=False )
-def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
+@app.route( "/png_cutouts_for_sub_image/<int:exporsubid>/<int:issubid>/<int:nomeas>/<int:limit>",
+            methods=['GET', 'POST'], strict_slashes=False )
+@app.route( "/png_cutouts_for_sub_image/<int:exporsubid>/<int:issubid>/<int:nomeas>/<int:limit>/<int:offset>",
+            methods=['GET', 'POST'], strict_slashes=False )
+def png_cutouts_for_sub_image( exporsubid, issubid, nomeas, limit=None, offset=0 ):
     try:
-        data = { 'sortby': 'index' }
+        data = { 'sortby': 'fluxdesc_chip_index' }
         if flask.request.is_json:
             data.update( flask.request.json )
 
+        app.logger.debug( f"Processing {flask.request.url}" )
+        if nomeas:
+            app.logger.debug( f"Looking for cutouts from subid {exporsubid} ({'with' if nomeas else 'without'} "
+                              f"missing-measurements)" )
+        else:
+            app.logger.debug( f"Looking for cutouts from exposure {exporsubid} ({'with' if nomeas else 'without'} "
+                              f"missing-measurements)" )
+            
         conn = next( dbconn() )
         cursor = conn.cursor()
         # TODO : deal with provenance!
         # TODO : r/b and sorting
 
-        q = ( 'SELECT z.zp, z.dzp, z.aper_cor_radii, z.aper_cors, i.id, i.bkg_mean_estimate '
+        # Figure out the subids, zeropoints, backgrounds, and apertures we need
+
+        subids = []
+        zps = {}
+        dzps = {}
+        imageids = {}
+        newbkgs = {}
+        aperradses = {}
+        apercorses = {}
+        
+        q = ( 'SELECT s.id AS subid, z.zp, z.dzp, z.aper_cor_radii, z.aper_cors, '
+              '  i.id AS imageid, i.bkg_mean_estimate '
               'FROM images s '
               'INNER JOIN image_upstreams_association ias ON ias.downstream_id=s.id '
               '   AND s.ref_image_id != ias.upstream_id '
               'INNER JOIN images i ON ias.upstream_id=i.id '
               'INNER JOIN source_lists sl ON sl.image_id=i.id '
-              'INNER JOIN zero_points z ON sl.id=z.sources_id '
-              'WHERE s.id=%(subid)s ')
-        cursor.execute( q, { 'subid': subid } )
-        cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
-        rows = cursor.fetchall()
-        if len(rows) > 0:
-            app.logger.warning( f"Multiple zeropoints for subid {subid}, deal with provenance" )
-        if len(rows) == 0:
-            app.logger.error( f"Couldn't find a zeropoint for subid {subid}" )
-            zp = -99
-            dzp = -99
-            imageid = -99
-        zp = rows[0][cols['zp']]
-        dzp = rows[0][cols['dzp']]
-        imageid = rows[0][cols['id']]
-        newbkg = rows[0][cols['bkg_mean_estimate']]
-        aperrads = rows[0][cols['aper_cor_radii']]
-        apercors = rows[0][cols['aper_cors']]
+              'INNER JOIN zero_points z ON sl.id=z.sources_id ' )
+        if issubid:
+            q += 'WHERE s.id=%(subid)s '
+            cursor.execute( q, { 'subid': exporsubid } )
+            cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+            rows = cursor.fetchall()
+            if len(rows) > 1:
+                app.logger.warning( f"Multiple zeropoints for subid {exporsubid}, deal with provenance" )
+            if len(rows) == 0:
+                app.logger.error( f"Couldn't find a zeropoint for subid {exporsubid}" )
+                zp = -99
+                dzp = -99
+                imageid = -99
+            subids.append( exporsubid )
+            zps[exporsubid] = rows[0][cols['zp']]
+            dzps[exporsubid] = rows[0][cols['dzp']]
+            imageids[exporsubid] = rows[0][cols['imageid']]
+            newbkgs[exporsubid] = rows[0][cols['bkg_mean_estimate']]
+            aperradses[exporsubid] = rows[0][cols['aper_cor_radii']]
+            apercorses[exporsubid] = rows[0][cols['aper_cors']]
 
-        # app.logger.debug( f"Got zp={zp:.2f}±{dzp:.2f}, new bkg={newbkg:.2f} for subid {subid}, imageid {imageid}" )
+        else:
+            q += ( 'INNER JOIN exposures e ON i.exposure_id=e.id '
+                   'WHERE e.id=%(expid)s ORDER BY i.section_id  ' )
+            cursor.execute( q, { 'expid': exporsubid } )
+            cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+            rows = cursor.fetchall()
+            for row in rows:
+                subid = row[cols['subid']]
+                if ( subid in subids ):
+                    app.logger.warning( f"subid {subid} showed up more than once in zp qury, deal with provenance" )
+                subids.append( subid )
+                zps[subid] = row[cols['zp']]
+                dzps[subid] = row[cols['dzp']]
+                imageids[subid] = row[cols['imageid']]
+                newbkgs[subid] = row[cols['bkg_mean_estimate']]
+                aperradses[subid] = row[cols['aper_cor_radii']]
+                apercorses[subid] = row[cols['aper_cors']]
 
-        app.logger.debug( f"Getting cutouts for sub image {subid}" )
-        q = ( 'SELECT c.id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources, m.best_aperture, '
+        app.logger.debug( f"Getting cutouts for sub images {subids}" )
+        q = ( 'SELECT c.id AS id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources, m.best_aperture, '
               '       m.flux_apertures[m.best_aperture+1] AS flux, m.flux_apertures_err[m.best_aperture+1] AS dflux, '
-              '       m.ra AS measra, m.dec AS measdec '
+              '       m.ra AS measra, m.dec AS measdec, s.id AS subid, s.section_id '
               'FROM cutouts c '
               'INNER JOIN source_lists sl ON c.sources_id=sl.id '
               'INNER JOIN images s ON sl.image_id=s.id '
-              'INNER JOIN measurements m ON m.cutouts_id=c.id '
-              'WHERE s.id=%(subid)s ' )
-        if data['sortby'] == 'index':
-            q += 'ORDER BY c.index_in_sources '
+              'LEFT JOIN measurements m ON m.cutouts_id=c.id '
+              'WHERE s.id IN %(subids)s ' )
+        if not nomeas:
+            q += "AND m.best_aperture IS NOT NULL "
+        if data['sortby'] == 'fluxdesc_chip_index':
+            q += 'ORDER BY flux DESC NULLS LAST,s.section_id,c.index_in_sources '
         else:
             raise RuntimeError( f"Unknown sort criterion {data['sortby']}" )
         if limit is not None:
             q += 'LIMIT %(limit)s OFFSET %(offset)s'
-        subdict = { 'subid': subid, 'limit': limit, 'offset': offset }
+        subdict = { 'subids': tuple(subids), 'limit': limit, 'offset': offset }
         cursor.execute( q, subdict );
         cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
-        app.logger.info( f"Got {len(cols)} columns, {len(rows)} rows" )
+        app.logger.debug( f"Got {len(cols)} columns, {len(rows)} rows" )
 
         hdf5files = {}
         retval = { 'status': 'ok',
-                   'sub_id': subid,
-                   'image_id': imageid,
                    'cutouts': {
+                       'sub_id': [],
+                       'image_id': [],
+                       'section_id': [],
                        'id': [],
                        'ra': [],
                        'dec': [],
@@ -295,6 +348,7 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
         scaler = astropy.visualization.ZScaleInterval()
 
         for row in rows:
+            subid = row[cols['subid']]
             if row[cols['filepath']] not in hdf5files:
                 hdf5files[row[cols['filepath']]] = h5py.File( ARCHIVE_DIR / row[cols['filepath']], 'r' )
             grp = hdf5files[row[cols['filepath']]][f'source_{row[cols["index_in_sources"]]}']
@@ -303,8 +357,8 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             # TODO : there's an assumption here that the ref is background
             #   subtracted. They probably usually will be -- that tends to be
             #   part of a coadd process.
-            vmin -= newbkg
-            vmax -= newbkg
+            vmin -= newbkgs[subid]
+            vmax -= newbkgs[subid]
             scaledref = ( grp['ref_data'] - vmin ) * 255. / ( vmax - vmin )
             vmin, vmax = scaler.get_limits( grp['sub_data'] )
             scaledsub = ( grp['sub_data'] - vmin ) * 255. / ( vmax - vmin )
@@ -331,40 +385,50 @@ def png_cutouts_for_sub_image( subid, limit=None, offset=0 ):
             PIL.Image.fromarray( scaledref ).save( refim, format='png' )
             PIL.Image.fromarray( scaledsub ).save( subim, format='png' )
 
+            retval['cutouts']['sub_id'].append( subid )
+            retval['cutouts']['image_id'].append( imageids[subid] )
+            retval['cutouts']['section_id'].append( row[cols['section_id']] )
             retval['cutouts']['new_png'].append( base64.b64encode( newim.getvalue() ).decode('ascii') )
             retval['cutouts']['ref_png'].append( base64.b64encode( refim.getvalue() ).decode('ascii') )
             retval['cutouts']['sub_png'].append( base64.b64encode( subim.getvalue() ).decode('ascii') )
             retval['cutouts']['id'].append( row[cols['id']] )
             retval['cutouts']['ra'].append( row[cols['ra']] )
             retval['cutouts']['dec'].append( row[cols['dec']] )
-            retval['cutouts']['measra'].append( row[cols['measra']] )
-            retval['cutouts']['measdec'].append( row[cols['measdec']] )
             retval['cutouts']['x'].append( row[cols['x']] )
             retval['cutouts']['y'].append( row[cols['y']] )
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
 
+            # Measurements columns
+            
             # WARNING : assumption here that the aper cor radii list in the
             #   zero point is the same as was used in the measurements.
             # (I think that's a good assumption, but still.)
 
             flux = row[cols['flux']]
             dflux = row[cols['dflux']]
-            mag = -99
-            dmag = -99
-            if ( zp > 0 ) and ( flux > 0 ):
-                mag = -2.5 * math.log10( flux ) + zp + apercors[ row[cols['best_aperture']] ]
-                # Ignore zp and apercor uncertainties
-                dmag = 1.0857 * dflux / flux
-            retval['cutouts']['flux'].append( flux )
-            retval['cutouts']['dflux'].append( dflux )
-            retval['cutouts']['aperrad'].append( aperrads[ row[cols['best_aperture']] ] )
-            retval['cutouts']['mag'].append( mag )
-            retval['cutouts']['dmag'].append( dmag )
+            if flux is None:
+                for field in [ 'flux', 'dflux', 'aperrad', 'mag', 'dmag', 'measra', 'measdec' ]:
+                    retval['cutouts'][field].append( None )
+            else:
+                mag = -99
+                dmag = -99
+                if ( zps[subid] > 0 ) and ( flux > 0 ):
+                    mag = -2.5 * math.log10( flux ) + zps[subid] + apercorses[subid][ row[cols['best_aperture']] ]
+                    # Ignore zp and apercor uncertainties
+                    dmag = 1.0857 * dflux / flux
+                retval['cutouts']['measra'].append( row[cols['measra']] )
+                retval['cutouts']['measdec'].append( row[cols['measdec']] )
+                retval['cutouts']['flux'].append( flux )
+                retval['cutouts']['dflux'].append( dflux )
+                retval['cutouts']['aperrad'].append( aperradses[subid][ row[cols['best_aperture']] ] )
+                retval['cutouts']['mag'].append( mag )
+                retval['cutouts']['dmag'].append( dmag )
 
         for f in hdf5files.values():
             f.close()
 
+        app.logger.debug( f"Returning {len(retval['cutouts']['sub_id'])} cutouts" )
         return retval
 
     except Exception as ex:

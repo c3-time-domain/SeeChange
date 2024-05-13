@@ -14,21 +14,28 @@
     --tooltip-background: #ffff66;
     --tooltip-border: #0000ff;
     --tooltip-color: black;
-    --good-color: #00c000;
+    --good-color: #006000;
     --bad-color: #c00000;
     --warning-color: #c06040;
 }
+
+.good { color: var(--good-color) }
+.bad { color: var(--bad-color) }
+.warning { color: var(--warning-color) }
+
+.italic { font-style: italic }
+.bold { font-weight: bold }
 
 .bgwhite { background: var(--background-color) }
 .bgfade { background: var(--most-faded-color) }
 .link { background: none; border: none; padding: 0;
         color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
-.tabunsel { background: var(--half-faded-color);
+.tabunsel { background: var(--most-faded-color);
             border: 2px outset var(--full-color-border);
             margin-left: 0.5ex;
             margin-right: 0.5ex; }
-.tabsel { background: var(--most-faded-color);
+.tabsel { background: var(--half-faded-color);
           border: 2px inset var(--full-color-border);
           margin-left: 0.5ex;
           margin-right: 0.5ex; }
