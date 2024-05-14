@@ -215,8 +215,8 @@ class AstroCalibrator:
                     session=session,
                 )
             except CatalogNotFoundError as ex:
-                SCLogger.get().info( f"Failed to get a catalog excerpt with enough stars with maxmag {maxmag}, "
-                              f"trying the next one." )
+                SCLogger.info( f"Failed to get a catalog excerpt with enough stars with maxmag {maxmag}, "
+                               f"trying the next one." )
                 exceptions.append(ex)
                 continue
 
@@ -226,20 +226,20 @@ class AstroCalibrator:
                     success = True
                     break
                 except SubprocessFailure as ex:
-                    SCLogger.get().info( f"Scamp failed for maxmag {maxmag} and crossid_rad {radius}, "
-                                  f"trying the next crossid_rad" )
+                    SCLogger.info( f"Scamp failed for maxmag {maxmag} and crossid_rad {radius}, "
+                                   f"trying the next crossid_rad" )
                     exceptions.append(ex)
                     continue
                 except BadMatchException as ex:
-                    SCLogger.get().info( f"Scamp didn't produce a successful match for maxmag {maxmag} "
-                                  f"and crossid_rad {radius}; trying the next crossid_rad" )
+                    SCLogger.info( f"Scamp didn't produce a successful match for maxmag {maxmag} "
+                                   f"and crossid_rad {radius}; trying the next crossid_rad" )
                     exceptions.append(ex)
                     continue
 
             if success:
                 break
             else:
-                SCLogger.get().info( f"Failed to solve for WCS with maxmag {maxmag}, trying the next one." )
+                SCLogger.info( f"Failed to solve for WCS with maxmag {maxmag}, trying the next one." )
 
         if not success:
             raise RuntimeError( f"_run_scamp failed to find a match. Exceptions that were raised: {exceptions}" )
@@ -276,8 +276,8 @@ class AstroCalibrator:
             self.has_recalculated = True
             image = ds.get_image(session=session)
             if image.astro_cal_done:
-                SCLogger.get().warning( f"Failed to find a wcs for image {pathlib.Path( image.filepath ).name}, "
-                                 f"but it has astro_cal_done=True" )
+                SCLogger.warning( f"Failed to find a wcs for image {pathlib.Path( image.filepath ).name}, "
+                                  f"but it has astro_cal_done=True" )
 
             if self.pars.solution_method == 'scamp':
                 self._run_scamp( ds, prov, session=session )

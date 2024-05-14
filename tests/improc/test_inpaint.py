@@ -102,4 +102,4 @@ def test_inpaint_aligned_images(ptf_aligned_images, blocking_plots):
         ax[2].imshow(flagcube[0][0:160, 0:150])
         ax[2].set_title('flags')
         plt.show(block=True)
-        SCLogger.get().debug('done')
+        SCLogger.debug('done')

@@ -199,10 +199,10 @@ def get_all_database_objects(display=False, session=None):
             output[model] = object_ids
 
             if display:
-                SCLogger.get().debug(f"{model.__name__:16s}: ", end='')
+                SCLogger.debug(f"{model.__name__:16s}: ", end='')
                 for obj_id in object_ids:
-                    SCLogger.get().debug(obj_id, end=', ')
-                SCLogger.get().debug()
+                    SCLogger.debug(obj_id, end=', ')
+                SCLogger.debug()
 
     return output
 
@@ -544,7 +544,7 @@ class SeeChangeBase:
                 target_f = os.path.join(cache_dir, filepath)
                 if self.filepath_extensions is not None and i < len(self.filepath_extensions):
                     target_f += self.filepath_extensions[i]
-                SCLogger.get().debug(f"Copying {source_f} to {target_f}")
+                SCLogger.debug(f"Copying {source_f} to {target_f}")
                 os.makedirs(os.path.dirname(target_f), exist_ok=True)
                 shutil.copy2(source_f, target_f)
 
@@ -663,7 +663,7 @@ class SeeChangeBase:
                 source_f = os.path.join(cache_dir, full_path)
                 if output.filepath_extensions is not None and i < len(output.filepath_extensions):
                     source_f += output.filepath_extensions[i]
-                SCLogger.get().debug(f"Copying {source_f} to {target_f}")
+                SCLogger.debug(f"Copying {source_f} to {target_f}")
                 os.makedirs(os.path.dirname(target_f), exist_ok=True)
                 shutil.copyfile(source_f, target_f)
 
@@ -724,7 +724,7 @@ class SeeChangeBase:
                 source_f = os.path.join(cache_dir, full_path)
                 if output[0].filepath_extensions is not None and i < len(output[0].filepath_extensions):
                     source_f += output[0].filepath_extensions[i]
-                SCLogger.get().debug(f"Copying {source_f} to {target_f}")
+                SCLogger.debug(f"Copying {source_f} to {target_f}")
                 os.makedirs(os.path.dirname(target_f), exist_ok=True)
                 shutil.copyfile(source_f, target_f)
 
@@ -1311,7 +1311,7 @@ class FileOnDiskMixin:
                 raise RuntimeError( f"{localpath} exists but is not a file!  Can't save." )
             if localpath == path:
                 alreadyinplace = True
-                SCLogger.get().debug( f"FileOnDiskMixin.save: local file store path and original path are the same: {path}" )
+                SCLogger.debug( f"FileOnDiskMixin.save: local file store path and original path are the same: {path}" )
             else:
                 if ( not overwrite ) and ( not exists_ok ):
                     raise FileExistsError( f"{localpath} already exists, cannot save." )
@@ -1326,17 +1326,17 @@ class FileOnDiskMixin:
                         localmd5.update( ifp.read() )
                     if localmd5.hexdigest() != origmd5.hexdigest():
                         if overwrite:
-                            SCLogger.get().debug( f"Existing {localpath} md5sum mismatch; overwriting." )
+                            SCLogger.debug( f"Existing {localpath} md5sum mismatch; overwriting." )
                             mustwrite = True
                         else:
                             raise ValueError( f"{localpath} exists, but its md5sum {localmd5.hexdigest()} does not "
                                               f"match md5sum of {path} {origmd5.hexdigest()}" )
                 else:
                     if overwrite:
-                        SCLogger.get().debug( f"Overwriting {localpath}" )
+                        SCLogger.debug( f"Overwriting {localpath}" )
                         mustwrite = True
                     elif exists_ok:
-                        SCLogger.get().debug( f"{localpath} already exists, not verifying md5 nor overwriting" )
+                        SCLogger.debug( f"{localpath} already exists, not verifying md5 nor overwriting" )
                     else:
                         # raise FileExistsError( f"{localpath} already exists, not saving" )
                         # Logically, should not be able to get here
@@ -1391,10 +1391,10 @@ class FileOnDiskMixin:
         else:
             if not verify_md5:
                 if overwrite:
-                    SCLogger.get().debug( f"Uploading {logfilepath} to archive, overwriting existing file" )
+                    SCLogger.debug( f"Uploading {logfilepath} to archive, overwriting existing file" )
                     mustupload = True
                 else:
-                    SCLogger.get().debug( f"Assuming existing {logfilepath} on archive is correct" )
+                    SCLogger.debug( f"Assuming existing {logfilepath} on archive is correct" )
             else:
                 if origmd5 is None:
                     origmd5 = hashlib.md5()
@@ -1403,10 +1403,10 @@ class FileOnDiskMixin:
                             data = ifp.read()
                     origmd5.update( data )
                 if origmd5.hexdigest() == archivemd5.hex:
-                    SCLogger.get().debug( f"Archive md5sum for {logfilepath} matches saved data, not reuploading." )
+                    SCLogger.debug( f"Archive md5sum for {logfilepath} matches saved data, not reuploading." )
                 else:
                     if overwrite:
-                        SCLogger.get().debug( f"Archive md5sum for {logfilepath} doesn't match saved data, "
+                        SCLogger.debug( f"Archive md5sum for {logfilepath} doesn't match saved data, "
                                               f"overwriting on archive." )
                         mustupload = True
                     else:

@@ -371,7 +371,7 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         psfsamp = self.header['PSF_SAMP']
         stampwid = int( np.floor( psfsamp * psfwid ) + 0.5 )
         if ( stampwid % 2 ) == 0:
-            # SCLogger.get().warning( f'PSF stamp width came out even ({stampwid}), subtracting 1' )
+            # SCLogger.warning( f'PSF stamp width came out even ({stampwid}), subtracting 1' )
             stampwid -= 1
         psfdex1d = np.arange( -(psfwid//2), psfwid//2+1, dtype=int )
 
@@ -489,7 +489,7 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             raise NotImplementedError( "Only know how to add psf to image for psfex PSF files" )
 
         if ( x < 0 ) or ( x >= image.shape[1] ) or ( y < 0 ) or ( y >= image.shape[0] ):
-            SCLogger.get().warn( "Center of psf to be added to image is off of edge of image" )
+            SCLogger.warn( "Center of psf to be added to image is off of edge of image" )
 
         xc = int( np.floor(x + 0.5) )
         yc = int( np.floor(y + 0.5) )

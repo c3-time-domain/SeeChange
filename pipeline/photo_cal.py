@@ -130,7 +130,7 @@ class PhotCalibrator:
         # Extract from the catalog the range of Gaia colors that we want
         # to use (motivated by looking at Gaia H-R diagrams).
         catdata = prune_func(catexp.data)
-        SCLogger.get().debug( f"{len(catdata)} catalog stars passed the pruning process." )
+        SCLogger.debug( f"{len(catdata)} catalog stars passed the pruning process." )
 
         # transform the coordinates columns into astropy.coordinates.SkyCoord objects
         catcoords = coord_func(catdata, image.mjd)
@@ -149,8 +149,8 @@ class PhotCalibrator:
         skycoords = skycoords[wgood]
         sourceflux = sourceflux[wgood]
         sourcefluxerr = sourcefluxerr[wgood]
-        SCLogger.get().debug( f"{len(skycoords)} of {sources.num_sources} image sources "
-                       f"have flux in 'infinite' aperture >3σ" )
+        SCLogger.debug( f"{len(skycoords)} of {sources.num_sources} image sources "
+                        f"have flux in 'infinite' aperture >3σ" )
 
         # Match catalog excerpt RA/Dec to source RA/Dec
         # ref https://docs.astropy.org/en/stable/coordinates/matchsep.html#matching-catalogs
@@ -166,7 +166,7 @@ class PhotCalibrator:
         # catcoords = catcoords[idx[sep_constraint]]  # do we need this?
         catdata = catdata[idx[sep_constraint]]
 
-        SCLogger.get().debug( f"Matched {len(skycoords)} stars between catalog and the image source list" )
+        SCLogger.debug( f"Matched {len(skycoords)} stars between catalog and the image source list" )
 
         if len(skycoords) < min_matches:
             raise BadMatchException( f"Only matched {len(skycoords)} stars between catalog and the image source list, "
@@ -201,7 +201,7 @@ class PhotCalibrator:
         wgood = ( ~np.isnan( zps ) ) & ( ~np.isnan( zpvars ) )
         zps = zps[wgood]
         zpvars = zpvars[wgood]
-        SCLogger.get().debug( f"{len(zps)} stars survived the not-NaN zeropoint check" )
+        SCLogger.debug( f"{len(zps)} stars survived the not-NaN zeropoint check" )
 
         zpval = np.sum( zps / zpvars ) / np.sum( 1. / zpvars )
         dzpval = 1. / np.sum( 1. / (zpvars ) )

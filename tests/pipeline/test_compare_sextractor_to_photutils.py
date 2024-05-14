@@ -43,13 +43,13 @@ def test_compare_sextr_photutils( decam_datastore ):
     dphot = np.empty( ( sources.num_sources, len(sources.aper_rads) ), dtype=float )
 
     for i, aperrad in enumerate( sources.aper_rads ):
-        SCLogger.get().info( f"Doing aperture radius {aperrad}..." )
+        SCLogger.info( f"Doing aperture radius {aperrad}..." )
         apers = CircularAperture( pos, r=aperrad )
         res = aperture_photometry( skysubdata, apers, error=error, mask=mask )
         phot[ :, i ] = res['aperture_sum']
         dphot[ :, i ] = res['aperture_sum_err']
 
-    SCLogger.get().info( "Done with photutils aperture photometry." )
+    SCLogger.info( "Done with photutils aperture photometry." )
 
     # Futz around a whole lot doing comparisons
 

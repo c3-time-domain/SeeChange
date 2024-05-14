@@ -82,7 +82,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
 
     try:
         max_nmatches = [ 0 ]
-        SCLogger.get().info( f"max_sources_to_use = {max_sources_to_use} (type {type(max_sources_to_use)})" )
+        SCLogger.info( f"max_sources_to_use = {max_sources_to_use} (type {type(max_sources_to_use)})" )
         if ( max_sources_to_use is not None ):
             if isinstance( max_sources_to_use, int ):
                 max_nmatches = [ max_sources_to_use ]
@@ -102,7 +102,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
             # solution.  I don't know if scamp works that way, or if it
             # just does the entire astrometric solution on MATCH_NMAX
             # stars.  The documentation is silent on this....
-            SCLogger.get().debug( f"Trying scamp with MATCH_NMAX {max_nmatch}" )
+            SCLogger.debug( f"Trying scamp with MATCH_NMAX {max_nmatch}" )
             command = [ 'scamp', sourcefile,
                         '-ASTREF_CATALOG', 'FILE',
                         '-ASTREFCAT_NAME', catfile,
@@ -124,7 +124,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
             t0 = time.perf_counter()
             res = subprocess.run( command, capture_output=True, timeout=60 )
             t1 = time.perf_counter()
-            SCLogger.get().debug( f"Scamp with {len(sources)} sources and {len(cat)} catalog stars "
+            SCLogger.debug( f"Scamp with {len(sources)} sources and {len(cat)} catalog stars "
                            f"(with match_nmax={max_nmatch}) took {t1-t0:.2f} seconds" )
 
             if res.returncode != 0:
@@ -143,18 +143,18 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                     ):
                 infostr += ( f", which isn't good enough.\n" )
                 # A warning not an error in case something outside is iterating
-                SCLogger.get().warning( infostr )
+                SCLogger.warning( infostr )
             else:
                 success = True
                 break
 
         if not success:
-            SCLogger.get().warning( f"Last scamp command: {res.args}\n"
+            SCLogger.warning( f"Last scamp command: {res.args}\n"
                              f"-------------\nScamp stderr:\n{res.stderr.decode('utf-8')}\n"
                              f"-------------\nScamp stdout:\n{res.stdout.decode('utf-8')}\n" )
             raise BadMatchException( infostr )
 
-        SCLogger.get().info( infostr )
+        SCLogger.info( infostr )
 
         # Create a WCS object based on the information
         # written in the ".head" file scamp created.

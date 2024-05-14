@@ -89,7 +89,7 @@ def ptf_downloader(provenance_preprocessing, download_url, data_dir, ptf_cache_d
 
         # first make sure file exists in the cache
         if os.path.isfile(cachedpath):
-            SCLogger.get().info(f"{cachedpath} exists, not redownloading.")
+            SCLogger.info(f"{cachedpath} exists, not redownloading.")
         else:
             # url = f'https://portal.nersc.gov/project/m2218/pipeline/test_images/{filename}'
             url = os.path.join(download_url, 'PTF/10cwm', filename)
@@ -120,7 +120,7 @@ def ptf_exposure(ptf_downloader):
     with SmartSession() as session:
         existing = session.scalars(sa.select(Exposure).where(Exposure.filepath == exposure.filepath)).first()
         if existing is not None:
-            SCLogger.get().info(f"Found existing Image on database: {existing}")
+            SCLogger.info(f"Found existing Image on database: {existing}")
             # overwrite the existing row data using the JSON cache file
             for key in sa.inspect(exposure).mapper.columns.keys():
                 value = getattr(exposure, key)
@@ -237,9 +237,9 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
 
             except Exception as e:
                 # I think we should fix this along with issue #150
-                SCLogger.get().debug(f'Error processing {url}')  # this will also leave behind exposure and image data on disk only
+                SCLogger.debug(f'Error processing {url}')  # this will also leave behind exposure and image data on disk only
                 raise e
-                # SCLogger.get().debug(e)  # TODO: should we be worried that some of these images can't complete their processing?
+                # SCLogger.debug(e)  # TODO: should we be worried that some of these images can't complete their processing?
                 continue
 
             images.append(ds.image)

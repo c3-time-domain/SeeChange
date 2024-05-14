@@ -741,4 +741,4 @@ if __name__ == '__main__':
     ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     filepath = os.path.join(ROOT_FOLDER, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
     e = Exposure(filepath)
-    SCLogger.get().debug(e)
+    SCLogger.debug(e)

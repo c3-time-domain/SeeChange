@@ -177,7 +177,7 @@ def test_zogy_simulation(coadder, blocking_plots):
     fwhms_est = np.array(fwhms_est)
     fwhms_est2 = np.sqrt(fwhms_est ** 2 - 1.5)  # add the pixelization width
     deltas = np.abs((fwhms - fwhms_est2) / fwhms)
-    # SCLogger.get().debug(
+    # SCLogger.debug(
     #     f'max(deltas) = {np.max(deltas) * 100:.1f}%, '
     #     f'mean(deltas) = {np.mean(deltas) * 100:.1f}%, '
     #     f'std(deltas)= {np.std(deltas) * 100 :.1f}% '

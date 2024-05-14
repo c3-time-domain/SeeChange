@@ -93,7 +93,7 @@ class PSFPaletteMaker:
 
         for i, xc in enumerate( self.xpos ):
             xi0 = int( math.floor(xc)+0.5 )
-            SCLogger.get().info( f"Making psf palette, on x {i} of {len(self.xpos)}" )
+            SCLogger.info( f"Making psf palette, on x {i} of {len(self.xpos)}" )
             for yc in self.ypos:
                 yi0 = int( math.floor(yc)+0.5 )
                 for xi in range(xi0 - (self.clipwid//2), xi0 + self.clipwid//2 + 1):
@@ -127,7 +127,7 @@ class PSFPaletteMaker:
         nnw = astromatic_dir / "default.nnw"
         paramfile = astromatic_dir / "sourcelist_sextractor.param"
 
-        SCLogger.get().info( "Running sextractor..." )
+        SCLogger.info( "Running sextractor..." )
         # Run sextractor to give psfex something to do
         command = [ 'source-extractor',
                     '-CATALOG_NAME', self.catname,
@@ -150,7 +150,7 @@ class PSFPaletteMaker:
         res = subprocess.run( command, capture_output=True, timeout=60 )
         assert res.returncode == 0
 
-        SCLogger.get().info( "Runing psfex..." )
+        SCLogger.info( "Runing psfex..." )
         # Run psfex to get the psf and psfxml files
         command = [ 'psfex',
                     '-PSF_SIZE', '31',

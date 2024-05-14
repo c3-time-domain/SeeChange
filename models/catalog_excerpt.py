@@ -204,7 +204,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
             catexp.dec = ( catexp.dec_corner_00 + catexp.dec_corner_01 ) / 2.
             catexp.calculate_coordinates()
         else:
-            SCLogger.get().warning( f"spatial coordinates and min/max mag not set in CatalogExcerpt with origin {origin}" )
+            SCLogger.warning( f"spatial coordinates and min/max mag not set in CatalogExcerpt with origin {origin}" )
 
         return catexp
 

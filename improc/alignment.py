@@ -353,7 +353,7 @@ class ImageAligner:
             t0 = time.perf_counter()
             res = subprocess.run( command, capture_output=True, timeout=60 )
             t1 = time.perf_counter()
-            SCLogger.get().debug( f"swarp of image took {t1-t0:.2f} seconds" )
+            SCLogger.debug( f"swarp of image took {t1-t0:.2f} seconds" )
             if res.returncode != 0:
                 raise SubprocessFailure( res )
 
@@ -371,7 +371,7 @@ class ImageAligner:
             t0 = time.perf_counter()
             res = subprocess.run(command, capture_output=True, timeout=60)
             t1 = time.perf_counter()
-            SCLogger.get().debug(f"swarp of flags took {t1 - t0:.2f} seconds")
+            SCLogger.debug(f"swarp of flags took {t1 - t0:.2f} seconds")
             if res.returncode != 0:
                 raise SubprocessFailure(res)
 
@@ -486,7 +486,7 @@ class ImageAligner:
             # TODO: what about SourceList?
         else:  # Do the warp
             if self.pars.method == 'swarp':
-                SCLogger.get().debug( 'Aligning with swarp' )
+                SCLogger.debug( 'Aligning with swarp' )
                 if ( source_sources.format != 'sextrfits' ) or ( target_sources.format != 'sextrfits' ):
                     raise RuntimeError( f'swarp ImageAligner requires sextrfits sources' )
                 warped_image = self._align_swarp(source_image, target_image, source_sources, target_sources)

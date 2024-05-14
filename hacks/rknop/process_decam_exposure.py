@@ -51,7 +51,7 @@ class ExposureProcessor:
         with Session() as sess:
             self.exposure = sess.scalars( sa.select(Exposure).where( Exposure.filepath == relpath ) ).first()
             if self.exposure is None:
-                SCLogger.get().info( f"Loading exposure {relpath} into database" )
+                SCLogger.info( f"Loading exposure {relpath} into database" )
                 self.exposure = Exposure( filepath=relpath, instrument='DECam', **exphdrinfo )
                 self.exposure.save()
 
@@ -59,9 +59,9 @@ class ExposureProcessor:
                 sess.merge( self.exposure )
                 sess.commit()
             else:
-                SCLogger.get().info( f"Exposure {relpath} is already in the database" )
+                SCLogger.info( f"Exposure {relpath} is already in the database" )
 
-        SCLogger.get().info( f"Exposure id is {self.exposure.id}" )
+        SCLogger.info( f"Exposure id is {self.exposure.id}" )
         self.results = {}
 
 
@@ -74,14 +74,14 @@ class ExposureProcessor:
             else:
                 me.name = str( me.pid )
             SCLogger.replace( me.name )
-            SCLogger.get().info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
+            SCLogger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
             pipeline = Pipeline()
             ds = pipeline.run( self.exposure, chip )
             import pdb; pdb.set_trace()
             ds.save_and_commit()
             return ( chip, True )
         except Exception as ex:
-            SCLogger.get().exception( f"Exception processing chip {chip}: {ex}" )
+            SCLogger.exception( f"Exception processing chip {chip}: {ex}" )
             return ( chip, False )
 
     def collate( self, res ):
@@ -101,8 +101,8 @@ def main():
     ncpus = multiprocessing.cpu_count()
     ompnumthreads = int( ncpus / args.numprocs )
     SCLogger.set_level( logging.DEBUG )
-    SCLogger.get().error( f'log level is {SCLogger.get().level}' )
-    SCLogger.get().info( f"Setting OMP_NUM_THREADS={ompnumthreads} for {ncpus} cpus and {args.numprocs} processes" )
+    SCLogger.error( f'log level is {SCLogger.get().getEffectiveLevel()}' )
+    SCLogger.info( f"Setting OMP_NUM_THREADS={ompnumthreads} for {ncpus} cpus and {args.numprocs} processes" )
     os.environ[ "OMP_NUM_THREADS" ] = str( ompnumthreads )
 
     decam = get_instrument_instance( 'DECam' )
@@ -119,7 +119,7 @@ def main():
     # wasteful to have them all repeating each other's effort of
     # aquiring the file.  So, just pre-import it for current purposes.
 
-    SCLogger.get().info( "Ensuring presence of DECam linearity calibrator file" )
+    SCLogger.info( "Ensuring presence of DECam linearity calibrator file" )
 
     with Session() as session:
         df = ( session.query( DataFile )
@@ -149,7 +149,7 @@ def main():
                 cf = session.merge( cf )
         session.commit()
 
-    SCLogger.get().info( "DECam linearity calibrator file is accounted for" )
+    SCLogger.info( "DECam linearity calibrator file is accounted for" )
 
 
     # Now on to the real work
@@ -162,27 +162,27 @@ def main():
         chips = [ i for i in decam.get_section_ids() if i not in decam_bad_chips ]
 
     if args.numprocs > 1:
-        SCLogger.get().info( f"Creating Pool of {args.numprocs} processes to do {len(chips)} chips" )
+        SCLogger.info( f"Creating Pool of {args.numprocs} processes to do {len(chips)} chips" )
         with multiprocessing.pool.Pool( args.numprocs, maxtasksperchild=1 ) as pool:
             for chip in chips:
                 pool.apply_async( exproc.processchip, ( chip, ), {}, exproc.collate )
 
-            SCLogger.get().info( f"Submitted all worker jobs, waiting for them to finish." )
+            SCLogger.info( f"Submitted all worker jobs, waiting for them to finish." )
             pool.close()
             pool.join()
     else:
         # This is useful for some debugging (though it can't catch
         # process interaction issues (like database locks)).
-        SCLogger.get().info( f"Running {len(chips)} chips serially" )
+        SCLogger.info( f"Running {len(chips)} chips serially" )
         for chip in chips:
             exproc.collate( exproc.processchip( chip ) )
 
     succeeded = { k for k, v in exproc.results.items() if v }
     failed = { k for k, v in exproc.results.items() if not v }
-    SCLogger.get().info( f"{len(succeeded)+len(failed)} chips processed; "
+    SCLogger.info( f"{len(succeeded)+len(failed)} chips processed; "
                   f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
-    SCLogger.get().info( f"Succeeded (maybe): {succeeded}" )
-    SCLogger.get().info( f"Failed (definitely): {failed}" )
+    SCLogger.info( f"Succeeded (maybe): {succeeded}" )
+    SCLogger.info( f"Failed (definitely): {failed}" )
 
 
 # ======================================================================

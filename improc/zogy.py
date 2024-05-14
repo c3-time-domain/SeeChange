@@ -379,7 +379,7 @@ if __name__ == "__main__":
         F_r = 1 / np.sqrt(np.sum(P_r ** 2) / B_r)
         F_n = 1 / np.sqrt(np.sum(P_n ** 2) / B_n)
         output = zogy_subtract(R, N, P_r, P_n, np.sqrt(B_r), np.sqrt(B_n), F_r, F_n)
-        SCLogger.get().debug(
+        SCLogger.debug(
             f'std(D)= {np.std(output["sub_image"])}, '
             f'std(S)= {np.std(output["score"])}, '
             f'std(Sc)= {np.std(output["Score_corr"])}'

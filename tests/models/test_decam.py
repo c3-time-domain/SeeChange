@@ -124,7 +124,7 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
     origloglevel = SCLogger.get().getEffectiveLevel()
     try:
         # uncomment below to show the things sent to the noirlab API if something goes wrong.
-        # SCLogger.get().setLevel( logging.DEBUG )
+        # SCLogger.setLevel( logging.DEBUG )
 
         decam = DECam()
 
@@ -159,7 +159,7 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
         assert len(originexposures._frame.index.levels[0]) == 4
         assert set(originexposures._frame.filtercode) == { 'r', 'g' }
     finally:
-        SCLogger.get().setLevel( origloglevel )
+        SCLogger.setLevel( origloglevel )
 
 
 def test_decam_download_origin_exposure( decam_reduced_origin_exposures, cache_dir ):

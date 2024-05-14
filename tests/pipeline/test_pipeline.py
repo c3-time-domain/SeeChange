@@ -220,7 +220,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
         for i in range(len(attributes)):
             for j in range(i + 1):
                 setattr(ds, attributes[j], None)  # get rid of all data up to the current attribute
-            # SCLogger.get().debug(f'removing attributes up to {attributes[i]}')
+            # SCLogger.debug(f'removing attributes up to {attributes[i]}')
             ds = p.run(ds)  # for each iteration, we should be able to recreate the data
 
             # commit to DB using this session

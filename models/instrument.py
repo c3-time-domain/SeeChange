@@ -1458,7 +1458,7 @@ class Instrument:
 
         """
 
-        SCLogger.get().debug( f'Looking for calibrators for {calibset} {section}' )
+        SCLogger.debug( f'Looking for calibrators for {calibset} {section}' )
 
         if ( calibset == 'externally_supplied' ) != ( flattype == 'externally_supplied' ):
             raise ValueError( "Doesn't make sense to have only one of calibset and flattype be externally_supplied" )
@@ -1479,7 +1479,7 @@ class Instrument:
                 if calibtype in self.preprocessing_nofile_steps:
                     continue
 
-                SCLogger.get().debug( f'Looking for calibrators for {section} type {calibtype}' )
+                SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
 
                 # We need to avoid a race condition where two processes both look for a calibrator file,
                 #   don't find it, and both try to download it at the same time.  Just using database
@@ -1543,13 +1543,13 @@ class Instrument:
                         calib = self._get_default_calibrator( mjd, section, calibtype=calibtype,
                                                               filter=self.get_short_filter_name( filter ),
                                                               session=session )
-                        SCLogger.get().debug( f"Got default calibrator {calib} for {calibtype} {section}" )
+                        SCLogger.debug( f"Got default calibrator {calib} for {calibtype} {section}" )
                     else:
                         if calibquery.count() > 1:
-                            SCLogger.get().warning( f"Found {calibquery.count()} valid {calibtype}s for "
+                            SCLogger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
                                              f"{self.name} {section}, randomly using one." )
                         calib = calibquery.first()
-                        SCLogger.get().debug( f"Got pre-existing calibrator {calib} for {calibtype} {section}" )
+                        SCLogger.debug( f"Got pre-existing calibrator {calib} for {calibtype} {section}" )
 
                     if calib is None:
                         params[ f'{calibtype}_isimage' ] = False
@@ -1817,7 +1817,7 @@ class Instrument:
                         f"{sec['biassec']['y0']}:{sec['biassec']['y1']}], datasec=["
                         f"{sec['datasec']['x0']}:{sec['datasec']['x1']},"
                         f"{sec['datasec']['y0']}:{sec['datasec']['y1']}]" )
-                SCLogger.get().error( err )
+                SCLogger.error( err )
                 raise ValueError( err )
 
         # Actually subtract overscan and trim

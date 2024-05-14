@@ -588,14 +588,14 @@ class DECam(Instrument):
         apiurl = f'https://astroarchive.noirlab.edu/api/adv_search/find/?format=json&limit=0'
 
         def getoneresponse( json ):
-            SCLogger.get().debug( f"Sending NOIRLab search query to {apiurl} with json={json}" )
+            SCLogger.debug( f"Sending NOIRLab search query to {apiurl} with json={json}" )
             response = requests.post( apiurl, json=json )
             response.raise_for_status()
             if response.status_code == 200:
                 files = pandas.DataFrame( response.json()[1:] )
             else:
-                SCLogger.get().error( response.json()['errorMessage'] )
-                # SCLogger.get().error( response.json()['traceback'] )     # Uncomment for API developer use
+                SCLogger.error( response.json()['errorMessage'] )
+                # SCLogger.error( response.json()['traceback'] )     # Uncomment for API developer use
                 raise RuntimeError( response.json()['errorMessage'] )
             return files
 
@@ -611,7 +611,7 @@ class DECam(Instrument):
                     files = newfiles if files is None else pandas.concat( [files, newfiles] )
 
         if files.empty or files is None:
-            SCLogger.get().warning( f"DECam exposure search found no files." )
+            SCLogger.warning( f"DECam exposure search found no files." )
             return None
 
         if minexptime is not None:
@@ -739,7 +739,7 @@ class DECamOriginExposures:
                                                   clobber=clobber, existing_ok=existing_ok )
             for dex, expfiledict in zip( indexes, downloaded ):
                 if set( expfiledict.keys() ) != { 'exposure' }:
-                    SCLogger.get().warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
+                    SCLogger.warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
                                      f"from DECam, but only loading the exposure file into the database." )
                     # TODO: load these as file extensions (see
                     # FileOnDiskMixin), if we're ever going to actually
@@ -772,7 +772,7 @@ class DECamOriginExposures:
                 #  about database corruption?
                 if existing is not None:
                     if skip_existing:
-                        SCLogger.get().info( f"download_and_commit_exposures: exposure with origin identifier "
+                        SCLogger.info( f"download_and_commit_exposures: exposure with origin identifier "
                                       f"{origin_identifier} is already in the database, skipping. "
                                       f"({existing.filepath})" )
                         continue
@@ -781,7 +781,7 @@ class DECamOriginExposures:
                                                f"already exists in the database. ({existing.filepath})" )
                 obstype = self._frame.loc[dex,'image'].obs_type
                 if obstype not in obstypemap:
-                    SCLogger.get().warning( f"DECam obs_type {obstype} not known, assuming Sci" )
+                    SCLogger.warning( f"DECam obs_type {obstype} not known, assuming Sci" )
                     obstype = 'Sci'
                 else:
                     obstype = obstypemap[ obstype ]

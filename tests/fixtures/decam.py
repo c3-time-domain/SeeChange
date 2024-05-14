@@ -85,7 +85,7 @@ def decam_default_calibrators(cache_dir, data_dir):
         yield sections, filters
 
     finally:
-        # SCLogger.get().debug('tear down of decam_default_calibrators')
+        # SCLogger.debug('tear down of decam_default_calibrators')
         imagestonuke = set()
         datafilestonuke = set()
         with SmartSession() as session:
@@ -346,7 +346,7 @@ def decam_ref_datastore( code_version, download_url, decam_cache_dir, data_dir, 
         cache_path = os.path.join(decam_cache_dir, f'115/{filebase}{ext}')
         fzpath = cache_path + '.fz'
         if os.path.isfile(cache_path):
-            SCLogger.get().info( f"{cache_path} exists, not redownloading." )
+            SCLogger.info( f"{cache_path} exists, not redownloading." )
         else:  # need to download!
             url = os.path.join(download_url, 'DECAM', filebase + ext)
             retry_download( url, cache_path )

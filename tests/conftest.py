@@ -57,12 +57,12 @@ def pytest_sessionstart(session):
     test_config_file = str((pathlib.Path(__file__).parent.parent / 'tests' / 'seechange_config_test.yaml').resolve())
     Config.get(configfile=test_config_file, setdefault=True)
     FileOnDiskMixin.configure_paths()
-    # SCLogger.get().setLevel( logging.INFO )
+    # SCLogger.setLevel( logging.INFO )
 
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionfinish(session, exitstatus):
-    # SCLogger.get().debug('Final teardown fixture executed! ')
+    # SCLogger.debug('Final teardown fixture executed! ')
     with SmartSession() as dbsession:
         # first get rid of any Exposure loading Provenances, if they have no Exposures attached
         provs = dbsession.scalars(sa.select(Provenance).where(Provenance.process == 'load_exposure'))
@@ -77,14 +77,14 @@ def pytest_sessionfinish(session, exitstatus):
         for Class, ids in objects.items():
             # TODO: check that surviving provenances have test_parameter
             if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt', 'Provenance', 'Object']:
-                SCLogger.get().debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
+                SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             elif len(ids) > 0:
-                SCLogger.get().info(
+                SCLogger.info(
                     f'There are {len(ids)} {Class.__name__} objects in the database. Please make sure to cleanup!'
                 )
                 for id in ids:
                     obj = dbsession.scalars(sa.select(Class).where(Class.id == id)).first()
-                    SCLogger.get().info(f'  {obj}')
+                    SCLogger.info(f'  {obj}')
                     any_objects = True
 
         # delete the CodeVersion object (this should remove all provenances as well)
@@ -154,7 +154,7 @@ def data_dir():
     with open(os.path.join(temp_data_folder, 'placeholder'), 'w'):
         pass  # make an empty file inside this folder to make sure it doesn't get deleted on "remove_data_from_disk"
 
-    # SCLogger.get().debug(f'temp_data_folder: {temp_data_folder}')
+    # SCLogger.debug(f'temp_data_folder: {temp_data_folder}')
 
     yield temp_data_folder
 

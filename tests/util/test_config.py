@@ -18,7 +18,7 @@ from util.logger import SCLogger
 class TestConfig:
     @pytest.fixture(scope='class')
     def cfg(self):
-        # SCLogger.get().debug('setting up a config object with a spoof yaml file just for testing the config mechanism. ')
+        # SCLogger.debug('setting up a config object with a spoof yaml file just for testing the config mechanism. ')
         return config.Config.get(_rundir / 'test.yaml', setdefault=False)  # retain the default for other tests
 
     def test_default_default( self ):

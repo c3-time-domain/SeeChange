@@ -428,7 +428,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 raise ValueError( f"Can't find an aperture of radius {ap} pixels; "
                                   f"available apertures = {self.aper_rads}" )
             if len(w) > 1:
-                SCLogger.get().warning( "Multiple apertures match {ap}; choosing the first one in the list." )
+                SCLogger.warning( "Multiple apertures match {ap}; choosing the first one in the list." )
             apnum = w[0]
 
         if len(self.aper_rads) == 1:
