@@ -1,3 +1,4 @@
+import pathlib
 import numpy as np
 
 import sqlalchemy as sa
@@ -146,3 +147,114 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         downstreams = zps + subs
         return downstreams
     
+    def save( self, filename=None, **kwargs ):
+        """Write the PSF to disk.
+
+        May or may not upload to the archive and update the
+        FileOnDiskMixin-included fields of this object based on the
+        additional arguments that are forwarded to FileOnDiskMixin.save.
+
+        For psfex-format psfs, this saves two files: the .psf file (the
+        FITS file with the data), and the .psf.xml file (the XML file
+        created by PSFex.)
+
+        Parameters
+        ----------
+          filename: str or path
+             The path to the file to write, relative to the local store
+             root.  Do not include the extension (e.g. '.psf') at the
+             end of the name; that will be added automatically for all
+             extensions.  If None, will call image.invent_filepath() to get a
+             filestore-standard filename and directory.
+
+          Additional arguments are passed on to FileOnDiskMixin.save
+
+        steps:
+        - make sure we have a path (roughly done)
+        - get the data we want to save (a fits header from astropy WCS)
+        - write the data we want to save to the proper path
+        - save the path to the archive with FODM.save
+
+        """ 
+
+
+        # ----- Make sure we have a path ----- #
+        # check for the values required to save
+        if False:
+            raise RuntimeError( "must have all required data non-None")
+
+        # if filename already exists, check it is correct and use
+        if filename is not None:
+            if not filename.endswith('.fits'):
+                filename += '.fits'
+            self.filepath = filename
+        # if not, generate one
+        else:
+            if self.image.filepath is not None:
+                self.filepath = self.image.filepath
+            else:
+                self.filepath = self.image.invent_filepath()
+
+            if self.provenance is None:
+                raise RuntimeError("Can't invent a filepath for the WCS without a provenance")
+            self.filepath += f'.wcs_{self.provenance.id[:6]}'
+        
+        fitspath = pathlib.Path( self.local_path ) / f'{self.filepath}.fits'
+        # self.filepath = self.image.invent_filepath()
+        # self.filepath += f'.wcs_{self.provenance.id[:6]}'
+
+        # ----- Get the header to save and save ----- #
+        header0 = self.wcs.to_header()
+        hdu0 = fits.PrimaryHDU( header=header0)
+
+        # breakpoint()
+        hdu0.writeto( fitspath, overwrite=( 'overwrite' in kwargs and kwargs['overwrite'] ) )
+        
+        # ----- Write to the archive ----- #
+        FileOnDiskMixin.save( self, fitspath, '.fits', **kwargs )
+
+    def load( self, download=True, always_verify_md5=False, fitspath=None ):
+        """Load the data from the files into the _data, _header, and _info fields.
+
+        Parameters
+        ----------
+          download : Bool, default True
+            If True, download the files from the archive if they're not
+            found in local storage.  Ignored if psfpath is not None.
+
+          always_verify_md5 : Bool, default False
+            If the file is found locally, verify the md5 of the file; if
+            it doesn't match, re-get the file from the archive.  Ignored
+            if psfpath is not None.
+
+          psfpath : str or Path, default None
+            If None, files will be read using the get_fullpath() method
+            to get the right files form the local store and/or archive
+            given the databse fields.  If not None, read _header and
+            _data from this file.  (This exists so that this method may
+            be used to load the data with a psf that's not yet in the
+            database, without having to play games with the filepath
+            field.)
+
+          psfxmlpath : str or Path, default None
+            Must be non-None if psfpath is non-None; the name of the
+            .psf.xml file to read _info from.
+
+        """
+
+        # if self.format != 'psfex': # not applicable to wcs
+        #     raise NotImplementedError( "Only know how to load psfex PSF files" )
+
+        if fitspath is None:
+            fitspath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5)
+
+        if fitspath is None:
+            raise ValueError("WCS object has no filepath locally or in archive.")
+        
+        # if ( psfpath is None ) != ( psfxmlpath is None ):
+        #     raise ValueError( "Either both or neither of psfpath and psfxmlpath must be None" )
+
+        with fits.open( fitspath, memmap=False ) as hdul:
+            breakpoint()
+            self._wcs = hdul[1].header
+        
