@@ -207,6 +207,8 @@ class ImageAligner:
         outimhead = tmppath / f'{tmpname}_warped.image.head'
         outflhead = tmppath / f'{tmpname}_warped.flags.head'
 
+        swarp_vmem_dir = tmppath /f'{tmpname}_vmem'
+
         # Writing this all out because several times I've looked at code
         # like this elsewhere and wondered why the heck it was doing what
         # it did, and had to think about it and dig through SWarp
@@ -337,16 +339,19 @@ class ImageAligner:
                 hdul[0].header.update( imagewcs.wcs.to_header() )
                 hdul.writeto( tmpflags )
 
+            swarp_vmem_dir.mkdir( exist_ok=True, parents=True )
+
             command = [ 'swarp', tmpim,
                         '-IMAGEOUT_NAME', outim,
                         '-WEIGHTOUT_NAME', outwt,
                         '-SUBTRACT_BACK', 'N',
                         '-RESAMPLE_DIR', FileOnDiskMixin.temp_path,
-                        '-VMEM_DIR', FileOnDiskMixin.temp_path,
-                        '-MAP_TYPE', 'MAP_WEIGHT',
+                        '-VMEM_DIR', swarp_vmem_dir,
+                        # '-VMEM_DIR', '/tmp',
+                        '-WEIGHT_TYPE', 'MAP_WEIGHT',
                         '-WEIGHT_IMAGE', impaths[wtdex],
                         '-RESCALE_WEIGHTS', 'N',
-                        '-VMEM_MAX', '16384',
+                        '-VMEM_MAX', '1024',
                         '-MEM_MAX', '1024',
                         '-WRITE_XML', 'N' ]
 
@@ -363,8 +368,9 @@ class ImageAligner:
                        '-RESAMPLING_TYPE', 'NEAREST',
                        '-SUBTRACT_BACK', 'N',
                        '-RESAMPLE_DIR', FileOnDiskMixin.temp_path,
-                       '-VMEM_DIR', FileOnDiskMixin.temp_path,
-                       '-VMEM_MAX', '16384',
+                       '-VMEM_DIR', swarp_vmem_dir,
+                       # '-VMEM_DIR', '/tmp',
+                       '-VMEM_MAX', '1024',
                        '-MEM_MAX', '1024',
                        '-WRITE_XML', 'N']
 
@@ -431,6 +437,9 @@ class ImageAligner:
             outfl.unlink( missing_ok=True )
             outimhead.unlink( missing_ok=True )
             outflhead.unlink( missing_ok=True )
+            for f in swarp_vmem_dir.iterdir():
+                f.unlink()
+            swarp_vmem_dir.rmdir()
 
     def run( self, source_image, target_image ):
         """Warp source image so that it is aligned with target image.

@@ -91,6 +91,21 @@ Optionally, for importing references, also add
   --mount type=bind,source=/global/cfs/cdirs/m937/www/decat/decat/templatecache,target=/refs
 ```
 
+### Running a shell with shifter
+
+__Don't do this__, it doesn't seem to help.  Use podman.
+
+Pull the image with
+```
+  shifterimg --user rknop pull docker:rknop/seechange:latest
+```
+(May need to `shifterimg login` first.)
+
+Run with:
+```
+   shifter --volume="/global/homes/r/raknop/SeeChange:/seechange;/pscratch/sd/r/raknop/ls4-rknop-dev/data:/data;/global/homes/r/raknop/secrets:/secrets;/global/cfs/cdirs/m937/www/decat/decat/templatecache:/refs" -e SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev.yaml -e TERM=xterm --image=rknop/seechange /bin/bash
+```
+
 ### Initializing the database
 
 Inside the container, cd to `/seechange` and run

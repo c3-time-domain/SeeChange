@@ -68,6 +68,7 @@ class ExposureProcessor:
     def processchip( self, chip ):
         try:
             me = multiprocessing.current_process()
+            # (I know that the process names are going to be something like ForkPoolWorker-{number}
             match = re.search( '(\d+)', me.name )
             if match is not None:
                 me.name = f'{int(match.group(1)):3d}'
@@ -77,7 +78,6 @@ class ExposureProcessor:
             SCLogger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
             pipeline = Pipeline()
             ds = pipeline.run( self.exposure, chip )
-            import pdb; pdb.set_trace()
             ds.save_and_commit()
             return ( chip, True )
         except Exception as ex:
@@ -108,49 +108,56 @@ def main():
     decam = get_instrument_instance( 'DECam' )
 
 
-    # Before I even begin, I know that I'm going to have problems with
-    # the decam linearity file.  There's only one... but all processes
-    # are going to try to import it into the database at once.  This
-    # ends up confusing the archive as a whole bunch of processes try to
-    # write exactly the same file at exactly the same time.  This
-    # behavior should be investigated -- why did the archive fail?  On
-    # the other hand, it's highly dysfunctional to have a whole bunch of
-    # processes trying to upload the same file at the same time; very
-    # wasteful to have them all repeating each other's effort of
-    # aquiring the file.  So, just pre-import it for current purposes.
+    # There are several things that have multiprocessing problems, not
+    # just linearity.  sqlalchemy.merge() doesn't handle multiple
+    # processes trying to merge the same thing at the same time very
+    # well.  This happens with provenances, and exposures.  So, for now,
+    # the hackaround is going to be to run a single chip first, to
+    # "prime the pump" and get stuff loaded into the database, and only
+    # the run all the chips.
+    
+    # # Before I even begin, I know that I'm going to have problems with
+    # # the decam linearity file.  There's only one... but all processes
+    # # are going to try to import it into the database at once.  This
+    # # ends up confusing the archive as a whole bunch of processes try to
+    # # write exactly the same file at exactly the same time.  This
+    # # behavior should be investigated -- why did the archive fail?  On
+    # # the other hand, it's highly dysfunctional to have a whole bunch of
+    # # processes trying to upload the same file at the same time; very
+    # # wasteful to have them all repeating each other's effort of
+    # # aquiring the file.  So, just pre-import it for current purposes.
 
-    SCLogger.info( "Ensuring presence of DECam linearity calibrator file" )
+    # SCLogger.info( "Ensuring presence of DECam linearity calibrator file" )
 
-    with Session() as session:
-        df = ( session.query( DataFile )
-               .filter( DataFile.filepath=='DECam_default_calibrators/linearity/linearity_table_v0.4.fits' ) )
-        if df.count() == 0:
-            cf = decam._get_default_calibrator( 60000, 'N1', calibtype='linearity', session=session )
-            df = cf.datafile
-        else:
-            df = df.first()
+    # with Session() as session:
+    #     df = ( session.query( DataFile )
+    #            .filter( DataFile.filepath=='DECam_default_calibrators/linearity/linearity_table_v0.4.fits' ) )
+    #     if df.count() == 0:
+    #         cf = decam._get_default_calibrator( 60000, 'N1', calibtype='linearity', session=session )
+    #         df = cf.datafile
+    #     else:
+    #         df = df.first()
 
-        decam = get_instrument_instance( 'DECam' )
-        secs = decam.get_section_ids()
-        for sec in secs:
-            cf = ( session.query( CalibratorFile )
-                   .filter( CalibratorFile.type == 'linearity' )
-                   .filter( CalibratorFile.calibrator_set == 'externally_supplied' )
-                   .filter( CalibratorFile.instrument == 'DECam' )
-                   .filter( CalibratorFile.sensor_section == sec )
-                   .filter( CalibratorFile.datafile == df ) )
-            if cf.count() == 0:
-                cf = CalibratorFile( type='linearity',
-                                     calibrator_set='externally_supplied',
-                                     flat_type=None,
-                                     instrument='DECam',
-                                     sensor_section=ssec,
-                                     datafile=df )
-                cf = session.merge( cf )
-        session.commit()
+    #     decam = get_instrument_instance( 'DECam' )
+    #     secs = decam.get_section_ids()
+    #     for sec in secs:
+    #         cf = ( session.query( CalibratorFile )
+    #                .filter( CalibratorFile.type == 'linearity' )
+    #                .filter( CalibratorFile.calibrator_set == 'externally_supplied' )
+    #                .filter( CalibratorFile.instrument == 'DECam' )
+    #                .filter( CalibratorFile.sensor_section == sec )
+    #                .filter( CalibratorFile.datafile == df ) )
+    #         if cf.count() == 0:
+    #             cf = CalibratorFile( type='linearity',
+    #                                  calibrator_set='externally_supplied',
+    #                                  flat_type=None,
+    #                                  instrument='DECam',
+    #                                  sensor_section=ssec,
+    #                                  datafile=df )
+    #             cf = session.merge( cf )
+    #     session.commit()
 
-    SCLogger.info( "DECam linearity calibrator file is accounted for" )
-
+    # SCLogger.info( "DECam linearity calibrator file is accounted for" )
 
     # Now on to the real work
 

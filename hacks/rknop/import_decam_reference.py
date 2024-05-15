@@ -10,6 +10,7 @@ from astropy.io import fits
 from astropy.wcs import WCS
 
 from util.config import Config
+from util.logger import SCLogger
 
 from models.base import SmartSession, safe_merge
 import models.instrument
@@ -31,27 +32,7 @@ prov_process = 'import_image'
 prov_params = {}
 prov_upstreams = []
 
-_logger = logging.getLogger( __name__ )
-if not _logger.hasHandlers():
-    _logout = logging.StreamHandler( sys.stderr )
-    _logger.addHandler( _logout )
-    _logout.setFormatter( logging.Formatter( f'[%(asctime)s - %(levelname)s] - %(message)s' ) )
-
-_logger.setLevel( logging.INFO )
-
-def main():
-    parser = argparse.ArgumentParser( 'Import a DECam image as a reference' )
-    parser.add_argument( "image", help="FITS file with the reference" )
-    parser.add_argument( "weight", help="FITS file with the weight" )
-    parser.add_argument( "mask", help="FITS file with the mask" )
-    parser.add_argument( "-t", "--target", default="Unknown",
-                         help="The target field in the database (field name)" )
-    parser.add_argument( "--hdu", type=int, default=0,
-                         help="Which HDU has the image (default 0, make 1 for a .fits.fz file)" )
-    parser.add_argument( "-s", "--section-id", required=True,
-                         help="The section_id (chip, using N1, S1, etc. notation)" )
-    args = parser.parse_args()
-
+def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     config = Config.get()
 
     # This is bad.  It opens sessions and holds them open.  If too many
@@ -72,8 +53,8 @@ def main():
                 sess.merge( code_ver )
                 sess.commit()
             except Exception as ex:
-                _logger.warning( "Got error trying to create code version, "
-                                 "going to assume it's a race condition and all is well." )
+                SCLogger.warning( "Got error trying to create code version, "
+                                  "going to assume it's a race condition and all is well." )
                 sess.rollback()
         code_ver = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).first()
 
@@ -90,6 +71,7 @@ def main():
         if prov is None:
             prov = Provenance( process = prov_process, code_version = code_ver,
                                parameters = prov_params, upstreams = prov_upstreams )
+
             prov.update_id()
             prov = sess.merge( prov )
             sess.commit()
@@ -102,15 +84,15 @@ def main():
                     prov = iprov
                     break
 
-        _logger.info( "Reading image" )
+        SCLogger.info( "Reading image" )
 
-        with fits.open( args.image ) as img, fits.open( args.weight ) as wgt, fits.open( args.mask) as msk:
-            img_hdr = img[ args.hdu ].header
-            img_data = img[ args.hdu ].data
-            wgt_hdr = wgt[ args.hdu ].header
-            wgt_data = wgt[ args.hdu ].data
-            msk_hdr = msk[ args.hdu ].header
-            msk_data = msk[ args.hdu ].data
+        with fits.open( image ) as img, fits.open( weight ) as wgt, fits.open( mask) as msk:
+            img_hdr = img[ hdu ].header
+            img_data = img[ hdu ].data
+            wgt_hdr = wgt[ hdu ].header
+            wgt_data = wgt[ hdu ].data
+            msk_hdr = msk[ hdu ].header
+            msk_data = msk[ hdu ].data
             wcs = WCS( img_hdr )
 
         # Trust the WCS that's in there to start
@@ -154,9 +136,9 @@ def main():
                        instrument='DECam',
                        telescope='CTIO-4m',
                        filter=img_hdr['FILTER'],
-                       section_id=args.section_id,
+                       section_id=section_id,
                        project='DECAT-DDF',
-                       target=args.target,
+                       target=target,
                        ra=ra,
                        dec=dec,
                        gallat=b,
@@ -188,7 +170,7 @@ def main():
 
         # Extract sources
 
-        _logger.info( "Extracting sources" )
+        SCLogger.info( "Extracting sources" )
 
         extraction_config = config.value( 'extraction', {} )
         extractor = Detector( **extraction_config )
@@ -196,7 +178,7 @@ def main():
 
         # WCS
 
-        _logger.info( "Astrometric calibration" )
+        SCLogger.info( "Astrometric calibration" )
 
         astro_cal_config = config.value( 'astro_cal', {} )
         astrometor = AstroCalibrator( **astro_cal_config )
@@ -204,19 +186,19 @@ def main():
 
         # ZP
 
-        _logger.info( "Photometric calibration" )
+        SCLogger.info( "Photometric calibration" )
 
         photo_cal_config = config.value( 'photo_cal', {} )
         photomotor = PhotCalibrator( **photo_cal_config )
         ds = photomotor.run( ds )
 
-        _logger.info( "Saving data products" )
+        SCLogger.info( "Saving data products" )
 
         ds.save_and_commit()
 
         # Make the reference
 
-        _logger.info( "Creating reference entry" )
+        SCLogger.info( "Creating reference entry" )
 
         # Because SQLAlchmey is annoying and confusing and generally
         # makes me want to break everything around me whenever I have to
@@ -231,6 +213,22 @@ def main():
         ref = sess.merge( ref )
 
         sess.commit()
+
+
+def main():
+    parser = argparse.ArgumentParser( 'Import a DECam image as a reference' )
+    parser.add_argument( "image", help="FITS file with the reference" )
+    parser.add_argument( "weight", help="FITS file with the weight" )
+    parser.add_argument( "mask", help="FITS file with the mask" )
+    parser.add_argument( "-t", "--target", default="Unknown",
+                         help="The target field in the database (field name)" )
+    parser.add_argument( "--hdu", type=int, default=0,
+                         help="Which HDU has the image (default 0, make 1 for a .fits.fz file)" )
+    parser.add_argument( "-s", "--section-id", required=True,
+                         help="The section_id (chip, using N1, S1, etc. notation)" )
+    args = parser.parse_args()
+
+    import_decam_reference( args.image, args.weight, args.mask, args.target, args.hdu, args.section_id )
 
 # ======================================================================
 if __name__ == "__main__":

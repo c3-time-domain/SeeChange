@@ -36,7 +36,8 @@ class SCLogger:
         """Replace the logging.Logger object with a new one.
 
         Subsequent calls to SCLogger.get(), .info(), etc. will now
-        return the new one.
+        return the new one.  Will inherit the midformat, datefmt, and
+        level from the current logger if they aren't specified here.
 
         See __init__ for parameters.
 
@@ -47,11 +48,19 @@ class SCLogger:
             midformat = cls._instance.midformat if midformat is None else midformat
             datefmt = cls._instance.datefmt if datefmt is None else datefmt
             level = cls._instance._logger.level if level is None else level
+        else:
+            datefmt = '%Y-%m-%d %H:%M:%S' if datefmt is None else datefmt
+            level = logging.WARNING if level is None else level
         cls._instance = cls( midformat=midformat, datefmt=datefmt, level=level )
         return cls._instance
 
     @classmethod
     def set_level( cls, level=logging.WARNING ):
+        """Set the log level of the logging.Logger object."""
+        cls.instance()._logger.setLevel( level )
+
+    @classmethod
+    def setLevel( cls, level=logging.WARNING ):
         """Set the log level of the logging.Logger object."""
         cls.instance()._logger.setLevel( level )
 
@@ -102,10 +111,10 @@ class SCLogger:
         # (This lock is probably not necessary, since memory isn't by default shared in multiprocessing.)
         # This __init__ will be called rarely (typically once at the beginning of a process), so
         # the brief lock is not a big deal.
-        lock = multiprocessing.Lock()
-        with lock:
-            SCLogger._ordinal += 1
-            self._logger = logging.getLogger( f"SeeChange_{SCLogger._ordinal}" )
+        # lock = multiprocessing.Lock()
+        # with lock:
+        SCLogger._ordinal += 1
+        self._logger = logging.getLogger( f"SeeChange_{SCLogger._ordinal}" )
 
         self.midformat = midformat
         self.datefmt = datefmt

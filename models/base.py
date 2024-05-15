@@ -1311,7 +1311,7 @@ class FileOnDiskMixin:
                 raise RuntimeError( f"{localpath} exists but is not a file!  Can't save." )
             if localpath == path:
                 alreadyinplace = True
-                SCLogger.debug( f"FileOnDiskMixin.save: local file store path and original path are the same: {path}" )
+                # SCLogger.debug( f"FileOnDiskMixin.save: local file store path and original path are the same: {path}" )
             else:
                 if ( not overwrite ) and ( not exists_ok ):
                     raise FileExistsError( f"{localpath} already exists, cannot save." )
