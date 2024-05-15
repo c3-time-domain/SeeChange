@@ -1,0 +1,34 @@
+# This is the config file for rknop's dev environment on Perlmutter
+# Rob: see README.md for setup and podman docs
+
+preloads:
+  - ../../default_config.yaml
+overrides:
+  - /secrets/ls4-rknop-dev.yaml
+#   - local_overrides.yaml
+#augments:
+#   - local_augments.yaml
+
+path:
+  data_root: '/data/seechange'
+  data_temp: '/data/temp'
+
+db:
+  host: postgres-loadbalancer.ls4-rknop-dev.production.svc.spin.nersc.org
+  password: placeholder
+
+archive:
+  archive_url: https://ls4-rknop-dev-archive.lbl.gov/
+  verify_cert: true
+  path_base: base/
+  local_read_dir: null
+  local_write_dir: null
+  token: placeholder
+
+astro_cal:
+  max_arcsec_residual: 0.2
+  max_sources_to_use: [ 2000, 1000, 500, 200 ]
+
+subtraction:
+  method: zogy
+
