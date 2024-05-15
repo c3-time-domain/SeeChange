@@ -44,11 +44,13 @@ spec:
         terminationMessagePolicy: File
         tty: true
         volumeMounts:
+        - mountPath: /secrets
+          name: webap-secrets
         - mountPath: /archive
           name: seechange-archive-dir
         # Comment the next two lines out to use the code baked into the Dockerfile
-        - mountPath: /code
-          name: seechange-webap-code
+        # - mountPath: /code
+        #   name: seechange-webap-code
       dnsConfig: {}
       dnsPolicy: ClusterFirst
       restartPolicy: Always
@@ -59,6 +61,11 @@ spec:
       imagePullSecrets:
         - name: registry-nersc
       volumes:
+      - name: webap-secrets
+        secret:
+          defaultMode: 256
+          optional: false
+          secretName: webap-secrets
       - hostPath:
           path: /global/cfs/cdirs/m4616/users/raknop/SeeChange-rknop-dev-webap-install
           type: Directory

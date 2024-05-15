@@ -1,9 +1,11 @@
 # To build:
 #
-# create the dockerfile with
+# Look at the file seechange_webap_config.py ; make a copy of this
+#   to a secrets location, and put in the appropriate database
+#   information.  This secrets location must then be bind-mounted
+#   to where the webap runs.
 #
-#   PG_HOST=<host> PG_PORT=<port> PG_USER=<user> PG_PASS=<pass> PGNAME=<name> \
-#     ARCHIVE_DIR=<dir> docker build -t seechange-webap .
+# docker build -t seechange-webap .
 #
 # ...you might want to use a name other than "seechange-webap", to
 # reflect the specifics of the database you built for.  If you
@@ -12,11 +14,14 @@
 #
 # Run a container built from this image with:
 #
-#   docker run -d --name seechange-webap -p 8080:8080 seechange-webap
+#   docker run -d \
+#     --mount type=bind,source=<secretsdir>,target=/secrets \
+#     --name seechange-webap -p 8080:8080 seechange-webap
 #
-# ...putting whatever you want after "--name", and replacing the
+# ...putting whatever you want after "--name", replacing the
 # "seechange-webap" at the end of the line with what you gave the -t
-# argument of docker build.
+# argument of docker build, and replacing <secretsdir> with the place
+# wher eyou wrote the seechange_webap_config.py file.
 #
 # Thereafer, you can find the webap at localhost:8080
 #
@@ -34,13 +39,6 @@ FROM rknop/devuan-daedalus-rknop
 MAINTAINER Rob Knop <raknop@lbl.gov>
 
 SHELL [ "/bin/bash", "-c" ]
-
-ARG PG_HOST=seechange_postgres
-ARG PG_PORT=5432
-ARG PG_USER=postgres
-ARG PG_PASS=fragile
-ARG PG_NAME=seechange
-ARG ARCHIVE_DIR=/archive-storage/base/test
 
 RUN apt-get update \
     && DEBIAN_FRONTEND="noninteractive" apt-get -y upgrade \
@@ -75,10 +73,7 @@ COPY static/ /build/seechange_webap/static/
 COPY templates/ /build/seechange_webap/templates/
 COPY rkwebutil/rkwebutil.js /build/seechange_webap/rkwebutil/
 WORKDIR /build/seechange_webap
-RUN make INSTALLDIR=/code \
-    PG_HOST=${PG_HOST} PG_PORT=${PG_PORT} PG_USER=${PG_USER} PG_PASS=${PG_PASS} PG_NAME=${PG_NAME} \
-    ARCHIVE_DIR=${ARCHIVE_DIR} \
-    install
+RUN make INSTALLDIR=/code install
 RUN rm -rf /build/seechange_webap
 
 WORKDIR /code

@@ -38,6 +38,7 @@ import flask
 
 # Read the database config
 
+sys.path.append( '/secrets' )
 from seechange_webap_config import PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_NAME, ARCHIVE_DIR
 
 # Figure out where we are

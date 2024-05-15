@@ -1,4 +1,25 @@
-## Setting up the NERSC environment for the demo
+## Seeting up the environment for the demo -- Brahms
+
+### Set up the archive : see below under Perlmutter, it's the same archive
+
+### Set up the database machine
+
+Use `decatdb.lbl.gov`.  Database `seechange_rknop_dev`, user `ls4_rknop_dev`.
+
+### Running a shell
+
+```
+docker run --user 1000:1000 -it \
+   --mount type=bind,source=/home/raknop/SeeChange,target=/seechange \
+   --mount type=bind,source=/data/raknop/seechange,target=/data \
+   --mount type=bind,source=/home/raknop/secrets,target=/secrets \
+   --env "SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev-brahms.yaml" \
+   registry.nersc.gov/m4616/seechange:mpich \
+   /bin/bash
+```   
+   
+
+## Setting up the NERSC environment for the demo -- Perlmtuter
 
 When `.yaml` files for spin are referenced, they are in the directory SeeChange/spin/rknop-dev
 
