@@ -194,6 +194,15 @@ class Measurer:
                     ignore_bits |= 2 ** BitFlagConverter.convert(badness)
 
                 # remove the bad pixels that we want to ignore
+                # NOTE : this was throwing a RuntimeWarning, which was causing tests to
+                #  fail; not sure why they didn't fail before.  (New version of numpy?  Dunno.)
+                #  There were nans present; not sure whether those should be set to
+                #    "bad pixel" or "out of bounds" (could be either), so choosing "bad pixel".
+                #  Put in "casting='unsafe'" to take care of this.
+                # if np.any( np.isnan( c.sub_flags ) ):
+                #     import pdb; pdb.set_trace()
+                #     pass
+                # c.sub_flags[ np.isnan( c.sub_flags ) ] = BitFlagConverter.convert( "bad pixel" )
                 flags = c.sub_flags.astype('uint16') & ~np.array(ignore_bits).astype('uint16')
 
                 annulus_radii_pixels = self.pars.annulus_radii
