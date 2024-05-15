@@ -82,7 +82,6 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
 
     try:
         max_nmatches = [ 0 ]
-        SCLogger.info( f"max_sources_to_use = {max_sources_to_use} (type {type(max_sources_to_use)})" )
         if ( max_sources_to_use is not None ):
             if isinstance( max_sources_to_use, int ):
                 max_nmatches = [ max_sources_to_use ]
@@ -154,7 +153,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                              f"-------------\nScamp stdout:\n{res.stdout.decode('utf-8')}\n" )
             raise BadMatchException( infostr )
 
-        SCLogger.info( infostr )
+        SCLogger.debug( infostr )
 
         # Create a WCS object based on the information
         # written in the ".head" file scamp created.

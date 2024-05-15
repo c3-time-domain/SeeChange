@@ -1,3 +1,20 @@
+## Setting up the environment for the demo -- Dirac
+
+### Database and Archive
+
+See under Brahms
+
+### Running a shell
+
+```
+  apptainer exec --cleanenv \
+    --bind /clusterfs/dirac1/raknop/SeeChange:/seechange \
+    --bind /global/scratch/users/raknop/seechange:/data \
+    --bind /global/home/users/raknop/secrets:/secrets \
+    --env "SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev-dirac.yaml" \
+    /global/scratch/users/raknop/seechange-mpich.sif /bin/bash
+```
+
 ## Seeting up the environment for the demo -- Brahms
 
 ### Set up the archive : see below under Perlmutter, it's the same archive
