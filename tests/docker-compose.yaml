@@ -50,6 +50,7 @@ services:
       context: ../docker/postgres
     environment:
       POSTGRES_DATA_DIR: /var/lib/postgresql/data
+      POSTGRES_PASSWORD: fragile
     healthcheck:
       test: netcat -w 1 localhost 5432 || exit 1
       interval: 5s
