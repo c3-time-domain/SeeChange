@@ -7,7 +7,8 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 import util.ldac
 from util.util import ensure_file_does_not_exist
-from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, _logger
+from util.logger import SCLogger
+from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
 from models.enums_and_bitflags import CatalogExcerptFormatConverter, CatalogExcerptOriginConverter
 from sqlalchemy.dialects.postgresql import ARRAY
 
@@ -203,7 +204,7 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
             catexp.dec = ( catexp.dec_corner_00 + catexp.dec_corner_01 ) / 2.
             catexp.calculate_coordinates()
         else:
-            _logger.warning( f"spatial coordinates and min/max mag not set in CatalogExcerpt with origin {origin}" )
+            SCLogger.warning( f"spatial coordinates and min/max mag not set in CatalogExcerpt with origin {origin}" )
 
         return catexp
 

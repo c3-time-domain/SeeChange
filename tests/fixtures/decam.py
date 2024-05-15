@@ -11,7 +11,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.time import Time
 
-from models.base import SmartSession, _logger
+from models.base import SmartSession
 from models.instrument import Instrument, get_instrument_instance
 from models.decam import DECam  # need this import to make sure DECam is added to the Instrument list
 from models.provenance import Provenance
@@ -24,6 +24,7 @@ from models.reference import Reference
 from improc.alignment import ImageAligner
 
 from util.retrydownload import retry_download
+from util.logger import SCLogger
 
 
 @pytest.fixture(scope='session')
@@ -84,7 +85,7 @@ def decam_default_calibrators(cache_dir, data_dir):
         yield sections, filters
 
     finally:
-        # _logger.debug('tear down of decam_default_calibrators')
+        # SCLogger.debug('tear down of decam_default_calibrators')
         imagestonuke = set()
         datafilestonuke = set()
         with SmartSession() as session:
@@ -345,7 +346,7 @@ def decam_ref_datastore( code_version, download_url, decam_cache_dir, data_dir, 
         cache_path = os.path.join(decam_cache_dir, f'115/{filebase}{ext}')
         fzpath = cache_path + '.fz'
         if os.path.isfile(cache_path):
-            _logger.info( f"{cache_path} exists, not redownloading." )
+            SCLogger.info( f"{cache_path} exists, not redownloading." )
         else:  # need to download!
             url = os.path.join(download_url, 'DECAM', filebase + ext)
             retry_download( url, cache_path )

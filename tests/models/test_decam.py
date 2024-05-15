@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from astropy.io import fits
 
-from models.base import SmartSession, FileOnDiskMixin, _logger
+from models.base import SmartSession, FileOnDiskMixin
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance
 from models.datafile import DataFile
@@ -19,6 +19,7 @@ from models.image import Image
 from models.instrument import Instrument
 from models.decam import DECam
 import util.radec
+from util.logger import SCLogger
 
 from tests.conftest import CODE_ROOT
 
@@ -120,10 +121,10 @@ def test_image_from_decam_exposure(decam_filename, provenance_base, data_dir):
 # with the _frame member of one of those objects; that's internal state
 # not intended for external consumption.
 def test_decam_search_noirlab( decam_reduced_origin_exposures ):
-    origloglevel = _logger.getEffectiveLevel()
+    origloglevel = SCLogger.get().getEffectiveLevel()
     try:
         # uncomment below to show the things sent to the noirlab API if something goes wrong.
-        # _logger.setLevel( logging.DEBUG )
+        # SCLogger.setLevel( logging.DEBUG )
 
         decam = DECam()
 
@@ -158,7 +159,7 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
         assert len(originexposures._frame.index.levels[0]) == 4
         assert set(originexposures._frame.filtercode) == { 'r', 'g' }
     finally:
-        _logger.setLevel( origloglevel )
+        SCLogger.setLevel( origloglevel )
 
 
 def test_decam_download_origin_exposure( decam_reduced_origin_exposures, cache_dir ):

@@ -1,8 +1,10 @@
+import math
 import sqlalchemy as sa
 
 from util.util import get_latest_provenance, parse_session
+from util.logger import SCLogger
 
-from models.base import SmartSession, FileOnDiskMixin, _logger
+from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image, image_upstreams_association_table
@@ -902,19 +904,97 @@ class DataStore:
 
         return self.zp
 
-    def get_reference(self, provenance=None, session=None):
-        """
-        Get the reference for this image.
-        TODO: get rid of provenance for this function??
+    @classmethod
+    def _overlap_frac( cls, image, refim ):
+        """Calculate the overlap fraction between image and refim.
 
         Parameters
         ----------
-        provenance: Provenance object
-            The provenance to use for the coaddition.
-            This provenance should be consistent with
-            the current code version and critical parameters.
-            If none is given, will use the latest provenance
-            for the "coaddition" process.
+        image: Image
+            The search image; we want to find a reference image that has
+            maximum overlap with this image.
+
+        refim: Image
+            The reference image to check.
+
+        Returns
+        -------
+        overlap_frac: float
+            The fraction of image's area that is covered by the
+            intersection of image and refim.
+
+        WARNING: Right now this assumes that the images are aligned N/S and
+        E/W. TODO: areas of general quadrilaterals and interssections of
+        general quadrilaterals.
+
+        For the "image area", it uses
+            max(image E ra) - min(image W ra) ) * ( max(image N dec) - min( imageS dec)
+        (where "image E ra" refers to the corners of the image that are
+        on the eastern side, i.e. ra_corner_10 and ra_corner_11).  This
+        will in general overestimate the image area, though the
+        overestimate will be small if the image is very close to
+        oriented square to the sky.
+
+        For the "overlap area", it uses
+          ( min( image E ra, ref E ra ) - max( image W ra, ref W ra ) *
+            min( image N dec, ref N dec ) - max( image S dec, ref S dec ) )
+        This will in general underestimate the overlap area, though the
+        underestimate will be small if both the image and reference
+        are oriented close to square to the sky.
+
+        (RA ranges in all cases are scaled by cos(dec).)
+
+        """
+
+        dimra = ( ( ( image.ra_corner_10 + image.ra_corner_11 ) / 2. -
+                    ( image.ra_corner_00 + image.ra_corner_01 ) / 2.
+                   ) / math.cos( image.dec * math.pi / 180. ) )
+        dimdec = ( ( image.dec_corner_01 + image.dec_corner_11 ) / 2. -
+                   ( image.dec_corner_00 + image.dec_corner_10 ) / 2. )
+        r0 = max( refim.ra_corner_00, refim.ra_corner_01,
+                  image.ra_corner_00, image.ra_corner_01 )
+        r1 = min( refim.ra_corner_10, refim.ra_corner_10,
+                  image.ra_corner_10, image.ra_corner_10 )
+        d0 = max( refim.dec_corner_00, refim.dec_corner_10,
+                  image.dec_corner_00, image.dec_corner_10 )
+        d1 = min( refim.dec_corner_01, refim.dec_corner_11,
+                  image.dec_corner_01, image.dec_corner_11 )
+        dra = ( r1 - r0 ) / math.cos( ( d1 + d0 ) / 2. * math.pi / 180. )
+        ddec = d1 - d0
+
+        return ( dra * ddec ) / ( dimra * dimdec )
+
+    def get_reference(self, minovfrac=0.85, must_match_instrument=True, must_match_filter=True,
+                      must_match_target=False, must_match_section=False, session=None ):
+        """Get the reference for this image.
+
+        Parameters
+        ----------
+        minovfrac: float, default 0.85
+            Area of overlap region must be at least this fraction of the
+            area of the search image for the reference to be good.
+            (Warning: calculation implicitly assumes that images are
+            aligned N/S and E/W.)  Make this <= 0 to not consider
+            overlap fraction when finding a reference.
+
+        must_match_instrument: bool, default True
+            If True, only find a reference from the same instrument
+            as that of the DataStore's image.
+
+        must_match_filter: bool, default True
+            If True, only find a reference whose filter matches the
+            DataStore's images' filter.
+
+        must_match_target: bool, default False
+            If True, only find a reference if the "target" field of the
+            reference image matches the "target" field of the image in
+            the DataStore.
+
+        must_match_section: bool, default False
+            If True, only find a ference if the "section_id" field of
+            the reference image matches that of the image in the
+            Datastore.
+
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -926,43 +1006,80 @@ class DataStore:
         ref: Image object
             The reference image for this image, or None if no reference is found.
 
+
+        It will only return references whose validity date range
+        includes DataStore.image.observation_time.
+
+        If minovfrac is given, it will return the reference that has the
+        highest ovfrac.  (If, by unlikely chance, more than one have
+        identical overlap fractions, an undeterministically chosen
+        reference will be returned.  Ideally, by construction, you will
+        never have this situation in your database; you will only have a
+        single valid reference image for a given instrument/filter/date
+        that has an appreciable overlap with any possible image from
+        that instrument.  The software does not enforce this, however.)
+
+        If minovfrac is not given, it will return first reference found
+        that match the other criteria.  Be careful with this.
+
         """
+
         with SmartSession(session, self.session) as session:
             image = self.get_image(session=session)
 
             if self.reference is not None:
+                ovfrac = self._overlap_frac( image, self.reference.image ) if minovfrac > 0. else 0.
                 if not (
-                        (self.reference.validity_start is None or
-                         self.reference.validity_start <= image.observation_time) and
-                        (self.reference.validity_end is None or
-                         self.reference.validity_end >= image.observation_time) and
-                        self.reference.filter == image.filter and
-                        self.reference.target == image.target and
-                        self.reference.is_bad is False
+                        ( self.reference.validity_start is None or
+                          self.reference.validity_start <= image.observation_time ) and
+                        ( self.reference.validity_end is None or
+                          self.reference.validity_end >= image.observation_time ) and
+                        ( ( not must_match_instrument ) or ( self.reference.image.instrument
+                                                             == image.instrument ) ) and
+                        ( ( not must_match_filter) or ( self.reference.filter == image.filter ) ) and
+                        ( ( not must_match_target ) or ( self.image.target == self.reference.target ) ) and
+                        ( ( not must_match_section ) or ( self.image.section_id == self.reference.section_id ) ) and
+                        ( self.reference.is_bad is False ) and
+                        ( ( minovfrac <= 0. ) or ( ovfrac > minovfrac ) )
                 ):
                     self.reference = None
 
             if self.reference is None:
-                ref = session.scalars(
-                    sa.select(Reference).where(
-                        sa.or_(
-                            Reference.validity_start.is_(None),
-                            Reference.validity_start <= image.observation_time
-                        ),
-                        sa.or_(
-                            Reference.validity_end.is_(None),
-                            Reference.validity_end >= image.observation_time
-                        ),
-                        Reference.filter == image.filter,
-                        Reference.target == image.target,
-                        Reference.is_bad.is_(False),
-                    )
-                ).first()
+                q = ( session.query( Reference, Image )
+                      .filter( Reference.image_id == Image.id )
+                      .filter( sa.or_( Reference.validity_start.is_(None),
+                                       Reference.validity_start <= image.observation_time ) )
+                      .filter( sa.or_( Reference.validity_end.is_(None),
+                                       Reference.validity_end >= image.observation_time ) )
+                      .filter( Reference.is_bad.is_(False ) )
+                     )
+                if minovfrac > 0.:
+                    q = ( q
+                          .filter( Image.ra >= min( image.ra_corner_00, image.ra_corner_01 ) )
+                          .filter( Image.ra <= max( image.ra_corner_10, image.ra_corner_11 ) )
+                          .filter( Image.dec >= min( image.dec_corner_00, image.dec_corner_10 ) )
+                          .filter( Image.dec <= max( image.dec_corner_01, image.dec_corner_11 ) )
+                         )
+                if must_match_instrument: q = q.filter( Image.instrument == image.instrument )
+                if must_match_filter: q = q.filter( Reference.filter == image.filter )
+                if must_match_target: q = q.filter( Reference.target == image.target )
+                if must_match_section: q = q.filter( Reference.section_id == image.section_id )
+
+                ref = None
+                if minovfrac <= 0.:
+                    ref, refim = q.first()
+                else:
+                    maxov = minovfrac
+                    for curref, currefim in q.all():
+                        ovfrac = self._overlap_frac( image, currefim )
+                        if ovfrac > maxov:
+                            maxov = ovfrac
+                            ref = curref
 
                 if ref is None:
                     raise ValueError(f'No reference image found for image {image.id}')
 
-                self.reference = ref
+                self.reference = curref
 
         return self.reference
 
@@ -1355,6 +1472,12 @@ class DataStore:
             Note that this method calls session.commit()
 
         """
+        # To avoid problems with lazy load failures if the things aren't
+        #   all yet attached to a session:
+        if self.image is not None:
+            if self.psf is not None:
+                self.psf.image = self.image
+
         # save to disk whatever is FileOnDiskMixin
         for att in self.attributes_to_save:
             obj = getattr(self, att, None)
@@ -1366,8 +1489,8 @@ class DataStore:
                     obj[0].save_list(obj, overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive)
                 continue
 
-            _logger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
-                           f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
+            SCLogger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
+                            f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 
             if isinstance(obj, FileOnDiskMixin):
                 mustsave = True
@@ -1388,23 +1511,23 @@ class DataStore:
                 # Special case handling for update_image_header for existing images.
                 # (Not needed if the image doesn't already exist, hence the not mustsave.)
                 if isinstance( obj, Image ) and ( not mustsave ) and update_image_header:
-                    _logger.debug( 'Just updating image header.' )
+                    SCLogger.debug( 'Just updating image header.' )
                     try:
                         obj.save( only_image=True, just_update_header=True )
                     except Exception as ex:
-                        _logger.error( f"Failed to update image header: {ex}" )
+                        SCLogger.error( f"Failed to update image header: {ex}" )
                         raise ex
 
                 elif mustsave:
                     try:
                         obj.save( overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive )
                     except Exception as ex:
-                        _logger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
+                        SCLogger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
                         raise ex
 
                 else:
-                    _logger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
-                                   f'a md5sum in the database' )
+                    SCLogger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
+                                    f'a md5sum in the database' )
 
         # carefully merge all the objects including the products
         with SmartSession(session, self.session) as session:

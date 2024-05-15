@@ -14,11 +14,12 @@ import sep
 from astropy.io import fits, votable
 
 from util.config import Config
+from util.logger import SCLogger
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from models.base import FileOnDiskMixin, CODE_ROOT, _logger
+from models.base import FileOnDiskMixin, CODE_ROOT
 from models.image import Image
 from models.psf import PSF
 from models.source_list import SourceList
@@ -355,12 +356,12 @@ class Detector:
                 if self.pars.aperunit == 'fwhm':
                     if image.instrument_object.pixel_scale is not None:
                         aperrad *= 2. / image.instrument_object.pixel_scale
-                _logger.debug( "detection: running sextractor once without PSF to get sources" )
+                SCLogger.debug( "detection: running sextractor once without PSF to get sources" )
                 sources, _, _ = self._run_sextractor_once( image, apers=[aperrad],
                                                            psffile=None, tempname=tempnamebase )
 
                 # Get the PSF
-                _logger.debug( "detection: determining psf" )
+                SCLogger.debug( "detection: determining psf" )
                 psf = self._run_psfex( tempnamebase, image, do_not_cleanup=True )
                 psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
                 psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
@@ -379,14 +380,14 @@ class Detector:
 
             # Now that we have a psf, run sextractor (maybe a second time)
             # to get the actual measurements.
-            _logger.debug( "detection: running sextractor with psf to get final source list" )
+            SCLogger.debug( "detection: running sextractor with psf to get final source list" )
             sources, bkg, bkgsig = self._run_sextractor_once( image, apers=apers,
                                                               psffile=psfpath, tempname=tempnamebase )
-            _logger.debug( f"detection: sextractor found {len(sources.data)} sources" )
+            SCLogger.debug( f"detection: sextractor found {len(sources.data)} sources" )
 
             snr = sources.apfluxadu()[0] / sources.apfluxadu()[1]
             if snr.min() > self.pars.threshold:
-                _logger.warning( "SExtractor may not have detected everything down to your threshold." )
+                SCLogger.warning( "SExtractor may not have detected everything down to your threshold." )
             w = np.where( snr >= self.pars.threshold )
             sources.data = sources.data[w]
             sources.num_sources = len( sources.data )
@@ -600,8 +601,8 @@ class Detector:
             args.append( tmpimage )
             res = subprocess.run( args, cwd=tmpimage.parent, capture_output=True, timeout=120 )
             if res.returncode != 0:
-                _logger.error( f"Got return {res.returncode} from sextractor call; stderr:\n{res.stderr}\n"
-                               f"-------\nstdout:\n{res.stdout}" )
+                SCLogger.error( f"Got return {res.returncode} from sextractor call; stderr:\n{res.stderr}\n"
+                                f"-------\nstdout:\n{res.stdout}" )
                 raise RuntimeError( f"Error return from source-extractor call" )
 
             # Get the background from the xml file that sextractor wrote
@@ -714,11 +715,11 @@ class Detector:
                         break
                     else:
                         if fwhmmaxdex == len(fwhmmaxtotry) - 1:
-                            _logger.error( f"psfex failed with all attempted fwhmmax.\n"
-                                           f"stdout:\n------\n{res.stdout.decode('utf-8')}\n"
-                                           f"stderr:\n------\n{res.stderr.decode('utf-8')}" )
+                            SCLogger.error( f"psfex failed with all attempted fwhmmax.\n"
+                                            f"stdout:\n------\n{res.stdout.decode('utf-8')}\n"
+                                            f"stderr:\n------\n{res.stderr.decode('utf-8')}" )
                             raise RuntimeError( "Repeated failures from psfex call" )
-                        _logger.warning( f"psfex failed with fwhmmax={fwhmmax}, trying {fwhmmaxtotry[fwhmmaxdex+1]}" )
+                        SCLogger.warning( f"psfex failed with fwhmmax={fwhmmax}, trying {fwhmmaxtotry[fwhmmaxdex+1]}" )
 
                 psfxml = votable.parse( psfxmlfile )
                 psfstats = psfxml.get_table_by_index( 1 )
@@ -765,7 +766,7 @@ class Detector:
 
         """
 
-        _logger.warning( "The sep detecton method isn't fully compatible with the rest of the pipeline." )
+        SCLogger.warning( "The sep detecton method isn't fully compatible with the rest of the pipeline." )
 
         # TODO: finish this
         # TODO: this should also generate an estimate of the PSF?

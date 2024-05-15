@@ -2,7 +2,7 @@
 
 if [ ! -f $POSTGRES_DATA_DIR/PG_VERSION ]; then
     echo "Running initdb in $POSTGRES_DATA_DIR"
-    echo "fragile" > $HOME/pwfile
+    echo $POSTGRES_PASSWORD > $HOME/pwfile
     /usr/lib/postgresql/15/bin/initdb -U postgres --pwfile=$HOME/pwfile $POSTGRES_DATA_DIR
     rm $HOME/pwfile
     /usr/lib/postgresql/15/bin/pg_ctl -D $POSTGRES_DATA_DIR start

@@ -156,7 +156,6 @@ class ImageCleanup:
         self.archive = archive
 
     def __del__(self):
-        # _logger.debug('removing file at end of test!')
         try:
             if self.archive:
                 self.image.delete_from_disk_and_database()

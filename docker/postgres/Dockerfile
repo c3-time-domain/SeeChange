@@ -1,3 +1,17 @@
+# Build this with
+#
+#    docker build -t <imagename> .
+#
+# ( rknop on nersc : imagename = registry.nersc.gov/m4616/raknop/seechange-postgres )
+#
+# You then have to run it with
+#
+#    docker run -d -e POSTGRES_PASSWORD=<pw> <imagename>
+#
+# where <pw> is the password that will be set for postgres user "postgres"
+#   when the database is initialized.
+#
+
 FROM rknop/devuan-daedalus-rknop
 MAINTAINER Rob Knop <raknop@lbl.gov>
 
@@ -44,5 +58,6 @@ COPY run_postgres.sh /tmp/run_postgres.sh
 RUN cp /tmp/run_postgres.sh /run_postgres.sh && chmod 755 /run_postgres.sh
 
 USER postgres
+
 ENV POSTGRES_DATA_DIR=/var/lib/postgresql/data
 CMD ["bash", "/run_postgres.sh"]

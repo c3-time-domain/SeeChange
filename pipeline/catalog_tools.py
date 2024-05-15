@@ -11,12 +11,12 @@ import astropy.table
 import healpy
 from util import ldac
 
-from models.base import SmartSession, FileOnDiskMixin, _logger
+from models.base import SmartSession, FileOnDiskMixin
 from models.catalog_excerpt import CatalogExcerpt
 
 from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchException
-
 from util.util import listify
+from util.logger import SCLogger
 
 
 # Here's a dysfunctionality in queryClient.  It wants ~/.datalab to
@@ -179,7 +179,7 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
     declow = mindec - padding * ddec
     dechigh = maxdec + padding * ddec
 
-    _logger.info( f'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
+    SCLogger.info( f'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
 
     gaia_query = (
         f"SELECT ra, dec, ra_error, dec_error, pm, pmra, pmdec, "
@@ -194,20 +194,20 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
         gaia_query += f"AND phot_g_mean_mag>={minmag} "
     if maxmag is not None:
         gaia_query += f"AND phot_g_mean_mag<={maxmag} "
-    _logger.debug( f'gaia_query is "{gaia_query}"' )
+    SCLogger.debug( f'gaia_query is "{gaia_query}"' )
 
     for i in range(5):
         try:
             qresult = queryClient.query( sql=gaia_query )
             break
         except Exception as e:
-            _logger.info( f"Failed Gaia download: {str(e)}" )
+            SCLogger.info( f"Failed Gaia download: {str(e)}" )
             if i < 4:
-                _logger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
+                SCLogger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
                 time.sleep(5)
     else:
         errstr = f"Gaia query failed after {i} repeated failures."
-        _logger.error( errstr )
+        SCLogger.error( errstr )
         raise RuntimeError( errstr )
 
     df = dl.helpers.utils.convert( qresult, "pandas" )
@@ -255,7 +255,7 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
     ofpath.parent.mkdir( parents=True, exist_ok=True )
 
     fitstab = astropy.table.Table.from_pandas( df )
-    _logger.debug( f"Writing {len(fitstab)} gaia stars to {ofpath}" )
+    SCLogger.debug( f"Writing {len(fitstab)} gaia stars to {ofpath}" )
     ldac.save_table_as_ldac( fitstab, ofpath, overwrite=True )
 
     catexp = CatalogExcerpt( format='fitsldac', origin='gaia_dr3', num_items=len(fitstab),
@@ -365,7 +365,7 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
                 catexp = q.first()
 
                 if not os.path.isfile( catexp.get_fullpath() ):
-                    _logger.info( f"CatalogExcerpt {catexp.id} has no file at {catexp.filepath}")
+                    SCLogger.info( f"CatalogExcerpt {catexp.id} has no file at {catexp.filepath}")
                     session.delete( catexp )
                     session.commit()
                     catexp = None
@@ -400,7 +400,7 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
 
         if catexp is None:
             s = f"Failed to fetch Gaia DR3 stars at ( {(minra+maxra)/2.:.04f},{(mindec+maxdec)/2.:.04f} )"
-            _logger.error( s )
+            SCLogger.error( s )
             raise CatalogNotFoundError( s )
 
     return catexp

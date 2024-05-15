@@ -10,7 +10,7 @@ from astropy.io import fits
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
-from models.base import SmartSession, FileOnDiskMixin, _logger
+from models.base import SmartSession, FileOnDiskMixin
 from models.image import Image
 from models.datafile import DataFile
 from models.instrument import SensorSection, Instrument, DemoInstrument, get_instrument_instance
