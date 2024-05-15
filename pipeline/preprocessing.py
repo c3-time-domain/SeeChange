@@ -200,7 +200,7 @@ class Preprocessor:
                 if step == 'overscan':
                     continue
                 SCLogger.debug( f"preprocessing: {step}" )
-                
+
                 stepfileid = None
                 # Acquire the calibration file
                 if f'{step}_fileid' in kwargs:
@@ -315,5 +315,5 @@ class Preprocessor:
         image._upstream_bitflag |= ds.exposure.bitflag
 
         ds.image = image
-        
+
         return ds
