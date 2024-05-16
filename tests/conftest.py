@@ -45,7 +45,7 @@ def pytest_sessionstart(session):
     # Will be executed before the first test
 
     # this is only to make the warnings into errors, so it is easier to track them down...
-    warnings.filterwarnings('error', append=True)  # comment this out in regular usage
+    # warnings.filterwarnings('error', append=True)  # comment this out in regular usage
 
     setup_warning_filters()  # load the list of warnings that are to be ignored (not just in tests)
     # below are additional warnings that are ignored only during tests:
