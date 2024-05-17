@@ -626,9 +626,11 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         ras = []
         decs = []
-        # Is this really what we want?  Or should we prefer data?
-        # (Look at preprocessing. When it trims, does it modify raw_data?)
-        data = self.raw_data if self.raw_data is not None else self.data
+        # Note: this used to prefer raw_data; changed it to prefer
+        #  data, because we believe that's what we want to prefer,
+        #  but left this note here in case things go haywire.
+        # data = self.raw_data if self.raw_data is not None else self.data
+        data = self.data if self.data is not None else self.raw_data
         width = data.shape[1]
         height = data.shape[0]
         xs = [ 0., width-1., 0., width-1. ]
