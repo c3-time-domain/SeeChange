@@ -38,7 +38,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
 
       max_sources_to_use: int or list of int
         If specified, if the number of objects in sources is larger than
-        this number, tell scamp to only use this many sources.  for the
+        this number, tell scamp to only use this many sources for the
         initial match.  (This makes the initial match go faster.)  If a
         list, it will iterate on this.
 
