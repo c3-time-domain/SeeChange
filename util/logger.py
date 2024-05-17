@@ -111,11 +111,6 @@ class SCLogger:
             This can be changed later with set_level().
 
         """
-        # (This lock is probably not necessary, since memory isn't by default shared in multiprocessing.)
-        # This __init__ will be called rarely (typically once at the beginning of a process), so
-        # the brief lock is not a big deal.
-        # lock = multiprocessing.Lock()
-        # with lock:
         SCLogger._ordinal += 1
         self._logger = logging.getLogger( f"SeeChange_{SCLogger._ordinal}" )
 
