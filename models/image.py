@@ -749,7 +749,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 new.ra = header_info.pop('ra', None)
                 new.dec = header_info.pop('dec', None)
 
-            # if we still ahve nothing, just use the RA/Dec of the global exposure
+            # if we still have nothing, just use the RA/Dec of the global exposure
             # (Ideally, new.instrument_object.get_ra_dec_for_section will
             #  have used known chip offsets, so it will never come to this.)
             if new.ra is None or new.dec is None:
