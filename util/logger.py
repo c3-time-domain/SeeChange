@@ -108,7 +108,7 @@ class SCLogger:
             datefmt syntax.
 
         level : logging level constant, default logging.WARNING
-            This can be changedl lated with set_level().
+            This can be changed later with set_level().
 
         """
         # (This lock is probably not necessary, since memory isn't by default shared in multiprocessing.)
