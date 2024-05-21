@@ -1,3 +1,6 @@
 [submodule "extern/nersc-upload-connector"]
 	path = extern/nersc-upload-connector
 	url = https://github.com/c3-time-domain/nersc-upload-connector
+[submodule "extern/nersc-desi-gaia-dr3-server"]
+	path = extern/nersc-desi-gaia-dr3-server
+	url = https://github.com/c3-time-domain/nersc-desi-gaia-dr3-server.git
