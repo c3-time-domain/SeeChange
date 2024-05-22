@@ -483,15 +483,7 @@ def datastore_factory(
                 if os.path.isfile(cache_path):
                     SCLogger.debug('loading WCS from cache. ')
                     ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
-                    ds.wcs.load()
-                    # breakpoint()
-                    # prov = Provenance(
-                    #     code_version=code_version,
-                    #     process='astro_cal',
-                    #     upstreams=[ds.sources.provenance],
-                    #     parameters=astrometor.pars.get_critical_pars(),
-                    #     is_testing=True,
-                    # )
+                    ds.wcs.load() # TODO COME BACK TO THIS, MAYBE UNNECESSARY
                     prov = session.merge(prov)
 
                     # check if WCS already exists on the database
@@ -512,12 +504,9 @@ def datastore_factory(
                                 setattr(existing, key, value)
                         ds.wcs = existing  # replace with the existing row
 
-                    # breakpoint()
                     ds.wcs.provenance = prov
                     ds.wcs.sources = ds.sources
-                    # breakpoint()
                     # make sure this is saved to the archive as well
-                    # breakpoint()
                     ds.wcs.save(verify_md5=False, overwrite=True) #copied this from above in PSF
                                                                   # ...are these arguments good?
 
@@ -525,10 +514,7 @@ def datastore_factory(
                 SCLogger.debug('Running astrometric calibration')
                 ds = astrometor.run(ds)
                 ds.wcs.save()
-                # breakpoint()
                 if cache_dir is not None and cache_base_name is not None:
-                    # must provide a name because this one isn't a FileOnDiskMixin
-                    # output_path = ds.wcs.copy_to_cache(cache_dir, cache_name)
                     output_path = ds.wcs.copy_to_cache(cache_dir)
                     if output_path != cache_path:
                         warnings.warn(f'cache path {cache_path} does not match output path {output_path}')

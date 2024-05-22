@@ -1538,7 +1538,7 @@ class DataStore:
                 for att in ['exposure', 'sources', 'psf', 'wcs', 'zp']:
                     if getattr(self.image, att, None) is not None:
                         setattr(self, att, getattr(self.image, att))
-                
+
             # This may well have updated some ids, as objects got added to the database
             if self.exposure_id is None and self._exposure is not None:
                 self.exposure_id = self._exposure.id

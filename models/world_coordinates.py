@@ -46,21 +46,6 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     #
     # For now, we'll be profliate with the database, and hope we don't
     # regret it later.
-    # header_excerpt = sa.Column(
-    #     sa.Text,
-    #     nullable=False,
-    #     index=False,
-    #     doc="Text that contains FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
-    # )
-    # @property
-    # def header_excerpt( self ):
-    #     if self.wcs is None:
-    #         raise RuntimeError( "Cannot return header_excerpt when _wcs is None")
-    #     return self.wcs.to_header().tostring( sep='\n', padding=False)
-    
-    # @header_excerpt.setter
-    # def header_excerpt( self, value ):
-    #     self.wcs = WCS( fits.Header.fromstring( value, sep='\n'))
 
     sources_id = sa.Column(
         sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
@@ -104,14 +89,12 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     @property
     def wcs( self ):
         if self._wcs is None and self.filepath is not None:
-            # self._wcs = WCS( fits.Header.fromstring( self.header_excerpt, sep='\n' ) )
             self.load()
         return self._wcs
 
     @wcs.setter
     def wcs( self, value ):
         self._wcs = value
-        # self.header_excerpt = value.to_header().tostring( sep='\n', padding=False )
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
@@ -120,9 +103,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def __init__( self, *args, **kwargs ):
         FileOnDiskMixin.__init__( self, **kwargs )
         SeeChangeBase.__init__( self , *args, **kwargs)
-        # super().__init__( *args, **kwargs )
         self._wcs = None
-        # self.filepath_extensions = ['fits']
 
     @orm.reconstructor
     def init_on_load( self ):

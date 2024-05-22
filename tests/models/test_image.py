@@ -1374,12 +1374,10 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
             local_files.append(file)
             archive_files.append(archive_file)
 
-    # breakpoint()
     # delete the image and all its downstreams
-    with SmartSession() as session:
+    with SmartSession() as session:  # test fails without doing this in a session (bc it opens a ton I think)
         im.delete_from_disk_and_database(remove_folders=True, remove_downstreams=True, session=session)
 
-    # breakpoint()
     # make sure the files are gone
     for file in local_files:
         assert not os.path.isfile(file)

@@ -81,6 +81,7 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
             # breakpoint()
 
             # QUESTION: Do I actually want to prevent this save going through in the filewrite?
+            # ANSWER: make configurable using existing save arguments
             # with pytest.raises(
             #     OSError,
             #     match=".fits already exists"
@@ -146,7 +147,6 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
 
     with SmartSession() as session:
         try:
-            # breakpoint()
             wcobj.save()
 
             # wcobj._wcs.to_header().tostring( sep='\n', padding=False )
@@ -168,100 +168,3 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
                 wcobj.delete_from_disk_and_database(session=session)
             if "wcobj2" in locals():
                 wcobj2.delete_from_disk_and_database(session=session)
-
-# def test_world_coordinates2( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
-#     image = ztf_datastore_uncommitted.image
-#     image.instrument = 'DECam' # otherwise invent_filepath will not work as 'ZTF' is not an instrument
-#     # breakpoint() # see if changing the instrument works here
-#     hdr = image.header
-
-#     origwcs = WCS( hdr )
-#     origscs = origwcs.pixel_to_world( [ 0, 0, 1024, 1024 ], [ 0, 1024, 0, 1024 ] )
-
-#     wcobj = WorldCoordinates()
-#     wcobj.wcs = origwcs
-#     md5 = hashlib.md5( wcobj.header_excerpt.encode('ascii') )
-#     assert md5.hexdigest() == 'a13d6bdd520c5a0314dc751025a62619'
-
-
-
-#     # save the WCS to file and DB
-#     with SmartSession() as session:
-#         try:
-#             provenance_base = session.merge(provenance_base)
-#             provenance_extra = session.merge(provenance_extra)
-#             image.sources = ztf_datastore_uncommitted.sources
-#             image.sources.provenance = provenance_extra
-#             image.sources.save()
-#             image.psf.provenance = provenance_extra
-#             image.psf.save()
-#             image.provenance = provenance_base
-#             image.save()
-#             image = image.merge_all(session)
-
-#             wcobj.sources = image.sources
-#             wcobj.provenance = Provenance(
-#                 process='test_world_coordinates',
-#                 code_version=provenance_base.code_version,
-#                 parameters={'test_parameter': 'test_value'},
-#                 upstreams=[provenance_extra],
-#                 is_testing=True,
-#             )
-
-#             # breakpoint()
-#             wcobj.save()
-
-#             # TODO: will need to save the WCS object if we turn it into a FileOnDiskMixin
-#             session.add(wcobj)
-
-#             session.commit()
-
-#         finally:
-
-#             if 'wcobj' in locals():
-#                 # wcobj.delete_from_disk_and_database(session=session)
-#                 if sa.inspect(wcobj).persistent:
-#                     session.delete(wcobj)
-#                     image.wcs = None
-#                     image.sources.wcs = None
-#             session.commit()
-
-#             if 'image' in locals():
-#                 image.delete_from_disk_and_database(session=session, commit=True)
-
-
-            # ############## astro_cal to create wcs ################
-            # if cache_dir is not None and cache_base_name is not None:
-            #     # cache_name = cache_base_name + '.wcs.json'
-            #     # breakpoint()
-            #     prov = Provenance(
-            #             code_version=code_version,
-            #             process='astro_cal',
-            #             upstreams=[ds.sources.provenance],
-            #             parameters=astrometor.pars.get_critical_pars(),
-            #             is_testing=True,
-            #         )
-            #     cache_name = f'{cache_base_name}.wcs_{prov.id[:6]}.txt.json'
-            #     cache_path = os.path.join(cache_dir, cache_name)
-            #     if os.path.isfile(cache_path):
-            #         _logger.debug('loading WCS from cache. ')
-            #         ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
-            #         ds.wcs.load()
-            #         # breakpoint()
-            #         # prov = Provenance(
-            #         #     code_version=code_version,
-            #         #     process='astro_cal',
-            #         #     upstreams=[ds.sources.provenance],
-            #         #     parameters=astrometor.pars.get_critical_pars(),
-            #         #     is_testing=True,
-            #         # )
-            #         prov = session.merge(prov)
-
-            #         # check if WCS already exists on the database
-            #         existing = session.scalars(
-            #             sa.select(WorldCoordinates).where(
-            #                 WorldCoordinates.sources_id == ds.sources.id,
-            #                 WorldCoordinates.provenance_id == prov.id
-            #             )
-            #         ).first()
-            #         if e

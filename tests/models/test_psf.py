@@ -253,7 +253,6 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
 
         # See if we can read the psf we wrote back in
         psf = PSF( format='psfex' )
-        # breakpoint()
         psf.load( psfpath=psffullpath, psfxmlpath=psfxmlfullpath )
         check_example_psfex_psf_values( psf )
 
@@ -313,7 +312,6 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
 
             prov = session.merge(provenance_base)
             psf.provenance = prov
-            # breakpoint()
             psf.save()
             session.add(psf)
             session.commit()

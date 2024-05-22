@@ -357,9 +357,8 @@ class SeeChangeBase:
             need_commit = False
             if remove_downstreams:
                 try:
-                    downstreams = self.get_downstreams(session)
+                    downstreams = self.get_downstreams(session) # might want to pass session here
                     for d in downstreams:
-                        # breakpoint()
                         if hasattr(d, 'delete_from_database'):
                             if d.delete_from_database(session=session, commit=False, remove_downstreams=True):
                                 need_commit = True
@@ -370,8 +369,6 @@ class SeeChangeBase:
                     pass  # if this object does not implement get_downstreams, it is ok
 
             info = sa.inspect(self)
-            
-            # breakpoint()
             if info.persistent:
                 session.delete(self)
                 need_commit = True
@@ -635,7 +632,6 @@ class SeeChangeBase:
         output: SeeChangeBase
             The reconstructed object, of the same type as the class.
         """
-        # breakpoint()
         # allow user to give an absolute path, so long as it is in the cache dir
         if filepath.startswith(cache_dir):
             filepath = filepath[len(cache_dir) + 1:]
@@ -1152,7 +1148,6 @@ class FileOnDiskMixin:
                     raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
                                       f"database value of {md5sum}" )
         
-        # breakpoint()
         return fullname
 
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
@@ -1253,7 +1248,6 @@ class FileOnDiskMixin:
         #  want to directly modify the lists in self until the saving is
         #  done.  That way, self doesn't get mucked up if this function
         #  exceptions out.
-        # breakpoint()
         curextensions = self.filepath_extensions
         extmd5s = self.md5sum_extensions
 
@@ -1563,13 +1557,10 @@ class FileOnDiskMixin:
         if session is None and not commit:
             raise RuntimeError("When session=None, commit must be True!")
 
-        # breakpoint()
         SeeChangeBase.delete_from_database(self, session=session, commit=commit, remove_downstreams=remove_downstreams)
 
-        # breakpoint()
         self.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=remove_downstreams)
 
-        # breakpoint()
         if archive:
             self.delete_from_archive(remove_downstreams=remove_downstreams)
 
