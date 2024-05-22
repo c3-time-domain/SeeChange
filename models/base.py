@@ -365,8 +365,9 @@ class SeeChangeBase:
             need_commit = False
             if remove_downstreams:
                 try:
-                    downstreams = self.get_downstreams()
+                    downstreams = self.get_downstreams(session)
                     for d in downstreams:
+                        # breakpoint()
                         if hasattr(d, 'delete_from_database'):
                             if d.delete_from_database(session=session, commit=False, remove_downstreams=True):
                                 need_commit = True
@@ -377,7 +378,8 @@ class SeeChangeBase:
                     pass  # if this object does not implement get_downstreams, it is ok
 
             info = sa.inspect(self)
-
+            
+            # breakpoint()
             if info.persistent:
                 session.delete(self)
                 need_commit = True
@@ -1568,10 +1570,13 @@ class FileOnDiskMixin:
         if session is None and not commit:
             raise RuntimeError("When session=None, commit must be True!")
 
+        # breakpoint()
         SeeChangeBase.delete_from_database(self, session=session, commit=commit, remove_downstreams=remove_downstreams)
 
+        # breakpoint()
         self.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=remove_downstreams)
 
+        # breakpoint()
         if archive:
             self.delete_from_archive(remove_downstreams=remove_downstreams)
 

@@ -52,15 +52,15 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     #     index=False,
     #     doc="Text that contains FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
     # )
-    @property
-    def header_excerpt( self ):
-        if self.wcs is None:
-            raise RuntimeError( "Cannot return header_excerpt when _wcs is None")
-        return self.wcs.to_header().tostring( sep='\n', padding=False)
+    # @property
+    # def header_excerpt( self ):
+    #     if self.wcs is None:
+    #         raise RuntimeError( "Cannot return header_excerpt when _wcs is None")
+    #     return self.wcs.to_header().tostring( sep='\n', padding=False)
     
-    @header_excerpt.setter
-    def header_excerpt( self, value ):
-        self.wcs = WCS( fits.Header.fromstring( value, sep='\n'))
+    # @header_excerpt.setter
+    # def header_excerpt( self, value ):
+    #     self.wcs = WCS( fits.Header.fromstring( value, sep='\n'))
 
     sources_id = sa.Column(
         sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
@@ -73,6 +73,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         'SourceList',
         cascade='save-update, merge, refresh-expire, expunge',
         passive_deletes=True,
+        lazy="selectin",
         doc="The source list this world coordinate system is associated with. "
     )
 

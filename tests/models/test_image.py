@@ -1365,7 +1365,7 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     # make sure the files are there
     local_files = []
     archive_files = []
-    for obj in [im, im.psf, im.sources]:  # TODO: add WCS when it becomes a FileOnDiskMixin
+    for obj in [im, im.psf, im.sources, im.wcs]:  # TODO: add WCS when it becomes a FileOnDiskMixin
         for file in obj.get_fullpath(as_list=True):
             archive_file = file[len(obj.local_path)+1:]  # grap the end of the path only
             archive_file = os.path.join(archive.test_folder_path, archive_file)  # prepend the archive path
@@ -1374,9 +1374,12 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
             local_files.append(file)
             archive_files.append(archive_file)
 
+    # breakpoint()
     # delete the image and all its downstreams
-    im.delete_from_disk_and_database(remove_folders=True, remove_downstreams=True)
+    with SmartSession() as session:
+        im.delete_from_disk_and_database(remove_folders=True, remove_downstreams=True, session=session)
 
+    # breakpoint()
     # make sure the files are gone
     for file in local_files:
         assert not os.path.isfile(file)

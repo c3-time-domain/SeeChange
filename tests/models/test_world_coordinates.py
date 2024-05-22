@@ -26,14 +26,15 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
 
     wcobj = WorldCoordinates()
     wcobj.wcs = origwcs
-    md5 = hashlib.md5( wcobj.header_excerpt.encode('ascii') )
+    header_excerpt = wcobj.wcs.to_header().tostring( sep='\n', padding=False)
+    md5 = hashlib.md5( header_excerpt.encode('ascii') )
     assert md5.hexdigest() == 'a13d6bdd520c5a0314dc751025a62619'
 
     # Make sure that we can construct a WCS from a WorldCoordinates
 
-    hdrkws = wcobj.header_excerpt
+    old_wcs = wcobj.wcs
     wcobj = WorldCoordinates()
-    wcobj.header_excerpt = hdrkws
+    wcobj.wcs = old_wcs
     scs = wcobj.wcs.pixel_to_world( [ 0, 0, 1024, 1024 ], [ 0, 1024, 0, 1024 ] )
     for sc, origsc in zip( scs, origscs ):
         assert sc.ra.value == pytest.approx( origsc.ra.value, abs=0.01/3600. )
@@ -72,7 +73,7 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
 
             # add a second WCS object and make sure we cannot accidentally commit it, too
             wcobj2 = WorldCoordinates()
-            wcobj2.header_excerpt = hdrkws
+            wcobj2.wcs = old_wcs
             wcobj2.sources = image.sources
             wcobj2.provenance = wcobj.provenance
             wcobj2.save() # see below question

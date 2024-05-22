@@ -269,6 +269,7 @@ class AstroCalibrator:
         # get the provenance for this step:
         prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
 
+        
         # try to find the world coordinates in memory or in the database:
         wcs = ds.get_wcs(prov, session=session)
 
