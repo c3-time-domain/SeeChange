@@ -20,9 +20,6 @@ archive:
   local_write_dir: null
   token: insecure
 
-catalog_gaiadr3:
-  fallback_datalab: False
-
 subtraction:
   method: zogy
 
