@@ -357,7 +357,7 @@ class SeeChangeBase:
             need_commit = False
             if remove_downstreams:
                 try:
-                    downstreams = self.get_downstreams(session) # might want to pass session here
+                    downstreams = self.get_downstreams()
                     for d in downstreams:
                         if hasattr(d, 'delete_from_database'):
                             if d.delete_from_database(session=session, commit=False, remove_downstreams=True):
