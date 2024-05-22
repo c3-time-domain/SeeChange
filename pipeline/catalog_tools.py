@@ -207,10 +207,14 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
                 df = _download_gaia_dr3_custom_server( ralow, rahigh, declow, dechigh, minmag, maxmag )
                 break
             except Exception as ex:
-                SCLogger.info( f"Exception trying to download from custom gaia server: {ex}" )
+                SCLogger.debug( f"Exception trying to download ra=({ralow}:{rahigh}), dec=({declow}:{dechigh}), "
+                                f"mag=({minmag}:{maxmag}) from custom gaia server: {ex}" )
                 if i < 4:
-                    SCLogger.info( f"Sleeping 1s and retrying gaia query" )
+                    SCLogger.debug( f"Sleeping 1s and retrying gaia query" )
                     time.sleep( 1 )
+        else:
+            SCLogger.error( f"Repeated failures trying to download  ra=({ralow}:{rahigh}), dec=({declow}:{dechigh}), "
+                            f"mag=({minmag}:{maxmag}) from custom gaia server" )
 
     if ( ( ( df is None ) and cfg.value( 'catalog_gaiadr3.fallback_datalab' ) )
          or ( cfg.value( 'catalog_gaiadr3.use_datalab' ) ) ):
@@ -236,12 +240,12 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
                 qresult = queryClient.query( sql=gaia_query )
                 break
             except Exception as e:
-                SCLogger.info( f"Failed Gaia download: {str(e)}" )
+                SCLogger.info( f"Failed NOIRLab data lab Gaia download: {str(e)}" )
                 if i < 4:
                     SCLogger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
                     time.sleep(5)
         else:
-            errstr = f"Gaia query failed after {i} repeated failures."
+            errstr = f"NOIRLab data lab Gaia query giving up after {i} repeated failures."
             SCLogger.error( errstr )
             raise RuntimeError( errstr )
 
