@@ -369,6 +369,7 @@ class SeeChangeBase:
                     pass  # if this object does not implement get_downstreams, it is ok
 
             info = sa.inspect(self)
+
             if info.persistent:
                 session.delete(self)
                 need_commit = True
@@ -1147,7 +1148,7 @@ class FileOnDiskMixin:
                 if localmd5 != md5sum:
                     raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
                                       f"database value of {md5sum}" )
-        
+
         return fullname
 
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):

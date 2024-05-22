@@ -192,7 +192,7 @@ class AstroCalibrator:
 
     def _run_scamp( self, ds, prov, session=None ):
         """Do the work of run for the scamp matching method."""
-        
+
         image = ds.get_image( session=session )
 
         # use the latest source list in the data store,
