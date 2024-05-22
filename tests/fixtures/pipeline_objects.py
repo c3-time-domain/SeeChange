@@ -471,12 +471,7 @@ def datastore_factory(
 
             ############## astro_cal to create wcs ################
             if cache_dir is not None and cache_base_name is not None:
-                cache_name = cache_base_name + '.wcs.json'
-                cache_path = os.path.join(cache_dir, cache_name)
-                if os.path.isfile(cache_path):
-                    SCLogger.debug('loading WCS from cache. ')
-                    ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
-                    prov = Provenance(
+                prov = Provenance(
                         code_version=code_version,
                         process='astro_cal',
                         upstreams=[ds.sources.provenance],
@@ -486,7 +481,7 @@ def datastore_factory(
                 cache_name = f'{cache_base_name}.wcs_{prov.id[:6]}.txt.json'
                 cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(cache_path):
-                    _logger.debug('loading WCS from cache. ')
+                    SCLogger.debug('loading WCS from cache. ')
                     ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
                     ds.wcs.load()
                     # breakpoint()

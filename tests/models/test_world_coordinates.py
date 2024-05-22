@@ -228,3 +228,40 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
 
 #             if 'image' in locals():
 #                 image.delete_from_disk_and_database(session=session, commit=True)
+
+
+            # ############## astro_cal to create wcs ################
+            # if cache_dir is not None and cache_base_name is not None:
+            #     # cache_name = cache_base_name + '.wcs.json'
+            #     # breakpoint()
+            #     prov = Provenance(
+            #             code_version=code_version,
+            #             process='astro_cal',
+            #             upstreams=[ds.sources.provenance],
+            #             parameters=astrometor.pars.get_critical_pars(),
+            #             is_testing=True,
+            #         )
+            #     cache_name = f'{cache_base_name}.wcs_{prov.id[:6]}.txt.json'
+            #     cache_path = os.path.join(cache_dir, cache_name)
+            #     if os.path.isfile(cache_path):
+            #         _logger.debug('loading WCS from cache. ')
+            #         ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
+            #         ds.wcs.load()
+            #         # breakpoint()
+            #         # prov = Provenance(
+            #         #     code_version=code_version,
+            #         #     process='astro_cal',
+            #         #     upstreams=[ds.sources.provenance],
+            #         #     parameters=astrometor.pars.get_critical_pars(),
+            #         #     is_testing=True,
+            #         # )
+            #         prov = session.merge(prov)
+
+            #         # check if WCS already exists on the database
+            #         existing = session.scalars(
+            #             sa.select(WorldCoordinates).where(
+            #                 WorldCoordinates.sources_id == ds.sources.id,
+            #                 WorldCoordinates.provenance_id == prov.id
+            #             )
+            #         ).first()
+            #         if e
