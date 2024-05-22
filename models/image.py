@@ -28,7 +28,6 @@ from models.base import (
     SpatiallyIndexed,
     FourCorners,
     HasBitFlagBadness,
-    _logger
 )
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance
@@ -604,11 +603,34 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         return new_image
 
-    def set_corners_from_header_wcs( self ):
-        wcs = WCS( self._header )
+    def set_corners_from_header_wcs( self, wcs=None, setradec=False ):
+        """Update the image's four corners (and, optionally, RA/Dec) from a WCS.
+
+        Parameters
+        ----------
+        wcs : astropy.wcs.WCS, default None
+           The WCS to use.  If None (default), will use the WCS parsed
+           from the image header.
+
+        setradec : bool, default False
+           If True, also update the image's ra and dec fields, as well
+           as the things calculated from it (galactic, ecliptic
+           coordinates).
+
+        """
+        if wcs is None:
+            wcs = WCS( self._header )
+        # Try to detect a bad WCS
+        if ( wcs.axis_type_names == ['', ''] ):
+            raise ValueError( "Could not find a good WCS" )
+
         ras = []
         decs = []
-        data = self.raw_data if self.raw_data is not None else self.data
+        # Note: this used to prefer raw_data; changed it to prefer
+        #  data, because we believe that's what we want to prefer,
+        #  but left this note here in case things go haywire.
+        # data = self.raw_data if self.raw_data is not None else self.data
+        data = self.data if self.data is not None else self.raw_data
         width = data.shape[1]
         height = data.shape[0]
         xs = [ 0., width-1., 0., width-1. ]
@@ -629,6 +651,16 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         self.dec_corner_01 = decs[1]
         self.dec_corner_10 = decs[2]
         self.dec_corner_11 = decs[3]
+
+        if setradec:
+            sc = wcs.pixel_to_world( data.shape[1] / 2., data.shape[0] / 2. )
+            self.ra = sc.ra.to(u.deg).value
+            self.dec = sc.dec.to(u.deg).value
+            self.gallat = sc.galactic.b.deg
+            self.gallon = sc.galactic.l.deg
+            self.ecllat = sc.barycentrictrueecliptic.lat.deg
+            self.ecllon = sc.barycentrictrueecliptic.lon.deg
+
 
     @classmethod
     def from_exposure(cls, exposure, section_id):
@@ -707,41 +739,28 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         # first see if this instrument has a special method of figuring out the RA/Dec
         new.ra, new.dec = new.instrument_object.get_ra_dec_for_section(exposure, section_id)
 
-        # if not (which is true for most instruments!), try to read the WCS from the header:
+        # Assume that if there's a WCS in the header, it's more reliable than the ra/dec keywords,
+        #  (and more reliable than the function call above), so try that:
         try:
-            wcs = WCS(new._header)
-            sc = wcs.pixel_to_world(width // 2, height // 2)
-            new.ra = sc.ra.to(u.deg).value
-            new.dec = sc.dec.to(u.deg).value
+            new.set_corners_from_header_wcs( setradec=True )
         except:
-            pass  # can't do it, just leave RA/Dec as None
+            # If the WCS didn't work, and there was no special instrument method, then try other things
 
-        # if that fails, try to get the RA/Dec from the section header
-        if new.ra is None or new.dec is None:
-            new.ra = header_info.pop('ra', None)
-            new.dec = header_info.pop('dec', None)
+            # try to get the RA/Dec from the section header
+            if new.ra is None or new.dec is None:
+                new.ra = header_info.pop('ra', None)
+                new.dec = header_info.pop('dec', None)
 
-        # if that fails, just use the RA/Dec of the global exposure
-        if new.ra is None or new.dec is None:
-            new.ra = exposure.ra
-            new.dec = exposure.dec
+            # if we still have nothing, just use the RA/Dec of the global exposure
+            # (Ideally, new.instrument_object.get_ra_dec_for_section will
+            #  have used known chip offsets, so it will never come to this.)
+            if new.ra is None or new.dec is None:
+                new.ra = exposure.ra
+                new.dec = exposure.dec
 
-        new.info = header_info  # save any additional header keys into a JSONB column
+            new.calculate_coordinates()  # galactic and ecliptic coordinates
 
-        # Figure out the 4 corners  Start by trying to use the WCS
-        gotcorners = False
-        try:
-            new.set_corners_from_header_wcs()
-            _logger.debug( 'Got corners from WCS' )
-            gotcorners = True
-        except:
-            pass
-
-        # If that didn't work, then use ra and dec and the instrument scale
-        # TODO : take into account standard instrument orientation!
-        # (Can be done after the decam_pull PR is merged)
-
-        if not gotcorners:
+            # Set the corners
             halfwid = new.instrument_object.pixel_scale * width / 2. / np.cos( new.dec * np.pi / 180. ) / 3600.
             halfhei = new.instrument_object.pixel_scale * height / 2. / 3600.
             ra0 = new.ra - halfwid
@@ -756,7 +775,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             new.dec_corner_01 = dec1
             new.dec_corner_10 = dec0
             new.dec_corner_11 = dec1
-            gotcorners = True
+
+        new.info = header_info  # save any additional header keys into a JSONB column
 
         # the exposure_id will be set automatically at commit time
         # ...but we have to set it right now because other things are
@@ -764,7 +784,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         new.exposure_id = exposure.id
         new.exposure = exposure
 
-        new.calculate_coordinates()  # galactic and ecliptic coordinates
 
         return new
 

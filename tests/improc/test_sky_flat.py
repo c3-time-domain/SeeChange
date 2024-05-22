@@ -4,11 +4,12 @@ import pytest
 
 import numpy as np
 
-from models.base import CODE_ROOT, _logger
+from models.base import CODE_ROOT
 
 from improc.simulator import Simulator
 from improc.sky_flat import calc_sky_flat
 
+from util.logger import SCLogger
 
 @pytest.mark.flaky(max_runs=3)
 @pytest.mark.parametrize("num_images", [10, 300])
@@ -41,12 +42,12 @@ def test_simple_sky_flat(num_images):
         if not os.path.isdir(os.path.dirname(filename)):
             os.makedirs(os.path.dirname(filename))
         np.savez(filename, images=images, truth=sim.truth)
-        # _logger.debug(f"Generating {num_images} images took {time.time() - t0:.1f} seconds")
+        # SCLogger.debug(f"Generating {num_images} images took {time.time() - t0:.1f} seconds")
 
     t0 = time.time()
     # don't use median so we can see when it fails on too few stars
     sky_flat = calc_sky_flat(images, nsigma=3.0, iterations=5, median=False)
-    # _logger.debug(f'calc_sky_flat took {time.time() - t0:.1f} seconds')
+    # SCLogger.debug(f'calc_sky_flat took {time.time() - t0:.1f} seconds')
 
     # plt.plot(sky_flat[10, :], label="sky flat")
     # plt.plot(sim.truth.vignette_map[10, :], label="camera vignette")

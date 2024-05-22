@@ -1,0 +1,140 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ls4-rknop-dev
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      workload.user.cattle.io/workloadselector: deployment-ls4-rknop-dev-postgres
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        nersc.gov/collab_uids: "10398"
+        nersc.gov/gid: "10398"
+        nersc.gov/gids: 10398,96414
+        nersc.gov/roles: user
+        nersc.gov/uid: "95089"
+        nersc.gov/username: raknop
+      labels:
+        workload.user.cattle.io/workloadselector: deployment-ls4-rknop-dev-postgres
+    spec:
+      affinity: {}
+      containers:
+      - env:
+        - name: POSTGRES_DATA_DIR
+          value: /var/lib/postgresql/data
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: pgpass
+        image: registry.nersc.gov/m4616/raknop/seechange-postgres
+        imagePullPolicy: Always
+        name: postgres
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - FOWNER
+            - SETGID
+            - SETUID
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+        stdin: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        tty: true
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: postgres
+        - mountPath: /dev/shm
+          name: dshm
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+        - name: registry-nersc
+      initContainers:
+      - name: volume-mount-hack
+        image: busybox
+        imagePullPolicy: Always
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        command: [ "sh", "-c", "chown 100:108 /pgdata" ]
+        volumeMounts:
+        - name: postgres
+          mountPath: /pgdata
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: postgres
+        persistentVolumeClaim:
+          claimName: postgres-rknop-dev-20240502
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 128Gi
+        name: dshm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ls4-rknop-dev
+spec:
+  clusterIP: None
+  clusterIPs:
+  - None
+  ports:
+  - name: default
+    port: 42
+    protocol: TCP
+    targetPort: 42
+  selector:
+    workload.user.cattle.io/workloadselector: deployment-ls4-rknop-dev-postgres
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}
+---
+# Automatically creates DNS postgres-loadbalancer.ls4-rknop-dev.production.svc.spin.nersc.org
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-loadbalancer
+  namespace: ls4-rknop-dev
+spec:
+  allocateLoadBalancerNodePorts: true
+  externalTrafficPolicy: Local
+  internalTrafficPolicy: Local
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: postgresql
+    nodePort: 32012
+    port: 5432
+    protocol: TCP
+    targetPort: 5432
+  selector:
+    workload.user.cattle.io/workloadselector: deployment-ls4-rknop-dev-postgres
+  sessionAffinity: None
+  type: LoadBalancer
+status:
+  loadBalancer: {}

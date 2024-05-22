@@ -7,7 +7,7 @@ from scipy.signal import medfilt2d
 from scipy.interpolate import RectBivariateSpline
 from astropy.io import fits
 
-from models.base import _logger
+from util.logger import SCLogger
 
 def single_sextrsky( imagedata, maskdata=None, sigcut=3 ):
     """Estimate sky and sky sigma of imagedata (ignoreing nonzero maskdata pixels)
@@ -51,15 +51,15 @@ def single_sextrsky( imagedata, maskdata=None, sigcut=3 ):
         mean = np.mean( imagedata[ w ] )
         sdev = np.std( imagedata[ w ] )
         w = ( ( maskdata == 0 ) & ( np.abs( imagedata - med ) < sigcut * sdev ) )
-        _logger.debug( f'single_sextrsky: med={med:.2f}, mean={mean:.2f}, sdev={sdev:.2f}, n={w.sum()}' )
+        SCLogger.debug( f'single_sextrsky: med={med:.2f}, mean={mean:.2f}, sdev={sdev:.2f}, n={w.sum()}' )
         if w.sum() > lastn:
-            _logger.warning( "single_sextrsky: n increased" )
+            SCLogger.warning( "single_sextrsky: n increased" )
         if w.sum() == lastn:
             done = True
         lastn = w.sum()
 
     if math.fabs( mean - med ) / mean > 0.3:
-        _logger.debug( f'mean={mean}, med={med}, using just median for sky estimate' )
+        SCLogger.debug( f'mean={mean}, med={med}, using just median for sky estimate' )
         sky = med
     else:
         sky = 2.5*med - 1.5*mean
@@ -199,9 +199,9 @@ def main():
     args = parser.parse_args()
 
     if args.verbose:
-        _logger.setLevel( logging.DEBUG )
+        SCLogger.setLevel( logging.DEBUG )
     else:
-        _logger.setLevel( logging.INFO )
+        SCLogger.setLevel( logging.INFO )
 
     with fits.open( args.image ) as hdu:
         imagedata = hdu[args.hdunum].data
@@ -219,7 +219,7 @@ def main():
         skyim, sig = sextrsky( imagedata, bpmdata, sigcut=args.sigcut,
                                filtsize=args.filtsize, boxsize=args.boxwid, logger=logger )
         sky = np.median( skyim )
-    _logger.debug( f'Sky: {sky}; σ: {sig}' )
+    SCLogger.debug( f'Sky: {sky}; σ: {sig}' )
 
     if args.output is not None:
         hdr = imageheader.copy()

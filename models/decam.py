@@ -11,7 +11,7 @@ from astropy.io import fits
 
 import sqlalchemy as sa
 
-from models.base import _logger, SmartSession, FileOnDiskMixin
+from models.base import SmartSession, FileOnDiskMixin
 from models.instrument import Instrument, InstrumentOrientation, SensorSection
 from models.image import Image
 from models.datafile import DataFile
@@ -19,6 +19,7 @@ from models.provenance import Provenance
 from util.config import Config
 import util.util
 from util.retrydownload import retry_download
+from util.logger import SCLogger
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
 
@@ -587,14 +588,14 @@ class DECam(Instrument):
         apiurl = f'https://astroarchive.noirlab.edu/api/adv_search/find/?format=json&limit=0'
 
         def getoneresponse( json ):
-            _logger.debug( f"Sending NOIRLab search query to {apiurl} with json={json}" )
+            SCLogger.debug( f"Sending NOIRLab search query to {apiurl} with json={json}" )
             response = requests.post( apiurl, json=json )
             response.raise_for_status()
             if response.status_code == 200:
                 files = pandas.DataFrame( response.json()[1:] )
             else:
-                _logger.error( response.json()['errorMessage'] )
-                # _logger.error( response.json()['traceback'] )     # Uncomment for API developer use
+                SCLogger.error( response.json()['errorMessage'] )
+                # SCLogger.error( response.json()['traceback'] )     # Uncomment for API developer use
                 raise RuntimeError( response.json()['errorMessage'] )
             return files
 
@@ -610,7 +611,7 @@ class DECam(Instrument):
                     files = newfiles if files is None else pandas.concat( [files, newfiles] )
 
         if files.empty or files is None:
-            _logger.warning( f"DECam exposure search found no files." )
+            SCLogger.warning( f"DECam exposure search found no files." )
             return None
 
         if minexptime is not None:
@@ -696,7 +697,7 @@ class DECamOriginExposures:
                 fname = pathlib.Path( expinfo.archive_filename ).name
                 fpath = outdir / fname
                 retry_download( expinfo.url, fpath, retries=5, sleeptime=5, exists_ok=existing_ok,
-                                clobber=clobber, md5sum=expinfo.md5sum, sizelog='GiB', logger=_logger )
+                                clobber=clobber, md5sum=expinfo.md5sum, sizelog='GiB', logger=SCLogger.get() )
                 fpaths[ 'exposure' if ext=='image' else ext ] = fpath
             downloaded.append( fpaths )
 
@@ -738,7 +739,7 @@ class DECamOriginExposures:
                                                   clobber=clobber, existing_ok=existing_ok )
             for dex, expfiledict in zip( indexes, downloaded ):
                 if set( expfiledict.keys() ) != { 'exposure' }:
-                    _logger.warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
+                    SCLogger.warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
                                      f"from DECam, but only loading the exposure file into the database." )
                     # TODO: load these as file extensions (see
                     # FileOnDiskMixin), if we're ever going to actually
@@ -771,7 +772,7 @@ class DECamOriginExposures:
                 #  about database corruption?
                 if existing is not None:
                     if skip_existing:
-                        _logger.info( f"download_and_commit_exposures: exposure with origin identifier "
+                        SCLogger.info( f"download_and_commit_exposures: exposure with origin identifier "
                                       f"{origin_identifier} is already in the database, skipping. "
                                       f"({existing.filepath})" )
                         continue
@@ -780,7 +781,7 @@ class DECamOriginExposures:
                                                f"already exists in the database. ({existing.filepath})" )
                 obstype = self._frame.loc[dex,'image'].obs_type
                 if obstype not in obstypemap:
-                    _logger.warning( f"DECam obs_type {obstype} not known, assuming Sci" )
+                    SCLogger.warning( f"DECam obs_type {obstype} not known, assuming Sci" )
                     obstype = 'Sci'
                 else:
                     obstype = obstypemap[ obstype ]

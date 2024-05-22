@@ -11,7 +11,6 @@ from models.source_list import SourceList
 from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
-from models.base import _logger
 
 from improc.simulator import Simulator
 from improc.tools import sigma_clipping
@@ -21,6 +20,7 @@ from pipeline.detection import Detector
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 
+from util.logger import SCLogger
 
 def estimate_psf_width(data, sz=15, upsampling=25):
     """Extract a bright star and estimate its FWHM.
@@ -177,7 +177,7 @@ def test_zogy_simulation(coadder, blocking_plots):
     fwhms_est = np.array(fwhms_est)
     fwhms_est2 = np.sqrt(fwhms_est ** 2 - 1.5)  # add the pixelization width
     deltas = np.abs((fwhms - fwhms_est2) / fwhms)
-    # _logger.debug(
+    # SCLogger.debug(
     #     f'max(deltas) = {np.max(deltas) * 100:.1f}%, '
     #     f'mean(deltas) = {np.mean(deltas) * 100:.1f}%, '
     #     f'std(deltas)= {np.std(deltas) * 100 :.1f}% '

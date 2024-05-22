@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 import sep
 
-from models.base import SmartSession, _logger
+from models.base import SmartSession
 from models.provenance import Provenance
 from models.enums_and_bitflags import BitFlagConverter
 from models.image import Image
@@ -29,6 +29,8 @@ from pipeline.coaddition import Coadder
 from pipeline.subtraction import Subtractor
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
+
+from util.logger import SCLogger
 
 from improc.bitmask_tools import make_saturated_flag
 
@@ -307,7 +309,7 @@ def datastore_factory(
                 cache_name = cache_base_name + '.image.fits.json'
                 cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(cache_path):
-                    _logger.debug('loading image from cache. ')
+                    SCLogger.debug('loading image from cache. ')
                     ds.image = Image.copy_from_cache(cache_dir, cache_name)
                     # assign the correct exposure to the object loaded from cache
                     if ds.exposure_id is not None:
@@ -348,7 +350,7 @@ def datastore_factory(
                     ds.image.save(verify_md5=False)
 
             if ds.image is None:  # make the preprocessed image
-                _logger.debug('making preprocessed image. ')
+                SCLogger.debug('making preprocessed image. ')
                 ds = preprocessor.run(ds)
                 ds.image.provenance.is_testing = True
                 if bad_pixel_map is not None:
@@ -372,7 +374,7 @@ def datastore_factory(
                     warnings.warn(f'cache path {cache_path} does not match output path {output_path}')
                 elif cache_dir is not None and cache_base_name is None:
                     ds.cache_base_name = output_path
-                    _logger.debug(f'Saving image to cache at: {output_path}')
+                    SCLogger.debug(f'Saving image to cache at: {output_path}')
 
             # check if background was calculated
             if ds.image.bkg_mean_estimate is None or ds.image.bkg_rms_estimate is None:
@@ -405,7 +407,7 @@ def datastore_factory(
                 cache_name = f'{cache_base_name}.sources_{prov.id[:6]}.fits.json'
                 cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(cache_path):
-                    _logger.debug('loading source list from cache. ')
+                    SCLogger.debug('loading source list from cache. ')
                     ds.sources = SourceList.copy_from_cache(cache_dir, cache_name)
 
                     # if SourceList already exists on the database, use that instead of this one
@@ -433,7 +435,7 @@ def datastore_factory(
                 cache_name = f'{cache_base_name}.psf_{prov.id[:6]}.fits.json'
                 cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(cache_path):
-                    _logger.debug('loading PSF from cache. ')
+                    SCLogger.debug('loading PSF from cache. ')
                     ds.psf = PSF.copy_from_cache(cache_dir, cache_name)
 
                     # if PSF already exists on the database, use that instead of this one
@@ -458,7 +460,7 @@ def datastore_factory(
                     ds.psf.save(verify_md5=False, overwrite=True)
 
             if ds.sources is None or ds.psf is None:  # make the source list from the regular image
-                _logger.debug('extracting sources. ')
+                SCLogger.debug('extracting sources. ')
                 ds = extractor.run(ds)
                 ds.sources.save()
                 ds.sources.copy_to_cache(cache_dir)
@@ -469,9 +471,12 @@ def datastore_factory(
 
             ############## astro_cal to create wcs ################
             if cache_dir is not None and cache_base_name is not None:
-                # cache_name = cache_base_name + '.wcs.json'
-                # breakpoint()
-                prov = Provenance(
+                cache_name = cache_base_name + '.wcs.json'
+                cache_path = os.path.join(cache_dir, cache_name)
+                if os.path.isfile(cache_path):
+                    SCLogger.debug('loading WCS from cache. ')
+                    ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
+                    prov = Provenance(
                         code_version=code_version,
                         process='astro_cal',
                         upstreams=[ds.sources.provenance],
@@ -522,8 +527,7 @@ def datastore_factory(
                                                                   # ...are these arguments good?
 
             if ds.wcs is None:  # make the WCS
-                _logger.debug('Running astrometric calibration')
-                # breakpoint()
+                SCLogger.debug('Running astrometric calibration')
                 ds = astrometor.run(ds)
                 ds.wcs.save()
                 # breakpoint()
@@ -539,7 +543,7 @@ def datastore_factory(
                 cache_name = cache_base_name + '.zp.json'
                 cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(cache_path):
-                    _logger.debug('loading zero point from cache. ')
+                    SCLogger.debug('loading zero point from cache. ')
                     ds.zp = ZeroPoint.copy_from_cache(cache_dir, cache_name)
                     prov = Provenance(
                         code_version=code_version,
@@ -572,7 +576,7 @@ def datastore_factory(
                     ds.zp.sources = ds.sources
 
             if ds.zp is None:  # make the zero point
-                _logger.debug('Running photometric calibration')
+                SCLogger.debug('Running photometric calibration')
                 ds = photometor.run(ds)
                 if cache_dir is not None and cache_base_name is not None:
                     output_path = ds.zp.copy_to_cache(cache_dir, cache_name)
@@ -611,7 +615,7 @@ def datastore_factory(
                 cache_sub_name = sub_im.invent_filepath()
                 cache_name = cache_sub_name + '.image.fits.json'
                 if os.path.isfile(os.path.join(cache_dir, cache_name)):
-                    _logger.debug('loading subtraction image from cache. ')
+                    SCLogger.debug('loading subtraction image from cache. ')
                     ds.sub_image = Image.copy_from_cache(cache_dir, cache_name)
                     ds.sub_image.provenance = prov
                     ds.sub_image.upstream_images.append(ref.image)
@@ -630,7 +634,7 @@ def datastore_factory(
             )
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.sources_{prov.id[:6]}.npy.json')
             if os.path.isfile(cache_name):
-                _logger.debug('loading detections from cache. ')
+                SCLogger.debug('loading detections from cache. ')
                 ds.detections = SourceList.copy_from_cache(cache_dir, cache_name)
                 ds.detections.provenance = prov
                 ds.detections.image = ds.sub_image
@@ -650,7 +654,7 @@ def datastore_factory(
             )
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.cutouts_{prov.id[:6]}.h5')
             if os.path.isfile(cache_name):
-                _logger.debug('loading cutouts from cache. ')
+                SCLogger.debug('loading cutouts from cache. ')
                 ds.cutouts = Cutouts.copy_list_from_cache(cache_dir, cache_name)
                 ds.cutouts = Cutouts.load_list(os.path.join(ds.cutouts[0].local_path, ds.cutouts[0].filepath))
                 [setattr(c, 'provenance', prov) for c in ds.cutouts]
@@ -672,7 +676,7 @@ def datastore_factory(
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{prov.id[:6]}.json')
 
             if os.path.isfile(cache_name):  # note that the cache contains ALL the measurements, not only the good ones
-                _logger.debug('loading measurements from cache. ')
+                SCLogger.debug('loading measurements from cache. ')
                 ds.all_measurements = Measurements.copy_list_from_cache(cache_dir, cache_name)
                 [setattr(m, 'provenance', prov) for m in ds.all_measurements]
                 [setattr(m, 'cutouts', c) for m, c in zip(ds.all_measurements, ds.cutouts)]

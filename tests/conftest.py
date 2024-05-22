@@ -15,7 +15,6 @@ from models.base import (
     SmartSession,
     CODE_ROOT,
     get_all_database_objects,
-    _logger,
     setup_warning_filters
 )
 from models.provenance import CodeVersion, Provenance
@@ -26,6 +25,7 @@ from models.objects import Object
 from util.archive import Archive
 from util.util import remove_empty_folders
 from util.retrydownload import retry_download
+from util.logger import SCLogger
 
 
 pytest_plugins = [
@@ -45,7 +45,7 @@ def pytest_sessionstart(session):
     # Will be executed before the first test
 
     # this is only to make the warnings into errors, so it is easier to track them down...
-    warnings.filterwarnings('error', append=True)  # comment this out in regular usage
+    # warnings.filterwarnings('error', append=True)  # comment this out in regular usage
 
     setup_warning_filters()  # load the list of warnings that are to be ignored (not just in tests)
     # below are additional warnings that are ignored only during tests:
@@ -57,12 +57,12 @@ def pytest_sessionstart(session):
     test_config_file = str((pathlib.Path(__file__).parent.parent / 'tests' / 'seechange_config_test.yaml').resolve())
     Config.get(configfile=test_config_file, setdefault=True)
     FileOnDiskMixin.configure_paths()
-    # _logger.setLevel( logging.INFO )
+    # SCLogger.setLevel( logging.INFO )
 
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionfinish(session, exitstatus):
-    # _logger.debug('Final teardown fixture executed! ')
+    # SCLogger.debug('Final teardown fixture executed! ')
     with SmartSession() as dbsession:
         # first get rid of any Exposure loading Provenances, if they have no Exposures attached
         provs = dbsession.scalars(sa.select(Provenance).where(Provenance.process == 'load_exposure'))
@@ -77,14 +77,14 @@ def pytest_sessionfinish(session, exitstatus):
         for Class, ids in objects.items():
             # TODO: check that surviving provenances have test_parameter
             if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt', 'Provenance', 'Object']:
-                _logger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
+                SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             elif len(ids) > 0:
-                _logger.info(
+                SCLogger.info(
                     f'There are {len(ids)} {Class.__name__} objects in the database. Please make sure to cleanup!'
                 )
                 for id in ids:
                     obj = dbsession.scalars(sa.select(Class).where(Class.id == id)).first()
-                    _logger.info(f'  {obj}')
+                    SCLogger.info(f'  {obj}')
                     any_objects = True
 
         # delete the CodeVersion object (this should remove all provenances as well)
@@ -154,7 +154,7 @@ def data_dir():
     with open(os.path.join(temp_data_folder, 'placeholder'), 'w'):
         pass  # make an empty file inside this folder to make sure it doesn't get deleted on "remove_data_from_disk"
 
-    # _logger.debug(f'temp_data_folder: {temp_data_folder}')
+    # SCLogger.debug(f'temp_data_folder: {temp_data_folder}')
 
     yield temp_data_folder
 

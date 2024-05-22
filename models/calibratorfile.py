@@ -139,3 +139,83 @@ class CalibratorFile(Base, AutoIDMixin):
             f'datafile_id={self.datafile_id}, '
             f'>'
         )
+
+# This next table is kind of an ugly hack put in place
+#   to deal with race conditions; see Instrument.preprocessing_calibrator_files
+
+class CalibratorFileDownloadLock(Base, AutoIDMixin):
+    __tablename__ = 'calibfile_downloadlock'
+
+    _type = sa.Column(
+        sa.SMALLINT,
+        nullable=False,
+        index=True,
+        default=CalibratorTypeConverter.convert( 'unknown' ),
+        doc="Type of calibrator (Dark, Flat, Linearity, etc.)"
+    )
+
+    @hybrid_property
+    def type( self ):
+        return CalibratorTypeConverter.convert( self._type )
+
+    @type.expression
+    def type( cls ):
+        return sa.case( CalibratorTypeConverter.dict, value=cls._type )
+
+    @type.setter
+    def type( self, value ):
+        self._type = CalibratorTypeConverter.convert( value )
+
+    _calibrator_set = sa.Column(
+        sa.SMALLINT,
+        nullable=False,
+        index=True,
+        default=CalibratorTypeConverter.convert('unknown'),
+        doc="Calibrator set for instrument (unknown, externally_supplied, general, nightly)"
+    )
+
+    @hybrid_property
+    def calibrator_set( self ):
+        return CalibratorSetConverter.convert( self._type )
+
+    @calibrator_set.expression
+    def calibrator_set( cls ):
+        return sa.case( CalibratorSetConverter.dict, value=cls._calibrator_set )
+
+    @calibrator_set.setter
+    def calibrator_set( self, value ):
+        self._calibrator_set = CalibratorSetConverter.convert( value )
+
+    _flat_type = sa.Column(
+        sa.SMALLINT,
+        nullable=True,
+        index=True,
+        doc="Type of flat (unknown, observatory_supplied, sky, twilight, dome), or None if not a flat"
+    )
+
+    @hybrid_property
+    def flat_type( self ):
+        return FlatTypeConverter.convert( self._type )
+
+    @flat_type.inplace.expression
+    @classmethod
+    def flat_type( cls ):
+        return sa.case( FlatTypeConverter.dict, value=cls._flat_type )
+
+    @flat_type.setter
+    def flat_type( self, value ):
+        self._flat_type = FlatTypeConverter.convert( value )
+
+    instrument = sa.Column(
+        sa.Text,
+        nullable=False,
+        index=True,
+        doc="Instrument this calibrator image is for"
+    )
+
+    sensor_section = sa.Column(
+        sa.Text,
+        nullable=False,
+        index=True,
+        doc="Sensor Section of the Instrument this calibrator image is for"
+    )

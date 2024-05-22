@@ -3,6 +3,7 @@ import re
 import copy
 import pathlib
 import pytz
+import time
 from enum import Enum
 from datetime import datetime, timedelta
 
@@ -15,10 +16,11 @@ from astropy.io import fits
 import astropy.units as u
 from astropy.coordinates import SkyCoord, Distance
 
-from models.base import Base, SmartSession, AutoIDMixin,_logger
+from models.base import Base, SmartSession, AutoIDMixin
 
 from pipeline.catalog_tools import Bandpass
 from util.util import parse_dateobs, read_fits_image
+from util.logger import SCLogger
 
 
 # dictionary of regex for filenames, pointing at instrument names
@@ -1456,6 +1458,8 @@ class Instrument:
 
         """
 
+        SCLogger.debug( f'Looking for calibrators for {calibset} {section}' )
+
         if ( calibset == 'externally_supplied' ) != ( flattype == 'externally_supplied' ):
             raise ValueError( "Doesn't make sense to have only one of calibset and flattype be externally_supplied" )
 
@@ -1463,7 +1467,7 @@ class Instrument:
         # the file because calibrator.py imports image.py, image.py
         # imports exposure.py, and exposure.py imports instrument.py --
         # leading to a circular import
-        from models.calibratorfile import CalibratorFile
+        from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
         from models.image import Image
 
         params = {}
@@ -1474,14 +1478,51 @@ class Instrument:
             for calibtype in self.preprocessing_steps:
                 if calibtype in self.preprocessing_nofile_steps:
                     continue
-                # To avoid a race condition in _get_default_calibrator, we need to
-                # lock the CalibratorFile table.  Reason: if multiple processes are
-                # running at once, they might both look for the same calibrator file
-                # at once, both not find it, and both call _get_default_calibrator
-                # to try to add the same calibrator file.
+
+                SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
+
+                # We need to avoid a race condition where two processes both look for a calibrator file,
+                #   don't find it, and both try to download it at the same time.  Just using database
+                #   locks doesn't work here, because the process of downloading and committing the
+                #   images takes long enough that the database server starts whining about deadlocks.
+                #   So, we manually invent our own database lock mechanism here and use that.
+                #   (One advantage is that we can just lock the specific thing being downloaded.)
+                # This has a danger : if the code fully crashes during the try block below,
+                #   it will leave behind this fake lock.  That should be rare, as the finally
+                #   block that deletes the fake lock will always happen as long as python is
+                #   functioning properly.  But a very badly-timed machine crash could leave one
+                #   of these fake locks behind.
+
+                caliblock = None
                 try:
-                    if ( calibset == 'externally_supplied' ) and ( not nofetch ):
-                        session.connection().execute( sa.text( 'LOCK TABLE calibrator_files' ) )
+                    sleeptime = 0.1
+                    while caliblock is None:
+                        session.connection().execute( sa.text( 'LOCK TABLE calibfile_downloadlock' ) )
+                        lockq = ( session.query( CalibratorFileDownloadLock )
+                                  .filter( CalibratorFileDownloadLock.calibrator_set == calibset )
+                                  .filter( CalibratorFileDownloadLock.instrument == self.name )
+                                  .filter( CalibratorFileDownloadLock.type == calibtype )
+                                  .filter( CalibratorFileDownloadLock.sensor_section == section )
+                                 )
+                        if calibtype == 'flat':
+                            calibquery = calibquery.filter( CalibratorFileDownloadLock.flat_type == flattype )
+                        if lockq.count() == 0:
+                            caliblock = CalibratorFileDownloadLock( calibrator_set=calibset,
+                                                                    instrument=self.name,
+                                                                    type=calibtype,
+                                                                    sensor_section=section,
+                                                                    flat_type=flattype )
+                            session.add( caliblock )
+                            session.commit()
+                        else:
+                            session.rollback()
+                            if sleeptime > 20:
+                                raise RuntimeError( f"Couldn't get CalibratorFileDownloadLock for "
+                                                    f"{calibset} {self.name} {calibtype} {section} "
+                                                    f"after many tries." )
+                            time.sleep( sleeptime )   # Don't hyperspam the database, but don't wait too long
+                            sleeptime *= 2
+
                     calibquery = ( session.query( CalibratorFile )
                                    .filter( CalibratorFile.calibrator_set == calibset )
                                    .filter( CalibratorFile.instrument == self.name )
@@ -1502,35 +1543,33 @@ class Instrument:
                         calib = self._get_default_calibrator( mjd, section, calibtype=calibtype,
                                                               filter=self.get_short_filter_name( filter ),
                                                               session=session )
+                        SCLogger.debug( f"Got default calibrator {calib} for {calibtype} {section}" )
                     else:
                         if calibquery.count() > 1:
-                            _logger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
+                            SCLogger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
                                              f"{self.name} {section}, randomly using one." )
                         calib = calibquery.first()
-                finally:
-                    # Make sure that the calibrator_files table gets
-                    # unlocked.  If _get_default_calibrator had to add
-                    # something to the database, it will have called a
-                    # commit() already, which would have already
-                    # unlocked the table.  But, if it wasn't called,
-                    # then the table would remain locked; to avoid that,
-                    # rollback here.
-                    if ( calibset == 'externally_supplied' ) and ( not nofetch ):
-                        session.rollback()
+                        SCLogger.debug( f"Got pre-existing calibrator {calib} for {calibtype} {section}" )
 
-                if calib is None:
-                    params[ f'{calibtype}_isimage' ] = False
-                    params[ f'{calibtype}_fileid'] = None
-                else:
-                    if calib.image_id is not None:
-                        params[ f'{calibtype}_isimage' ] = True
-                        params[ f'{calibtype}_fileid' ] = calib.image_id
-                    elif calib.datafile_id is not None:
+                    if calib is None:
                         params[ f'{calibtype}_isimage' ] = False
-                        params[ f'{calibtype}_fileid' ] = calib.datafile_id
+                        params[ f'{calibtype}_fileid'] = None
                     else:
-                        raise RuntimeError( f'Data corruption: CalibratorFile {calib.id} has neither '
-                                            f'image_id nor datafile_id' )
+                        if calib.image_id is not None:
+                            params[ f'{calibtype}_isimage' ] = True
+                            params[ f'{calibtype}_fileid' ] = calib.image_id
+                        elif calib.datafile_id is not None:
+                            params[ f'{calibtype}_isimage' ] = False
+                            params[ f'{calibtype}_fileid' ] = calib.datafile_id
+                        else:
+                            raise RuntimeError( f'Data corruption: CalibratorFile {calib.id} has neither '
+                                                    f'image_id nor datafile_id' )
+                finally:
+                    if caliblock is not None:
+                        session.delete( caliblock )
+                        session.commit()
+                    # Just in case the LOCK TABLE wasn't released above
+                    session.rollback()
 
         return params
 
@@ -1778,7 +1817,7 @@ class Instrument:
                         f"{sec['biassec']['y0']}:{sec['biassec']['y1']}], datasec=["
                         f"{sec['datasec']['x0']}:{sec['datasec']['x1']},"
                         f"{sec['datasec']['y0']}:{sec['datasec']['y1']}]" )
-                _logger.error( err )
+                SCLogger.error( err )
                 raise ValueError( err )
 
         # Actually subtract overscan and trim
@@ -1956,14 +1995,14 @@ class DemoInstrument(Instrument):
         WARNING : do not call this without some parameters that limit
         the search; otherwise, too many things will be returned, and the
         query is likely to time out or get an error from the external
-        repository. E.g., a good idea is to search only for exposure from the last week. 
+        repository. E.g., a good idea is to search only for exposure from the last week.
 
         Parameters
         ----------
         skip_exposures_in_databse: bool
            If True (default), will filter out any exposures that (as
            best can be determined) are already known in the SeeChange
-           database.  If False, will include all exposures. 
+           database.  If False, will include all exposures.
         minmjd: float
            The earliest time of exposure to search (default: no limit)
         maxmjd: float

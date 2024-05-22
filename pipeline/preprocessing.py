@@ -4,7 +4,7 @@ import numpy as np
 
 import sep
 
-from models.base import SmartSession, _logger
+from models.base import SmartSession
 from models.image import Image
 from models.datafile import DataFile
 from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag, flag_image_bits_inverse
@@ -13,7 +13,7 @@ from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
 from util.config import Config
-
+from util.logger import SCLogger
 
 class ParsPreprocessor(Parameters):
     def __init__(self, **kwargs):
@@ -142,12 +142,14 @@ class Preprocessor:
 
         # Get the calibrator files
 
+        SCLogger.debug( "preprocessing: getting calibrator files" )
         preprocparam = self.instrument.preprocessing_calibrator_files( self._calibset,
                                                                        self._flattype,
                                                                        ds.section_id,
                                                                        ds.exposure.filter_short,
                                                                        ds.exposure.mjd,
                                                                        session=session )
+        SCLogger.debug( "preprocessing: got calibrator files" )
 
         # get the provenance for this step, using the current parameters:
         # Provenance includes not just self.pars.get_critical_pars(),
@@ -187,13 +189,17 @@ class Preprocessor:
             self.has_recalculated = True
             # Overscan is always first (as it reshapes the image)
             if 'overscan' in self._stepstodo:
+                SCLogger.debug( 'preprocessing: overscan and trim' )
                 image.data = self.instrument.overscan_and_trim( image )
+                # Update the header ra/dec calculations now that we know the real width/height
+                image.set_corners_from_header_wcs( setradec=True )
                 image.preproc_bitflag |= string_to_bitflag( 'overscan', image_preprocessing_inverse )
 
             # Apply steps in the order expected by the instrument
             for step in self._stepstodo:
                 if step == 'overscan':
                     continue
+                SCLogger.debug( f"preprocessing: {step}" )
 
                 stepfileid = None
                 # Acquire the calibration file
@@ -205,7 +211,7 @@ class Preprocessor:
                     raise RuntimeError( f"Can't find calibration file for preprocessing step {step}" )
 
                 if stepfileid is None:
-                    _logger.warning( f"Skipping step {step} for filter {ds.exposure.filter_short} "
+                    SCLogger.warning( f"Skipping step {step} for filter {ds.exposure.filter_short} "
                                      f"because there is no calibration file (this may be normal)" )
                     # should we also mark it as having "done" this step? otherwise it will not know it's done
                     image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
@@ -239,7 +245,7 @@ class Preprocessor:
 
                 elif step == 'fringe':
                     # TODO FRINGE CORRECTION
-                    _logger.warning( "Fringe correction not implemented" )
+                    SCLogger.warning( "Fringe correction not implemented" )
 
                 elif step == 'linearity':
                     # Linearity is instrument-specific
@@ -260,7 +266,7 @@ class Preprocessor:
             # Estimate the background rms with sep
             boxsize = self.instrument.background_box_size
             filtsize = self.instrument.background_filt_size
-            _logger.debug( "Subtracting sky and estimating sky RMS" )
+            SCLogger.debug( "Subtracting sky and estimating sky RMS" )
             # Dysfunctionality alert: sep requires a *float* image for the mask
             # IEEE 32-bit floats have 23 bits in the mantissa, so they should
             # be able to precisely represent a 16-bit integer mask image
@@ -272,7 +278,7 @@ class Preprocessor:
             rms = backgrounder.rms()
             sky = backgrounder.back()
             subim = image.data - sky
-            _logger.debug( "Building weight image and augmenting flags image" )
+            SCLogger.debug( "Building weight image and augmenting flags image" )
 
             wbad = np.where( rms <= 0 )
             wgood = np.where( rms > 0 )
@@ -302,12 +308,12 @@ class Preprocessor:
                 raise ValueError('Provenance mismatch for image and provenance!')
 
         image.filepath = image.invent_filepath()
-        _logger.debug( f"Done with {pathlib.Path(image.filepath).name}" )
+        SCLogger.debug( f"Done with {pathlib.Path(image.filepath).name}" )
 
         if image._upstream_bitflag is None:
             image._upstream_bitflag = 0
         image._upstream_bitflag |= ds.exposure.bitflag
 
         ds.image = image
-        
+
         return ds

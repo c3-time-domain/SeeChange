@@ -14,13 +14,14 @@ from sqlalchemy.dialects.postgresql import ARRAY
 
 import astropy.table
 
-from models.base import Base, SmartSession, AutoIDMixin, FileOnDiskMixin, SeeChangeBase, HasBitFlagBadness, _logger
+from models.base import Base, SmartSession, AutoIDMixin, FileOnDiskMixin, SeeChangeBase, HasBitFlagBadness
 from models.image import Image
 from models.enums_and_bitflags import (
     SourceListFormatConverter,
     source_list_badness_inverse,
 )
 from util.util import ensure_file_does_not_exist
+from util.logger import SCLogger
 import util.ldac
 
 
@@ -427,7 +428,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 raise ValueError( f"Can't find an aperture of radius {ap} pixels; "
                                   f"available apertures = {self.aper_rads}" )
             if len(w) > 1:
-                _logger.warning( "Multiple apertures match {ap}; choosing the first one in the list." )
+                SCLogger.warning( "Multiple apertures match {ap}; choosing the first one in the list." )
             apnum = w[0]
 
         if len(self.aper_rads) == 1:

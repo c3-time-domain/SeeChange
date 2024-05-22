@@ -4,7 +4,7 @@ import shutil
 import sqlalchemy as sa
 import numpy as np
 
-from models.base import SmartSession, FileOnDiskMixin, _logger
+from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import Provenance
 from models.image import Image, image_upstreams_association_table
 from models.source_list import SourceList
@@ -13,6 +13,7 @@ from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from util.logger import SCLogger
 
 from pipeline.top_level import Pipeline
 
@@ -217,7 +218,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
         for i in range(len(attributes)):
             for j in range(i + 1):
                 setattr(ds, attributes[j], None)  # get rid of all data up to the current attribute
-            # _logger.debug(f'removing attributes up to {attributes[i]}')
+            # SCLogger.debug(f'removing attributes up to {attributes[i]}')
             ds = p.run(ds)  # for each iteration, we should be able to recreate the data
 
             # commit to DB using this session
