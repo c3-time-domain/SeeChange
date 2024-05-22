@@ -191,7 +191,7 @@ class AstroCalibrator:
 
     def _run_scamp( self, ds, prov, session=None ):
         """Do the work of run for the scamp matching method."""
-
+        # breakpoint()
         image = ds.get_image( session=session )
 
         # use the latest source list in the data store,
@@ -262,6 +262,7 @@ class AstroCalibrator:
         Arguments are parsed by the DataStore.parse_args() method.
         Returns a DataStore object with the products of the processing.
         """
+        # breakpoint()
         self.has_recalculated = False
         ds, session = DataStore.from_args(*args, **kwargs)
 
@@ -292,4 +293,5 @@ class AstroCalibrator:
             ds.wcs._upstream_bitflag |= sources.bitflag
 
         # make sure this is returned to be used in the next step
+        # breakpoint()
         return ds

@@ -10,7 +10,7 @@ from astropy.wcs import WCS
 from astropy.io import fits
 from astropy.wcs import utils
 
-from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin
+from models.base import Base, SmartSession, SeeChangeBase, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.source_list import SourceList
 
@@ -46,12 +46,21 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     #
     # For now, we'll be profliate with the database, and hope we don't
     # regret it later.
-    header_excerpt = sa.Column(
-        sa.Text,
-        nullable=False,
-        index=False,
-        doc="Text that contains FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
-    )
+    # header_excerpt = sa.Column(
+    #     sa.Text,
+    #     nullable=False,
+    #     index=False,
+    #     doc="Text that contains FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
+    # )
+    @property
+    def header_excerpt( self ):
+        if self.wcs is None:
+            raise RuntimeError( "Cannot return header_excerpt when _wcs is None")
+        return self.wcs.to_header().tostring( sep='\n', padding=False)
+    
+    @header_excerpt.setter
+    def header_excerpt( self, value ):
+        self.wcs = WCS( fits.Header.fromstring( value, sep='\n'))
 
     sources_id = sa.Column(
         sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
@@ -93,26 +102,31 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     @property
     def wcs( self ):
-        if self._wcs is None:
-            self._wcs = WCS( fits.Header.fromstring( self.header_excerpt, sep='\n' ) )
+        if self._wcs is None and self.filepath is not None:
+            # self._wcs = WCS( fits.Header.fromstring( self.header_excerpt, sep='\n' ) )
+            self.load()
         return self._wcs
 
     @wcs.setter
     def wcs( self, value ):
         self._wcs = value
-        self.header_excerpt = value.to_header().tostring( sep='\n', padding=False )
+        # self.header_excerpt = value.to_header().tostring( sep='\n', padding=False )
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
         return catalog_match_badness_inverse
 
     def __init__( self, *args, **kwargs ):
-        super().__init__( *args, **kwargs )
+        FileOnDiskMixin.__init__( self, **kwargs )
+        SeeChangeBase.__init__( self , *args, **kwargs)
+        # super().__init__( *args, **kwargs )
         self._wcs = None
+        # self.filepath_extensions = ['fits']
 
     @orm.reconstructor
     def init_on_load( self ):
         Base.init_on_load( self )
+        FileOnDiskMixin.init_on_load( self )
         self._wcs = None
 
     def get_pixel_scale(self):
@@ -185,8 +199,8 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         # if filename already exists, check it is correct and use
         if filename is not None:
-            if not filename.endswith('.fits'):
-                filename += '.fits'
+            if not filename.endswith('.txt'):
+                filename += '.txt'
             self.filepath = filename
         # if not, generate one
         else:
@@ -197,23 +211,24 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
             if self.provenance is None:
                 raise RuntimeError("Can't invent a filepath for the WCS without a provenance")
-            self.filepath += f'.wcs_{self.provenance.id[:6]}'
+            self.filepath += f'.wcs_{self.provenance.id[:6]}.txt'
         
-        fitspath = pathlib.Path( self.local_path ) / f'{self.filepath}.fits'
+        txtpath = pathlib.Path( self.local_path ) / f'{self.filepath}'
         # self.filepath = self.image.invent_filepath()
         # self.filepath += f'.wcs_{self.provenance.id[:6]}'
 
         # ----- Get the header to save and save ----- #
-        header0 = self.wcs.to_header()
-        hdu0 = fits.PrimaryHDU( header=header0)
-
         # breakpoint()
-        hdu0.writeto( fitspath, overwrite=( 'overwrite' in kwargs and kwargs['overwrite'] ) )
+        
+        header_txt = self.wcs.to_header().tostring(padding=False, sep='\\n' )
+
+        with open( txtpath, "w") as ofp:
+            ofp.write( header_txt )
         
         # ----- Write to the archive ----- #
-        FileOnDiskMixin.save( self, fitspath, '.fits', **kwargs )
+        FileOnDiskMixin.save( self, txtpath, **kwargs )
 
-    def load( self, download=True, always_verify_md5=False, fitspath=None ):
+    def load( self, download=True, always_verify_md5=False, txtpath=None ):
         """Load the data from the files into the _data, _header, and _info fields.
 
         Parameters
@@ -245,16 +260,23 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         # if self.format != 'psfex': # not applicable to wcs
         #     raise NotImplementedError( "Only know how to load psfex PSF files" )
 
-        if fitspath is None:
-            fitspath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5)
+        # breakpoint()
+        if txtpath is None:
+            txtpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5)
 
-        if fitspath is None:
+        if txtpath is None:
             raise ValueError("WCS object has no filepath locally or in archive.")
         
         # if ( psfpath is None ) != ( psfxmlpath is None ):
         #     raise ValueError( "Either both or neither of psfpath and psfxmlpath must be None" )
 
-        with fits.open( fitspath, memmap=False ) as hdul:
-            breakpoint()
-            self._wcs = hdul[1].header
+        # breakpoint()
+        with open( txtpath ) as ifp:
+            headertxt = ifp.read()
+            self._wcs = WCS( fits.Header.fromstring( headertxt , sep='\\n' ))
+
+        # with fits.open( fitspath, memmap=False ) as hdul:
+        #     breakpoint()
+        #     wcs_header_string = hdul[0].header.tostring( sep='\n', padding=False )
+        #     self._wcs = WCS( fits.Header.fromstring( wcs_header_string, sep='\n' ) )
         

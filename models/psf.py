@@ -291,7 +291,6 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         if ( psfpath is None ) != ( psfxmlpath is None ):
             raise ValueError( "Either both or neither of psfpath and psfxmlpath must be None" )
-
         if psfpath is None:
             if self.filepath_extensions != [ '.fits', '.xml' ]:
                 raise ValueError( f"Can't load psfex file; filepath_extensions is {self.filepath_extensions}, "

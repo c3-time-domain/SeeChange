@@ -641,6 +641,7 @@ class SeeChangeBase:
         output: SeeChangeBase
             The reconstructed object, of the same type as the class.
         """
+        # breakpoint()
         # allow user to give an absolute path, so long as it is in the cache dir
         if filepath.startswith(cache_dir):
             filepath = filepath[len(cache_dir) + 1:]
@@ -1156,7 +1157,8 @@ class FileOnDiskMixin:
                 if localmd5 != md5sum:
                     raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
                                       f"database value of {md5sum}" )
-
+        
+        # breakpoint()
         return fullname
 
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
@@ -1257,6 +1259,7 @@ class FileOnDiskMixin:
         #  want to directly modify the lists in self until the saving is
         #  done.  That way, self doesn't get mucked up if this function
         #  exceptions out.
+        # breakpoint()
         curextensions = self.filepath_extensions
         extmd5s = self.md5sum_extensions
 

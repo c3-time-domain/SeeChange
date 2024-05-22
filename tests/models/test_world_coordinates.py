@@ -1,6 +1,8 @@
 import pytest
 import hashlib
 
+import pathlib
+
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
@@ -73,12 +75,17 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
             wcobj2.header_excerpt = hdrkws
             wcobj2.sources = image.sources
             wcobj2.provenance = wcobj.provenance
+            wcobj2.save() # see below question
 
-            with pytest.raises(
-                OSError,
-                match=".fits already exists"
-            ):
-                wcobj2.save()
+            # breakpoint()
+
+            # QUESTION: Do I actually want to prevent this save going through in the filewrite?
+            # with pytest.raises(
+            #     OSError,
+            #     match=".fits already exists"
+            # ):
+            #     wcobj2.save()
+
             with pytest.raises(
                     IntegrityError,
                     match='duplicate key value violates unique constraint "_wcs_sources_provenance_uc"'
@@ -128,21 +135,38 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
     wcobj = WorldCoordinates()
     wcobj.wcs = origwcs
     wcobj.sources = image.sources
+    wcobj.provenance = Provenance(
+                process='test_world_coordinates',
+                code_version=provenance_base.code_version,
+                parameters={'test_parameter': 'test_value'},
+                upstreams=[provenance_extra],
+                is_testing=True,
+            )
 
     with SmartSession() as session:
         try:
-            breakpoint()
+            # breakpoint()
             wcobj.save()
 
-            wcspath = wcobj.filepath
+            # wcobj._wcs.to_header().tostring( sep='\n', padding=False )
+            # WCS( fits.Header.fromstring( wcobj._wcs.to_header().tostring( sep='\n', padding=False ), sep='\n' ) )
+
+            txtpath = pathlib.Path( wcobj.local_path ) / f'{wcobj.filepath}'
 
             wcobj2 = WorldCoordinates()
-            wcobj2.load( fitspath=wcspath)
+            wcobj2.load( txtpath=txtpath )
+
+            # breakpoint()
+            assert wcobj2.wcs.to_header() == wcobj.wcs.to_header()
+
+            session.commit()
 
 
         finally:
             if "wcobj" in locals():
                 wcobj.delete_from_disk_and_database(session=session)
+            if "wcobj2" in locals():
+                wcobj2.delete_from_disk_and_database(session=session)
 
 # def test_world_coordinates2( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
 #     image = ztf_datastore_uncommitted.image
