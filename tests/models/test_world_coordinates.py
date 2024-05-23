@@ -16,7 +16,7 @@ from models.world_coordinates import WorldCoordinates
 
 def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
     image = ztf_datastore_uncommitted.image
-    image.instrument = 'DECam' # otherwise invent_filepath will not work as 'ZTF' is not an Instrument
+    image.instrument = 'DECam' # hack - otherwise invent_filepath will not work as 'ZTF' is not an Instrument
     hdr = image.header
 
     origwcs = WCS( hdr )
@@ -62,13 +62,9 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
                 upstreams=[provenance_extra],
                 is_testing=True,
             )
-            # breakpoint()
-            wcobj.save()
+            wcobj.save() # This is ok here vs in session, right?
 
-            # TODO: will need to save the WCS object if we turn it into a FileOnDiskMixin
             session.add(wcobj)
-
-
             session.commit()
 
             # add a second WCS object and make sure we cannot accidentally commit it, too
@@ -78,13 +74,6 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
             wcobj2.provenance = wcobj.provenance
             wcobj2.save() # overwrite the save of wcobj
 
-            # ensure you cannot overwrite when explicitly setting overwrite=False
-            with pytest.raises(
-                OSError,
-                match=".txt already exists"
-            ):
-                wcobj2.save(overwrite=False)
-
             with pytest.raises(
                     IntegrityError,
                     match='duplicate key value violates unique constraint "_wcs_sources_provenance_uc"'
@@ -92,6 +81,13 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
                 session.add(wcobj2)
                 session.commit()
             session.rollback()
+
+            # ensure you cannot overwrite when explicitly setting overwrite=False
+            with pytest.raises(
+                OSError,
+                match=".txt already exists"
+            ):
+                wcobj2.save(overwrite=False)
 
             # if we change any of the provenance parameters we should be able to save it
             wcobj2.provenance = Provenance(
@@ -101,7 +97,8 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
                 upstreams=[provenance_extra],
                 is_testing=True,
             )
-            wcobj2.save()
+            wcobj2.save(overwrite=False)
+
             session.add(wcobj2)
             session.commit()
 
@@ -146,11 +143,7 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
         try:
             wcobj.save()
 
-            # wcobj._wcs.to_header().tostring( sep='\n', padding=False )
-            # WCS( fits.Header.fromstring( wcobj._wcs.to_header().tostring( sep='\n', padding=False ), sep='\n' ) )
-
             txtpath = pathlib.Path( wcobj.local_path ) / f'{wcobj.filepath}'
-
             wcobj2 = WorldCoordinates()
             wcobj2.load( txtpath=txtpath )
 
@@ -158,7 +151,6 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
             assert wcobj2.wcs.to_header() == wcobj.wcs.to_header()
 
             session.commit()
-
 
         finally:
             if "wcobj" in locals():
