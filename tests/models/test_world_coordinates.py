@@ -76,17 +76,14 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
             wcobj2.wcs = old_wcs
             wcobj2.sources = image.sources
             wcobj2.provenance = wcobj.provenance
-            wcobj2.save() # see below question
+            wcobj2.save() # overwrite the save of wcobj
 
-            # breakpoint()
-
-            # QUESTION: Do I actually want to prevent this save going through in the filewrite?
-            # ANSWER: make configurable using existing save arguments
-            # with pytest.raises(
-            #     OSError,
-            #     match=".fits already exists"
-            # ):
-            #     wcobj2.save()
+            # ensure you cannot overwrite when explicitly setting overwrite=False
+            with pytest.raises(
+                OSError,
+                match=".txt already exists"
+            ):
+                wcobj2.save(overwrite=False)
 
             with pytest.raises(
                     IntegrityError,
