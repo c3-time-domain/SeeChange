@@ -49,6 +49,28 @@ storage:
 
 archive: null
 
+# ======================================================================
+# Gaia DR3 server
+#
+# There are two ways we can get it : through the server defined in the
+#  submodule extern/nersc-desi-gaia-dr3-server, and via NOIRLab
+#  using their queryClient.
+# Set use_server to True to use the custom one
+# Set use_datalab to True to use NOIRLab datalab.  This will
+#   be ignored if use_server is True
+# Set fallback_datalab to True to try to use NOIRLab datalab
+#   if the custom server doesn't return after five tries.
+# server_url is the server where the custom server runs
+
+catalog_gaiadr3:
+  use_server: True
+  use_datalab: False
+  fallback_datalab: True
+  server_url: https://ls4-gaia-dr3.lbl.gov
+  server_timeout_sec: 5.
+
+
+# ======================================================================
 # Pipeline components
 #
 # For documentation on the parameters, see the Parameters subclass

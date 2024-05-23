@@ -59,4 +59,4 @@ jobs:
 
       - name: run test
         run: |
-          TEST_SUBFOLDER=util docker compose run runtests
+          TEST_SUBFOLDER=tests/util docker compose run runtests

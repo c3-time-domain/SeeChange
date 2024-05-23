@@ -1,7 +1,8 @@
+import os
 import pathlib
 import random
 import subprocess
-from functools import partial
+import time
 
 import numpy as np
 import numpy.lib.recfunctions as rfn
@@ -15,6 +16,7 @@ from astropy.io import fits, votable
 
 from util.config import Config
 from util.logger import SCLogger
+from util.util import parse_bool
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -104,6 +106,14 @@ class ParsDetector(Parameters):
             bool,
             'Whether this is expected to run on a subtraction image or a regular image. ',
             critical=True
+        )
+
+        self.sextractor_timeout = self.add_par(
+            'sextractor_timeout',
+            120,
+            int,
+            'Timeout for SExtractor, in seconds. ',
+            critical=False,
         )
 
         self._enforce_no_new_attrs = True
@@ -205,95 +215,131 @@ class Detector:
         Returns a DataStore object with the products of the processing.
         """
         self.has_recalculated = False
-        ds, session = DataStore.from_args(*args, **kwargs)
-
-        # get the provenance for this step:
-        prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+        try:  # first make sure we get back a datastore, even an empty one
+            ds, session = DataStore.from_args(*args, **kwargs)
+        except Exception as e:
+            return DataStore.catch_failure_to_parse(e, *args)
 
         # try to find the sources/detections in memory or in the database:
         if self.pars.subtraction:
-            if ds.sub_image is None and ds.image is not None and ds.image.is_sub:
-                ds.sub_image = ds.image
-                ds.image = ds.sub_image.new_image  # back-fill the image from the sub_image
+            try:
+                t_start = time.perf_counter()
+                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                    import tracemalloc
+                    tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-            detections = ds.get_detections(prov, session=session)
+                self.pars.do_warning_exception_hangup_injection_here()
 
-            if detections is None:
-                self.has_recalculated = True
+                prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+                if ds.sub_image is None and ds.image is not None and ds.image.is_sub:
+                    ds.sub_image = ds.image
+                    ds.image = ds.sub_image.new_image  # back-fill the image from the sub_image
 
-                # load the subtraction image from memory
-                # or load using the provenance given in the
-                # data store's upstream_provs, or just use
-                # the most recent provenance for "subtraction"
-                image = ds.get_subtraction(session=session)
+                detections = ds.get_detections(prov, session=session)
 
-                if image is None:
-                    raise ValueError(
-                        f'Cannot find a subtraction image corresponding to the datastore inputs: {ds.get_inputs()}'
-                    )
+                if detections is None:
+                    self.has_recalculated = True
 
-                # TODO -- should probably pass **kwargs along to extract_sources
-                #  in any event, need a way of passing parameters
-                #  Question: why is it not enough to just define what you need in the Parameters object?
-                #  Related to issue #50
-                detections, _, _, _ = self.extract_sources( image )
+                    # load the subtraction image from memory
+                    # or load using the provenance given in the
+                    # data store's upstream_provs, or just use
+                    # the most recent provenance for "subtraction"
+                    image = ds.get_subtraction(session=session)
 
-                detections.image = image
+                    if image is None:
+                        raise ValueError(
+                            f'Cannot find a subtraction image corresponding to the datastore inputs: {ds.get_inputs()}'
+                        )
 
-                if detections.provenance is None:
-                    detections.provenance = prov
-                else:
-                    if detections.provenance.id != prov.id:
-                        raise ValueError('Provenance mismatch for detections and provenance!')
+                    # TODO -- should probably pass **kwargs along to extract_sources
+                    #  in any event, need a way of passing parameters
+                    #  Question: why is it not enough to just define what you need in the Parameters object?
+                    #  Related to issue #50
+                    detections, _, _, _ = self.extract_sources( image )
 
-            detections._upstream_bitflag |= ds.sub_image.bitflag
-            ds.sub_image.sources = detections
-            ds.detections = detections
+                    detections.image = image
+
+                    if detections.provenance is None:
+                        detections.provenance = prov
+                    else:
+                        if detections.provenance.id != prov.id:
+                            raise ValueError('Provenance mismatch for detections and provenance!')
+
+                detections._upstream_bitflag |= ds.sub_image.bitflag
+                ds.sub_image.sources = detections
+                ds.detections = detections
+
+                ds.runtimes['detection'] = time.perf_counter() - t_start
+                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                    import tracemalloc
+                    ds.memory_usages['detection'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+
+            except Exception as e:
+                ds.catch_exception(e)
+            finally:  # make sure datastore is returned to be used in the next step
+                return ds
 
         else:  # regular image
-            sources = ds.get_sources(prov, session=session)
-            psf = ds.get_psf(prov, session=session)
+            prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+            try:
+                t_start = time.perf_counter()
+                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                    import tracemalloc
+                    tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-            if sources is None or psf is None:
-                # TODO: when only one of these is not found (which is a strange situation)
-                #  we may end up with a new version of the existing object
-                #  (if sources is missing, we will end up with one sources and two psfs).
-                #  This could get us in trouble when saving (the object will have the same provenance)
-                #  Right now this is taken care of using "safe_merge" but I don't know if that's the right thing.
-                self.has_recalculated = True
-                # use the latest image in the data store,
-                # or load using the provenance given in the
-                # data store's upstream_provs, or just use
-                # the most recent provenance for "preprocessing"
-                image = ds.get_image(session=session)
+                self.pars.do_warning_exception_hangup_injection_here()
 
-                if image is None:
-                    raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
+                sources = ds.get_sources(prov, session=session)
+                psf = ds.get_psf(prov, session=session)
 
-                sources, psf, bkg, bkgsig = self.extract_sources( image )
-                sources.image = image
-                if sources.provenance is None:
-                    sources.provenance = prov
-                else:
-                    if sources.provenance.id != prov.id:
-                        raise ValueError('Provenance mismatch for sources and provenance!')
+                if sources is None or psf is None:
+                    # TODO: when only one of these is not found (which is a strange situation)
+                    #  we may end up with a new version of the existing object
+                    #  (if sources is missing, we will end up with one sources and two psfs).
+                    #  This could get us in trouble when saving (the object will have the same provenance)
+                    #  Right now this is taken care of using "safe_merge" but I don't know if that's the right thing.
+                    self.has_recalculated = True
+                    # use the latest image in the data store,
+                    # or load using the provenance given in the
+                    # data store's upstream_provs, or just use
+                    # the most recent provenance for "preprocessing"
+                    image = ds.get_image(session=session)
 
-                psf.image_id = image.id
-                if psf.provenance is None:
-                    psf.provenance = prov
-                else:
-                    if psf.provenance.id != prov.id:
-                        raise ValueError('Provenance mismatch for pfs and provenance!')
+                    if image is None:
+                        raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
 
-            ds.sources = sources
-            ds.psf = psf
-            ds.image.fwhm_estimate = psf.fwhm_pixels  # TODO: should we only write if the property is None?
-            if self.has_recalculated:
-                ds.image.bkg_mean_estimate = float( bkg )
-                ds.image.bkg_rms_estimate = float( bkgsig )
+                    sources, psf, bkg, bkgsig = self.extract_sources( image )
+                    sources.image = image
+                    if sources.provenance is None:
+                        sources.provenance = prov
+                    else:
+                        if sources.provenance.id != prov.id:
+                            raise ValueError('Provenance mismatch for sources and provenance!')
 
-        # make sure this is returned to be used in the next step
-        return ds
+                    psf.image_id = image.id
+                    if psf.provenance is None:
+                        psf.provenance = prov
+                    else:
+                        if psf.provenance.id != prov.id:
+                            raise ValueError('Provenance mismatch for pfs and provenance!')
+
+                ds.sources = sources
+                ds.psf = psf
+                ds.image.fwhm_estimate = psf.fwhm_pixels  # TODO: should we only write if the property is None?
+                if self.has_recalculated:
+                    ds.image.bkg_mean_estimate = float( bkg )
+                    ds.image.bkg_rms_estimate = float( bkgsig )
+
+                ds.runtimes['extraction'] = time.perf_counter() - t_start
+                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                    import tracemalloc
+                    ds.memory_usages['extraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+
+            except Exception as e:
+                ds.catch_exception(e)
+            finally:  # make sure datastore is returned to be used in the next step
+                return ds
+
 
     def extract_sources(self, image):
         """Calls one of the extraction methods, based on self.pars.method. """
@@ -599,7 +645,7 @@ class Detector:
                     ]
             args.extend( psfargs )
             args.append( tmpimage )
-            res = subprocess.run( args, cwd=tmpimage.parent, capture_output=True, timeout=120 )
+            res = subprocess.run(args, cwd=tmpimage.parent, capture_output=True, timeout=self.pars.sextractor_timeout)
             if res.returncode != 0:
                 SCLogger.error( f"Got return {res.returncode} from sextractor call; stderr:\n{res.stderr}\n"
                                 f"-------\nstdout:\n{res.stdout}" )
@@ -709,7 +755,12 @@ class Detector:
                                 '-XML_URL', 'file:///usr/share/psfex/psfex.xsl',
                                 # '-PSFVAR_DEGREES', '4',  # polynomial order for PSF fitting across image
                                 sourcefile ]
-                    res = subprocess.run( command, cwd=sourcefile.parent, capture_output=True, timeout=120 )
+                    res = subprocess.run(
+                        command,
+                        cwd=sourcefile.parent,
+                        capture_output=True,
+                        timeout=self.pars.sextractor_timeout
+                    )
                     if res.returncode == 0:
                         fwhmmaxtotry = [ fwhmmax ]
                         break

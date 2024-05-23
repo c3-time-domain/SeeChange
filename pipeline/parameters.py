@@ -1,4 +1,6 @@
 import copy
+import random
+import warnings
 
 import sqlalchemy as sa
 
@@ -120,6 +122,31 @@ class Parameters:
 
         self.verbose = self.add_par(
             "verbose", 0, int, "Level of verbosity (0=quiet).", critical=False
+        )
+
+        self.inject_warnings = self.add_par(
+            "inject_warnings",
+            False,
+            (bool, float),
+            "Inject warnings into the pipeline. If given as float, use as probability to inject. ",
+            critical=False,
+        )
+
+        self.inject_exceptions = self.add_par(
+            "inject_exceptions",
+            False,
+            (bool, float),
+            "Inject exceptions into the pipeline. If given as float, use as probability to inject. ",
+            critical=False,
+        )
+
+        self.inject_hangups = self.add_par(
+            "inject_hangups",
+            False,
+            (bool, float),
+            "Inject hangups into the pipeline. If given as float, use as probability to inject. "
+            "Note that if an exception occurs from inject exceptions, the hangup would not be reached. ",
+            critical=False,
         )
 
         self._enforce_type_checks = self.add_par(
@@ -721,6 +748,27 @@ class Parameters:
                 session.commit()  # make sure to add the new provenance
 
         return prov
+
+    def do_warning_exception_hangup_injection_here(self):
+        """When called, will check if any of the inject_ parameters are set to non-zero value.
+        If they are, will raise a warning, exception or hangup, depending on the value.
+        If any of the values is a float between 0 and 1, will compare it to a uniform random number,
+        and if that random number is lower than the value, will inject the warning, exception or hangup.
+        Note that if an exception occurs, it will override the hangup (it would not be reached).
+
+        """
+        if self.inject_warnings > 0:
+            if random.uniform(0, 1) <= self.inject_warnings:
+                warnings.warn(f"Warning injected by pipeline parameters in process '{self.get_process_name()}'.")
+
+        if self.inject_exceptions > 0:
+            if random.uniform(0, 1) <= self.inject_exceptions:
+                raise RuntimeError(f"Exception injected by pipeline parameters in process '{self.get_process_name()}'.")
+
+        if self.inject_hangups > 0:
+            if random.uniform(0, 1) <= self.inject_hangups:
+                while True:
+                    pass
 
 
 class ParsDemoSubclass(Parameters):

@@ -1,5 +1,5 @@
 import sqlalchemy as sa
-from sqlalchemy import orm
+from sqlalchemy import orm, func
 
 from models.base import Base, AutoIDMixin, SmartSession
 from models.image import Image
@@ -50,6 +50,13 @@ class Reference(Base, AutoIDMixin):
             'This string is used to match the reference to new images, '
             'e.g., by matching the field ID on a pre-defined grid of fields. '
         )
+    )
+
+    instrument = sa.Column(
+        sa.Text,
+        nullable=False,
+        index=True,
+        doc="Name of the instrument used to make the images for this reference image. "
     )
 
     filter = sa.Column(
@@ -138,6 +145,7 @@ class Reference(Base, AutoIDMixin):
     def __setattr__(self, key, value):
         if key == 'image' and value is not None:
             self.target = value.target
+            self.instrument = value.instrument
             self.filter = value.filter
             self.section_id = value.section_id
             self.sources = value.sources

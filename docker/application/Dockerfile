@@ -124,17 +124,17 @@ ENV PYTHONPATH "/seechange"
 #
 # Need to install mpich here rather than via package manager to ensure
 # ABI compatibility.
-ARG mpich_version=4.0.2
-ARG mpich_prefix=mpich-$mpich_version
-RUN curl -L https://www.mpich.org/static/downloads/$mpich_version/$mpich_prefix.tar.gz -O \
-    && tar xf $mpich_prefix.tar.gz \
-    && cd $mpich_prefix \
-    && ./configure FFLAGS=-fallow-argument-mismatch FCFLAGS=-fallow-argument-mismatch \
-    && make -j 16 \
-    && make install \
-    && make clean \
-    && cd .. \
-    && rm -rf $mpich_prefix $mpich_prefix.tar.gz
+# ARG mpich_version=4.0.2
+# ARG mpich_prefix=mpich-$mpich_version
+# RUN curl -L https://www.mpich.org/static/downloads/$mpich_version/$mpich_prefix.tar.gz -O \
+#     && tar xf $mpich_prefix.tar.gz \
+#     && cd $mpich_prefix \
+#     && ./configure FFLAGS=-fallow-argument-mismatch FCFLAGS=-fallow-argument-mismatch \
+#     && make -j 16 \
+#     && make install \
+#     && make clean \
+#     && cd .. \
+#     && rm -rf $mpich_prefix $mpich_prefix.tar.gz
 
 # Hotpants Alard/Lupton image subtraction
 RUN git clone https://github.com/acbecker/hotpants.git \

@@ -10,7 +10,7 @@ from astropy.wcs import WCS
 from astropy.io import fits
 from astropy.wcs import utils
 
-from models.base import Base, SmartSession, SeeChangeBase, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin
+from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.source_list import SourceList
 
@@ -104,6 +104,9 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         FileOnDiskMixin.__init__( self, **kwargs )
         SeeChangeBase.__init__( self , *args, **kwargs)
         self._wcs = None
+
+        # manually set all properties (columns or not)
+        self.set_attributes_from_dict(kwargs)
 
     @orm.reconstructor
     def init_on_load( self ):

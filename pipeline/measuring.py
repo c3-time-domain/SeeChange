@@ -1,19 +1,21 @@
+import os
+import time
 import warnings
 import numpy as np
 
 from scipy import signal
 
-from pipeline.parameters import Parameters
-from pipeline.data_store import DataStore
-from util.util import parse_session
+from improc.photometry import iterative_cutouts_photometry
+from improc.tools import make_gaussian
 
 from models.cutouts import Cutouts
 from models.measurements import Measurements
-from models.objects import Object
 from models.enums_and_bitflags import BitFlagConverter
 
-from improc.photometry import iterative_cutouts_photometry
-from improc.tools import make_gaussian
+from pipeline.parameters import Parameters
+from pipeline.data_store import DataStore
+
+from util.util import parse_session, parse_bool
 
 
 class ParsMeasurer(Parameters):
@@ -138,175 +140,184 @@ class Measurer:
 
         Returns a DataStore object with the products of the processing.
         """
-        # most likely to get a Cutouts object or list of Cutouts
-        if isinstance(args[0], Cutouts):
-            new_args = [args[0]]  # make it a list if we got a single Cutouts object for some reason
-            new_args += list(args[1:])
-            args = tuple(new_args)
-
-        if isinstance(args[0], list) and all([isinstance(c, Cutouts) for c in args[0]]):
-            args, kwargs, session = parse_session(*args, **kwargs)
-            ds = DataStore()
-            ds.cutouts = args[0]
-            ds.detections = ds.cutouts[0].sources
-            ds.sub_image = ds.detections.image
-            ds.image = ds.sub_image.new_image
-        else:
-            ds, session = DataStore.from_args(*args, **kwargs)
         self.has_recalculated = False
+        try:  # first make sure we get back a datastore, even an empty one
+            # most likely to get a Cutouts object or list of Cutouts
+            if isinstance(args[0], Cutouts):
+                new_args = [args[0]]  # make it a list if we got a single Cutouts object for some reason
+                new_args += list(args[1:])
+                args = tuple(new_args)
 
-        # get the provenance for this step:
-        prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+            if isinstance(args[0], list) and all([isinstance(c, Cutouts) for c in args[0]]):
+                args, kwargs, session = parse_session(*args, **kwargs)
+                ds = DataStore()
+                ds.cutouts = args[0]
+                ds.detections = ds.cutouts[0].sources
+                ds.sub_image = ds.detections.image
+                ds.image = ds.sub_image.new_image
+            else:
+                ds, session = DataStore.from_args(*args, **kwargs)
+        except Exception as e:
+            return DataStore.catch_failure_to_parse(e, *args)
 
-        # try to find some measurements in memory or in the database:
-        measurements_list = ds.get_measurements(prov, session=session)
+        try:
+            t_start = time.perf_counter()
+            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                import tracemalloc
+                tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-        # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
-        if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements
-            self.has_recalculated = True
-            # use the latest source list in the data store,
-            # or load using the provenance given in the
-            # data store's upstream_provs, or just use
-            # the most recent provenance for "detection"
-            detections = ds.get_detections(session=session)
+            self.pars.do_warning_exception_hangup_injection_here()
 
-            if detections is None:
-                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+            # get the provenance for this step:
+            prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
 
-            cutouts = ds.get_cutouts(session=session)
+            # try to find some measurements in memory or in the database:
+            measurements_list = ds.get_measurements(prov, session=session)
 
-            # prepare the filter bank for this batch of cutouts
-            if self._filter_psf_fwhm is None or self._filter_psf_fwhm != cutouts[0].sources.image.get_psf().fwhm_pixels:
-                self.make_filter_bank(cutouts[0].sub_data.shape[0], cutouts[0].sources.image.get_psf().fwhm_pixels)
+            # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
+            if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements
+                self.has_recalculated = True
+                # use the latest source list in the data store,
+                # or load using the provenance given in the
+                # data store's upstream_provs, or just use
+                # the most recent provenance for "detection"
+                detections = ds.get_detections(session=session)
 
-            # go over each cutouts object and produce a measurements object
-            measurements_list = []
-            for i, c in enumerate(cutouts):
-                m = Measurements(cutouts=c)
-                # make sure to remember which cutout belongs to this measurement,
-                # before either of them is in the DB and then use the cutouts_id instead
-                m._cutouts_list_index = i
+                if detections is None:
+                    raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
 
-                m.aper_radii = c.sources.image.new_image.zp.aper_cor_radii  # zero point corrected aperture radii
+                cutouts = ds.get_cutouts(session=session)
 
-                ignore_bits = 0
-                for badness in self.pars.bad_pixel_exclude:
-                    ignore_bits |= 2 ** BitFlagConverter.convert(badness)
+                # prepare the filter bank for this batch of cutouts
+                if self._filter_psf_fwhm is None or self._filter_psf_fwhm != cutouts[0].sources.image.get_psf().fwhm_pixels:
+                    self.make_filter_bank(cutouts[0].sub_data.shape[0], cutouts[0].sources.image.get_psf().fwhm_pixels)
 
-                # remove the bad pixels that we want to ignore
-                # NOTE : this was throwing a RuntimeWarning, which was causing tests to
-                #  fail; not sure why they didn't fail before.  (New version of numpy?  Dunno.)
-                #  There were nans present; not sure whether those should be set to
-                #    "bad pixel" or "out of bounds" (could be either), so choosing "bad pixel".
-                #  Put in "casting='unsafe'" to take care of this.
-                # if np.any( np.isnan( c.sub_flags ) ):
-                #     import pdb; pdb.set_trace()
-                #     pass
-                # c.sub_flags[ np.isnan( c.sub_flags ) ] = BitFlagConverter.convert( "bad pixel" )
-                flags = c.sub_flags.astype('uint16') & ~np.array(ignore_bits).astype('uint16')
+                # go over each cutouts object and produce a measurements object
+                measurements_list = []
+                for i, c in enumerate(cutouts):
+                    m = Measurements(cutouts=c)
+                    # make sure to remember which cutout belongs to this measurement,
+                    # before either of them is in the DB and then use the cutouts_id instead
+                    m._cutouts_list_index = i
 
-                annulus_radii_pixels = self.pars.annulus_radii
-                if self.pars.annulus_units == 'fwhm':
-                    annulus_radii_pixels = [rad * c.source.image.get_psf().fwhm_pixels for rad in annulus_radii_pixels]
+                    m.aper_radii = c.sources.image.new_image.zp.aper_cor_radii  # zero point corrected aperture radii
 
-                # TODO: consider if there are any additional parameters that photometry needs
-                output = iterative_cutouts_photometry(
-                    c.sub_data,
-                    c.sub_weight,
-                    flags,
-                    m.psf,
-                    radii=m.aper_radii,
-                    annulus=annulus_radii_pixels,
-                )
+                    ignore_bits = 0
+                    for badness in self.pars.bad_pixel_exclude:
+                        ignore_bits |= 2 ** BitFlagConverter.convert(badness)
 
-                m.flux_psf = output['psf_flux']
-                m.flux_psf_err = output['psf_err']
-                m.area_psf = output['psf_area']
-                m.flux_apertures = output['fluxes']
-                m.flux_apertures_err = [np.sqrt(output['variance'] * a) for a in output['areas']]  # TODO: add source noise??
-                m.aper_radii = output['radii']
-                m.area_apertures = output['areas']
-                m.background = output['background']
-                m.background_err = np.sqrt(output['variance'])
-                m.offset_x = output['offset_x']
-                m.offset_y = output['offset_y']
-                m.width = (output['major'] + output['minor']) / 2
-                m.elongation = output['elongation']
-                m.position_angle = output['angle']
+                    # remove the bad pixels that we want to ignore
+                    flags = c.sub_flags.astype('uint16') & ~np.array(ignore_bits).astype('uint16')
 
-                if self.pars.chosen_aperture == 'auto':
-                    raise NotImplementedError('Automatic aperture selection is not yet implemented.')
-                if self.pars.chosen_aperture == 'psf':
-                    ap_index = -1
-                elif isinstance(self.pars.chosen_aperture, int):
-                    ap_index = self.pars.chosen_aperture
-                else:
-                    raise ValueError(
-                        f'Invalid value "{self.pars.chosen_aperture}" for chosen_aperture in the measuring parameters.'
+                    annulus_radii_pixels = self.pars.annulus_radii
+                    if self.pars.annulus_units == 'fwhm':
+                        annulus_radii_pixels = [rad * c.source.image.get_psf().fwhm_pixels for rad in annulus_radii_pixels]
+
+                    # TODO: consider if there are any additional parameters that photometry needs
+                    output = iterative_cutouts_photometry(
+                        c.sub_data,
+                        c.sub_weight,
+                        flags,
+                        m.psf,
+                        radii=m.aper_radii,
+                        annulus=annulus_radii_pixels,
                     )
-                m.best_aperture = ap_index
 
-                m.provenance = prov
-                m.provenance_id = prov.id
+                    m.flux_psf = output['psf_flux']
+                    m.flux_psf_err = output['psf_err']
+                    m.area_psf = output['psf_area']
+                    m.flux_apertures = output['fluxes']
+                    m.flux_apertures_err = [np.sqrt(output['variance'] * a) for a in output['areas']]  # TODO: add source noise??
+                    m.aper_radii = output['radii']
+                    m.area_apertures = output['areas']
+                    m.background = output['background']
+                    m.background_err = np.sqrt(output['variance'])
+                    m.offset_x = output['offset_x']
+                    m.offset_y = output['offset_y']
+                    m.width = (output['major'] + output['minor']) / 2
+                    m.elongation = output['elongation']
+                    m.position_angle = output['angle']
 
-                # Apply analytic cuts to each stamp image, to rule out artefacts.
-                m.disqualifier_scores = {}
-                if m.background != 0 and m.background_err > 0.1:
-                    norm_data = (c.sub_nandata - m.background) / m.background_err  # normalize
-                else:
-                    warnings.warn(f'Background mean= {m.background}, std= {m.background_err}, normalization skipped!')
-                    norm_data = c.sub_nandata  # no good background measurement, do not normalize!
+                    if self.pars.chosen_aperture == 'auto':
+                        raise NotImplementedError('Automatic aperture selection is not yet implemented.')
+                    if self.pars.chosen_aperture == 'psf':
+                        ap_index = -1
+                    elif isinstance(self.pars.chosen_aperture, int):
+                        ap_index = self.pars.chosen_aperture
+                    else:
+                        raise ValueError(
+                            f'Invalid value "{self.pars.chosen_aperture}" for chosen_aperture in the measuring parameters.'
+                        )
+                    m.best_aperture = ap_index
 
-                positives = np.sum(norm_data > self.pars.outlier_sigma)
-                negatives = np.sum(norm_data < -self.pars.outlier_sigma)
-                if negatives == 0:
-                    m.disqualifier_scores['negatives'] = 0.0
-                elif positives == 0:
-                    m.disqualifier_scores['negatives'] = 1.0
-                else:
-                    m.disqualifier_scores['negatives'] = negatives / positives
+                    m.provenance = prov
+                    m.provenance_id = prov.id
 
-                x, y = np.meshgrid(range(c.sub_data.shape[0]), range(c.sub_data.shape[1]))
-                x = x - c.sub_data.shape[1] // 2 - m.offset_x
-                y = y - c.sub_data.shape[0] // 2 - m.offset_y
-                r = np.sqrt(x ** 2 + y ** 2)
-                bad_pixel_inclusion = r <= self.pars.bad_pixel_radius + 0.5
-                m.disqualifier_scores['bad pixels'] = np.sum(flags[bad_pixel_inclusion] > 0)
+                    # Apply analytic cuts to each stamp image, to rule out artefacts.
+                    m.disqualifier_scores = {}
+                    if m.background != 0 and m.background_err > 0.1:
+                        norm_data = (c.sub_nandata - m.background) / m.background_err  # normalize
+                    else:
+                        warnings.warn(f'Background mean= {m.background}, std= {m.background_err}, normalization skipped!')
+                        norm_data = c.sub_nandata  # no good background measurement, do not normalize!
 
-                norm_data_no_nans = norm_data.copy()
-                norm_data_no_nans[np.isnan(norm_data)] = 0
+                    positives = np.sum(norm_data > self.pars.outlier_sigma)
+                    negatives = np.sum(norm_data < -self.pars.outlier_sigma)
+                    if negatives == 0:
+                        m.disqualifier_scores['negatives'] = 0.0
+                    elif positives == 0:
+                        m.disqualifier_scores['negatives'] = 1.0
+                    else:
+                        m.disqualifier_scores['negatives'] = negatives / positives
 
-                filter_scores = []
-                for template in self._filter_bank:
-                    filter_scores.append(np.max(signal.correlate(abs(norm_data_no_nans), template, mode='same')))
+                    x, y = np.meshgrid(range(c.sub_data.shape[0]), range(c.sub_data.shape[1]))
+                    x = x - c.sub_data.shape[1] // 2 - m.offset_x
+                    y = y - c.sub_data.shape[0] // 2 - m.offset_y
+                    r = np.sqrt(x ** 2 + y ** 2)
+                    bad_pixel_inclusion = r <= self.pars.bad_pixel_radius + 0.5
+                    m.disqualifier_scores['bad pixels'] = np.sum(flags[bad_pixel_inclusion] > 0)
 
-                m.disqualifier_scores['filter bank'] = np.argmax(filter_scores)
+                    norm_data_no_nans = norm_data.copy()
+                    norm_data_no_nans[np.isnan(norm_data)] = 0
 
-                offset = np.sqrt(m.offset_x ** 2 + m.offset_y ** 2)
-                m.disqualifier_scores['offsets'] = offset
+                    filter_scores = []
+                    for template in self._filter_bank:
+                        filter_scores.append(np.max(signal.correlate(abs(norm_data_no_nans), template, mode='same')))
 
-                # TODO: add additional disqualifiers
+                    m.disqualifier_scores['filter bank'] = np.argmax(filter_scores)
 
-                # make sure disqualifier scores don't have any numpy types
-                for k, v in m.disqualifier_scores.items():
-                    if isinstance(v, np.number):
-                        m.disqualifier_scores[k] = v.item()
+                    offset = np.sqrt(m.offset_x ** 2 + m.offset_y ** 2)
+                    m.disqualifier_scores['offsets'] = offset
 
-                measurements_list.append(m)
+                    # TODO: add additional disqualifiers
 
-            saved_measurements = []
-            for m in measurements_list:
-                if m.passes():  # all disqualifiers are below threshold
-                    saved_measurements.append(m)
+                    # make sure disqualifier scores don't have any numpy types
+                    for k, v in m.disqualifier_scores.items():
+                        if isinstance(v, np.number):
+                            m.disqualifier_scores[k] = v.item()
 
-            # add the resulting measurements to the data store
-            ds.all_measurements = measurements_list  # debugging only
-            ds.failed_measurements = [m for m in measurements_list if m not in saved_measurements]  # debugging only
-            ds.measurements = saved_measurements  # only keep measurements that passed the disqualifiers cuts.
-            ds.sub_image.measurements = saved_measurements
+                    measurements_list.append(m)
 
-        # make sure this is returned to be used in the next step
-        return ds
+                saved_measurements = []
+                for m in measurements_list:
+                    if m.passes():  # all disqualifiers are below threshold
+                        saved_measurements.append(m)
+
+                # add the resulting measurements to the data store
+                ds.all_measurements = measurements_list  # debugging only
+                ds.failed_measurements = [m for m in measurements_list if m not in saved_measurements]  # debugging only
+                ds.measurements = saved_measurements  # only keep measurements that passed the disqualifiers cuts.
+                ds.sub_image.measurements = saved_measurements
+
+            ds.runtimes['measuring'] = time.perf_counter() - t_start
+            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                import tracemalloc
+                ds.memory_usages['measuring'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+
+        except Exception as e:
+            ds.catch_exception(e)
+        finally:  # make sure datastore is returned to be used in the next step
+            return ds
 
     def make_filter_bank(self, imsize, psf_fwhm):
         """Make a filter bank matching the PSF width.

@@ -16,7 +16,7 @@ from util.exceptions import SubprocessFailure, BadMatchException
 def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                       max_sources_to_use=2000, min_frac_matched=0.1,
                       min_matched=10, max_arcsec_residual=0.15,
-                      magkey='MAG', magerrkey='MAGERR' ):
+                      magkey='MAG', magerrkey='MAGERR', timeout=60 ):
     """Solve for the WCS of image with sourcelist sources, based on catalog.
 
     If scamp does not succeed, will raise a SubprocessFailure
@@ -121,7 +121,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                        ]
 
             t0 = time.perf_counter()
-            res = subprocess.run( command, capture_output=True, timeout=60 )
+            res = subprocess.run( command, capture_output=True, timeout=timeout )
             t1 = time.perf_counter()
             SCLogger.debug( f"Scamp with {len(sources)} sources and {len(cat)} catalog stars "
                            f"(with match_nmax={max_nmatch}) took {t1-t0:.2f} seconds" )
