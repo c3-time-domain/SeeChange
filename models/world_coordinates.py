@@ -22,31 +22,6 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         UniqueConstraint('sources_id', 'provenance_id', name='_wcs_sources_provenance_uc'),
     )
 
-    # This is a little profligate.  There will eventually be millions of
-    # images, which means that there will be gigabytes of header data
-    # stored in the relational database.  (One header excerpt is about
-    # 4k.)  It's not safe to assume we know exactly what keywords
-    # astropy.wcs.WCS will produce, as there may be new FITS standard
-    # extensions etc., and astropy doesn't document the keywords.
-    #
-    # Another option would be to parse all the keywords into a dict of {
-    # string: (float or string) } and store them as a JSONB; that would
-    # reduce the size pretty substantially, but it would still be
-    # roughly a KB for each header, so the consideration is similar.
-    # (It's also more work to implement....)
-    #
-    # Yet another option is to store the WCS in an external file, but
-    # now we're talking something awfully small (a few kB) for this HPC
-    # filesystems.
-    #
-    # Even yet another option that we won't do short term because it's
-    # WAY too much effort is to have an additional nosql database of
-    # some sort that is designed for document storage (which really is
-    # what this is here).
-    #
-    # For now, we'll be profliate with the database, and hope we don't
-    # regret it later.
-
     sources_id = sa.Column(
         sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
         nullable=False,
@@ -58,7 +33,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         'SourceList',
         cascade='save-update, merge, refresh-expire, expunge',
         passive_deletes=True,
-        lazy="selectin",
+        lazy='selectin',
         doc="The source list this world coordinate system is associated with. "
     )
 
@@ -96,21 +71,21 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def wcs( self, value ):
         self._wcs = value
 
-    def _get_inverse_badness(self):
-        """Get a dict with the allowed values of badness that can be assigned to this object"""
-        return catalog_match_badness_inverse
-
-    def __init__( self, *args, **kwargs ):
+    def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__( self, **kwargs )
-        SeeChangeBase.__init__( self , *args, **kwargs)
+        SeeChangeBase.__init__( self )
         self._wcs = None
 
         # manually set all properties (columns or not)
         self.set_attributes_from_dict(kwargs)
 
+    def _get_inverse_badness(self):
+        """Get a dict with the allowed values of badness that can be assigned to this object"""
+        return catalog_match_badness_inverse
+
     @orm.reconstructor
     def init_on_load( self ):
-        Base.init_on_load( self )
+        SeeChangeBase.init_on_load( self )
         FileOnDiskMixin.init_on_load( self )
         self._wcs = None
 
@@ -145,12 +120,10 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         downstreams = zps + subs
         return downstreams
-    
+
     def save( self, filename=None, **kwargs ):
         """Write the WCS data to disk.
-
         Updates self.filepath
-
         Parameters
         ----------
           filename: str or path
@@ -159,9 +132,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
              end of the name; that will be added automatically.
              If None, will call image.invent_filepath() to get a
              filestore-standard filename and directory.
-
           Additional arguments are passed on to FileOnDiskMixin.save
-
         """ 
 
         # ----- Make sure we have a path ----- #
@@ -182,10 +153,10 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             if self.provenance is None:
                 raise RuntimeError("Can't invent a filepath for the WCS without a provenance")
             self.filepath += f'.wcs_{self.provenance.id[:6]}.txt'
-        
+
         txtpath = pathlib.Path( self.local_path ) / f'{self.filepath}'
 
-        # ----- Get the header to save and save ----- #
+        # ----- Get the header string to save and save ----- #
         header_txt = self.wcs.to_header().tostring(padding=False, sep='\\n' )
 
         if txtpath.exists():
@@ -195,15 +166,13 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         with open( txtpath, "w") as ofp:
             ofp.write( header_txt )
-        
+
         # ----- Write to the archive ----- #
         FileOnDiskMixin.save( self, txtpath, **kwargs )
 
     def load( self, download=True, always_verify_md5=False, txtpath=None ):
         """Load this wcs from the file.
-
         updates self.wcs.
-
         Parameters
         ----------
         txtpath: str, Path, or None
@@ -219,4 +188,4 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with open( txtpath ) as ifp:
             headertxt = ifp.read()
             self.wcs = WCS( fits.Header.fromstring( headertxt , sep='\\n' ))
-        
+    
