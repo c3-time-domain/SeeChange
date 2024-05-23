@@ -1,3 +1,4 @@
+import time
 import pathlib
 from collections import defaultdict
 
@@ -7,6 +8,7 @@ from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.schema import CheckConstraint
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.exc import IntegrityError
 
 from astropy.time import Time
 from astropy.io import fits
@@ -522,6 +524,14 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
             return None
         return self.mjd + self.exp_time / 86400.0
 
+    @property
+    def observation_time(self):
+        """Translation of the MJD column to datetime object."""
+        if self.mjd is None:
+            return None
+        else:
+            return Time(self.mjd, format='mjd').datetime
+
     def __repr__(self):
 
         filter_str = '--'
@@ -734,6 +744,47 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
             images = session.scalars(sa.select(Image).where(Image.exposure_id == self.id)).all()
 
         return images
+
+    def merge_concurrent(self, session=None):
+        """Try multiple times to fetch and merge this exposure.
+        This will hopefully protect us against concurrently adding the exposure from multiple processes.
+        Should also be safe to use in case that the same exposure (i.e., with the same filepath)
+        was added by previous runs.
+        """
+        exposure = None
+        with SmartSession(session) as session:
+
+            for i in range(5):
+                try:
+                    found_exp = session.scalars(
+                        sa.select(Exposure).where(Exposure.filepath == self.filepath)
+                    ).first()
+                    if found_exp is None:
+                        exposure = session.merge(self)
+                        session.commit()
+                    else:
+                        # update the found exposure with any modifications on the existing exposure
+                        columns = Exposure.__table__.columns.keys()
+                        for col in columns:
+                            if col in ['id', 'created_at', 'modified']:
+                                continue
+                            setattr(found_exp, col, getattr(self, col))
+                        exposure = found_exp
+
+                    break  # if we got here without an exception, we can break out of the loop
+                except IntegrityError as e:
+                    # this could happen if in between the query and the merge(exposure)
+                    # another process added the same exposure to the database
+                    if 'duplicate key value violates unique constraint "ix_exposures_filepath"' in str(e):
+                        SCLogger.debug(str(e))
+                        session.rollback()
+                        time.sleep(0.1 * 2 ** i)  # exponential backoff
+                    else:
+                        raise e
+            else:  # if we didn't break out of the loop, there must have been some integrity error
+                raise e
+
+        return exposure
 
 
 if __name__ == '__main__':

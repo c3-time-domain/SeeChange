@@ -1,8 +1,8 @@
 import math
+import datetime
 import sqlalchemy as sa
 
 from util.util import get_latest_provenance, parse_session
-from util.logger import SCLogger
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import CodeVersion, Provenance
@@ -15,10 +15,11 @@ from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
-from models.objects import Object
 
+from util.logger import SCLogger
 
-UPSTREAM_NAMES = {
+# for each process step, list the steps that go into its upstream
+UPSTREAM_STEPS = {
     'exposure': [],  # no upstreams
     'preprocessing': ['exposure'],
     'extraction': ['preprocessing'],
@@ -30,11 +31,13 @@ UPSTREAM_NAMES = {
     'measuring': ['cutting'],
 }
 
-UPSTREAM_OBJECTS = {
+# The products that are made at each processing step.
+# Usually it is only one, but sometimes there are multiple products for one step (e.g., extraction)
+PROCESS_PRODUCTS = {
     'exposure': 'exposure',
     'preprocessing': 'image',
     'coaddition': 'image',
-    'extraction': 'sources',
+    'extraction': ['sources', 'psf'],  # TODO: add background, maybe move wcs and zp in here too? 
     'astro_cal': 'wcs',
     'photo_cal': 'zp',
     'reference': 'reference',
@@ -51,7 +54,8 @@ class DataStore:
     to be fetched from the database, and keep a cached version of the products for
     use downstream in the pipeline.
     """
-    attributes_to_save = [
+    # the products_to_save are also getting cleared along with products_to_clear
+    products_to_save = [
         'exposure',
         'image',
         'sources',
@@ -64,7 +68,8 @@ class DataStore:
         'measurements'
     ]
 
-    attributes_to_clear = [
+    # these get cleared but not saved
+    products_to_clear = [
         'ref_image',
         'sub_image',
         'reference',
@@ -99,76 +104,6 @@ class DataStore:
             ds = DataStore()
             session = ds.parse_args(*args, **kwargs)
             return ds, session
-
-    def __init__(self, *args, **kwargs):
-        """
-        See the parse_args method for details on how to initialize this object.
-
-        Please make sure to add any new attributes to the attributes_to_save list.
-        """
-        # these are data products that can be cached in the store
-        self._exposure = None  # single image, entire focal plane
-        self._section = None  # SensorSection
-
-        self.upstream_provs = None  # provenances to override the upstreams if no upstream objects exist
-
-        # these all need to be added to the attributes_to_save list
-        self.image = None  # single image from one sensor section
-        self.sources = None  # extracted sources (a SourceList object, basically a catalog)
-        self.psf = None  # psf determined from the extracted sources
-        self.wcs = None  # astrometric solution
-        self.zp = None  # photometric calibration
-        self.reference = None  # the Reference object needed to make subtractions
-        self.sub_image = None  # subtracted image
-        self.detections = None  # a SourceList object for sources detected in the subtraction image
-        self.cutouts = None  # cutouts around sources
-        self.measurements = None  # photometry and other measurements for each source
-        self.objects = None  # a list of Object associations of Measurements
-
-        # these need to be added to the attributes_to_clear list
-        self.ref_image = None  # to be used to make subtractions
-        self.sub_image = None  # subtracted image
-        self.reference = None  # the Reference object needed to make subtractions
-        self.exposure_id = None  # use this and section_id to find the raw image
-        self.section_id = None  # corresponds to SensorSection.identifier (*not* .id)
-        self.image_id = None  # use this to specify an image already in the database
-
-        # The database session parsed in parse_args; it could still be None even after parse_args
-        self.session = None
-        self.parse_args(*args, **kwargs)
-
-    @property
-    def exposure( self ):
-        if self._exposure is None:
-            if self.exposure_id is not None:
-                self._exposure = self.get_raw_exposure( session=self.session )
-        return self._exposure
-
-    @exposure.setter
-    def exposure( self, value ):
-        self._exposure = value
-        self.exposure_id = value.id if value is not None else None
-
-    @property
-    def section( self ):
-        if self._section is None:
-            if self.section_id is not None:
-                if self.exposure is not None:
-                    self.exposure.instrument_object.fetch_sections()
-                    self._section = self.exposure.instrument_object.get_section( self.section_id )
-        return self._section
-
-    @property
-    def ref_image( self ):
-        if self.reference is not None:
-            return self.reference.image
-        return None
-
-    @ref_image.setter
-    def ref_image( self, value ):
-        if self.reference is None:
-            self.reference = Reference()
-        self.reference.image = value
 
     def parse_args(self, *args, **kwargs):
         """
@@ -279,6 +214,131 @@ class DataStore:
 
         return output_session
 
+    @staticmethod
+    def catch_failure_to_parse(exception, *args):
+        """Call this when the from_args() function fails.
+        It is gaurenteed to return a DataStore object,
+        and will set the error attribute to the exception message.
+        """
+        datastores = [a for a in args if isinstance(a, DataStore)]
+        if len(datastores) > 0:
+            ds = datastores[0]
+        else:
+            ds = DataStore()  # return an empty datastore, as we cannot create it and cannot find one in args
+
+        ds.exception = exception
+
+        return ds
+
+    def catch_exception(self, exception):
+        """Store the exception into the datastore for later use. """
+        self.exception = exception
+        # This is a trivial function now, but we may want to do more complicated stuff down the road
+
+    def read_exception(self):
+        """Return the stored exception and clear it from the datastore. """
+        output = self.exception
+        self.exception = None
+        return output
+
+    def reraise(self):
+        """If an exception is logged to the datastore, raise it. Otherwise pass. """
+        if self.exception is not None:
+            raise self.exception
+
+    def __init__(self, *args, **kwargs):
+        """
+        See the parse_args method for details on how to initialize this object.
+
+        Please make sure to add any new attributes to the products_to_save list.
+        """
+        # these are data products that can be cached in the store
+        self._exposure = None  # single image, entire focal plane
+        self._section = None  # SensorSection
+
+        self.upstream_provs = None  # provenances to override the upstreams if no upstream objects exist
+
+        # these all need to be added to the products_to_save list
+        self.image = None  # single image from one sensor section
+        self.sources = None  # extracted sources (a SourceList object, basically a catalog)
+        self.psf = None  # psf determined from the extracted sources
+        self.wcs = None  # astrometric solution
+        self.zp = None  # photometric calibration
+        self.reference = None  # the Reference object needed to make subtractions
+        self.sub_image = None  # subtracted image
+        self.detections = None  # a SourceList object for sources detected in the subtraction image
+        self.cutouts = None  # cutouts around sources
+        self.measurements = None  # photometry and other measurements for each source
+        self.objects = None  # a list of Object associations of Measurements
+
+        # these need to be added to the products_to_clear list
+        self.ref_image = None  # to be used to make subtractions
+        self.sub_image = None  # subtracted image
+        self.reference = None  # the Reference object needed to make subtractions
+        self.exposure_id = None  # use this and section_id to find the raw image
+        self.section_id = None  # corresponds to SensorSection.identifier (*not* .id)
+        self.image_id = None  # use this to specify an image already in the database
+
+        self.warnings_list = None  # will be replaced by a list of warning objects in top_level.Pipeline.run()
+        self.exception = None  # the exception object (so we can re-raise it if needed)
+        self.runtimes = {}  # for each process step, the total runtime in seconds
+        self.memory_usages = {}  # for each process step, the peak memory usage in MB
+        self.products_committed = ''  # a comma separated list of object names (e.g., "image, sources") saved to DB
+        self.report = None  # keep a reference to the report object for this run
+
+        # The database session parsed in parse_args; it could still be None even after parse_args
+        self.session = None
+        self.parse_args(*args, **kwargs)
+
+    @property
+    def exposure( self ):
+        if self._exposure is None:
+            if self.exposure_id is not None:
+                self._exposure = self.get_raw_exposure( session=self.session )
+        return self._exposure
+
+    @exposure.setter
+    def exposure( self, value ):
+        self._exposure = value
+        self.exposure_id = value.id if value is not None else None
+
+    @property
+    def section( self ):
+        if self._section is None:
+            if self.section_id is not None:
+                if self.exposure is not None:
+                    self.exposure.instrument_object.fetch_sections()
+                    self._section = self.exposure.instrument_object.get_section( self.section_id )
+        return self._section
+
+    @property
+    def ref_image( self ):
+        if self.reference is not None:
+            return self.reference.image
+        return None
+
+    @ref_image.setter
+    def ref_image( self, value ):
+        if self.reference is None:
+            self.reference = Reference()
+        self.reference.image = value
+
+    def __getattribute__(self, key):
+        # if this datastore has a pending error, will raise it as soon as any other data is used
+        if (
+                key not in ['exception', 'read_exception', 'update_report', 'reraise', 'report'] and
+                not key.startswith('__') and hasattr(self, 'exception') and self.exception is not None
+        ):
+            SCLogger.warning('DataStore has a pending exception. Call read_exception() to get it, or reraise() to raise it.')
+            SCLogger.warning(f'Exception was triggered by trying to access attribute {key}.')
+            raise self.exception
+
+        value = super().__getattribute__(key)
+        if key == 'image' and value is not None:
+            self.append_image_products(value)
+
+        return value
+
     def __setattr__(self, key, value):
         """
         Check some of the inputs before saving them.
@@ -338,12 +398,18 @@ class DataStore:
 
         super().__setattr__(key, value)
 
-    def __getattribute__(self, key):
-        value = super().__getattribute__(key)
-        if key == 'image' and value is not None:
-            self.append_image_products(value)
+    def update_report(self, process_step, session=None):
+        """Update the report object with the latest results from a processing step that just finished. """
+        self.report = self.report.scan_datastore(self, process_step=process_step, session=session)
 
-        return value
+    def finalize_report(self, session=None):
+        """Mark the report as successful and set the finish time."""
+        self.report.success = True
+        self.report.finish_time = datetime.datetime.utcnow()
+        with SmartSession(session) as session:
+            new_report = session.merge(self.report)
+            session.commit()
+        self.report = new_report
 
     def get_inputs(self):
         """Get a string with the relevant inputs. """
@@ -408,9 +474,12 @@ class DataStore:
 
             # check if we can find the upstream provenances
             upstreams = []
-            for name in UPSTREAM_NAMES[process]:
+            for name in UPSTREAM_STEPS[process]:
                 # first try to load an upstream that was given explicitly:
-                obj = getattr(self, UPSTREAM_OBJECTS[name], None)
+                obj_names = PROCESS_PRODUCTS[name]
+                if isinstance(obj_names, str):
+                    obj_names = [obj_names]
+                obj = getattr(self, obj_names[0], None)  # only need one object to get the provenance
                 if isinstance(obj, list):
                     obj = obj[0]  # for cutouts or measurements just use the first one
                 if upstream_provs is not None and name in [p.process for p in upstream_provs]:
@@ -431,7 +500,7 @@ class DataStore:
 
                 upstreams.append(prov)
 
-            if len(upstreams) != len(UPSTREAM_NAMES[process]):
+            if len(upstreams) != len(UPSTREAM_STEPS[process]):
                 raise ValueError(f'Could not find all upstream provenances for process {process}.')
 
             # we have a code version object and upstreams, we can make a provenance
@@ -440,7 +509,7 @@ class DataStore:
                 code_version=code_version,
                 parameters=pars_dict,
                 upstreams=upstreams,
-                is_testing="test_parameter" in pars_dict, # this is a flag for testing purposes
+                is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes
             )
             db_prov = session.scalars(sa.select(Provenance).where(Provenance.id == prov.id)).first()
             if db_prov is not None:  # only merge if this provenance already exists
@@ -905,7 +974,7 @@ class DataStore:
         return self.zp
 
     @classmethod
-    def _overlap_frac( cls, image, refim ):
+    def _overlap_frac(cls, image, refim):
         """Calculate the overlap fraction between image and refim.
 
         Parameters
@@ -946,23 +1015,23 @@ class DataStore:
 
         """
 
-        dimra = ( ( ( image.ra_corner_10 + image.ra_corner_11 ) / 2. -
-                    ( image.ra_corner_00 + image.ra_corner_01 ) / 2.
-                   ) / math.cos( image.dec * math.pi / 180. ) )
-        dimdec = ( ( image.dec_corner_01 + image.dec_corner_11 ) / 2. -
-                   ( image.dec_corner_00 + image.dec_corner_10 ) / 2. )
-        r0 = max( refim.ra_corner_00, refim.ra_corner_01,
-                  image.ra_corner_00, image.ra_corner_01 )
-        r1 = min( refim.ra_corner_10, refim.ra_corner_10,
-                  image.ra_corner_10, image.ra_corner_10 )
-        d0 = max( refim.dec_corner_00, refim.dec_corner_10,
-                  image.dec_corner_00, image.dec_corner_10 )
-        d1 = min( refim.dec_corner_01, refim.dec_corner_11,
-                  image.dec_corner_01, image.dec_corner_11 )
-        dra = ( r1 - r0 ) / math.cos( ( d1 + d0 ) / 2. * math.pi / 180. )
+        dimra = (((image.ra_corner_10 + image.ra_corner_11) / 2. -
+                  (image.ra_corner_00 + image.ra_corner_01) / 2.
+                  ) / math.cos(image.dec * math.pi / 180.))
+        dimdec = ((image.dec_corner_01 + image.dec_corner_11) / 2. -
+                  (image.dec_corner_00 + image.dec_corner_10) / 2.)
+        r0 = max(refim.ra_corner_00, refim.ra_corner_01,
+                 image.ra_corner_00, image.ra_corner_01)
+        r1 = min(refim.ra_corner_10, refim.ra_corner_10,
+                 image.ra_corner_10, image.ra_corner_10)
+        d0 = max(refim.dec_corner_00, refim.dec_corner_10,
+                 image.dec_corner_00, image.dec_corner_10)
+        d1 = min(refim.dec_corner_01, refim.dec_corner_11,
+                 image.dec_corner_01, image.dec_corner_11)
+        dra = (r1 - r0) / math.cos((d1 + d0) / 2. * math.pi / 180.)
         ddec = d1 - d0
 
-        return ( dra * ddec ) / ( dimra * dimdec )
+        return (dra * ddec) / (dimra * dimdec)
 
     def get_reference(self, minovfrac=0.85, must_match_instrument=True, must_match_filter=True,
                       must_match_target=False, must_match_section=False, session=None ):
@@ -976,25 +1045,20 @@ class DataStore:
             (Warning: calculation implicitly assumes that images are
             aligned N/S and E/W.)  Make this <= 0 to not consider
             overlap fraction when finding a reference.
-
         must_match_instrument: bool, default True
             If True, only find a reference from the same instrument
             as that of the DataStore's image.
-
         must_match_filter: bool, default True
             If True, only find a reference whose filter matches the
             DataStore's images' filter.
-
         must_match_target: bool, default False
             If True, only find a reference if the "target" field of the
             reference image matches the "target" field of the image in
             the DataStore.
-
         must_match_section: bool, default False
-            If True, only find a ference if the "section_id" field of
+            If True, only find a reference if the "section_id" field of
             the reference image matches that of the image in the
             Datastore.
-
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -1006,10 +1070,6 @@ class DataStore:
         ref: Image object
             The reference image for this image, or None if no reference is found.
 
-
-        It will only return references whose validity date range
-        includes DataStore.image.observation_time.
-
         If minovfrac is given, it will return the reference that has the
         highest ovfrac.  (If, by unlikely chance, more than one have
         identical overlap fractions, an undeterministically chosen
@@ -1019,8 +1079,8 @@ class DataStore:
         that has an appreciable overlap with any possible image from
         that instrument.  The software does not enforce this, however.)
 
-        If minovfrac is not given, it will return first reference found
-        that match the other criteria.  Be careful with this.
+        If minovfrac is not given, it will return the first reference found
+        that matches the other criteria.  Be careful with this.
 
         """
 
@@ -1472,14 +1532,8 @@ class DataStore:
             Note that this method calls session.commit()
 
         """
-        # To avoid problems with lazy load failures if the things aren't
-        #   all yet attached to a session:
-        if self.image is not None:
-            if self.psf is not None:
-                self.psf.image = self.image
-
         # save to disk whatever is FileOnDiskMixin
-        for att in self.attributes_to_save:
+        for att in self.products_to_save:
             obj = getattr(self, att, None)
             if obj is None:
                 continue
@@ -1490,7 +1544,7 @@ class DataStore:
                 continue
 
             SCLogger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
-                            f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
+                           f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 
             if isinstance(obj, FileOnDiskMixin):
                 mustsave = True
@@ -1527,7 +1581,7 @@ class DataStore:
 
                 else:
                     SCLogger.debug( f'Not saving the {obj.__class__.__name__} because it already has '
-                                    f'a md5sum in the database' )
+                                   f'a md5sum in the database' )
 
         # carefully merge all the objects including the products
         with SmartSession(session, self.session) as session:
@@ -1545,11 +1599,22 @@ class DataStore:
             if self.image_id is None and self.image is not None:
                 self.image_id = self.image.id
 
+            self.psf = self.image.psf
+            self.sources = self.image.sources
+            self.wcs = self.image.wcs
+            self.zp = self.image.zp
+
+            session.commit()
+            self.products_committed = 'image, sources, psf, wcs, zp'
+
             if self.sub_image is not None:
                 self.sub_image.new_image = self.image  # update with the now-merged image
                 self.sub_image = self.sub_image.merge_all(session)  # merges the upstream_images and downstream products
                 self.sub_image.ref_image.id = self.sub_image.ref_image_id  # just to make sure the ref has an ID for merging
                 self.detections = self.sub_image.sources
+
+            session.commit()
+            self.products_committed += ', sub_image'
 
             if self.detections is not None:
                 if self.cutouts is not None:
@@ -1568,12 +1633,8 @@ class DataStore:
                         self.measurements[i] = session.merge(self.measurements[i])
                         self.measurements[i].object.measurements.append(self.measurements[i])
 
-            self.psf = self.image.psf
-            self.sources = self.image.sources
-            self.wcs = self.image.wcs
-            self.zp = self.image.zp
-
             session.commit()
+            self.products_committed += ', detections, cutouts, measurements'
 
     def delete_everything(self, session=None, commit=True):
         """Delete everything associated with this sub-image.
@@ -1649,6 +1710,11 @@ class DataStore:
                 # verify that the objects are in fact deleted by deleting the image at the root of the datastore
                 if self.image is not None and self.image.id is not None:
                     session.execute(sa.delete(Image).where(Image.id == self.image.id))
+                    # also make sure aligned images are deleted from disk and archive
+
+                if self.sub_image is not None and self.sub_image._aligned_images is not None:
+                    for im in self.sub_image._aligned_images:  # do not autoload, which happens if using aligned_images
+                        im.remove_data_from_disk()
 
                 # verify that no objects were accidentally added to the session's "new" set
                 for obj in obj_list:
@@ -1664,9 +1730,12 @@ class DataStore:
             finally:
                 session.autoflush = autoflush_state
 
-        # Make sure all data products are None so that they aren't used again now that they're gone
-        # for att in self.attributes_to_save:
-        #     setattr(self, att, None)
-        #
-        # for att in self.attributes_to_clear:
-        #     setattr(self, att, None)
+        self.products_committed = ''  # TODO: maybe not critical, but what happens if we fail to delete some of them?
+
+    def clear_products(self):
+        """ Make sure all data products are None so that they aren't used again. """
+        for att in self.products_to_save:
+            setattr(self, att, None)
+
+        for att in self.products_to_clear:
+            setattr(self, att, None)

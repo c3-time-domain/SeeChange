@@ -4,6 +4,7 @@ import pytest
 import uuid
 import shutil
 import pathlib
+import logging
 
 import numpy as np
 
@@ -37,6 +38,10 @@ pytest_plugins = [
 ]
 
 ARCHIVE_PATH = None
+
+# We may want to turn this on only for tests, as it may add a lot of runtime/memory overhead
+# ref: https://www.mail-archive.com/python-list@python.org/msg443129.html
+# os.environ["SEECHANGE_TRACEMALLOC"] = "1"
 
 
 # this fixture should be the first thing loaded by the test suite

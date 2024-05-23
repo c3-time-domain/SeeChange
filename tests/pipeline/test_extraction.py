@@ -376,3 +376,20 @@ def test_run_detection_sextractor( decam_datastore, extractor ):
 
     finally:
         ds.delete_everything()
+
+
+def test_warnings_and_exceptions(decam_datastore, extractor):
+    extractor.pars.inject_warnings = 1
+
+    with pytest.warns(UserWarning) as record:
+        extractor.run(decam_datastore)
+    assert len(record) > 0
+    assert any("Warning injected by pipeline parameters in process 'extraction'." in str(w.message) for w in record)
+
+    extractor.pars.inject_warnings = 0
+    extractor.pars.inject_exceptions = 1
+    with pytest.raises(Exception) as excinfo:
+        ds = extractor.run(decam_datastore)
+        ds.reraise()
+    assert "Exception injected by pipeline parameters in process 'extraction'." in str(excinfo.value)
+    ds.read_exception()

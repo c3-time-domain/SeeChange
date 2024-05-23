@@ -1498,7 +1498,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 if not ( gotim and gotweight and gotflags ):
                     raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )
 
-
     def free( self, free_derived_products=True, free_aligned=True, only_free=None ):
         """Free loaded image memory.  Does not delete anything from disk.
 
@@ -1556,8 +1555,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             if self._aligned_images is not None:
                 for alim in self._aligned_images:
                     alim.free( free_derived_products=free_derived_products, only_free=only_free )
-
-
 
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.

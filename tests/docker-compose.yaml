@@ -98,7 +98,7 @@ services:
         target: /archive_storage
     working_dir: /seechange
     user: ${USERID:-0}:${GROUPID:-0}
-    entrypoint: "pytest -v /seechange/tests/$TEST_SUBFOLDER"
+    entrypoint: "pytest -v /seechange/$TEST_SUBFOLDER"
 
   runalltests:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-tests}

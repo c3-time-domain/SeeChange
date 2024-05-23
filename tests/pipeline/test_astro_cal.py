@@ -181,3 +181,19 @@ def test_run_scamp( decam_datastore, astrometor ):
 
 # TODO : test that it fails when it's supposed to
 
+
+def test_warnings_and_exceptions(decam_datastore, astrometor):
+    astrometor.pars.inject_warnings = 1
+
+    with pytest.warns(UserWarning) as record:
+        astrometor.run(decam_datastore)
+    assert len(record) > 0
+    assert any("Warning injected by pipeline parameters in process 'astro_cal'." in str(w.message) for w in record)
+
+    astrometor.pars.inject_warnings = 0
+    astrometor.pars.inject_exceptions = 1
+    with pytest.raises(Exception) as excinfo:
+        ds = astrometor.run(decam_datastore)
+        ds.reraise()
+    assert "Exception injected by pipeline parameters in process 'astro_cal'." in str(excinfo.value)
+    ds.read_exception()

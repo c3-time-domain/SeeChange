@@ -215,3 +215,20 @@ def test_measuring(measurer, decam_cutouts):
     assert m.get_filter_description() == 'Streaked (angle= 25.0 deg)'
     assert m.background < 1.0  # see TODO above
     assert m.background_err < 3.0  # TODO: above
+
+
+def test_warnings_and_exceptions(decam_datastore, measurer):
+    measurer.pars.inject_warnings = 1
+
+    with pytest.warns(UserWarning) as record:
+        measurer.run(decam_datastore)
+    assert len(record) > 0
+    assert any("Warning injected by pipeline parameters in process 'measuring'." in str(w.message) for w in record)
+
+    measurer.pars.inject_exceptions = 1
+    measurer.pars.inject_warnings = 0
+    with pytest.raises(Exception) as excinfo:
+        ds = measurer.run(decam_datastore)
+        ds.reraise()
+    assert "Exception injected by pipeline parameters in process 'measuring'." in str(excinfo.value)
+    ds.read_exception()

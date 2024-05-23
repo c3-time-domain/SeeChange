@@ -167,8 +167,8 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     @orm.reconstructor
     def init_on_load(self):
-        Base.init_on_load(self)
         FileOnDiskMixin.init_on_load(self)
+        SeeChangeBase.init_on_load(self)
         self._data = None
         self._info = None
         self._is_star = None

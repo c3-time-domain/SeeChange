@@ -1,3 +1,4 @@
+import pytest
 import uuid
 
 import numpy as np
@@ -75,3 +76,20 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_images, subtractor):
     assert abs(mu) < 0.2  # this is not working perfectly, we need to improve the background removal!
     # assert abs(sigma - 1) < 0.1  # the standard deviation should be close to 1
     assert abs(sigma - 1) < 1  # the standard deviation may be also affected by background...
+
+
+def test_warnings_and_exceptions(decam_datastore, decam_reference, subtractor, decam_default_calibrators):
+    subtractor.pars.inject_warnings = 1
+
+    with pytest.warns(UserWarning) as record:
+        subtractor.run(decam_datastore)
+    assert len(record) > 0
+    assert any("Warning injected by pipeline parameters in process 'subtraction'." in str(w.message) for w in record)
+
+    subtractor.pars.inject_warnings = 0
+    subtractor.pars.inject_exceptions = 1
+    with pytest.raises(Exception) as excinfo:
+        ds = subtractor.run(decam_datastore)
+        ds.reraise()
+    assert "Exception injected by pipeline parameters in process 'subtraction'." in str(excinfo.value)
+    ds.read_exception()

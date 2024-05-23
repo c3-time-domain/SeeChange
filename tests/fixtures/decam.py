@@ -208,15 +208,10 @@ def decam_exposure(decam_filename, data_dir):
     exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
 
     with SmartSession() as session:
-        # first try to recover an existing exposure
-        exposure = session.scalars(sa.select(Exposure).where(Exposure.filepath == filename)).first()
-        if exposure is None:
-            exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
-            exposure.save()  # save to archive and get an MD5 sum
+        exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
+        exposure.save()  # save to archive and get an MD5 sum
 
-            exposure.provenance = session.merge(exposure.provenance)
-            session.add(exposure)
-            session.commit()
+        exposure = exposure.merge_concurrent(session)  # also commits the session
 
     yield exposure
 

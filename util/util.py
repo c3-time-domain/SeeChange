@@ -377,3 +377,15 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
             hdul.writeto(full_name, overwrite=overwrite)
 
         return str( full_name )
+
+
+def parse_bool(text):
+    """Check if a string of text that represents a boolean value is True or False."""
+    if text is None:
+        return False
+    elif text.lower() in ['true', 'yes', '1']:
+        return True
+    elif text.lower() in ['false', 'no', '0']:
+        return False
+    else:
+        raise ValueError(f'Cannot parse boolean value from "{text}"')

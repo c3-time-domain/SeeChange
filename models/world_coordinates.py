@@ -9,7 +9,7 @@ from astropy.wcs import WCS
 from astropy.io import fits
 from astropy.wcs import utils
 
-from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness
+from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.source_list import SourceList
 
@@ -101,13 +101,20 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
         self._wcs = value
         self.header_excerpt = value.to_header().tostring( sep='\n', padding=False )
 
+    def __init__(self, *args, **kwargs):
+        SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
+        self._wcs = None
+
+        # manually set all properties (columns or not)
+        self.set_attributes_from_dict(kwargs)
+
+    @orm.reconstructor
+    def init_on_load(self):
+        SeeChangeBase.init_on_load(self)
+
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
         return catalog_match_badness_inverse
-
-    def __init__( self, *args, **kwargs ):
-        super().__init__( *args, **kwargs )
-        self._wcs = None
 
     @orm.reconstructor
     def init_on_load( self ):

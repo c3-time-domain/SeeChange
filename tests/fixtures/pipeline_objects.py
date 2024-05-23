@@ -29,6 +29,7 @@ from pipeline.coaddition import Coadder
 from pipeline.subtraction import Subtractor
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
+from pipeline.top_level import Pipeline
 
 from util.logger import SCLogger
 
@@ -171,7 +172,7 @@ def detector_factory(test_config):
         det.pars.test_parameter = det.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
         )
-        det.pars._enforce_no_new_attrs = False
+        det.pars._enforce_no_new_attrs = True
 
         return det
 
@@ -192,7 +193,7 @@ def cutter_factory(test_config):
         cut.pars.test_parameter = cut.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
         )
-        cut.pars._enforce_no_new_attrs = False
+        cut.pars._enforce_no_new_attrs = True
 
         return cut
 
@@ -213,7 +214,7 @@ def measurer_factory(test_config):
         meas.pars.test_parameter = meas.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
         )
-        meas.pars._enforce_no_new_attrs = False
+        meas.pars._enforce_no_new_attrs = True
 
         return meas
 
@@ -226,8 +227,7 @@ def measurer(measurer_factory):
 
 
 @pytest.fixture(scope='session')
-def datastore_factory(
-        data_dir,
+def pipeline_factory(
         preprocessor_factory,
         extractor_factory,
         astrometor_factory,
@@ -236,8 +236,30 @@ def datastore_factory(
         detector_factory,
         cutter_factory,
         measurer_factory,
-
+        test_config,
 ):
+    def make_pipeline():
+        p = Pipeline(**test_config.value('pipeline'))
+        p.preprocessor = preprocessor_factory()
+        p.extractor = extractor_factory()
+        p.astro_cal = astrometor_factory()
+        p.photo_cal = photometor_factory()
+        p.subtractor = subtractor_factory()
+        p.detector = detector_factory()
+        p.cutter = cutter_factory()
+        p.measurer = measurer_factory()
+        return p
+
+    return make_pipeline
+
+
+@pytest.fixture
+def pipeline_for_tests(pipeline_factory):
+    return pipeline_factory()
+
+
+@pytest.fixture(scope='session')
+def datastore_factory(data_dir, pipeline_factory):
     """Provide a function that returns a datastore with all the products based on the given exposure and section ID.
 
     To use this data store in a test where new data is to be generated,
@@ -265,38 +287,11 @@ def datastore_factory(
         if cache_dir is not None and cache_base_name is not None:
             ds.cache_base_name = os.path.join(cache_dir, cache_base_name)  # save this for testing purposes
 
+        p = pipeline_factory()
+
         # allow calling scope to override/augment parameters for any of the processing steps
-        preprocessor = preprocessor_factory()
-        preprocessor.pars.override(overrides.get('preprocessing', {}))
-        preprocessor.pars.augment(augments.get('preprocessing', {}))
-
-        extractor = extractor_factory()
-        extractor.pars.override(overrides.get('extraction', {}))
-        extractor.pars.augment(augments.get('extraction', {}))
-
-        astrometor = astrometor_factory()
-        astrometor.pars.override(overrides.get('astro_cal', {}))
-        astrometor.pars.augment(augments.get('astro_cal', {}))
-
-        photometor = photometor_factory()
-        photometor.pars.override(overrides.get('photo_cal', {}))
-        photometor.pars.augment(augments.get('photo_cal', {}))
-
-        subtractor = subtractor_factory()
-        subtractor.pars.override(overrides.get('subtraction', {}))
-        subtractor.pars.augment(augments.get('subtraction', {}))
-
-        detector = detector_factory()
-        detector.pars.override(overrides.get('detection', {}))
-        detector.pars.augment(augments.get('detection', {}))
-
-        cutter = cutter_factory()
-        cutter.pars.override(overrides.get('cutting', {}))
-        cutter.pars.augment(augments.get('cutting', {}))
-
-        measurer = measurer_factory()
-        measurer.pars.override(overrides.get('measurement', {}))
-        measurer.pars.augment(augments.get('measurement', {}))
+        p.override_parameters(**overrides)
+        p.augment_parameters(**augments)
 
         with SmartSession(session) as session:
             code_version = session.merge(code_version)
@@ -319,7 +314,7 @@ def datastore_factory(
 
                     # add the preprocessing steps from instrument (TODO: remove this as part of Issue #142)
                     preprocessing_steps = ds.image.instrument_object.preprocessing_steps
-                    prep_pars = preprocessor.pars.get_critical_pars()
+                    prep_pars = p.preprocessor.pars.get_critical_pars()
                     prep_pars['preprocessing_steps'] = preprocessing_steps
 
                     upstreams = [ds.exposure.provenance] if ds.exposure is not None else []  # images without exposure
@@ -351,7 +346,7 @@ def datastore_factory(
 
             if ds.image is None:  # make the preprocessed image
                 SCLogger.debug('making preprocessed image. ')
-                ds = preprocessor.run(ds)
+                ds = p.preprocessor.run(ds)
                 ds.image.provenance.is_testing = True
                 if bad_pixel_map is not None:
                     ds.image.flags |= bad_pixel_map
@@ -400,7 +395,7 @@ def datastore_factory(
                     code_version=code_version,
                     process='extraction',
                     upstreams=[ds.image.provenance],
-                    parameters=extractor.pars.get_critical_pars(),
+                    parameters=p.extractor.pars.get_critical_pars(),
                     is_testing=True,
                 )
                 prov = session.merge(prov)
@@ -461,7 +456,7 @@ def datastore_factory(
 
             if ds.sources is None or ds.psf is None:  # make the source list from the regular image
                 SCLogger.debug('extracting sources. ')
-                ds = extractor.run(ds)
+                ds = p.extractor.run(ds)
                 ds.sources.save()
                 ds.sources.copy_to_cache(cache_dir)
                 ds.psf.save(overwrite=True)
@@ -480,7 +475,7 @@ def datastore_factory(
                         code_version=code_version,
                         process='astro_cal',
                         upstreams=[ds.sources.provenance],
-                        parameters=astrometor.pars.get_critical_pars(),
+                        parameters=p.astro_cal.pars.get_critical_pars(),
                         is_testing=True,
                     )
                     prov = session.merge(prov)
@@ -508,7 +503,7 @@ def datastore_factory(
 
             if ds.wcs is None:  # make the WCS
                 SCLogger.debug('Running astrometric calibration')
-                ds = astrometor.run(ds)
+                ds = p.astro_cal.run(ds)
                 if cache_dir is not None and cache_base_name is not None:
                     # must provide a name because this one isn't a FileOnDiskMixin
                     output_path = ds.wcs.copy_to_cache(cache_dir, cache_name)
@@ -525,8 +520,8 @@ def datastore_factory(
                     prov = Provenance(
                         code_version=code_version,
                         process='photo_cal',
-                        upstreams=[ds.sources.provenance],
-                        parameters=photometor.pars.get_critical_pars(),
+                        upstreams=[ds.sources.provenance, ds.wcs.provenance],
+                        parameters=p.photo_cal.pars.get_critical_pars(),
                         is_testing=True,
                     )
                     prov = session.merge(prov)
@@ -554,7 +549,7 @@ def datastore_factory(
 
             if ds.zp is None:  # make the zero point
                 SCLogger.debug('Running photometric calibration')
-                ds = photometor.run(ds)
+                ds = p.photo_cal.run(ds)
                 if cache_dir is not None and cache_base_name is not None:
                     output_path = ds.zp.copy_to_cache(cache_dir, cache_name)
                     if output_path != cache_path:
@@ -584,7 +579,7 @@ def datastore_factory(
                         ref.wcs.provenance,
                         ref.zp.provenance,
                     ],
-                    parameters=subtractor.pars.get_critical_pars(),
+                    parameters=p.subtractor.pars.get_critical_pars(),
                     is_testing=True,
                 )
                 sub_im = Image.from_new_and_ref(ds.image, ref.image)
@@ -594,19 +589,110 @@ def datastore_factory(
                 if os.path.isfile(os.path.join(cache_dir, cache_name)):
                     SCLogger.debug('loading subtraction image from cache. ')
                     ds.sub_image = Image.copy_from_cache(cache_dir, cache_name)
+
                     ds.sub_image.provenance = prov
                     ds.sub_image.upstream_images.append(ref.image)
                     ds.sub_image.ref_image_id = ref.image_id
                     ds.sub_image.new_image = ds.image
                     ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
-            if ds.sub_image is None:  # no hit in the cache
-                ds = subtractor.run(ds)
 
+                    # try to load the aligned images from cache
+                    prov_aligned_ref = Provenance(
+                        code_version=code_version,
+                        parameters={
+                            'method': 'swarp',
+                            'to_index': 'new',
+                            'max_arcsec_residual': 0.2,
+                            'crossid_radius': 2.0,
+                            'max_sources_to_use': 2000,
+                            'min_frac_matched': 0.1,
+                            'min_matched': 10,
+                        },
+                        upstreams=[
+                            ds.image.provenance,
+                            ds.sources.provenance,  # this also includes the PSF's provenance
+                            ds.wcs.provenance,
+                            ds.ref_image.provenance,
+                            ds.ref_image.sources.provenance,
+                            ds.ref_image.wcs.provenance,
+                            ds.ref_image.zp.provenance,
+                        ],
+                        process='alignment',
+                        is_testing=True,
+                    )
+                    # TODO: can we find a less "hacky" way to do this?
+                    f = ref.image.invent_filepath()
+                    f = f.replace('ComSci', 'Warped')  # not sure if this or 'Sci' will be in the filename
+                    f = f.replace('Sci', 'Warped')     # in any case, replace it with 'Warped'
+                    f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
+                    filename_aligned_ref = f
+
+                    prov_aligned_new = Provenance(
+                        code_version=code_version,
+                        parameters=prov_aligned_ref.parameters,
+                        upstreams=[
+                            ds.image.provenance,
+                            ds.sources.provenance,  # this also includes the PSF's provenance
+                            ds.wcs.provenance,
+                            ds.zp.provenance,
+                        ],
+                        process='alignment',
+                        is_testing=True,
+                    )
+                    f = ds.sub_image.new_image.invent_filepath()
+                    f = f.replace('ComSci', 'Warped')
+                    f = f.replace('Sci', 'Warped')
+                    f = f[:-6] + prov_aligned_new.id[:6]
+                    filename_aligned_new = f
+
+                    cache_name_ref = filename_aligned_ref + '.fits.json'
+                    cache_name_new = filename_aligned_new + '.fits.json'
+                    if (
+                            os.path.isfile(os.path.join(cache_dir, cache_name_ref)) and
+                            os.path.isfile(os.path.join(cache_dir, cache_name_new))
+                    ):
+                        SCLogger.debug('loading aligned reference image from cache. ')
+                        image_aligned_ref = Image.copy_from_cache(cache_dir, cache_name)
+                        image_aligned_ref.provenance = prov_aligned_ref
+                        image_aligned_ref.info['original_image_id'] = ds.ref_image_id
+                        image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
+                        image_aligned_ref.save(verify_md5=False, no_archive=True)
+                        # TODO: should we also load the aligned image's sources, PSF, and ZP?
+
+                        SCLogger.debug('loading aligned new image from cache. ')
+                        image_aligned_new = Image.copy_from_cache(cache_dir, cache_name)
+                        image_aligned_new.provenance = prov_aligned_new
+                        image_aligned_new.info['original_image_id'] = ds.image_id
+                        image_aligned_new.info['original_image_filepath'] = ds.image.filepath
+                        image_aligned_new.save(verify_md5=False, no_archive=True)
+                        # TODO: should we also load the aligned image's sources, PSF, and ZP?
+
+                        if image_aligned_ref.mjd < image_aligned_new.mjd:
+                            ds.sub_image._aligned_images = [image_aligned_ref, image_aligned_new]
+                        else:
+                            ds.sub_image._aligned_images = [image_aligned_new, image_aligned_ref]
+
+            if ds.sub_image is None:  # no hit in the cache
+                ds = p.subtractor.run(ds)
+                ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
+                ds.sub_image.copy_to_cache(cache_dir)
+
+            # make sure that the aligned images get into the cache, too
+            if (
+                    'cache_name_ref' in locals() and
+                    os.path.isfile(os.path.join(cache_dir, cache_name_ref)) and
+                    'cache_name_new' in locals() and
+                    os.path.isfile(os.path.join(cache_dir, cache_name_new))
+            ):
+                for im in ds.sub_image.aligned_images:
+                    im.copy_to_cache(cache_dir)
+
+            ############ detecting to create a source list ############
             prov = Provenance(
                 code_version=code_version,
                 process='detection',
                 upstreams=[ds.sub_image.provenance],
-                parameters=detector.pars.get_critical_pars(),
+                parameters=p.detector.pars.get_critical_pars(),
                 is_testing=True,
             )
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.sources_{prov.id[:6]}.npy.json')
@@ -618,15 +704,16 @@ def datastore_factory(
                 ds.sub_image.sources = ds.detections
                 ds.detections.save(verify_md5=False)
             else:  # cannot find detections on cache
-                ds = detector.run(ds)
+                ds = p.detector.run(ds)
                 ds.detections.save(verify_md5=False)
                 ds.detections.copy_to_cache(cache_dir, cache_name)
 
+            ############ cutting to create cutouts ############
             prov = Provenance(
                 code_version=code_version,
                 process='cutting',
                 upstreams=[ds.detections.provenance],
-                parameters=cutter.pars.get_critical_pars(),
+                parameters=p.cutter.pars.get_critical_pars(),
                 is_testing=True,
             )
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.cutouts_{prov.id[:6]}.h5')
@@ -638,15 +725,16 @@ def datastore_factory(
                 [setattr(c, 'sources', ds.detections) for c in ds.cutouts]
                 Cutouts.save_list(ds.cutouts)  # make sure to save to archive as well
             else:  # cannot find cutouts on cache
-                ds = cutter.run(ds)
+                ds = p.cutter.run(ds)
                 Cutouts.save_list(ds.cutouts)
                 Cutouts.copy_list_to_cache(ds.cutouts, cache_dir)
 
+            ############ measuring to create measurements ############
             prov = Provenance(
                 code_version=code_version,
                 process='measuring',
                 upstreams=[ds.cutouts[0].provenance],
-                parameters=measurer.pars.get_critical_pars(),
+                parameters=p.measurer.pars.get_critical_pars(),
                 is_testing=True,
             )
 
@@ -661,7 +749,7 @@ def datastore_factory(
                 [m.associate_object(session) for m in ds.measurements]  # create or find an object for each measurement
                 # no need to save list because Measurements is not a FileOnDiskMixin!
             else:  # cannot find measurements on cache
-                ds = measurer.run(ds)
+                ds = p.measurer.run(ds)
                 Measurements.copy_list_to_cache(ds.all_measurements, cache_dir, cache_name)  # must provide filepath!
 
             ds.save_and_commit(session=session)

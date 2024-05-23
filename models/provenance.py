@@ -1,3 +1,4 @@
+import time
 import json
 import base64
 import hashlib
@@ -5,6 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
 
 from util.util import get_git_hash
 
@@ -338,6 +340,32 @@ class Provenance(Base):
                 code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion.id.desc())).first()
         return code_version
 
+    def merge_concurrent(self, session=None, commit=True):
+        """Merge the provenance but make sure it doesn't exist before adding it to the database.
+
+        If between the time we check if the provenance exists and the time it is merged,
+        another process has added the same provenance, we will get an integrity error.
+        This is expected under the assumptions of "optimistic concurrency".
+        If that happens, we simply begin again, checking for the provenance and merging it.
+        """
+        output = None
+        with SmartSession(session) as session:
+            for i in range(5):
+                try:
+                    output = session.merge(self)
+                    if commit:
+                        session.commit()
+                    break
+                except IntegrityError as e:
+                    if 'duplicate key value violates unique constraint "pk_provenances"' in str(e):
+                        session.rollback()
+                        time.sleep(0.1 * 2 ** i)  # exponential sleep
+                    else:
+                        raise e
+            else:  # if we didn't break out of the loop, there must have been some integrity error
+                raise e
+
+        return output
 
 @event.listens_for(Provenance, "before_insert")
 def insert_new_dataset(mapper, connection, target):

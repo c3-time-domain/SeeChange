@@ -1,3 +1,4 @@
+import os
 import time
 import numpy as np
 
@@ -5,14 +6,14 @@ from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
 from models.base import SmartSession
-from models.provenance import Provenance
 from models.image import Image
 
 from improc.zogy import zogy_subtract, zogy_add_weights_flags
 from improc.inpainting import Inpainter
-
 from improc.alignment import ImageAligner
 from improc.tools import sigma_clipping
+
+from util.util import parse_bool
 
 
 class ParsSubtractor(Parameters):
@@ -235,96 +236,114 @@ class Subtractor:
         Returns a DataStore object with the products of the processing.
         """
         self.has_recalculated = False
-        ds, session = DataStore.from_args(*args, **kwargs)
+        try:  # first make sure we get back a datastore, even an empty one
+            ds, session = DataStore.from_args(*args, **kwargs)
+        except Exception as e:
+            return DataStore.catch_failure_to_parse(e, *args)
 
-        # get the provenance for this step:
-        with SmartSession(session) as session:
-            prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+        try:
+            t_start = time.perf_counter()
+            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                import tracemalloc
+                tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-            # look for a reference that has to do with the current image
-            ref = ds.get_reference(session=session)
-            if ref is None:
-                raise ValueError(
-                    f'Cannot find a reference image corresponding to the datastore inputs: {ds.get_inputs()}'
-                )
+            self.pars.do_warning_exception_hangup_injection_here()
 
-            # manually replace the "reference" provenances with the reference image and its products
-            upstreams = prov.upstreams
-            upstreams = [x for x in upstreams if x.process != 'reference']  # remove reference provenance
-            upstreams.append(ref.image.provenance)
-            upstreams.append(ref.sources.provenance)
-            upstreams.append(ref.psf.provenance)
-            upstreams.append(ref.wcs.provenance)
-            upstreams.append(ref.zp.provenance)
-            prov.upstreams = upstreams  # must re-assign to make sure list items are unique
-            prov.update_id()
-            prov = session.merge(prov)
-            sub_image = ds.get_subtraction(prov, session=session)
+            # get the provenance for this step:
+            with SmartSession(session) as session:
+                prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
 
-            if sub_image is None:
-                self.has_recalculated = True
-                # use the latest image in the data store,
-                # or load using the provenance given in the
-                # data store's upstream_provs, or just use
-                # the most recent provenance for "preprocessing"
-                image = ds.get_image(session=session)
-                if image is None:
-                    raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
+                # look for a reference that has to do with the current image
+                ref = ds.get_reference(session=session)
+                if ref is None:
+                    raise ValueError(
+                        f'Cannot find a reference image corresponding to the datastore inputs: {ds.get_inputs()}'
+                    )
 
-                sub_image = Image.from_ref_and_new(ref.image, image)
-                sub_image.is_sub = True
-                sub_image.provenance = prov
-                sub_image.provenance_id = prov.id
-                sub_image.coordinates_to_alignment_target()  # make sure the WCS is aligned to the correct image
+                # manually replace the "reference" provenances with the reference image and its products
+                upstreams = prov.upstreams
+                upstreams = [x for x in upstreams if x.process != 'reference']  # remove reference provenance
+                upstreams.append(ref.image.provenance)
+                upstreams.append(ref.sources.provenance)
+                upstreams.append(ref.psf.provenance)
+                upstreams.append(ref.wcs.provenance)
+                upstreams.append(ref.zp.provenance)
+                prov.upstreams = upstreams  # must re-assign to make sure list items are unique
+                prov.update_id()
+                prov = session.merge(prov)
+                sub_image = ds.get_subtraction(prov, session=session)
 
-                # make sure to grab the correct aligned images
-                new_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.new_image.mjd]
-                if len(new_image) != 1:
-                    raise ValueError('Cannot find the new image in the aligned images')
-                new_image = new_image[0]
+                if sub_image is None:
+                    self.has_recalculated = True
+                    # use the latest image in the data store,
+                    # or load using the provenance given in the
+                    # data store's upstream_provs, or just use
+                    # the most recent provenance for "preprocessing"
+                    image = ds.get_image(session=session)
+                    if image is None:
+                        raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
 
-                ref_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.ref_image.mjd]
-                if len(ref_image) != 1:
-                    raise ValueError('Cannot find the reference image in the aligned images')
-                ref_image = ref_image[0]
+                    sub_image = Image.from_ref_and_new(ref.image, image)
+                    sub_image.is_sub = True
+                    sub_image.provenance = prov
+                    sub_image.provenance_id = prov.id
+                    sub_image.coordinates_to_alignment_target()  # make sure the WCS is aligned to the correct image
 
-                if self.pars.method == 'naive':
-                    outdict = self._subtract_naive(new_image, ref_image)
-                elif self.pars.method == 'hotpants':
-                    outdict = self._subtract_hotpants(new_image, ref_image)
-                elif self.pars.method == 'zogy':
-                    outdict = self._subtract_zogy(new_image, ref_image)
-                else:
-                    raise ValueError(f'Unknown subtraction method {self.pars.method}')
+                    # make sure to grab the correct aligned images
+                    new_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.new_image.mjd]
+                    if len(new_image) != 1:
+                        raise ValueError('Cannot find the new image in the aligned images')
+                    new_image = new_image[0]
 
-                sub_image.data = outdict['outim']
-                sub_image.weight = outdict['outwt']
-                sub_image.flags = outdict['outfl']
-                if 'score' in outdict:
-                    sub_image.score = outdict['score']
-                if 'alpha' in outdict:
-                    sub_image.psfflux = outdict['alpha']
-                if 'alpha_err' in outdict:
-                    sub_image.psffluxerr = outdict['alpha_err']
-                if 'psf' in outdict:
-                    # TODO: clip the array to be a cutout around the PSF, right now it is same shape as image!
-                    sub_image.zogy_psf = outdict['psf']  # not saved but can be useful for testing / source detection
-                if 'alpha' in outdict and 'alpha_err' in outdict:
-                    sub_image.psfflux = outdict['alpha']
-                    sub_image.psffluxerr = outdict['alpha_err']
+                    ref_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.ref_image.mjd]
+                    if len(ref_image) != 1:
+                        raise ValueError('Cannot find the reference image in the aligned images')
+                    ref_image = ref_image[0]
 
-                sub_image.subtraction_output = outdict  # save the full output for debugging
-        
-        if sub_image._upstream_bitflag is None:
-            sub_image._upstream_bitflag = 0
-        sub_image._upstream_bitflag |= ds.sources.bitflag
-        sub_image._upstream_bitflag |= ds.image.bitflag
-        sub_image._upstream_bitflag |= ds.wcs.bitflag
-        sub_image._upstream_bitflag |= ds.zp.bitflag
-        if 'ref_image' in locals():
-            sub_image._upstream_bitflag |= ref_image.bitflag
-        
-        ds.sub_image = sub_image
+                    if self.pars.method == 'naive':
+                        outdict = self._subtract_naive(new_image, ref_image)
+                    elif self.pars.method == 'hotpants':
+                        outdict = self._subtract_hotpants(new_image, ref_image)
+                    elif self.pars.method == 'zogy':
+                        outdict = self._subtract_zogy(new_image, ref_image)
+                    else:
+                        raise ValueError(f'Unknown subtraction method {self.pars.method}')
 
-        # make sure this is returned to be used in the next step
-        return ds
+                    sub_image.data = outdict['outim']
+                    sub_image.weight = outdict['outwt']
+                    sub_image.flags = outdict['outfl']
+                    if 'score' in outdict:
+                        sub_image.score = outdict['score']
+                    if 'alpha' in outdict:
+                        sub_image.psfflux = outdict['alpha']
+                    if 'alpha_err' in outdict:
+                        sub_image.psffluxerr = outdict['alpha_err']
+                    if 'psf' in outdict:
+                        # TODO: clip the array to be a cutout around the PSF, right now it is same shape as image!
+                        sub_image.zogy_psf = outdict['psf']  # not saved but can be useful for testing / source detection
+                        if 'alpha' in outdict and 'alpha_err' in outdict:
+                            sub_image.psfflux = outdict['alpha']
+                            sub_image.psffluxerr = outdict['alpha_err']
+
+                    sub_image.subtraction_output = outdict  # save the full output for debugging
+
+            if sub_image._upstream_bitflag is None:
+                sub_image._upstream_bitflag = 0
+            sub_image._upstream_bitflag |= ds.sources.bitflag
+            sub_image._upstream_bitflag |= ds.image.bitflag
+            sub_image._upstream_bitflag |= ds.wcs.bitflag
+            sub_image._upstream_bitflag |= ds.zp.bitflag
+            if 'ref_image' in locals():
+                sub_image._upstream_bitflag |= ref_image.bitflag
+
+            ds.sub_image = sub_image
+
+            ds.runtimes['subtraction'] = time.perf_counter() - t_start
+            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                import tracemalloc
+                ds.memory_usages['subtraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+
+        except Exception as e:
+            ds.catch_exception(e)
+        finally:  # make sure datastore is returned to be used in the next step
+            return ds
