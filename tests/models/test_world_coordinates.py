@@ -147,7 +147,6 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
             wcobj2 = WorldCoordinates()
             wcobj2.load( txtpath=txtpath )
 
-            # breakpoint()
             assert wcobj2.wcs.to_header() == wcobj.wcs.to_header()
 
             session.commit()
