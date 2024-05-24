@@ -162,7 +162,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         header_txt = self.wcs.to_header().tostring(padding=False, sep='\\n' )
 
         if txtpath.exists():
-            if kwargs.get('overwrite', True) == False:
+            if not kwargs.get('overwrite', True):
                 # raise the error if overwrite is explicitly set False
                 raise FileExistsError( f"{txtpath} already exists, cannot save." )
 
@@ -184,7 +184,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         if txtpath is None:
             txtpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5)
 
-        if os.path.isfile(txtpath) == False:
+        if not os.path.isfile(txtpath):
             raise OSError(f'WCS file is missing at {txtpath}')
 
         with open( txtpath ) as ifp:
