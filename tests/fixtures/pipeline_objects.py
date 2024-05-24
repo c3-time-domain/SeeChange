@@ -478,7 +478,6 @@ def datastore_factory(data_dir, pipeline_factory):
                 if os.path.isfile(cache_path):
                     SCLogger.debug('loading WCS from cache. ')
                     ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
-                    ds.wcs.load() # TODO COME BACK TO THIS, MAYBE UNNECESSARY
                     prov = session.merge(prov)
 
                     # check if WCS already exists on the database
@@ -502,8 +501,7 @@ def datastore_factory(data_dir, pipeline_factory):
                     ds.wcs.provenance = prov
                     ds.wcs.sources = ds.sources
                     # make sure this is saved to the archive as well
-                    ds.wcs.save(verify_md5=False, overwrite=True) #copied this from above in PSF
-                                                                  # ...are these arguments good?
+                    ds.wcs.save(verify_md5=False, overwrite=True)
 
             if ds.wcs is None:  # make the WCS
                 SCLogger.debug('Running astrometric calibration')

@@ -1,5 +1,6 @@
 import pathlib
 import numpy as np
+import os
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -145,22 +146,23 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         # if not, generate one
         else:
+            if self.provenance is None:
+                raise RuntimeError("Can't invent a filepath for the WCS without a provenance")
+            
             if self.image.filepath is not None:
                 self.filepath = self.image.filepath
             else:
                 self.filepath = self.image.invent_filepath()
 
-            if self.provenance is None:
-                raise RuntimeError("Can't invent a filepath for the WCS without a provenance")
             self.filepath += f'.wcs_{self.provenance.id[:6]}.txt'
 
-        txtpath = pathlib.Path( self.local_path ) / f'{self.filepath}'
+        txtpath = pathlib.Path( self.local_path ) / self.filepath
 
         # ----- Get the header string to save and save ----- #
         header_txt = self.wcs.to_header().tostring(padding=False, sep='\\n' )
 
         if txtpath.exists():
-            if ( 'overwrite' in kwargs and not kwargs['overwrite'] ):
+            if kwargs.get('overwrite', True) == False:
                 # raise the error if overwrite is explicitly set False
                 raise FileExistsError( f"{txtpath} already exists, cannot save." )
 
@@ -182,8 +184,8 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         if txtpath is None:
             txtpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5)
 
-        if txtpath is None:
-            raise ValueError("WCS object has no filepath locally or in archive.")
+        if os.path.isfile(txtpath) == False:
+            raise OSError(f'WCS file is missing at {txtpath}')
 
         with open( txtpath ) as ifp:
             headertxt = ifp.read()

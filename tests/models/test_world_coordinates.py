@@ -1,6 +1,6 @@
 import pytest
 import hashlib
-
+import os
 import pathlib
 
 import sqlalchemy as sa
@@ -62,7 +62,7 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
                 upstreams=[provenance_extra],
                 is_testing=True,
             )
-            wcobj.save() # This is ok here vs in session, right?
+            wcobj.save()
 
             session.add(wcobj)
             session.commit()
@@ -83,10 +83,7 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
             session.rollback()
 
             # ensure you cannot overwrite when explicitly setting overwrite=False
-            with pytest.raises(
-                OSError,
-                match=".txt already exists"
-            ):
+            with pytest.raises( OSError, match=".txt already exists" ):
                 wcobj2.save(overwrite=False)
 
             # if we change any of the provenance parameters we should be able to save it
@@ -144,6 +141,14 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
             wcobj.save()
 
             txtpath = pathlib.Path( wcobj.local_path ) / f'{wcobj.filepath}'
+
+            # check for an error if the file is not found when loading
+            os.remove(txtpath)
+            with pytest.raises( OSError, match="file is missing" ):
+                wcobj.load()
+            
+            # ensure you can create an identical wcs from a saved one
+            wcobj.save()
             wcobj2 = WorldCoordinates()
             wcobj2.load( txtpath=txtpath )
 
