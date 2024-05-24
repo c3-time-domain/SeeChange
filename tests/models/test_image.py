@@ -1365,7 +1365,7 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     # make sure the files are there
     local_files = []
     archive_files = []
-    for obj in [im, im.psf, im.sources]:  # TODO: add WCS when it becomes a FileOnDiskMixin
+    for obj in [im, im.psf, im.sources, im.wcs]:
         for file in obj.get_fullpath(as_list=True):
             archive_file = file[len(obj.local_path)+1:]  # grap the end of the path only
             archive_file = os.path.join(archive.test_folder_path, archive_file)  # prepend the archive path

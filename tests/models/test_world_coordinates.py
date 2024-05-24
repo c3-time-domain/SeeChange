@@ -1,5 +1,7 @@
 import pytest
 import hashlib
+import os
+import pathlib
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +16,7 @@ from models.world_coordinates import WorldCoordinates
 
 def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
     image = ztf_datastore_uncommitted.image
+    image.instrument = 'DECam' # hack - otherwise invent_filepath will not work as 'ZTF' is not an Instrument
     hdr = image.header
 
     origwcs = WCS( hdr )
@@ -23,14 +26,15 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
 
     wcobj = WorldCoordinates()
     wcobj.wcs = origwcs
-    md5 = hashlib.md5( wcobj.header_excerpt.encode('ascii') )
+    header_excerpt = wcobj.wcs.to_header().tostring( sep='\n', padding=False)
+    md5 = hashlib.md5( header_excerpt.encode('ascii') )
     assert md5.hexdigest() == 'a13d6bdd520c5a0314dc751025a62619'
 
     # Make sure that we can construct a WCS from a WorldCoordinates
 
-    hdrkws = wcobj.header_excerpt
+    old_wcs = wcobj.wcs
     wcobj = WorldCoordinates()
-    wcobj.header_excerpt = hdrkws
+    wcobj.wcs = old_wcs
     scs = wcobj.wcs.pixel_to_world( [ 0, 0, 1024, 1024 ], [ 0, 1024, 0, 1024 ] )
     for sc, origsc in zip( scs, origscs ):
         assert sc.ra.value == pytest.approx( origsc.ra.value, abs=0.01/3600. )
@@ -58,17 +62,17 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
                 upstreams=[provenance_extra],
                 is_testing=True,
             )
+            wcobj.save()
 
-            # TODO: will need to save the WCS object if we turn it into a FileOnDiskMixin
             session.add(wcobj)
-
             session.commit()
 
             # add a second WCS object and make sure we cannot accidentally commit it, too
             wcobj2 = WorldCoordinates()
-            wcobj2.header_excerpt = hdrkws
+            wcobj2.wcs = old_wcs
             wcobj2.sources = image.sources
             wcobj2.provenance = wcobj.provenance
+            wcobj2.save() # overwrite the save of wcobj
 
             with pytest.raises(
                     IntegrityError,
@@ -78,6 +82,10 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
                 session.commit()
             session.rollback()
 
+            # ensure you cannot overwrite when explicitly setting overwrite=False
+            with pytest.raises( OSError, match=".txt already exists" ):
+                wcobj2.save(overwrite=False)
+
             # if we change any of the provenance parameters we should be able to save it
             wcobj2.provenance = Provenance(
                 process='test_world_coordinates',
@@ -86,6 +94,8 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
                 upstreams=[provenance_extra],
                 is_testing=True,
             )
+            wcobj2.save(overwrite=False)
+
             session.add(wcobj2)
             session.commit()
 
@@ -107,3 +117,47 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
 
             if 'image' in locals():
                 image.delete_from_disk_and_database(session=session, commit=True)
+
+
+def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenance_extra):
+    image = ztf_datastore_uncommitted.image
+    image.instrument = 'DECam' # otherwise invent_filepath will not work as 'ZTF' is not an Instrument
+    hdr = image.header
+
+    origwcs = WCS( hdr )
+    wcobj = WorldCoordinates()
+    wcobj.wcs = origwcs
+    wcobj.sources = image.sources
+    wcobj.provenance = Provenance(
+                process='test_world_coordinates',
+                code_version=provenance_base.code_version,
+                parameters={'test_parameter': 'test_value'},
+                upstreams=[provenance_extra],
+                is_testing=True,
+            )
+
+    with SmartSession() as session:
+        try:
+            wcobj.save()
+
+            txtpath = pathlib.Path( wcobj.local_path ) / f'{wcobj.filepath}'
+
+            # check for an error if the file is not found when loading
+            os.remove(txtpath)
+            with pytest.raises( OSError, match="file is missing" ):
+                wcobj.load()
+            
+            # ensure you can create an identical wcs from a saved one
+            wcobj.save()
+            wcobj2 = WorldCoordinates()
+            wcobj2.load( txtpath=txtpath )
+
+            assert wcobj2.wcs.to_header() == wcobj.wcs.to_header()
+
+            session.commit()
+
+        finally:
+            if "wcobj" in locals():
+                wcobj.delete_from_disk_and_database(session=session)
+            if "wcobj2" in locals():
+                wcobj2.delete_from_disk_and_database(session=session)

@@ -1,4 +1,6 @@
+import pathlib
 import numpy as np
+import os
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -14,42 +16,11 @@ from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.source_list import SourceList
 
 
-class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
+class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'world_coordinates'
 
     __table_args__ = (
         UniqueConstraint('sources_id', 'provenance_id', name='_wcs_sources_provenance_uc'),
-    )
-
-    # This is a little profligate.  There will eventually be millions of
-    # images, which means that there will be gigabytes of header data
-    # stored in the relational database.  (One header excerpt is about
-    # 4k.)  It's not safe to assume we know exactly what keywords
-    # astropy.wcs.WCS will produce, as there may be new FITS standard
-    # extensions etc., and astropy doesn't document the keywords.
-    #
-    # Another option would be to parse all the keywords into a dict of {
-    # string: (float or string) } and store them as a JSONB; that would
-    # reduce the size pretty substantially, but it would still be
-    # roughly a KB for each header, so the consideration is similar.
-    # (It's also more work to implement....)
-    #
-    # Yet another option is to store the WCS in an external file, but
-    # now we're talking something awfully small (a few kB) for this HPC
-    # filesystems.
-    #
-    # Even yet another option that we won't do short term because it's
-    # WAY too much effort is to have an additional nosql database of
-    # some sort that is designed for document storage (which really is
-    # what this is here).
-    #
-    # For now, we'll be profliate with the database, and hope we don't
-    # regret it later.
-    header_excerpt = sa.Column(
-        sa.Text,
-        nullable=False,
-        index=False,
-        doc="Text that containts FITS header cards (ASCII, \n-separated) with the header that defines this WCS"
     )
 
     sources_id = sa.Column(
@@ -63,6 +34,7 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
         'SourceList',
         cascade='save-update, merge, refresh-expire, expunge',
         passive_deletes=True,
+        lazy='selectin',
         doc="The source list this world coordinate system is associated with. "
     )
 
@@ -92,25 +64,21 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
 
     @property
     def wcs( self ):
-        if self._wcs is None:
-            self._wcs = WCS( fits.Header.fromstring( self.header_excerpt, sep='\n' ) )
+        if self._wcs is None and self.filepath is not None:
+            self.load()
         return self._wcs
 
     @wcs.setter
     def wcs( self, value ):
         self._wcs = value
-        self.header_excerpt = value.to_header().tostring( sep='\n', padding=False )
 
     def __init__(self, *args, **kwargs):
-        SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
+        FileOnDiskMixin.__init__( self, **kwargs )
+        SeeChangeBase.__init__( self )
         self._wcs = None
 
         # manually set all properties (columns or not)
         self.set_attributes_from_dict(kwargs)
-
-    @orm.reconstructor
-    def init_on_load(self):
-        SeeChangeBase.init_on_load(self)
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
@@ -118,7 +86,8 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
 
     @orm.reconstructor
     def init_on_load( self ):
-        Base.init_on_load( self )
+        SeeChangeBase.init_on_load( self )
+        FileOnDiskMixin.init_on_load( self )
         self._wcs = None
 
     def get_pixel_scale(self):
@@ -152,4 +121,73 @@ class WorldCoordinates(Base, AutoIDMixin, HasBitFlagBadness):
 
         downstreams = zps + subs
         return downstreams
+
+    def save( self, filename=None, **kwargs ):
+        """Write the WCS data to disk.
+        Updates self.filepath
+        Parameters
+        ----------
+          filename: str or path
+             The path to the file to write, relative to the local store
+             root.  Do not include the extension (e.g. '.psf') at the
+             end of the name; that will be added automatically.
+             If None, will call image.invent_filepath() to get a
+             filestore-standard filename and directory.
+          Additional arguments are passed on to FileOnDiskMixin.save
+        """ 
+
+        # ----- Make sure we have a path ----- #
+        # if filename already exists, check it is correct and use
+
+        if filename is not None:
+            if not filename.endswith('.txt'):
+                filename += '.txt'
+            self.filepath = filename
+
+        # if not, generate one
+        else:
+            if self.provenance is None:
+                raise RuntimeError("Can't invent a filepath for the WCS without a provenance")
+            
+            if self.image.filepath is not None:
+                self.filepath = self.image.filepath
+            else:
+                self.filepath = self.image.invent_filepath()
+
+            self.filepath += f'.wcs_{self.provenance.id[:6]}.txt'
+
+        txtpath = pathlib.Path( self.local_path ) / self.filepath
+
+        # ----- Get the header string to save and save ----- #
+        header_txt = self.wcs.to_header().tostring(padding=False, sep='\\n' )
+
+        if txtpath.exists():
+            if not kwargs.get('overwrite', True):
+                # raise the error if overwrite is explicitly set False
+                raise FileExistsError( f"{txtpath} already exists, cannot save." )
+
+        with open( txtpath, "w") as ofp:
+            ofp.write( header_txt )
+
+        # ----- Write to the archive ----- #
+        FileOnDiskMixin.save( self, txtpath, **kwargs )
+
+    def load( self, download=True, always_verify_md5=False, txtpath=None ):
+        """Load this wcs from the file.
+        updates self.wcs.
+        Parameters
+        ----------
+        txtpath: str, Path, or None
+            File to read. If None, will load the file returned by self.get_fullpath()
+        """
+
+        if txtpath is None:
+            txtpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5)
+
+        if not os.path.isfile(txtpath):
+            raise OSError(f'WCS file is missing at {txtpath}')
+
+        with open( txtpath ) as ifp:
+            headertxt = ifp.read()
+            self.wcs = WCS( fits.Header.fromstring( headertxt , sep='\\n' ))
     

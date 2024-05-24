@@ -466,18 +466,18 @@ def datastore_factory(data_dir, pipeline_factory):
 
             ############## astro_cal to create wcs ################
             if cache_dir is not None and cache_base_name is not None:
-                cache_name = cache_base_name + '.wcs.json'
-                cache_path = os.path.join(cache_dir, cache_name)
-                if os.path.isfile(cache_path):
-                    SCLogger.debug('loading WCS from cache. ')
-                    ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
-                    prov = Provenance(
+                prov = Provenance(
                         code_version=code_version,
                         process='astro_cal',
                         upstreams=[ds.sources.provenance],
                         parameters=p.astro_cal.pars.get_critical_pars(),
                         is_testing=True,
                     )
+                cache_name = f'{cache_base_name}.wcs_{prov.id[:6]}.txt.json'
+                cache_path = os.path.join(cache_dir, cache_name)
+                if os.path.isfile(cache_path):
+                    SCLogger.debug('loading WCS from cache. ')
+                    ds.wcs = WorldCoordinates.copy_from_cache(cache_dir, cache_name)
                     prov = session.merge(prov)
 
                     # check if WCS already exists on the database
@@ -500,13 +500,15 @@ def datastore_factory(data_dir, pipeline_factory):
 
                     ds.wcs.provenance = prov
                     ds.wcs.sources = ds.sources
+                    # make sure this is saved to the archive as well
+                    ds.wcs.save(verify_md5=False, overwrite=True)
 
             if ds.wcs is None:  # make the WCS
                 SCLogger.debug('Running astrometric calibration')
                 ds = p.astro_cal.run(ds)
+                ds.wcs.save()
                 if cache_dir is not None and cache_base_name is not None:
-                    # must provide a name because this one isn't a FileOnDiskMixin
-                    output_path = ds.wcs.copy_to_cache(cache_dir, cache_name)
+                    output_path = ds.wcs.copy_to_cache(cache_dir)
                     if output_path != cache_path:
                         warnings.warn(f'cache path {cache_path} does not match output path {output_path}')
 
