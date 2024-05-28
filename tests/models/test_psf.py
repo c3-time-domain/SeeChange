@@ -3,6 +3,7 @@ import io
 import os
 import psutil
 import gc
+import time
 import uuid
 import random
 import math
@@ -349,6 +350,8 @@ def test_free( decam_datastore ):
     ds.get_psf()
     proc = psutil.Process()
 
+    sleeptime = 0.5 # in seconds
+
     # Make sure memory is loaded
     _ = ds.image.data
     _ = ds.psf.data
@@ -361,6 +364,7 @@ def test_free( decam_datastore ):
 
     origmem = proc.memory_info()
     ds.psf.free()
+    time.sleep(sleeptime)
     assert ds.psf._data is None
     assert ds.psf._info is None
     assert ds.psf._header is None
@@ -378,6 +382,7 @@ def test_free( decam_datastore ):
 
     origmem = proc.memory_info()
     ds.image.free( free_derived_products=True )
+    time.sleep(sleeptime)
     assert ds.psf._data is None
     assert ds.psf._info is None
     assert ds.psf._header is None

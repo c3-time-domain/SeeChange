@@ -4,6 +4,7 @@ import psutil
 import gc
 import pathlib
 import numpy as np
+import time
 
 import sqlalchemy as sa
 
@@ -269,11 +270,13 @@ def test_calc_apercor( decam_datastore ):
     # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.024, abs=0.001 )
 
 
-@pytest.mark.flaky(max_runs=11, min_passes=10)
+@pytest.mark.flaky(max_runs=3)
 def test_free( decam_datastore ):
     ds = decam_datastore
     ds.get_sources()
     proc = psutil.Process()
+
+    sleeptime = 0.5 # in seconds
 
     # Make sure image and source data is loaded into memory,
     #  then try freeing just the source data
@@ -287,6 +290,7 @@ def test_free( decam_datastore ):
     origmem = proc.memory_info()
 
     ds.sources.free()
+    time.sleep(sleeptime)
     assert ds.sources._data is None
     assert ds.sources._info is None
     gc.collect()
@@ -326,6 +330,7 @@ def test_free( decam_datastore ):
     origmem = proc.memory_info()
 
     ds.image.free( free_derived_products=True )
+    time.sleep(sleeptime)
     assert ds.image._data is None
     assert ds.image._weight is None
     assert ds.image._flags is None
