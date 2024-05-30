@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 
 from astropy.time import Time
+from astropy.coordinates import SkyCoord
 
 from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, SpatiallyIndexed
 from models.measurements import Measurements
@@ -184,6 +185,75 @@ class Object(Base, AutoIDMixin, SpatiallyIndexed):
             output = [m for m in output if m.mjd <= mjd_end]
 
         return output
+
+    def get_mean_coordinates(self, sigma=3.0, iterations=3, measurement_list_kwargs=None):
+        """Get the mean coordinates of the object.
+
+        Uses the measurements that are loaded using the get_measurements_list method.
+        From these, central ra/dec are calculated, using an aperture flux weighted mean.
+        Outliers are removed based on the sigma/iterations parameters.
+
+        Parameters
+        ----------
+        sigma: float, optional
+            The sigma to use for the clipping of the measurements. Default is 3.0.
+        iterations: int, optional
+            The number of iterations to use for the clipping of the measurements. Default is 3.
+        measurement_list_kwargs: dict, optional
+            The keyword arguments to pass to the get_measurements_list method.
+
+        Returns
+        -------
+        float, float
+            The mean RA and Dec of the object.
+        """
+        measurements = self.get_measurements_list(**(measurement_list_kwargs or {}))
+
+        ra = np.array([m.ra for m in measurements])
+        dec = np.array([m.dec for m in measurements])
+        flux = np.array([m.flux for m in measurements])
+        fluxerr = np.array([m.flux_err for m in measurements])
+
+        good = np.isfinite(ra) & np.isfinite(dec) & np.isfinite(flux) & np.isfinite(fluxerr)
+        good &= flux > fluxerr * 3.0  # require a 3-sigma detection
+        # make sure that if one of these is bad, all are bad
+        ra[~good] = np.nan
+        dec[~good] = np.nan
+        flux[~good] = np.nan
+
+        points = SkyCoord(ra, dec, unit='deg')
+
+        ra_mean = np.nansum(ra * flux) / np.nansum(flux[good])
+        dec_mean = np.nansum(dec * flux) / np.nansum(flux[good])
+        center = SkyCoord(ra_mean, dec_mean, unit='deg')
+
+        num_good = np.sum(good)
+        if num_good < 3:
+            iterations = 0  # skip iterative step if too few points
+
+        # clip the measurements
+        for i in range(iterations):
+            # the 2D distance from the center
+            offsets = points.separation(center).arcsec
+
+            scatter = np.nansum(flux * offsets ** 2) / np.nansum(flux)
+            scatter *= num_good / (num_good - 1)
+            scatter = np.sqrt(scatter)
+
+            bad_idx = np.where(offsets > sigma * scatter)[0]
+            ra[bad_idx] = np.nan
+            dec[bad_idx] = np.nan
+            flux[bad_idx] = np.nan
+
+            num_good = np.sum(np.isfinite(flux))
+            if num_good < 3:
+                break
+
+            ra_mean = np.nansum(ra * flux) / np.nansum(flux)
+            dec_mean = np.nansum(dec * flux) / np.nansum(flux)
+            center = SkyCoord(ra_mean, dec_mean, unit='deg')
+
+        return ra_mean, dec_mean
 
     @staticmethod
     def make_naming_function(format_string):

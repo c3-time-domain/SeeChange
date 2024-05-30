@@ -274,7 +274,7 @@ Only parameters that affect the product values are included.
 
 The upstreams are other `Provenance` objects defined for the data products that 
 are an input to the current processing step. 
-The flowchart of the different process steps is defined in `pipeline.datastore.UPSTREAM_NAMES`. 
+The flowchart of the different process steps is defined in `pipeline.datastore.UPSTREAM_STEPS`. 
 E.g., the upstreams for the `photo_cal` object are `['extraction', 'astro_cal']`. 
 
 When a `Provenance` object has all the required inputs, it will produce a hash identifier

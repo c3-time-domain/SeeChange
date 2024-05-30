@@ -178,7 +178,7 @@ def make_cutouts(data, x, y, size=15, fillvalue=np.nan):
     cutouts: 3D np.ndarray
         The cutouts, with shape (len(x), size, size).
     """
-    cutouts = np.full((len(x), size, size), fillvalue)  # preallocate!
+    cutouts = np.full((len(x), size, size), fillvalue, dtype=data.dtype)  # preallocate!
     down = int(np.floor((size - 1) / 2))
     up = int(np.ceil((size - 1) / 2))
 

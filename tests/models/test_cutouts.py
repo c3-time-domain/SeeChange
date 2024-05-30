@@ -38,7 +38,7 @@ def test_make_save_load_cutouts(decam_detection_list, cutter):
         assert c.bitflag is not None
 
         # set the bitflag just to see if it is loaded or not
-        c.bitflag = 41  # should be Cosmic Ray
+        c.bitflag = 2 ** 41  # should be Cosmic Ray
 
         # save an individual cutout
         Cutouts.save_list([c])

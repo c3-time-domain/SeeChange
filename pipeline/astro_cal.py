@@ -1,9 +1,16 @@
+import os
+import time
 import pathlib
+
 import improc.scamp
+
 from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchException
 from util.logger import SCLogger
+from util.util import parse_bool
+
 from models.catalog_excerpt import CatalogExcerpt
 from models.world_coordinates import WorldCoordinates
+
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 from pipeline.catalog_tools import fetch_gaia_dr3_excerpt
@@ -111,6 +118,14 @@ class ParsAstroCalibrator(Parameters):
             critical=True
         )
 
+        self.scamp_timeout = self.add_par(
+            'scamp_timeout',
+            300,
+            int,
+            'Timeout in seconds for scamp to run',
+            critical=True
+        )
+
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -180,6 +195,7 @@ class AstroCalibrator:
             min_matched=self.pars.min_matched_stars,
             max_arcsec_residual=self.pars.max_arcsec_residual,
             magkey='MAG_G', magerrkey='MAGERR_G',
+            timeout=self.pars.scamp_timeout,
         )
 
         # Update image.header with the new wcs.  Process this
@@ -264,39 +280,61 @@ class AstroCalibrator:
         Returns a DataStore object with the products of the processing.
         """
         self.has_recalculated = False
-        ds, session = DataStore.from_args(*args, **kwargs)
+        try:  # first make sure we get back a datastore, even an empty one
+            ds, session = DataStore.from_args(*args, **kwargs)
+        except Exception as e:
+            return DataStore.catch_failure_to_parse(e, *args)
 
-        # get the provenance for this step:
-        prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+        try:
+            t_start = time.perf_counter()
+            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                import tracemalloc
+                tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-        # try to find the world coordinates in memory or in the database:
-        wcs = ds.get_wcs(prov, session=session)
+            self.pars.do_warning_exception_hangup_injection_here()
 
-        if wcs is None:  # must create a new WorldCoordinate object
-            self.has_recalculated = True
-            image = ds.get_image(session=session)
-            if image.astro_cal_done:
-                SCLogger.warning( f"Failed to find a wcs for image {pathlib.Path( image.filepath ).name}, "
-                                  f"but it has astro_cal_done=True" )
+            # get the provenance for this step:
+            prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
 
-            if self.pars.solution_method == 'scamp':
-                self._run_scamp( ds, prov, session=session )
-            else:
-                raise ValueError( f'Unknown solution method {self.pars.solution_method}' )
+            # try to find the world coordinates in memory or in the database:
+            wcs = ds.get_wcs(prov, session=session)
 
-            # update the upstream bitflag
-            sources = ds.get_sources( session=session )
-            if sources is None:
-                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
-            if ds.wcs._upstream_bitflag is None:
-                ds.wcs._upstream_bitflag = 0
-            ds.wcs._upstream_bitflag |= sources.bitflag
+            if wcs is None:  # must create a new WorldCoordinate object
+                self.has_recalculated = True
+                image = ds.get_image(session=session)
+                if image.astro_cal_done:
+                    SCLogger.warning(
+                        f"Failed to find a wcs for image {pathlib.Path( image.filepath ).name}, "
+                        f"but it has astro_cal_done=True"
+                    )
 
-            # If an astro cal wasn't previously run on this image,
-            # update the image's ra/dec and corners attributes based on this new wcs
-            if not image.astro_cal_done:
-                image.set_corners_from_header_wcs( wcs=ds.wcs.wcs, setradec=True )
-                image.astro_cal_done = True
+                if self.pars.solution_method == 'scamp':
+                    self._run_scamp( ds, prov, session=session )
+                else:
+                    raise ValueError( f'Unknown solution method {self.pars.solution_method}' )
 
-        # make sure this is returned to be used in the next step
-        return ds
+                # update the upstream bitflag
+                sources = ds.get_sources( session=session )
+                if sources is None:
+                    raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+                if ds.wcs._upstream_bitflag is None:
+                    ds.wcs._upstream_bitflag = 0
+                ds.wcs._upstream_bitflag |= sources.bitflag
+
+                # If an astro cal wasn't previously run on this image,
+                # update the image's ra/dec and corners attributes based on this new wcs
+                if not image.astro_cal_done:
+                    image.set_corners_from_header_wcs(wcs=ds.wcs.wcs, setradec=True)
+                    image.astro_cal_done = True
+
+                ds.runtimes['astro_cal'] = time.perf_counter() - t_start
+                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                    import tracemalloc
+                    ds.memory_usages['astro_cal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+
+        except Exception as e:
+            ds.catch_exception(e)
+        finally:
+            # make sure datastore is returned to be used in the next step
+            return ds
+

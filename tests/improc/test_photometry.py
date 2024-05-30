@@ -17,6 +17,7 @@ clipHalfWidth = 12 #half-width of clipped image
 # def test_circle_soft():
     # pass
 
+
 def test_circle_hard():
     circTst = get_circle(radius=3,imsize=7,soft=False).get_image(0,0)
     assert np.array_equal(circTst, np.array([[0., 0., 0., 1., 0., 0., 0.],
@@ -27,6 +28,7 @@ def test_circle_hard():
                                              [0., 1., 1., 1., 1., 1., 0.],
                                              [0., 0., 0., 1., 0., 0., 0.]]))
 
+
 def test_background_sigma_clip(ptf_datastore):
     imgClip = ptf_datastore.image.data[     clipCentX - clipHalfWidth : clipCentX + clipHalfWidth, 
                                             clipCentY - clipHalfWidth : clipCentY + clipHalfWidth]
@@ -34,9 +36,10 @@ def test_background_sigma_clip(ptf_datastore):
                                             clipCentY - clipHalfWidth : clipCentY + clipHalfWidth]
     flagsClip = ptf_datastore.image.flags[  clipCentX - clipHalfWidth : clipCentX + clipHalfWidth, 
                                             clipCentY - clipHalfWidth : clipCentY + clipHalfWidth]
-    result = iterative_cutouts_photometry(imgClip, weightClip, flagsClip, np.zeros_like(imgClip))
+    result = iterative_cutouts_photometry(imgClip, weightClip, flagsClip)
     assert result['background'] == pytest.approx(1199.1791, rel=1e-2)
-  
+
+
 @pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
 def test_plot_annulus(ptf_datastore):
     imgClip = ptf_datastore.image.data[clipCentX-clipHalfWidth:clipCentX+clipHalfWidth, 

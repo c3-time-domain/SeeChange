@@ -1,4 +1,4 @@
-import os
+import pytest
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal
@@ -149,3 +149,20 @@ def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cac
 
     finally:
         ds.detections.delete_from_disk_and_database()
+
+
+def test_warnings_and_exceptions(decam_datastore, detector):
+    detector.pars.inject_warnings = 1
+
+    with pytest.warns(UserWarning) as record:
+        detector.run(decam_datastore)
+    assert len(record) > 0
+    assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
+
+    detector.pars.inject_warnings = 0
+    detector.pars.inject_exceptions = 1
+    with pytest.raises(Exception) as excinfo:
+        ds = detector.run(decam_datastore)
+        ds.reraise()
+    assert "Exception injected by pipeline parameters in process 'detection'." in str(excinfo.value)
+    ds.read_exception()

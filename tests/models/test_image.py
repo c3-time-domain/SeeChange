@@ -6,6 +6,7 @@ import gc
 import hashlib
 import pathlib
 import uuid
+import time
 
 import numpy as np
 
@@ -1344,6 +1345,7 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
         test_config.set_value('storage.images.single_file', single_fileness)
 
 
+@pytest.mark.skip(reason="This test is way too slow (see Issue #291")
 def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     ds = ptf_datastore  # shorthand
 
@@ -1365,7 +1367,7 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     # make sure the files are there
     local_files = []
     archive_files = []
-    for obj in [im, im.psf, im.sources]:  # TODO: add WCS when it becomes a FileOnDiskMixin
+    for obj in [im, im.psf, im.sources, im.wcs]:
         for file in obj.get_fullpath(as_list=True):
             archive_file = file[len(obj.local_path)+1:]  # grap the end of the path only
             archive_file = os.path.join(archive.test_folder_path, archive_file)  # prepend the archive path
@@ -1390,9 +1392,12 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
     proc = psutil.Process()
     origmem = proc.memory_info()
 
+    sleeptime = 0.5 # in seconds
+
     # Make sure that only_free behaves as expected
     decam_raw_image._weight = 'placeholder'
     decam_raw_image.free( only_free={'weight'} )
+    time.sleep(sleeptime)
     assert decam_raw_image._weight is None
     assert decam_raw_image._data is not None
     assert decam_raw_image.raw_data is not None
@@ -1404,6 +1409,7 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
     # when we free
 
     decam_raw_image.free( )
+    time.sleep(sleeptime)
     assert decam_raw_image._data is None
     # The image is ~4k by 2k, data is 32-bit
     # so expect to free ~( 4000*2000 ) *4 >~ 30MiB of data
@@ -1418,6 +1424,7 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
     assert decam_raw_image.raw_data is None
     decam_exposure.data.clear_cache()
     decam_exposure.section_headers.clear_cache()
+    time.sleep(sleeptime)
     gc.collect()
     freemem = proc.memory_info()
     assert origmem.rss - freemem.rss > 45 * 1024 * 1024
@@ -1449,6 +1456,7 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
         # Free the image and all the refs.  Expected savings: 6 4k × 2k
         # 32-bit images =~ 6 * (4000*2000) * 4 >~ 180MiB.
         ptf_ref.image.free( free_aligned=True )
+        time.sleep(sleeptime)
         gc.collect()
         freemem = proc.memory_info()
         assert origmem.rss - freemem.rss > 180 * 1024 * 1024

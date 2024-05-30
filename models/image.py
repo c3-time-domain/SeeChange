@@ -626,9 +626,11 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         ras = []
         decs = []
-        # Is this really what we want?  Or should we prefer data?
-        # (Look at preprocessing. When it trims, does it modify raw_data?)
-        data = self.raw_data if self.raw_data is not None else self.data
+        # Note: this used to prefer raw_data; changed it to prefer
+        #  data, because we believe that's what we want to prefer,
+        #  but left this note here in case things go haywire.
+        # data = self.raw_data if self.raw_data is not None else self.data
+        data = self.data if self.data is not None else self.raw_data
         width = data.shape[1]
         height = data.shape[0]
         xs = [ 0., width-1., 0., width-1. ]
@@ -749,7 +751,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 new.ra = header_info.pop('ra', None)
                 new.dec = header_info.pop('dec', None)
 
-            # if we still ahve nothing, just use the RA/Dec of the global exposure
+            # if we still have nothing, just use the RA/Dec of the global exposure
             # (Ideally, new.instrument_object.get_ra_dec_for_section will
             #  have used known chip offsets, so it will never come to this.)
             if new.ra is None or new.dec is None:
@@ -1496,7 +1498,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 if not ( gotim and gotweight and gotflags ):
                     raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )
 
-
     def free( self, free_derived_products=True, free_aligned=True, only_free=None ):
         """Free loaded image memory.  Does not delete anything from disk.
 
@@ -1554,8 +1555,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             if self._aligned_images is not None:
                 for alim in self._aligned_images:
                     alim.free( free_derived_products=free_derived_products, only_free=only_free )
-
-
 
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.

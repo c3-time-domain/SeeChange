@@ -6,10 +6,11 @@ from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 
-from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness
+from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.world_coordinates import WorldCoordinates
 from models.source_list import SourceList
+
 
 class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
     __tablename__ = 'zero_points'
@@ -90,6 +91,16 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
               "single aperture applies across the entire image, which should be OK given that the "
               "pipeline isn't expected to have photometry to better than a couple of percent." )
     )
+
+    def __init__(self, *args, **kwargs):
+        SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
+
+        # manually set all properties (columns or not)
+        self.set_attributes_from_dict(kwargs)
+
+    @orm.reconstructor
+    def init_on_load(self):
+        SeeChangeBase.init_on_load(self)
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""

@@ -1485,7 +1485,7 @@ class Instrument:
                 #   don't find it, and both try to download it at the same time.  Just using database
                 #   locks doesn't work here, because the process of downloading and committing the
                 #   images takes long enough that the database server starts whining about deadlocks.
-                #   So, we manually invent our own database lock mechaism here and use that.
+                #   So, we manually invent our own database lock mechanism here and use that.
                 #   (One advantage is that we can just lock the specific thing being downloaded.)
                 # This has a danger : if the code fully crashes during the try block below,
                 #   it will leave behind this fake lock.  That should be rare, as the finally

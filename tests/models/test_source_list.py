@@ -4,6 +4,7 @@ import psutil
 import gc
 import pathlib
 import numpy as np
+import time
 
 import sqlalchemy as sa
 
@@ -275,6 +276,8 @@ def test_free( decam_datastore ):
     ds.get_sources()
     proc = psutil.Process()
 
+    sleeptime = 0.5 # in seconds
+
     # Make sure image and source data is loaded into memory,
     #  then try freeing just the source data
     _ = ds.image.data
@@ -287,6 +290,7 @@ def test_free( decam_datastore ):
     origmem = proc.memory_info()
 
     ds.sources.free()
+    time.sleep(sleeptime)
     assert ds.sources._data is None
     assert ds.sources._info is None
     gc.collect()
@@ -326,6 +330,7 @@ def test_free( decam_datastore ):
     origmem = proc.memory_info()
 
     ds.image.free( free_derived_products=True )
+    time.sleep(sleeptime)
     assert ds.image._data is None
     assert ds.image._weight is None
     assert ds.image._flags is None

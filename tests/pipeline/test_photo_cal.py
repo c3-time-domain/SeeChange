@@ -63,3 +63,20 @@ def test_decam_photo_cal( decam_datastore, photometor, blocking_plots ):
                                                         17.323, 21.653, 30.315, 43.307 ], abs=0.01 )
         assert ds.zp.aper_cors == pytest.approx( [-0.457, -0.177, -0.028, -0.007,
                                                   0.0, 0.003, 0.005, 0.006 ], abs=0.01 )
+
+
+def test_warnings_and_exceptions(decam_datastore, photometor):
+    photometor.pars.inject_warnings = 1
+
+    with pytest.warns(UserWarning) as record:
+        photometor.run(decam_datastore)
+    assert len(record) > 0
+    assert any("Warning injected by pipeline parameters in process 'photo_cal'." in str(w.message) for w in record)
+
+    photometor.pars.inject_warnings = 0
+    photometor.pars.inject_exceptions = 1
+    with pytest.raises(Exception) as excinfo:
+        ds = photometor.run(decam_datastore)
+        ds.reraise()
+    assert "Exception injected by pipeline parameters in process 'photo_cal'." in str(excinfo.value)
+    ds.read_exception()

@@ -13,7 +13,6 @@ from models.enums_and_bitflags import (
 def test_enums_zero_values():
     assert 0 not in FormatConverter.dict
     assert 0 not in ImageTypeConverter.dict
-    assert data_badness_dict[0] == 'good'
 
 
 def test_converter_dict():

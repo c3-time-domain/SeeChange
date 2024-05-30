@@ -13,14 +13,19 @@ def dilate_bitflag(array, iterations=1, structure=None):
         The number of iterations to dilate. Default is 1.
     structure : ndarray of booleans
         The kernel to use for dilation.
-        If None (default), will use a structure with square
-        connectivity equal to one.
+        If None (default), will use a structure with non-diagonal
+        connectivity (one pixel in each direction horizontally and vertically).
 
     Returns
     -------
     output : ndarray of integers
         The dilated array, same shape and type as the input array.
     """
+    if structure is None:
+        structure = np.zeros((3, 3), dtype=bool)
+        structure[1, :] = True
+        structure[:, 1] = True
+
     output = np.zeros_like(array)
     b = array.max()
     while b:
@@ -47,13 +52,18 @@ def make_saturated_flag(imdata, saturation=50000, iterations=2, structure=None):
         The number of iterations to dilate. Default is 1.
     structure : ndarray of booleans
         The kernel to use for dilation.
-        If None (default), will use a structure with square
-        connectivity equal to one.
+        If None (default), will use a structure with non-diagonal
+        connectivity (one pixel in each direction horizontally and vertically).
 
     Returns
     -------
     boolean flag mask
     """
     mask = imdata >= saturation
+
+    if structure is None:
+        structure = np.zeros((3, 3), dtype=bool)
+        structure[1, :] = True
+        structure[:, 1] = True
 
     return ndimage.binary_dilation(mask, iterations=iterations, structure=structure)

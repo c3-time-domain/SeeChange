@@ -157,11 +157,12 @@ class Inpainter:
                 square = np.zeros((2 * w + 3, 2 * w + 3))
                 square[1:-1, 1:-1] = 1.0
                 k = convolve(square, square, mode='same')  # linear tapering kernel
-                pos_tapered = convolve(
-                    binary_dilation(np.pad(positions, 2 * w), iterations=w * 2, structure=np.ones((3, 3))),
-                    k,
-                    mode='same'
-                )[2 * w:-2 * w, 2 * w:-2 * w]
+
+                struc = np.zeros((3, 3), dtype=bool)
+                struc[1, :] = True
+                struc[:, 1] = True
+                dilat = binary_dilation(np.pad(positions, 2 * w), iterations=w * 2, structure=struc)
+                pos_tapered = convolve(dilat, k, mode='same')[2 * w:-2 * w, 2 * w:-2 * w]
                 if np.max(pos_tapered) > 0:
                     pos_tapered /= np.max(pos_tapered)
                 pos_flipped = 1 - pos_tapered

@@ -305,7 +305,6 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with open( psfxmlpath ) as ifp:
             self._info = ifp.read()
 
-
     def free( self ):
         """Free loaded world coordinates memory.
 
@@ -317,7 +316,6 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._data = None
         self._info = None
         self._header = None
-
 
     def get_resampled_psf( self, x, y, dtype=np.float64 ):
         """Return an image fragment with the PSF at the underlying sampling of the PSF model.
@@ -428,8 +426,8 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         psfwid, psfsamp, stampwid, psfdex1d = self._get_clip_info()
 
-        xc = int( np.floor(x + 0.5) )
-        yc = int( np.floor(y + 0.5) )
+        xc = int( np.round(x) )
+        yc = int( np.round(y) )
 
         # See Chapter 5, "How PSFEx Works", of the PSFEx manual
         #   https://psfex.readthedocs.io/en/latest/Working.html
@@ -491,8 +489,8 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         if ( x < 0 ) or ( x >= image.shape[1] ) or ( y < 0 ) or ( y >= image.shape[0] ):
             SCLogger.warn( "Center of psf to be added to image is off of edge of image" )
 
-        xc = int( np.floor(x + 0.5) )
-        yc = int( np.floor(y + 0.5) )
+        xc = int( np.round(x) )
+        yc = int( np.round(y) )
         clip = self.get_clip( x, y, flux, norm=norm, noisy=noisy, gain=gain, rng=rng )
         stampwid = clip.shape[1]
 

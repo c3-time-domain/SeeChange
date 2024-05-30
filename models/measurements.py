@@ -8,11 +8,13 @@ from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.ext.associationproxy import association_proxy
 
-from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, SpatiallyIndexed
+from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness
 from models.cutouts import Cutouts
 
+from improc.photometry import get_circle
 
-class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
+
+class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     __tablename__ = 'measurements'
 
@@ -110,6 +112,24 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
     exp_time = association_proxy('cutouts', 'sources.image.exp_time')
 
     filter = association_proxy('cutouts', 'sources.image.filter')
+
+    @property
+    def flux(self):
+        """The background subtracted aperture flux in the "best" aperture. """
+        if self.best_aperture == -1:
+            return self.flux_psf - self.background * self.area_psf
+        else:
+            return self.flux_apertures[self.best_aperture] - self.background * self.area_apertures[self.best_aperture]
+
+    @property
+    def flux_err(self):
+        """The error on the background subtracted aperture flux in the "best" aperture. """
+        if self.best_aperture == -1:
+            return np.sqrt(self.flux_psf_err ** 2 + self.background_err ** 2 * self.area_psf)
+        else:
+            err = self.flux_apertures_err[self.best_aperture]
+            err += self.background_err ** 2 * self.area_apertures[self.best_aperture]
+            return np.sqrt(err)
 
     @property
     def mag_psf(self):
@@ -286,11 +306,6 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
         if key in ['flux_apertures', 'flux_apertures_err', 'aper_radii']:
             value = np.array(value)
 
-        if key == 'cutouts':
-            super().__setattr__('cutouts_id', value.id)
-            for att in ['ra', 'dec', 'gallon', 'gallat', 'ecllon', 'ecllat']:
-                super().__setattr__(att, getattr(value, att))
-
         super().__setattr__(key, value)
 
     def get_filter_description(self, number=None):
@@ -366,7 +381,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
         This should only be done for measurements that have passed all preliminary cuts,
         which mostly rules out obvious artefacts.
         """
-        from models.objects import Object  # avoid circular import
+        from models.object import Object  # avoid circular import
 
         with SmartSession(session) as session:
             obj = session.scalars(sa.select(Object).where(
@@ -387,6 +402,87 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed):
                 obj.is_test = self.provenance.is_testing
 
             self.object = obj
+
+    def get_flux_at_point(self, ra, dec, aperture=None):
+        """Use the given coordinates to find the flux, assuming it is inside the cutout.
+
+        Parameters
+        ----------
+        ra: float
+            The right ascension of the point in degrees.
+        dec: float
+            The declination of the point in degrees.
+        aperture: int, optional
+            Use this aperture index in the list of aperture radii to choose
+            which aperture to use. Set -1 to get PSF photometry.
+            Leave None to use the best_aperture.
+            Can also specify "best" or "psf".
+
+        Returns
+        -------
+        flux: float
+            The flux in the aperture.
+        fluxerr: float
+            The error on the flux.
+        area: float
+            The area of the aperture.
+        """
+        if aperture is None:
+            aperture = self.best_aperture
+        if aperture == 'best':
+            aperture = self.best_aperture
+        if aperture == 'psf':
+            aperture = -1
+
+        im = self.cutouts.sub_nandata  # the cutouts image we are working with (includes NaNs for bad pixels)
+
+        wcs = self.cutouts.sources.image.new_image.wcs.wcs
+        # these are the coordinates relative to the center of the cutouts
+        image_pixel_x = wcs.world_to_pixel_values(ra, dec)[0]
+        image_pixel_y = wcs.world_to_pixel_values(ra, dec)[1]
+
+        offset_x = image_pixel_x - self.cutouts.x
+        offset_y = image_pixel_y - self.cutouts.y
+
+        if abs(offset_x) > im.shape[1] / 2 or abs(offset_y) > im.shape[0] / 2:
+            return np.nan, np.nan, np.nan  # quietly return NaNs for large offsets, they will fail the cuts anyway...
+
+        if np.isnan(image_pixel_x) or np.isnan(image_pixel_y):
+            return np.nan, np.nan, np.nan  # if we can't use the WCS for some reason, need to fail gracefully
+
+        if aperture == -1:
+            # get the subtraction PSF or (if unavailable) the new image PSF
+            psf = self.cutouts.sources.image.get_psf()
+            psf_clip = psf.get_clip(x=image_pixel_x, y=image_pixel_y)
+            offset_ix = int(np.round(offset_x))
+            offset_iy = int(np.round(offset_y))
+            # shift the psf_clip by the offset and multiply by the cutouts sub_flux
+            # the corner offset between the pixel coordinates of the cutout to that of the psf_clip:
+            dx = psf_clip.shape[1] // 2 - im.shape[1] // 2 - offset_ix
+            dy = psf_clip.shape[0] // 2 - im.shape[0] // 2 - offset_iy
+            start_x = max(0, -dx)  # where (in cutout coordinates) do we start counting the pixels
+            end_x = min(im.shape[1], psf_clip.shape[1] - dx)  # where do we stop counting the pixels
+            start_y = max(0, -dy)
+            end_y = min(im.shape[0], psf_clip.shape[0] - dy)
+
+            # make a mask the same size as the cutout, with the offset PSF and zeros where it is not overlapping
+            # before clipping the non overlapping and removing bad pixels, the PSF clip was normalized to 1
+            mask = np.zeros_like(im, dtype=float)
+            mask[start_y:end_y, start_x:end_x] = psf_clip[start_y + dy:end_y + dy, start_x + dx:end_x + dx]
+            mask[np.isnan(im)] = 0  # exclude bad pixels from the mask
+            flux = np.nansum(im * mask) / np.nansum(mask ** 2)
+            fluxerr = self.background_err / np.sqrt(np.nansum(mask ** 2))
+            area = np.nansum(mask) / (np.nansum(mask ** 2))
+        else:
+            radius = self.aper_radii[aperture]
+            # get the aperture mask
+            mask = get_circle(radius=radius, imsize=im.shape[0], soft=True).get_image(offset_x, offset_y)
+            # for aperture photometry we don't normalize, just assume the PSF is in the aperture
+            flux = np.nansum(im * mask)
+            fluxerr = self.background_err * np.sqrt(np.nansum(mask ** 2))
+            area = np.nansum(mask)
+
+        return flux, fluxerr, area
 
     def get_upstreams(self, session=None):
         """Get the image that was used to make this source list. """

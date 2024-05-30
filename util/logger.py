@@ -2,6 +2,9 @@ import sys
 import multiprocessing
 import logging
 
+_default_log_level = logging.WARNING
+# _default_log_level = logging.DEBUG
+
 class SCLogger:
     """Holds the logging instance that we use throught SeeChange.
 
@@ -20,7 +23,7 @@ class SCLogger:
     _ordinal = 0
 
     @classmethod
-    def instance( cls, midformat=None, datefmt='%Y-%m-%d %H:%M:%S', level=logging.WARNING ):
+    def instance( cls, midformat=None, datefmt='%Y-%m-%d %H:%M:%S', level=_default_log_level ):
         """Return the singleton instance of SCLogger."""
         if cls._instance is None:
             cls._instance = cls( midformat=midformat, datefmt=datefmt, level=level )
@@ -50,17 +53,17 @@ class SCLogger:
             level = cls._instance._logger.level if level is None else level
         else:
             datefmt = '%Y-%m-%d %H:%M:%S' if datefmt is None else datefmt
-            level = logging.WARNING if level is None else level
+            level = _default_log_level if level is None else level
         cls._instance = cls( midformat=midformat, datefmt=datefmt, level=level )
         return cls._instance
 
     @classmethod
-    def set_level( cls, level=logging.WARNING ):
+    def set_level( cls, level=_default_log_level ):
         """Set the log level of the logging.Logger object."""
         cls.instance()._logger.setLevel( level )
 
     @classmethod
-    def setLevel( cls, level=logging.WARNING ):
+    def setLevel( cls, level=_default_log_level ):
         """Set the log level of the logging.Logger object."""
         cls.instance()._logger.setLevel( level )
 
@@ -88,7 +91,7 @@ class SCLogger:
     def exception( cls, *args, **kwargs ):
         cls.get().exception( *args, **kwargs )
 
-    def __init__( self, midformat=None, datefmt='%Y-%m-%d %H:%M:%S', level=logging.WARNING ):
+    def __init__( self, midformat=None, datefmt='%Y-%m-%d %H:%M:%S', level=_default_log_level ):
         """Initialize a SCLogger object, and the logging.Logger object it holds.
 
         Parameters
@@ -104,15 +107,10 @@ class SCLogger:
             The date format to use, using standard logging.Formatter
             datefmt syntax.
 
-        level : logging level constnat, default logging.WARNING
-            This can be changedl lated with set_level().
+        level : logging level constant, default logging.WARNING
+            This can be changed later with set_level().
 
         """
-        # (This lock is probably not necessary, since memory isn't by default shared in multiprocessing.)
-        # This __init__ will be called rarely (typically once at the beginning of a process), so
-        # the brief lock is not a big deal.
-        # lock = multiprocessing.Lock()
-        # with lock:
         SCLogger._ordinal += 1
         self._logger = logging.getLogger( f"SeeChange_{SCLogger._ordinal}" )
 

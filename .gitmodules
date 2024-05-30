@@ -4,3 +4,6 @@
 [submodule "webap/rkwebutil"]
 	path = webap/rkwebutil
 	url = https://github.com/rknop/rkwebutil.git
+[submodule "extern/nersc-desi-gaia-dr3-server"]
+	path = extern/nersc-desi-gaia-dr3-server
+	url = https://github.com/c3-time-domain/nersc-desi-gaia-dr3-server.git

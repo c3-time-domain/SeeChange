@@ -320,7 +320,7 @@ def string_to_bitflag(value, dictionary):
             original_keyword = keyword
             keyword = EnumConverter.c(keyword)
             if keyword not in dictionary:
-                raise ValueError(f'Keyword "{original_keyword}" not recognized in dictionary')
+                raise ValueError(f'Keyword "{original_keyword.strip()}" not recognized in dictionary')
             output += 2 ** dictionary[keyword]
         return output
 
@@ -374,13 +374,20 @@ cutouts_badness_inverse = {EnumConverter.c(v): k for k, v in cutouts_badness_dic
 
 
 # join the badness:
-data_badness_dict = {0: 'good'}
+data_badness_dict = {}
 data_badness_dict.update(image_badness_dict)
 data_badness_dict.update(cutouts_badness_dict)
 data_badness_dict.update(source_list_badness_dict)
 data_badness_inverse = {EnumConverter.c(v): k for k, v in data_badness_dict.items()}
 if 0 in data_badness_inverse:
     raise ValueError('Cannot have a badness bitflag of zero. This is reserved for good data.')
+
+
+class BadnessConverter( EnumConverter ):
+    _dict = data_badness_dict
+    _allowed_values = data_badness_dict
+    _dict_filtered = None
+    _dict_inverse = None
 
 # bitflag for image preprocessing steps that have been done
 image_preprocessing_dict = {
@@ -409,3 +416,36 @@ class BitFlagConverter( EnumConverter ):
     _allowed_values = flag_image_bits
     _dict_filtered = None
     _dict_inverse = None
+
+
+# the list of possible processing steps from a section of an exposure up to measurments, r/b scores, and report
+process_steps_dict = {
+    1: 'preprocessing',  # creates an Image from a section of the Exposure
+    2: 'extraction',     # creates a SourceList from an Image, and a PSF
+    3: 'astro_cal',      # creates a WorldCoordinates from a SourceList
+    4: 'photo_cal',       # creates a ZeroPoint from a WorldCoordinates
+    5: 'subtraction',    # creates a subtraction Image
+    6: 'detection',      # creates a SourceList from a subtraction Image
+    7: 'cutting',        # creates Cutouts from a subtraction Image
+    8: 'measuring',      # creates Measurements from Cutouts
+    # TODO: add R/B scores and maybe an extra step for finalizing a report
+}
+process_steps_inverse = {EnumConverter.c(v): k for k, v in process_steps_dict.items()}
+
+
+# the list of objects that could be loaded to a datastore after running the pipeline
+pipeline_products_dict = {
+    1: 'image',
+    2: 'sources',
+    3: 'psf',
+    # 4: 'background',  # not yet implemented
+    5: 'wcs',
+    6: 'zp',
+    7: 'sub_image',
+    8: 'detections',
+    9: 'cutouts',
+    10: 'measurements',
+    # 11: 'rb_scores',
+}
+
+pipeline_products_inverse = {EnumConverter.c(v): k for k, v in pipeline_products_dict.items()}

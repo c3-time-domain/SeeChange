@@ -3,8 +3,10 @@
 import os
 import time
 import pathlib
+import requests
 
 import numpy as np
+import pandas
 import sqlalchemy as sa
 
 import astropy.table
@@ -17,6 +19,7 @@ from models.catalog_excerpt import CatalogExcerpt
 from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchException
 from util.util import listify
 from util.logger import SCLogger
+from util.config import Config
 
 
 # Here's a dysfunctionality in queryClient.  It wants ~/.datalab to
@@ -122,6 +125,21 @@ def get_bandpasses_Gaia():
     return dict(G=Bandpass(400, 850), BP=Bandpass(380, 650), RP=Bandpass(620, 900))
 
 
+def _download_gaia_dr3_custom_server( minra, maxra, mindec, maxdec, minmag, maxmag ):
+    cfg = Config.get()
+    url = f"{cfg.value( 'catalog_gaiadr3.server_url' )}/gaiarect/{minra}/{maxra}/{mindec}/{maxdec}"
+    if maxmag is not None:
+        url += f"/{maxmag}"
+    if minmag is not None:
+        url += f"/{minmag}"
+
+    res = requests.post( url, timeout=cfg.value( 'catalog_gaiadr3.server_timeout_sec' ) )
+    if res.status_code != 200:
+        raise RuntimeError( f"Requests to custom gaia dr3 server returned status {res.status_code}" )
+
+    return pandas.DataFrame( res.json() )
+
+
 def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., maxmag=22. ):
     """Download objects from gaia_dr3 as served by Noirlab Astro Data Lab
 
@@ -179,38 +197,62 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
     declow = mindec - padding * ddec
     dechigh = maxdec + padding * ddec
 
-    SCLogger.info( f'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
+    cfg = Config.get()
 
-    gaia_query = (
-        f"SELECT ra, dec, ra_error, dec_error, pm, pmra, pmdec, "
-        f"       phot_g_mean_mag, phot_g_mean_flux_over_error, "
-        f"       phot_bp_mean_mag, phot_bp_mean_flux_over_error, "
-        f"       phot_rp_mean_mag, phot_rp_mean_flux_over_error, "
-        f"       classprob_dsc_combmod_star "
-        f"FROM gaia_dr3.gaia_source "
-        f"WHERE ra>={ralow} AND ra<={rahigh} AND dec>={declow} AND dec<={dechigh} "
-    )
-    if minmag is not None:
-        gaia_query += f"AND phot_g_mean_mag>={minmag} "
-    if maxmag is not None:
-        gaia_query += f"AND phot_g_mean_mag<={maxmag} "
-    SCLogger.debug( f'gaia_query is "{gaia_query}"' )
+    df = None
 
-    for i in range(5):
-        try:
-            qresult = queryClient.query( sql=gaia_query )
-            break
-        except Exception as e:
-            SCLogger.info( f"Failed Gaia download: {str(e)}" )
-            if i < 4:
-                SCLogger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
-                time.sleep(5)
-    else:
-        errstr = f"Gaia query failed after {i} repeated failures."
-        SCLogger.error( errstr )
-        raise RuntimeError( errstr )
+    if cfg.value( 'catalog_gaiadr3.use_server' ):
+        for i in range(5):
+            try:
+                df = _download_gaia_dr3_custom_server( ralow, rahigh, declow, dechigh, minmag, maxmag )
+                break
+            except Exception as ex:
+                SCLogger.debug( f"Exception trying to download ra=({ralow}:{rahigh}), dec=({declow}:{dechigh}), "
+                                f"mag=({minmag}:{maxmag}) from custom gaia server: {ex}" )
+                if i < 4:
+                    SCLogger.debug( f"Sleeping 1s and retrying gaia query" )
+                    time.sleep( 1 )
+        else:
+            SCLogger.error( f"Repeated failures trying to download  ra=({ralow}:{rahigh}), dec=({declow}:{dechigh}), "
+                            f"mag=({minmag}:{maxmag}) from custom gaia server" )
 
-    df = dl.helpers.utils.convert( qresult, "pandas" )
+    if ( ( ( df is None ) and cfg.value( 'catalog_gaiadr3.fallback_datalab' ) )
+         or ( cfg.value( 'catalog_gaiadr3.use_datalab' ) ) ):
+        SCLogger.info( f'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
+
+        gaia_query = (
+            f"SELECT ra, dec, ra_error, dec_error, pm, pmra, pmdec, "
+            f"       phot_g_mean_mag, phot_g_mean_flux_over_error, "
+            f"       phot_bp_mean_mag, phot_bp_mean_flux_over_error, "
+            f"       phot_rp_mean_mag, phot_rp_mean_flux_over_error, "
+            f"       classprob_dsc_combmod_star "
+            f"FROM gaia_dr3.gaia_source "
+            f"WHERE ra>={ralow} AND ra<={rahigh} AND dec>={declow} AND dec<={dechigh} "
+        )
+        if minmag is not None:
+            gaia_query += f"AND phot_g_mean_mag>={minmag} "
+        if maxmag is not None:
+            gaia_query += f"AND phot_g_mean_mag<={maxmag} "
+        SCLogger.debug( f'gaia_query is "{gaia_query}"' )
+
+        for i in range(5):
+            try:
+                qresult = queryClient.query( sql=gaia_query )
+                break
+            except Exception as e:
+                SCLogger.info( f"Failed NOIRLab data lab Gaia download: {str(e)}" )
+                if i < 4:
+                    SCLogger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
+                    time.sleep(5)
+        else:
+            errstr = f"NOIRLab data lab Gaia query giving up after {i} repeated failures."
+            SCLogger.error( errstr )
+            raise RuntimeError( errstr )
+
+        df = dl.helpers.utils.convert( qresult, "pandas" )
+
+    if df is None:
+        raise RuntimeError( "Failed to download Gaia DR3 sources" )
 
     # Convert this into a FITS file format that scamp would recognize.
     # In particular, FITS header keywords have to be all upper case

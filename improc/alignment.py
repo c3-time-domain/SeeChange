@@ -94,6 +94,22 @@ class ParsImageAligner(Parameters):
             critical=True,
         )
 
+        self.scamp_timeout = self.add_par(
+            'scamp_timeout',
+            60,
+            int,
+            'Timeout in seconds for SCAMP to run.  Used in SCAMP only. ',
+            critical=False,
+        )
+
+        self.swarp_timeout = self.add_par(
+            'swarp_timeout',
+            60,
+            int,
+            'Timeout in seconds for SWARP to run.  Used in SWARP only. ',
+            critical=False,
+        )
+
         self.enforce_no_new_attrs = True
         self.override( kwargs )
 
@@ -299,6 +315,7 @@ class ImageAligner:
                 min_frac_matched=self.pars.min_frac_matched,
                 min_matched=self.pars.min_matched,
                 max_arcsec_residual=self.pars.max_arcsec_residual,
+                timeout=self.pars.swarp_timeout,
             )
 
             # Write out the .head file that swarp will use to figure out what to do
@@ -356,7 +373,7 @@ class ImageAligner:
                         '-WRITE_XML', 'N' ]
 
             t0 = time.perf_counter()
-            res = subprocess.run( command, capture_output=True, timeout=60 )
+            res = subprocess.run(command, capture_output=True, timeout=self.pars.swarp_timeout)
             t1 = time.perf_counter()
             SCLogger.debug( f"swarp of image took {t1-t0:.2f} seconds" )
             if res.returncode != 0:
@@ -375,7 +392,7 @@ class ImageAligner:
                        '-WRITE_XML', 'N']
 
             t0 = time.perf_counter()
-            res = subprocess.run(command, capture_output=True, timeout=60)
+            res = subprocess.run(command, capture_output=True, timeout=self.pars.swarp_timeout)
             t1 = time.perf_counter()
             SCLogger.debug(f"swarp of flags took {t1 - t0:.2f} seconds")
             if res.returncode != 0:
