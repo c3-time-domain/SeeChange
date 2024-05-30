@@ -85,18 +85,29 @@ def exposures():
         conn = next( dbconn() )
         cursor = conn.cursor()
         # TODO : deal with provenance!
-        q = ( 'SELECT e.id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
-              '       COUNT(DISTINCT(i.id)) AS n_images, COUNT(c.id) AS n_cutouts, COUNT(m.id) AS n_measurements '
-              'FROM exposures e '
-              'LEFT JOIN images i ON i.exposure_id=e.id '
-              'LEFT JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
-              'LEFT JOIN images s ON s.id = ias.downstream_id AND s.is_sub '
-              'LEFT JOIN source_lists sl ON sl.image_id=s.id '
-              'LEFT JOIN cutouts c ON c.sources_id=sl.id '
-              'LEFT JOIN measurements m ON m.cutouts_id=c.id ' )
+        # (We need some kind of provenance tagging table, so that the user can specify
+        # a user-readable name (e.g. "default", "latest", "dr1", whatever) that specifies
+        # a set of provenances to search.  One of these names must be all the provenances
+        # we're using "right now" in the active pipeline; that will be the one that
+        # (by default) the webap uses.
+        q = ( 'SELECT m.id, m.filepath, m.mjd, m.target, m.filter, m.filter_array, m.exp_time, '
+              '       m.n_images, m.n_cutouts, m.n_measurements, '
+              '       SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) AS n_successim, '
+              '       SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) as n_errors '
+              'FROM ( '
+              '  SELECT e.id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
+              '         COUNT(DISTINCT(i.id)) AS n_images, COUNT(c.id) AS n_cutouts, COUNT(m.id) AS n_measurements '
+              '  FROM exposures e '
+              '  LEFT JOIN images i ON i.exposure_id=e.id '
+              '  LEFT JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
+              '  LEFT JOIN images s ON s.id = ias.downstream_id AND s.is_sub '
+              '  LEFT JOIN source_lists sl ON sl.image_id=s.id '
+              '  LEFT JOIN cutouts c ON c.sources_id=sl.id '
+              '  LEFT JOIN measurements m ON m.cutouts_id=c.id '
+              '  LEFT JOIN reports r ON r.exposure_id=e.id ' )
         subdict = {}
         if ( t0 is not None ) or ( t1 is not None ):
-            q += "WHERE "
+            q += "  WHERE "
             if t0 is not None:
                 q += 'e.mjd >= %(t0)s'
                 subdict['t0'] = t0
@@ -104,8 +115,14 @@ def exposures():
                 if t0 is not None: q += ' AND '
                 q += 'e.mjd <= %(t1)s'
                 subdict['t1'] = t1
-        q += ( ' GROUP BY e.id ' # ,e.filepath,e.mjd,e.target,e.filter,e.filter_array,e.exp_time '
-               'ORDER BY e.mjd, e.filter, e.filter_array ' )
+        q += ( '   GROUP BY e.id ' # ,e.filepath,e.mjd,e.target,e.filter,e.filter_array,e.exp_time '
+               '   ORDER BY e.mjd, e.filter, e.filter_array ' )
+
+        q += ( ') m '
+               'LEFT JOIN reports r ON m.id=r.exposure_id '
+               'GROUP BY m.id, m.filepath, m.mjd, m.target, m.filter, m.filter_array, m.exp_time, '
+               '         m.n_images, m.n_cutouts, m.n_measurements ' )
+
         cursor.execute( q, subdict )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
 
@@ -118,6 +135,8 @@ def exposures():
         n_images = []
         n_cutouts = []
         n_sources = []
+        n_successim = []
+        n_errors = []
 
         slashre = re.compile( '^.*/([^/]+)$' )
         for row in cursor.fetchall():
@@ -135,7 +154,9 @@ def exposures():
             exp_time.append( row[columns['exp_time']] )
             n_images.append( row[columns['n_images']] )
             n_cutouts.append( row[columns['n_cutouts']] )
-            n_sources.append( row[columns[ 'n_measurements']] )
+            n_sources.append( row[columns['n_measurements']] )
+            n_successim.append( row[columns['n_successim']] )
+            n_errors.append( row[columns['n_errors']] )
 
         return { 'status': 'ok',
                  'startdate': t0,
@@ -149,7 +170,9 @@ def exposures():
                      'exp_time': exp_time,
                      'n_images': n_images,
                      'n_cutouts': n_cutouts,
-                     'n_sources': n_sources
+                     'n_sources': n_sources,
+                     'n_successim': n_successim,
+                     'n_errors': n_errors,
                  }
                 }
     except Exception as ex:
@@ -171,15 +194,18 @@ def exposure_images( expid ):
         # TODO : deal with provenance!
         q = ( 'SELECT i.id, i.filepath, i.ra, i.dec, i.gallat, i.section_id, i.fwhm_estimate, '
               '       i.zero_point_estimate, i.lim_mag_estimate, i.bkg_mean_estimate, i.bkg_rms_estimate, '
-              '       s.id AS subid, COUNT(c.id) AS numcutouts, COUNT(m.id) AS nummeasurements '
+              '       s.id AS subid, COUNT(c.id) AS numcutouts, COUNT(m.id) AS nummeasurements, '
+              '       r.error_step, r.error_type, r.error_message, r.warnings, '
+              '       r.process_memory, r.process_runtime, r.progress_steps_bitflag, r.products_exist_bitflag '
               'FROM images i '
               'LEFT JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
               'LEFT JOIN images s ON s.id = ias.downstream_id AND s.is_sub '
               'LEFT JOIN source_lists sl ON sl.image_id=s.id '
               'LEFT JOIN cutouts c ON  c.sources_id=sl.id '
               'LEFT JOIN measurements m ON c.id=m.cutouts_id '
+              'LEFT JOIN reports r ON r.exposure_id=i.exposure_id AND r.section_id=i.section_id '
               'WHERE i.is_sub=false AND i.exposure_id=%(expid)s '
-              'GROUP BY i.id,s.id '
+              'GROUP BY i.id,s.id,r.id '
               'ORDER BY i.section_id,s.id ' )
         app.logger.debug( f"Getting images for exposure {expid}; query = {cursor.mogrify(q, {'expid': int(expid)})}" )
         cursor.execute( q, { 'expid': int(expid) } )
@@ -188,7 +214,9 @@ def exposure_images( expid ):
 
         fields = ( 'id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
                    'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate',
-                   'numcutouts', 'nummeasurements', 'subid' )
+                   'numcutouts', 'nummeasurements', 'subid',
+                   'error_step', 'error_type', 'error_message', 'warnings',
+                   'process_memory', 'process_runtime', 'progress_steps_bitflag', 'products_exist_bitflag' )
 
         retval = { 'status': 'ok', 'name': [] }
         for field in fields :
@@ -198,7 +226,7 @@ def exposure_images( expid ):
         slashre = re.compile( '^.*/([^/]+)$' )
         for row in cursor.fetchall():
             if row[columns['id']] == lastimg:
-                app.logger.warning( f'Multiple subtractions for image {i.id}, need to deal with provenance!' )
+                app.logger.warning( f'Multiple subtractions for image {lastimg}, need to deal with provenance!' )
                 continue
             lastimg = row[columns['id']]
 
@@ -299,12 +327,18 @@ def png_cutouts_for_sub_image( exporsubid, issubid, nomeas, limit=None, offset=0
 
         app.logger.debug( f"Getting cutouts for sub images {subids}" )
         q = ( 'SELECT c.id AS id, c.filepath, c.ra, c.dec, c.x, c.y, c.index_in_sources, m.best_aperture, '
-              '       m.flux_apertures[m.best_aperture+1] AS flux, m.flux_apertures_err[m.best_aperture+1] AS dflux, '
+              '       m.flux, m.dflux, m.name, m.is_test, m.is_fake, '
               '       m.ra AS measra, m.dec AS measdec, s.id AS subid, s.section_id '
               'FROM cutouts c '
               'INNER JOIN source_lists sl ON c.sources_id=sl.id '
               'INNER JOIN images s ON sl.image_id=s.id '
-              'LEFT JOIN measurements m ON m.cutouts_id=c.id '
+              'LEFT JOIN '
+              '  ( SELECT meas.cutouts_id AS meascutid, meas.ra, meas.dec, meas.best_aperture, '
+              '           meas.flux_apertures[meas.best_aperture+1] AS flux, '
+              '           meas.flux_apertures_err[meas.best_aperture+1] AS dflux, obj.name, obj.is_test, obj.is_fake '
+              '    FROM measurements meas '
+              '    INNER JOIN objects obj ON meas.object_id=obj.id '
+             '   ) AS m ON m.meascutid=c.id '
               'WHERE s.id IN %(subids)s ' )
         if not nomeas:
             q += "AND m.best_aperture IS NOT NULL "
@@ -336,6 +370,9 @@ def png_cutouts_for_sub_image( exporsubid, issubid, nomeas, limit=None, offset=0
                        'aperrad': [],
                        'mag': [],
                        'dmag': [],
+                       'objname': [],
+                       'is_test': [],
+                       'is_fake': [],
                        'x': [],
                        'y': [],
                        'w': [],
@@ -399,6 +436,9 @@ def png_cutouts_for_sub_image( exporsubid, issubid, nomeas, limit=None, offset=0
             retval['cutouts']['y'].append( row[cols['y']] )
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
+            retval['cutouts']['objname'].append( row[cols['name']] )
+            retval['cutouts']['is_test'].append( row[cols['is_test']] )
+            retval['cutouts']['is_fake'].append( row[cols['is_fake']] )
 
             # Measurements columns
 

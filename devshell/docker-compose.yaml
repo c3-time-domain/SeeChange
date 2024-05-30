@@ -2,7 +2,7 @@ version: "3.3"
 
 services:
   devshell_make-archive-directories:
-    image: rknop/upload-connector:tests
+    image: rknop/upload-connector:${IMGTAG:-devshell}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -18,7 +18,7 @@ services:
     depends_on:
       devshell_make-archive-directories:
         condition: service_completed_successfully
-    image: rknop/upload-connector:tests
+    image: rknop/upload-connector:${IMGTAG:-devshell}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -45,13 +45,14 @@ services:
     user: ${USERID:?err}:${GROUPID:?err}
 
   devshell_seechange_postgres:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres:${IMGTAG:-devshell}
     build:
       context: ../docker/postgres
     volumes:
       - seechange-devshell-postgres-dbdata:/var/lib/postgresql/data
     environment:
       POSTGRES_DATA_DIR: /var/lib/postgresql/data
+      POSTGRES_PASSWORD: fragile
     healthcheck:
       test: netcat -w 1 localhost 5432 || exit 1
       interval: 5s
@@ -59,7 +60,7 @@ services:
       retries: 5
 
   devshell_setuptables:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -76,8 +77,34 @@ services:
     user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: [ "alembic", "upgrade", "head" ]
 
+  devshell_webap:
+    depends_on:
+      devshell_setuptables:
+        condition: service_completed_successfully
+      devshell_make-archive-directories:
+        condition: service_completed_successfully
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-devshell}
+    build:
+      context: ../webap
+    user: ${USERID:-0}:${GROUPID:-0}
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: netcat -w 1 localhost 8081
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - type: volume
+        source: devshell-archive-storage
+        target: /archive-storage
+      - type: bind
+        source: ../tests/webap_secrets
+        target: /secrets
+    entrypoint: [ "gunicorn", "-w", "4", "-b", "0.0.0.0:8081", "--timeout", "0", "seechange_webap:app" ]
+
   devshell_make_data_dir:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -90,7 +117,7 @@ services:
     entrypoint: bash -c "mkdir -p /seechange/devshell/temp_data"
 
   seechange:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -103,6 +130,8 @@ services:
         condition: service_healthy
       devshell_make_data_dir:
         condition: service_completed_successfully
+      devshell_webap:
+        condition: service_healthy
     volumes:
       - type: bind
         source: ..
@@ -115,7 +144,7 @@ services:
     entrypoint: [ "tail", "-f", "/etc/issue" ]
 
   seechange_nodb:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -133,7 +162,7 @@ services:
     entrypoint: [ "tail", "-f", "/etc/issue" ]
 
   seechange_nomigrate:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile

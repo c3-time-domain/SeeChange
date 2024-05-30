@@ -31,6 +31,21 @@
 .link { background: none; border: none; padding: 0;
         color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
+.vcenter { vertical-align: center }
+
+.tooltipsource { color: var(--link-color);
+                 text-decoration: var(--link-decoration);
+                 cursor: pointer; }
+.tooltipsource .tooltiptext { visibility: hidden;
+                              background-color: var(--tooltip-background);
+                              border: 1px solid var(--tooltip-border);
+                              color: var(--tooltip-color);
+                              z-index: 10;
+                              position: absolute;
+                            }
+.tooltipsource:hover .tooltiptext { visibility: visible; }
+
+
 .tabunsel { background: var(--most-faded-color);
             border: 2px outset var(--full-color-border);
             margin-left: 0.5ex;

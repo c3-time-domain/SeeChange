@@ -53,7 +53,7 @@ seechange.Context.prototype.render_page = function()
     }
     else {
         rkWebUtil.wipeDiv( this.maindiv );
-        this.maindiv.appendchild( this.frontpagediv );
+        this.maindiv.appendChild( this.frontpagediv );
     }
 }
 
@@ -122,6 +122,16 @@ seechange.ExposureList.prototype.render_page = function()
 
     var table, th, tr, td;
 
+    let p = rkWebUtil.elemaker( "p", this.div );
+    rkWebUtil.elemaker( "span", p, { "text": "[Back to exposure search]",
+                                     "classes": [ "link" ],
+                                     "click": () => { self.context.render_page() } } );
+    p.appendChild( document.createTextNode( "  —  " ) );
+    rkWebUtil.elemaker( "span", p, { "text": "[Refresh]",
+                                     "classes": [ "link" ],
+                                     "click": () => { rkWebUtil.wipeDiv( self.div );
+                                                      self.context.show_exposures(); } } );
+
     let h2 = rkWebUtil.elemaker( "h2", this.div, { "text": "Exposures" } );
     if ( ( this.fromtime == null ) && ( this.totime == null ) ) {
         h2.appendChild( document.createTextNode( " from all time" ) );
@@ -143,6 +153,8 @@ seechange.ExposureList.prototype.render_page = function()
     th = rkWebUtil.elemaker( "th", tr, { "text": "n_images" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "n_cutouts" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "n_sources" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "n_successim" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "n_errors" } );
 
     this.tablerows = [];
     let exps = this.exposures;   // For typing convenience...
@@ -171,6 +183,8 @@ seechange.ExposureList.prototype.render_page = function()
         td = rkWebUtil.elemaker( "td", row, { "text": exps["n_images"][i] } );
         td = rkWebUtil.elemaker( "td", row, { "text": exps["n_cutouts"][i] } );
         td = rkWebUtil.elemaker( "td", row, { "text": exps["n_sources"][i] } );
+        td = rkWebUtil.elemaker( "td", row, { "text": exps["n_successim"][i] } );
+        td = rkWebUtil.elemaker( "td", row, { "text": exps["n_errors"][i] } );
         countdown -= 1;
         if ( countdown == 0 ) {
             countdown = 3;
@@ -191,7 +205,8 @@ seechange.ExposureList.prototype.show_exposure = function( id, name, mjd, filter
 
 seechange.ExposureList.prototype.actually_show_exposure = function( id, name, mjd, filter, target, exp_time, data )
 {
-    let exp = new seechange.Exposure( this.context, this.parentdiv, id, name, mjd, filter, target, exp_time, data );
+    let exp = new seechange.Exposure( this, this.context, this.parentdiv,
+                                      id, name, mjd, filter, target, exp_time, data );
     exp.render_page();
 }
 
@@ -200,8 +215,9 @@ seechange.ExposureList.prototype.actually_show_exposure = function( id, name, mj
 // **********************************************************************
 // **********************************************************************
 
-seechange.Exposure = function( context, parentdiv, id, name, mjd, filter, target, exp_time, data )
+seechange.Exposure = function( exposurelist, context, parentdiv, id, name, mjd, filter, target, exp_time, data )
 {
+    this.exposurelist = exposurelist;
     this.context = context;
     this.parentdiv = parentdiv;
     this.id = id;
@@ -221,6 +237,32 @@ seechange.Exposure = function( context, parentdiv, id, name, mjd, filter, target
     this.cutouts_pngs = {};
 }
 
+// Copy this from models/enums_and_bitflags.py
+seechange.Exposure.process_steps = {
+    1: 'preprocessing',
+    2: 'extraction',
+    3: 'astro_cal',
+    4: 'photo_cal',
+    5: 'subtraction',
+    6: 'detection',
+    7: 'cutting',
+    8: 'measuring',
+};
+
+// Copy this from models/enums_and_bitflags.py
+seechange.Exposure.pipeline_products = {
+    1: 'image',
+    2: 'sources',
+    3: 'psf',
+    5: 'wcs',
+    6: 'zp',
+    7: 'sub_image',
+    8: 'detections',
+    9: 'cutouts',
+    10: 'measurements',
+}
+
+
 seechange.Exposure.prototype.render_page = function()
 {
     let self = this;
@@ -234,7 +276,11 @@ seechange.Exposure.prototype.render_page = function()
 
     this.div = rkWebUtil.elemaker( "div", this.parentdiv );
 
-    var h2, h3, ul, li, table, tr, td, th, hbox, p;
+    var h2, h3, ul, li, table, tr, td, th, hbox, p, span, tiptext, ttspan;
+
+    rkWebUtil.elemaker( "p", this.div, { "text": "[Back to exposure list]",
+                                         "classes": [ "link" ],
+                                         "click": () => { self.exposurelist.render_page(); } } );
 
     h2 = rkWebUtil.elemaker( "h2", this.div, { "text": "Exposure " + this.name } );
     ul = rkWebUtil.elemaker( "ul", this.div );
@@ -298,6 +344,10 @@ seechange.Exposure.prototype.render_page = function()
     th = rkWebUtil.elemaker( "th", tr, { "text": "mag_lim" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "n_cutouts" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "n_sources" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "compl. step" } );
+    th = rkWebUtil.elemaker( "th", tr, {} ); // products exist
+    th = rkWebUtil.elemaker( "th", tr, {} ); // error
+    th = rkWebUtil.elemaker( "th", tr, {} ); // warnings
 
     let fade = 1;
     let countdown = 3;
@@ -320,6 +370,54 @@ seechange.Exposure.prototype.render_page = function()
         td = rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data["lim_mag_estimate"][i], 1 ) } );
         td = rkWebUtil.elemaker( "td", tr, { "text": this.data["numcutouts"][i] } );
         td = rkWebUtil.elemaker( "td", tr, { "text": this.data["nummeasurements"][i] } );
+
+        td = rkWebUtil.elemaker( "td", tr );
+        tiptext = "";
+        let laststep = "(none)";
+        for ( let j of Object.keys( seechange.Exposure.process_steps ) ) {
+            if ( this.data["progress_steps_bitflag"][i] & ( 2**j ) ) {
+                tiptext += seechange.Exposure.process_steps[j] + " done<br>";
+                laststep = seechange.Exposure.process_steps[j];
+            } else {
+                tiptext += "(" + seechange.Exposure.process_steps[j] + " not done)<br>";
+            }
+        }
+        span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ],
+                                                 "text": laststep } );
+        ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+        ttspan.innerHTML = tiptext;
+
+        td = rkWebUtil.elemaker( "td", tr );
+        tiptext = "Products created:";
+        for ( let j of Object.keys( seechange.Exposure.pipeline_products ) ) {
+            if ( this.data["products_exist_bitflag"][i] & ( 2**j ) )
+                tiptext += "<br>" + seechange.Exposure.pipeline_products[j];
+        }
+        span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ],
+                                                 "text": "data products" } );
+        ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+        ttspan.innerHTML = tiptext;
+
+        // Really I should be doing some HTML sanitization here on error message and, below, warnings....
+
+        td = rkWebUtil.elemaker( "td", tr );
+        if ( this.data["error_step"][i] != null ) {
+            span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ],
+                                                     "text": "error" } );
+            tiptext = ( this.data["error_type"][i] + " error in step " +
+                        seechange.Exposure.process_steps[this.data["error_step"][i]] +
+                        " (" + this.data["error_message"][i].replaceAll( "\n", "<br>") + ")" );
+            ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+            ttspan.innerHTML = tiptext;
+        }
+
+        td = rkWebUtil.elemaker( "td", tr );
+        if ( ( this.data["warnings"][i] != null ) && ( this.data["warnings"][i].length > 0 ) ) {
+            span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ],
+                                                     "text": "warnings" } );
+            ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+            ttspan.innerHTML = this.data["warnings"][i].replaceAll( "\n", "<br>" );
+        }
     }
 
 
@@ -410,6 +508,7 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
 
     table = rkWebUtil.elemaker( "table", div );
     tr = rkWebUtil.elemaker( "tr", table );
+    th = rkWebUtil.elemaker( "th", tr );
     th = rkWebUtil.elemaker( "th", tr, { "text": "new" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "ref" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "sub" } );
@@ -429,6 +528,13 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
     // for ( let i of dexen ) {
     for ( let i in data.cutouts.sub_id ) {
         tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr );
+        if ( data.cutouts.objname[i] != null ) {
+            let text = "Object: " + data.cutouts.objname[i];
+            if ( data.cutouts.is_fake[i] ) text += " [FAKE]";
+            if ( data.cutouts.is_test[i] ) text += " [TEST]";
+            td.appendChild( document.createTextNode( text ) );
+        }
         td = rkWebUtil.elemaker( "td", tr );
         img = rkWebUtil.elemaker( "img", td,
                                   { "attributes":
