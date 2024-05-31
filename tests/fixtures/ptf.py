@@ -1,4 +1,5 @@
 import pytest
+import sys
 import os
 import shutil
 import requests
@@ -28,6 +29,8 @@ from improc.alignment import ImageAligner
 from util.retrydownload import retry_download
 from util.logger import SCLogger
 
+sys.path.append( os.path.dirname( __file__ ) )
+from cache_utils import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 
 @pytest.fixture(scope='session')
 def ptf_cache_dir(cache_dir):
@@ -43,21 +46,28 @@ def ptf_bad_pixel_map(download_url, data_dir, ptf_cache_dir):
     filename = 'C11/masktot.fits'  # TODO: add more CCDs if needed
     # url = 'https://portal.nersc.gov/project/m2218/pipeline/test_images/2012021x/'
     url = os.path.join(download_url, 'PTF/10cwm/2012021x/')
-
-    # is this file already on the cache? if not, download it
-    cache_path = os.path.join(ptf_cache_dir, filename)
-    if not os.path.isfile(cache_path):
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        retry_download(url + filename, cache_path)
-
-    if not os.path.isfile(cache_path):
-        raise FileNotFoundError(f"Can't read {cache_path}. It should have been downloaded!")
-
     data_dir = os.path.join(data_dir, 'PTF_calibrators')
     data_path = os.path.join(data_dir, filename)
-    if not os.path.isfile(data_path):
-        os.makedirs(os.path.dirname(data_path), exist_ok=True)
-        shutil.copy2(cache_path, data_path)
+
+    if os.getenv( "LIMIT_CACHE_USAGE" ):
+        if not os.path.isfile( data_path ):
+            os.makedirs( os.path.dirname( data_path ), exist_ok=True )
+            retry_download( url + filename, data_path )
+        if not os.path.isfile( data_path ):
+            raise FileNotFoundError( f"Can't read {data_path}.  It should have been downloaded!" )
+    else:
+        # is this file already on the cache? if not, download it
+        cache_path = os.path.join(ptf_cache_dir, filename)
+        if not os.path.isfile(cache_path):
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            retry_download(url + filename, cache_path)
+
+        if not os.path.isfile(cache_path):
+            raise FileNotFoundError(f"Can't read {cache_path}. It should have been downloaded!")
+
+        if not os.path.isfile(data_path):
+            os.makedirs(os.path.dirname(data_path), exist_ok=True)
+            shutil.copy2(cache_path, data_path)
 
     with fits.open(data_path) as hdul:
         data = (hdul[0].data == 0).astype('uint16')  # invert the mask (good is False, bad is True)
@@ -81,29 +91,42 @@ def ptf_bad_pixel_map(download_url, data_dir, ptf_cache_dir):
 
 @pytest.fixture(scope='session')
 def ptf_downloader(provenance_preprocessing, download_url, data_dir, ptf_cache_dir):
+    """Downloads an image for ptf.
+
+    At the end, only count on the file being in data_dir.  It *might*
+    have also put the file in ptf_cache_dir, depending on an environment
+    variable setting; don't count on the file being in cache_dir outside
+    of this function.
+
+    """
 
     def download_ptf_function(filename='PTF201104291667_2_o_45737_11.w.fits'):
 
         os.makedirs(ptf_cache_dir, exist_ok=True)
         cachedpath = os.path.join(ptf_cache_dir, filename)
-
-        # first make sure file exists in the cache
-        if os.path.isfile(cachedpath):
-            SCLogger.info(f"{cachedpath} exists, not redownloading.")
-        else:
-            # url = f'https://portal.nersc.gov/project/m2218/pipeline/test_images/{filename}'
-            url = os.path.join(download_url, 'PTF/10cwm', filename)
-            retry_download(url, cachedpath)  # make the cached copy
-
-        if not os.path.isfile(cachedpath):
-            raise FileNotFoundError(f"Can't read {cachedpath}. It should have been downloaded!")
-
-        # copy the PTF exposure from cache to local storage:
         destination = os.path.join(data_dir, filename)
+        # url = f'https://portal.nersc.gov/project/m2218/pipeline/test_images/{filename}'
+        url = os.path.join(download_url, 'PTF/10cwm', filename)
 
-        if not os.path.isfile(destination):
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            shutil.copy(cachedpath, destination)
+        if os.getenv( "LIMIT_CACHE_USAGE" ):
+            retry_download( url, destination )
+            if not os.path.isfile( destination ):
+                raise FileNotFoundError( f"Can't read {destination}.  It should have been downloaded!" )
+        else:
+            # first make sure file exists in the cache
+            if os.path.isfile(cachedpath):
+                SCLogger.info(f"{cachedpath} exists, not redownloading.")
+            else:
+                retry_download(url, cachedpath)  # make the cached copy
+
+            if not os.path.isfile(cachedpath):
+                raise FileNotFoundError(f"Can't read {cachedpath}. It should have been downloaded!")
+
+            # copy the PTF exposure from cache to local storage:
+
+            if not os.path.isfile(destination):
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                shutil.copy(cachedpath, destination)
 
         exposure = Exposure(filepath=filename)
 
@@ -186,7 +209,9 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
     def factory(start_date='2009-04-04', end_date='2013-03-03', max_images=None):
         # see if any of the cache names were saved to a manifest file
         cache_names = {}
-        if os.path.isfile(os.path.join(ptf_cache_dir, 'manifest.txt')):
+        if (   ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+               ( os.path.isfile(os.path.join(ptf_cache_dir, 'manifest.txt')) )
+            ):
             with open(os.path.join(ptf_cache_dir, 'manifest.txt')) as f:
                 text = f.read().splitlines()
             for line in text:
@@ -222,7 +247,9 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
                     bad_pixel_map=ptf_bad_pixel_map,
                 )
 
-                if hasattr(ds, 'cache_base_name') and ds.cache_base_name is not None:
+                if (    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+                        ( hasattr(ds, 'cache_base_name') ) and ( ds.cache_base_name is not None )
+                    ):
                     cache_name = ds.cache_base_name
                     if cache_name.startswith(ptf_cache_dir):
                         cache_name = cache_name[len(ptf_cache_dir) + 1:]
@@ -293,15 +320,17 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
     cache_dir = os.path.join(ptf_cache_dir, 'aligned_images')
 
     # try to load from cache
-    if os.path.isfile(os.path.join(cache_dir, 'manifest.txt')):
+    if (    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+            ( os.path.isfile(os.path.join(cache_dir, 'manifest.txt')) )
+        ):
         with open(os.path.join(cache_dir, 'manifest.txt')) as f:
             filenames = f.read().splitlines()
         output_images = []
         for filename in filenames:
             imfile, psffile = filename.split()
-            output_images.append(Image.copy_from_cache(cache_dir, imfile + '.image.fits'))
-            output_images[-1].psf = PSF.copy_from_cache(cache_dir, psffile + '.fits')
-            output_images[-1].zp = ZeroPoint.copy_from_cache(cache_dir, imfile + '.zp')
+            output_images.append(copy_from_cache(Image, cache_dir, imfile + '.image.fits'))
+            output_images[-1].psf = copy_from_cache(PSF, cache_dir, psffile + '.fits')
+            output_images[-1].zp = copy_from_cache(ZeroPoint, cache_dir, imfile + '.zp')
     else:  # no cache available
         ptf_reference_images = request.getfixturevalue('ptf_reference_images')
 
@@ -322,18 +351,21 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
         psf_paths = []
         for image in coadd_image.aligned_images:
             image.save()
-            filepath = image.copy_to_cache(cache_dir)
+            filepath = copy_to_cache(image, cache_dir)
             if image.psf.filepath is None:  # save only PSF objects that haven't been saved yet
                 image.psf.save()
-            image.psf.copy_to_cache(cache_dir)
-            image.zp.copy_to_cache(cache_dir, filepath=filepath[:-len('.image.fits.json')]+'.zp.json')
+            if not os.getenv( "LIMIT_CACHE_USAGE" ):
+               copy_to_cache(image.psf, cache_dir)
+               copy_to_cache(image.zp, cache_dir, filepath=filepath[:-len('.image.fits.json')]+'.zp.json')
             filenames.append(image.filepath)
             psf_paths.append(image.psf.filepath)
 
-        os.makedirs(cache_dir, exist_ok=True)
-        with open(os.path.join(cache_dir, 'manifest.txt'), 'w') as f:
-            for filename, psf_path in zip(filenames, psf_paths):
-                f.write(f'{filename} {psf_path}\n')
+        if not os.getenv( "LIMIT_CACHE_USAGE" ):
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(os.path.join(cache_dir, 'manifest.txt'), 'w') as f:
+                for filename, psf_path in zip(filenames, psf_paths):
+                    f.write(f'{filename} {psf_path}\n')
+
         output_images = coadd_image.aligned_images
 
     yield output_images
@@ -410,10 +442,15 @@ def ptf_ref(ptf_reference_images, ptf_aligned_images, coadder, ptf_cache_dir, da
         )
 
     extensions = ['image.fits', f'psf_{psf_prov.id[:6]}.fits', f'sources_{sources_prov.id[:6]}.fits', 'wcs', 'zp']
-    filenames = [os.path.join(ptf_cache_dir, cache_base_name) + f'.{ext}.json' for ext in extensions]
-    if all([os.path.isfile(filename) for filename in filenames]):  # can load from cache
+    if not os.getenv( "LIMIT_CACHE_USAGE" ):
+        filenames = [os.path.join(ptf_cache_dir, cache_base_name) + f'.{ext}.json' for ext in extensions]
+    else:
+        filenames = []
+    if (     ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+             ( all([os.path.isfile(filename) for filename in filenames]) )
+        ):  # can load from cache
         # get the image:
-        coadd_image = Image.copy_from_cache(ptf_cache_dir, cache_base_name + '.image.fits')
+        coadd_image = copy_from_cache(Image, ptf_cache_dir, cache_base_name + '.image.fits')
         # we must load these images in order to save the reference image with upstreams
         coadd_image.upstream_images = ptf_reference_images
         coadd_image.provenance = im_prov
@@ -421,25 +458,25 @@ def ptf_ref(ptf_reference_images, ptf_aligned_images, coadder, ptf_cache_dir, da
         assert coadd_image.provenance_id == coadd_image.provenance.id
 
         # get the PSF:
-        coadd_image.psf = PSF.copy_from_cache(ptf_cache_dir, cache_base_name + f'.psf_{psf_prov.id[:6]}.fits')
+        coadd_image.psf = copy_from_cache(PSF, ptf_cache_dir, cache_base_name + f'.psf_{psf_prov.id[:6]}.fits')
         coadd_image.psf.provenance = psf_prov
         assert coadd_image.psf.provenance_id == coadd_image.psf.provenance.id
 
         # get the source list:
-        coadd_image.sources = SourceList.copy_from_cache(
-            ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
+        coadd_image.sources =copy_from_cache(
+            SourceList, ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
         )
         coadd_image.sources.provenance = sources_prov
         assert coadd_image.sources.provenance_id == coadd_image.sources.provenance.id
 
         # get the WCS:
-        coadd_image.wcs = WorldCoordinates.copy_from_cache(ptf_cache_dir, cache_base_name + '.wcs')
+        coadd_image.wcs = copy_from_cache(WorldCoordinates, ptf_cache_dir, cache_base_name + '.wcs')
         coadd_image.wcs.provenance = wcs_prov
         coadd_image.sources.wcs = coadd_image.wcs
         assert coadd_image.wcs.provenance_id == coadd_image.wcs.provenance.id
 
         # get the zero point:
-        coadd_image.zp = ZeroPoint.copy_from_cache(ptf_cache_dir, cache_base_name + '.zp')
+        coadd_image.zp = copy_from_cache(ZeroPoint, ptf_cache_dir, cache_base_name + '.zp')
         coadd_image.zp.provenance = zp_prov
         coadd_image.sources.zp = coadd_image.zp
         assert coadd_image.zp.provenance_id == coadd_image.zp.provenance.id
@@ -452,12 +489,13 @@ def ptf_ref(ptf_reference_images, ptf_aligned_images, coadder, ptf_cache_dir, da
         pipe.datastore.save_and_commit()
         coadd_image = pipe.datastore.image
 
-        # save all products into cache:
-        pipe.datastore.image.copy_to_cache(ptf_cache_dir)
-        pipe.datastore.sources.copy_to_cache(ptf_cache_dir)
-        pipe.datastore.psf.copy_to_cache(ptf_cache_dir)
-        pipe.datastore.wcs.copy_to_cache(ptf_cache_dir, cache_base_name + '.wcs.json')
-        pipe.datastore.zp.copy_to_cache(ptf_cache_dir, cache_base_name + '.zp.json')
+        if not os.getenv( "LIMIT_CACHE_USAGE" ):
+            # save all products into cache:
+            copy_to_cache(pipe.datastore.image, ptf_cache_dir)
+            copy_to_cache(pipe.datastore.sources, ptf_cache_dir)
+            copy_to_cache(pipe.datastore.psf, ptf_cache_dir)
+            copy_to_cache(pipe.datastore.wcs, ptf_cache_dir, cache_base_name + '.wcs.json')
+            copy_to_cache(pipe.datastore.zp, ptf_cache_dir, cache_base_name + '.zp.json')
 
     with SmartSession() as session:
         coadd_image = coadd_image.merge_all(session)
@@ -486,8 +524,8 @@ def ptf_subtraction1(ptf_ref, ptf_supernova_images, subtractor, ptf_cache_dir):
 
     cache_path = os.path.join(ptf_cache_dir, '187/PTF_20100216_075004_11_R_Diff_VXUBFA_u-7ogkop.image.fits.json')
 
-    if os.path.isfile(cache_path):  # try to load this from cache
-        im = Image.copy_from_cache(ptf_cache_dir, cache_path)
+    if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_path) ):  # try to load this from cache
+        im = copy_from_cache(Image, ptf_cache_dir, cache_path)
         im.upstream_images = [ptf_ref.image, ptf_supernova_images[0]]
         im.ref_image_id = ptf_ref.image.id
         prov = Provenance(
@@ -503,7 +541,8 @@ def ptf_subtraction1(ptf_ref, ptf_supernova_images, subtractor, ptf_cache_dir):
         ds = subtractor.run(ptf_supernova_images[0])
         ds.sub_image.save()
 
-        ds.sub_image.copy_to_cache(ptf_cache_dir)
+        if not os.getenv( "LIMIT_CACHE_USAGE" ) :
+            copy_to_cache(ds.sub_image, ptf_cache_dir)
         im = ds.sub_image
 
     # save the subtraction image to DB and the upstreams (if they are not already there)
@@ -514,4 +553,3 @@ def ptf_subtraction1(ptf_ref, ptf_supernova_images, subtractor, ptf_cache_dir):
     yield im
 
     im.delete_from_disk_and_database(remove_downstreams=True)
-

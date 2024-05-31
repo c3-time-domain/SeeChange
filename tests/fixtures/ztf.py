@@ -40,12 +40,15 @@ def ztf_filepaths_image_sources_psf(data_dir, ztf_cache_dir, download_url):
     output = image, weight, flags, sources, psf, psfxml
 
     for filepath in output:
-        if not os.path.isfile(os.path.join(ztf_cache_dir, filepath)):
-            retry_download(download_url + filepath, os.path.join(ztf_cache_dir, filepath))
-        if not os.path.isfile(os.path.join(ztf_cache_dir, filepath)):
-            raise FileNotFoundError(f"Can't read {filepath}. It should have been downloaded! ")
-        if not os.path.isfile(os.path.join(data_dir, filepath)):
-            shutil.copy2(os.path.join(ztf_cache_dir, filepath), os.path.join(data_dir, filepath))
+        if os.getenv( "LIMIT_CACHE_USAGE" ):
+            retry_download( download_url + filepath, os.path.join( data_dir, filepath ) )
+        else:
+            if not os.path.isfile(os.path.join(ztf_cache_dir, filepath)):
+                retry_download(download_url + filepath, os.path.join(ztf_cache_dir, filepath))
+            if not os.path.isfile(os.path.join(ztf_cache_dir, filepath)):
+                raise FileNotFoundError(f"Can't read {filepath}. It should have been downloaded! ")
+            if not os.path.isfile(os.path.join(data_dir, filepath)):
+                shutil.copy2(os.path.join(ztf_cache_dir, filepath), os.path.join(data_dir, filepath))
 
     output = tuple(
         pathlib.Path(os.path.join(data_dir, filepath)) for filepath in output
