@@ -1,9 +1,5 @@
 name: Run Util Tests
 
-env:
-  SKIP_NOIRLAB_DOWNLOADS: 1
-  LIMIT_CACHE_USAGE: 1
-
 on:
   push:
     branches:
