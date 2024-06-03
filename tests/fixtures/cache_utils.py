@@ -69,6 +69,7 @@ def copy_to_cache(FoD, cache_dir, filepath=None):
 
     # attach the cache_dir and the .json extension if needed
     json_filepath = os.path.join(cache_dir, json_filepath)
+    os.makedirs( os.path.dirname( json_filepath ), exist_ok=True )
     if not json_filepath.endswith('.json'):
         json_filepath += '.json'
     FoD.to_json(json_filepath)
