@@ -5,7 +5,6 @@ import pathlib
 import improc.scamp
 
 from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchException
-
 from util.logger import SCLogger
 from util.util import parse_bool
 

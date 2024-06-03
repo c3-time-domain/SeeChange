@@ -3,6 +3,7 @@ import datetime
 import sqlalchemy as sa
 
 from util.util import get_latest_provenance, parse_session
+from util.logger import SCLogger
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import CodeVersion, Provenance
@@ -15,8 +16,6 @@ from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
-
-from util.logger import SCLogger
 
 # for each process step, list the steps that go into its upstream
 UPSTREAM_STEPS = {
@@ -1069,6 +1068,9 @@ class DataStore:
         -------
         ref: Image object
             The reference image for this image, or None if no reference is found.
+
+        It will only return references whose validity date range
+        includes DataStore.image.observation_time.
 
         If minovfrac is given, it will return the reference that has the
         highest ovfrac.  (If, by unlikely chance, more than one have

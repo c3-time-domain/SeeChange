@@ -75,6 +75,32 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
     entrypoint: [ "alembic", "upgrade", "head" ]
 
+  webap:
+    depends_on:
+      setuptables:
+        condition: service_completed_successfully
+      make-archive-directories:
+        condition: service_completed_successfully
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-tests}
+    build:
+      context: ../webap
+    user: ${USERID:-0}:${GROUPID:-0}
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: netcat -w 1 localhost 8081
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - type: volume
+        source: archive-storage
+        target: /archive-storage
+      - type: bind
+        source: webap_secrets
+        target: /secrets
+    entrypoint: [ "gunicorn", "-w", "4", "-b", "0.0.0.0:8081", "--timeout", "0", "seechange_webap:app" ]
+
   runtests:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-tests}
     build:
@@ -89,6 +115,8 @@ services:
         condition: service_completed_successfully
       archive:
         condition: service_healthy
+      # webap:
+      #   condition: service_healthy
     volumes:
       - type: bind
         source: ..
@@ -114,6 +142,8 @@ services:
         condition: service_completed_successfully
       archive:
         condition: service_healthy
+      # webap:
+      #   condition: service_healthy
     volumes:
       - type: bind
         source: ..
@@ -137,6 +167,8 @@ services:
       setuptables:
         condition: service_completed_successfully
       archive:
+        condition: service_healthy
+      webap:
         condition: service_healthy
     volumes:
       - type: bind

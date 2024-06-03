@@ -82,15 +82,16 @@ def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astro
 
 def test_run_scamp( decam_datastore, astrometor ):
     ds = decam_datastore
-    original_filename = ds.cache_base_name + '.image.fits.original'
-    with open(original_filename, "rb") as ifp:
+
+    # Get the md5sum and WCS from the image before we do things to it
+    with open(ds.path_to_original_image, "rb") as ifp:
         md5 = hashlib.md5()
         md5.update(ifp.read())
         origmd5 = uuid.UUID(md5.hexdigest())
 
     xvals = [0, 0, 2047, 2047]
     yvals = [0, 4095, 0, 4095]
-    with fits.open(original_filename) as hdu:
+    with fits.open(ds.path_to_original_image) as hdu:
         origwcs = WCS(hdu[ds.section_id].header)
 
     astrometor.pars.cross_match_catalog = 'gaia_dr3'

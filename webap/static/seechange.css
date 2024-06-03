@@ -1,0 +1,87 @@
+:root {
+    --link-color: #000066;
+    --link-decoration: underline;
+    --main-color: black;
+    --background-color: white;
+    --half-faded-color: #888888;
+    --some-faded-color: #666666;
+    --most-faded-color: #eeeeee;
+    --highlight-color: #993333;
+    --full-color-border: black;
+    --mid-color-border: #999999;
+    --mostlyfull-color-border: #666666;
+    --embiggen-background: #bbbbbb;
+    --tooltip-background: #ffff66;
+    --tooltip-border: #0000ff;
+    --tooltip-color: black;
+    --good-color: #006000;
+    --bad-color: #c00000;
+    --warning-color: #c06040;
+}
+
+.good { color: var(--good-color) }
+.bad { color: var(--bad-color) }
+.warning { color: var(--warning-color) }
+
+.italic { font-style: italic }
+.bold { font-weight: bold }
+
+.bgwhite { background: var(--background-color) }
+.bgfade { background: var(--most-faded-color) }
+.link { background: none; border: none; padding: 0;
+        color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
+
+.vcenter { vertical-align: center }
+
+.tooltipsource { color: var(--link-color);
+                 text-decoration: var(--link-decoration);
+                 cursor: pointer; }
+.tooltipsource .tooltiptext { visibility: hidden;
+                              background-color: var(--tooltip-background);
+                              border: 1px solid var(--tooltip-border);
+                              color: var(--tooltip-color);
+                              z-index: 10;
+                              position: absolute;
+                            }
+.tooltipsource:hover .tooltiptext { visibility: visible; }
+
+
+.tabunsel { background: var(--most-faded-color);
+            border: 2px outset var(--full-color-border);
+            margin-left: 0.5ex;
+            margin-right: 0.5ex; }
+.tabsel { background: var(--half-faded-color);
+          border: 2px inset var(--full-color-border);
+          margin-left: 0.5ex;
+          margin-right: 0.5ex; }
+div.tabdiv {}
+div.buttonboxdiv {}
+div.tabcontentdiv { border: 2px solid var(--mostlyfull-color-border);
+                    padding: 0.5ex;
+                  }
+
+.padhalfex { padding: 0.5ex }
+
+.bold { font-weight: bold }
+
+img { image-rendering: pixelated }
+a { color: var(--link-color); text-decorastion: var(--link-decoration); cursor: pointer; }
+
+table { border: 2px solid var(--full-color-border); border-spacing: 2px }
+table th { border-bottom: 2px solid var(--full-color-border); font-weight: bold }
+table td { border-bottom: 2px solid var(--half-faded-color);
+           border-spacing: 2px;
+           padding: 2px; }
+table th.borderleft { border-left: 2px solid var(--half-faded-color); }
+
+table.exposurelist td { border: 2px solid var(--half-faded-color); }
+
+div.hbox { display: flex;
+           flex-direction: row;
+           min-width: 0;
+           min-height: 0; }
+
+div.vbox { display: flex;
+           flex-direction: column;
+           min-width: 0;
+           min-height: 0; }

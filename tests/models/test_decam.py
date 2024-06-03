@@ -120,6 +120,7 @@ def test_image_from_decam_exposure(decam_filename, provenance_base, data_dir):
 # guidance for how to do things, do *not* write code that mucks about
 # with the _frame member of one of those objects; that's internal state
 # not intended for external consumption.
+@pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_search_noirlab( decam_reduced_origin_exposures ):
     origloglevel = SCLogger.get().getEffectiveLevel()
     try:
@@ -162,6 +163,7 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
         SCLogger.setLevel( origloglevel )
 
 
+@pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_download_origin_exposure( decam_reduced_origin_exposures, cache_dir ):
     assert all( [ row.proc_type == 'instcal' for i, row in decam_reduced_origin_exposures._frame.iterrows() ] )
     try:
@@ -206,6 +208,7 @@ def test_decam_download_origin_exposure( decam_reduced_origin_exposures, cache_d
         pass
 
 
+@pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_download_and_commit_exposure(
         code_version, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive
 ):
@@ -233,12 +236,6 @@ def test_decam_download_and_commit_exposure(
             for i, exposure in zip( expdexes, exposures ):
                 eids.append( exposure.id )
                 fname = pathlib.Path( decam_raw_origin_exposures._frame.iloc[i].archive_filename ).name
-
-                # cache the files
-                os.makedirs( os.path.join( cache_dir, 'DECam' ), exist_ok=True )
-                if not os.path.isfile( os.path.join( cache_dir, 'DECam', fname ) ):
-                    shutil.copy2( os.path.join( data_dir, fname ),
-                                os.path.join( cache_dir, 'DECam', fname ) )
 
                 match = re.search( r'^c4d_(?P<yymmdd>\d{6})_(?P<hhmmss>\d{6})_ori.fits', fname )
                 assert match is not None
@@ -271,14 +268,12 @@ def test_decam_download_and_commit_exposure(
             for exposure in exposures:
                 exposure.delete_from_disk_and_database( session=session, commit=False )
             session.commit()
-            # remove downloaded files from data_dir (a cached version should remain)
             if 'downloaded' in locals():
                 for d in downloaded:
                     path = os.path.join(data_dir, d['exposure'].name)
                     if os.path.isfile(path):
                         os.unlink(path)
 
-            # remove downloaded files from data_dir (a cached version should remain)
             if 'downloaded' in locals():
                 for d in downloaded:
                     path = os.path.join(data_dir, d['exposure'].name)
