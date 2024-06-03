@@ -19,7 +19,7 @@ from astropy.coordinates import SkyCoord, Distance
 from models.base import Base, SmartSession, AutoIDMixin
 
 from pipeline.catalog_tools import Bandpass
-from util.util import parse_dateobs, read_fits_image
+from util.util import parse_dateobs, read_fits_image, get_inheritors
 from util.logger import SCLogger
 
 
@@ -44,20 +44,6 @@ class InstrumentOrientation(Enum):
     NrightEdown = 5       # flip-x, then 90° clockwise
     NdownEleft = 6        # flip-x, then 180°
     NleftEup = 7          # flip-x, then 270° clockwise
-
-
-# from: https://stackoverflow.com/a/5883218
-def get_inheritors(klass):
-    """Get all classes that inherit from klass. """
-    subclasses = set()
-    work = [klass]
-    while work:
-        parent = work.pop()
-        for child in parent.__subclasses__():
-            if child not in subclasses:
-                subclasses.add(child)
-                work.append(child)
-    return subclasses
 
 
 def register_all_instruments():
