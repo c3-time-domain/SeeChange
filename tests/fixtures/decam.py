@@ -1,5 +1,4 @@
 import pytest
-import sys
 import os
 import wget
 import yaml
@@ -26,9 +25,7 @@ from improc.alignment import ImageAligner
 
 from util.retrydownload import retry_download
 from util.logger import SCLogger
-
-sys.path.append( os.path.dirname( __file__ ) )
-from cache_utils import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
+from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 
 @pytest.fixture(scope='session')
 def decam_cache_dir(cache_dir):

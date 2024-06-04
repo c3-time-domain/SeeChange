@@ -1,5 +1,4 @@
 import pytest
-import sys
 import os
 import shutil
 import requests
@@ -28,9 +27,8 @@ from improc.alignment import ImageAligner
 
 from util.retrydownload import retry_download
 from util.logger import SCLogger
+from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 
-sys.path.append( os.path.dirname( __file__ ) )
-from cache_utils import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 
 @pytest.fixture(scope='session')
 def ptf_cache_dir(cache_dir):

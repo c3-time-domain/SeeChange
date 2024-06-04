@@ -9,7 +9,7 @@ from util.logger import SCLogger
 # Functions for copying FileOnDisk objects to/from cache
 
 def copy_to_cache(FoD, cache_dir, filepath=None):
-    """Save a copy of the object (and associated files) into a cache directory.
+    """Save a copy of the object (and, potentially, associated files) into a cache directory.
 
     If the object is a FileOnDiskMixin, then the file(s) pointed by get_fullpath()
     will be copied to the cache directory with their original names,
@@ -19,13 +19,15 @@ def copy_to_cache(FoD, cache_dir, filepath=None):
     which holds the object's column attributes (i.e., only those that are
     database persistent).
 
-    If caching a non-FileOnDiskMixin object, the filepath argument must be given,
-    because it is used to name the JSON file.
+    If caching a non-FileOnDiskMixin object, the filepath argument must
+    be given, because it is used to name the JSON file.  The object must
+    implement a method to_json(path) that serializes itself to the file
+    specified by path.
 
     Parameters
     ----------
-    FoD: FileOnDiskMixin or None
-        The object (which is an instance of FileOnDiskMixin) to cache.
+    FoD: FileOnDiskMixin or another object that implements to_json()
+        The object to cache.
     cache_dir: str or path
         The path to the cache directory.
     filepath: str or path (optional)
@@ -37,6 +39,7 @@ def copy_to_cache(FoD, cache_dir, filepath=None):
     -------
     str
         The full path to the output json file.
+
     """
     if filepath is not None and filepath.endswith('.json'):  # remove .json if it exists
         filepath = filepath[:-5]
@@ -77,14 +80,21 @@ def copy_to_cache(FoD, cache_dir, filepath=None):
     return json_filepath
 
 def copy_list_to_cache(obj_list, cache_dir, filepath=None):
-    """Copy a list of objects to the cache directory.
+    """Copy a correlated list of objects to the cache directory.
 
-    The first object on the list will be used to copy any associated files
-    (if it is a FileOnDiskMixin). The filepath argument must be given
-    if the objects are not FileOnDiskMixin.
-    The type and filepath of all objects on the list must be the same!
+    All objects must be of the same type.  If they are of type
+    FileOnDiskMixin, the files associated with the *first* object in the
+    list (only) will be copied to the cache.  (Use case: something like
+    Cutouts where a whole bunch of objects all have the same file.)
 
-    The object's column data is saved into the JSON file as a list of dictionaries.
+    The objects implement the to_dict() method that serializes
+    themselves to a dictionary (as FileOnDiskMixin does).  All of the
+    objects' dictionary data will be written to filepath as a JSON list
+    of dictionaries.
+
+    In either case, if the objects have a "filepath" attribute, the
+    value of that attribute must be the same for every object in the
+    list.
 
     Parameters
     ----------
@@ -101,6 +111,7 @@ def copy_list_to_cache(obj_list, cache_dir, filepath=None):
     -------
     str
         The full path to the output JSON file.
+
     """
     if len(obj_list) == 0:
         if filepath is None:
@@ -141,7 +152,7 @@ def copy_from_cache(cls, cache_dir, filepath):
 
     Parameters
     ----------
-    cls : Class that derives from FileOnDiskMixin
+    cls : Class that derives from FileOnDiskMixin, or that implements from_dict(dict)
         The class of the object that's being copied
     cache_dir: str or path
         The path to the cache directory.
@@ -199,6 +210,8 @@ def copy_list_from_cache(cls, cache_dir, filepath):
 
     Parameters
     ----------
+    cls: Class that derives from FileOnDiskMixin, or that implements from_dict(dict)
+        The class of the objects that are being copied
     cache_dir: str or path
         The path to the cache directory.
     filepath: str or path
