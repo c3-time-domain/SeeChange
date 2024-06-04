@@ -1,5 +1,4 @@
 import os
-import sys
 import warnings
 import shutil
 import pytest
@@ -33,11 +32,9 @@ from pipeline.measuring import Measurer
 from pipeline.top_level import Pipeline
 
 from util.logger import SCLogger
+from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 
 from improc.bitmask_tools import make_saturated_flag
-
-sys.path.append( os.path.dirname( __file__ ) )
-from cache_utils import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 
 @pytest.fixture(scope='session')
 def preprocessor_factory(test_config):
