@@ -12,6 +12,7 @@ from astropy.io import fits
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.exposure import Exposure
+from models.knownexposure import KnownExposure
 from models.instrument import get_instrument_instance
 from models.datafile import DataFile
 from models.calibratorfile import CalibratorFile
@@ -206,6 +207,34 @@ def test_decam_download_origin_exposure( decam_reduced_origin_exposures, cache_d
     finally:
         # Don't clean up for efficiency of rerunning tests.
         pass
+
+@pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
+def test_add_to_known_exposures( decam_raw_origin_exposures ):
+    # I'm looking inside the decam_raw_origin_exposures structure,
+    #  which you're not supposed to do.  This means if the
+    #  internal implementation changes, even if the interface
+    #  doesn't, I may need to rewrite the test... oh well.
+    # (To fix it, we'd need a method that extracts the identifiers
+    #  from the opaque origin exposures object.)
+    identifiers = [ pathlib.Path( decam_raw_origin_exposures._frame.loc[i,'image'].archive_filename ).name
+                    for i in [1,2] ]
+    try:
+        decam_raw_origin_exposures.add_to_known_exposures( [1, 2] )
+
+        with SmartSession() as session:
+            kes = session.query( KnownExposure ).filter( KnownExposure.identifier.in_( identifiers ) ).all()
+            assert len(kes) == 2
+            assert { k.identifier for k in kes } == {'c4d_230803_035529_ori.fits.fz', 'c4d_230803_035409_ori.fits.fz'}
+            assert all( [ k.instrument == 'DECam' for k in kes ] )
+            assert all( [ k.params['url'][0:45] == 'https://astroarchive.noirlab.edu/api/retrieve' for k in kes ] )
+
+    finally:
+        with SmartSession() as session:
+            kes = session.query( KnownExposure ).filter( KnownExposure.identifier.in_( identifiers ) )
+            for ke in kes:
+                session.delete( ke )
+            session.commit()
+
 
 
 @pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )

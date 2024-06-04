@@ -39,6 +39,7 @@ from models.enums_and_bitflags import (
 import util.config as config
 from util.archive import Archive
 from util.logger import SCLogger
+from util.radec import radec_to_gal_ecl
 
 utcnow = func.timezone("UTC", func.current_timestamp())
 
@@ -1386,11 +1387,8 @@ class SpatiallyIndexed:
         if self.ra is None or self.dec is None:
             return
 
-        coords = SkyCoord(self.ra, self.dec, unit="deg", frame="icrs")
-        self.gallat = float(coords.galactic.b.deg)
-        self.gallon = float(coords.galactic.l.deg)
-        self.ecllat = float(coords.barycentrictrueecliptic.lat.deg)
-        self.ecllon = float(coords.barycentrictrueecliptic.lon.deg)
+        self.gallat, self.gallon, self.ecllat, self.ecllon = radec_to_gal_ecl( self.ra, self.dec )
+
 
     @hybrid_method
     def within( self, fourcorn ):

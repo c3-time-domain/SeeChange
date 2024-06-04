@@ -2,6 +2,7 @@ import math
 import copy
 import pathlib
 import requests
+import json
 import collections.abc
 
 import numpy as np
@@ -12,6 +13,8 @@ from astropy.io import fits
 import sqlalchemy as sa
 
 from models.base import SmartSession, FileOnDiskMixin
+from models.exposure import Exposure
+from models.knownexposure import KnownExposure
 from models.instrument import Instrument, InstrumentOrientation, SensorSection
 from models.image import Image
 from models.datafile import DataFile
@@ -20,6 +23,7 @@ from util.config import Config
 import util.util
 from util.retrydownload import retry_download
 from util.logger import SCLogger
+from util.radec import radec_to_gal_ecl
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
 
@@ -509,7 +513,7 @@ class DECam(Instrument):
                                                 * ( linhdu[ccdnum].data[lindex+1][ampdex]
                                                     - linhdu[ccdnum].data[lindex][ampdex] )
                                                 / ( linhdu[ccdnum].data[lindex+1]['ADU']
-                                                    - linhdu[ccdnum].data[lindex]['ADU'] ) 
+                                                    - linhdu[ccdnum].data[lindex]['ADU'] )
                                                ) )
 
         return newdata
@@ -533,7 +537,7 @@ class DECam(Instrument):
            The NOIRLab proposal ids to limit the search to.  If not
            given, will not filter based on proposal id.
         proc_type: str
-           'raw' or 'instcal' : the processing type to get 
+           'raw' or 'instcal' : the processing type to get
            from the NOIRLab data archive.
 
         """
@@ -565,7 +569,10 @@ class DECam(Instrument):
                 "dateobs_center",
                 "ifilter",
                 "exposure",
+                "ra_center",
+                "dec_center",
                 "md5sum",
+                "OBJECT",
                 "MJD-OBS",
                 "DATE-OBS",
                 "AIRMASS",
@@ -618,6 +625,7 @@ class DECam(Instrument):
             files = files[ files.exposure >= minexptime ]
         files.sort_values( by='dateobs_center', inplace=True )
         files['filtercode'] = files.ifilter.str[0]
+        files['filter'] = files.ifilter
 
         if skip_exposures_in_database:
             raise NotImplementedError( "TODO: implement skip_exposures_in_database" )
@@ -658,6 +666,58 @@ class DECamOriginExposures:
         # The length is the number of values there are in the *first* index
         # as that is the number of different exposures.
         return len( self._frame.index.levels[0] )
+
+    def add_to_known_exposures( self, indexes=None, skip_loaded_exposures=True, skip_duplicates=True, session=None):
+        """See InstrumentOriginExposures.add_to_known_exposures"""
+
+        with SmartSession( session ) as dbsess:
+            identifiers = [ pathlib.Path( self._frame.loc[ dex, 'image' ].archive_filename ).name for dex in indexes ]
+
+            # There is a database race condition here that I've chosen
+            # not to worry about.  Reason: in general usage, there will
+            # be one conductor process running, and that will be the
+            # only process to call this method, so nothing will be
+            # racing with it re: the knownexposures table.  While in
+            # principle this process is racing with all running
+            # instances of the pipeline for the exposures table, in
+            # practice we won't be launching a pipeline to work on an
+            # exposure until after it was already loaded into the
+            # knownexposures table.  So, as long as skip_duplicates is
+            # True, there will not (in the usual case) be anything in
+            # exposures that both we are searching for right now and
+            # that's not already in knownexposures.
+
+            skips = []
+            if skip_loaded_exposures:
+                skips.extend( list( dbsess.query( Exposure.origin_identifier )
+                                    .filter( Exposure.origin_identifier.in_( identifiers ) ) ) )
+            if skip_duplicates:
+                skips.extend( list( dbsess.query( KnownExposure.identifier )
+                                    .filter( KnownExposure.identifier.in_( identifiers ) ) ) )
+            skips = set( skips )
+
+            for dex in indexes:
+                identifier = pathlib.Path( self._frame.loc[ dex, 'image' ].archive_filename ).name
+                if identifier in skips:
+                    continue
+                expinfo = self._frame.loc[ dex, 'image' ]
+                gallat, gallon, ecllat, ecllon = radec_to_gal_ecl( expinfo.ra_center, expinfo.dec_center )
+                ke = KnownExposure( instrument='DECam', identifier=identifier,
+                                    params={ 'url': expinfo.url },
+                                    exp_time=expinfo.exposure,
+                                    filter=expinfo.ifilter,
+                                    project=expinfo.proposal,
+                                    target=expinfo.OBJECT,
+                                    ra=expinfo.ra_center,
+                                    dec=expinfo.dec_center,
+                                    ecllat=ecllat,
+                                    ecllon=ecllon,
+                                    gallat=gallat,
+                                    gallon=gallon
+                                   )
+                dbsess.merge( ke )
+            dbsess.commit()
+
 
     def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,
                             clobber=False, existing_ok=False, session=None ):
@@ -786,7 +846,7 @@ class DECamOriginExposures:
                 else:
                     obstype = obstypemap[ obstype ]
                 expobj = Exposure( current_file=expfile, invent_filepath=True,
-                                   type=obstype, format='fits', provenance=provenance, ra=ra, dec=dec, 
+                                   type=obstype, format='fits', provenance=provenance, ra=ra, dec=dec,
                                    instrument='DECam', origin_identifier=origin_identifier, header=hdr,
                                    **exphdrinfo )
                 dbpath = outdir / expobj.filepath

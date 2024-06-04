@@ -1,3 +1,9 @@
+import sqlalchemy as sa
+from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.dialects.postgresql import JSONB
+
+from astropy.coordinates import SkyCoord
+
 from models.base import (
     Base,
     AutoIDMixin,
@@ -14,7 +20,7 @@ class KnownExposure(Base, AutoIDMixin):
     that's where they come from), and we're assuming that the instrument
     will be known.  identifier required, and is some sort of unique
     identifier that specifies this exposure; it's interpretation is
-    ExposureSource-dependent.  This plus "params" need to be enough
+    instrument-dependent.  This plus "params" need to be enough
     information to actually pull the exposure from the exposure source.
 
     """
@@ -22,9 +28,10 @@ class KnownExposure(Base, AutoIDMixin):
     __tablename__ = "knownexposures"
 
     instrument = sa.Column( sa.Text, nullable=False, index=True, doc='Instrument this known exposure is from' )
-    exposuresource = sa.Column ( sa.Text, nullable=False, index=True, doc='ExposureSource this exposure is from' )
-    identifier = sa.Column( sa.Text, nullable=False, doc='Identifies this exposure on the ExposureSource' )
-    params = sa.Column( sa.Text, nullable=True, doc='Additional parameters needed to pull this exposure' )
+    identifier = sa.Column( sa.Text, nullable=False,doc=( 'Identifies this exposure on the ExposureSource; '
+                                                           'should match exposures.origin_identifier' ) )
+    params = sa.Column( JSONB, nullable=True,
+                        doc='Additional instrument-specific parameters needed to pull this exposure' )
     
     exposure_id = sa.Column( 'exposure_id',
                              sa.BigInteger,

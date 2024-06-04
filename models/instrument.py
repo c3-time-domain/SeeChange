@@ -2029,6 +2029,35 @@ class InstrumentOriginExposures:
 
     """
 
+    def add_to_known_exposures( self, indexes=None, skip_loaded_exposures=True, skip_duplicates=True, session=None ):
+        """Add exposures to the knownexposures table.
+
+        Parameters
+        ----------
+        indexes: list of int or None, default None
+          List of indexes into the set of origin exposures to add;
+          None means add them all.
+
+        skip_duplicates: bool, default True
+          Don't create duplicate entries in the knownexposures table.
+          If the exposure is one that's already in the table, don't add
+          a new record for it.  You probably always want to leave this
+          as True.
+
+        skip_loaded_exposures: bool, default True
+          If True, then try to figure out if this exposure is one that
+          is already loaded into the exposures table in the database.
+          If it is, then don't add it to known_exposures.  Generally,
+          you will want this to be true.
+
+        session: Session, default None
+          Database session to use, or None.
+
+        """
+        raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
+                                   f"implemented add_to_known_exposures." )
+
+
     def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,
                             clobber=False, existing_ok=False, session=None ):
         """Download exposures from the origin.
