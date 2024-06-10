@@ -105,7 +105,15 @@ def Session():
 
     if _Session is None:
         cfg = config.Config.get()
-        url = (f'{cfg.value("db.engine")}://{cfg.value("db.user")}:{cfg.value("db.password")}'
+
+        password = cfg.value( "db.password" )
+        if password is None:
+            if cfg.value( "db.password_file" ) is None:
+                raise RuntimeError( "Must specify either db.password or db.password_file in config" )
+            with open( cfg.value( "db.password_file" ) ) as ifp:
+                password = ifp.readline().strip()
+
+        url = (f'{cfg.value("db.engine")}://{cfg.value("db.user")}:{password}'
                f'@{cfg.value("db.host")}:{cfg.value("db.port")}/{cfg.value("db.database")}')
         _engine = sa.create_engine(url, future=True, poolclass=sa.pool.NullPool)
 
@@ -1480,9 +1488,9 @@ class FourCorners:
         Parameters
         ----------
           ras: list of float
-             Four ra values in a list. 
+             Four ra values in a list.
           decs: list of float
-             Four dec values in a list. 
+             Four dec values in a list.
 
         Returns
         -------

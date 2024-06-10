@@ -155,7 +155,7 @@ def provenance_decam_prep(code_version):
 def decam_reduced_origin_exposures():
     decam = DECam()
     yield decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
-                                       proposals='2023A-716082',
+                                       projects='2023A-716082',
                                        skip_exposures_in_database=False,
                                        proc_type='instcal' )
 
@@ -164,7 +164,7 @@ def decam_reduced_origin_exposures():
 def decam_raw_origin_exposures():
     decam = DECam()
     yield decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
-                                       proposals='2023A-716082',
+                                       projects='2023A-716082',
                                        skip_exposures_in_database=False,
                                        proc_type='raw' )
 

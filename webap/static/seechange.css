@@ -31,6 +31,7 @@
 .link { background: none; border: none; padding: 0;
         color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
+.center { align: center }
 .vcenter { vertical-align: center }
 
 .tooltipsource { color: var(--link-color);
@@ -85,3 +86,6 @@ div.vbox { display: flex;
            flex-direction: column;
            min-width: 0;
            min-height: 0; }
+
+div.authdiv { color: var(--some-faded-color);
+              font-size: 75% }

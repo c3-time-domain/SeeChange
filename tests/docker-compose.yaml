@@ -1,5 +1,3 @@
-version: "3.3"
-
 services:
   make-archive-directories:
     image: rknop/upload-connector:${IMGTAG:-tests}
@@ -12,7 +10,12 @@ services:
       - type: volume
         source: archive-storage
         target: /storage
-    entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:-0}:${GROUPID:-0} /storage/base && chmod a+rwx /storage/base"
+    entrypoint: >
+      bash -c
+      "mkdir -p /storage/base &&
+      chown ${USERID:-0}:${GROUPID:-0} /storage/base &&
+      chmod a+rwx /storage/base"
+    # entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:-0}:${GROUPID:-0} /storage/base && chmod a+rwx /storage/base"
 
   archive:
     depends_on:
@@ -44,7 +47,7 @@ services:
       - connector_tokens
     user: ${USERID:-0}:${GROUPID:-0}
 
-  seechange_postgres:
+  postgres:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres:${IMGTAG:-tests}
     build:
       context: ../docker/postgres
@@ -62,10 +65,11 @@ services:
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
     depends_on:
-      seechange_postgres:
+      postgres:
          condition: service_healthy
     volumes:
       - type: bind
@@ -75,6 +79,29 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
     entrypoint: [ "alembic", "upgrade", "head" ]
 
+  conductor:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange_conductor:${IMGTAG:-tests}
+    build:
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
+      target: conductor
+    depends_on:
+      setuptables:
+        condition: service_completed_successfully
+    user: ${USERID:-0}:${GROUPID:-0}
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: netcat -w 1 localhost 8082
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - type: volume
+        source: conductor-sessions
+        target: /sessions
+    entrypoint: [ "./run_conductor.sh", "8082" ]
+        
   webap:
     depends_on:
       setuptables:
@@ -106,6 +133,7 @@ services:
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
       SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
@@ -114,6 +142,8 @@ services:
       setuptables:
         condition: service_completed_successfully
       archive:
+        condition: service_healthy
+      conductor:
         condition: service_healthy
       # webap:
       #   condition: service_healthy
@@ -133,6 +163,7 @@ services:
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
       SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
@@ -141,6 +172,8 @@ services:
       setuptables:
         condition: service_completed_successfully
       archive:
+        condition: service_healthy
+      conductor:
         condition: service_healthy
       # webap:
       #   condition: service_healthy
@@ -160,6 +193,7 @@ services:
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/tests/seechange_config_test.yaml
       SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
@@ -167,6 +201,8 @@ services:
       setuptables:
         condition: service_completed_successfully
       archive:
+        condition: service_healthy
+      conductor:
         condition: service_healthy
       webap:
         condition: service_healthy
@@ -188,3 +224,4 @@ secrets:
 
 volumes:
   archive-storage:
+  conductor-sessions:

@@ -10,6 +10,8 @@ import numpy as np
 
 import sqlalchemy as sa
 
+import selenium.webdriver
+
 from util.config import Config
 from models.base import (
     FileOnDiskMixin,
@@ -35,6 +37,7 @@ pytest_plugins = [
     'tests.fixtures.ztf',
     'tests.fixtures.ptf',
     'tests.fixtures.pipeline_objects',
+    'tests.fixtures.conductor',
 ]
 
 ARCHIVE_PATH = None

@@ -1970,7 +1970,7 @@ class DemoInstrument(Instrument):
     def find_origin_exposures( self, skip_exposures_in_database=True,
                                minmjd=None, maxmjd=None, filters=None,
                                containing_ra=None, containing_dec=None,
-                               minexptime=None ):
+                               minexptime=None, projects=None ):
         """Search the external repository associated with this instrument.
 
         Search the external image/exposure repository for this
@@ -2006,6 +2006,8 @@ class DemoInstrument(Instrument):
         minexptime: float
            Search for exposures that have this minimum exposure time in
            seconds; default, no limit.
+        projects: str or list of str
+           Name of the projects to search for exposures from
 
         Returns
         -------

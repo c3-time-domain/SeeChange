@@ -19,9 +19,12 @@ The `devshell` directory has a docker compose file that can create a development
   COMPOSE_PROJECT_NAME=<yourname>
   USERID=<UID>
   GROUPID=<GID>
+  CONDUCTOR_PORT=<port>
+  WEBAP_PORT=<port>
 ```
 
-`<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)
+`<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)  The two <port> lines are optional; see below.  CONDUCTOR_PORT defaults to 8082 and WEBAP_PORT defaults to 8081.  If multiple people are running docker on the same machine, you will probably need to configure these; otherwise, the defaults are fine.
+
 Once you've set these environment variables— either in a `.env` file, with three `export` commands, or by prepending them to every `docker compose` command you see below, you can start up a development shell in which to run code by running, while in the `devshell` subdirectory:
 ```
   docker compose up -d seechange
@@ -32,12 +35,14 @@ That will start several services.  You can see what's there by running
    docker compose ps
 ```
 
-The services started include an archive server, a postgres database server, and a shell host.  The database server should have all of the schema necessary for SeeChange already created.  To connect to the shell host in order to run within this environment, run
+The services started include an archive server, a postgres database server, a webap, a conductor, and a shell host.  The database server should have all of the schema necessary for SeeChange already created.  To connect to the shell host in order to run within this environment, run
 ```
    docker compose exec -it seechange /bin/bash
 ```
 
 Do whatever you want inside that shell; most likely, this will involve running `python` together with either some SeeChange test, or some SeeChange executable. This docker image bind-mounts your seechange checkout (the parent directory of the `devshell` directory where you're working) at `/seechange`.  That means if you work in that directory, it's the same as working in the checkout.  If you edit something outside the container, the differences will be immediately available inside the container (since it's the same physical filesystem).  This means there's no need to rebuild the container every time you change any bit of code.
+
+Assuming you're running this on your local machine (i.e. you are running your web browser on the same machine as where you did `docker compose up -d seechange`), there are a couple of web servers available to you.  The SeeChange webap will be running at `localhost:8081` (with the value you specified in the env var `WEBAP_PORT` in place of 8081, if applicable), and the conductor's web interface will be running at `localhost:8082` (or the value you specified in `CONDUCTOR_PORT` in place of 8082).
 
 When you're done running things, you can just `exit` out of the seechange shell.  Making sure you're back in a shell on the host machine, and in the `devshell` subdirectory, bring down all of the services you started with:
 ```

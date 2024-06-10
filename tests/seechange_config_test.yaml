@@ -10,7 +10,7 @@ path:
   data_temp: 'tests/temp_data'
 
 db:
-  host: seechange_postgres
+  host: postgres
 
 archive:
   archive_url: http://archive:8080/
@@ -19,6 +19,9 @@ archive:
   local_read_dir: null
   local_write_dir: null
   token: insecure
+
+conductor:
+  conductor_url: https://conductor:8082/
 
 subtraction:
   method: zogy

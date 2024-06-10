@@ -268,6 +268,9 @@ class Config:
             self._data = {}
             self._path = pathlib.Path( configfile ).resolve()
             curfiledata = yaml.safe_load( open(self._path) )
+            if curfiledata is None:
+                # Empty file, so self._data can stay as {}
+                return
             if not isinstance( curfiledata, dict ):
                 raise RuntimeError( f'Config file {configfile} doesn\'t have yaml I like.' )
 

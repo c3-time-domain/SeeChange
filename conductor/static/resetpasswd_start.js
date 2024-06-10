@@ -1,0 +1,1 @@
+../../webap/rkwebutil/resetpasswd_start.js

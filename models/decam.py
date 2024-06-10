@@ -522,7 +522,7 @@ class DECam(Instrument):
                                minmjd=None, maxmjd=None, filters=None,
                                containing_ra=None, containing_dec=None,
                                minexptime=None, proc_type='raw',
-                               proposals=None ):
+                               projects=None ):
         """Search the NOIRLab data archive for exposures.
 
         See Instrument.find_origin_exposures for documentation; in addition:
@@ -533,7 +533,7 @@ class DECam(Instrument):
            The short (i.e. single character) filter names ('g', 'r',
            'i', 'z', or 'Y') to search for.  If not given, will
            return images from all filters.
-        proposals: str or list of str
+        projects: str or list of str
            The NOIRLab proposal ids to limit the search to.  If not
            given, will not filter based on proposal id.
         proc_type: str
@@ -585,7 +585,7 @@ class DECam(Instrument):
         }
 
         filters = util.util.listify( filters, require_string=True )
-        proposals = util.util.listify( proposals, require_string=True )
+        proposals = util.util.listify( projects, require_string=True )
 
         if proposals is not None:
             spec["search"].append( [ "proposal" ] + proposals )

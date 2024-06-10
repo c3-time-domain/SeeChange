@@ -11,6 +11,7 @@ db:
   engine: postgresql
   user: postgres
   password: fragile
+  password_file: null
   host: localhost
   port: 5432
   database: seechange
@@ -48,6 +49,15 @@ storage:
 #   write_dir: the directory to write to if the archive is on the local filesystem, or null
 
 archive: null
+
+# ======================================================================
+# Conductor
+#
+# (There will be other values set in a config file used by the actual conductor.)
+
+conductor:
+  conductor_url: https://seechange-conductor.lbl.gov
+  
 
 # ======================================================================
 # Gaia DR3 server
