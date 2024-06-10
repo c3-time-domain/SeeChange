@@ -22,21 +22,34 @@ scconductor.Context = class
 
     init()
     {
+        let self = this;
+
         this.auth = new rkAuth( this.authdiv, "",
-                                function() { self.render_page(); },
-                                function() { window.location.reload(); } );
+                                () => { self.render_page(); },
+                                () => { window.location.reload(); } );
         this.auth.checkAuth();
     };
-    
+
     render_page()
     {
+        let self = this;
+
+        let p, span;
+        
+        rkWebUtil.wipeDiv( this.authdiv );
+        p = rkWebUtil.elemaker( "p", this.authdiv,
+                                { "text": "Logged in as " + this.auth.username
+                                  + " (" + this.auth.userdisplayname + ") — ",
+                                  "classes": [ "italic" ] } );
+        span = rkWebUtil.elemaker( "span", p,
+                                   { "classes": [ "link" ],
+                                     "text": "Log Out",
+                                     "click": () => { self.auth.logout( () => { window.location.reload(); } ) }
+                                   } );
+        
         rkWebUtil.wipeDiv( this.maindiv );
-        let div = rkWebUtil.elemaker( "div", this.maindiv );
-        if ( ! this.auth.authenticated ) {
-            let p = rkWebUtil.elemaker( "p", "Not authenticated" );
-        } else {
-            let p = rkWebUtil.elemaker( "p", this.frontpagediv, { "text": "Hello, world." } );
-        }
+        this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv );
+        p = rkWebUtil.elemaker( "p", this.frontpagediv, { "text": "Hello, world." } );
     }
 }
 

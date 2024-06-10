@@ -1,23 +1,34 @@
 import pytest
 import requests
 import re
+import binascii
+
+from Crypto.Protocol.KDF import PBKDF2
+from Crypto.Hash import SHA256
+from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.PublicKey import RSA
 
 import selenium.webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.wait import WebDriverWait
 
 from models.user import AuthUser
 from models.base import SmartSession
 
 @pytest.fixture
 def conductor_url():
-    return "http://conductor:8082"
+    return "https://conductor:8082"
 
 @pytest.fixture
 def conductor_logged_in():
     pass
 
 @pytest.fixture
-def conductor_user():
+def conductor_username_password():
+    return 'test', 'test_password'
+
+@pytest.fixture
+def conductor_user( conductor_username_password ):
     with SmartSession() as session:
         user = AuthUser( id='fdc718c3-2880-4dc5-b4af-59c19757b62d',
                          username='test',
@@ -46,12 +57,12 @@ nRVct/brmHSH0KXam2bLZFECAwEAAQ==
         session.add( user )
         session.commit()
 
-    yield 'test', 'test_password'
+    yield conductor_username_password
 
     with SmartSession() as session:
-        user = session.query( AuthUser ).filter( username='test' ).all()
+        user = session.query( AuthUser ).filter( AuthUser.username=='test' ).all()
         for u in user:
-            u.delete()
+            session.delete( u )
         session.commit()
         
 
@@ -65,21 +76,29 @@ def browser():
     yield ff
     ff.close()
     ff.quit()
-
+    
 @pytest.fixture
 def conductor_browser_logged_in( conductor_url, conductor_user, browser ):
     username, password = conductor_user
     browser.get( conductor_url )
-    el = WebDriverWait( browser, timeout=5 ).until( lambda d: d.find_element(By.TAG_NAME, 'h1' ) )
-    assert el.text == "SeeChange Conductor"
+    # Possible race conditions here that would not happen with a real
+    #  user with human reflexes....  The javascript inserts the
+    #  login_username element before the login_password element, and
+    #  while I'm not fully sure how selenium works, it's possible that
+    #  if I waited on login_username and read it, I'd get to finding the
+    #  login_password element before the javascript had actually
+    #  inserted it.  This is why I wait on password, because I know
+    #  it's inserted second.
+    input_password = WebDriverWait( browser, timeout=5 ).until( lambda d: d.find_element( By.ID, 'login_password' ) )
+    input_password.clear()
+    input_password.send_keys( password )
     input_user = browser.find_element( By.ID, 'login_username' )
-    input_user.setAttribute( "value", username )
-    input_password = browser.find_element( By.ID, 'login_password' )
-    input_password.setAttribute( "vaue", password )
-    buttons = browser.find_element( By.TAG_NAME, 'button' )
+    input_user.clear()
+    input_user.send_keys( username )
+    buttons = browser.find_elements( By.TAG_NAME, 'button' )
     button = None
     for possible_button in buttons:
-        if possible_button.getAttribute( "innerHTML" ) == "Log In":
+        if possible_button.get_attribute( "innerHTML" ) == "Log In":
             button = possible_button
             break
     assert button is not None
@@ -90,19 +109,54 @@ def conductor_browser_logged_in( conductor_url, conductor_user, browser ):
         if authdiv is not None:
             p = authdiv.find_element( By.TAG_NAME, 'p' )
             if p is not None:
-                if re.search( '^Logged in as test (Test User)', p.getAttribute( "innerHTML" ) ):
+                if re.search( '^Logged in as test \(Test User\)', p.text ):
                     return True
         return False
         
     WebDriverWait( browser, timeout=5 ).until( check_logged_in )
 
-    yield True
+    yield browser
 
+    authdiv = browser.find_element( By.ID, 'authdiv' )
     logout = authdiv.find_element( By.TAG_NAME, 'span' )
-    assert logout.getAttribute( "innerHTML" ) == "Log Out"
+    assert logout.get_attribute( "innerHTML" ) == "Log Out"
     logout.click()
         
-    
 @pytest.fixture
-def conductor_noirlab_listening( conductor_url ):
-    res = requests.post( f"{conductor_url}/update" )
+def conductor_logged_in( conductor_url, conductor_user ):
+    user, password = conductor_user
+    req = requests.Session()
+    req.verify = False
+    result = req.post( f'{conductor_url}/auth/getchallenge', json={ 'username': user } )
+
+    challenge = binascii.a2b_base64( result.json()['challenge'] )
+    enc_privkey = binascii.a2b_base64( result.json()['privkey'] )
+    salt = binascii.a2b_base64( result.json()['salt'] )
+    iv = binascii.a2b_base64( result.json()['iv'] )
+    aeskey = PBKDF2( password.encode('utf-8'), salt, 32, count=100000, hmac_hash_module=SHA256 )
+    aescipher = AES.new( aeskey, AES.MODE_GCM, nonce=iv )
+    privkeybytes = aescipher.decrypt( enc_privkey )
+    # SOMETHING I DON'T UNDERSTAND, I get back the bytes I expect
+    # (i.e. if I dump doing the equivalent decrypt operation in the
+    # javascript that's in rkauth.js) here, but there are an additional
+    # 16 bytes at the end; I don't know what they are.
+    privkeybytes = privkeybytes[:-16]
+    privkey = RSA.import_key( privkeybytes )
+    rsacipher = PKCS1_OAEP.new( privkey, hashAlgo=SHA256 )
+    decrypted_challenge = rsacipher.decrypt( challenge ).decode( 'utf-8' )
+
+    result = req.post( f'{conductor_url}/auth/respondchallenge',
+                       json={ 'username': user, 'response': decrypted_challenge } )
+    assert result.status_code == 200
+    data = result.json()
+    assert data['status'] == 'ok'
+    assert data['message'] == 'User test logged in.'
+    assert data['username'] == 'test'
+    assert data['useremail'] == 'testuser@mailhog'
+    assert data['userdisplayname'] == 'Test User'
+    assert data['useruuid'] == 'fdc718c3-2880-4dc5-b4af-59c19757b62d'
+
+    yield req
+
+    req.post( f'{conductor_url}/auth/logout' )
+    req.close()

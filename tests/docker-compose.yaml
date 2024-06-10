@@ -79,6 +79,11 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
     entrypoint: [ "alembic", "upgrade", "head" ]
 
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+        - "8025:8025"
+
   conductor:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange_conductor:${IMGTAG:-tests}
     build:
@@ -88,6 +93,8 @@ services:
     depends_on:
       setuptables:
         condition: service_completed_successfully
+      mailhog:
+        condition: service_started
     user: ${USERID:-0}:${GROUPID:-0}
     ports:
       - "8082:8082"
@@ -100,7 +107,7 @@ services:
       - type: volume
         source: conductor-sessions
         target: /sessions
-    entrypoint: [ "./run_conductor.sh", "8082" ]
+    entrypoint: [ "./run_conductor.sh", "8082", "1" ]
         
   webap:
     depends_on:

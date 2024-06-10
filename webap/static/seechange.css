@@ -89,3 +89,7 @@ div.vbox { display: flex;
 
 div.authdiv { color: var(--some-faded-color);
               font-size: 75% }
+
+div.footer { color: var(--some-faded-color);
+             font-size: 75%;
+             font-style: italic }

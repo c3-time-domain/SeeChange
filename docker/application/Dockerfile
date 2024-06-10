@@ -350,6 +350,14 @@ RUN chmod 777 /sessions
 ADD conductor/seechange_conductor.yaml /seechange/seechange_conductor.yaml
 ADD conductor/local_overrides.yaml /seechange/local_overrides.yaml
 ADD conductor/local_augments.yaml /seechange/local_augments.yaml
+
+# Copy in the self-signed certificate we need to use in tests.
+# This should *not* be used in production, even though it's
+# sitting there in the image.
+COPY docker/application/conductor_bogus_key.pem /webservice_code/
+COPY docker/application/conductor_bogus_cert.pem /webservice_code/
+RUN chmod a+r /webservice_code/conductor*pem
+
 ENV SEECHANGE_CONFIG /seechange/seechange_conductor.yaml
 ENV PYTHONPATH "/seechange/lib"
 

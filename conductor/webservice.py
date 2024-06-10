@@ -2,6 +2,7 @@ import sys
 import pathlib
 import os
 import time
+import datetime
 import logging
 import subprocess
 import multiprocessing
@@ -25,7 +26,7 @@ class BaseView( flask.views.View ):
     def check_auth( self ):
         self.username = flask.session['username'] if 'username' in flask.session else '(None)'
         self.displayname = flask.session['userdisplayname'] if 'userdisplayname' in flask.session else '(None)'
-        self.authenticated = ( 'authenticated' in flask.session ) and flask.sesison['authenticated']
+        self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
         return self.authenticated
         
     def talk_to_updater( self, req, bsize=16384, timeout0=1, timeoutmax=16 ):
@@ -114,7 +115,10 @@ import flaskauth
 for attr in [ 'email_from', 'email_subject', 'email_system_name',
               'smtp_server', 'smtp_port', 'smtp_use_ssl', 'smtp_username', 'smtp_password' ]:
     setattr( flaskauth.RKAuthConfig, attr, cfg.value( f'conductor.{attr}' ) )
-flaskauth.RKAuthConfig.webap_url = f"{cfg.value('conductor.conductor_url')}/auth"
+flaskauth.RKAuthConfig.webap_url = cfg.value('conductor.conductor_url')
+if flaskauth.RKAuthConfig.webap_url[-1] != '/':
+    flaskauth.RKAuthConfig.webap_url += '/'
+flaskauth.RKAuthConfig.webap_url += "auth"
 app.logger.debug( f'webap_url is {flaskauth.RKAuthConfig.webap_url}' )
 app.register_blueprint( flaskauth.bp )
              
