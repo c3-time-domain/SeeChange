@@ -252,7 +252,6 @@ def test_add_to_known_exposures( decam_raw_origin_exposures ):
             for ke in kes:
                 session.delete( ke )
             session.commit()
-        
 
 
 @pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )

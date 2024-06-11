@@ -14,6 +14,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 
 from models.user import AuthUser
 from models.base import SmartSession
+from models.knownexposure import KnownExposure
 
 @pytest.fixture
 def conductor_url():
@@ -109,7 +110,7 @@ def conductor_browser_logged_in( conductor_url, conductor_user, browser ):
         if authdiv is not None:
             p = authdiv.find_element( By.TAG_NAME, 'p' )
             if p is not None:
-                if re.search( '^Logged in as test \(Test User\)', p.text ):
+                if re.search( r'^Logged in as test \(Test User\)', p.text ):
                     return True
         return False
         
@@ -172,11 +173,10 @@ def conductor_config_for_decam_pull( conductor_url, conductor_logged_in ):
     del origstatus[ 'lastupdate' ]
     del origstatus[ 'configchangetime' ]
 
-    import pdb; pdb.set_trace()
     updateargs = { 'minmjd': 60159.15625,
                    'maxmjd': 60159.16667,
                    'skip_exposures_in_database': False,
-                   'proc_type': 'instcal' }
+                   'proc_type': 'raw' }
     res = req.post( f'{conductor_url}/updateparameters/timeout=120/instrument=DECam', verify=False,
                     json= { 'updateargs': updateargs } )
     assert res.status_code == 200
@@ -193,11 +193,9 @@ def conductor_config_for_decam_pull( conductor_url, conductor_logged_in ):
     data = res.json()
     assert data['status'] == 'forced update'
     
-    # TODO : wait for expected exposures to show up in the KnownExposures table
-    
     yield req
 
-    # TODO : this will have also added exposures to the KnownExposures table; clean those up!
+    # Reset the conductor to no instrument
     
     res = req.post( f'{conductor_url}/updateparameters', verify=False, json=origstatus )
     assert res.status_code == 200
@@ -207,4 +205,12 @@ def conductor_config_for_decam_pull( conductor_url, conductor_logged_in ):
     for kw in [ 'instrument', 'timeout', 'updateargs' ]:
         assert data[kw] == origstatus[kw]
 
-    
+    # Clean up known exposures
+
+    with SmartSession() as session:
+        kes = ( session.query( KnownExposure )
+                .filter( KnownExposure.mjd >= 60159.157 )
+                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
+        for ke in kes:
+            session.delete( ke )
+        session.commit()

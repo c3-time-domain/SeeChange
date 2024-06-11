@@ -28,8 +28,9 @@ class KnownExposure(Base, AutoIDMixin):
     __tablename__ = "knownexposures"
 
     instrument = sa.Column( sa.Text, nullable=False, index=True, doc='Instrument this known exposure is from' )
-    identifier = sa.Column( sa.Text, nullable=False,doc=( 'Identifies this exposure on the ExposureSource; '
-                                                           'should match exposures.origin_identifier' ) )
+    identifier = sa.Column( sa.Text, nullable=False, index=True,
+                            doc=( 'Identifies this exposure on the ExposureSource; '
+                                  'should match exposures.origin_identifier' ) )
     params = sa.Column( JSONB, nullable=True,
                         doc='Additional instrument-specific parameters needed to pull this exposure' )
     

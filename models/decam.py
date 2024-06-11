@@ -518,10 +518,16 @@ class DECam(Instrument):
 
         return newdata
 
-    def find_origin_exposures( self, skip_exposures_in_database=True,
-                               minmjd=None, maxmjd=None, filters=None,
-                               containing_ra=None, containing_dec=None,
-                               minexptime=None, proc_type='raw',
+    def find_origin_exposures( self,
+                               skip_exposures_in_database=True,
+                               skip_known_exposures=True,
+                               minmjd=None,
+                               maxmjd=None,
+                               filters=None,
+                               containing_ra=None,
+                               containing_dec=None,
+                               minexptime=None,
+                               proc_type='raw',
                                projects=None ):
         """Search the NOIRLab data archive for exposures.
 
@@ -627,6 +633,14 @@ class DECam(Instrument):
         files['filtercode'] = files.ifilter.str[0]
         files['filter'] = files.ifilter
 
+        if skip_known_exposures:
+            identifiers = [ pathlib.Path( f ).name for f in files.archive_filename.values ]
+            with SmartSession() as session:
+                ke = session.query( KnownExposure ).filter( KnownExposure.identifier.in_( identifiers ) ).all()
+            existing = [ i.identifier for i in ke ]
+            keep = [ i not in existing for i in identifiers ]
+            files = files[keep].reset_index( drop=True )
+
         if skip_exposures_in_database:
             raise NotImplementedError( "TODO: implement skip_exposures_in_database" )
 
@@ -675,10 +689,6 @@ class DECamOriginExposures:
         if not isinstance( indexes, collections.abc.Sequence ):
             indexes = [ indexes ]
 
-        import pdb; pdb.set_trace()
-        import sys
-        sys.stderr.write( f"indexes={indexes}; self._frame.index.values={self._frame.index.values}\n" )
-        
         with SmartSession( session ) as dbsess:
             identifiers = [ pathlib.Path( self._frame.loc[ dex, 'image' ].archive_filename ).name for dex in indexes ]
 
@@ -717,6 +727,7 @@ class DECamOriginExposures:
                                     filter=expinfo.ifilter,
                                     project=expinfo.proposal,
                                     target=expinfo.OBJECT,
+                                    mjd=util.util.parse_dateobs( expinfo.dateobs_center, output='float' ),
                                     ra=expinfo.ra_center,
                                     dec=expinfo.dec_center,
                                     ecllat=ecllat,

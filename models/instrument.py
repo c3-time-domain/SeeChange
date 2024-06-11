@@ -1967,10 +1967,17 @@ class DemoInstrument(Instrument):
         """
         return 'Demo'
 
-    def find_origin_exposures( self, skip_exposures_in_database=True,
-                               minmjd=None, maxmjd=None, filters=None,
-                               containing_ra=None, containing_dec=None,
-                               minexptime=None, projects=None ):
+    def find_origin_exposures( self,
+                               skip_exposures_in_database=True,
+                               skip_known_exposures=True,
+                               minmjd=None,
+                               maxmjd=None,
+                               filters=None,
+                               containing_ra=None,
+                               containing_dec=None,
+                               minexptime=None,
+                               projects=None
+                              ):
         """Search the external repository associated with this instrument.
 
         Search the external image/exposure repository for this
@@ -1989,6 +1996,9 @@ class DemoInstrument(Instrument):
            If True (default), will filter out any exposures that (as
            best can be determined) are already known in the SeeChange
            database.  If False, will include all exposures.
+        skip_known_exposures: bool
+           If True (default), will filter out any exposures that are
+           already in the knownexposures table in the database.
         minmjd: float
            The earliest time of exposure to search (default: no limit)
         maxmjd: float

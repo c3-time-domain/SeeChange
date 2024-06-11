@@ -1,3 +1,5 @@
+import pytest
+
 import datetime
 import dateutil.parser
 import requests
@@ -9,6 +11,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.remote.webelement import WebElement
+
+from models.base import SmartSession
+from models.knownexposure import KnownExposure
 
 def test_conductor_not_logged_in( conductor_url ):
     res = requests.post( f"{conductor_url}/status", json={ "command": "status" }, verify=False )
@@ -58,15 +63,15 @@ def test_update_missing_args( conductor_url, conductor_logged_in ):
     assert res.text == ( 'Error return from updater: Either both or neither of instrument and updateargs '
                          'must be None; instrument=None, updateargs={\'thing\': 1}' )
     pass
-    
-    
+
+
 def test_update_unknown_instrument( conductor_url, conductor_logged_in ):
     req = conductor_logged_in
     res = req.post( f"{conductor_url}/updateparameters/instrument=no_such_instrument", verify=False,
                     json={ "updateargs": { "thing": 1 } } )
     assert res.status_code == 500
     assert res.text == "Error return from updater: Failed to find instrument no_such_instrument"
-    
+
     res = req.post( f"{conductor_url}/status", verify=False )
     assert res.status_code == 200
     data = res.json()
@@ -75,10 +80,68 @@ def test_update_unknown_instrument( conductor_url, conductor_logged_in ):
     assert data['timeout'] == 120
     assert data['updateargs'] is None
 
-def test_pull_decam( conductor_config_for_decam_pull ):
-    import pdb; pdb.set_trace()
-    pass
-    
+def test_pull_decam( conductor_url, conductor_config_for_decam_pull ):
+    req = conductor_config_for_decam_pull
+
+    # Verify that the right things are in known exposures
+    # (Do this here rather than in a test because we need
+    # to clean it up after the yield.)
+
+    with SmartSession() as session:
+        kes = ( session.query( KnownExposure )
+                .filter( KnownExposure.mjd >= 60159.157 )
+                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
+        assert len(kes) == 9
+        assert set( [ i.project for i in kes ] ) == { '2023A-921384', '2023A-716082' }
+        assert min( [ i.mjd for i in kes ] ) == pytest.approx( 60159.15722, abs=1e-5 )
+        assert max( [ i.mjd for i in kes ] ) == pytest.approx( 60159.16662, abs=1e-5 )
+        assert set( [ i.exp_time for i in kes ] ) == { 100, 96, 50, 30 }
+        assert set( [ i.filter for i in kes ] ) == { 'VR DECam c0007 6300.0 2600.0',
+                                                     'g DECam SDSS c0001 4720.0 1520.0',
+                                                     'r DECam SDSS c0002 6415.0 1480.0',
+                                                     'i DECam SDSS c0003 7835.0 1470.0',
+                                                     'z DECam SDSS c0004 9260.0 1520.0' }
+
+    # Run another forced update to make sure that additional knownexposures aren't added
+
+    res = req.post( f'{conductor_url}/forceupdate', verify=False )
+    assert res.status_code == 200
+    data = res.json()
+    assert data['status'] == 'forced update'
+
+    with SmartSession() as session:
+        kes = ( session.query( KnownExposure )
+                .filter( KnownExposure.mjd >= 60159.157 )
+                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
+        assert len(kes) == 9
+
+
+    # Make sure that if *some* of what is found is already in known_exposures, only the others are added
+
+        delkes = ( session.query( KnownExposure )
+                   .filter( KnownExposure.mjd > 60159.160 )
+                   .filter( KnownExposure.mjd < 60159.166 ) ).all()
+        for delke in delkes:
+            session.delete( delke )
+        session.commit()
+
+        kes = ( session.query( KnownExposure )
+                .filter( KnownExposure.mjd >= 60159.157 )
+                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
+        assert len(kes) == 3
+
+    res = req.post( f'{conductor_url}/forceupdate', verify=False )
+    assert res.status_code == 200
+    data = res.json()
+    assert data['status'] == 'forced update'
+
+    with SmartSession() as session:
+        kes = ( session.query( KnownExposure )
+                .filter( KnownExposure.mjd >= 60159.157 )
+                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
+        assert len(kes) == 9
+
+
 # ======================================================================
 # The tests below use selenium to test the interactive part of the
 # conductor web ap
