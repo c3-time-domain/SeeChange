@@ -15,7 +15,6 @@ services:
       "mkdir -p /storage/base &&
       chown ${USERID:-0}:${GROUPID:-0} /storage/base &&
       chmod a+rwx /storage/base"
-    # entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:-0}:${GROUPID:-0} /storage/base && chmod a+rwx /storage/base"
 
   archive:
     depends_on:
@@ -82,7 +81,7 @@ services:
   mailhog:
     image: mailhog/mailhog:latest
     ports:
-        - "8025:8025"
+        - "${MAILHOG_PORT:-8025}:8025"
 
   conductor:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange_conductor:${IMGTAG:-tests}
@@ -97,7 +96,7 @@ services:
         condition: service_started
     user: ${USERID:-0}:${GROUPID:-0}
     ports:
-      - "8082:8082"
+      - "${CONDUCTOR_PORT:-8082}:8082"
     healthcheck:
       test: netcat -w 1 localhost 8082
       interval: 5s
@@ -120,7 +119,7 @@ services:
       context: ../webap
     user: ${USERID:-0}:${GROUPID:-0}
     ports:
-      - "8081:8081"
+      - "${WEBAP_PORT:-8081}:8081"
     healthcheck:
       test: netcat -w 1 localhost 8081
       interval: 5s
