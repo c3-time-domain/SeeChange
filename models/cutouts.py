@@ -40,7 +40,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
         nullable=False,
         default=CutoutsFormatConverter.convert('hdf5'),
         doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
-            "Saved as integer but is converter to string when loaded. "
+            "Saved as integer but is converted to string when loaded. "
     )
 
     @hybrid_property
@@ -113,11 +113,6 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
             "and the parameters used to produce this cutout. "
         )
     )
-
-    @property
-    def new_image(self):
-        """Get the aligned new image using the sub_image. """
-        return self.sub_image.new_aligned_image
 
     @property
     def new_image(self):

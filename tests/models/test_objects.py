@@ -13,7 +13,7 @@ from models.object import Object
 
 
 def test_object_creation():
-    obj = Object(ra=1.0, dec=2.0, is_test=True)
+    obj = Object(ra=1.0, dec=2.0, is_test=True, is_bad=False)
     with SmartSession() as session:
         session.add(obj)
         session.commit()
@@ -213,3 +213,48 @@ def test_filtering_measurements_on_object(sim_lightcurves):
         # get the new and only if not found go to the old
         found = obj.get_measurements_list(prov_hash_list=[prov.id, measurements[0].provenance.id])
         assert set([m.id for m in found]) == set(new_id_list)
+
+def test_separate_good_and_bad_objects(measurer, ptf_datastore):
+    measurements = ptf_datastore.measurements
+    m = measurements[0]  # grab the first one as an example
+
+    with SmartSession() as session:
+        m = session.merge(m)
+
+        prov=Provenance(
+            process=m.provenance.process,
+            upstreams=m.provenance.upstreams,
+            code_version=m.provenance.code_version,
+            parameters=m.provenance.parameters.copy(),
+            is_testing=True,
+        )
+        prov.parameters['test_parameter'] = uuid.uuid4().hex
+        prov.update_id()
+        obj1 = session.merge(m.object)
+
+        m2 = Measurements()
+        for key, value in m.__dict__.items():
+            if key not in [
+                '_sa_instance_state',
+                'id',
+                'created_at',
+                'modified',
+                'from_db',
+                'provenance',
+                'provenance_id',
+                'object',
+                'object_id',
+            ]:
+                setattr(m2, key, value)
+        m2.provenance = prov
+        m2.provenance_id = prov.id
+        m2.is_bad = not m.is_bad # flip the is_bad tag
+        m2.associate_object(session)
+        m2 = session.merge(m2)
+        obj2 = session.merge(m2.object)
+
+        # check we got a new obj, proper badness on each, one of each badness
+        assert obj1 is not obj2
+        assert obj1.is_bad == m.is_bad
+        assert obj2.is_bad == m2.is_bad
+        assert not obj1.is_bad == obj2.is_bad

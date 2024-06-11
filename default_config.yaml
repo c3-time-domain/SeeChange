@@ -139,7 +139,12 @@ measuring:
     negatives: 0.3
     bad pixels: 1
     offsets: 5.0
-    filter bank: 1.0
+    filter bank: 1
+  deletion_thresholds:
+    negatives: 0.3
+    bad pixels: 1
+    offsets: 5.0
+    filter bank: 1
 
 
 # Specific configuration for specific instruments.

@@ -272,6 +272,13 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             "Given by the angle of the major axis of the distribution of counts in the aperture. "
     )
 
+    is_bad = sa.Column(
+        sa.Boolean,
+        nullable=False,
+        index=True,
+        doc='Boolean flag to indicate if the measurement failed one or more threshold value comparisons. '
+    )
+
     disqualifier_scores = sa.Column(
         JSONB,
         nullable=False,
@@ -359,16 +366,6 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         raise ValueError('Cutouts not found in the list. ')
 
-    def passes(self):
-        """check if there are disqualifiers above the threshold
-
-        Note that if a threshold is missing or None, that disqualifier is not checked
-        """
-        for key, value in self.provenance.parameters['thresholds'].items():
-            if value is not None and self.disqualifier_scores[key] >= value:
-                return False
-        return True
-
     def associate_object(self, session=None):
         """Find or create a new object and associate it with this measurement.
 
@@ -378,8 +375,12 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         If no Object is found, a new one is created, and its coordinates will be identical
         to those of this Measurements object.
 
-        This should only be done for measurements that have passed all preliminary cuts,
-        which mostly rules out obvious artefacts.
+        This should only be done for measurements that have passed deletion_threshold 
+        preliminary cuts, which mostly rules out obvious artefacts. However, measurements
+        which passed the deletion_threshold cuts but failed the threshold cuts should still
+        be allowed to use this method - in this case, they will create an object with
+        attribute is_bad set to True so they are available to review in the db.
+        
         """
         from models.object import Object  # avoid circular import
 
@@ -392,12 +393,14 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                     radunit='arcsec',
                 ),
                 Object.is_test.is_(self.provenance.is_testing),  # keep testing sources separate
+                Object.is_bad.is_(self.is_bad),    # keep good objects with good measurements
             )).first()
 
             if obj is None:  # no object exists, make one based on these measurements
                 obj = Object(
                     ra=self.ra,
                     dec=self.dec,
+                    is_bad=self.is_bad
                 )
                 obj.is_test = self.provenance.is_testing
 
@@ -488,7 +491,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         """Get the image that was used to make this source list. """
         with SmartSession(session) as session:
             return session.scalars(sa.select(Cutouts).where(Cutouts.id == self.cutouts_id)).all()
-        
+
     def get_downstreams(self, session=None):
         """Get the downstreams of this Measurements"""
         return []

@@ -627,7 +627,9 @@ def sim_lightcurves(sim_sub_image_list, measurer):
     # a nested list of measurements, each one for a different part of the images,
     # for each image contains a list of measurements for the same source
     measurer.pars.thresholds['bad pixels'] = 100  # avoid losing measurements to random bad pixels
+    measurer.pars.deletion_thresholds['bad pixels'] = 100
     measurer.pars.thresholds['offsets'] = 10  # avoid losing measurements to random offsets
+    measurer.pars.deletion_thresholds['offsets'] = 10
     measurer.pars.association_radius = 5.0  # make it harder for random offsets to dis-associate the measurements
     lightcurves = []
 

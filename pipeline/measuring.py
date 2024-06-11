@@ -113,8 +113,17 @@ class ParsMeasurer(Parameters):
                 'bad_flag': 1,
             },
             dict,
-            'Thresholds for the disqualifier scores. '
-            'If the score is higher than (or equal to) the threshold, the measurement is disqualified. '
+            'Failure thresholds for the disqualifier scores. '
+            'If the score is higher than (or equal to) the threshold, the measurement is marked as bad. '
+        )
+
+        self.deletion_thresholds = self.add_par(
+            'deletion_thresholds',
+            None,
+            (dict, None),
+            'Deletion thresholds for the disqualifier scores. '
+            'If the score is higher than (or equal to) the threshold, the measurement is not saved. ',
+            critical=False
         )
 
         self.association_radius = self.add_par(
@@ -355,7 +364,9 @@ class Measurer:
 
                 saved_measurements = []
                 for m in measurements_list:
-                    if m.passes():  # all disqualifiers are below threshold
+                    threshold_comparison = self.compare_measurement_to_thresholds(m)
+                    if threshold_comparison != "delete":  # all disqualifiers are below threshold
+                        m.is_bad = threshold_comparison == "bad"
                         saved_measurements.append(m)
 
                 # add the resulting measurements to the data store
@@ -414,3 +425,32 @@ class Measurer:
         self._filter_bank = templates
         self._filter_psf_fwhm = psf_fwhm
 
+    def compare_measurement_to_thresholds(self, m):
+        """Compare measurement disqualifiers of a Measurements object to the thresholds set for 
+        this measurer object.
+
+        Inputs:
+          - m : a Measurements object to be compared
+
+        returns one of three strings to indicate the result
+          - "ok"     : All disqualifiers below both thresholds
+          - "bad"    : Some disqualifiers above mark_thresh but all 
+                       below deletion_thresh
+          - "delete" : Some disqualifiers above deletion_thresh
+        
+        """
+        passing_status = "ok"
+
+        mark_thresh = m.provenance.parameters["thresholds"] # thresholds above which measurement is marked 'bad'
+        deletion_thresh = ( mark_thresh if self.pars.deletion_thresholds is None
+                           else self.pars.deletion_thresholds )
+
+        combined_keys = np.unique(list(mark_thresh.keys()) + list(deletion_thresh.keys())) # unique keys from both
+        for key in combined_keys:
+            if deletion_thresh.get(key) is not None and m.disqualifier_scores[key] >= deletion_thresh[key]:
+                passing_status =  "delete"
+                break
+            if mark_thresh.get(key) is not None and m.disqualifier_scores[key] >= mark_thresh[key]:
+                passing_status = "bad" # no break because another key could trigger "delete"
+
+        return passing_status

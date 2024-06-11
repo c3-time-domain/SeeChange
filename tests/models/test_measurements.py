@@ -170,6 +170,75 @@ def test_measurements_cannot_be_saved_twice(ptf_datastore):
                 session.delete(m2)
                 session.commit()
 
+def test_threshold_flagging(ptf_datastore, measurer):
+
+    measurements = ptf_datastore.measurements
+    m = measurements[0]  # grab the first one as an example
+
+    m.provenance.parameters['thresholds']['negatives'] = 0.3
+    measurer.pars.deletion_thresholds['negatives'] = 0.5
+
+    m.disqualifier_scores['negatives'] = 0.1 # set a value that will pass both
+    assert measurer.compare_measurement_to_thresholds(m) == "ok"
+
+    m.disqualifier_scores['negatives'] = 0.4 # set a value that will fail one
+    assert measurer.compare_measurement_to_thresholds(m) == "bad"
+
+    m.disqualifier_scores['negatives'] = 0.6 # set a value that will fail both
+    assert measurer.compare_measurement_to_thresholds(m) == "delete"
+
+    # test what happens if we set deletion_thresholds to unspecified
+    #   This should not test at all for deletion
+    measurer.pars.deletion_thresholds = {}
+
+    m.disqualifier_scores['negatives'] = 0.1 # set a value that will pass
+    assert measurer.compare_measurement_to_thresholds(m) == "ok"
+
+    m.disqualifier_scores['negatives'] = 0.8 # set a value that will fail
+    assert measurer.compare_measurement_to_thresholds(m) == "bad"
+
+    # test what happens if we set deletion_thresholds to None
+    #   This should set the deletion threshold same as threshold
+    measurer.pars.deletion_thresholds = None
+    m.disqualifier_scores['negatives'] = 0.1 # set a value that will pass
+    assert measurer.compare_measurement_to_thresholds(m) == "ok"
+
+    m.disqualifier_scores['negatives'] = 0.4 # a value that would fail mark
+    assert measurer.compare_measurement_to_thresholds(m) == "delete"
+
+    m.disqualifier_scores['negatives'] = 0.9 # a value that would fail both (earlier)
+    assert measurer.compare_measurement_to_thresholds(m) == "delete"
+
+def test_deletion_thresh_is_non_critical(ptf_datastore, measurer):
+
+    # hard code in the thresholds to ensure no problems arise
+    # if the defaults for testing change
+    measurer.pars.threshold = {
+                'negatives': 0.3,
+                'bad pixels': 1,
+                'offsets': 5.0,
+                'filter bank': 1,
+                'bad_flag': 1,
+            }
+
+    measurer.pars.deletion_threshold = {
+                'negatives': 0.3,
+                'bad pixels': 1,
+                'offsets': 5.0,
+                'filter bank': 1,
+                'bad_flag': 1,
+            }
+
+    ds1 = measurer.run(ptf_datastore.cutouts)
+
+    # This run should behave identical to the above
+    measurer.pars.deletion_threshold = None
+    ds2 = measurer.run(ptf_datastore.cutouts)
+
+    m1 = ds1.measurements[0]
+    m2 = ds2.measurements[0]
+
+    assert m1.provenance.id == m2.provenance.id
 
 def test_measurements_forced_photometry(ptf_datastore):
     offset_max = 2.0
@@ -192,4 +261,3 @@ def test_measurements_forced_photometry(ptf_datastore):
     # print(f'Flux small aperture: {flux_small_aperture[0]}+-{flux_small_aperture[1]} over area: {flux_small_aperture[2]}')
     # print(f'Flux big aperture: {flux_large_aperture[0]}+-{flux_large_aperture[1]} over area: {flux_large_aperture[2]}')
     # print(f'Flux PSF forced: {flux_psf[0]}+-{flux_psf[1]} over area: {flux_psf[2]}')
-
