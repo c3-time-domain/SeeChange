@@ -56,7 +56,9 @@ archive: null
 # (There will be other values set in a config file used by the actual conductor.)
 
 conductor:
-  conductor_url: https://seechange-conductor.lbl.gov
+  conductor_url: unknown
+  username: unknown
+  password: unknown
   
 
 # ======================================================================

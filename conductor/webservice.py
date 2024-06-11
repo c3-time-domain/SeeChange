@@ -14,6 +14,9 @@ import flask
 import flask_session
 import flask.views
 
+import psycopg2.extras
+
+from models.base import SmartSession
 from models.instrument import get_instrument_instance
 from util.config import Config
 
@@ -92,7 +95,7 @@ class BaseView( flask.views.View ):
         except BadUpdaterReturnError as ex:
             return str(ex), 500
         except Exception as ex:
-            app.logger.exception()
+            app.logger.exception( str(ex) )
             return f"Exception handling request: {ex}", 500
         
 # ======================================================================
@@ -146,7 +149,50 @@ class UpdateParameters( BaseView ):
 
         return res
         
-        
+# ======================================================================
+# /requestexposure
+
+class RequestExposure( BaseView ):
+    def do_the_things( self, argstr=None ):
+        args = self.argstr_to_args( argstr )
+        if 'cluster_id' not in args.keys():
+            return f"cluster_id is required for RequestExposure", 500
+        # Using direct postgres here since I don't really know how to
+        #  lock tables with sqlalchemy.  There is with_for_udpate(), but
+        #  then the documentation has this red-backgrounded warning
+        #  that using this is not recommended when there are
+        #  relationships.  Since I can't really be sure what
+        #  sqlalchemy is actually going to do, just communicate
+        #  with the database the way the database was meant to
+        #  be communicated with.
+        knownexp_id = None
+        with SmartSession() as session:
+            dbcon = None
+            cursor = None
+            try:
+                dbcon = session.bind.raw_connection()
+                cursor = dbcon.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
+                cursor.execute( "LOCK TABLE knownexposures" )
+                cursor.execute( "SELECT id, cluster_id FROM knownexposures WHERE cluster_id IS NULL "
+                                "ORDER BY mjd LIMIT 1" )
+                rows = cursor.fetchall()
+                if len(rows) > 0:
+                    knownexp_id = rows[0]['id']
+                    cursor.execute( "UPDATE knownexposures SET cluster_id=%(cluster_id)s WHERE id=%(id)s",
+                                    { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
+                    dbcon.commit()
+            except Exception as ex:
+                raise
+            finally:
+                if cursor is not None:
+                    cursor.close()
+                if dbcon is not None:
+                    dbcon.rollback()
+
+        if knownexp_id is not None:
+            return { 'status': 'available', 'knownexposure_id': knownexp_id }
+        else:
+            return { 'status': 'not available' }
         
     
 # ======================================================================
@@ -189,6 +235,8 @@ urls = {
     "/updateparameters": UpdateParameters,
     "/updateparameters/<path:argstr>": UpdateParameters,
     "/forceupdate": ForceUpdate,
+    "/requestexposure": RequestExposure,
+    "/requestexposure/<path:argstr>": RequestExposure,
 }
 
 usedurls = {}

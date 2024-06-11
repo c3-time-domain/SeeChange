@@ -21,26 +21,18 @@ def test_conductor_not_logged_in( conductor_url ):
     assert res.text == "Not logged in"
     res = requests.post( f"{conductor_url}/status", json={ "command": "status" }, verify=False )
 
-def test_conductor_uninitialized( conductor_url, conductor_logged_in ):
-    req = conductor_logged_in
-    res = req.post( f"{conductor_url}/status", verify=False )
-    assert res.status_code == 200
-    data = res.json()
+def test_conductor_uninitialized( conductor_connector ):
+    data = conductor_connector.send( 'status' )
     assert data['status'] == 'status'
     assert data['instrument'] is None
     assert data['timeout'] == 120
     assert data['updateargs'] is None
 
-def test_force_update_uninitialized( conductor_url, conductor_logged_in ):
-    req = conductor_logged_in
-    res = req.post( f"{conductor_url}/forceupdate", verify=False )
-    assert res.status_code == 200
-    data = res.json()
+def test_force_update_uninitialized( conductor_connector ):
+    data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
 
-    res = req.post( f"{conductor_url}/status", verify=False )
-    assert res.status_code == 200
-    data = res.json()
+    data = conductor_connector.send( 'status' )
     assert data['status'] == 'status'
     assert data['instrument'] is None
     assert data['timeout'] == 120
@@ -52,35 +44,30 @@ def test_force_update_uninitialized( conductor_url, conductor_logged_in ):
     #   call anyway, because there's no instrument set.
     assert dt.total_seconds() < 2
 
-def test_update_missing_args( conductor_url, conductor_logged_in ):
-    req = conductor_logged_in
-    res = req.post( f"{conductor_url}/updateparameters/instrument=no_such_instrument", verify=False )
-    assert res.status_code == 500
-    assert res.text == ( 'Error return from updater: Either both or neither of instrument and updateargs '
-                         'must be None; instrument=no_such_instrument, updateargs=None' )
-    res = req.post( f"{conductor_url}/updateparameters", verify=False, json={ "updateargs": { "thing": 1 } } )
-    assert res.status_code == 500
-    assert res.text == ( 'Error return from updater: Either both or neither of instrument and updateargs '
-                         'must be None; instrument=None, updateargs={\'thing\': 1}' )
-    pass
+def test_update_missing_args( conductor_connector ):
+    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: Error return from updater: "
+                                              r"Either both or neither of instrument and updateargs "
+                                              r"must be None; instrument=no_such_instrument, updateargs=None" ) ):
+        res = conductor_connector.send( "updateparameters/instrument=no_such_instrument" )
 
+    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: Error return from updater: "
+                                              r"Either both or neither of instrument and updateargs "
+                                              r"must be None; instrument=None, updateargs={'thing': 1}" ) ):
+        res = conductor_connector.send( "updateparameters", { "updateargs": { "thing": 1 } } )
 
-def test_update_unknown_instrument( conductor_url, conductor_logged_in ):
-    req = conductor_logged_in
-    res = req.post( f"{conductor_url}/updateparameters/instrument=no_such_instrument", verify=False,
-                    json={ "updateargs": { "thing": 1 } } )
-    assert res.status_code == 500
-    assert res.text == "Error return from updater: Failed to find instrument no_such_instrument"
+def test_update_unknown_instrument( conductor_connector ):
+    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: Error return from updater: "
+                                              r"Failed to find instrument no_such_instrument" ) ):
+        res = conductor_connector.send( "updateparameters/instrument=no_such_instrument",
+                                        { "updateargs": { "thing": 1 } } )
 
-    res = req.post( f"{conductor_url}/status", verify=False )
-    assert res.status_code == 200
-    data = res.json()
+    data = conductor_connector.send( "status" )
     assert data['status'] == 'status'
     assert data['instrument'] is None
     assert data['timeout'] == 120
     assert data['updateargs'] is None
 
-def test_pull_decam( conductor_url, conductor_config_for_decam_pull ):
+def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
     req = conductor_config_for_decam_pull
 
     # Verify that the right things are in known exposures
@@ -104,9 +91,7 @@ def test_pull_decam( conductor_url, conductor_config_for_decam_pull ):
 
     # Run another forced update to make sure that additional knownexposures aren't added
 
-    res = req.post( f'{conductor_url}/forceupdate', verify=False )
-    assert res.status_code == 200
-    data = res.json()
+    data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
 
     with SmartSession() as session:
@@ -130,9 +115,7 @@ def test_pull_decam( conductor_url, conductor_config_for_decam_pull ):
                 .filter( KnownExposure.mjd <= 60159.167 ) ).all()
         assert len(kes) == 3
 
-    res = req.post( f'{conductor_url}/forceupdate', verify=False )
-    assert res.status_code == 200
-    data = res.json()
+    data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
 
     with SmartSession() as session:
@@ -140,6 +123,24 @@ def test_pull_decam( conductor_url, conductor_config_for_decam_pull ):
                 .filter( KnownExposure.mjd >= 60159.157 )
                 .filter( KnownExposure.mjd <= 60159.167 ) ).all()
         assert len(kes) == 9
+
+def test_request_knownexposure_get_none( conductor_connector ):
+    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: "
+                                              r"cluster_id is required for RequestExposure" ) ):
+        res = conductor_connector.send( "requestexposure" )
+
+    data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )
+    assert data['status'] == 'not available'
+
+
+def test_request_knownexposure( conductor_connector, conductor_config_for_decam_pull ):
+    data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )
+    assert data['status'] == 'available'
+
+    with SmartSession() as session:
+        kes = session.query( KnownExposure ).filter( KnownExposure.id==data['knownexposure_id'] ).all()
+        assert len(kes) == 1
+        assert kes[0].cluster_id == 'test_cluster'
 
 
 # ======================================================================

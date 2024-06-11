@@ -28,6 +28,10 @@ archive:
   local_write_dir: null
   token: placeholder
 
+conductor:
+  conductor_url: https://ls4-conductor-rknop-dev.lbl.gov
+  username: rknop
+
 astro_cal:
   max_arcsec_residual: 0.2
   max_sources_to_use: [ 2000, 1000, 500, 200 ]

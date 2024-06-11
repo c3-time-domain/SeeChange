@@ -1,4 +1,4 @@
-# This is the config file for rknop's dev environment on Perlmutter
+
 # Rob: see README.md for setup and podman docs
 
 preloads:
@@ -24,6 +24,10 @@ archive:
   local_read_dir: null
   local_write_dir: null
   token: placeholder
+
+conductor:
+  conductor_url: https://ls4-conductor-rknop-dev.lbl.gov
+  username: rknop
 
 astro_cal:
   max_arcsec_residual: 0.2

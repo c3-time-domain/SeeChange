@@ -1,5 +1,8 @@
 import pytest
 import requests
+# Disable warnings from urllib, since there will be lots about insecure connections
+#  given that we're using a self-signed cert for the server in the test environment
+requests.packages.urllib3.disable_warnings()
 import re
 import binascii
 
@@ -16,20 +19,15 @@ from models.user import AuthUser
 from models.base import SmartSession
 from models.knownexposure import KnownExposure
 
+from util.conductor_connector import ConductorConnector
+from util.config import Config
+
 @pytest.fixture
 def conductor_url():
-    return "https://conductor:8082"
+    return Config.get().value( 'conductor.conductor_url' )
 
 @pytest.fixture
-def conductor_logged_in():
-    pass
-
-@pytest.fixture
-def conductor_username_password():
-    return 'test', 'test_password'
-
-@pytest.fixture
-def conductor_user( conductor_username_password ):
+def conductor_user():
     with SmartSession() as session:
         user = AuthUser( id='fdc718c3-2880-4dc5-b4af-59c19757b62d',
                          username='test',
@@ -58,14 +56,14 @@ nRVct/brmHSH0KXam2bLZFECAwEAAQ==
         session.add( user )
         session.commit()
 
-    yield conductor_username_password
+    yield True
 
     with SmartSession() as session:
         user = session.query( AuthUser ).filter( AuthUser.username=='test' ).all()
         for u in user:
             session.delete( u )
         session.commit()
-        
+
 
 @pytest.fixture
 def browser():
@@ -77,10 +75,13 @@ def browser():
     yield ff
     ff.close()
     ff.quit()
-    
+
 @pytest.fixture
-def conductor_browser_logged_in( conductor_url, conductor_user, browser ):
-    username, password = conductor_user
+def conductor_browser_logged_in( browser, conductor_user ):
+    cfg = Config.get()
+    conductor_url = cfg.value( 'conductor.conductor_url' )
+    username = cfg.value( 'conductor.username' )
+    password = cfg.value( 'conductor.password' )
     browser.get( conductor_url )
     # Possible race conditions here that would not happen with a real
     #  user with human reflexes....  The javascript inserts the
@@ -113,7 +114,7 @@ def conductor_browser_logged_in( conductor_url, conductor_user, browser ):
                 if re.search( r'^Logged in as test \(Test User\)', p.text ):
                     return True
         return False
-        
+
     WebDriverWait( browser, timeout=5 ).until( check_logged_in )
 
     yield browser
@@ -122,53 +123,18 @@ def conductor_browser_logged_in( conductor_url, conductor_user, browser ):
     logout = authdiv.find_element( By.TAG_NAME, 'span' )
     assert logout.get_attribute( "innerHTML" ) == "Log Out"
     logout.click()
-        
-@pytest.fixture
-def conductor_logged_in( conductor_url, conductor_user ):
-    user, password = conductor_user
-    req = requests.Session()
-    req.verify = False
-    result = req.post( f'{conductor_url}/auth/getchallenge', json={ 'username': user } )
-
-    challenge = binascii.a2b_base64( result.json()['challenge'] )
-    enc_privkey = binascii.a2b_base64( result.json()['privkey'] )
-    salt = binascii.a2b_base64( result.json()['salt'] )
-    iv = binascii.a2b_base64( result.json()['iv'] )
-    aeskey = PBKDF2( password.encode('utf-8'), salt, 32, count=100000, hmac_hash_module=SHA256 )
-    aescipher = AES.new( aeskey, AES.MODE_GCM, nonce=iv )
-    privkeybytes = aescipher.decrypt( enc_privkey )
-    # SOMETHING I DON'T UNDERSTAND, I get back the bytes I expect
-    # (i.e. if I dump doing the equivalent decrypt operation in the
-    # javascript that's in rkauth.js) here, but there are an additional
-    # 16 bytes at the end; I don't know what they are.
-    privkeybytes = privkeybytes[:-16]
-    privkey = RSA.import_key( privkeybytes )
-    rsacipher = PKCS1_OAEP.new( privkey, hashAlgo=SHA256 )
-    decrypted_challenge = rsacipher.decrypt( challenge ).decode( 'utf-8' )
-
-    result = req.post( f'{conductor_url}/auth/respondchallenge',
-                       json={ 'username': user, 'response': decrypted_challenge } )
-    assert result.status_code == 200
-    data = result.json()
-    assert data['status'] == 'ok'
-    assert data['message'] == 'User test logged in.'
-    assert data['username'] == 'test'
-    assert data['useremail'] == 'testuser@mailhog'
-    assert data['userdisplayname'] == 'Test User'
-    assert data['useruuid'] == 'fdc718c3-2880-4dc5-b4af-59c19757b62d'
-
-    yield req
-
-    req.post( f'{conductor_url}/auth/logout' )
-    req.close()
 
 @pytest.fixture
-def conductor_config_for_decam_pull( conductor_url, conductor_logged_in ):
-    req = conductor_logged_in
-    res = req.post( f'{conductor_url}/status', verify=False )
-    assert res.status_code == 200
-    assert res.headers.get('Content-Type')[:16] == 'application/json'
-    origstatus = res.json()
+def conductor_connector( conductor_user ):
+    conductcon = ConductorConnector( verify=False )
+
+    yield conductcon
+
+    conductcon.send( 'auth/logout' )
+
+@pytest.fixture
+def conductor_config_for_decam_pull( conductor_connector ):
+    origstatus = conductor_connector.send( 'status' )
     del origstatus[ 'status' ]
     del origstatus[ 'lastupdate' ]
     del origstatus[ 'configchangetime' ]
@@ -177,30 +143,20 @@ def conductor_config_for_decam_pull( conductor_url, conductor_logged_in ):
                    'maxmjd': 60159.16667,
                    'skip_exposures_in_database': False,
                    'proc_type': 'raw' }
-    res = req.post( f'{conductor_url}/updateparameters/timeout=120/instrument=DECam', verify=False,
-                    json= { 'updateargs': updateargs } )
-    assert res.status_code == 200
-    assert res.headers.get('Content-Type')[:16] == 'application/json'
-    data = res.json()
+    data = conductor_connector.send( 'updateparameters/timeout=120/instrument=DECam', { 'updateargs': updateargs } )
     assert data['status'] == 'updated'
     assert data['instrument'] == 'DECam'
     assert data['timeout'] == 120
     assert data['updateargs'] == updateargs
 
-    res = req.post( f'{conductor_url}/forceupdate', verify=False )
-    assert res.status_code == 200
-    assert res.headers.get('Content-Type')[:16] == 'application/json'
-    data = res.json()
+    data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
-    
-    yield req
+
+    yield True
 
     # Reset the conductor to no instrument
-    
-    res = req.post( f'{conductor_url}/updateparameters', verify=False, json=origstatus )
-    assert res.status_code == 200
-    assert res.headers.get('Content-Type')[:16] == 'application/json'
-    data = res.json()
+
+    data = conductor_connector.send( 'updateparameters', origstatus )
     assert data['status'] == 'updated'
     for kw in [ 'instrument', 'timeout', 'updateargs' ]:
         assert data[kw] == origstatus[kw]
