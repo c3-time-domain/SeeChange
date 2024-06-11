@@ -670,6 +670,15 @@ class DECamOriginExposures:
     def add_to_known_exposures( self, indexes=None, skip_loaded_exposures=True, skip_duplicates=True, session=None):
         """See InstrumentOriginExposures.add_to_known_exposures"""
 
+        if indexes is None:
+            indexes = range( len(self._frame) )
+        if not isinstance( indexes, collections.abc.Sequence ):
+            indexes = [ indexes ]
+
+        import pdb; pdb.set_trace()
+        import sys
+        sys.stderr.write( f"indexes={indexes}; self._frame.index.values={self._frame.index.values}\n" )
+        
         with SmartSession( session ) as dbsess:
             identifiers = [ pathlib.Path( self._frame.loc[ dex, 'image' ].archive_filename ).name for dex in indexes ]
 

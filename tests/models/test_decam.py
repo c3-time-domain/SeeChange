@@ -235,6 +235,24 @@ def test_add_to_known_exposures( decam_raw_origin_exposures ):
                 session.delete( ke )
             session.commit()
 
+    # Make sure all get added when add_to_known_exposures is called with no arguments
+    identifiers = [ pathlib.Path( decam_raw_origin_exposures._frame.loc[i,'image'].archive_filename ).name
+                    for i in range(len(decam_raw_origin_exposures)) ]
+    try:
+        decam_raw_origin_exposures.add_to_known_exposures()
+
+        with SmartSession() as session:
+            kes = session.query( KnownExposure ).filter( KnownExposure.identifier.in_( identifiers ) )
+            assert kes.count() == len( decam_raw_origin_exposures )
+            assert all( [ k.instrument == 'DECam' for k in kes ] )
+            assert all( [ k.params['url'][0:45] == 'https://astroarchive.noirlab.edu/api/retrieve' for k in kes ] )
+    finally:
+        with SmartSession() as session:
+            kes = session.query( KnownExposure ).filter( KnownExposure.identifier.in_( identifiers ) )
+            for ke in kes:
+                session.delete( ke )
+            session.commit()
+        
 
 
 @pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )

@@ -1,6 +1,7 @@
 import sys
 import pathlib
 import os
+import re
 import time
 import datetime
 import logging
@@ -16,6 +17,9 @@ import flask.views
 from models.instrument import get_instrument_instance
 from util.config import Config
 
+class BadUpdaterReturnError(Exception):
+    pass
+
 # ======================================================================
 
 class BaseView( flask.views.View ):
@@ -29,6 +33,21 @@ class BaseView( flask.views.View ):
         self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
         return self.authenticated
         
+    def argstr_to_args( self, argstr ):
+        """Parse argstr as a bunch of /kw=val to a dictionary, update with request body if it's json."""
+
+        kwargs = {}
+        if argstr is not None:
+            for arg in argstr.split("/"):
+                match = re.search( '^(?P<k>[^=]+)=(?P<v>.*)$', arg )
+                if match is None:
+                    app.logger.error( f"error parsing url argument {arg}, must be key=value" )
+                    raise Exception( f'error parsing url argument {arg}, must be key=value' )
+                kwargs[ match.group('k') ] = match.group('v')
+        if flask.request.is_json:
+            kwargs.update( flask.request.json )
+        return kwargs
+
     def talk_to_updater( self, req, bsize=16384, timeout0=1, timeoutmax=16 ):
         sock = None
         try:
@@ -41,22 +60,40 @@ class BaseView( flask.views.View ):
                     sock.settimeout( timeout )
                     bdata = sock.recv( bsize )
                     msg = json.loads( bdata )
+                    if 'status' not in msg:
+                        raise BadUpdaterReturnError( f"Unexpected response from updater: {msg}" )
+                    if msg['status'] == 'error':
+                        if 'error' in msg:
+                            raise BadUpdaterReturnError( f"Error return from updater: {msg['error']}" )
+                        else:
+                            raise BadUpdaterReturnError( "Unknown error return from updater" )
                     return msg
                 except TimeoutError:
                     timeout *= 2
                     if timeout > timeoutmax:
-                        return { "status": "error", "error": "Connection to updater timed out" }
+                        app.logger.exception( f"Timed out trying to talk to updater, "
+                                              f"last delay was {timeout/2} sec" )
+                        raise BadUpdaterReturnError( "Connection to updater timed out" )
         except Exception as ex:
             app.logger.exception( ex )
-            return { "status": "error", "error": f"Error talking to updater: {ex}" }
+            raise BadUpdaterReturnError( str(ex) )
         finally:
             if sock is not None:
                 sock.close()
 
-    def dispatch_request( self ):
+    def get_updater_status( self ):
+        return self.talk_to_updater( { 'command': 'status' } )
+                
+    def dispatch_request( self, *args, **kwargs ):
         if not self.check_auth():
             return f"Not logged in", 500
-        return self.do_the_things()
+        try:
+            return self.do_the_things( *args, **kwargs )
+        except BadUpdaterReturnError as ex:
+            return str(ex), 500
+        except Exception as ex:
+            app.logger.exception()
+            return f"Exception handling request: {ex}", 500
         
 # ======================================================================
 # /
@@ -74,21 +111,43 @@ class MainPage( BaseView ):
 
 class GetStatus( BaseView ):
     def do_the_things( self ):
-        res = self.talk_to_updater( { 'command': 'status' } )
-        if "status" not in res:
-            return f"Unexpected response from udpater: {res}", 500
-        if res['status'] == 'error':
-            if 'error' in res:
-                return f"Error getting status: {res['error']}", 500
-            else:
-                return f"Unknown error getting status", 500
-        return res
-        
+        return self.get_updater_status()
 
 # ======================================================================
-# /update
+# /forceupdate
 
+class ForceUpdate( BaseView ):
+    def do_the_things( self ):
+        return self.talk_to_updater( { 'command': 'forceupdate' } )
 
+# ======================================================================
+# /updateparameters
+
+class UpdateParameters( BaseView ):
+    def do_the_things( self, argstr=None ):
+        curstatus = self.get_updater_status()
+        args = self.argstr_to_args( argstr )
+        if args == {}:
+            curstatus['status'] == 'unchanged'
+            return curstatus
+
+        knownkw = [ 'instrument', 'timeout', 'updateargs' ]
+        unknown = set()
+        for arg, val in args.items():
+            if arg not in knownkw:
+                unknown.add( arg )
+        if len(unknown) != 0:
+            return f"Unknown arguments to UpdateParameters: {unknown}", 500
+
+        args['command'] = 'updateparameters'
+        res = self.talk_to_updater( args )
+        del( curstatus['status'] )
+        res['oldsconfig'] = curstatus
+
+        return res
+        
+        
+        
     
 # ======================================================================
 # Create and configure the web app
@@ -119,14 +178,17 @@ flaskauth.RKAuthConfig.webap_url = cfg.value('conductor.conductor_url')
 if flaskauth.RKAuthConfig.webap_url[-1] != '/':
     flaskauth.RKAuthConfig.webap_url += '/'
 flaskauth.RKAuthConfig.webap_url += "auth"
-app.logger.debug( f'webap_url is {flaskauth.RKAuthConfig.webap_url}' )
+# app.logger.debug( f'webap_url is {flaskauth.RKAuthConfig.webap_url}' )
 app.register_blueprint( flaskauth.bp )
              
 # Configure urls
 
 urls = {
     "/": MainPage,
-    "/status": GetStatus
+    "/status": GetStatus,
+    "/updateparameters": UpdateParameters,
+    "/updateparameters/<path:argstr>": UpdateParameters,
+    "/forceupdate": ForceUpdate,
 }
 
 usedurls = {}

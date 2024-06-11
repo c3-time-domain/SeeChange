@@ -160,3 +160,51 @@ def conductor_logged_in( conductor_url, conductor_user ):
 
     req.post( f'{conductor_url}/auth/logout' )
     req.close()
+
+@pytest.fixture
+def conductor_config_for_decam_pull( conductor_url, conductor_logged_in ):
+    req = conductor_logged_in
+    res = req.post( f'{conductor_url}/status', verify=False )
+    assert res.status_code == 200
+    assert res.headers.get('Content-Type')[:16] == 'application/json'
+    origstatus = res.json()
+    del origstatus[ 'status' ]
+    del origstatus[ 'lastupdate' ]
+    del origstatus[ 'configchangetime' ]
+
+    import pdb; pdb.set_trace()
+    updateargs = { 'minmjd': 60159.15625,
+                   'maxmjd': 60159.16667,
+                   'skip_exposures_in_database': False,
+                   'proc_type': 'instcal' }
+    res = req.post( f'{conductor_url}/updateparameters/timeout=120/instrument=DECam', verify=False,
+                    json= { 'updateargs': updateargs } )
+    assert res.status_code == 200
+    assert res.headers.get('Content-Type')[:16] == 'application/json'
+    data = res.json()
+    assert data['status'] == 'updated'
+    assert data['instrument'] == 'DECam'
+    assert data['timeout'] == 120
+    assert data['updateargs'] == updateargs
+
+    res = req.post( f'{conductor_url}/forceupdate', verify=False )
+    assert res.status_code == 200
+    assert res.headers.get('Content-Type')[:16] == 'application/json'
+    data = res.json()
+    assert data['status'] == 'forced update'
+    
+    # TODO : wait for expected exposures to show up in the KnownExposures table
+    
+    yield req
+
+    # TODO : this will have also added exposures to the KnownExposures table; clean those up!
+    
+    res = req.post( f'{conductor_url}/updateparameters', verify=False, json=origstatus )
+    assert res.status_code == 200
+    assert res.headers.get('Content-Type')[:16] == 'application/json'
+    data = res.json()
+    assert data['status'] == 'updated'
+    for kw in [ 'instrument', 'timeout', 'updateargs' ]:
+        assert data[kw] == origstatus[kw]
+
+    
