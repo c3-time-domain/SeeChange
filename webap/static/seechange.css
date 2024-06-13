@@ -93,3 +93,8 @@ div.authdiv { color: var(--some-faded-color);
 div.footer { color: var(--some-faded-color);
              font-size: 75%;
              font-style: italic }
+
+div.conductorconfig { border: 4px inset var(--main-color);
+                      font-size: 75%;
+                      padding: 1ex;
+                      margin: 1em; }

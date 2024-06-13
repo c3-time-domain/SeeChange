@@ -138,17 +138,20 @@ def conductor_config_for_decam_pull( conductor_connector ):
     del origstatus[ 'status' ]
     del origstatus[ 'lastupdate' ]
     del origstatus[ 'configchangetime' ]
-
+    
     updateargs = { 'minmjd': 60159.15625,
                    'maxmjd': 60159.16667,
                    'skip_exposures_in_database': False,
                    'proc_type': 'raw' }
-    data = conductor_connector.send( 'updateparameters/timeout=120/instrument=DECam', { 'updateargs': updateargs } )
+    data = conductor_connector.send( 'updateparameters/timeout=120/instrument=DECam/pause=true',
+                                     { 'updateargs': updateargs } )
     assert data['status'] == 'updated'
     assert data['instrument'] == 'DECam'
     assert data['timeout'] == 120
     assert data['updateargs'] == updateargs
-
+    assert data['hold'] == 0
+    assert data['pause'] == 1
+    
     data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
 

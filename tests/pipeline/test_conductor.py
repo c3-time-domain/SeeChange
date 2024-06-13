@@ -1,8 +1,11 @@
 import pytest
+import time
 
 import datetime
 import dateutil.parser
 import requests
+
+import sqlalchemy as sa
 
 import selenium
 import selenium.webdriver
@@ -13,13 +16,12 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.remote.webelement import WebElement
 
 from models.base import SmartSession
-from models.knownexposure import KnownExposure
+from models.knownexposure import KnownExposure, PipelineWorker
 
 def test_conductor_not_logged_in( conductor_url ):
-    res = requests.post( f"{conductor_url}/status", json={ "command": "status" }, verify=False )
+    res = requests.post( f"{conductor_url}/status", verify=False )
     assert res.status_code == 500
     assert res.text == "Not logged in"
-    res = requests.post( f"{conductor_url}/status", json={ "command": "status" }, verify=False )
 
 def test_conductor_uninitialized( conductor_connector ):
     data = conductor_connector.send( 'status' )
@@ -37,12 +39,6 @@ def test_force_update_uninitialized( conductor_connector ):
     assert data['instrument'] is None
     assert data['timeout'] == 120
     assert data['updateargs'] is None
-    updatetime = dateutil.parser.parse( data['lastupdate'] )
-    dt = updatetime - datetime.datetime.now( tz=datetime.timezone.utc )
-    # Should be safe to make this short, because the conductor sets the update
-    #   time at the *beginning* of it's call to update... and this is a null
-    #   call anyway, because there's no instrument set.
-    assert dt.total_seconds() < 2
 
 def test_update_missing_args( conductor_connector ):
     with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: Error return from updater: "
@@ -66,6 +62,7 @@ def test_update_unknown_instrument( conductor_connector ):
     assert data['instrument'] is None
     assert data['timeout'] == 120
     assert data['updateargs'] is None
+    assert data['hold'] == 0
 
 def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
     req = conductor_config_for_decam_pull
@@ -79,6 +76,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
                 .filter( KnownExposure.mjd >= 60159.157 )
                 .filter( KnownExposure.mjd <= 60159.167 ) ).all()
         assert len(kes) == 9
+        assert all( [ not i.hold for i in kes ] )
         assert set( [ i.project for i in kes ] ) == { '2023A-921384', '2023A-716082' }
         assert min( [ i.mjd for i in kes ] ) == pytest.approx( 60159.15722, abs=1e-5 )
         assert max( [ i.mjd for i in kes ] ) == pytest.approx( 60159.16662, abs=1e-5 )
@@ -93,7 +91,9 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
 
     data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
-
+    data = conductor_connector.send( 'status' )
+    first_updatetime = dateutil.parser.parse( data['lastupdate'] )
+    
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
                 .filter( KnownExposure.mjd >= 60159.157 )
@@ -115,6 +115,33 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
                 .filter( KnownExposure.mjd <= 60159.167 ) ).all()
         assert len(kes) == 3
 
+    time.sleep(1)  # So we can resolve the time difference
+    data = conductor_connector.send( 'forceupdate' )
+    assert data['status'] == 'forced update'
+    data = conductor_connector.send( 'status' )
+    assert dateutil.parser.parse( data['lastupdate'] ) > first_updatetime
+    
+    with SmartSession() as session:
+        kes = ( session.query( KnownExposure )
+                .filter( KnownExposure.mjd >= 60159.157 )
+                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
+        assert len(kes) == 9
+
+    # Make sure hold works
+
+    data = conductor_connector.send( "updateparameters/hold=true" )
+    assert data['status'] == 'updated'
+    assert data['instrument'] == 'DECam'
+    assert data['hold'] == 1
+
+    with SmartSession() as session:
+        delkes = ( session.query( KnownExposure )
+                   .filter( KnownExposure.mjd > 60159.157 )
+                   .filter( KnownExposure.mjd < 60159.167 ) ).all()
+        for delke in delkes:
+            session.delete( delke )
+        session.commit()
+    
     data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
 
@@ -123,7 +150,9 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
                 .filter( KnownExposure.mjd >= 60159.157 )
                 .filter( KnownExposure.mjd <= 60159.167 ) ).all()
         assert len(kes) == 9
+        assert all( [ i.hold for i in kes ] )
 
+        
 def test_request_knownexposure_get_none( conductor_connector ):
     with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: "
                                               r"cluster_id is required for RequestExposure" ) ):
@@ -134,14 +163,69 @@ def test_request_knownexposure_get_none( conductor_connector ):
 
 
 def test_request_knownexposure( conductor_connector, conductor_config_for_decam_pull ):
-    data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )
-    assert data['status'] == 'available'
+    previous = set()
+    for i in range(3):
+        data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )
+        assert data['status'] == 'available'
+        assert data['knownexposure_id'] not in previous
+        previous.add( data['knownexposure_id'] )
+
+        with SmartSession() as session:
+            kes = session.query( KnownExposure ).filter( KnownExposure.id==data['knownexposure_id'] ).all()
+            assert len(kes) == 1
+            assert kes[0].cluster_id == 'test_cluster'
+
+    # Make sure that we don't get held exposures
 
     with SmartSession() as session:
-        kes = session.query( KnownExposure ).filter( KnownExposure.id==data['knownexposure_id'] ).all()
-        assert len(kes) == 1
-        assert kes[0].cluster_id == 'test_cluster'
+        session.execute( sa.text( 'UPDATE knownexposures SET hold=true' ) )
+        session.commit()
 
+    data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )
+    assert data['status'] == 'not available'
+            
+        
+def test_register_worker( conductor_connector ):
+    """Tests registerworker, unregisterworker, and heartbeat """
+    try:
+        data = conductor_connector.send( 'registerworker/cluster_id=test/node_id=testnode/nexps=10' )
+        assert data['status'] == 'added'
+        assert data['cluster_id'] == 'test'
+        assert data['node_id'] == 'testnode'
+        assert data['nexps'] == 10
+        
+        with SmartSession() as session:
+            pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).first()
+            assert pw.cluster_id == 'test'
+            assert pw.node_id == 'testnode'
+            assert pw.nexps == 10
+            firstheartbeat = pw.lastheartbeat
+
+        hb = conductor_connector.send( f'workerheartbeat/{data["id"]}' )
+        assert hb['status'] == 'updated'
+        
+        with SmartSession() as session:
+            pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).first()
+            assert pw.cluster_id == 'test'
+            assert pw.node_id == 'testnode'
+            assert pw.nexps == 10
+            assert pw.lastheartbeat > firstheartbeat
+
+        done = conductor_connector.send( f'unregisterworker/{data["id"]}' )
+        assert done['status'] == 'worker deleted'
+
+        with SmartSession() as session:
+            pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).all()
+            assert len(pw) == 0
+            
+    finally:
+        with SmartSession() as session:
+            pws = session.query( PipelineWorker ).filter( PipelineWorker.cluster_id=='test' ).all()
+            for pw in pws:
+                session.delete( pw )
+            session.commit()
+    
+    
 
 # ======================================================================
 # The tests below use selenium to test the interactive part of the

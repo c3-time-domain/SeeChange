@@ -1967,6 +1967,55 @@ class DemoInstrument(Instrument):
         """
         return 'Demo'
 
+    def acquire_origin_exposure( cls, identifier, params, outdir=None ):
+        """Does the same thing as InstrumentOriginExposures.download_exposures.
+
+        Works outside of the context of find_origin exposures.
+
+        Parameters
+        ----------
+          identifier : str
+            Identifies the image at the source of exposures.  (See
+            KnownExposure.identfier or Exposure.origin_identifier.)
+        
+          params : defined differently for each subclass
+            Necessary parameters for this instrument to download an
+            origin exposure
+
+          outdir : str or Path
+             Directory where to write the downloaded file.  Defaults to
+             FileOnDiskMixin.temp_path.
+
+        Returns
+        -------
+          outpath : pathlib.Path
+            The written file.
+
+        """
+        raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
+                                   f"implemented acquire_origin_exposure" )
+
+    def acquire_and_commit_origin_exposure( cls, identifier, params ):
+        """Call acquire_origin_exposure and add the exposure to the database.
+
+        Parameters
+        ----------
+          identifier : str
+            Identifies the image at the source of exposures.  (See
+            KnownExposure.identfier or Exposure.origin_identifier.)
+        
+          params : defined differently for each subclass
+            Necessary parameters for this instrument to download an
+            origin exposure
+
+        Returns
+        -------
+          Exposure
+
+        """
+        raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
+                                   f"implemented acquire_and_commit_origin_exposure" )
+
     def find_origin_exposures( self,
                                skip_exposures_in_database=True,
                                skip_known_exposures=True,
@@ -2041,7 +2090,12 @@ class InstrumentOriginExposures:
 
     """
 
-    def add_to_known_exposures( self, indexes=None, skip_loaded_exposures=True, skip_duplicates=True, session=None ):
+    def add_to_known_exposures( self,
+                                indexes=None,
+                                hold=False,
+                                skip_loaded_exposures=True,
+                                skip_duplicates=True,
+                                session=None ):
         """Add exposures to the knownexposures table.
 
         Parameters
@@ -2050,6 +2104,11 @@ class InstrumentOriginExposures:
           List of indexes into the set of origin exposures to add;
           None means add them all.
 
+        hold: bool, default False
+          The "hold" field to set in the KnownExposures table.  (The
+          conductor will not hand out exposures to pipeline processes
+          for rows where hold is True.)
+        
         skip_duplicates: bool, default True
           Don't create duplicate entries in the knownexposures table.
           If the exposure is one that's already in the table, don't add

@@ -30,6 +30,8 @@ scconductor.Context = class
         this.auth.checkAuth();
     };
 
+    // **********************************************************************
+    
     render_page()
     {
         let self = this;
@@ -49,7 +51,262 @@ scconductor.Context = class
         
         rkWebUtil.wipeDiv( this.maindiv );
         this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv );
-        p = rkWebUtil.elemaker( "p", this.frontpagediv, { "text": "Hello, world." } );
+
+        this.configdiv = rkWebUtil.elemaker( "div", this.frontpagediv, { "classes": [ "conductorconfig" ] } );
+        this.contentdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
+
+        rkWebUtil.elemaker( "hr", this.contentdiv );
+        p = rkWebUtil.elemaker( "p", this.contentdiv );
+        rkWebUtil.button( p, "Update", () => { self.update_known_exposures(); } );
+        p.appendChild( document.createTextNode( " known exposures from taken from " ) );
+        this.knownexp_mintwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
+        p.appendChild( document.createTextNode( " to " ) );
+        this.knownexp_maxtwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
+        p.appendChild( document.createTextNode( " UTC (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)" ) );
+
+        this.knownexpdiv = rkWebUtil.elemaker( "div", this.contentdiv );
+
+        this.show_config_status();
+    }
+
+    // **********************************************************************
+    
+    show_config_status( edit=false )
+    {
+        var self = this;
+
+        let p;
+        
+        rkWebUtil.wipeDiv( this.configdiv )
+        rkWebUtil.elemaker( "p", this.configdiv,
+                            { "text": "Loading status...",
+                              "classes": [ "warninig", "bold", "italic" ] } )
+
+        if ( edit )
+            this.connector.sendHttpRequest( "/status", {}, (data) => { self.edit_config_status(data) } );
+        else
+            this.connector.sendHttpRequest( "/status", {}, (data) => { self.actually_show_config_status(data) } );
+    }
+
+    // **********************************************************************
+    
+    actually_show_config_status( data )
+    {
+        let self = this;
+        
+        let table, tr, th, td, p;
+
+        rkWebUtil.wipeDiv( this.configdiv );
+        rkWebUtil.elemaker( "h3", this.configdiv,
+                            { "text": "Conductor polling config" } );
+
+        p = rkWebUtil.elemaker( "p", this.configdiv );
+        rkWebUtil.button( p, "Refresh", () => { self.show_config_status() } );
+        p.appendChild( document.createTextNode( "  " ) );
+        rkWebUtil.button( p, "Modify", () => { self.show_config_status( true ) } );
+
+        let instrument = ( data.instrument == null ) ? "" : data.instrument;
+        let minmjd = "(None)";
+        let maxmjd = "(None)";
+        let minexptime = "(None)";
+        let projects = "(Any)";
+        if ( data.updateargs != null ) {
+            minmjd = data.updateargs.hasOwnProperty( "minmjd" ) ? data.minmjd : minmjd;
+            maxmjd = data.updateargs.hasOwnProperty( "maxmjd" ) ? data.maxmjd : maxmjd;
+            minexptime = data.updateargs.hasOwnProperty( "minexptime" ) ? data.minexptime : minexptime;
+            projects = data.updateargs.hasOwnProperty( "projects" ) ? data.projects.join(",") : projects;
+        }
+
+        table = rkWebUtil.elemaker( "table", this.configdiv );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Instrument" } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": data.instrument } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Min MJD" } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": minmjd } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Max MJD" } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": maxmjd } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Max Exp. Time" } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": minexptime } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Projects" } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": projects } );
+    }
+
+    // **********************************************************************
+
+    edit_config_status( data )
+    {
+        let self = this;
+
+        let table, tr, th, td, p;
+
+        rkWebUtil.wipeDiv( this.configdiv );
+        rkWebUtil.elemaker( "h3", this.configdiv,
+                            { "text": "Conductor polling config" } );
+
+        p = rkWebUtil.elemaker( "p", this.configdiv );
+        rkWebUtil.button( p, "Save Changes", () => { self.update_conductor_config(); } );
+        p.appendChild( document.createTextNode( "  " ) );
+        rkWebUtil.button( p, "Cancel", () => { self.show_config_status() } );
+
+        let minmjd = "";
+        let maxmjd = "";
+        let minexptime = "";
+        let projects = "";
+        if ( data.updateargs != null ) {
+            minmjd = data.updateargs.hasOwnProperty( "minmjd" ) ? data.minmjd : minmjd;
+            maxmjd = data.updateargs.hasOwnProperty( "maxmjd" ) ? data.maxmjd : maxmjd;
+            minexptime = data.updateargs.hasOwnProperty( "minexptime" ) ? data.minexptime : minexptime;
+            projects = data.updateargs.hasOwnProperty( "projects" ) ? data.projects.join(",") : projects;
+        }
+
+        table = rkWebUtil.elemaker( "table", this.configdiv );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Instrument" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.status_instrument_wid = rkWebUtil.elemaker( "input", td,
+                                                         { "attributes": { "value": data.instrument,
+                                                                           "size": 20 } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Start time" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.status_minmjd_wid = rkWebUtil.elemaker( "input", td,
+                                                     { "attributes": { "value": minmjd,
+                                                                       "size": 20 } } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": " (MJD or YYYY-MM-DD HH:MM:SS)" } )
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "End time" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.status_maxmjd_wid = rkWebUtil.elemaker( "input", td,
+                                                     { "attributes": { "value": maxmjd,
+                                                                       "size": 20 } } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": " (MJD or YYYY-MM-DD HH:MM:SS)" } )
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Max Exp. Time" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.status_minexptime_wid = rkWebUtil.elemaker( "input", td,
+                                                         { "attributes": { "value": minexptime,
+                                                                           "size": 20 } } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": " seconds" } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Projects" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.status_projects_wid = rkWebUtil.elemaker( "input", td,
+                                                       { "attributes": { "value": projects,
+                                                                         "size": 20 } } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": " (comma-separated)" } );
+    }
+
+    
+    // **********************************************************************
+
+    update_conductor_config()
+    {
+        let instrument = this.status_instrument_wid.value.trim();
+        instrument = ( instrument.length == 0 ) ? null : instrument;
+
+        // Parsing is often verbose
+        let minmjd = this.status_minmjd_wid.value.trim();
+        if ( minmjd.length == 0 )
+            minmjd = null;
+        else if ( minmjd.search( /^ *([0-9]*\.)?[0-9]+ *$/ ) >= 0 )
+            minmjd = parseFloat( minmjd );
+        else
+            minmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( minmjd ) );
+
+        let maxmjd = this.status_maxmjdwid.value.trim();
+        if ( maxmjd.length == 0 )
+            maxmjd == null;
+        else if ( maxmjd.search( /^ *([0-9]*\.)?[0-9]+ *$/ ) >= 0 )
+            maxmjd = parseFloat( maxmjd );
+        else
+            maxmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( maxmjd ) );
+
+        let minexptime = this.status_minexptime_wid.value.trim();
+        minexptime = ( minexptime.length == 0 ) ? null : parseFloat( minexptime );
+
+        let projects = this.status_projects_wid.value.trim();
+        if ( projects.length == 0 )
+            projects = null;
+        else {
+            let tmp = projects.split( "," );
+            projects = [];
+            for ( let project of tmp ) projects.push( tmp.trim() );
+        }
+
+        let params = {};
+        if ( minmjd != null ) params['minmjd'] = minmjd;
+        if ( maxmjd != null ) params['maxmjd'] = maxmjd;
+        if ( minexptime != null ) params['minexptime'] == minexptime;
+        if ( projects != null ) params['projects'] == projects;
+
+        this.connector.sendHttpRequest( "/updateparameters", { 'instrument': instrument, 'updateargs': params },
+                                        () => show_config_status() );
+    }
+    
+    // **********************************************************************
+
+    update_known_exposures()
+    {
+        let self = this;
+        
+        rkWebUtil.wipeDiv( this.knownexpdiv );
+        let p = rkWebUtil.elemaker( "p", this.knownexpdiv,
+                                    { "text": "Loading known exposures...",
+                                      "classes": [ "warning", "bold", "italic" ] } );
+        url = "/getknownexposures";
+        if ( this.knownexp_mintwid.value.trim().length > 0 ) {
+            let minmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( this.knownexp_mintwid.value ) );
+            url += "/minmjd=" + minmjd.toString();
+        }
+        if ( this.knownexp_maxtwid.value.trim().length > 0 ) {
+            let maxmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( this.knownexp_maxtwid.value ) );
+            url += "/maxmjd=" + maxmjd.toString();
+        }
+        this.connector.sendHTTPRequest( url, {}, (data) => { self.show_known_exposure(data); } );
+    }
+
+    // **********************************************************************
+
+    show_known_exposures( data )
+    {
+        let table, tr, td, th;
+
+        rkWebUtil.wipeDiv( this.knownexpdiv );
+
+        table = rkWebUtil.elemaker( "table", this.knownexpdiv );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "identifier" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "mjd" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "target" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "ra" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "dec" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "b" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "filter" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "exp_time" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "project" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "cluster" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "claim_time" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "exposure" } );
+
+        for ( let ke of data.knownexposures ) {
+            tr = rkWebUtil.elemaker( "tr", table );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.identifier } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.target } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.ra ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.dec ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.gallat ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.filter } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).to_Fixed( 1 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.project } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.cluster_id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.claim_time } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.exposure_id } );
+        }
     }
 }
 

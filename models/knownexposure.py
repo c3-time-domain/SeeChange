@@ -33,13 +33,17 @@ class KnownExposure(Base, AutoIDMixin):
                                   'should match exposures.origin_identifier' ) )
     params = sa.Column( JSONB, nullable=True,
                         doc='Additional instrument-specific parameters needed to pull this exposure' )
+
+    hold = sa.Column( 'hold', sa.Boolean, nullable=False, server_default='false',
+                      doc="If True, conductor won't release this exposure for processing" )
     
     exposure_id = sa.Column( 'exposure_id',
                              sa.BigInteger,
                              sa.ForeignKey( 'exposures.id', name='knownexposure_exposure_id_fkey' ),
                              nullable=True )
 
-    mjd = sa.Column( sa.Double, nullable=True, index=True, doc="MJD of the start of the exposure (MJD=JD-2400000.5)" )
+    mjd = sa.Column( sa.Double, nullable=True, index=True,
+                     doc="MJD of the start (?) of the exposure (MJD=JD-2400000.5)" )
     exp_time = sa.Column( sa.REAL, nullable=True, doc="Exposure time of the exposure" )
     filter = sa.Column( sa.Text, nullable=True, doc="Filter of the exposure" )
 
@@ -76,3 +80,16 @@ class KnownExposure(Base, AutoIDMixin):
         self.ecllat = float(coords.barycentrictrueecliptic.lat.deg)
         self.ecllon = float(coords.barycentrictrueecliptic.lon.deg)
                             
+
+class PipelineWorker(Base, AutoIDMixin):
+    """A table of currently active pipeline launchers that the conductor knows about.
+
+    """
+
+    __tablename__ = "pipelineworkers"
+
+    cluster_id = sa.Column( sa.Text, nullable=False, doc="Cluster where the worker is running" )
+    node_id = sa.Column( sa.Text, nullable=True, doc="Node where the worker is running" )
+    nexps = sa.Column( sa.SmallInteger, nullable=False, default=1,
+                       doc="How many exposures this worker can do at once" )
+    lastheartbeat = sa.Column( sa.DateTime, nullable=False, doc="Last time this pipeline worker checked in" )

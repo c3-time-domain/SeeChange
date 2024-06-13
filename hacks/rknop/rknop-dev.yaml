@@ -14,7 +14,10 @@ path:
   data_temp: '/data/temp'
 
 db:
-  host: postgres-loadbalancer.ls4-rknop-dev.production.svc.spin.nersc.org
+  host: ls4db.lbl.gov
+  port: 5432
+  database: seechange_rknop_dev
+  user: seechange_rknop_dev
   password: placeholder
 
 archive:
@@ -28,7 +31,8 @@ archive:
 conductor:
   conductor_url: https://ls4-conductor-rknop-dev.lbl.gov
   username: rknop
-
+  password: placeholder
+  
 astro_cal:
   max_arcsec_residual: 0.2
   max_sources_to_use: [ 2000, 1000, 500, 200 ]

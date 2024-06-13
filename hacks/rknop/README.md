@@ -12,7 +12,7 @@ See under Brahms
     --bind /global/scratch/users/raknop/seechange:/data \
     --bind /global/home/users/raknop/secrets:/secrets \
     --env "SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev-dirac.yaml" \
-    /global/scratch/users/raknop/seechange-mpich.sif /bin/bash
+    /global/scratch/users/raknop/seechange-rknop-dev.sif /bin/bash
 ```
 
 ## Seeting up the environment for the demo -- Brahms
@@ -30,8 +30,8 @@ docker run --user 1000:1000 -it \
    --mount type=bind,source=/home/raknop/SeeChange,target=/seechange \
    --mount type=bind,source=/data/raknop/seechange,target=/data \
    --mount type=bind,source=/home/raknop/secrets,target=/secrets \
-   --env "SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev-brahms.yaml" \
-   registry.nersc.gov/m4616/seechange:mpich \
+   --env "SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev.yaml" \
+   registry.nersc.gov/m4616/seechange:rknop-dev \
    /bin/bash
 ```   
    
@@ -42,17 +42,40 @@ When `.yaml` files for spin are referenced, they are in the directory SeeChange/
 
 There are assumptions in the `.yaml` files and the notes below that this is Rob doing this.
 
-### Set up the database machine
+### Set up the conductor
 
-* Generate a postgres password and put it after `pgpass:` in `postgres-secrets.yaml`; apply the secrets yaml.  (Remember to remove this password from the file before committing anything to a git repository!)
-* Build the docker image and push it to `registry.nersc.gov/m4616/raknop/seechange-postgres`
-* Create the postgres volume in Spin using `postgres-pvc.yaml`
-* Create the postgres deployment Spin using `postgres.yaml`
-* Verify you can connect to it with
+* Edit `conductor/local_overrides.yaml` and give it contents:
 ```
-psql -h postgres-loadbalancer.ls4-rknop-dev.production.svc.spin.nersc.org -U postgres
+conductor:
+  conductor_url: https://ls4-conductor-rknop-dev.lbl.gov/
+  email_from: 'Seechange conductor ls4 rknop dev <raknop@lbl.gov>'
+  email_subject: 'Seechange conductor (ls4 rknop dev) password reset'
+  email_system_name: 'Seechange conductor (ls4 rknop dev)'
+  smtp_server: smtp.lbl.gov
+  smtp_port: 25
+  smtp_use_ssl: false
+  smtp_username: null
+  smtp_password: null
+
+db:
+  host: ls4db.lbl.gov
+  port: 5432
+  database: seechange_rknop_dev
+  user: seechange_rknop_dev
+  password_file: /secrets/postgres_passwd
 ```
-using the password you generated above.
+* Build the docker image with the command below, and push it
+```
+   docker docker build --target conductor -t registry.nersc.gov/m4616/seechange:conductor-rknop-dev -f docker/application/Dockerfile .
+```
+* Edit `conductor-secrets.yaml` to put the right postgres password in. (Remember to take it out before committing anything to a git repository!)
+* Create the conductor with `conductor-pvc.yaml`, `conductor-secrets.yaml`, and `conductor.yaml`
+* Secure DNS name `ls4-conductor-rknop-dev.lbl.gov` as a CNAME to `onductor.ls4-rknop-dev.production.svc.spin.nersc.org`
+* Get a SSL cert for `ls4-conductor-rknop-dev.lbl.gov`
+* Put the b64 encoded stuff in `conductor-cert.yaml` and apply it
+* Uncomment the stuff in `conductor.yaml` and apply it
+* Create user rknop manually in the conductor database (until such a time as the conductor has an actual interfrace for this).
+* (Once the ls4-conductor-rknop-dev.lbl.gov address is available.)  Use the web interface to ls4-conductor-rknop-dev.lbl.gov to set rknop's password on the conductor.  (Consider saving the database barf for the public and private keys to avoid having to do this upon database recreation.)
 
 ### Set up the archive
 
@@ -77,8 +100,11 @@ db:
 
 archive:
   token: ...
+
+conductor:
+  password: ...
 ```
-replacing the `...` with the database password and archive tokens generated above.
+replacing the `...` with the database password, archive token, and conductor password generated above.
 
 ### Create data directories
 
@@ -87,8 +113,8 @@ replacing the `...` with the database password and archive tokens generated abov
 
 ### Get the podman image
 
-* Build the application docker image and push it to `registry.nersc.gov/m4616/raknop/seechange`
-* Get it on nersc with `podman-hpc pull registry.nersc.gov/m4616/raknop/seechange`
+* Build the application docker image and push it to `registry.nersc.gov/m4616/raknop/seechange:rknop-dev`
+* Get it on nersc with `podman-hpc pull registry.nersc.gov/m4616/raknop/seechange:rknop-dev`
 * Verify it's there with `podman-hpc images` ; make sure in particular that there's a readonly image.
 
 ### Running a shell
@@ -99,7 +125,7 @@ podman-hpc run -it \
   --mount type=bind,source=/pscratch/sd/r/raknop/ls4-rknop-dev/data,target=/data \
   --mount type=bind,source=/global/homes/r/raknop/secrets,target=/secrets \
   --env "SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev.yaml" \
-  registry.nersc.gov/m4616/raknop/seechange \
+  registry.nersc.gov/m4616/raknop/seechange:rknop-dev \
   /bin/bash
 ```
 

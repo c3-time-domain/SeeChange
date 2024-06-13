@@ -3,6 +3,7 @@ import pathlib
 import os
 import re
 import time
+import copy
 import datetime
 import logging
 import subprocess
@@ -18,6 +19,7 @@ import psycopg2.extras
 
 from models.base import SmartSession
 from models.instrument import get_instrument_instance
+from models.knownexposure import PipelineWorker
 from util.config import Config
 
 class BadUpdaterReturnError(Exception):
@@ -36,20 +38,20 @@ class BaseView( flask.views.View ):
         self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
         return self.authenticated
         
-    def argstr_to_args( self, argstr ):
+    def argstr_to_args( self, argstr, initargs={} ):
         """Parse argstr as a bunch of /kw=val to a dictionary, update with request body if it's json."""
 
-        kwargs = {}
+        args = copy.deepcopy( initargs )
         if argstr is not None:
             for arg in argstr.split("/"):
                 match = re.search( '^(?P<k>[^=]+)=(?P<v>.*)$', arg )
                 if match is None:
                     app.logger.error( f"error parsing url argument {arg}, must be key=value" )
                     raise Exception( f'error parsing url argument {arg}, must be key=value' )
-                kwargs[ match.group('k') ] = match.group('v')
+                args[ match.group('k') ] = match.group('v')
         if flask.request.is_json:
-            kwargs.update( flask.request.json )
-        return kwargs
+            args.update( flask.request.json )
+        return args
 
     def talk_to_updater( self, req, bsize=16384, timeout0=1, timeoutmax=16 ):
         sock = None
@@ -134,7 +136,9 @@ class UpdateParameters( BaseView ):
             curstatus['status'] == 'unchanged'
             return curstatus
 
-        knownkw = [ 'instrument', 'timeout', 'updateargs' ]
+        app.logger.debug( f"In UpdateParameters, argstr='{argstr}', args={args}" )
+        
+        knownkw = [ 'instrument', 'timeout', 'updateargs', 'hold', 'pause' ]
         unknown = set()
         for arg, val in args.items():
             if arg not in knownkw:
@@ -149,6 +153,98 @@ class UpdateParameters( BaseView ):
 
         return res
         
+# ======================================================================
+# /registerworker
+#
+# Register a Pipeline Worker.  This is really just for informational
+# purposes; the conductor won't push jobs to workers, but it maintains
+# a list of workers that have checked in so the user can see what's
+# out there.
+#
+# parameters:
+#   cluster_id str, 
+#   node_id str, optional
+#   replace int, optional -- if non-zero, will replace an existing entry with this cluster/node
+#   nexps int, optional number of exposures this pipeline worker can do at once (default 1)
+
+class RegisterWorker( BaseView ):
+    def do_the_things( self, argstr=None ):
+        args = self.argstr_to_args( argstr, { 'node_id': None, 'replace': 0, 'nexps': 1 } )
+        args['replace'] = int( args['replace'] )
+        args['nexps'] = int( args['nexps'] )
+        if 'cluster_id' not in args.keys():
+            return f"cluster_id is required for registerworker", 500
+        with SmartSession() as session:
+            existing = ( session.query( PipelineWorker )
+                         .filter( PipelineWorker.cluster_id==args['cluster_id'] )
+                         .filter( PipelineWorker.node_id==args['node_id'] )
+                        ).all()
+            newworker = None
+            status = None
+            if len( existing ) > 0:
+                if len( existing ) > 1:
+                    return ( f"cluster_id {args['cluster_id']} node_id{args['node_id']} multiply defined, "
+                             f"database needs to be cleaned up" ), 500
+                if args['replace']:
+                    newworker = existing[0]
+                    newworker.nexps = args['nexps']
+                    newworker.lastheartbeat = datetime.datetime.now()
+                    status = 'updated'
+                else:
+                    return f"cluster_id {args['cluster_id']} node_id {args['node_id']} already exists", 500
+            
+            else:
+                newworker = PipelineWorker( cluster_id=args['cluster_id'],
+                                            node_id=args['node_id'],
+                                            nexps=args['nexps'],
+                                            lastheartbeat=datetime.datetime.now() )
+                status = 'added'
+            session.add( newworker )
+            session.commit()
+            # Make sure that newworker has the id field loaded
+            # session.merge( newworker )
+        return { 'status': status,
+                 'id': newworker.id,
+                 'cluster_id': newworker.cluster_id,
+                 'node_id': newworker.node_id,
+                 'nexps': newworker.nexps }
+
+# ======================================================================
+# /unregisterworker
+#
+# Remove a Pipeline Worker registration.  Call with /unregsiterworker/n
+# where n is the integer ID of the pipeline worker.
+
+class UnregisterWorker( BaseView ):
+    def do_the_things( self, pipelineworker_id ):
+        with SmartSession() as session:
+            pipelineworker_id = int(pipelineworker_id)
+            existing = session.query( PipelineWorker ).filter( PipelineWorker.id==pipelineworker_id ).all()
+            if len(existing) == 0:
+                return f"Unknown pipeline worker {pipelineworker_id}", 500
+            else:
+                session.delete( existing[0] )
+                session.commit()
+        return { "status": "worker deleted" }
+
+# ======================================================================
+# /workerheartbeat
+#
+# Call at /workerheartbeat/n where n is the numeric id of the pipeline worker
+
+class WorkerHeartbeat( BaseView ):
+    def do_the_things( self, pipelineworker_id ):
+        pipelineworker_id = int( pipelineworker_id )
+        with SmartSession() as session:
+            existing = session.query( PipelineWorker ).filter( PipelineWorker.id==pipelineworker_id ).all()
+            if len( existing ) == 0:
+                return f"Unknown pipelineworker {pipelineworker_id}"
+            existing = existing[0]
+            existing.lastheartbeat = datetime.datetime.now()
+            session.merge( existing )
+            session.commit()
+            return { 'status': 'updated' }
+            
 # ======================================================================
 # /requestexposure
 
@@ -173,7 +269,8 @@ class RequestExposure( BaseView ):
                 dbcon = session.bind.raw_connection()
                 cursor = dbcon.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
                 cursor.execute( "LOCK TABLE knownexposures" )
-                cursor.execute( "SELECT id, cluster_id FROM knownexposures WHERE cluster_id IS NULL "
+                cursor.execute( "SELECT id, cluster_id FROM knownexposures "
+                                "WHERE cluster_id IS NULL AND NOT hold "
                                 "ORDER BY mjd LIMIT 1" )
                 rows = cursor.fetchall()
                 if len(rows) > 0:
@@ -195,6 +292,25 @@ class RequestExposure( BaseView ):
             return { 'status': 'not available' }
         
     
+# ======================================================================
+
+class GetKnownExposures( BaseView ):
+    def do_the_things( self, argstr=None ):
+        args = sefl.argstr_to_args( argstr, { "minmjd": None, "maxmjd": None } )
+        args['minmjd'] = float( args['minmjd'] ) if args['minmjd'] is not None else None
+        args['maxmjd'] = float( args['maxmjd'] ) if args['maxmjd'] is not None else None
+        with SmartSession() as session:
+            q = session.query( KnownExposure )
+            if args['minmjd'] is not None:
+                q = q.filter( KnownExposure.mjd >= args['minmjd'] )
+            if args['maxmjd'] is not None:
+                q = q.filter( KnownExposure.mjd <= args['maxmjd'] )
+            q = q.order_by( KnownExposure.instrument, KnownExposure.mjd )
+            kes = q.all()
+        return { 'status': 'ok',
+                 'knownexposures': [ ke.to_dict() for ke in kes ] }
+        
+
 # ======================================================================
 # Create and configure the web app
 
@@ -237,6 +353,12 @@ urls = {
     "/forceupdate": ForceUpdate,
     "/requestexposure": RequestExposure,
     "/requestexposure/<path:argstr>": RequestExposure,
+    "/registerworker": RegisterWorker,
+    "/registerworker/<path:argstr>": RegisterWorker,
+    "/workerheartbeat/<int:pipelineworker_id>": WorkerHeartbeat,
+    "/unregisterworker/<int:pipelineworker_id>": UnregisterWorker,
+    "/getknownexposures": GetKnownExposures,
+    "/getknownexposures/<path:argstr>": GetKnownExposures,
 }
 
 usedurls = {}

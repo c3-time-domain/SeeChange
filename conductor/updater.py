@@ -38,22 +38,36 @@ class Updater():
         self.instrument = None
         self.updateargs = None
         self.timeout = 120
+        self.pause = False
+        self.hold = False
 
         self.lasttimeout = None
         self.lastupdate = None
         self.configchangetime = None
 
     def run_update( self ):
-        self.lastupdate = now()
         if self.instrument is not None:
+            self.lastupdate = now()
             _logger.info( "Updating known exposures" )
             exps = self.instrument.find_origin_exposures( **self.updateargs )
             _logger.info( f"Got {len(exps)} exposures to possibly add" )
             if len(exps) > 0:
-                exps.add_to_known_exposures()
+                exps.add_to_known_exposures( hold=self.hold )
         else:
             _logger.warning( "No instrument defined, not updating" )
         self.lasttimeout = time.perf_counter()
+
+
+    def parse_bool_arg( self, arg ):
+        try:
+            iarg = int( arg )
+        except ValueError:
+            iarg = None
+        if ( ( isinstance( arg, str ) and ( arg.lower().strip() == 'true' ) ) or
+             ( ( iarg is not None ) and bool(iarg) ) ):
+            return True
+        else:
+            return False
         
     def __call__( self ):
         # Open up a socket that we'll listen on to be told things to do
@@ -81,7 +95,10 @@ class Updater():
                 res = poller.poll( 1000 * waittime )
                 if len(res) == 0:
                     # Didn't get a message, must have timed out
-                    self.run_update()
+                    if self.pause:
+                        _logger.warning( "Paused, not updating." )
+                    else:
+                        self.run_update()
                 else:
                     # Got a message, parse it
                     conn, address = sock.accept()
@@ -121,6 +138,12 @@ class Updater():
                         if 'updateargs' in msg.keys():
                             self.updateargs = msg['updateargs']
 
+                        if 'hold' in msg.keys():
+                            self.hold = self.parse_bool_arg( msg['hold'] )
+
+                        if 'pause' in msg.keys():
+                            self.pause = self.parse_bool_arg( msg['pause'] )
+                            
                         if ( self.instrument_name is None ) != ( self.updateargs is None ):
                             errmsg = ( f'Either both or neither of instrument and updateargs must be None; '
                                        f'instrument={self.instrument_name}, updateargs={self.updateargs}' )
@@ -146,6 +169,8 @@ class Updater():
                                 conn.send( json.dumps( { 'status': 'updated',
                                                          'instrument': self.instrument_name,
                                                          'updateargs': self.updateargs,
+                                                         'hold': int(self.hold),
+                                                         'pause': int(self.pause),
                                                          'timeout': self.timeout,
                                                          'lastupdate': self.lastupdate,
                                                          'configchangetime': self.configchangetime }
@@ -156,6 +181,8 @@ class Updater():
                                                  'timeout': self.timeout,
                                                  'instrument': self.instrument_name,
                                                  'updateargs': self.updateargs,
+                                                 'hold': int(self.hold),
+                                                 'pause': int(self.pause),
                                                  'lastupdate': self.lastupdate,
                                                  'configchangetime': self.configchangetime } ).encode( 'utf-8' ) )
                     else:
