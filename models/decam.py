@@ -656,6 +656,10 @@ class DECam(Instrument):
            'raw' or 'instcal' : the processing type to get
            from the NOIRLab data archive.
 
+        TODO -- deal with provenances!  Right now, skip_known_exposures
+        will skip exposures of *any* provenance, may or may not be what
+        we want.  See Issue #310.
+
         """
 
         if ( containing_ra is None ) != ( containing_dec is None ):
@@ -752,7 +756,16 @@ class DECam(Instrument):
             files = files[keep].reset_index( drop=True )
 
         if skip_exposures_in_database:
-            raise NotImplementedError( "TODO: implement skip_exposures_in_database" )
+            identifiers = [ pathlib.Path( f ).name for f in files.archive_filename.values ]
+            with SmartSession() as session:
+                exps = session.query( Exposure ).filter( Exposure.origin_identifier.in_( identifiers ) ).all()
+            existing = [ i.origin_identifier for i in exps ]
+            keep = [ i not in existing for i in identifiers ]
+            files = files[keep].reset_index( drop=True )
+
+        if len(files) == 0:
+            SCLogger.info( "DEcam exposure search found no files afters skipping known and databsae exposures" )
+            return None
 
         # If we were downloaded reduced images, we're going to have multiple prod_types
         # for the same image (reason: there are dq mask and weight images in addition

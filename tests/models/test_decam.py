@@ -135,8 +135,7 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
             decam.find_origin_exposures()
 
         # Make sure we can find some reduced exposures without filter/proposals
-        originexposures = decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
-                                                       skip_exposures_in_database=False, proc_type='instcal' )
+        originexposures = decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667, proc_type='instcal' )
         assert len(originexposures._frame.index.levels[0]) == 9
         assert set(originexposures._frame.index.levels[1]) == { 'image', 'wtmap', 'dqmask' }
         assert set(originexposures._frame.filtercode) == { 'g', 'V', 'i', 'r', 'z' }

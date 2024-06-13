@@ -19,6 +19,10 @@
     --warning-color: #c06040;
 }
 
+body { color: var(--main-color);
+       background: var(--background-color);
+     }
+
 .good { color: var(--good-color) }
 .bad { color: var(--bad-color) }
 .warning { color: var(--warning-color) }
@@ -31,8 +35,8 @@
 .link { background: none; border: none; padding: 0;
         color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
-.center { align: center }
-.vcenter { vertical-align: center }
+.center { text-align: center }
+.vcenter { vertical-align: middle }
 
 .tooltipsource { color: var(--link-color);
                  text-decoration: var(--link-decoration);
@@ -66,7 +70,7 @@ div.tabcontentdiv { border: 2px solid var(--mostlyfull-color-border);
 .bold { font-weight: bold }
 
 img { image-rendering: pixelated }
-a { color: var(--link-color); text-decorastion: var(--link-decoration); cursor: pointer; }
+a { color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
 table { border: 2px solid var(--full-color-border); border-spacing: 2px }
 table th { border-bottom: 2px solid var(--full-color-border); font-weight: bold }
@@ -97,4 +101,9 @@ div.footer { color: var(--some-faded-color);
 div.conductorconfig { border: 4px inset var(--main-color);
                       font-size: 75%;
                       padding: 1ex;
-                      margin: 1em; }
+                      margin: 1em;
+                      width: fit-content; }
+
+table.knownexp tr td { padding-left: 1ex;
+                       padding-right: 1ex;
+                       border-left: 1px solid var(--half-faded-color); }

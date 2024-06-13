@@ -31,13 +31,13 @@ scconductor.Context = class
     };
 
     // **********************************************************************
-    
+
     render_page()
     {
         let self = this;
 
         let p, span;
-        
+
         rkWebUtil.wipeDiv( this.authdiv );
         p = rkWebUtil.elemaker( "p", this.authdiv,
                                 { "text": "Logged in as " + this.auth.username
@@ -48,7 +48,7 @@ scconductor.Context = class
                                      "text": "Log Out",
                                      "click": () => { self.auth.logout( () => { window.location.reload(); } ) }
                                    } );
-        
+
         rkWebUtil.wipeDiv( this.maindiv );
         this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv );
 
@@ -56,9 +56,13 @@ scconductor.Context = class
         this.contentdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
 
         rkWebUtil.elemaker( "hr", this.contentdiv );
+
+        this.forceconductorpoll_p = rkWebUtil.elemaker( "p", this.contentdiv );
+        rkWebUtil.button( this.forceconductorpoll_p, "Force Conductor Poll", () => { self.force_conductor_poll(); } );
+
         p = rkWebUtil.elemaker( "p", this.contentdiv );
-        rkWebUtil.button( p, "Update", () => { self.update_known_exposures(); } );
-        p.appendChild( document.createTextNode( " known exposures from taken from " ) );
+        rkWebUtil.button( p, "Refresh", () => { self.update_known_exposures(); } );
+        p.appendChild( document.createTextNode( " known exposures taken from " ) );
         this.knownexp_mintwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
         p.appendChild( document.createTextNode( " to " ) );
         this.knownexp_maxtwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
@@ -70,17 +74,17 @@ scconductor.Context = class
     }
 
     // **********************************************************************
-    
+
     show_config_status( edit=false )
     {
         var self = this;
 
         let p;
-        
+
         rkWebUtil.wipeDiv( this.configdiv )
         rkWebUtil.elemaker( "p", this.configdiv,
                             { "text": "Loading status...",
-                              "classes": [ "warninig", "bold", "italic" ] } )
+                              "classes": [ "warning", "bold", "italic" ] } )
 
         if ( edit )
             this.connector.sendHttpRequest( "/status", {}, (data) => { self.edit_config_status(data) } );
@@ -89,11 +93,11 @@ scconductor.Context = class
     }
 
     // **********************************************************************
-    
+
     actually_show_config_status( data )
     {
         let self = this;
-        
+
         let table, tr, th, td, p;
 
         rkWebUtil.wipeDiv( this.configdiv );
@@ -105,16 +109,21 @@ scconductor.Context = class
         p.appendChild( document.createTextNode( "  " ) );
         rkWebUtil.button( p, "Modify", () => { self.show_config_status( true ) } );
 
+        if ( data.pause )
+            rkWebUtil.elemaker( "p", this.configdiv, { "text": "Automatic updating is paused." } )
+        if ( data.hold )
+            rkWebUtil.elemaker( "p", this.configdiv, { "text": "Newly added known exposures are being held." } )
+
         let instrument = ( data.instrument == null ) ? "" : data.instrument;
         let minmjd = "(None)";
         let maxmjd = "(None)";
         let minexptime = "(None)";
         let projects = "(Any)";
         if ( data.updateargs != null ) {
-            minmjd = data.updateargs.hasOwnProperty( "minmjd" ) ? data.minmjd : minmjd;
-            maxmjd = data.updateargs.hasOwnProperty( "maxmjd" ) ? data.maxmjd : maxmjd;
-            minexptime = data.updateargs.hasOwnProperty( "minexptime" ) ? data.minexptime : minexptime;
-            projects = data.updateargs.hasOwnProperty( "projects" ) ? data.projects.join(",") : projects;
+            minmjd = data.updateargs.hasOwnProperty( "minmjd" ) ? data.updateargs.minmjd : minmjd;
+            maxmjd = data.updateargs.hasOwnProperty( "maxmjd" ) ? data.updateargs.maxmjd : maxmjd;
+            minexptime = data.updateargs.hasOwnProperty( "minexptime" ) ? data.updateargs.minexptime : minexptime;
+            projects = data.updateargs.hasOwnProperty( "projects" ) ? data.updateargs.projects.join(",") : projects;
         }
 
         table = rkWebUtil.elemaker( "table", this.configdiv );
@@ -152,23 +161,39 @@ scconductor.Context = class
         p.appendChild( document.createTextNode( "  " ) );
         rkWebUtil.button( p, "Cancel", () => { self.show_config_status() } );
 
+        p = rkWebUtil.elemaker( "p", this.configdiv );
+        this.status_pause_wid = rkWebUtil.elemaker( "input", p, { "attributes": { "type": "checkbox",
+                                                                                  "id": "status_pause_checkbox" } } );
+        if ( data.pause ) this.status_pause_wid.setAttribute( "checked", "checked" );
+        rkWebUtil.elemaker( "label", p, { "text": "Pause automatic updating",
+                                          "attributes": { "for": "status_pause_checkbox" } } );
+
+        p = rkWebUtil.elemaker( "p", this.configdiv );
+        this.status_hold_wid = rkWebUtil.elemaker( "input", p, { "attributes": { "type": "checkbox",
+                                                                                 "id": "status_hold_checkbox" } } );
+        if ( data.hold ) this.status_hold_wid.setAttribute( "checked", "checked" );
+        rkWebUtil.elemaker( "label", p, { "text": "Hold newly added exposures",
+                                          "attributes": { "for": "status_hold_checkbox" } } );
+
+
         let minmjd = "";
         let maxmjd = "";
         let minexptime = "";
         let projects = "";
         if ( data.updateargs != null ) {
-            minmjd = data.updateargs.hasOwnProperty( "minmjd" ) ? data.minmjd : minmjd;
-            maxmjd = data.updateargs.hasOwnProperty( "maxmjd" ) ? data.maxmjd : maxmjd;
-            minexptime = data.updateargs.hasOwnProperty( "minexptime" ) ? data.minexptime : minexptime;
-            projects = data.updateargs.hasOwnProperty( "projects" ) ? data.projects.join(",") : projects;
+            minmjd = data.updateargs.hasOwnProperty( "minmjd" ) ? data.updateargs.minmjd : minmjd;
+            maxmjd = data.updateargs.hasOwnProperty( "maxmjd" ) ? data.updateargs.maxmjd : maxmjd;
+            minexptime = data.updateargs.hasOwnProperty( "minexptime" ) ? data.updateargs.minexptime : minexptime;
+            projects = data.updateargs.hasOwnProperty( "projects" ) ? data.updateargs.projects.join(",") : projects;
         }
+        let instrument = ( data.instrument == null ) ? "" : data.instrument;
 
         table = rkWebUtil.elemaker( "table", this.configdiv );
         tr = rkWebUtil.elemaker( "tr", table );
         th = rkWebUtil.elemaker( "th", tr, { "text": "Instrument" } );
         td = rkWebUtil.elemaker( "td", tr );
         this.status_instrument_wid = rkWebUtil.elemaker( "input", td,
-                                                         { "attributes": { "value": data.instrument,
+                                                         { "attributes": { "value": instrument,
                                                                            "size": 20 } } );
         tr = rkWebUtil.elemaker( "tr", table );
         th = rkWebUtil.elemaker( "th", tr, { "text": "Start time" } );
@@ -200,11 +225,13 @@ scconductor.Context = class
         td = rkWebUtil.elemaker( "td", tr, { "text": " (comma-separated)" } );
     }
 
-    
+
     // **********************************************************************
 
     update_conductor_config()
     {
+        let self = this;
+
         let instrument = this.status_instrument_wid.value.trim();
         instrument = ( instrument.length == 0 ) ? null : instrument;
 
@@ -214,16 +241,28 @@ scconductor.Context = class
             minmjd = null;
         else if ( minmjd.search( /^ *([0-9]*\.)?[0-9]+ *$/ ) >= 0 )
             minmjd = parseFloat( minmjd );
-        else
-            minmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( minmjd ) );
+        else {
+            try {
+                minmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( minmjd ) );
+            } catch (e) {
+                window.alert( e );
+                return;
+            }
+        }
 
-        let maxmjd = this.status_maxmjdwid.value.trim();
+        let maxmjd = this.status_maxmjd_wid.value.trim();
         if ( maxmjd.length == 0 )
-            maxmjd == null;
+            maxmjd = null;
         else if ( maxmjd.search( /^ *([0-9]*\.)?[0-9]+ *$/ ) >= 0 )
             maxmjd = parseFloat( maxmjd );
-        else
-            maxmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( maxmjd ) );
+        else {
+            try {
+                maxmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( maxmjd ) );
+            } catch (e) {
+                window.alert( e );
+                return;
+            }
+        }
 
         let minexptime = this.status_minexptime_wid.value.trim();
         minexptime = ( minexptime.length == 0 ) ? null : parseFloat( minexptime );
@@ -240,24 +279,52 @@ scconductor.Context = class
         let params = {};
         if ( minmjd != null ) params['minmjd'] = minmjd;
         if ( maxmjd != null ) params['maxmjd'] = maxmjd;
-        if ( minexptime != null ) params['minexptime'] == minexptime;
-        if ( projects != null ) params['projects'] == projects;
+        if ( minexptime != null ) params['minexptime'] = minexptime;
+        if ( projects != null ) params['projects'] = projects;
+        if ( Object.keys(params).length == 0 ) params = null;
 
-        this.connector.sendHttpRequest( "/updateparameters", { 'instrument': instrument, 'updateargs': params },
-                                        () => show_config_status() );
+        this.connector.sendHttpRequest( "/updateparameters", { 'instrument': instrument,
+                                                               'pause': this.status_pause_wid.checked ? 1 : 0,
+                                                               'hold': this.status_hold_wid.checked ? 1 : 0,
+                                                               'updateargs': params },
+                                        () => self.show_config_status() );
     }
-    
+
+    // **********************************************************************
+
+    force_conductor_poll()
+    {
+        let self = this;
+
+        rkWebUtil.wipeDiv( this.forceconductorpoll_p );
+        rkWebUtil.elemaker( "span", this.forceconductorpoll_p,
+                            { "text": "...forcing conductor poll...",
+                              "classes": [ "warning", "bold", "italic" ] } );
+        this.connector.sendHttpRequest( "/forceupdate", {}, () => self.did_force_conductor_poll() );
+    }
+
+    // **********************************************************************
+
+    did_force_conductor_poll()
+    {
+        let self = this;
+        rkWebUtil.wipeDiv( this.forceconductorpoll_p );
+        rkWebUtil.button( this.forceconductorpoll_p, "Force Conductor Poll", () => { self.force_conductor_poll(); } );
+        this.update_known_exposures();
+    }
+
+
     // **********************************************************************
 
     update_known_exposures()
     {
         let self = this;
-        
+
         rkWebUtil.wipeDiv( this.knownexpdiv );
         let p = rkWebUtil.elemaker( "p", this.knownexpdiv,
                                     { "text": "Loading known exposures...",
                                       "classes": [ "warning", "bold", "italic" ] } );
-        url = "/getknownexposures";
+        let url = "/getknownexposures";
         if ( this.knownexp_mintwid.value.trim().length > 0 ) {
             let minmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( this.knownexp_mintwid.value ) );
             url += "/minmjd=" + minmjd.toString();
@@ -266,7 +333,7 @@ scconductor.Context = class
             let maxmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( this.knownexp_maxtwid.value ) );
             url += "/maxmjd=" + maxmjd.toString();
         }
-        this.connector.sendHTTPRequest( url, {}, (data) => { self.show_known_exposure(data); } );
+        this.connector.sendHttpRequest( url, {}, (data) => { self.show_known_exposures(data); } );
     }
 
     // **********************************************************************
@@ -279,6 +346,7 @@ scconductor.Context = class
 
         table = rkWebUtil.elemaker( "table", this.knownexpdiv );
         tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "instrument" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "identifier" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "mjd" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "target" } );
@@ -294,14 +362,15 @@ scconductor.Context = class
 
         for ( let ke of data.knownexposures ) {
             tr = rkWebUtil.elemaker( "tr", table );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.instrument } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.identifier } );
             td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.target } );
             td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.ra ).toFixed( 5 ) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.dec ).toFixed( 5 ) } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.gallat ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.gallat ).toFixed( 3 ) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.filter } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).to_Fixed( 1 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).toFixed( 1 ) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.project } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.cluster_id } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.claim_time } );

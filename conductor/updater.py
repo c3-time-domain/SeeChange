@@ -49,13 +49,15 @@ class Updater():
         if self.instrument is not None:
             self.lastupdate = now()
             _logger.info( "Updating known exposures" )
+            _logger.debug( f"updateargs = {self.updateargs}" )
             exps = self.instrument.find_origin_exposures( **self.updateargs )
-            _logger.info( f"Got {len(exps)} exposures to possibly add" )
-            if len(exps) > 0:
+            if ( exps is not None ) and ( len(exps) > 0 ):
                 exps.add_to_known_exposures( hold=self.hold )
+                _logger.info( f"Got {len(exps)} exposures to possibly add" )
+            else:
+                _logger.info( f"No exposures found." )
         else:
             _logger.warning( "No instrument defined, not updating" )
-        self.lasttimeout = time.perf_counter()
 
 
     def parse_bool_arg( self, arg ):
@@ -90,11 +92,14 @@ class Updater():
         done = False
         while not done:
             try:
+                _logger.debug( f"self.timeout={self.timeout}, time.perf_counter={time.perf_counter()}, "
+                               f"self.lasttimeout={self.lasttimeout}" )
                 waittime = max( self.timeout - ( time.perf_counter() - self.lasttimeout ), 0.1 )
                 _logger.debug( f"Waiting {waittime} sec" )
                 res = poller.poll( 1000 * waittime )
                 if len(res) == 0:
                     # Didn't get a message, must have timed out
+                    self.lasttimeout = time.perf_counter();
                     if self.pause:
                         _logger.warning( "Paused, not updating." )
                     else:
@@ -122,6 +127,8 @@ class Updater():
                         done = True
 
                     elif msg['command'] == 'forceupdate':
+                        # Forced update resets the timeout clock
+                        self.lasttimeout = time.perf_counter()
                         self.run_update()
                         conn.send( json.dumps( { 'status': 'forced update' } ).encode( 'utf-8' ) )
 

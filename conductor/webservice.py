@@ -19,7 +19,7 @@ import psycopg2.extras
 
 from models.base import SmartSession
 from models.instrument import get_instrument_instance
-from models.knownexposure import PipelineWorker
+from models.knownexposure import PipelineWorker, KnownExposure
 from util.config import Config
 
 class BadUpdaterReturnError(Exception):
@@ -296,7 +296,7 @@ class RequestExposure( BaseView ):
 
 class GetKnownExposures( BaseView ):
     def do_the_things( self, argstr=None ):
-        args = sefl.argstr_to_args( argstr, { "minmjd": None, "maxmjd": None } )
+        args = self.argstr_to_args( argstr, { "minmjd": None, "maxmjd": None } )
         args['minmjd'] = float( args['minmjd'] ) if args['minmjd'] is not None else None
         args['maxmjd'] = float( args['maxmjd'] ) if args['maxmjd'] is not None else None
         with SmartSession() as session:

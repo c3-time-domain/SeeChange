@@ -141,7 +141,6 @@ def conductor_config_for_decam_pull( conductor_connector ):
     
     updateargs = { 'minmjd': 60159.15625,
                    'maxmjd': 60159.16667,
-                   'skip_exposures_in_database': False,
                    'proc_type': 'raw' }
     data = conductor_connector.send( 'updateparameters/timeout=120/instrument=DECam/pause=true',
                                      { 'updateargs': updateargs } )
