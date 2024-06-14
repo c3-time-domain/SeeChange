@@ -33,6 +33,17 @@ class ParsSubtractor(Parameters):
             'How to align the reference image to the new image. This will be ingested by ImageAligner. '
         )
 
+        self.reference = self.add_par(
+            'reference',
+            {'minovfrac': 0.85,
+             'must_match_instrument': True,
+             'must_match_filter': True,
+             'must_match_section': False,
+             'must_match_target': False },
+            dict,
+            'Parameters passed to DataStore.get_reference for identifying references'
+        )
+        
         self.inpainting = self.add_par(
             'inpainting',
             {},
@@ -254,7 +265,7 @@ class Subtractor:
                 prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
 
                 # look for a reference that has to do with the current image
-                ref = ds.get_reference(session=session)
+                ref = ds.get_reference(session=session, **self.pars.reference)
                 if ref is None:
                     raise ValueError(
                         f'Cannot find a reference image corresponding to the datastore inputs: {ds.get_inputs()}'

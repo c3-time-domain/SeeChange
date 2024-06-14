@@ -59,7 +59,7 @@ conductor:
   conductor_url: unknown
   username: unknown
   password: unknown
-  
+
 
 # ======================================================================
 # Gaia DR3 server
@@ -117,6 +117,12 @@ subtraction:
   alignment:
     method: swarp
     to_index: new
+  reference:
+    minovfrac: 0.85
+    must_match_instrument: true
+    must_match_filter: true
+    must_match_section: false
+    must_match_target: false
 
 detection:
   subtraction: true

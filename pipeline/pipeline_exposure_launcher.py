@@ -1,7 +1,9 @@
+import re
 import time
 import requests
 import binascii
 import multiprocessing
+import multiprocessing.pool
 import psutil
 import logging
 import argparse
@@ -16,8 +18,17 @@ from util.conductor_connector import ConductorConnector
 from util.logger import SCLogger
 
 from models.base import SmartSession
-from models.known_exposure import KnownExposure
+from models.knownexposure import KnownExposure
 from models.instrument import get_instrument_instance
+
+# Importing this because otherwise when I try to do something completly
+# unrelated to Object or Measurements, sqlalchemy starts objecting about
+# relationships between those two that aren't defined.
+import models.object
+
+# Gotta import the instruments we might use before instrument fills up
+# its cache of known instrument instances
+import models.decam
 
 from pipeline.top_level import Pipeline
 
@@ -27,7 +38,7 @@ class ExposureProcessor:
         """A class that processes all images in a single exposure, potentially using multiprocessing.
 
         This is used internally by ExposureLauncher; normally, you would not use it directly.
-        
+
         Parameters
         ----------
         instrument : str
@@ -56,22 +67,22 @@ class ExposureProcessor:
 
         """
         self.instrument = get_instrument_instance( instrument )
-        self.identfier = identifier
+        self.identifier = identifier
         self.params = params
         self.numprocs = numprocs
         self.onlychips = onlychips
         self.worker_log_level = worker_log_level
-        
+
     def cleanup( self ):
         """Do our best to free memory."""
 
         self.exposure = None   # Praying to the garbage collection gods
-        
+
     def download_and_load_exposure( self ):
         """Download the exposure and load it into the database (and archive)."""
-        
+
         SCLogger.info( f"Downloading exposure {self.identifier}..." )
-        self.exposure = self.instrument.acquire_and_commit_origin_exposure( identifier, params )
+        self.exposure = self.instrument.acquire_and_commit_origin_exposure( self.identifier, self.params )
         SCLogger.info( f"...downloaded." )
         # TODO : this Exposure object is going to be copied into every processor subprocess
         #   *Ideally* no data was loaded, only headers, so the amount of memory used is
@@ -85,7 +96,7 @@ class ExposureProcessor:
         ----------
           chip : str
             The SensorSection identifier
-        
+
         """
         origloglevel = SCLogger.getEffectiveLevel()
         try:
@@ -100,7 +111,7 @@ class ExposureProcessor:
             SCLogger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}..." )
             SCLogger.setLevel( self.worker_log_level )
             pipeline = Pipeline()
-            ds = pipeline.run( self.exposure, chip )
+            ds = pipeline.run( self.exposure, chip, save_intermediate_products=False )
             ds.save_and_commit()
             SCLogger.setLevel( origloglevel )
             SCLogger.info( f"...done processing chip {chip} in process {me.name} PID {me.pid}." )
@@ -121,7 +132,7 @@ class ExposureProcessor:
 
     def __call__( self ):
         """Run all the pipelines for the chips in the exposure."""
-        
+
         chips = self.instrument.get_section_ids()
         if self.onlychips is not None:
             chips = [ c for c in chips if c in self.onlychips ]
@@ -131,7 +142,7 @@ class ExposureProcessor:
             SCLogger.info( f"Creating pool of {self.numprocs} processes to do {len(chips)} chips" )
             with multiprocessing.pool.Pool( self.numprocs, maxtasksperchild=1 ) as pool:
                 for chip in chips:
-                    pooly.apply_async( self.processchip, ( chip, ), {}, self.collate )
+                    pool.apply_async( self.processchip, ( chip, ), {}, self.collate )
 
                 SCLogger.info( f"Submitted all worker jobs, waiting for them to finish." )
                 pool.close()
@@ -149,7 +160,7 @@ class ExposureProcessor:
                        f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
         SCLogger.info( f"Succeeded (maybe): {succeeded}" )
         SCLogger.info( f"Failed (definitely): {failed}" )
-        
+
 
 class ExposureLauncher:
     """A class that polls the conductor asking for things to do, launching a pipeline when one is found.
@@ -157,7 +168,7 @@ class ExposureLauncher:
     Instantiate it with cluster_id, node_id, and numprocs, and then call the instance as a function.
 
     """
-    
+
     def __init__( self, cluster_id, node_id, numprocs=None, verify=True, worker_log_level=logging.WARNING ):
         """Make an ExposureLauncher.
 
@@ -201,15 +212,24 @@ class ExposureLauncher:
         self.node_id = node_id
         self.conductor = ConductorConnector( verify=verify )
 
-    def reigster_worker( self, replace=False ):
-        url = f'registerworker/cluster_id={self.cluster_id}/worker_id={self.node_id}/nexps=1/replace={int(replace)}'
+    def register_worker( self, replace=False ):
+        url = f'registerworker/cluster_id={self.cluster_id}/node_id={self.node_id}/nexps=1/replace={int(replace)}'
         data = self.conductor.send( url )
         self.pipelineworker_id = data['id']
 
+    def unregister_worker( self, replace=False ):
+        url = f'unregisterworker/pipelineworker_id={self.pipelineworker_id}'
+        try:
+            data = self.conductor.send( url )
+            if data['status'] != 'worker deleted':
+                SClogger.error( "Surprising response from conductor unregistering worker: {data}" )
+        except Exception as e:
+            SCLogger.exception( "Exception unregistering worker, continuing" )
+
     def send_heartbeat( self ):
-        url = f'workerheartbeat/id={self.pipelineworker_id}'
+        url = f'workerheartbeat/{self.pipelineworker_id}'
         self.conductor.send( url )
-        
+
     def __call__( self ):
         done = False
         req = None
@@ -229,24 +249,30 @@ class ExposureLauncher:
                 with SmartSession() as session:
                     knownexp = ( session.query( KnownExposure )
                                  .filter( KnownExposure.id==data['knownexposure_id'] ) ).all()
-                    if len( knowexp ) == 0:
+                    if len( knownexp ) == 0:
                         raise RuntimeError( f"The conductor gave me KnownExposure id {data['knownexposure_id']}, "
                                             f"but I can't find it in the knownexposures table" )
                     if len( knownexp ) > 1:
                         raise RuntimeError( f"More than one KnownExposure with id {data['knownexposure_id']}; "
                                             f"you should never see this error." )
-                    knownexp = knownexp[0]
+                knownexp = knownexp[0]
 
-                    exposure_processor = ExposureProcessor( knownexp.instrument,
-                                                            knownexp.identifier,
-                                                            knownexp.params,
-                                                            self.numprocs )
-                    exposure_processor.download_and_load_exposure()
-                   
-                    SCLogger.info( f'Downloading and loading exposure {knownexp.identifier}...' )
-                    exposure = self.download_and_load( knownexp )
-                    SCLogger.info( f'...downloaded.  Launching process to handle all chips.' )
-                    self.process_exposure( exposure )
+                exposure_processor = ExposureProcessor( knownexp.instrument,
+                                                        knownexp.identifier,
+                                                        knownexp.params,
+                                                        self.numprocs )
+                SCLogger.info( f'Downloading and loading exposure {knownexp.identifier}...' )
+                exposure_processor.download_and_load_exposure()
+                SCLogger.info( f'...downloaded.  Launching process to handle all chips.' )
+
+                with SmartSession() as session:
+                    knownexp = ( session.query( KnownExposure )
+                                 .filter( KnownExposure.id==data['knownexposure_id'] ) ).first()
+                    knownexp.exposure_id = exposure_processor.exposure.id
+                    session.commit()
+
+                exposure_processor()
+                SCLogger.info( f"Done processing exposure {exposure_processor.exposure.origin_identifier}" )
             except Exception as ex:
                 SCLogger.exception( "Exception in ExposureLauncher loop" )
                 SCLogger.info( f"Sleeping {self.sleeptime} s and continuing" )
@@ -274,7 +300,7 @@ pipelines to process each of the chips in the exposure.
     parser.add_argument( "-c", "--cluster-id", required=True, help="Name of the cluster where this is running" )
     parser.add_argument( "-n", "--node-id", default=None,
                          help="Name of the node (if applicable) where this is running" )
-    parser.add_argument( "--numprocs", default=None,
+    parser.add_argument( "--numprocs", default=None, type=int,
                          help="Number of worker processes to run at once.  (Default: # of CPUS - 1.)" )
     parser.add_argument( "--noverify", default=False, action='store_true',
                          help="Don't verify the conductor's SSL certificate" )
@@ -286,17 +312,20 @@ pipelines to process each of the chips in the exposure.
                   'warning': logging.WARNING,
                   'info': logging.INFO,
                   'debug': logging.DEBUG }
-    if args.log_level.lower() not in loglookup.keys:
+    if args.log_level.lower() not in loglookup.keys():
         raise ValueError( f"Unknown log level {args.log_level}" )
     SCLogger.setLevel( loglookup[ args.log_level.lower() ] )
-    if args.worker_log_level.lower() not in loglookup.keys:
+    if args.worker_log_level.lower() not in loglookup.keys():
         raise ValueError( f"Unknown worker log level {args.worker_log_level}" )
-    worker_log_level = loglookup[ args.worker_log_level ]
+    worker_log_level = loglookup[ args.worker_log_level.lower() ]
 
     elaunch = ExposureLauncher( args.cluster_id, args.node_id, numprocs=args.numprocs,
                                 verify=not args.noverify, worker_log_level=worker_log_level )
     elaunch.register_worker()
-    elaunch()
+    try:
+        elaunch()
+    finally:
+        elaunch.unregister_worker()
 
 # ======================================================================
 

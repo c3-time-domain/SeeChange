@@ -113,8 +113,8 @@ replacing the `...` with the database password, archive token, and conductor pas
 
 ### Get the podman image
 
-* Build the application docker image and push it to `registry.nersc.gov/m4616/raknop/seechange:rknop-dev`
-* Get it on nersc with `podman-hpc pull registry.nersc.gov/m4616/raknop/seechange:rknop-dev`
+* Build the application docker image and push it to `registry.nersc.gov/m4616/seechange:rknop-dev`
+* Get it on nersc with `podman-hpc pull registry.nersc.gov/m4616/seechange:rknop-dev`
 * Verify it's there with `podman-hpc images` ; make sure in particular that there's a readonly image.
 
 ### Running a shell
@@ -125,7 +125,7 @@ podman-hpc run -it \
   --mount type=bind,source=/pscratch/sd/r/raknop/ls4-rknop-dev/data,target=/data \
   --mount type=bind,source=/global/homes/r/raknop/secrets,target=/secrets \
   --env "SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev.yaml" \
-  registry.nersc.gov/m4616/raknop/seechange:rknop-dev \
+  registry.nersc.gov/m4616/seechange:rknop-dev \
   /bin/bash
 ```
 
@@ -171,3 +171,5 @@ where:
 * `<filt>` is one of `g`, `r`, or `i`
 * `<chip>` is a two digit number between 01 and 62
 * `<sec>` is the sensor section that goes with the chip; see https://noirlab.edu/science/images/decamorientation-0 (chip numbers are in green, sensor sections are in black)
+
+There is a script `import_cosmos1.py` that runs all of this in parallel.  It's poorly named, because it can work on any of the reference fields I have defined for DECAT (COSMOS 1-3 and ELAIS E1-2).

@@ -208,14 +208,22 @@ class Pipeline:
 
         return ds, session
 
-    def run(self, *args, **kwargs):
-        """
-        Run the entire pipeline on a specific CCD in a specific exposure.
+    def run(self, *args, save_intermediate_products=False, **kwargs):
+        """Run the entire pipeline on a specific CCD in a specific exposure.
+
         Will open a database session and grab any existing data,
         and calculate and commit any new data that did not exist.
 
         Parameters
         ----------
+        save_intermediate_products : bool, default False
+          If false, products (at least most of them? behavior unclear in
+          practice) won't get saved, and it's up to the calling function
+          to call save_and_commit() on the returned data store.  If this
+          is True, then ds.save_and_commit() will be called after each
+          step, useful for debugging.  CURRENTLY BROKEN : raises
+          sqlalchemy lazy load errors.
+
         Inputs should include the exposure and section_id, or a datastore
         with these things already loaded. If a session is passed in as
         one of the arguments, it will be used as a single session for
@@ -226,6 +234,7 @@ class Pipeline:
         -------
         ds : DataStore
             The DataStore object that includes all the data products.
+
         """
         ds, session = self.setup_datastore(*args, **kwargs)
         if ds.image is not None:
@@ -246,42 +255,50 @@ class Pipeline:
             # TODO: save the results as Image objects to DB and disk? Or save at the end?
             SCLogger.info(f"preprocessor")
             ds = self.preprocessor.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('preprocessing', session)
             SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
 
             # extract sources and make a SourceList and PSF from the image
             SCLogger.info(f"extractor for image id {ds.image.id}")
             ds = self.extractor.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('extraction', session)
 
             # find astrometric solution, save WCS into Image object and FITS headers
             SCLogger.info(f"astro_cal for image id {ds.image.id}")
             ds = self.astro_cal.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('astro_cal', session)
 
             # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
             SCLogger.info(f"photo_cal for image id {ds.image.id}")
             ds = self.photo_cal.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('photo_cal', session)
 
             # fetch reference images and subtract them, save SubtractedImage objects to DB and disk
             SCLogger.info(f"subtractor for image id {ds.image.id}")
             ds = self.subtractor.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('subtraction', session)
 
             # find sources, generate a source list for detections
             SCLogger.info(f"detector for image id {ds.image.id}")
             ds = self.detector.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('detection', session)
 
             # make cutouts of all the sources in the "detections" source list
             SCLogger.info(f"cutter for image id {ds.image.id}")
             ds = self.cutter.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('cutting', session)
 
             # extract photometry, analytical cuts, and deep learning models on the Cutouts:
             SCLogger.info(f"measurer for image id {ds.image.id}")
             ds = self.measurer.run(ds, session)
+            if save_intermediate_products: ds.save_and_commit()
             ds.update_report('measuring', session)
 
             ds.finalize_report(session)

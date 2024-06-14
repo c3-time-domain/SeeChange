@@ -535,7 +535,7 @@ class DECam(Instrument):
                         clobber=True, md5sum=params['md5sum'], sizelog='GiB', logger=SCLogger.get() )
         return outfile
 
-    def _commit_exposure( self, origin_identifier, expfile, obs_type='Sci' ):
+    def _commit_exposure( self, origin_identifier, expfile, obs_type='Sci', proc_type='raw', session=None ):
         """Add to the Exposures table in the database an exposure downloaded from NOIRLab.
 
         Used internally by acquire_and_commit_origin_exposure and
@@ -551,6 +551,9 @@ class DECam(Instrument):
 
         obs_type : str, default 'Sci'
           The obs_type parameter (generally parsed from the exposure header, or pulled from the NOIRLab archive)
+
+        session : Session
+          Optional database session
 
         Returns
         -------
@@ -575,9 +578,8 @@ class DECam(Instrument):
         with SmartSession(session) as dbsess:
             provenance = Provenance(
                 process='download',
-                parameters={ 'proc_type': self.proc_type, 'Instrument': 'DECam' },
-                code_version=Provenance.get_code_version(session=dbsess),
-                is_testing=True,
+                parameters={ 'proc_type': proc_type, 'Instrument': 'DECam' },
+                code_version=Provenance.get_code_version(session=dbsess)
             )
             provenance = provenance.merge_concurrent( dbsess, commit=True )
 
@@ -625,7 +627,7 @@ class DECam(Instrument):
 
         """
         downloaded = self.acquire_origin_exposure( identifier, params )
-        return self._commit_exposure( identifier, downloaded, params['obs_type'] )
+        return self._commit_exposure( identifier, downloaded, params['obs_type'], params['proc_type'] )
 
 
     def find_origin_exposures( self,
@@ -939,7 +941,8 @@ class DECamOriginExposures:
             expfile = expfiledict[ 'exposure' ]
             origin_identifier = pathlib.Path( self._frame.loc[dex,'image'].archive_filename ).name
             obs_type = self._frame.loc[dex,'image'].obs_type
-            expobj = self.decam._commit_exposure( origin_identifier, expfile, obs_type )
+            proc_type = self._frame.loc[dex,'image'].proc_type
+            expobj = self.decam._commit_exposure( origin_identifier, expfile, obs_type, proc_type, session=session )
             exposures.append( expobj )
 
         return exposures
