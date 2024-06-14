@@ -36,7 +36,7 @@ scconductor.Context = class
     {
         let self = this;
 
-        let p, span;
+        let p, span, hbox;
 
         rkWebUtil.wipeDiv( this.authdiv );
         p = rkWebUtil.elemaker( "p", this.authdiv,
@@ -52,7 +52,11 @@ scconductor.Context = class
         rkWebUtil.wipeDiv( this.maindiv );
         this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv );
 
-        this.configdiv = rkWebUtil.elemaker( "div", this.frontpagediv, { "classes": [ "conductorconfig" ] } );
+        hbox = rkWebUtil.elemaker( "div", this.frontpagediv, { "classes": [ "hbox" ] } );
+
+        this.configdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorconfig" ] } );
+        this.workersdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorworkers" ] } );
+
         this.contentdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
 
         rkWebUtil.elemaker( "hr", this.contentdiv );
@@ -71,6 +75,7 @@ scconductor.Context = class
         this.knownexpdiv = rkWebUtil.elemaker( "div", this.contentdiv );
 
         this.show_config_status();
+        this.update_workers_div();
     }
 
     // **********************************************************************
@@ -273,7 +278,7 @@ scconductor.Context = class
         else {
             let tmp = projects.split( "," );
             projects = [];
-            for ( let project of tmp ) projects.push( tmp.trim() );
+            for ( let project of tmp ) projects.push( project.trim() );
         }
 
         let params = {};
@@ -316,6 +321,54 @@ scconductor.Context = class
 
     // **********************************************************************
 
+    update_workers_div()
+    {
+        let self = this;
+        rkWebUtil.wipeDiv( this.workersdiv );
+        rkWebUtil.elemaker( "h3", this.workersdiv, { "text": "Known Pipeline Workers" } );
+        this.connector.sendHttpRequest( "/getworkers", {}, (data) => { self.show_workers(data); } );
+    }
+
+    // **********************************************************************
+
+    show_workers( data )
+    {
+        let self = this;
+        let table, tr, th, td, p;
+
+        p = rkWebUtil.elemaker( "p", this.workersdiv );
+        rkWebUtil.button( p, "Refresh", () => { self.update_workers_div(); } );
+
+        table = rkWebUtil.elemaker( "table", this.workersdiv, { "classes": [ "borderedcells" ] } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "id" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "cluster_id" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "node_id" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "nexps" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "last heartbeat" } );
+
+        let grey = 0;
+        let coln = 3;
+        for ( let worker of data['workers'] ) {
+            if ( coln == 0 ) {
+                grey = 1 - grey;
+                coln = 3;
+            }
+            coln -= 1;
+            tr = rkWebUtil.elemaker( "tr", table );
+            if ( grey ) tr.classList.add( "greybg" );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.cluster_id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.node_id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.nexps } );
+            td = rkWebUtil.elemaker( "td", tr,
+                                     { "text": rkWebUtil.dateUTCFormat(
+                                         rkWebUtil.parseDateAsUTC( worker.lastheartbeat ) ) } );
+        }
+    }
+
+    // **********************************************************************
+
     update_known_exposures()
     {
         let self = this;
@@ -340,12 +393,46 @@ scconductor.Context = class
 
     show_known_exposures( data )
     {
-        let table, tr, td, th;
+        let self = this;
+
+        let table, tr, td, th, p, button;
+
+        this.known_exposures = [];
+        this.known_exposure_checkboxes = {};
+        this.known_exposure_rows = {};
+        this.known_exposure_hold_tds = {};
+        // this.known_exposure_checkbox_manual_state = {};
 
         rkWebUtil.wipeDiv( this.knownexpdiv );
 
-        table = rkWebUtil.elemaker( "table", this.knownexpdiv );
+        p = rkWebUtil.elemaker( "p", this.knownexpdiv );
+        this.select_all_checkbox = rkWebUtil.elemaker( "input", p,
+                                                       { "attributes": {
+                                                           "type": "checkbox",
+                                                           "id": "knownexp-select-all-checkbox" } } );
+        rkWebUtil.elemaker( "label", p, { "text": "Select all",
+                                          "attributes": { "for": "knownexp-select-all-checkbox" } } );
+        this.select_all_checkbox.addEventListener(
+            "change",
+            () => {
+                for ( let ke of self.known_exposures ) {
+                    self.known_exposure_checkboxes[ ke.id ].checked = self.select_all_checkbox.checked;
+                }
+            } );
+        p.appendChild( document.createTextNode( "      Apply to selected: " ) );
+        button = rkWebUtil.button( p, "Delete", () => { window.alert( "Not implemented." ) } );
+        button.classList.add( "hmargin" );
+        button = rkWebUtil.button( p, "Hold", () => { self.hold_release_exposures( true ); } );
+        button.classList.add( "hmargin" );
+        button = rkWebUtil.button( p, "Release", () => { self.hold_release_exposures( false ); } );
+        button.classList.add( "hmargin" );
+        button = rkWebUtil.button( p, "Clear Cluster Claim", () => { window.alert( "Not implemented." ) } );
+        button.classList.add( "hmargin" );
+
+        table = rkWebUtil.elemaker( "table", this.knownexpdiv, { "classes": [ "borderedcells" ] } );
         tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "held?" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "instrument" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "identifier" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "mjd" } );
@@ -360,8 +447,34 @@ scconductor.Context = class
         th = rkWebUtil.elemaker( "th", tr, { "text": "claim_time" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "exposure" } );
 
+        let grey = 0;
+        let coln = 3;
         for ( let ke of data.knownexposures ) {
+            if ( coln == 0 ) {
+                grey = 1 - grey;
+                coln = 3;
+            }
+            coln -= 1;
+
+            this.known_exposures.push( ke );
+
             tr = rkWebUtil.elemaker( "tr", table );
+            if ( grey ) tr.classList.add( "greybg" );
+            if ( ke.hold ) tr.classList.add( "heldexposure" );
+            this.known_exposure_rows[ ke.id ] = tr;
+
+            td = rkWebUtil.elemaker( "td", tr );
+            this.known_exposure_checkboxes[ ke.id ] =
+                rkWebUtil.elemaker( "input", td, { "attributes": { "type": "checkbox" } } );
+            // this.known_exposure_checkbox_manual_state[ ke.id ] = 0;
+            // this.known_exposure_checkboxes[ ke.id ].addEventListener(
+            //     "click", () => {
+            //         self.known_exposure_checkbox_manual_state[ ke.id ] =
+            //             ( self.known_exposure_checkboxes[ ke.id ].checked ? 1 : 0 );
+            //         console.log( "Setting " + ke.id + " to " + self.known_exposures_checkboxes[ ke.id ].checked );
+            //     } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.hold ? "***" : "" } );
+            this.known_exposure_hold_tds[ ke.id ] = td;
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.instrument } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.identifier } );
             td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
@@ -373,10 +486,53 @@ scconductor.Context = class
             td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).toFixed( 1 ) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.project } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.cluster_id } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": ke.claim_time } );
+            td = rkWebUtil.elemaker( "td", tr,
+                                     { "text": ( ke.claim_time == null ) ?
+                                       "" : rkWebUtil.dateUTCFormat(rkWebUtil.parseDateAsUTC(ke.claim_time)) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.exposure_id } );
         }
     }
+
+    // **********************************************************************
+
+    hold_release_exposures( hold )
+    {
+        let self = this;
+
+        let tohold = [];
+        for ( let ke of this.known_exposures ) {
+            if ( this.known_exposure_checkboxes[ ke.id ].checked )
+                tohold.push( ke.id );
+        }
+
+        if ( tohold.length > 0 ) {
+            let url = hold ? "/holdexposures" : "/releaseexposures"
+            this.connector.sendHttpRequest( url, { 'knownexposure_ids': tohold },
+                                            (data) => { self.process_hold_release_exposures(data, hold); } );
+        }
+    }
+
+    // **********************************************************************
+
+    process_hold_release_exposures( data, hold )
+    {
+        for ( let keid of data[ hold ? "held" : "released" ] ) {
+            if ( this.known_exposure_rows.hasOwnProperty( keid ) ) {
+                if ( hold ) {
+                    this.known_exposure_rows[ keid ].classList.add( "heldexposure" );
+                    this.known_exposure_hold_tds[ keid ].innerHTML = "***";
+                } else {
+                    this.known_exposure_rows[ keid ].classList.remove( "heldexposure" );
+                    this.known_exposure_hold_tds[ keid ].innerHTML = "";
+                }
+            }
+        }
+        if ( data['missing'].length != 0 )
+            console.log( "WARNING : tried to hold/release the following unknown knownexposures: " + data['missing'] );
+    }
+
+
+
 }
 
 // **********************************************************************

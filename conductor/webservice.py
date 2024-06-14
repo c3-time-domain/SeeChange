@@ -20,6 +20,13 @@ import psycopg2.extras
 from models.base import SmartSession
 from models.instrument import get_instrument_instance
 from models.knownexposure import PipelineWorker, KnownExposure
+
+# Need to make sure to load any instrument we might conceivably use, so
+#   that models.instrument's cache of instrument classes has them
+import models.decam
+# Have to import this because otherwise the Exposure foreign key in KnownExposure doesn't work
+import models.exposure
+
 from util.config import Config
 
 class BadUpdaterReturnError(Exception):
@@ -246,6 +253,16 @@ class WorkerHeartbeat( BaseView ):
             return { 'status': 'updated' }
             
 # ======================================================================
+# /getworkers
+
+class GetWorkers( BaseView ):
+    def do_the_things( self ):
+        with SmartSession() as session:
+            workers = session.query( PipelineWorker ).all()
+            return { 'status': 'ok',
+                     'workers': [ w.to_dict() for w in workers ] }
+
+# ======================================================================
 # /requestexposure
 
 class RequestExposure( BaseView ):
@@ -275,7 +292,9 @@ class RequestExposure( BaseView ):
                 rows = cursor.fetchall()
                 if len(rows) > 0:
                     knownexp_id = rows[0]['id']
-                    cursor.execute( "UPDATE knownexposures SET cluster_id=%(cluster_id)s WHERE id=%(id)s",
+                    cursor.execute( "UPDATE knownexposures "
+                                    "SET cluster_id=%(cluster_id)s, claim_time=NOW() "
+                                    "WHERE id=%(id)s",
                                     { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
                     dbcon.commit()
             except Exception as ex:
@@ -307,9 +326,45 @@ class GetKnownExposures( BaseView ):
                 q = q.filter( KnownExposure.mjd <= args['maxmjd'] )
             q = q.order_by( KnownExposure.instrument, KnownExposure.mjd )
             kes = q.all()
-        return { 'status': 'ok',
-                 'knownexposures': [ ke.to_dict() for ke in kes ] }
-        
+        retval= { 'status': 'ok',
+                  'knownexposures': [ ke.to_dict() for ke in kes ] }
+        for ke in retval['knownexposures']:
+            ke['filter'] = get_instrument_instance( ke['instrument'] ).get_short_filter_name( ke['filter'] )
+        return retval
+
+# ======================================================================
+
+class HoldReleaseExposures( BaseView ):
+    def hold_or_release( self, keids, hold ):
+        if len( keids ) == 0:
+            return { 'status': 'ok', 'held': [], 'missing': [] }
+        held = []
+        with SmartSession() as session:
+            q = session.query( KnownExposure ).filter( KnownExposure.id.in_( keids ) )
+            kes = { i.id : i for i in q.all() }
+            notfound = []
+            for keid in keids:
+                if keid not in kes.keys():
+                    notfound.append( keid )
+                else:
+                    kes[keid].hold = hold
+                    held.append( keid )
+            session.commit()
+        return { 'status': 'ok', 'held': held, 'missing': notfound }
+
+class HoldExposures( HoldReleaseExposures ):
+    def do_the_things( self ):
+        args = self.argstr_to_args( None, { 'knownexposure_ids': [] } )
+        return self.hold_or_release( args['knownexposure_ids'], True )
+
+class ReleaseExposures( HoldReleaseExposures ):
+    def do_the_things( self ):
+        args = self.argstr_to_args( None, { 'knownexposure_ids': [] } )
+        retval = self.hold_or_release( args['knownexposure_ids'], False )
+        retval['released'] = retval['held']
+        del retval['held']
+        return retval
+
 
 # ======================================================================
 # Create and configure the web app
@@ -357,8 +412,11 @@ urls = {
     "/registerworker/<path:argstr>": RegisterWorker,
     "/workerheartbeat/<int:pipelineworker_id>": WorkerHeartbeat,
     "/unregisterworker/<int:pipelineworker_id>": UnregisterWorker,
+    "/getworkers": GetWorkers,
     "/getknownexposures": GetKnownExposures,
     "/getknownexposures/<path:argstr>": GetKnownExposures,
+    "/holdexposures": HoldExposures,
+    "/releaseexposures": ReleaseExposures,
 }
 
 usedurls = {}

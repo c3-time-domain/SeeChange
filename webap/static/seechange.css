@@ -5,6 +5,7 @@
     --background-color: white;
     --half-faded-color: #888888;
     --some-faded-color: #666666;
+    --lots-faded-color: #cccccc;
     --most-faded-color: #eeeeee;
     --highlight-color: #993333;
     --full-color-border: black;
@@ -35,6 +36,9 @@ body { color: var(--main-color);
 .link { background: none; border: none; padding: 0;
         color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
+.padhalfex { padding: 0.5ex }
+.hmargin { margin-left: 0.5ex; margin-right: 0.5ex }
+
 .center { text-align: center }
 .vcenter { vertical-align: middle }
 
@@ -49,6 +53,10 @@ body { color: var(--main-color);
                               position: absolute;
                             }
 .tooltipsource:hover .tooltiptext { visibility: visible; }
+
+img { image-rendering: pixelated }
+a { color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
+
 
 
 .tabunsel { background: var(--most-faded-color);
@@ -65,12 +73,6 @@ div.tabcontentdiv { border: 2px solid var(--mostlyfull-color-border);
                     padding: 0.5ex;
                   }
 
-.padhalfex { padding: 0.5ex }
-
-.bold { font-weight: bold }
-
-img { image-rendering: pixelated }
-a { color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
 table { border: 2px solid var(--full-color-border); border-spacing: 2px }
 table th { border-bottom: 2px solid var(--full-color-border); font-weight: bold }
@@ -79,7 +81,14 @@ table td { border-bottom: 2px solid var(--half-faded-color);
            padding: 2px; }
 table th.borderleft { border-left: 2px solid var(--half-faded-color); }
 
+table.borderedcells tr td { padding-left: 1ex;
+                            padding-right: 1ex;
+                            border-left: 1px solid var(--half-faded-color); }
+
+tr.greybg { background: var(--lots-faded-color); }
+
 table.exposurelist td { border: 2px solid var(--half-faded-color); }
+tr.heldexposure { font-style: italic; color: var(--some-faded-color); }
 
 div.hbox { display: flex;
            flex-direction: row;
@@ -104,6 +113,9 @@ div.conductorconfig { border: 4px inset var(--main-color);
                       margin: 1em;
                       width: fit-content; }
 
-table.knownexp tr td { padding-left: 1ex;
-                       padding-right: 1ex;
-                       border-left: 1px solid var(--half-faded-color); }
+div.conductorworkers { border: 4px inset var(--main-color);
+                       font-size: 75%;
+                       padding: 1ex;
+                       margin: 1em;
+                       width: fit-content; }
+
