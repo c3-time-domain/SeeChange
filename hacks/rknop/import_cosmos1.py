@@ -15,6 +15,9 @@ from models.reference import Reference
 from models.instrument import get_instrument_instance
 from models.decam import DECam
 
+# Needed because of sqlalchemy references and imports breaking things
+import models.object
+
 from import_decam_reference import import_decam_reference
 
 class Importer:

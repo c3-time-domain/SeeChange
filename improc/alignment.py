@@ -454,9 +454,10 @@ class ImageAligner:
             outfl.unlink( missing_ok=True )
             outimhead.unlink( missing_ok=True )
             outflhead.unlink( missing_ok=True )
-            for f in swarp_vmem_dir.iterdir():
-                f.unlink()
-            swarp_vmem_dir.rmdir()
+            if swarp_vmem_dir.is_dir():
+                for f in swarp_vmem_dir.iterdir():
+                    f.unlink()
+                swarp_vmem_dir.rmdir()
 
     def run( self, source_image, target_image ):
         """Warp source image so that it is aligned with target image.

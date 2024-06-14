@@ -39,4 +39,5 @@ astro_cal:
 
 subtraction:
   method: zogy
-
+  reference:
+    must_match_section: true
