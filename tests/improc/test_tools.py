@@ -1,6 +1,7 @@
 from astropy.io import fits
 from improc.tools import strip_wcs_keywords
 
+
 def test_strip_wcs_keywords():
     hdr = fits.Header()
 

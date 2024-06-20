@@ -635,7 +635,6 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self.num_sources = len( self.data )
         super().save(fullname, **kwargs)
 
-
     def free( self, ):
         """Free loaded source list memory.
 
@@ -646,7 +645,6 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
         self._data = None
         self._info = None
-
 
     @staticmethod
     def _convert_from_sextractor_to_numpy( arr, copy=False ):
@@ -751,25 +749,52 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with SmartSession(session) as session:
             return session.scalars(sa.select(Image).where(Image.id == self.image_id)).all()
 
-    def get_downstreams(self, session=None):
-        """Get all the data products (WCSs and ZPs) that are made using this source list. """
+    def get_downstreams(self, session=None, siblings=False):
+        """Get all the data products that are made using this source list.
+
+        If siblings=True then also include the PSFs, WCSes, ZPs and background objects
+        that were created at the same time as this SourceList.
+        """
+        from models.psf import PSF
         from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
         from models.cutouts import Cutouts
-        from models.psf import PSF
         from models.provenance import Provenance
 
         with SmartSession(session) as session:
-            wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
-            zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
-            cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
-            subs = session.scalars(sa.select(Image)
-                                   .where(Image.provenance
-                                          .has(Provenance.upstreams
-                                               .any(Provenance.id == self.provenance.id)))).all()
-             
-        return wcs + zps + cutouts + subs
+            subs = session.scalars(
+                sa.select(Image).where(
+                    Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
+                    Image.upstream_images.any(Image.id == self.image_id),
+                )
+            ).all()
+            output = subs
 
+            if self.is_sub:
+                cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
+                output += cutouts
+            elif siblings:  # for "detections" we don't have siblings
+                psfs = session.scalars(
+                    sa.select(PSF).where(PSF.image_id == self.image_id, PSF.provenance_id == self.provenance_id)
+                ).all()
+                if len(psfs) != 1:
+                    raise ValueError(f"Expected exactly one PSF for SourceList {self.id}, but found {len(psfs)}")
+
+                # TODO: add background object
+
+                wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
+                if len(wcs) != 1:
+                    raise ValueError(
+                        f"Expected exactly one WorldCoordinates for SourceList {self.id}, but found {len(wcs)}"
+                    )
+                zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
+                if len(zps) != 1:
+                    raise ValueError(
+                        f"Expected exactly one ZeroPoint for SourceList {self.id}, but found {len(zps)}"
+                    )
+                output += psfs + wcs + zps
+
+        return output
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.

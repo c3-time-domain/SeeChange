@@ -248,7 +248,7 @@ def test_propagate_badness(decam_datastore):
         # find the index of the cutout that corresponds to the measurement
         idx = [i for i, c in enumerate(ds.cutouts) if c.id == ds.measurements[0].cutouts_id][0]
         ds.cutouts[idx].badness = 'cosmic ray'
-        ds.cutouts[idx].update_downstream_badness(session)
+        ds.cutouts[idx].update_downstream_badness(session=session)
         m = session.merge(ds.measurements[0])
 
         assert m.badness == 'cosmic ray'  # note that this does not change disqualifier_scores!

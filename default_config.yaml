@@ -91,26 +91,27 @@ catalog_gaiadr3:
 pipeline: {}
 
 preprocessing:
-  use_sky_subtraction: False
+  steps_required: [ 'overscan', 'linearity', 'flat', 'fringe' ]
 
 extraction:
-  measure_psf: true
-  threshold: 3.0
-  method: sextractor
+  sources:
+    measure_psf: true
+    threshold: 3.0
+    method: sextractor
 
-astro_cal:
-  cross_match_catalog: gaia_dr3
-  solution_method: scamp
-  max_catalog_mag: [20.0]
-  mag_range_catalog: 4.0
-  min_catalog_stars: 50
-  max_sources_to_use: [2000, 1000, 500, 200]
+  wcs:
+    cross_match_catalog: gaia_dr3
+    solution_method: scamp
+    max_catalog_mag: [20.0]
+    mag_range_catalog: 4.0
+    min_catalog_stars: 50
+    max_sources_to_use: [2000, 1000, 500, 200]
 
-photo_cal:
-  cross_match_catalog: gaia_dr3
-  max_catalog_mag: [20.0]
-  mag_range_catalog: 4.0
-  min_catalog_stars: 50
+  zp:
+    cross_match_catalog: gaia_dr3
+    max_catalog_mag: [20.0]
+    mag_range_catalog: 4.0
+    min_catalog_stars: 50
 
 subtraction:
   method: zogy
@@ -188,22 +189,23 @@ coaddition:
       ignore_flags: 0
   # The following are used to override the regular "extraction" parameters
   extraction:
-    measure_psf: true
-    threshold: 3.0
-    method: sextractor
-    # The following are used to override the regular "astro_cal" parameters
-  astro_cal:
-    cross_match_catalog: gaia_dr3
-    solution_method: scamp
-    max_catalog_mag: [22.0]
-    mag_range_catalog: 6.0
-    min_catalog_stars: 50
-    # The following are used to override the regular "photo_cal" parameters
-  photo_cal:
-    cross_match_catalog: gaia_dr3
-    max_catalog_mag: [22.0]
-    mag_range_catalog: 6.0
-    min_catalog_stars: 50
+    sources:
+      measure_psf: true
+      threshold: 3.0
+      method: sextractor
+    # The following are used to override the regular astrometric calibration parameters
+    wcs:
+      cross_match_catalog: gaia_dr3
+      solution_method: scamp
+      max_catalog_mag: [22.0]
+      mag_range_catalog: 6.0
+      min_catalog_stars: 50
+    # The following are used to override the regular photometric calibration parameters
+    zp:
+      cross_match_catalog: gaia_dr3
+      max_catalog_mag: [22.0]
+      mag_range_catalog: 6.0
+      min_catalog_stars: 50
 
 
 # DECam

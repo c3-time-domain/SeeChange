@@ -26,7 +26,9 @@ class PTF(Instrument):
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
         Instrument.__init__(self, **kwargs)
 
-        self.preprocessing_steps = []
+        # we are using preprocessed data as the exposures, so everything is already done
+        self.preprocessing_steps_available = []
+        self.preprocessing_steps_done = ['overscan', 'linearity', 'flat', 'fringe']
 
     @classmethod
     def get_section_ids(cls):

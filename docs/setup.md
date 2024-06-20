@@ -54,7 +54,7 @@ By default, the volumes with archived files and the database files will still be
    docker compose down -v
 ```
 
-If all is well, the `-v` will delete the volumnes that stored the database and archive files.
+If all is well, the `-v` will delete the volumes that stored the database and archive files.
 
 You can see what volumes docker knows about with
 ```

@@ -268,7 +268,7 @@ def decam_datastore(
         decam_exposure,
         'N1',
         cache_dir=decam_cache_dir,
-        cache_base_name='115/c4d_20221104_074232_N1_g_Sci_FVOSOC',
+        cache_base_name='115/c4d_20221104_074232_N1_g_Sci_VCOACQ',
         save_original_image=True
     )
     # This save is redundant, as the datastore_factory calls save_and_commit
@@ -449,9 +449,6 @@ def decam_reference(decam_ref_datastore):
             upstreams=[
                 ds.image.provenance,
                 ds.sources.provenance,
-                ds.psf.provenance,
-                ds.wcs.provenance,
-                ds.zp.provenance,
             ],
             is_testing=True,
         )

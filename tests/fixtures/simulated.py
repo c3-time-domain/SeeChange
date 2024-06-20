@@ -431,13 +431,16 @@ def sim_image_list(
 
     yield images
 
-    with SmartSession() as session:
+    with SmartSession() as session, warnings.catch_warnings():
+        warnings.filterwarnings(
+            action='ignore',
+            message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
+        )
         for im in images:
             im = im.merge_all(session)
             exp = im.exposure
             im.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
             exp.delete_from_disk_and_database(session=session, commit=False)
-
         session.commit()
 
 
@@ -617,7 +620,6 @@ def sim_sub_image_list(
 
     with SmartSession() as session:
         for sub in sub_images:
-            # sub = sub.merge_all(session)
             sub.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
         session.commit()
 

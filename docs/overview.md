@@ -16,7 +16,7 @@ SeeChange consists of a main pipeline that takes raw images and produces a few d
  - Cutouts around the sources detected in the difference images, along with the corresponding 
    image cutouts from the reference and the newly acquired images. 
  - Measurements on those cutouts, including the photometric flux, the shapes, and some 
-   metrics that indicate if the source is astronomical or an artefact (e.g., using deep neural classifiers). 
+   metrics that indicate if the source is astronomical or an artefact (using analytical cuts). 
 
 Additional pipelines for making bias frames, flat frames, and to produce deep coadded references
 are described separately. 
@@ -48,7 +48,7 @@ Additional folders include:
  - `extern`: external packages that are used by SeeChange, including the `nersc-upload-connector` 
    package that is used to connect the archive.
  - `improc: image processing code that is used by the pipeline, generally manipulating images
-   in ways that are not specific to a single point in the pipeline (e.g., image segmentation).
+   in ways that are not specific to a single point in the pipeline (e.g., image alignment or inpainting).
  - `tests`: tests for the pipeline (more on that below). 
  - `utils`: generic utility functions that are used by the pipeline. 
 
@@ -56,7 +56,7 @@ The source code is found in `pipeline`, `models`, `improc` and `utils`.
 Notable files in the `pipeline` folder include `data_store.py` (described below)
 and the `top_level.py` file that defines the `Pipeline` object, 
 which is the main entry point for running the pipeline.
-In `models` we define the `base.py` file, which contains tools for 
+In `models` we have the `base.py` file, which contains tools for 
 database communications, along with some useful mixin classes, 
 and the `instrument.py` file, which contains the `Instrument` 
 base class used to define various instruments from different surveys. 
@@ -71,24 +71,20 @@ Here is a list of the processes and their data products (including the object cl
  - preprocessing: dark, bias, flat, fringe corrections, etc. For large, segmented focal planes,
    will also segment the input raw data into "sections" that usually correspond to individual CCDs. 
    This process takes an `Exposure` object and produces `Image` objects, one for each section/CCD. 
- - extraction: find the sources in the pre-processed image. 
-   This process takes an `Image` object and produces a `SourceList` object, and also a `PSF` object.
- - astro_cal: astrometric calibration, i.e., matching the detected sources' positions
-   to an external catalog, and fitting the WCS solution that maps image pixel coordinates
-   to "real world" coordinates on the sky. Generally we use Gaia DR3 as the reference catalog.
-   This process uses the `SourceList` object and produces an `WorldCoordinates` object.
- - photo_cal: photometric calibration, i.e., matching the detected sources' fluxes
-   to an external catalog, and fitting the photometric zero point (ZP) that maps the 
-   instrumental fluxes to the intrinsic brightness (magnitude) of the stars. 
-   We can use Gaia DR3 for this matching, but this can be configured to use other catalogs.
-    This process uses the `SourceList` object and produces a `ZeroPoint` object.
+ - extraction: find the sources in the pre-processed image, measure their PSF, cross-match them 
+   for astrometric and photometric calibration. 
+   This process takes an `Image` object and produces a `SourceList`, a 'PSF', a 'WorldCoordinates', 
+   and a 'ZeroPoint' object. 
+   The astrometric and photometric steps were integrated into "extraction" to simplify the pipeline.
+   The WorldCoordinates object is a WCS solution that maps image pixel coordinates to sky coordinates.
+   The ZeroPoint object is a photometric solution that maps instrumental fluxes to magnitudes.
  - subtraction: taking a reference image of the same part of the sky (usually a deep coadd)
    and subtracting it from the "new" image (the one being processed by the pipeline). 
    Different algorithms can be used to match the PSFs of the new and reference image
-   (we currently implement HOTPANTS and ZOGY). This process uses the `Image` object, 
-   along with all the other data products produced so far in the pipeline, and another
-   `Image` object for the reference (this image comes with its own set of data products)
-   and produces a subtraction `Image` object. 
+   (we currently implement ZOGY, but HOTPANTS and SFFT will be added later). 
+ - This process uses the `Image` object, along with all the other data products 
+   produced so far in the pipeline, and another `Image` object for the reference 
+   (this image comes with its own set of data products) and produces a subtraction `Image` object. 
  - detection: finding the sources in the difference image. 
    This process uses the difference `Image` object and produces a `SourceList` object.
    This new source list is different from the previous one, as it contains information only
@@ -99,8 +95,8 @@ Here is a list of the processes and their data products (including the object cl
    Additional pixel data could optionally be scraped from other surveys (like PanSTARRS or DECaLS).
    Each source that was detected in the difference image gets a separate `Cutouts` object. 
  - measuring: this part of the pipeline measures the fluxes and shapes of the sources 
-   in the cutouts. It uses a set of analytical cuts to and also a deep neural network classifier 
-   to distinguish between astronomical sources and artefacts. 
+   in the cutouts. It uses a set of analytical cuts to 
+   distinguish between astronomical sources and artefacts. 
    This process uses the list of `Cutouts` objects 
    to produce a list of `Measurements` objects, one for each source. 
 
@@ -138,7 +134,7 @@ ds = DataStore(image_id=123456)
 Note that the `Image` and `Exposure` IDs are internal database identifiers, 
 while the section ID is defined by the instrument used, and usually refers
 to the CCD number or name (it can be an integer or a string). 
-E.g., the DECam sections are named `N1`, `N2`, ... `S1`, S2`, etc.
+E.g., the DECam sections are named `N1`, `N2`, ... `S1`, `S2`, etc.
 
 Once a datastore is initialized, it can be used to query for any data product:
 
@@ -156,21 +152,23 @@ There could be multiple versions of the same data product,
 produced with different parameters or code versions.
 A user may choose to pass a `provenance` input to the `get` methods,
 to specify which version of the data product is requested. 
-If no provenance is specified, the object with the latest provenance is returned. 
+If no provenance is specified, the provenance is loaded either
+from the datastore's general `prov_tree` dictionary, or if it doesn't exist, 
+will just load the most recently created provenance for that pipeline step. 
 
 ```python
 from models.provenance import Provenance
 prov = Provenance(
-   process='photo_cal', 
+   process='extraction', 
    code_version=code_version, 
    parameters=parameters, 
    upstreams=upstream_provs
 )
 # or, using the datastore's tool to get the "right" provenance:
-prov = ds.get_provenance(process='photo_cal', pars_dict=parameters)
+prov = ds.get_provenance(process='extraction', pars_dict=parameters)
 
 # then you can get a specific data product, with the parameters and code version:
-zp = ds.get_zero_point(provenance=prov)
+sources = ds.get_sources(provenance=prov)
 ```
 
 See below for more information about versioning using the provenance model. 
@@ -180,13 +178,17 @@ See below for more information about versioning using the provenance model.
 
 Each part of the pipeline (each process) is conducted using a dedicated object. 
  - preprocessing: using the `Preprocessor` object defined in `pipeline/preprocessing.py`.
- - extraction: using the `Detector` object defined in `pipeline/detection.py`.
- - astro_cal: using the `AstroCalibrator` object defined in `pipeline/astro_cal.py`.
- - photo_cal: using the `PhotoCalibrator` object defined in `pipeline/photo_cal.py`.
- - subtraction: using the `Subtractor` object defined in `pipeline/subtraction.py`.
- - detection: again using the `Detector` object, with a different set of parameters.
- - cutting: using the `Cutter` object defined in `pipeline/cutting.py`.
- - measuring: using the `Measurer` object defined in `pipeline/measuring.py`.
+ - extraction: using the `Detector` object defined in `pipeline/detection.py` to produce the `SourceList` and `PSF` 
+   objects. A sub dictionary keyed by "sources" is used to define the parameters for these objects. 
+   The astrometric and photometric calibration are also done in this step.
+   The astrometric calibration using the `AstroCalibrator` object defined in `pipeline/astro_cal.py`, 
+   with a sub dictionary keyed by "wcs", produces the `WorldCoordinates` object. 
+   The photometric calibration is done using the `PhotoCalibrator` object defined in
+   `pipeline/photo_cal.py`, with a sub dictionary keyed by "zp", produces the `ZeroPoint` object.
+ - subtraction: using the `Subtractor` object defined in `pipeline/subtraction.py`, producing an `Image` object.
+ - detection: again using the `Detector` object, with different parameters, also producing a `SourceList` object.
+ - cutting: using the `Cutter` object defined in `pipeline/cutting.py`, producing a list of `Cutouts` objects.
+ - measuring: using the `Measurer` object defined in `pipeline/measuring.py`, producing a list of `Measurements` objects.
 
 All these objects are initialized as attributes of a top level `Pipeline` object,
 which is defined in `pipeline/top_level.py`. 
@@ -194,13 +196,13 @@ Each of these objects can be configured using a dictionary of parameters.
 
 There are three ways to configure any object in the pipeline. 
 The first is using a `Config` object, which is defined in `util/config.py`.
-This object reads one or more YAML files and stores the parameters in a dictionary heirarchy.
+This object reads one or more YAML files and stores the parameters in a dictionary hierarchy.
 More on how to initialize this object can be found in the `configuration.md` document. 
 Keys in this dictionary can include `pipeline`, `preprocessing`, etc. 
 Each of those keys should map to another dictionary, with parameter choices for that process.
 
 After the config files are read in, the `Pipeline` object can also be initialized using
-a heirarchical dictionary: 
+a hierarchical dictionary: 
 
 ```python
 from pipeline.top_level import Pipeline
@@ -212,7 +214,7 @@ p = Pipeline(
 )
 ```
 
-If only a single object from the pipeline needs to be initialized, 
+If only a single object needs to be initialized, 
 pass the parameters directly to the object's constructor:
 
 ```python
@@ -223,7 +225,7 @@ pp = Preprocessor(
 )
 ```
 
-Finally, after all objects are intialized with their parameters, 
+Finally, after all objects are initialized with their parameters, 
 a user (e.g., in an interactive session) can modify any of the parameters
 using the `pars` attribute of the object. 
 
@@ -256,7 +258,7 @@ The `Provenance` object is defined in `models/provenance.py`.
 
 The `Provenance` object is initialized with the following inputs:
  - `process`: the name of the process that produced this data product ('preprocessing', 'subtraction', etc.).
- - `code_version`: the version of the code that was used to produce this data product.
+ - `code_version`: the version object for the code that was used to produce this data product.
  - `parameters`: a dictionary of parameters that were used to produce this data product.
  - `upstreams`: a list of `Provenance` objects that were used to produce this data product.
 
@@ -275,7 +277,9 @@ Only parameters that affect the product values are included.
 The upstreams are other `Provenance` objects defined for the data products that 
 are an input to the current processing step. 
 The flowchart of the different process steps is defined in `pipeline.datastore.UPSTREAM_STEPS`. 
-E.g., the upstreams for the `photo_cal` object are `['extraction', 'astro_cal']`. 
+E.g., the upstreams for the `subtraction` object are `['preprocessing', 'extraction', 'reference']`.
+Note that the `reference` upstream is replaced by the provenances 
+of the reference's `preprocessing` and `extraction` steps.
 
 When a `Provenance` object has all the required inputs, it will produce a hash identifier
 that is unique to that combination of inputs.
@@ -301,18 +305,19 @@ It is useful to get familiar with the naming convention for different data produ
  - `PSF`: a model of the point spread function (PSF) of an image. 
    This is linked to a single `Image` and will contain the PSF model for that image.
  - `WorldCoordinates`: a set of transformations used to convert between image pixel coordinates and sky coordinates. 
-   This is linked to a single `Image` and will contain the WCS information for that image.
+   This is linked to a single `SourceList` (and from it to an `Image`) and will contain the WCS information for that image.
  - `ZeroPoint`: a photometric solution that converts image flux to magnitudes. 
-   This is linked to a single `Image` and will contain the zeropoint information for that image.
+   This is linked to a single `SourceList` (and from it to an  `Image`) and will contain the zeropoint information for that image.
  - `Object`: a table that contains information about a single astronomical object (real or bogus), 
    such as its RA, Dec, and magnitude. Each `Object` is linked to a list of `Measurements` objects.  
  - `Cutouts`: contain the small pixel stamps around a point in the sky in a new image, reference image, and 
-   subtraction image. Could contain additional, external imaging data from other surveys. 
+   subtraction image. Could contain additional, external imaging data from other surveys.
+   Each `Cutouts` object is linked back to a subtraction based `SourceList`. 
  - `Measurements`: contains measurements made on the information in the `Cutouts`.  
-   These include flux+errors, magnitude+errors, centroid positions, spot width, machine learning scores, etc. 
+   These include flux+errors, magnitude+errors, centroid positions, spot width, analytical cuts, etc. 
  - `Provenance`: A table containing the code version and critical parameters that are unique to this version of the data. 
    Each data product above must link back to a provenance row, so we can recreate the conditions that produced this data. 
- - `Reference`: An object that links a reference `Image`  with a specific field/target, a section ID, 
+ - `Reference`: An object that links a reference `Image` with a specific field/target, a section ID, 
    and a time validity range, that allows users to quickly identify which reference goes with a new image. 
  - `CalibratorFile`: An object that tracks data needed to apply calibration (preprocessing) for a specific instrument.
    The calibration could include an `Image` data file, or a generic non-image `DataFile` object. 
@@ -355,6 +360,12 @@ These include:
    describing the bounding box of the object on the sky.
    This is particularly useful for images but also for catalog excerpts, 
    that span a small region of the sky.
+ - `HasBitFlagBadness`: adds a `_bitflag` and `_upstream_bitflag` columns to the model.
+   These allow flagging of bad data products, either because they are bad themselves, or 
+   because one of their upstreams is bad. It also adds some methods and attributes to access
+   the badness like `badness` and `append_badness()`. 
+   If you change the bitflag of such an object, and it was already used to produce downstream products, 
+   make sure to use `update_downstream_badness()` to recursively update the badness of all downstream products.
 
 Enums and bitflag are stored on the database as integers
 (short integers for Enums and long integers for bitflags).
@@ -381,7 +392,7 @@ some caching of cross-match catalogs also helps speed things up.
 
 When running on a cluster/supercomputer, there is usually an abundance of CPU cores, 
 so running multiple sections at once, or even multiple exposures (each with many sections), 
-is not a problem, and simplfies the processing. 
+is not a problem, and simplifies the processing. 
 
 Additional parallelization can be achieved by using multi-threaded code
 on specific bottlenecks in the pipeline, but this is not yet implemented.

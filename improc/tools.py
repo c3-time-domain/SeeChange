@@ -52,13 +52,15 @@ def sigma_clipping(values, nsigma=3.0, iterations=5, axis=None, median=False):
             raise ValueError("values must be a vector, image, or cube")
 
     values = values.copy()
-    
-    # first iteration:
-    mean = np.nanmedian(values, axis=axis)
-    rms = np.nanstd(values, axis=axis)
 
     # how many nan values?
     nans = np.isnan(values).sum()
+    if nans == values.size:
+        return np.nan, np.nan
+
+    # first iteration:
+    mean = np.nanmedian(values, axis=axis)
+    rms = np.nanstd(values, axis=axis)
 
     for i in range(iterations):
         # remove pixels that are more than nsigma from the median

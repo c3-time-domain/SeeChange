@@ -70,7 +70,7 @@ class Cutter:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('cutting', self.pars.get_critical_pars(), session=session)
 
             # try to find some measurements in memory or in the database:
             cutout_list = ds.get_cutouts(prov, session=session)

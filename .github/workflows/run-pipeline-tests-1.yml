@@ -1,4 +1,4 @@
-name: Run Pipeline Tests
+name: Run Pipeline Tests 1
 
 on:
   push:
@@ -59,4 +59,5 @@ jobs:
 
       - name: run test
         run: |
-          TEST_SUBFOLDER=tests/pipeline docker compose run runtests
+          shopt -s nullglob
+          TEST_SUBFOLDER=$(ls tests/pipeline/test_{a..o}*.py) docker compose run runtests

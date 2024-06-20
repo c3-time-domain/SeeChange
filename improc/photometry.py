@@ -419,6 +419,8 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
         the iterative process.
     """
     flux = area = background = variance = norm = cxx = cyy = cxy = 0
+    if np.all(np.isnan(data)):
+        return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, True
 
     # make a circle-mask based on the centroid position
     if not np.isfinite(cx) or not np.isfinite(cy):
@@ -447,7 +449,8 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
             return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, True
 
         annulus_map_sum = np.nansum(annulus_map)
-        if annulus_map_sum == 0:  # this should only happen in tests or if the annulus is way too large
+        if annulus_map_sum == 0 or np.all(np.isnan(annulus_map)):
+            # this should only happen in tests or if the annulus is way too large or if all pixels are NaN
             background = 0
             variance = 0
             norm = 0

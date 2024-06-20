@@ -219,7 +219,7 @@ class Reference(Base, AutoIDMixin):
 
             sources = session.scalars(
                 sa.select(SourceList).where(
-                    SourceList.image_id == self.image_id,
+                    SourceList.image_id == self.image.id,
                     SourceList.provenance_id.in_(prov_ids),
                 )
             ).all()
@@ -233,7 +233,7 @@ class Reference(Base, AutoIDMixin):
 
             psfs = session.scalars(
                 sa.select(PSF).where(
-                    PSF.image_id == self.image_id,
+                    PSF.image_id == self.image.id,
                     PSF.provenance_id.in_(prov_ids),
                 )
             ).all()

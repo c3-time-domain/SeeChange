@@ -367,6 +367,7 @@ class Provenance(Base):
 
         return output
 
+
 @event.listens_for(Provenance, "before_insert")
 def insert_new_dataset(mapper, connection, target):
     """

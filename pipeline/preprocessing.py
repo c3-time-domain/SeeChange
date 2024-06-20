@@ -23,17 +23,16 @@ class ParsPreprocessor(Parameters):
     def __init__(self, **kwargs):
         super().__init__()
 
-        self.use_sky_subtraction = self.add_par('use_sky_subtraction', False, bool, 'Apply sky subtraction. ',
-                                                critical=True)
-        self.add_par( 'steps', None, ( list, None ), "Steps to do; don't specify, or pass None, to do all." )
-        self.add_par( 'calibset', None, ( str, None ),
-                      ( "One of the CalibratorSetConverter enum; "
-                        "the calibrator set to use.  Defaults to the instrument default" ),
-                      critical = True )
+        self.add_par( 'steps_required', [], list, "Steps that need to be done to each exposure" )
+
+        self.add_par( 'calibset', 'externally_supplied', str,
+                      "The calibrator set to use.  Choose one of the CalibratorSetConverter enum. ",
+                      critical=True )
         self.add_alias( 'calibrator_set', 'calibset' )
-        self.add_par( 'flattype', None, ( str, None ),
-                      ( "One of the FlatTypeConverter enum; defaults to the instrument default" ),
-                      critical = True )
+
+        self.add_par( 'flattype', 'externally_supplied', str,
+                      "One of the FlatTypeConverter enum. ",
+                      critical=True )
 
         self._enforce_no_new_attrs = True
 
@@ -75,10 +74,6 @@ class Preprocessor:
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
 
-        # TODO : remove this if/when we actually put sky subtraction in run()
-        if self.pars.use_sky_subtraction:
-            raise NotImplementedError( "Sky subtraction in preprocessing isn't implemented." )
-
     def run( self, *args, **kwargs ):
         """Run preprocessing for a given exposure and section_identifier.
 
@@ -89,9 +84,6 @@ class Preprocessor:
           - exposure_id, section_identifier
           - Exposure, section_identifier
         Passing just an image won't work.
-
-        kwargs can also include things that override the preprocessing
-        behavior.  (TODO: document this)
 
         Returns
         -------
@@ -104,9 +96,6 @@ class Preprocessor:
             ds, session = DataStore.from_args( *args, **kwargs )
         except Exception as e:
             return DataStore.catch_failure_to_parse(e, *args)
-
-        # This is here just for testing purposes
-        self._ds = ds  # TODO: is there a reason not to just use the output datastore?
 
         try:  # catch any exceptions and save them in the datastore
             t_start = time.perf_counter()
@@ -124,41 +113,21 @@ class Preprocessor:
             if ( self.instrument is None ) or ( self.instrument.name != ds.exposure.instrument ):
                 self.instrument = ds.exposure.instrument_object
 
-            # The only reason these are saved in self, rather than being
-            # local variables, is so that tests can probe them
-            self._calibset = None
-            self._flattype = None
-            self._stepstodo = None
-
-            if 'calibset' in kwargs:
-                self._calibset = kwargs['calibset']
-            elif 'calibratorset' in kwargs:
-                self._calibset = kwargs['calibrator_set']
-            elif self.pars.calibset is not None:
-                self._calibset = self.pars.calibset
-            else:
-                self._calibset = cfg.value( f'{self.instrument.name}.calibratorset',
-                                            default=cfg.value( 'instrument_default.calibratorset' ) )
-
-            if 'flattype' in kwargs:
-                self._flattype = kwargs['flattype']
-            elif self.pars.flattype is not None:
-                self._flattype = self.pars.flattype
-            else:
-                self._flattype = cfg.value( f'{self.instrument.name}.flattype',
-                                            default=cfg.value( 'instrument_default.flattype' ) )
-
-            if 'steps' in kwargs:
-                self._stepstodo = [ s for s in self.instrument.preprocessing_steps if s in kwargs['steps'] ]
-            elif self.pars.steps is not None:
-                self._stepstodo = [ s for s in self.instrument.preprocessing_steps if s in self.pars.steps ]
-            else:
-                self._stepstodo = self.instrument.preprocessing_steps
-
+            # check that all required steps can be done (or have been done) by the instrument:
+            known_steps = self.instrument.preprocessing_steps_available
+            known_steps += self.instrument.preprocessing_steps_done
+            known_steps = set(known_steps)
+            needed_steps = set(self.pars.steps_required)
+            if not needed_steps.issubset(known_steps):
+                raise ValueError(
+                    f'Missing some preprocessing steps {needed_steps - known_steps} '
+                    f'for instrument {self.instrument.name}'
+                )
+            
             # Get the calibrator files
             SCLogger.debug("preprocessing: getting calibrator files")
-            preprocparam = self.instrument.preprocessing_calibrator_files( self._calibset,
-                                                                           self._flattype,
+            preprocparam = self.instrument.preprocessing_calibrator_files( self.pars.calibset,
+                                                                           self.pars.flattype,
                                                                            ds.section_id,
                                                                            ds.exposure.filter_short,
                                                                            ds.exposure.mjd,
@@ -167,18 +136,7 @@ class Preprocessor:
             SCLogger.debug("preprocessing: got calibrator files")
 
             # get the provenance for this step, using the current parameters:
-            # Provenance includes not just self.pars.get_critical_pars(),
-            # but also the steps that were performed.  Reason: we may well
-            # load non-flatfielded images in the database for purposes of
-            # collecting images used for later building flats.  We will then
-            # flatfield those images.  The two images in the database must have
-            # different provenances.
-            # We also include any overrides to calibrator files, as that indicates
-            # that something individual happened here that's different from
-            # normal processing of the image.
-            provdict = dict( self.pars.get_critical_pars() )
-            provdict['preprocessing_steps' ] = self._stepstodo
-            prov = ds.get_provenance(self.pars.get_process_name(), provdict, session=session)
+            prov = ds.get_provenance('preprocessing', self.pars.get_critical_pars(), session=session)
 
             # check if the image already exists in memory or in the database:
             image = ds.get_image(prov, session=session)
@@ -193,17 +151,27 @@ class Preprocessor:
             if image.preproc_bitflag is None:
                 image.preproc_bitflag = 0
 
-            required_bitflag = 0
-            for step in self._stepstodo:
-                required_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
+            needed_steps -= set(self.instrument.preprocessing_steps_done)
+            filter_skips = self.instrument.preprocessing_step_skip_by_filter.get(ds.exposure.filter_short, [])
+            if not isinstance(filter_skips, list):
+                raise ValueError(f'Filter skips parameter for {ds.exposure.filter_short} must be a list')
+            filter_skips = set(filter_skips)
+            needed_steps -= filter_skips
 
-            if image._data is None:  # in case we are skipping all preprocessing steps
-                image.data = image.raw_data
-
-            if image.preproc_bitflag != required_bitflag:
+            if image._data is None:  # in case we skip all preprocessing steps
+                image.data = image.raw_data 
+            
+            # the image keeps track of the steps already done to it in image.preproc_bitflag,
+            # which is translated into a list of keywords when calling image.preprocessing_done
+            # this includes the things that already were applied in the exposure
+            # (i.e., the instrument's preprocessing_steps_done) but does not
+            # include the things that were skipped for this filter
+            # (i.e., the instrument's preprocessing_step_skip_by_filter)
+            already_done = set(image.preprocessing_done.split(', ') if image.preprocessing_done else [])
+            if not needed_steps.issubset(already_done):  # still things to do here
                 self.has_recalculated = True
                 # Overscan is always first (as it reshapes the image)
-                if 'overscan' in self._stepstodo:
+                if 'overscan' in needed_steps:
                     SCLogger.debug('preprocessing: overscan and trim')
                     image.data = self.instrument.overscan_and_trim( image )
                     # Update the header ra/dec calculations now that we know the real width/height
@@ -211,7 +179,7 @@ class Preprocessor:
                     image.preproc_bitflag |= string_to_bitflag( 'overscan', image_preprocessing_inverse )
 
                 # Apply steps in the order expected by the instrument
-                for step in self._stepstodo:
+                for step in needed_steps:
                     if step == 'overscan':
                         continue
                     SCLogger.debug(f"preprocessing: {step}")
@@ -273,7 +241,7 @@ class Preprocessor:
 
                     image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
 
-                # Get the Instrument standard bad pixel mask for this image
+            # Get the Instrument standard bad pixel mask for this image
             if image._flags is None or image._weight is None:
                 image._flags = self.instrument.get_standard_flags_image( ds.section_id )
 

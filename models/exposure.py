@@ -736,7 +736,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         """An exposure does not have any upstreams. """
         return []
 
-    def get_downstreams(self, session=None):
+    def get_downstreams(self, session=None, siblings=False):
         """An exposure has only Image objects as direct downstreams. """
         from models.image import Image
 

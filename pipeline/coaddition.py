@@ -13,6 +13,7 @@ from models.provenance import Provenance
 from models.image import Image
 
 from pipeline.parameters import Parameters
+from pipeline.data_store import DataStore
 from pipeline.detection import Detector
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
@@ -488,25 +489,32 @@ class CoaddPipeline:
         self.coadder = Coadder(**coadd_config)
 
         # source detection ("extraction" for the regular image!)
-        extraction_config = self.config.value('extraction', {})
-        extraction_config.update(self.config.value('coaddition.extraction', {}))  # override coadd specific pars
-        extraction_config.update(kwargs.get('extraction', {'measure_psf': True}))
+        extraction_config = self.config.value('extraction.sources', {})
+        extraction_config.update(self.config.value('coaddition.extraction.sources', {}))  # override coadd specific pars
+        extraction_config.update(kwargs.get('extraction', {}).get('sources', {}))
+        extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astro_cal_config = self.config.value('astro_cal', {})
-        astro_cal_config.update(self.config.value('coaddition.astro_cal', {}))  # override coadd specific pars
-        astro_cal_config.update(kwargs.get('astro_cal', {}))
-        self.pars.add_defaults_to_dict(astro_cal_config)
-        self.astro_cal = AstroCalibrator(**astro_cal_config)
+        astrometor_config = self.config.value('extraction.wcs', {})
+        astrometor_config.update(self.config.value('coaddition.extraction.wcs', {}))  # override coadd specific pars
+        astrometor_config.update(kwargs.get('extraction', {}).get('wcs', {}))
+        self.pars.add_defaults_to_dict(astrometor_config)
+        self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photo_cal_config = self.config.value('photo_cal', {})
-        photo_cal_config.update(self.config.value('coaddition.photo_cal', {}))  # override coadd specific pars
-        photo_cal_config.update(kwargs.get('photo_cal', {}))
-        self.pars.add_defaults_to_dict(photo_cal_config)
-        self.photo_cal = PhotCalibrator(**photo_cal_config)
+        photometor_config = self.config.value('extraction.zp', {})
+        photometor_config.update(self.config.value('coaddition.extraction.zp', {}))  # override coadd specific pars
+        photometor_config.update(kwargs.get('extraction', {}).get('zp', {}))
+        self.pars.add_defaults_to_dict(photometor_config)
+        self.photometor = PhotCalibrator(**photometor_config)
+
+        # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
+        siblings = {'sources': self.extractor.pars, 'wcs': self.astrometor.pars, 'zp': self.photometor.pars}
+        self.extractor.pars.add_siblings(siblings)
+        self.astrometor.pars.add_siblings(siblings)
+        self.photometor.pars.add_siblings(siblings)
 
         self.datastore = None  # use this datastore to save the coadd image and all the products
 
@@ -517,7 +525,7 @@ class CoaddPipeline:
         """Parse the possible inputs to the run method.
 
         The possible input types are:
-        - unamed arguments that are all Image objects, to be treated as self.images
+        - unnamed arguments that are all Image objects, to be treated as self.images
         - a list of Image objects, assigned into self.images
         - two lists of Image objects, the second one is a list of aligned images matching the first list,
           such that the two lists are assigned to self.images and self.aligned_images
@@ -568,7 +576,7 @@ class CoaddPipeline:
             raise ValueError('All unnamed arguments must be Image objects. ')
 
         if self.images is None:  # get the images from the DB
-            # TODO: this feels like it could be a useful tool, maybe need to move it Image class? Issue 188
+            # TODO: this feels like it could be a useful tool, maybe need to move it to Image class? Issue 188
             # if no images were given, parse the named parameters
             ra = kwargs.get('ra', None)
             if isinstance(ra, str):
@@ -601,7 +609,7 @@ class CoaddPipeline:
                 provenance_ids = [prov.id]
             provenance_ids = listify(provenance_ids)
 
-            with SmartSession(session) as session:
+            with SmartSession(session) as dbsession:
                 stmt = sa.select(Image).where(
                         Image.mjd >= start_time,
                         Image.mjd <= end_time,
@@ -615,19 +623,64 @@ class CoaddPipeline:
                     stmt = stmt.where(Image.target == target)
                 else:
                     stmt = stmt.where(Image.containing( ra, dec ))
-                self.images = session.scalars(stmt.order_by(Image.mjd.asc())).all()
+                self.images = dbsession.scalars(stmt.order_by(Image.mjd.asc())).all()
+
+        return session
 
     def run(self, *args, **kwargs):
-        self.parse_inputs(*args, **kwargs)
+        session = self.parse_inputs(*args, **kwargs)
         if self.images is None or len(self.images) == 0:
             raise ValueError('No images found matching the given parameters. ')
 
-        # the self.aligned_images is None unless you explicitly pass in the pre-aligned images to save time
-        coadd = self.coadder.run(self.images, self.aligned_images)
+        self.datastore = DataStore()
+        self.datastore.prov_tree = self.make_provenance_tree(session=session)
 
-        self.datastore = self.extractor.run(coadd)
-        self.datastore = self.astro_cal.run(self.datastore)
-        self.datastore = self.photo_cal.run(self.datastore)
+        # the self.aligned_images is None unless you explicitly pass in the pre-aligned images to save time
+        self.datastore.image = self.coadder.run(self.images, self.aligned_images)
+
+        # TODO: add the warnings/exception capturing, runtime/memory tracking (and Report making) as in top_level.py
+        self.datastore = self.extractor.run(self.datastore)
+        self.datastore = self.astrometor.run(self.datastore)
+        self.datastore = self.photometor.run(self.datastore)
 
         return self.datastore.image
+
+    def make_provenance_tree(self, session=None):
+        """Make a (short) provenance tree to use when fetching the provenances of upstreams. """
+        with SmartSession(session) as session:
+            coadd_upstreams = set()
+            code_versions = set()
+            # assumes each image given to the coaddition pipline has sources, psf, background, wcs, zp, all loaded
+            for im in self.images:
+                coadd_upstreams.add(im.provenance)
+                coadd_upstreams.add(im.sources.provenance)
+                code_versions.add(im.provenance.code_version)
+                code_versions.add(im.sources.provenance.code_version)
+
+            code_versions = list(code_versions)
+            code_versions.sort(key=lambda x: x.id)
+            code_version = code_versions[-1]  # choose the most recent ID if there are multiple code versions
+
+            pars_dict = self.coadder.pars.get_critical_pars()
+            coadd_prov = Provenance(
+                code_version=code_version,
+                process='coaddition',
+                upstreams=list(coadd_upstreams),
+                parameters=pars_dict,
+                is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes
+            )
+            coadd_prov = coadd_prov.merge_concurrent(session=session, commit=True)
+
+            # the extraction pipeline
+            pars_dict = self.extractor.pars.get_critical_pars()
+            extract_prov = Provenance(
+                code_version=code_version,
+                process='extraction',
+                upstreams=[coadd_prov],
+                parameters=pars_dict,
+                is_testing="test_parameter" in pars_dict['sources'],  # this is a flag for testing purposes
+            )
+            extract_prov = extract_prov.merge_concurrent(session=session, commit=True)
+
+        return {'coaddition': coadd_prov, 'extraction': extract_prov}
 

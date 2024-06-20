@@ -69,6 +69,7 @@ def make_template_bank(imsize=15, psf_sigma=1.0):
 
 def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cache_dir):
     ds = detector.run(ptf_subtraction1)
+
     try:
         assert ds.detections is not None
         assert ds.detections.num_sources > 0

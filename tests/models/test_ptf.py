@@ -3,6 +3,8 @@ from models.image import Image
 from models.source_list import SourceList
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
+from models.cutouts import Cutouts
+from models.measurements import Measurements
 
 
 def test_get_ptf_exposure(ptf_exposure):
@@ -20,6 +22,10 @@ def test_ptf_datastore(ptf_datastore):
     assert isinstance(ptf_datastore.sources, SourceList)
     assert isinstance(ptf_datastore.wcs, WorldCoordinates)
     assert isinstance(ptf_datastore.zp, ZeroPoint)
+    assert isinstance(ptf_datastore.sub_image, Image)
+    assert isinstance(ptf_datastore.detections, SourceList)
+    assert all([isinstance(c, Cutouts) for c in ptf_datastore.cutouts])
+    assert all([isinstance(m, Measurements) for m in ptf_datastore.measurements])
 
     # using that bad row of pixels from the mask image
     assert all(ptf_datastore.image.flags[0:120, 94] > 0)

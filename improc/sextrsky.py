@@ -9,6 +9,7 @@ from astropy.io import fits
 
 from util.logger import SCLogger
 
+
 def single_sextrsky( imagedata, maskdata=None, sigcut=3 ):
     """Estimate sky and sky sigma of imagedata (ignoreing nonzero maskdata pixels)
 
@@ -65,6 +66,7 @@ def single_sextrsky( imagedata, maskdata=None, sigcut=3 ):
         sky = 2.5*med - 1.5*mean
     skysig = 1.4826 * ( np.median( np.abs( imagedata[w] - sky ) ) )
     return sky, skysig
+
 
 def sextrsky( imagedata, maskdata=None, sigcut=3, boxsize=200, filtsize=3 ):
     """Estimate sky using an approximation of the SExtractor algorithm.
@@ -177,6 +179,7 @@ def sextrsky( imagedata, maskdata=None, sigcut=3, boxsize=200, filtsize=3 ):
     return sky, np.median(skysigvals)
 
 # ======================================================================
+
 
 def main():
     parser = argparse.ArgumentParser( description="Estimate image sky using sextractor algorithm" )

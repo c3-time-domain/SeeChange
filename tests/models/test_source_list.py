@@ -33,7 +33,7 @@ def test_source_list_bitflag(sim_sources):
         # now add a badness to the image and exposure
         sim_sources.image.badness = 'Saturation'
         sim_sources.image.exposure.badness = 'Banding'
-        sim_sources.image.exposure.update_downstream_badness(session)
+        sim_sources.image.exposure.update_downstream_badness(session=session)
         session.add(sim_sources.image)
         session.commit()
 
@@ -71,7 +71,7 @@ def test_source_list_bitflag(sim_sources):
 
         # removing the badness from the exposure is updated directly to the source list
         sim_sources.image.exposure.bitflag = 0
-        sim_sources.image.exposure.update_downstream_badness(session)
+        sim_sources.image.exposure.update_downstream_badness(session=session)
         session.add(sim_sources.image)
         session.commit()
 

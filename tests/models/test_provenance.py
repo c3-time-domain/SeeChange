@@ -169,6 +169,8 @@ def test_unique_provenance_hash(code_version):
                 session.add(p2)
                 session.commit()
             assert 'duplicate key value violates unique constraint "pk_provenances"' in str(e)
+            session.rollback()
+            session.refresh(code_version)
 
     finally:
         if 'pid' in locals():

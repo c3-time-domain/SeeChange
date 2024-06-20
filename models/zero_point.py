@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.world_coordinates import WorldCoordinates
+from models.image import Image
 from models.source_list import SourceList
 
 
@@ -136,29 +137,58 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
 
     def get_upstreams(self, session=None):
         """Get the extraction SourceList and WorldCoordinates used to make this ZeroPoint"""
-        from models.provenance import Provenance
         with SmartSession(session) as session:
-            source_list = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+            sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
 
-            wcs_prov_id = None
-            for prov in self.provenance.upstreams:
-                if prov.process == "astro_cal":
-                    wcs_prov_id = prov.id
-            wcs = []
-            if wcs_prov_id is not None:
-                wcs = session.scalars(sa.select(WorldCoordinates) 
-                                    .where(WorldCoordinates.provenance 
-                                            .has(Provenance.id == wcs_prov_id))).all()
+        return sources
 
-        return source_list + wcs
-    
-    def get_downstreams(self, session=None):
-        """Get the downstreams of this ZeroPoint"""
-        from models.image import Image
+    def get_downstreams(self, session=None, siblings=False):
+        """Get the downstreams of this ZeroPoint.
+
+        If siblings=True then also include the SourceLists, PSFs, WCSes, and background objects
+        that were created at the same time as this ZeroPoint.
+        """
+        from models.source_list import SourceList
+        from models.psf import PSF
+        from models.world_coordinates import WorldCoordinates
         from models.provenance import Provenance
+
         with SmartSession(session) as session:
-            subs = session.scalars(sa.select(Image)
-                                    .where(Image.provenance
-                                            .has(Provenance.upstreams
-                                                .any(Provenance.id == self.provenance.id)))).all()
-        return subs
+            subs = session.scalars(
+                sa.select(Image).where(
+                    Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
+                    Image.upstream_images.any(Image.id == self.sources.image_id),
+                )
+            ).all()
+            output = subs
+
+            if siblings:
+                sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+                if len(sources) > 1:
+                    raise ValueError(
+                        f"Expected exactly one SourceList for ZeroPoint {self.id}, but found {len(sources)}."
+                    )
+                output.append(sources[0])
+
+                psf = session.scalars(
+                    sa.select(PSF).where(
+                        PSF.image_id == sources.image_id, PSF.provenance_id == self.provenance_id
+                    )
+                ).all()
+                if len(psf) > 1:
+                    raise ValueError(f"Expected exactly one PSF for ZeroPoint {self.id}, but found {len(psf)}.")
+
+                output.append(psf[0])
+
+                # TODO: add background object
+
+                wcs = session.scalars(
+                    sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id)
+                ).all()
+
+                if len(wcs) > 1:
+                    raise ValueError(f"Expected exactly one WCS for ZeroPoint {self.id}, but found {len(wcs)}.")
+
+                output.append(wcs[0])
+
+        return output

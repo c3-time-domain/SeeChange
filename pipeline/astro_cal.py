@@ -268,8 +268,6 @@ class AstroCalibrator:
 
         ds.wcs = WorldCoordinates( sources=sources, provenance=prov )
         ds.wcs.wcs = wcs
-        if session is not None:
-            ds.wcs = session.merge( ds.wcs )
 
     # ----------------------------------------------------------------------
 
@@ -294,7 +292,7 @@ class AstroCalibrator:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
 
             # try to find the world coordinates in memory or in the database:
             wcs = ds.get_wcs(prov, session=session)
@@ -316,7 +314,9 @@ class AstroCalibrator:
                 # update the upstream bitflag
                 sources = ds.get_sources( session=session )
                 if sources is None:
-                    raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+                    raise ValueError(
+                        f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}'
+                    )
                 if ds.wcs._upstream_bitflag is None:
                     ds.wcs._upstream_bitflag = 0
                 ds.wcs._upstream_bitflag |= sources.bitflag

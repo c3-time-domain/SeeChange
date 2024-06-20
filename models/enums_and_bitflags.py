@@ -325,6 +325,19 @@ def string_to_bitflag(value, dictionary):
         return output
 
 
+# bitflag for image preprocessing steps that have been done
+image_preprocessing_dict = {
+    0: 'overscan',
+    1: 'zero',
+    2: 'dark',
+    3: 'linearity',
+    4: 'flat',
+    5: 'fringe',
+    6: 'illumination'
+}
+image_preprocessing_inverse = {EnumConverter.c(v):k for k, v in image_preprocessing_dict.items()}
+
+
 # these are the ways an Image or Exposure are allowed to be bad
 image_badness_dict = {
     1: 'banding',
@@ -389,18 +402,6 @@ class BadnessConverter( EnumConverter ):
     _dict_filtered = None
     _dict_inverse = None
 
-# bitflag for image preprocessing steps that have been done
-image_preprocessing_dict = {
-    0: 'overscan',
-    1: 'zero',
-    2: 'dark',
-    3: 'linearity',
-    4: 'flat',
-    5: 'fringe',
-    6: 'illumination'
-}
-image_preprocessing_inverse = {EnumConverter.c(v):k for k, v in image_preprocessing_dict.items()}
-
 # bitflag used in flag images
 flag_image_bits = {
     0: 'bad pixel',        # Bad pixel flagged by the instrument
@@ -418,12 +419,10 @@ class BitFlagConverter( EnumConverter ):
     _dict_inverse = None
 
 
-# the list of possible processing steps from a section of an exposure up to measurments, r/b scores, and report
+# the list of possible processing steps from a section of an exposure up to measurements, r/b scores, and report
 process_steps_dict = {
     1: 'preprocessing',  # creates an Image from a section of the Exposure
     2: 'extraction',     # creates a SourceList from an Image, and a PSF
-    3: 'astro_cal',      # creates a WorldCoordinates from a SourceList
-    4: 'photo_cal',       # creates a ZeroPoint from a WorldCoordinates
     5: 'subtraction',    # creates a subtraction Image
     6: 'detection',      # creates a SourceList from a subtraction Image
     7: 'cutting',        # creates Cutouts from a subtraction Image

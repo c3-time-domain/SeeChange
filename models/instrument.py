@@ -368,15 +368,22 @@ class Instrument:
         self._dateobs_for_sections = getattr(self, '_dateobs_for_sections', None)  # dateobs when sections were loaded
         self._dateobs_range_days = getattr(self, '_dateobs_range_days', 1.0)  # how many days from dateobs to reload
 
-        # List of the preprocessing steps to apply to images from this
-        # instrument, in order overscan must always be first.  The
-        # values here (in the Instrument class) are all possible values.
-        # Subclasses should redefine this with the subset that they
-        # actually need.  If a subclass has to add a new preprocessing
-        # step, then it should add that step to this list, and (if it's
-        # a step that includes a calibraiton image or datafile) to the
-        # CalibratorTypeConverter dict in enums_and_bitflags.py
-        self.preprocessing_steps = [ 'overscan', 'zero','dark', 'linearity', 'flat', 'fringe', 'illumination' ]
+        # List of the preprocessing steps that can be applied to exposures from this
+        # instrument, in order.  'overscan' must always be first.
+        # All preprocessing steps that are available for an instrument are listed under preprocessing_steps_available.
+        # Use image_preprocessing_dict, defined in the enums_and_bitflags file to see all possible values.
+        # Subclasses of Instrument should redefine this with the subset that they
+        # actually need to apply. So, if an instrument has exposures
+        # that already have overscan removed, that instrument should remove 'overscan' from this list.
+        # If a subclass has to add a new preprocessing step,
+        # then it should add that step to enum_and_bitflags.image_preprocessing_dict,
+        # and (if it's a step that includes a calibraiton image or datafile)
+        # to the CalibratorTypeConverter dict in enums_and_bitflags.
+        self.preprocessing_steps_available = ['overscan', 'zero', 'dark', 'linearity', 'flat', 'fringe', 'illumination']
+        # a list of preprocessing steps that are pre-applied to the exposure data
+        self.preprocessing_steps_done = []
+        self.preprocessing_step_skip_by_filter = {}  # e.g., {'g': ['fringe', 'illumination']} will skip those for g
+
         # nofile_steps are ones that don't have an associated file
         self.preprocessing_nofile_steps = [ 'overscan' ]
 
@@ -1443,7 +1450,7 @@ class Instrument:
         construction).
 
         """
-
+        section = str(section)
         SCLogger.debug( f'Looking for calibrators for {calibset} {section}' )
 
         if ( calibset == 'externally_supplied' ) != ( flattype == 'externally_supplied' ):
@@ -1461,7 +1468,7 @@ class Instrument:
         expdatetime = pytz.utc.localize( astropy.time.Time( mjd, format='mjd' ).datetime )
 
         with SmartSession(session) as session:
-            for calibtype in self.preprocessing_steps:
+            for calibtype in self.preprocessing_steps_available:
                 if calibtype in self.preprocessing_nofile_steps:
                     continue
 
@@ -1881,7 +1888,8 @@ class DemoInstrument(Instrument):
         Instrument.__init__(self, **kwargs)
 
         # DemoInstrument doesn't know how to preprocess
-        self.preprocessing_steps = []
+        self.preprocessing_steps_available = []
+        self.preprocessing_steps_done = ['overscan', 'linearity', 'flat', 'fringe']
 
     @classmethod
     def get_section_ids(cls):

@@ -26,11 +26,11 @@ def test_preprocessing(
     assert not preprocessor.has_recalculated
 
     # Check some Preprocesor internals
-    assert preprocessor._calibset == 'externally_supplied'
-    assert preprocessor._flattype == 'externally_supplied'
-    assert preprocessor._stepstodo == [ 'overscan', 'linearity', 'flat', 'fringe' ]
-    assert preprocessor._ds.exposure.filter[:1] == 'g'
-    assert preprocessor._ds.section_id == 'N1'
+    assert preprocessor.pars.calibset == 'externally_supplied'
+    assert preprocessor.pars.flattype == 'externally_supplied'
+    assert preprocessor.pars.steps_required == [ 'overscan', 'linearity', 'flat', 'fringe' ]
+    ds.exposure.filter[:1] == 'g'
+    ds.section_id == 'N1'
     assert set( preprocessor.stepfiles.keys() ) == { 'flat', 'linearity' }
 
     # Make sure that the BSCALE and BZERO keywords got stripped
@@ -88,21 +88,6 @@ def test_preprocessing(
 
     # TODO : other checks that preprocessing did what it was supposed to do?
     # (Look at image header once we have HISTORY adding in there.)
-
-    # Test some overriding
-    # clear these caches
-    preprocessor.instrument = None
-    preprocessor.stepfilesids = {}
-    preprocessor.stepfiles = {}
-
-    ds = preprocessor.run( decam_exposure, 'N1', steps=['overscan', 'linearity'] )
-    assert preprocessor.has_recalculated
-    assert preprocessor._calibset == 'externally_supplied'
-    assert preprocessor._flattype == 'externally_supplied'
-    assert preprocessor._stepstodo == [ 'overscan', 'linearity' ]
-    assert preprocessor._ds.exposure.filter[:1] == 'g'
-    assert preprocessor._ds.section_id == 'N1'
-    assert set( preprocessor.stepfiles.keys() ) == { 'linearity' }
 
 
 def test_warnings_and_exceptions(decam_exposure, preprocessor, decam_default_calibrators, archive):

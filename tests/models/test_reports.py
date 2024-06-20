@@ -29,17 +29,13 @@ def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrat
     assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2
     assert report.progress_steps == 'preprocessing, extraction'
 
-    report.append_progress('photo_cal')
-    assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2 + 2 ** 4
-    assert report.progress_steps == 'preprocessing, extraction, photo_cal'
-
     report.append_progress('preprocessing')  # appending it again makes no difference
-    assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2 + 2 ** 4
-    assert report.progress_steps == 'preprocessing, extraction, photo_cal'
+    assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2
+    assert report.progress_steps == 'preprocessing, extraction'
 
     report.append_progress('subtraction, cutting')  # append two at a time
-    assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2 + 2 ** 4 + 2 ** 5 + 2 ** 7
-    assert report.progress_steps == 'preprocessing, extraction, photo_cal, subtraction, cutting'
+    assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2 + 2 ** 5 + 2 ** 7
+    assert report.progress_steps == 'preprocessing, extraction, subtraction, cutting'
 
     # test that the products exist flag is working
     assert report.products_exist_bitflag == 0
@@ -101,8 +97,8 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
 
     assert p.preprocessor.has_recalculated
     assert p.extractor.has_recalculated
-    assert p.astro_cal.has_recalculated
-    assert p.photo_cal.has_recalculated
+    assert p.astrometor.has_recalculated
+    assert p.photometor.has_recalculated
     assert p.subtractor.has_recalculated
     assert p.detector.has_recalculated
     assert p.cutter.has_recalculated
@@ -110,7 +106,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
 
     measured_time = 0
     peak_memory = 0
-    for step in PROCESS_OBJECTS.keys():  # also make sure all the keys are present in both dictionaries
+    for step in ds.runtimes.keys():  # also make sure all the keys are present in both dictionaries
         measured_time += ds.runtimes[step]
         if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
             peak_memory = max(peak_memory, ds.memory_usages[step])
@@ -133,7 +129,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert rep.success
         assert rep.process_runtime == ds.runtimes
         assert rep.process_memory == ds.memory_usages
-        # 'preprocessing, extraction, astro_cal, photo_cal, subtraction, detection, cutting, measuring'
+        # 'preprocessing, extraction, subtraction, detection, cutting, measuring'
         assert rep.progress_steps == ', '.join(PROCESS_OBJECTS.keys())
         assert rep.products_exist == 'image, sources, psf, wcs, zp, sub_image, detections, cutouts, measurements'
         assert rep.products_committed == ''  # we don't save the data store objects at any point?

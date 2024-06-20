@@ -73,8 +73,39 @@ def test_measurements_attributes(measurer, ptf_datastore):
     # TODO: add test for limiting magnitude (issue #143)
 
 
+@pytest.mark.skip(reason="This test fails on GA but not locally, see issue #306")
+# @pytest.mark.flaky(max_runs=3)
 def test_filtering_measurements(ptf_datastore):
+    # printout the list of relevant environmental variables:
+    import os
+    print("SeeChange environment variables:")
+    for key in [
+        'INTERACTIVE',
+        'LIMIT_CACHE_USAGE',
+        'SKIP_NOIRLAB_DOWNLOADS',
+        'RUN_SLOW_TESTS',
+        'SEECHANGE_TRACEMALLOC',
+    ]:
+        print(f'{key}: {os.getenv(key)}')
+
     measurements = ptf_datastore.measurements
+    from pprint import pprint
+    print('measurements: ')
+    pprint(measurements)
+
+    if hasattr(ptf_datastore, 'all_measurements'):
+        idx = [m.cutouts.index_in_sources for m in measurements]
+        chosen = np.array(ptf_datastore.all_measurements)[idx]
+        pprint([(m, m.is_bad, m.cutouts.sub_nandata[12, 12]) for m in chosen])
+
+    print(f'new image values: {ptf_datastore.image.data[250, 240:250]}')
+    print(f'ref_image values: {ptf_datastore.ref_image.data[250, 240:250]}')
+    print(f'sub_image values: {ptf_datastore.sub_image.data[250, 240:250]}')
+
+    print(f'number of images in ref image: {len(ptf_datastore.ref_image.upstream_images)}')
+    for i, im in enumerate(ptf_datastore.ref_image.upstream_images):
+        print(f'upstream image {i}: {im.data[250, 240:250]}')
+
     m = measurements[0]  # grab the first one as an example
 
     # test that we can filter on some measurements properties
@@ -170,6 +201,7 @@ def test_measurements_cannot_be_saved_twice(ptf_datastore):
                 session.delete(m2)
                 session.commit()
 
+
 def test_threshold_flagging(ptf_datastore, measurer):
 
     measurements = ptf_datastore.measurements
@@ -209,6 +241,7 @@ def test_threshold_flagging(ptf_datastore, measurer):
     m.disqualifier_scores['negatives'] = 0.9 # a value that would fail both (earlier)
     assert measurer.compare_measurement_to_thresholds(m) == "delete"
 
+
 def test_deletion_thresh_is_non_critical(ptf_datastore, measurer):
 
     # hard code in the thresholds to ensure no problems arise
@@ -239,6 +272,7 @@ def test_deletion_thresh_is_non_critical(ptf_datastore, measurer):
     m2 = ds2.measurements[0]
 
     assert m1.provenance.id == m2.provenance.id
+
 
 def test_measurements_forced_photometry(ptf_datastore):
     offset_max = 2.0

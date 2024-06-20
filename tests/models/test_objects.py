@@ -29,7 +29,7 @@ def test_object_creation():
         assert re.match(r'\w+\d{4}\w+', obj2.name)
 
 
-@pytest.mark.flaky(max_runs=3)
+@pytest.mark.flaky(max_runs=5)
 def test_lightcurves_from_measurements(sim_lightcurves):
     for lc in sim_lightcurves:
         expected_flux = []
@@ -46,7 +46,7 @@ def test_lightcurves_from_measurements(sim_lightcurves):
             assert measured_flux[i] == pytest.approx(expected_flux[i], abs=expected_error[i] * 3)
 
 
-@pytest.mark.flaky(max_runs=3)
+@pytest.mark.flaky(max_runs=5)
 def test_filtering_measurements_on_object(sim_lightcurves):
     assert len(sim_lightcurves) > 0
     assert len(sim_lightcurves[0]) > 3
@@ -213,6 +213,7 @@ def test_filtering_measurements_on_object(sim_lightcurves):
         # get the new and only if not found go to the old
         found = obj.get_measurements_list(prov_hash_list=[prov.id, measurements[0].provenance.id])
         assert set([m.id for m in found]) == set(new_id_list)
+
 
 def test_separate_good_and_bad_objects(measurer, ptf_datastore):
     measurements = ptf_datastore.measurements

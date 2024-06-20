@@ -119,6 +119,7 @@ class Parameters:
         self.__docstrings__ = {}
         self.__critical__ = {}
         self.__aliases__ = {}
+        self.__sibling_parameters__ = {}
 
         self.verbose = self.add_par(
             "verbose", 0, int, "Level of verbosity (0=quiet).", critical=False
@@ -230,6 +231,7 @@ class Parameters:
             or "_ignore_case" not in self.__dict__
             or "_remove_underscores" not in self.__dict__
             or "__aliases__" not in self.__dict__
+            or "__sibling_parameters__" not in self.__dict__
         ):
             return key
 
@@ -331,7 +333,7 @@ class Parameters:
             and not isinstance(value, self.__typecheck__[real_key])
         ):
             raise TypeError(
-                f'Parameter "{key}" must be of type {self.__typecheck__[real_key]}'
+                f'Parameter "{key}" must be of type {self.__typecheck__[real_key]}, got {type(value)} instead. '
             )
         super().__setattr__(real_key, value)
 
@@ -467,16 +469,50 @@ class Parameters:
                     if not ignore_addons and "has no attribute" in str(e):
                         raise e
 
-    def get_critical_pars(self):
+    def add_siblings(self, siblings):
+        """Update the sibling parameters dictionary with other parameter objects.
+
+        Siblings are useful when multiple objects (with multiple Parameter objects)
+        need to produce a nested dictionary of critical parameters.
+        Example:
+            The extractor, astrometor and photometor are all included in the "extraction" step.
+            To produce the provenance for that step we will need a nested dictionary that is keyed
+            something like {'sources': <extractor pars>, 'wcs': <astrometor pars>, 'zp': <photometor pars>}.
+            So we'll add to each of them a siblings dictionary keyed:
+            {'sources': extractor.pars, 'wcs': astrometor.pars, 'zp': photometor.pars}
+            so when each one invokes get_critical_pars() it makes a nested dictionary as expected.
+            To get only the critical parameters for the one object, use get_critical_pars(ignore_siblings=True).
+        """
+        if self.__sibling_parameters__ is None:
+            self.__sibling_parameters__ = {}
+
+        self.__sibling_parameters__.update(siblings)
+
+    def get_critical_pars(self, ignore_siblings=False):
         """
         Get a dictionary of the critical parameters.
+
+        Parameters
+        ----------
+        ignore_siblings: bool
+            If True, will not include sibling parameters.
+            By default, calls the siblings of this object
+            when producing the critical parameters.
 
         Returns
         -------
         dict
             The dictionary of critical parameters.
         """
-        return self.to_dict(critical=True, hidden=True)
+        # if there is no dictionary, or it is empty (or if asked to ignore siblings) just return the critical parameters
+        if ignore_siblings or not self.__sibling_parameters__:
+            return self.to_dict(critical=True, hidden=True)
+        else:  # a dictionary based on keys in __sibling_parameters__ with critical pars sub-dictionaries
+            return {
+                key: value.get_critical_pars(ignore_siblings=True)
+                for key, value
+                in self.__sibling_parameters__.items()
+            }
 
     def to_dict(self, critical=False, hidden=False):
         """
@@ -561,11 +597,11 @@ class Parameters:
             names.append(name)
 
         if len(defaults) > 0:
-            SCLogger.debug(f" Propagated pars: {', '.join(defaults)}")
+            print(f" Propagated pars: {', '.join(defaults)}")
         if len(names) > 0:
             max_length = max(len(n) for n in names)
             for n, d in zip(names, desc):
-                SCLogger.debug(f" {n:>{max_length}}{d}")
+                print(f" {n:>{max_length}}{d}")
 
     def vprint(self, text, threshold=1):
         """

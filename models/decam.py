@@ -128,7 +128,8 @@ class DECam(Instrument):
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
         Instrument.__init__(self, **kwargs)
 
-        self.preprocessing_steps = [ 'overscan', 'linearity', 'flat', 'fringe' ]
+        self.preprocessing_steps_available = [ 'overscan', 'linearity', 'flat', 'fringe' ]
+        self.preprocessing_steps_done = []
 
     @classmethod
     def get_section_ids(cls):

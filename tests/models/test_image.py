@@ -587,14 +587,14 @@ def test_image_badness(sim_image1):
         session.commit()
 
         # a manual way to propagate bitflags downstream
-        sim_image1.exposure.update_downstream_badness(session)  # make sure the downstreams get the new badness
+        sim_image1.exposure.update_downstream_badness(session=session)  # make sure the downstreams get the new badness
         session.commit()
         assert sim_image1.bitflag == 2 ** 5 + 2 ** 3 + 2 ** 1  # saturation bit is 3
         assert sim_image1.badness == 'banding, saturation, bright sky'
 
         # adding the same keyword on the exposure and the image makes no difference
         sim_image1.exposure.badness = 'Banding'
-        sim_image1.exposure.update_downstream_badness(session)  # make sure the downstreams get the new badness
+        sim_image1.exposure.update_downstream_badness(session=session)  # make sure the downstreams get the new badness
         session.commit()
         assert sim_image1.bitflag == 2 ** 5 + 2 ** 1
         assert sim_image1.badness == 'banding, bright sky'
@@ -642,7 +642,7 @@ def test_multiple_images_badness(
 
             # note that this image is not directly bad, but the exposure has banding
             sim_image3.exposure.badness = 'banding'
-            sim_image3.exposure.update_downstream_badness(session)
+            sim_image3.exposure.update_downstream_badness(session=session)
             session.commit()
 
             assert sim_image3.badness == 'banding'
@@ -761,7 +761,7 @@ def test_multiple_images_badness(
             # try to add some badness to one of the underlying exposures
             sim_image1.exposure.badness = 'shaking'
             session.add(sim_image1)
-            sim_image1.exposure.update_downstream_badness(session)
+            sim_image1.exposure.update_downstream_badness(session=session)
             session.commit()
 
             assert 'shaking' in sim_image1.badness

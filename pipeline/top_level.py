@@ -16,6 +16,7 @@ from pipeline.measuring import Measurer
 
 from models.base import SmartSession
 from models.provenance import Provenance
+from models.reference import Reference
 from models.exposure import Exposure
 from models.report import Report
 
@@ -29,15 +30,13 @@ from util.util import parse_bool
 # that come from all the different objects.
 PROCESS_OBJECTS = {
     'preprocessing': 'preprocessor',
-    'extraction': 'extractor',  # the same object also makes the PSF (and background?)
-    # TODO: when joining the astro/photo cal into extraction, use this format:
-    # 'extraction': {
-    #     'sources': 'extractor',
-    #     'astro_cal': 'astro_cal',
-    #     'photo_cal': 'photo_cal',
-    # }
-    'astro_cal': 'astro_cal',
-    'photo_cal': 'photo_cal',
+    'extraction': {
+        'sources': 'extractor',
+        'psf': 'extractor',
+        'background': 'extractor',
+        'wcs': 'astrometor',
+        'zp': 'photometor',
+    },
     'subtraction': 'subtractor',
     'detection': 'detector',
     'cutting': 'cutter',
@@ -76,22 +75,29 @@ class Pipeline:
         self.preprocessor = Preprocessor(**preprocessing_config)
 
         # source detection ("extraction" for the regular image!)
-        extraction_config = self.config.value('extraction', {})
-        extraction_config.update(kwargs.get('extraction', {'measure_psf': True}))
+        extraction_config = self.config.value('extraction.sources', {})
+        extraction_config.update(kwargs.get('extraction', {}).get('sources', {}))
+        extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astro_cal_config = self.config.value('astro_cal', {})
-        astro_cal_config.update(kwargs.get('astro_cal', {}))
-        self.pars.add_defaults_to_dict(astro_cal_config)
-        self.astro_cal = AstroCalibrator(**astro_cal_config)
+        astrometor_config = self.config.value('extraction.wcs', {})
+        astrometor_config.update(kwargs.get('extraction', {}).get('wcs', {}))
+        self.pars.add_defaults_to_dict(astrometor_config)
+        self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photo_cal_config = self.config.value('photo_cal', {})
-        photo_cal_config.update(kwargs.get('photo_cal', {}))
-        self.pars.add_defaults_to_dict(photo_cal_config)
-        self.photo_cal = PhotCalibrator(**photo_cal_config)
+        photometor_config = self.config.value('extraction.zp', {})
+        photometor_config.update(kwargs.get('extraction', {}).get('zp', {}))
+        self.pars.add_defaults_to_dict(photometor_config)
+        self.photometor = PhotCalibrator(**photometor_config)
+
+        # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
+        siblings = {'sources': self.extractor.pars, 'wcs': self.astrometor.pars, 'zp': self.photometor.pars}
+        self.extractor.pars.add_siblings(siblings)
+        self.astrometor.pars.add_siblings(siblings)
+        self.photometor.pars.add_siblings(siblings)
 
         # reference fetching and image subtraction
         subtraction_config = self.config.value('subtraction', {})
@@ -122,7 +128,12 @@ class Pipeline:
         """Override some of the parameters for this object and its sub-objects, using Parameters.override(). """
         for key, value in kwargs.items():
             if key in PROCESS_OBJECTS:
-                getattr(self, PROCESS_OBJECTS[key]).pars.override(value)
+                if isinstance(PROCESS_OBJECTS[key], dict):
+                    for sub_key, sub_value in PROCESS_OBJECTS[key].items():
+                        if sub_key in value:
+                            getattr(self, PROCESS_OBJECTS[key][sub_value]).pars.override(value[sub_key])
+                elif isinstance(PROCESS_OBJECTS[key], str):
+                    getattr(self, PROCESS_OBJECTS[key]).pars.override(value)
             else:
                 self.pars.override({key: value})
 
@@ -267,19 +278,18 @@ class Pipeline:
             ds.update_report('extraction', session)
 
             # find astrometric solution, save WCS into Image object and FITS headers
-            SCLogger.info(f"astro_cal for image id {ds.image.id}")
-            ds = self.astro_cal.run(ds, session)
+            SCLogger.info(f"astrometor for image id {ds.image.id}")
+            ds = self.astrometor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
-            ds.update_report('astro_cal', session)
+            ds.update_report('extraction', session)
 
             # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
-            SCLogger.info(f"photo_cal for image id {ds.image.id}")
-            ds = self.photo_cal.run(ds, session)
+            SCLogger.info(f"photometor for image id {ds.image.id}")
+            ds = self.photometor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
-            ds.update_report('photo_cal', session)
+            ds.update_report('extraction', session)
 
-            # fetch reference images and subtract them, save SubtractedImage objects to DB and disk
-            import pdb; pdb.set_trace()
+            # fetch reference images and subtract them, save subtracted Image objects to DB and disk
             SCLogger.info(f"subtractor for image id {ds.image.id}")
             ds = self.subtractor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
@@ -297,11 +307,14 @@ class Pipeline:
             if save_intermediate_products: ds.save_and_commit()
             ds.update_report('cutting', session)
 
-            # extract photometry, analytical cuts, and deep learning models on the Cutouts:
+            # extract photometry and analytical cuts
             SCLogger.info(f"measurer for image id {ds.image.id}")
             ds = self.measurer.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
             ds.update_report('measuring', session)
+
+            # measure deep learning models on the cutouts/measurements
+            # TODO: add this...
 
             ds.finalize_report(session)
 
@@ -316,7 +329,7 @@ class Pipeline:
         with SmartSession() as session:
             self.run(session=session)
 
-    def make_provenance_tree(self, exposure, session=None, commit=True):
+    def make_provenance_tree(self, exposure, reference=None, overrides=None, session=None, commit=True):
         """Use the current configuration of the pipeline and all the objects it has
         to generate the provenances for all the processing steps.
         This will conclude with the reporting step, which simply has an upstreams
@@ -328,6 +341,19 @@ class Pipeline:
         exposure : Exposure
             The exposure to use to get the initial provenance.
             This provenance should be automatically created by the exposure.
+        reference: str, Provenance object or None
+            Can be a string matching a valid reference set. This tells the pipeline which
+            provenance to load for the reference.
+            Instead, can provide either a Reference object with a Provenance
+            or the Provenance object of a reference directly.
+            If not given, will simply load the most recently created reference provenance.
+            # TODO: when we implement reference sets, we will probably not allow this input directly to
+            #  this function anymore. Instead, you will need to define the reference set in the config,
+            #  under the subtraction parameters.
+        overrides: dict, optional
+            A dictionary of provenances to override any of the steps in the pipeline.
+            For example, set overrides={'preprocessing': prov} to use a specific provenance
+            for the basic Image provenance.
         session : SmartSession, optional
             The function needs to work with the database to merge existing provenances.
             If a session is given, it will use that, otherwise it will open a new session,
@@ -344,9 +370,11 @@ class Pipeline:
             keyed according to the different steps in the pipeline.
             The provenances are all merged to the session.
         """
+        if overrides is None:
+            overrides = {}
+
         with SmartSession(session) as session:
             # start by getting the exposure and reference
-            exposure = session.merge(exposure)  # also merges the provenance and code_version
             # TODO: need a better way to find the relevant reference PROVENANCE for this exposure
             #  i.e., we do not look for a valid reference and get its provenance, instead,
             #  we look for a provenance based on our policy (that can be defined in the subtraction parameters)
@@ -362,52 +390,62 @@ class Pipeline:
             #  to create all the references for a given RefSet... we need to make sure we can actually
             #  make that happen consistently (e.g., if you change parameters or start mixing instruments
             #  when you make the references it will create multiple provenances for the same RefSet).
+            if isinstance(reference, str):
+                raise NotImplementedError('See issue #287')
+            elif isinstance(reference, Reference):
+                ref_prov = reference.provenance
+            elif isinstance(reference, Provenance):
+                ref_prov = reference
+            elif reference is None:  # use the latest provenance that has to do with references
+                ref_prov = session.scalars(
+                    sa.select(Provenance).where(
+                        Provenance.process == 'reference'
+                    ).order_by(Provenance.created_at.desc())
+                ).first()
 
-            # for now, use the latest provenance that has to do with references
-            ref_prov = session.scalars(
-                sa.select(Provenance).where(Provenance.process == 'reference').order_by(Provenance.created_at.desc())
-            ).first()
-            provs = {'exposure': exposure.provenance}  # TODO: does this always work on any exposure?
-            code_version = exposure.provenance.code_version
-            is_testing = exposure.provenance.is_testing
+            exp_prov = session.merge(exposure.provenance)  # also merges the code_version
+            provs = {'exposure': exp_prov}
+            code_version = exp_prov.code_version
+            is_testing = exp_prov.is_testing
 
             for step in PROCESS_OBJECTS:
-                if isinstance(PROCESS_OBJECTS[step], dict):
-                    parameters = {}
-                    for key, value in PROCESS_OBJECTS[step].items():
-                        parameters[key] = getattr(self, value).pars.get_critical_pars()
+                if step in overrides:
+                    provs[step] = overrides[step]
                 else:
-                    parameters = getattr(self, PROCESS_OBJECTS[step]).pars.get_critical_pars()
+                    obj_name = PROCESS_OBJECTS[step]
+                    if isinstance(obj_name, dict):
+                        # get the first item of the dictionary and hope its pars object has siblings defined correctly:
+                        obj_name = obj_name.get(list(obj_name.keys())[0])
+                    parameters = getattr(self, obj_name).pars.get_critical_pars()
 
-                # some preprocessing parameters (the "preprocessing_steps") doesn't come from the
-                # config file, but instead comes from the preprocessing itself.
-                # TODO: fix this as part of issue #147
-                if step == 'preprocessing':
-                    if 'preprocessing_steps' not in parameters:
-                        parameters['preprocessing_steps'] = ['overscan', 'linearity', 'flat', 'fringe']
+                    # some preprocessing parameters (the "preprocessing_steps") don't come from the
+                    # config file, but instead come from the preprocessing itself.
+                    # TODO: fix this as part of issue #147
+                    # if step == 'preprocessing':
+                    #     parameters['preprocessing_steps'] = ['overscan', 'linearity', 'flat', 'fringe']
 
-                # figure out which provenances go into the upstreams for this step
-                up_steps = UPSTREAM_STEPS[step]
-                if isinstance(up_steps, str):
-                    up_steps = [up_steps]
-                upstreams = []
-                for upstream in up_steps:
-                    if upstream == 'reference':
-                        upstreams += ref_prov.upstreams
-                    else:
-                        upstreams.append(provs[upstream])
+                    # figure out which provenances go into the upstreams for this step
+                    up_steps = UPSTREAM_STEPS[step]
+                    if isinstance(up_steps, str):
+                        up_steps = [up_steps]
+                    upstreams = []
+                    for upstream in up_steps:
+                        if upstream == 'reference':
+                            upstreams += ref_prov.upstreams
+                        else:
+                            upstreams.append(provs[upstream])
 
-                provs[step] = Provenance(
-                    code_version=code_version,
-                    process=step,
-                    parameters=parameters,
-                    upstreams=upstreams,
-                    is_testing=is_testing,
-                )
+                    provs[step] = Provenance(
+                        code_version=code_version,
+                        process=step,
+                        parameters=parameters,
+                        upstreams=upstreams,
+                        is_testing=is_testing,
+                    )
 
                 provs[step] = provs[step].merge_concurrent(session=session, commit=commit)
 
-            # if commit:
-            #     session.commit()
+            if commit:
+                session.commit()
 
             return provs

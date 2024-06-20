@@ -121,10 +121,7 @@ class ParsDetector(Parameters):
         self.override(kwargs)
 
     def get_process_name(self):
-        if self.subtraction:
-            return 'detection'
-        else:
-            return 'extraction'
+        return 'detection'
 
 
 class Detector:
@@ -230,10 +227,11 @@ class Detector:
 
                 self.pars.do_warning_exception_hangup_injection_here()
 
-                prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
                 if ds.sub_image is None and ds.image is not None and ds.image.is_sub:
                     ds.sub_image = ds.image
                     ds.image = ds.sub_image.new_image  # back-fill the image from the sub_image
+
+                prov = ds.get_provenance('detection', self.pars.get_critical_pars(), session=session)
 
                 detections = ds.get_detections(prov, session=session)
 
@@ -280,7 +278,7 @@ class Detector:
                 return ds
 
         else:  # regular image
-            prov = ds.get_provenance(self.pars.get_process_name(), self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
             try:
                 t_start = time.perf_counter()
                 if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
@@ -339,7 +337,6 @@ class Detector:
                 ds.catch_exception(e)
             finally:  # make sure datastore is returned to be used in the next step
                 return ds
-
 
     def extract_sources(self, image):
         """Calls one of the extraction methods, based on self.pars.method. """
