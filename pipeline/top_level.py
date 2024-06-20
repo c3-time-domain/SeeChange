@@ -253,6 +253,7 @@ class Pipeline:
             ds.warnings_list = w  # appends warning to this list as it goes along
             # run dark/flat preprocessing, cut out a specific section of the sensor
             # TODO: save the results as Image objects to DB and disk? Or save at the end?
+            import pdb; pdb.set_trace()
             SCLogger.info(f"preprocessor")
             ds = self.preprocessor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
@@ -278,6 +279,7 @@ class Pipeline:
             ds.update_report('photo_cal', session)
 
             # fetch reference images and subtract them, save SubtractedImage objects to DB and disk
+            import pdb; pdb.set_trace()
             SCLogger.info(f"subtractor for image id {ds.image.id}")
             ds = self.subtractor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()

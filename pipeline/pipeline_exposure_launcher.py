@@ -107,7 +107,7 @@ class ExposureProcessor:
                 me.name = f'{int(match.group(1)):3d}'
             else:
                 me.name = str( me.pid )
-            SCLogger.replace( midformat=me.name, level=origloglevel )
+            SCLogger.replace( midformat=me.name, level=self.worker_log_level )
             SCLogger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}..." )
             SCLogger.setLevel( self.worker_log_level )
             pipeline = Pipeline()
@@ -169,7 +169,8 @@ class ExposureLauncher:
 
     """
 
-    def __init__( self, cluster_id, node_id, numprocs=None, verify=True, worker_log_level=logging.WARNING ):
+    def __init__( self, cluster_id, node_id, numprocs=None, verify=True, onlychips=None,
+                  worker_log_level=logging.WARNING ):
         """Make an ExposureLauncher.
 
         Parameters
@@ -198,6 +199,12 @@ class ExposureLauncher:
            test environments, and should never be False in
            production.)
 
+        onlychips : list, default None
+          If not None, will only process the sensor sections whose names
+          match something in this list.  If None, will process all
+          sensor sections returned by the instrument's get_section_ids()
+          class method.
+
         worker_log_level : log level, default logging.WARNING
           The log level for the worker processes.  Here so that you can
           have a different log level for the overall control process
@@ -210,6 +217,8 @@ class ExposureLauncher:
         self.numprocs = numprocs if numprocs is not None else ( psutil.cpu_count(logical=False) - 1 )
         self.cluster_id = cluster_id
         self.node_id = node_id
+        self.onlychips = onlychips
+        self.worker_log_level = worker_log_level
         self.conductor = ConductorConnector( verify=verify )
 
     def register_worker( self, replace=False ):
@@ -260,7 +269,9 @@ class ExposureLauncher:
                 exposure_processor = ExposureProcessor( knownexp.instrument,
                                                         knownexp.identifier,
                                                         knownexp.params,
-                                                        self.numprocs )
+                                                        self.numprocs,
+                                                        onlychips=self.onlychips,
+                                                        worker_log_level=self.worker_log_level )
                 SCLogger.info( f'Downloading and loading exposure {knownexp.identifier}...' )
                 exposure_processor.download_and_load_exposure()
                 SCLogger.info( f'...downloaded.  Launching process to handle all chips.' )
@@ -306,6 +317,8 @@ pipelines to process each of the chips in the exposure.
                          help="Don't verify the conductor's SSL certificate" )
     parser.add_argument( "-l", "--log-level", default="info", help="Log level for the main process" )
     parser.add_argument( "-w", "--worker-log-level", default="warning", help="Log level for worker processes" )
+    parser.add_argument( "--chips", default=None, nargs="+",
+                         help="Only do these sensor sections (for debugging purposese)" )
     args = parser.parse_args()
 
     loglookup = { 'error': logging.ERROR,
@@ -319,7 +332,7 @@ pipelines to process each of the chips in the exposure.
         raise ValueError( f"Unknown worker log level {args.worker_log_level}" )
     worker_log_level = loglookup[ args.worker_log_level.lower() ]
 
-    elaunch = ExposureLauncher( args.cluster_id, args.node_id, numprocs=args.numprocs,
+    elaunch = ExposureLauncher( args.cluster_id, args.node_id, numprocs=args.numprocs, onlychips=args.chips,
                                 verify=not args.noverify, worker_log_level=worker_log_level )
     elaunch.register_worker()
     try:

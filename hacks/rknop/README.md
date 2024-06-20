@@ -36,7 +36,7 @@ docker run --user 1000:1000 -it \
 ```   
    
 
-## Setting up the NERSC environment for the demo -- Perlmtuter
+## Setting up the NERSC environment for the demo -- Perlmutter
 
 When `.yaml` files for spin are referenced, they are in the directory SeeChange/spin/rknop-dev
 

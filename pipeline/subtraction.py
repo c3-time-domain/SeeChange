@@ -14,7 +14,7 @@ from improc.alignment import ImageAligner
 from improc.tools import sigma_clipping
 
 from util.util import parse_bool
-
+from util.logger import SCLogger
 
 class ParsSubtractor(Parameters):
     def __init__(self, **kwargs):
@@ -292,8 +292,11 @@ class Subtractor:
                     # the most recent provenance for "preprocessing"
                     image = ds.get_image(session=session)
                     if image is None:
-                        raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
+                        raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '
+                                         f'{ds.get_inputs()}')
 
+                    SCLogger.debug( f"Making new subtraction from image {image.id} path {image.filepath} , "
+                                    f"reference {ref.image.id} path {ref.image.filepath}" )
                     sub_image = Image.from_ref_and_new(ref.image, image)
                     sub_image.is_sub = True
                     sub_image.provenance = prov
@@ -301,6 +304,7 @@ class Subtractor:
                     sub_image.coordinates_to_alignment_target()  # make sure the WCS is aligned to the correct image
 
                     # make sure to grab the correct aligned images
+                    import pdb; pdb.set_trace()
                     new_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.new_image.mjd]
                     if len(new_image) != 1:
                         raise ValueError('Cannot find the new image in the aligned images')
