@@ -20,6 +20,9 @@ from models.reference import Reference
 from models.provenance import Provenance, CodeVersion
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
+# Needed to avoid errors about missing classes later
+import models.object
+
 from pipeline.data_store import DataStore
 from pipeline.detection import Detector
 from pipeline.astro_cal import AstroCalibrator
@@ -172,7 +175,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
 
         SCLogger.info( "Extracting sources" )
 
-        extraction_config = config.value( 'extraction', {} )
+        extraction_config = config.value( 'extraction.sources', {} )
         extractor = Detector( **extraction_config )
         ds = extractor.run( ds )
 
@@ -180,7 +183,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
 
         SCLogger.info( "Astrometric calibration" )
 
-        astro_cal_config = config.value( 'astro_cal', {} )
+        astro_cal_config = config.value( 'extraction.wcs', {} )
         astrometor = AstroCalibrator( **astro_cal_config )
         ds = astrometor.run( ds )
 
@@ -188,7 +191,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
 
         SCLogger.info( "Photometric calibration" )
 
-        photo_cal_config = config.value( 'photo_cal', {} )
+        photo_cal_config = config.value( 'extraction.zp', {} )
         photomotor = PhotCalibrator( **photo_cal_config )
         ds = photomotor.run( ds )
 

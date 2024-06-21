@@ -128,7 +128,7 @@ class DECam(Instrument):
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
         Instrument.__init__(self, **kwargs)
 
-        self.preprocessing_steps_available = [ 'overscan', 'linearity', 'flat', 'fringe' ]
+        self.preprocessing_steps_available = [ 'overscan', 'linearity', 'flat', 'illumination', 'fringe' ]
         self.preprocessing_steps_done = []
 
     @classmethod
@@ -404,7 +404,11 @@ class DECam(Instrument):
         datadir = pathlib.Path( FileOnDiskMixin.local_path ) / reldatadir
 
         if calibtype == 'flat':
-            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.flatbase")}-'
+            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.flatbase")}/'
+                                    f'{filter}.out.{self._chip_radec_off[section]["ccdnum"]:02d}_trim_med.fits' )
+
+        elif calibtype == 'illumination':
+            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.illuminationbase")}-'
                                     f'{filter}I_ci_{filter}_{self._chip_radec_off[section]["ccdnum"]:02d}.fits' )
         elif calibtype == 'fringe':
             if filter not in [ 'z', 'Y' ]:
@@ -424,8 +428,13 @@ class DECam(Instrument):
         retry_download( url, fileabspath )
 
         with SmartSession( session ) as dbsess:
-            if calibtype in [ 'flat', 'fringe' ]:
-                dbtype = 'Fringe' if calibtype == 'fringe' else 'SkyFlat'
+            if calibtype in [ 'flat', 'illumination', 'fringe' ]:
+                if calibtype == 'fringe':
+                    dbtype = 'Fringe'
+                elif calibtype == 'flat':
+                    dbtype = 'ComDomeFlat'
+                elif calibtype == 'illumination':
+                    dbtype = 'ComSkyFlat'
                 mjd = float( cfg.value( "DECam.calibfiles.mjd" ) )
                 image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
                                telescope='CTIO4m', filter=filter, section_id=section, filepath=str(filepath),

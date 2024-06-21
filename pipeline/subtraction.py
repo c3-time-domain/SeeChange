@@ -292,7 +292,6 @@ class Subtractor:
                     sub_image.coordinates_to_alignment_target()  # make sure the WCS is aligned to the correct image
 
                     # make sure to grab the correct aligned images
-                    import pdb; pdb.set_trace()
                     new_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.new_image.mjd]
                     if len(new_image) != 1:
                         raise ValueError('Cannot find the new image in the aligned images')

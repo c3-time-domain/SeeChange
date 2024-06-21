@@ -33,9 +33,14 @@ conductor:
   username: rknop
   password: placeholder
   
-astro_cal:
-  max_arcsec_residual: 0.2
-  max_sources_to_use: [ 2000, 1000, 500, 200 ]
+preprocessing:
+  # For DECam (though fringe isn't implemented)
+  steps_required: [ 'overscan', 'linearity', 'flat', 'illumination', 'fringe' ]
+
+extraction:
+  wcs:
+    max_arcsec_residual: 0.2
+    max_sources_to_use: [ 2000, 1000, 500, 200 ]
 
 subtraction:
   method: zogy

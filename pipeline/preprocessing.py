@@ -179,7 +179,9 @@ class Preprocessor:
                     image.preproc_bitflag |= string_to_bitflag( 'overscan', image_preprocessing_inverse )
 
                 # Apply steps in the order expected by the instrument
-                for step in needed_steps:
+                for step in self.pars.steps_required:
+                    if step not in needed_steps:
+                        continue
                     if step == 'overscan':
                         continue
                     SCLogger.debug(f"preprocessing: {step}")

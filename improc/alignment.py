@@ -414,7 +414,11 @@ class ImageAligner:
 
             # re-calculate the source list and PSF for the warped image
             extractor = Detector()
-            extractor.pars.override(sources.provenance.parameters['sources'], ignore_addons=True)
+            # NOTE -- I don't 100% understand this, but I think that the change
+            # I made is the right change.  (It was objecting that there was no
+            # 'sources' key in sources.provenance.parameters.)
+            # extractor.pars.override(sources.provenance.parameters['sources'], ignore_addons=True)
+            extractor.pars.override(sources.provenance.parameters, ignore_addons=True)
             warpedsrc, warpedpsf, _, _ = extractor.extract_sources(warpedim)
             warpedim.sources = warpedsrc
             warpedim.psf = warpedpsf
