@@ -36,6 +36,7 @@ prov_process = 'import_image'
 prov_params = {}
 prov_upstreams = []
 
+
 def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     config = Config.get()
 
@@ -44,23 +45,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     # Hopefully since this is a hack one-off, we can just cope.
     with SmartSession() as sess:
 
-        # Get the provenance we'll use for the imported references
-        # TODO : when I run a bunch of processes at once I'm getting
-        #   errors about the code version already existing.
-        # Need to really understand how to cope with this sort of thing.
-
-        cvs = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).all()
-        if len( cvs ) == 0:
-            try:
-                code_ver = CodeVersion( id='hack_0.1' )
-                code_ver.update()
-                sess.merge( code_ver )
-                sess.commit()
-            except Exception as ex:
-                SCLogger.warning( "Got error trying to create code version, "
-                                  "going to assume it's a race condition and all is well." )
-                sess.rollback()
-        code_ver = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).first()
+        SClogger.info( "Making provenance tree" )
 
         # We should make a get_or_create method for Provenance
         prov = None
@@ -170,42 +155,57 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
         image.flags = numpy.zeros_like( msk_data, dtype=numpy.int16 )
         image.flags[ msk_data != 0 ] = string_to_bitflag( 'bad pixel', flag_image_bits_inverse )
 
+        ds, session = DataStore.from_args()
+        with Smartsession(session) as dbsession:
+            provs = self.make_provenance_tree( dbsession )
+
         ds = DataStore( image, session=sess )
+
+        # Make sure extract, background, wcs, and zp all have the right siblings
+
+        extraction_config = config.value( 'extraction.sources', {} )
+        extractor = Detector( **extraction_config )
+        background_config = config.value( 'extraction.bg', {} )
+        backgrounder = Backgrounder( **background_config )
+        astro_cal_config = config.value( 'extraction.wcs', {} )
+        astrometor = AstroCalibrator( **astro_cal_config )
+        photo_cal_config = config.value( 'extraction.zp', {} )
+        photomotor = PhotCalibrator( **photo_cal_config )
+
+        siblings = {
+            'sources': extractor.pars,
+            'bg': backgrounder.pars,
+            'wcs': astrometor.pars,
+            'zp': photomotor.pars
+        }
+        extractor.pars.add_siblings( siblings )
+        backgrounder.pars.add_siblings( siblings )
+        astrometor.pars.add_siblings( siblings )
+        photomotor.pars.add_siblings( siblings )
 
         # Extract sources
 
         SCLogger.info( "Extracting sources" )
-
-        extraction_config = config.value( 'extraction.sources', {} )
-        extractor = Detector( **extraction_config )
         ds = extractor.run( ds )
 
         # Background
 
         SCLogger.info( "Background" )
-
-        background_config = config.value( 'extraction.bg', {} )
-        backgrounder = Backgrounder( **background_config )
         ds = backgrounder.run( ds )
 
         # WCS
 
         SCLogger.info( "Astrometric calibration" )
-
-        astro_cal_config = config.value( 'extraction.wcs', {} )
-        astrometor = AstroCalibrator( **astro_cal_config )
         ds = astrometor.run( ds )
 
         # ZP
 
         SCLogger.info( "Photometric calibration" )
-
-        photo_cal_config = config.value( 'extraction.zp', {} )
-        photomotor = PhotCalibrator( **photo_cal_config )
         ds = photomotor.run( ds )
 
-        SCLogger.info( "Saving data products" )
+        # Write out all these data files
 
+        SCLogger.info( "Saving data products" )
         ds.save_and_commit()
 
         # Make the reference

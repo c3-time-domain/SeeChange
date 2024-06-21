@@ -531,6 +531,9 @@ class DataStore:
             prov = Provenance(
                 process=process,
                 code_version=code_version,
+                # TODO -- this next line isn't right, it doesn't properly handle
+                #  siblings.  pars_dict needs to be mangled in a way that
+                #  may be kind of complicated.
                 parameters=pars_dict,
                 upstreams=upstreams,
                 is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes
