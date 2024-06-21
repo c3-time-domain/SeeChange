@@ -70,7 +70,7 @@ class SCLogger:
     @classmethod
     def getEffectiveLevel( cls ):
         return cls.instance()._logger.getEffectiveLevel()
-        
+
     @classmethod
     def debug( cls, *args, **kwargs ):
         cls.get().debug( *args, **kwargs )

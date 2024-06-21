@@ -70,7 +70,7 @@ class Updater():
             return True
         else:
             return False
-        
+
     def __call__( self ):
         # Open up a socket that we'll listen on to be told things to do
         # We'll have a timeout (default 120s).  Every timeout, *if* we
@@ -150,7 +150,7 @@ class Updater():
 
                         if 'pause' in msg.keys():
                             self.pause = self.parse_bool_arg( msg['pause'] )
-                            
+
                         if ( self.instrument_name is None ) != ( self.updateargs is None ):
                             errmsg = ( f'Either both or neither of instrument and updateargs must be None; '
                                        f'instrument={self.instrument_name}, updateargs={self.updateargs}' )

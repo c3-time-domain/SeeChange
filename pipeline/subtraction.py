@@ -43,7 +43,7 @@ class ParsSubtractor(Parameters):
             dict,
             'Parameters passed to DataStore.get_reference for identifying references'
         )
-        
+
         self.inpainting = self.add_par(
             'inpainting',
             {},

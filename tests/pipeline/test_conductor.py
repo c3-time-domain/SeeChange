@@ -93,7 +93,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
     assert data['status'] == 'forced update'
     data = conductor_connector.send( 'status' )
     first_updatetime = dateutil.parser.parse( data['lastupdate'] )
-    
+
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
                 .filter( KnownExposure.mjd >= 60159.157 )
@@ -120,7 +120,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
     assert data['status'] == 'forced update'
     data = conductor_connector.send( 'status' )
     assert dateutil.parser.parse( data['lastupdate'] ) > first_updatetime
-    
+
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
                 .filter( KnownExposure.mjd >= 60159.157 )
@@ -141,7 +141,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
         for delke in delkes:
             session.delete( delke )
         session.commit()
-    
+
     data = conductor_connector.send( 'forceupdate' )
     assert data['status'] == 'forced update'
 
@@ -152,7 +152,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
         assert len(kes) == 9
         assert all( [ i.hold for i in kes ] )
 
-        
+
 def test_request_knownexposure_get_none( conductor_connector ):
     with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: "
                                               r"cluster_id is required for RequestExposure" ) ):
@@ -183,8 +183,8 @@ def test_request_knownexposure( conductor_connector, conductor_config_for_decam_
 
     data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )
     assert data['status'] == 'not available'
-            
-        
+
+
 def test_register_worker( conductor_connector ):
     """Tests registerworker, unregisterworker, and heartbeat """
     try:
@@ -193,7 +193,7 @@ def test_register_worker( conductor_connector ):
         assert data['cluster_id'] == 'test'
         assert data['node_id'] == 'testnode'
         assert data['nexps'] == 10
-        
+
         with SmartSession() as session:
             pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).first()
             assert pw.cluster_id == 'test'
@@ -203,7 +203,7 @@ def test_register_worker( conductor_connector ):
 
         hb = conductor_connector.send( f'workerheartbeat/{data["id"]}' )
         assert hb['status'] == 'updated'
-        
+
         with SmartSession() as session:
             pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).first()
             assert pw.cluster_id == 'test'
@@ -217,15 +217,15 @@ def test_register_worker( conductor_connector ):
         with SmartSession() as session:
             pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).all()
             assert len(pw) == 0
-            
+
     finally:
         with SmartSession() as session:
             pws = session.query( PipelineWorker ).filter( PipelineWorker.cluster_id=='test' ).all()
             for pw in pws:
                 session.delete( pw )
             session.commit()
-    
-    
+
+
 
 # ======================================================================
 # The tests below use selenium to test the interactive part of the

@@ -44,7 +44,7 @@ class BaseView( flask.views.View ):
         self.displayname = flask.session['userdisplayname'] if 'userdisplayname' in flask.session else '(None)'
         self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
         return self.authenticated
-        
+
     def argstr_to_args( self, argstr, initargs={} ):
         """Parse argstr as a bunch of /kw=val to a dictionary, update with request body if it's json."""
 
@@ -95,7 +95,7 @@ class BaseView( flask.views.View ):
 
     def get_updater_status( self ):
         return self.talk_to_updater( { 'command': 'status' } )
-                
+
     def dispatch_request( self, *args, **kwargs ):
         if not self.check_auth():
             return f"Not logged in", 500
@@ -106,14 +106,14 @@ class BaseView( flask.views.View ):
         except Exception as ex:
             app.logger.exception( str(ex) )
             return f"Exception handling request: {ex}", 500
-        
+
 # ======================================================================
 # /
 #
 # This is the only view that doesn't require authentication (Hence it
 # has its own dispatch_request method rather than calling the
 # do_the_things method in BaseView's dispatch_request.)
- 
+
 class MainPage( BaseView ):
     def dispatch_request( self ):
         return flask.render_template( "conductor_root.html" )
@@ -144,7 +144,7 @@ class UpdateParameters( BaseView ):
             return curstatus
 
         app.logger.debug( f"In UpdateParameters, argstr='{argstr}', args={args}" )
-        
+
         knownkw = [ 'instrument', 'timeout', 'updateargs', 'hold', 'pause' ]
         unknown = set()
         for arg, val in args.items():
@@ -159,7 +159,7 @@ class UpdateParameters( BaseView ):
         res['oldsconfig'] = curstatus
 
         return res
-        
+
 # ======================================================================
 # /registerworker
 #
@@ -169,7 +169,7 @@ class UpdateParameters( BaseView ):
 # out there.
 #
 # parameters:
-#   cluster_id str, 
+#   cluster_id str,
 #   node_id str, optional
 #   replace int, optional -- if non-zero, will replace an existing entry with this cluster/node
 #   nexps int, optional number of exposures this pipeline worker can do at once (default 1)
@@ -199,7 +199,7 @@ class RegisterWorker( BaseView ):
                     status = 'updated'
                 else:
                     return f"cluster_id {args['cluster_id']} node_id {args['node_id']} already exists", 500
-            
+
             else:
                 newworker = PipelineWorker( cluster_id=args['cluster_id'],
                                             node_id=args['node_id'],
@@ -251,7 +251,7 @@ class WorkerHeartbeat( BaseView ):
             session.merge( existing )
             session.commit()
             return { 'status': 'updated' }
-            
+
 # ======================================================================
 # /getworkers
 
@@ -309,8 +309,8 @@ class RequestExposure( BaseView ):
             return { 'status': 'available', 'knownexposure_id': knownexp_id }
         else:
             return { 'status': 'not available' }
-        
-    
+
+
 # ======================================================================
 
 class GetKnownExposures( BaseView ):
@@ -397,7 +397,7 @@ if flaskauth.RKAuthConfig.webap_url[-1] != '/':
 flaskauth.RKAuthConfig.webap_url += "auth"
 # app.logger.debug( f'webap_url is {flaskauth.RKAuthConfig.webap_url}' )
 app.register_blueprint( flaskauth.bp )
-             
+
 # Configure urls
 
 urls = {
@@ -427,5 +427,5 @@ for url, cls in urls.items():
     else:
         usedurls[ url ] += 1
         name = f"url.{usedurls[usr]}"
-        
+
     app.add_url_rule( url, view_func=cls.as_view(name), methods=["GET", "POST"], strict_slashes=False )

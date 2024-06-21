@@ -24,7 +24,7 @@ class KnownExposure(Base, AutoIDMixin):
     information to actually pull the exposure from the exposure source.
 
     """
-    
+
     __tablename__ = "knownexposures"
 
     instrument = sa.Column( sa.Text, nullable=False, index=True, doc='Instrument this known exposure is from' )
@@ -36,7 +36,7 @@ class KnownExposure(Base, AutoIDMixin):
 
     hold = sa.Column( 'hold', sa.Boolean, nullable=False, server_default='false',
                       doc="If True, conductor won't release this exposure for processing" )
-    
+
     exposure_id = sa.Column( 'exposure_id',
                              sa.BigInteger,
                              sa.ForeignKey( 'exposures.id', name='knownexposure_exposure_id_fkey' ),
@@ -52,7 +52,7 @@ class KnownExposure(Base, AutoIDMixin):
 
     cluster_id = sa.Column( sa.Text, nullable=True, doc="ID of the cluster that has been assigned this exposure" )
     claim_time = sa.Column( sa.DateTime, nullable=True, doc="Time when this exposure was assigned to cluster_id" )
-    
+
     # Not using SpatiallyIndexed because we need ra and dec to be nullable
     ra = sa.Column( sa.Double, nullable=True, doc='Right ascension in degrees' )
     dec = sa.Column( sa.Double, nullable=True, doc='Declination in degrees' )
@@ -67,7 +67,7 @@ class KnownExposure(Base, AutoIDMixin):
         return (
             sa.Index(f"{tn}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
         )
-    
+
     def calculate_coordinates(self):
         """Fill self.gallat, self.gallon, self.ecllat, and self.ecllong based on self.ra and self.dec."""
 
@@ -79,7 +79,7 @@ class KnownExposure(Base, AutoIDMixin):
         self.gallon = float(coords.galactic.l.deg)
         self.ecllat = float(coords.barycentrictrueecliptic.lat.deg)
         self.ecllon = float(coords.barycentrictrueecliptic.lon.deg)
-                            
+
 
 class PipelineWorker(Base, AutoIDMixin):
     """A table of currently active pipeline launchers that the conductor knows about.

@@ -32,7 +32,7 @@ conductor:
   conductor_url: https://ls4-conductor-rknop-dev.lbl.gov
   username: rknop
   password: placeholder
-  
+
 preprocessing:
   # For DECam (though fringe isn't implemented)
   steps_required: [ 'overscan', 'linearity', 'flat', 'illumination', 'fringe' ]

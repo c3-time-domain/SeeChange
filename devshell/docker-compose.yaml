@@ -109,7 +109,7 @@ services:
         source: conductor-sessions
         target: /sessions
     command: [ "./run_conductor.sh", "8082", "1" ]
-      
+
   webap:
     depends_on:
       setuptables:

@@ -53,7 +53,7 @@ class PasswordLink(Base):
     id = sa.Column( sqlUUID(as_uuid=True), primary_key=True, default=uuid.uuid4 )
     userid = sa.Column( sqlUUID(as_uuid=True), sa.ForeignKey("authuser.id", ondelete="CASCADE"), index=True )
     expires = sa.Column( sa.DateTime(timezone=True) )
-    
+
     @classmethod
     def new( cls, userid, expires=None, session=None ):
         if expires is None:

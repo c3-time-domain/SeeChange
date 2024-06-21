@@ -279,7 +279,7 @@ def read_fits_image(filename, ext=0, output='data'):
             # But, the sep library depends on native byte ordering
             # So, swap if necessary
             if not data.dtype.isnative:
-                data = data.astype( data.dtype.name ) 
+                data = data.astype( data.dtype.name )
 
         if output in ['header', 'both']:
             header = hdul[ext].header
@@ -412,7 +412,7 @@ def get_inheritors(klass):
                 subclasses.add(child)
                 work.append(child)
     return subclasses
-    
+
 
 def as_UUID( val, canbenone=True ):
     """Convert a string or None to a uuid.UUID
@@ -485,4 +485,4 @@ def as_datetime( string ):
             SCLogger.error( f'Exception in asDateTime: {e}\n' )
         raise ValueError( f'Error, {string} is not a valid date and time.' )
 
-    
+

@@ -1987,7 +1987,7 @@ class DemoInstrument(Instrument):
           identifier : str
             Identifies the image at the source of exposures.  (See
             KnownExposure.identfier or Exposure.origin_identifier.)
-        
+
           params : defined differently for each subclass
             Necessary parameters for this instrument to download an
             origin exposure
@@ -2013,7 +2013,7 @@ class DemoInstrument(Instrument):
           identifier : str
             Identifies the image at the source of exposures.  (See
             KnownExposure.identfier or Exposure.origin_identifier.)
-        
+
           params : defined differently for each subclass
             Necessary parameters for this instrument to download an
             origin exposure
@@ -2118,7 +2118,7 @@ class InstrumentOriginExposures:
           The "hold" field to set in the KnownExposures table.  (The
           conductor will not hand out exposures to pipeline processes
           for rows where hold is True.)
-        
+
         skip_duplicates: bool, default True
           Don't create duplicate entries in the knownexposures table.
           If the exposure is one that's already in the table, don't add

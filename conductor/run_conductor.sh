@@ -10,7 +10,7 @@ if [ $# \> 1 ]; then
     bogus=1
 fi
 
-    
+
 echo "Going to listen on port ${port}"
 
 python updater.py &
