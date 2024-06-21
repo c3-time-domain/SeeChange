@@ -49,8 +49,8 @@ spec:
         - mountPath: /archive
           name: seechange-archive-dir
         # Comment the next two lines out to use the code baked into the Dockerfile
-        # - mountPath: /code
-        #   name: seechange-webap-code
+        - mountPath: /code
+          name: seechange-webap-code
       dnsConfig: {}
       dnsPolicy: ClusterFirst
       restartPolicy: Always

@@ -50,6 +50,10 @@ seechange.Context.prototype.render_page = function()
             rkWebUtil.validateWidgetDate( self.enddatewid );
         } );
         p.appendChild( document.createTextNode( " (YYYY-MM-DD [HH:MM] — leave blank for no limit)" ) );
+
+        rkWebUtil.elemaker( "hr", this.frontpagediv );
+        this.subdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
+
     }
     else {
         rkWebUtil.wipeDiv( this.maindiv );
@@ -78,6 +82,10 @@ seechange.Context.prototype.show_exposures = function()
         return;
     }
 
+    rkWebUtil.wipeDiv( this.subdiv );
+    rkWebUtil.elemaker( "p", this.subdiv, { "text": "Loading exposures...",
+                                            "classes": [ "warning", "bold", "italic" ] } );
+
     this.connector.sendHttpRequest( "exposures", { "startdate": startdate, "enddate": enddate },
                                     function( data ) { self.actually_show_exposures( data ); } );
 }
@@ -89,7 +97,7 @@ seechange.Context.prototype.actually_show_exposures = function( data )
         window.alert( "Unexpected response from server when looking for exposures." );
         return
     }
-    let exps = new seechange.ExposureList( this, this.maindiv, data["exposures"], data["startdate"], data["enddate"] );
+    let exps = new seechange.ExposureList( this, this.subdiv, data["exposures"], data["startdate"], data["enddate"] );
     exps.render_page();
 }
 
@@ -104,7 +112,10 @@ seechange.ExposureList = function( context, parentdiv, exposures, fromtime, toti
     this.exposures = exposures;
     this.fromtime = fromtime;
     this.totime = totime;
-    this.div = null;
+    this.masterdiv = null;
+    this.listdiv = null;
+    this.exposurediv = null;
+    this.exposure_displays = {};
 }
 
 seechange.ExposureList.prototype.render_page = function()
@@ -113,26 +124,34 @@ seechange.ExposureList.prototype.render_page = function()
 
     rkWebUtil.wipeDiv( this.parentdiv );
 
-    if ( this.div != null ) {
-        this.parentdiv.appendChild( this.div );
+    if ( this.masterdiv != null ) {
+        this.parentdiv.appendChild( this.masterdiv );
         return
     }
 
-    this.div = rkWebUtil.elemaker( "div", this.parentdiv );
+    this.masterdiv = rkWebUtil.elemaker( "div", this.parentdiv );
+
+    this.tabbed = new rkWebUtil.Tabbed( this.masterdiv );
+    this.listdiv = rkWebUtil.elemaker( "div", null );
+    this.tabbed.addTab( "exposurelist", "Exposure List", this.listdiv, true );
+    this.exposurediv = rkWebUtil.elemaker( "div", null );
+    this.tabbed.addTab( "exposuredetail", "Exposure Details", this.exposurediv, false );
+    rkWebUtil.elemaker( "p", this.exposurediv,
+                        { "text": 'No exposure listed; click on an exposure in the "Exposure List" tab.' } );
 
     var table, th, tr, td;
 
-    let p = rkWebUtil.elemaker( "p", this.div );
-    rkWebUtil.elemaker( "span", p, { "text": "[Back to exposure search]",
-                                     "classes": [ "link" ],
-                                     "click": () => { self.context.render_page() } } );
-    p.appendChild( document.createTextNode( "  —  " ) );
-    rkWebUtil.elemaker( "span", p, { "text": "[Refresh]",
-                                     "classes": [ "link" ],
-                                     "click": () => { rkWebUtil.wipeDiv( self.div );
-                                                      self.context.show_exposures(); } } );
+    // let p = rkWebUtil.elemaker( "p", this.listdiv );
+    // rkWebUtil.elemaker( "span", p, { "text": "[Back to exposure search]",
+    //                                  "classes": [ "link" ],
+    //                                  "click": () => { self.context.render_page() } } );
+    // p.appendChild( document.createTextNode( "  —  " ) );
+    // rkWebUtil.elemaker( "span", p, { "text": "[Refresh]",
+    //                                  "classes": [ "link" ],
+    //                                  "click": () => { rkWebUtil.wipeDiv( self.div );
+    //                                                   self.context.show_exposures(); } } );
 
-    let h2 = rkWebUtil.elemaker( "h2", this.div, { "text": "Exposures" } );
+    let h2 = rkWebUtil.elemaker( "h2", this.listdiv, { "text": "Exposures" } );
     if ( ( this.fromtime == null ) && ( this.totime == null ) ) {
         h2.appendChild( document.createTextNode( " from all time" ) );
     } else if ( this.fromtime == null ) {
@@ -143,7 +162,7 @@ seechange.ExposureList.prototype.render_page = function()
         h2.appendChild( document.createTextNode( " from " + this.fromtime + " to " + this.totime ) );
     }
 
-    table = rkWebUtil.elemaker( "table", this.div, { "classes": [ "exposurelist" ] } );
+    table = rkWebUtil.elemaker( "table", this.listdiv, { "classes": [ "exposurelist" ] } );
     tr = rkWebUtil.elemaker( "tr", table );
     th = rkWebUtil.elemaker( "th", tr, { "text": "Exposure" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "MJD" } );
@@ -196,17 +215,29 @@ seechange.ExposureList.prototype.render_page = function()
 seechange.ExposureList.prototype.show_exposure = function( id, name, mjd, filter, target, exp_time )
 {
     let self = this;
-    this.context.connector.sendHttpRequest( "exposure_images/" + id, null,
-                                            (data) => {
-                                                self.actually_show_exposure( id, name, mjd, filter,
-                                                                             target, exp_time, data );
-                                            } );
+
+    this.tabbed.selectTab( "exposuredetail" );
+
+    if ( this.exposure_displays.hasOwnProperty( id ) ) {
+        this.exposure_displays[id].render_page();
+    }
+    else {
+        rkWebUtil.wipeDiv( this.exposurediv );
+        rkWebUtil.elemaker( "p", this.exposurediv, { "text": "Loading...",
+                                                     "classes": [ "warning", "bold", "italic" ] } );
+        this.context.connector.sendHttpRequest( "exposure_images/" + id, null,
+                                                (data) => {
+                                                    self.actually_show_exposure( id, name, mjd, filter,
+                                                                                 target, exp_time, data );
+                                                } );
+    }
 }
 
 seechange.ExposureList.prototype.actually_show_exposure = function( id, name, mjd, filter, target, exp_time, data )
 {
-    let exp = new seechange.Exposure( this, this.context, this.parentdiv,
+    let exp = new seechange.Exposure( this, this.context, this.exposurediv,
                                       id, name, mjd, filter, target, exp_time, data );
+    this.exposure_displays[id] = exp;
     exp.render_page();
 }
 
@@ -278,9 +309,9 @@ seechange.Exposure.prototype.render_page = function()
 
     var h2, h3, ul, li, table, tr, td, th, hbox, p, span, tiptext, ttspan;
 
-    rkWebUtil.elemaker( "p", this.div, { "text": "[Back to exposure list]",
-                                         "classes": [ "link" ],
-                                         "click": () => { self.exposurelist.render_page(); } } );
+    // rkWebUtil.elemaker( "p", this.div, { "text": "[Back to exposure list]",
+    //                                      "classes": [ "link" ],
+    //                                      "click": () => { self.exposurelist.render_page(); } } );
 
     h2 = rkWebUtil.elemaker( "h2", this.div, { "text": "Exposure " + this.name } );
     ul = rkWebUtil.elemaker( "ul", this.div );
@@ -293,7 +324,7 @@ seechange.Exposure.prototype.render_page = function()
     li = rkWebUtil.elemaker( "li", ul );
     li.innerHTML = "<b>t_exp (s):</b> " + this.exp_time;
 
-    this.tabs = new rkWebUtil.Tabbed( this.parentdiv );
+    this.tabs = new rkWebUtil.Tabbed( this.div );
 
 
     this.imagesdiv = rkWebUtil.elemaker( "div", null );
@@ -350,8 +381,13 @@ seechange.Exposure.prototype.render_page = function()
     th = rkWebUtil.elemaker( "th", tr, {} ); // warnings
 
     let fade = 1;
-    let countdown = 3;
+    let countdown = 4;
     for ( let i in this.data['id'] ) {
+        countdown -= 1;
+        if ( countdown <= 0 ) {
+            countdown = 3;
+            fade = 1 - fade;
+        }
         tr = rkWebUtil.elemaker( "tr", table, { "classes": [ fade ? "bgfade" : "bgwhite" ] } );
         td = rkWebUtil.elemaker( "td", tr );
         this.cutoutsimage_checkboxes[ this.data['id'][i] ] =
