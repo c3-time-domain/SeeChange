@@ -19,7 +19,6 @@ photutils==1.9.0
 psutil==5.9.8
 psycopg2==2.9.9
 pycryptodome==3.20.0
-pylandau==2.2.1
 pytest==7.4.3
 pytest-timestamper==0.0.10
 python-dateutil==2.8.2

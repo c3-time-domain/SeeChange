@@ -1,7 +1,7 @@
 """authuser
 
 Revision ID: ceec8a848b40
-Revises: a7dde2327dde
+Revises: a375526c8260
 Create Date: 2024-06-10 17:52:28.527093
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = 'ceec8a848b40'
-down_revision = 'a7dde2327dde'
+down_revision = 'a375526c8260'
 branch_labels = None
 depends_on = None
 
