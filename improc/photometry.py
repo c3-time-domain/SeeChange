@@ -251,6 +251,7 @@ def iterative_cutouts_photometry(
         normalizations=norms,
         background=background,
         variance=variance,
+        n_pix_bg=nandata.size,
         offset_x=cx,
         offset_y=cy,
         moment_xx=cxx,
@@ -272,7 +273,7 @@ def iterative_cutouts_photometry(
 
         # for each radius, do 1-3 rounds of repositioning the centroid
         for i in range(iterations):
-            flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, failure = calc_at_position(
+            flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, failure = calc_at_position(
                 nandata, r, annulus, xgrid, ygrid, cx, cy, local_bg=local_bg, full=False  # reposition only!
             )
 
@@ -296,7 +297,7 @@ def iterative_cutouts_photometry(
 
     # go over each radius again and this time get all outputs (e.g., cxx) using the best centroid
     for j, r in enumerate(radii):
-        flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, failure = calc_at_position(
+        flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, failure = calc_at_position(
             nandata,
             r,
             annulus,
@@ -323,6 +324,7 @@ def iterative_cutouts_photometry(
     photometry['areas'] = areas[::-1]  # return radii and areas in increasing order
     photometry['background'] = background
     photometry['variance'] = variance
+    photometry['n_pix_bg'] = n_pix_bg
     photometry['normalizations'] = norms[::-1]  # return radii and areas in increasing order
     photometry['offset_x'] = best_cx
     photometry['offset_y'] = best_cy
@@ -398,6 +400,8 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
         The background level.
     variance: float
         The variance of the background.
+    n_pix_bg: float
+        Number of pixels in the background annulus.
     norm: float
         The normalization factor for the flux error
         (this is the sqrt of the sum of squares of the aperture mask).
@@ -418,9 +422,9 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
         If True, it flags to the outer scope to stop
         the iterative process.
     """
-    flux = area = background = variance = norm = cxx = cyy = cxy = 0
+    flux = area = background = variance = n_pix_bg = norm = cxx = cyy = cxy = 0
     if np.all(np.isnan(data)):
-        return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, True
+        return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
 
     # make a circle-mask based on the centroid position
     if not np.isfinite(cx) or not np.isfinite(cy):
@@ -429,14 +433,14 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
     # get a circular mask
     mask = get_circle(radius=radius, imsize=data.shape[0], soft=soft).get_image(cx, cy)
     if np.nansum(mask) == 0:
-        return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, True
+        return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
 
     masked_data = data * mask
 
     flux = np.nansum(masked_data)  # total flux, not per pixel!
     area = np.nansum(mask)  # save the number of pixels in the aperture
     denominator = flux
-    masked_data_bg = masked_data
+    masked_data_bgsub = masked_data
 
     # get an offset annulus to get a local background estimate
     if full or local_bg:
@@ -446,7 +450,7 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
         annulus_map[annulus_map == 0.] = np.nan  # flag pixels outside annulus as nan
 
         if np.nansum(annulus_map) == 0:  # this can happen if annulus is too large
-            return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, True
+            return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
 
         annulus_map_sum = np.nansum(annulus_map)
         if annulus_map_sum == 0 or np.all(np.isnan(annulus_map)):
@@ -462,26 +466,27 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
 
         if local_bg:  # update these to use the local background
             denominator = (flux - background * area)
-            masked_data_bg = (data - background) * mask
+            masked_data_bgsub = (data - background) * mask
 
     if denominator == 0:  # this should only happen in pathological cases
-        return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, True
+        return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
 
     if not fixed:  # update the centroids
-        cx = np.nansum(xgrid * masked_data_bg) / denominator
-        cy = np.nansum(ygrid * masked_data_bg) / denominator
+        cx = np.nansum(xgrid * masked_data_bgsub) / denominator
+        cy = np.nansum(ygrid * masked_data_bgsub) / denominator
 
         # check that we got reasonable values!
         if np.isnan(cx) or abs(cx) > data.shape[1] / 2 or np.isnan(cy) or abs(cy) > data.shape[0] / 2:
-            return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, True
+            return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
 
     if full:
         # update the second moments
-        cxx = np.nansum((xgrid - cx) ** 2 * masked_data_bg) / denominator
-        cyy = np.nansum((ygrid - cy) ** 2 * masked_data_bg) / denominator
-        cxy = np.nansum((xgrid - cx) * (ygrid - cy) * masked_data_bg) / denominator
+        cxx = np.nansum((xgrid - cx) ** 2 * masked_data_bgsub) / denominator
+        cyy = np.nansum((ygrid - cy) ** 2 * masked_data_bgsub) / denominator
+        cxy = np.nansum((xgrid - cx) * (ygrid - cy) * masked_data_bgsub) / denominator
 
-    return flux, area, background, variance, norm, cx, cy, cxx, cyy, cxy, False
+    n_pix_bg = annulus_map_sum
+    return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, False
 
 
 if __name__ == '__main__':

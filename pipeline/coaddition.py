@@ -1,4 +1,3 @@
-
 import numpy as np
 from numpy.fft import fft2, ifft2, fftshift
 
@@ -15,6 +14,7 @@ from models.image import Image
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 from pipeline.detection import Detector
+from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 from util.util import get_latest_provenance, parse_session
@@ -272,7 +272,7 @@ class Coadder:
         ----------
         images: list of Image or list of 2D ndarrays
             Images that have been aligned to each other.
-            Each image must also have a PSF object attached.
+            Each image must also have a PSF and a background object attached.
         weights: list of 2D ndarrays
             The weights to use for each image.
             If images is given as Image objects, can be left as None.
@@ -291,12 +291,10 @@ class Coadder:
         bkg_means: list of floats
             The mean background for each image.
             If images is given as Image objects, can be left as None.
-            This variable can be used to override the background estimation.
             If images are already background subtracted, set these to zeros.
         bkg_sigmas: list of floats
             The RMS of the background for each image.
             If images is given as Image objects, can be left as None.
-            This variable can be used to override the background estimation.
 
         Returns
         -------
@@ -348,12 +346,10 @@ class Coadder:
 
         # estimate the background if not given
         if bkg_means is None or bkg_sigmas is None:
-            bkg_means = []
-            bkg_sigmas = []
-            for array in data:
-                bkg, sigma = self._estimate_background(array)
-                bkg_means.append(bkg)
-                bkg_sigmas.append(sigma)
+            if not isinstance(images[0], Image):
+                raise ValueError('Background must be given if images are not Image objects. ')
+            bkg_means = [im.bg.value for im in images]
+            bkg_sigmas = [im.bg.noise for im in images]
 
         imcube = np.array(data)
         flcube = np.array(flags)
@@ -496,6 +492,13 @@ class CoaddPipeline:
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
+        # background estimation
+        backgrounder_config = self.config.value('extraction.bg', {})
+        backgrounder_config.update(self.config.value('coaddition.extraction.bg', {}))  # override coadd specific pars
+        backgrounder_config.update(kwargs.get('extraction', {}).get('bg', {}))
+        self.pars.add_defaults_to_dict(backgrounder_config)
+        self.backgrounder = Backgrounder(**backgrounder_config)
+
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
         astrometor_config = self.config.value('extraction.wcs', {})
         astrometor_config.update(self.config.value('coaddition.extraction.wcs', {}))  # override coadd specific pars
@@ -511,8 +514,14 @@ class CoaddPipeline:
         self.photometor = PhotCalibrator(**photometor_config)
 
         # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
-        siblings = {'sources': self.extractor.pars, 'wcs': self.astrometor.pars, 'zp': self.photometor.pars}
+        siblings = {
+            'sources': self.extractor.pars,
+            'bg': self.backgrounder.pars,
+            'wcs': self.astrometor.pars,
+            'zp': self.photometor.pars
+        }
         self.extractor.pars.add_siblings(siblings)
+        self.backgrounder.pars.add_siblings(siblings)
         self.astrometor.pars.add_siblings(siblings)
         self.photometor.pars.add_siblings(siblings)
 
@@ -640,6 +649,7 @@ class CoaddPipeline:
 
         # TODO: add the warnings/exception capturing, runtime/memory tracking (and Report making) as in top_level.py
         self.datastore = self.extractor.run(self.datastore)
+        self.datastore = self.backgrounder.run(self.datastore)
         self.datastore = self.astrometor.run(self.datastore)
         self.datastore = self.photometor.run(self.datastore)
 

@@ -2,6 +2,7 @@ import pytest
 import uuid
 
 import sqlalchemy as sa
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from models.base import SmartSession
 from models.provenance import CodeHash, CodeVersion, Provenance
@@ -314,3 +315,68 @@ def test_cascade_merge( provenance_base ):
         if 'p4' in locals():
             session.execute(sa.delete(Provenance).where(Provenance.id == p4.id))
         session.commit()
+
+
+def test_eager_load_upstreams( provenance_base ):
+    try:
+        with SmartSession() as session:
+            provenance_base = session.merge( provenance_base )
+            p1 = Provenance(
+                process="test_process_1",
+                code_version=provenance_base.code_version,
+                parameters={'test_parameter': 'test_value'},
+                upstreams=[ provenance_base ],
+                is_testing=True
+            )
+
+            p2 = Provenance(
+                process="test_process_2",
+                code_version=provenance_base.code_version,
+                parameters={'test_parameter': 'test_value'},
+                upstreams=[ p1 ],
+                is_testing=True
+            )
+
+            p3 = Provenance(
+                process="test_process_3",
+                code_version=provenance_base.code_version,
+                parameters={'test_parameter': 'test_value'},
+                upstreams=[ p2 ],
+                is_testing=True
+            )
+
+            p4 = Provenance(
+                process="test_process_4",
+                code_version=provenance_base.code_version,
+                parameters={'test_parameter': 'test_value'},
+                upstreams=[ p3 ],
+                is_testing=True
+            )
+
+            session.add_all( [ p1, p2, p3, p4 ] )
+            session.commit()
+
+            # Now, in another session....
+            with SmartSession() as session2:
+                p4 = session2.scalars(sa.select(Provenance).where(Provenance.id == p4.id)).first()
+
+            # we are out of the session, so loading of upstream relationships is only for those eager loaded ones
+            assert len(p4.upstreams) == 1  # should be ok
+            assert len(p4.upstreams[0].upstreams) == 1  # this should also be ok
+            assert len(p4.upstreams[0].upstreams[0].upstreams) == 1  # this should also be ok, assuming join_depth=3
+
+            with pytest.raises(DetachedInstanceError):
+                p4.upstreams[0].upstreams[0].upstreams[0].upstreams  # this should fail, as the join_depth is not enough
+
+    finally:
+        with SmartSession() as session:
+            if 'p1' in locals():
+                session.execute(sa.delete(Provenance).where(Provenance.id == p1.id))
+            if 'p2' in locals():
+                session.execute(sa.delete(Provenance).where(Provenance.id == p2.id))
+            if 'p3' in locals():
+                session.execute(sa.delete(Provenance).where(Provenance.id == p3.id))
+            if 'p4' in locals():
+                session.execute(sa.delete(Provenance).where(Provenance.id == p4.id))
+
+            session.commit()

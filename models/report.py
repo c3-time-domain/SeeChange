@@ -291,16 +291,31 @@ class Report(Base, AutoIDMixin):
     def init_on_load(self):
         SeeChangeBase.init_on_load(self)
 
-    def scan_datastore(self, ds, process_step, session=None):
+    def scan_datastore(self, ds, process_step=None, session=None):
         """Go over all the data in a datastore and update the report accordingly.
-        Will commit the changes to the database.
+        Will commit the Report object to the database.
         If there are any exceptions pending on the datastore it will re-raise them.
+
+        Parameters
+        ----------
+        ds : DataStore
+            The datastore to scan for information.
+        process_step : str, optional
+            The name of the process step that was just completed.
+            This will be added to the progress bitflag.
+            If not given, will skip adding the progress flag,
+            but will also skip checking warnings and errors...
+            Use without a process_step just to update general
+            properties of the datastore like the runtime and memory usage,
+            or for updating the products_exist and products_committed bitflags
+            (e.g., after saving the datastore).
+        session : sqlalchemy.orm.Session, optional
+            The session to use for committing the changes to the database.
+            If not given, will open a session and close it at the end
+            of the function.
         """
         # parse the error, if it exists, so we can get to other data products without raising
         exception = ds.read_exception()
-        
-        # append the newest step to the progress bitflag
-        self.append_progress(process_step)
         
         # check which objects exist on the datastore, and which have been committed
         for prod in pipeline_products_dict.values():
@@ -313,18 +328,23 @@ class Report(Base, AutoIDMixin):
         self.process_runtime = ds.runtimes  # update with new dictionary
         self.process_memory = ds.memory_usages  # update with new dictionary
 
-        # parse the warnings, if they exist
-        if isinstance(ds.warnings_list, list):
-            new_string = self.read_warnings(process_step, ds.warnings_list)
-            if self.warnings is None or self.warnings == '':
-                self.warnings = new_string
-            else:
-                self.warnings += '\n***|***|***\n' + new_string
-        
-        if exception is not None:
-            self.error_type = exception.__class__.__name__
-            self.error_message = str(exception)
-            self.error_step = process_step
+        if process_step is not None:
+            # append the newest step to the progress bitflag
+            if process_step in process_steps_inverse:  # skip steps not in the dict
+                self.append_progress(process_step)
+
+            # parse the warnings, if they exist
+            if isinstance(ds.warnings_list, list):
+                new_string = self.read_warnings(process_step, ds.warnings_list)
+                if self.warnings is None or self.warnings == '':
+                    self.warnings = new_string
+                else:
+                    self.warnings += '\n***|***|***\n' + new_string
+
+            if exception is not None:
+                self.error_type = exception.__class__.__name__
+                self.error_message = str(exception)
+                self.error_step = process_step
 
         with SmartSession(session) as session:
             new_report = self.commit_to_database(session=session)

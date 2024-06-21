@@ -37,7 +37,7 @@ def test_lightcurves_from_measurements(sim_lightcurves):
         measured_flux = []
 
         for m in lc:
-            measured_flux.append(m.flux_apertures[3] - m.background * m.area_apertures[3])
+            measured_flux.append(m.flux_apertures[3] - m.bkg_mean * m.area_apertures[3])
             expected_flux.append(m.sources.data['flux'][m.cutouts.index_in_sources])
             expected_error.append(m.sources.data['flux_err'][m.cutouts.index_in_sources])
 

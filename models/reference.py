@@ -6,6 +6,7 @@ from models.image import Image
 from models.provenance import Provenance
 from models.source_list import SourceList
 from models.psf import PSF
+from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 
@@ -138,6 +139,7 @@ class Reference(Base, AutoIDMixin):
     def __init__(self, **kwargs):
         self.sources = None
         self.psf = None
+        self.bg = None
         self.wcs = None
         self.zp = None
         super().__init__(**kwargs)
@@ -150,6 +152,7 @@ class Reference(Base, AutoIDMixin):
             self.section_id = value.section_id
             self.sources = value.sources
             self.psf = value.psf
+            self.bg = value.bg
             self.wcs = value.wcs
             self.zp = value.zp
 
@@ -160,6 +163,7 @@ class Reference(Base, AutoIDMixin):
         Base.init_on_load(self)
         self.sources = None
         self.psf = None
+        self.bg = None
         self.wcs = None
         self.zp = None
         this_object_session = orm.Session.object_session(self)
@@ -169,7 +173,7 @@ class Reference(Base, AutoIDMixin):
     def make_provenance(self):
         """Make a provenance for this reference image. """
         upstreams = [self.image.provenance]
-        for att in ['image', 'sources', 'psf', 'wcs', 'zp']:
+        for att in ['image', 'sources', 'psf', 'bg', 'wcs', 'zp']:
             if getattr(self, att) is not None:
                 upstreams.append(getattr(self, att).provenance)
             else:
@@ -202,6 +206,8 @@ class Reference(Base, AutoIDMixin):
             prov.append(self.sources.provenance)
         if self.psf is not None and self.psf.provenance is not None and self.psf.provenance.id is not None:
             prov.append(self.psf.provenance)
+        if self.bg is not None and self.bg.provenance is not None and self.bg.provenance.id is not None:
+            prov.append(self.bg.provenance)
         if self.wcs is not None and self.wcs.provenance is not None and self.wcs.provenance.id is not None:
             prov.append(self.wcs.provenance)
         if self.zp is not None and self.zp.provenance is not None and self.zp.provenance.id is not None:
@@ -244,6 +250,20 @@ class Reference(Base, AutoIDMixin):
             elif len(psfs) == 1:
                 self.image.psf = psfs[0]
                 self.psf = psfs[0]
+
+            bgs = session.scalars(
+                sa.select(Background).where(
+                    Background.image_id == self.image.id,
+                    Background.provenance_id.in_(prov_ids),
+                )
+            ).all()
+            if len(bgs) > 1:
+                raise ValueError(
+                    f"Image {self.image_id} has more than one Background matching upstream provenance."
+                )
+            elif len(bgs) == 1:
+                self.image.bg = bgs[0]
+                self.bg = bgs[0]
 
             if self.sources is not None:
                 wcses = session.scalars(

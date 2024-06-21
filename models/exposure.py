@@ -340,6 +340,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
         """
         FileOnDiskMixin.__init__(self, **kwargs)
+        HasBitFlagBadness.__init__(self)
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
 
         self._data = None  # the underlying image data for each section

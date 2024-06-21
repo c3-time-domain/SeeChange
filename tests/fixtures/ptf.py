@@ -20,6 +20,7 @@ from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
+from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
@@ -172,7 +173,7 @@ def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_b
         ptf_exposure,
         11,
         cache_dir=ptf_cache_dir,
-        cache_base_name='187/PTF_20110429_040004_11_R_Sci_QTD4UW',
+        cache_base_name='187/PTF_20110429_040004_11_R_Sci_BNKEKA',
         overrides={'extraction': {'threshold': 5}},
         bad_pixel_map=ptf_bad_pixel_map,
     )
@@ -329,9 +330,10 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
             filenames = f.read().splitlines()
         output_images = []
         for filename in filenames:
-            imfile, psffile = filename.split()
+            imfile, psffile, bgfile = filename.split()
             output_images.append(copy_from_cache(Image, cache_dir, imfile + '.image.fits'))
             output_images[-1].psf = copy_from_cache(PSF, cache_dir, psffile + '.fits')
+            output_images[-1].bg = copy_from_cache(Background, cache_dir, bgfile)
             output_images[-1].zp = copy_from_cache(ZeroPoint, cache_dir, imfile + '.zp')
     else:  # no cache available
         ptf_reference_images = request.getfixturevalue('ptf_reference_images')
@@ -351,22 +353,28 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
 
         filenames = []
         psf_paths = []
+        bg_paths = []
+        # there's an implicit call to Image._make_aligned_images() here
         for image in coadd_image.aligned_images:
             image.save()
             filepath = copy_to_cache(image, cache_dir)
             if image.psf.filepath is None:  # save only PSF objects that haven't been saved yet
                 image.psf.save(overwrite=True)
+            if image.bg.filepath is None:  # save only Background objects that haven't been saved yet
+                image.bg.save(overwrite=True)
             if not os.getenv( "LIMIT_CACHE_USAGE" ):
-               copy_to_cache(image.psf, cache_dir)
-               copy_to_cache(image.zp, cache_dir, filepath=filepath[:-len('.image.fits.json')]+'.zp.json')
+                copy_to_cache(image.psf, cache_dir)
+                copy_to_cache(image.bg, cache_dir)
+                copy_to_cache(image.zp, cache_dir, filepath=filepath[:-len('.image.fits.json')]+'.zp.json')
             filenames.append(image.filepath)
             psf_paths.append(image.psf.filepath)
+            bg_paths.append(image.bg.filepath)
 
         if not os.getenv( "LIMIT_CACHE_USAGE" ):
             os.makedirs(cache_dir, exist_ok=True)
             with open(os.path.join(cache_dir, 'manifest.txt'), 'w') as f:
-                for filename, psf_path in zip(filenames, psf_paths):
-                    f.write(f'{filename} {psf_path}\n')
+                for filename, psf_path, bg_path in zip(filenames, psf_paths, bg_paths):
+                    f.write(f'{filename} {psf_path} {bg_path}\n')
 
         output_images = coadd_image.aligned_images
 
@@ -422,7 +430,7 @@ def ptf_ref(
             is_testing=True,
         )
 
-        cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_u-wswtff'
+        cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_u-iqxrjn'
 
         # this provenance is used for sources, psf, wcs, zp
         sources_prov = Provenance(
@@ -434,8 +442,9 @@ def ptf_ref(
         )
     extensions = [
         'image.fits',
-        f'psf_{sources_prov.id[:6]}.fits',
         f'sources_{sources_prov.id[:6]}.fits',
+        f'psf_{sources_prov.id[:6]}.fits',
+        f'bg_{sources_prov.id[:6]}.h5',
         f'wcs_{sources_prov.id[:6]}.txt',
         'zp'
     ]
@@ -452,17 +461,22 @@ def ptf_ref(
         coadd_image.ref_image_id = ptf_reference_images[-1].id  # make sure to replace the ID with the new DB value
         assert coadd_image.provenance_id == coadd_image.provenance.id
 
-        # get the PSF:
-        coadd_image.psf = copy_from_cache(PSF, ptf_cache_dir, cache_base_name + f'.psf_{sources_prov.id[:6]}.fits')
-        coadd_image.psf.provenance = sources_prov
-        assert coadd_image.psf.provenance_id == coadd_image.psf.provenance.id
-
         # get the source list:
         coadd_image.sources = copy_from_cache(
             SourceList, ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
         )
         coadd_image.sources.provenance = sources_prov
         assert coadd_image.sources.provenance_id == coadd_image.sources.provenance.id
+
+        # get the PSF:
+        coadd_image.psf = copy_from_cache(PSF, ptf_cache_dir, cache_base_name + f'.psf_{sources_prov.id[:6]}.fits')
+        coadd_image.psf.provenance = sources_prov
+        assert coadd_image.psf.provenance_id == coadd_image.psf.provenance.id
+
+        # get the background:
+        coadd_image.bg = copy_from_cache(Background, ptf_cache_dir, cache_base_name + f'.bg_{sources_prov.id[:6]}.h5')
+        coadd_image.bg.provenance = sources_prov
+        assert coadd_image.bg.provenance_id == coadd_image.bg.provenance.id
 
         # get the WCS:
         coadd_image.wcs = copy_from_cache(
@@ -491,6 +505,7 @@ def ptf_ref(
             copy_to_cache(pipe.datastore.image, ptf_cache_dir)
             copy_to_cache(pipe.datastore.sources, ptf_cache_dir)
             copy_to_cache(pipe.datastore.psf, ptf_cache_dir)
+            copy_to_cache(pipe.datastore.bg, ptf_cache_dir)
             copy_to_cache(pipe.datastore.wcs, ptf_cache_dir)
             copy_to_cache(pipe.datastore.zp, ptf_cache_dir, cache_base_name + '.zp.json')
 

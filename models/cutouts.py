@@ -126,6 +126,7 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
 
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
+        HasBitFlagBadness.__init__(self)
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
 
         self.format = 'hdf5'  # the default should match the column-defined default above!
@@ -291,7 +292,6 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBa
             filename = os.path.splitext(filename)[0]
 
         filename += '.cutouts_'
-        self.provenance.update_id()
         filename += self.provenance.id[:6]
         if self.format == 'hdf5':
             filename += '.h5'

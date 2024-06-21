@@ -84,7 +84,9 @@ class Cutter:
                 detections = ds.get_detections(session=session)
 
                 if detections is None:
-                    raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+                    raise ValueError(
+                        f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}'
+                    )
 
                 cutout_list = []
                 x = detections.x

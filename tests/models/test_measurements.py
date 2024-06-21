@@ -13,8 +13,9 @@ from models.cutouts import Cutouts
 from models.measurements import Measurements
 
 
-def test_measurements_attributes(measurer, ptf_datastore):
+def test_measurements_attributes(measurer, ptf_datastore, test_config):
 
+    aper_radii = test_config.value('extraction.sources.apertures')
     ds = measurer.run(ptf_datastore.cutouts)
     # check that the measurer actually loaded the measurements from db, and not recalculated
     assert len(ds.measurements) <= len(ds.cutouts)  # not all cutouts have saved measurements
@@ -28,7 +29,7 @@ def test_measurements_attributes(measurer, ptf_datastore):
     assert np.allclose(m.aper_radii, new_im.zp.aper_cor_radii)
     assert np.allclose(
         new_im.zp.aper_cor_radii,
-        new_im.psf.fwhm_pixels * np.array(new_im.instrument_object.standard_apertures()),
+        new_im.psf.fwhm_pixels * np.array(aper_radii),
     )
     assert m.mjd == new_im.mjd
     assert m.exp_time == new_im.exp_time
@@ -37,12 +38,24 @@ def test_measurements_attributes(measurer, ptf_datastore):
     original_flux = m.flux_apertures[m.best_aperture]
 
     # set the flux temporarily to something positive
-    m.flux_apertures[m.best_aperture] = 1000
-    assert m.magnitude == -2.5 * np.log10(1000) + new_im.zp.zp + new_im.zp.aper_cors[m.best_aperture]
+    m.flux_apertures[0] = 1000
+    assert m.mag_apertures[0] == -2.5 * np.log10(1000) + new_im.zp.zp + new_im.zp.aper_cors[0]
+
+    m.flux_psf = 1000
+    expected_mag = -2.5 * np.log10(1000) + new_im.zp.zp
+    assert m.mag_psf == expected_mag
 
     # set the flux temporarily to something negative
-    m.flux_apertures[m.best_aperture] = -1000
-    assert np.isnan(m.magnitude)
+    m.flux_apertures[0] = -1000
+    assert np.isnan(m.mag_apertures[0])
+
+    # check that background is subtracted from the "flux" and "magnitude" properties
+    if m.best_aperture == -1:
+        assert m.flux == m.flux_psf - m.bkg_mean * m.area_psf
+        assert m.magnitude > m.mag_psf  # the magnitude has background subtracted from it
+        assert m.magnitude_err > m.mag_psf_err  # the magnitude error is larger because of the error in background
+    else:
+        assert m.flux == m.flux_apertures[m.best_aperture] - m.bkg_mean * m.area_apertures[m.best_aperture]
 
     # set the flux and zero point to some randomly chosen values and test the distribution of the magnitude:
     fiducial_zp = new_im.zp.zp
@@ -134,7 +147,7 @@ def test_filtering_measurements(ptf_datastore):
             )).all()
         assert len(ms) == len(measurements)  # all measurements have the same filter
 
-        ms = session.scalars(sa.select(Measurements).where(Measurements.background > 0)).all()
+        ms = session.scalars(sa.select(Measurements).where(Measurements.bkg_mean > 0)).all()
         assert len(ms) <= len(measurements)  # only some of the measurements have positive background
 
         ms = session.scalars(sa.select(Measurements).where(

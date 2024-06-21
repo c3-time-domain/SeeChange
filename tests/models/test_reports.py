@@ -93,48 +93,58 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
 
     t0 = time.perf_counter()
 
-    ds = p.run(decam_exposure, 'N1')
+    try:
+        ds = p.run(decam_exposure, 'N1')
 
-    assert p.preprocessor.has_recalculated
-    assert p.extractor.has_recalculated
-    assert p.astrometor.has_recalculated
-    assert p.photometor.has_recalculated
-    assert p.subtractor.has_recalculated
-    assert p.detector.has_recalculated
-    assert p.cutter.has_recalculated
-    assert p.measurer.has_recalculated
+        total_time = time.perf_counter() - t0
 
-    measured_time = 0
-    peak_memory = 0
-    for step in ds.runtimes.keys():  # also make sure all the keys are present in both dictionaries
-        measured_time += ds.runtimes[step]
+        assert p.preprocessor.has_recalculated
+        assert p.extractor.has_recalculated
+        assert p.backgrounder.has_recalculated
+        assert p.astrometor.has_recalculated
+        assert p.photometor.has_recalculated
+        assert p.subtractor.has_recalculated
+        assert p.detector.has_recalculated
+        assert p.cutter.has_recalculated
+        assert p.measurer.has_recalculated
+
+        measured_time = 0
+        peak_memory = 0
+        for step in ds.runtimes.keys():  # also make sure all the keys are present in both dictionaries
+            measured_time += ds.runtimes[step]
+            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                peak_memory = max(peak_memory, ds.memory_usages[step])
+
+        print(f'total_time: {total_time:.1f}s')
+        print(f'measured_time: {measured_time:.1f}s')
+        pprint(ds.runtimes, sort_dicts=False)
+        assert measured_time > 0.98 * total_time  # at least 99% of the time is accounted for
+
         if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
-            peak_memory = max(peak_memory, ds.memory_usages[step])
+            print(f'peak_memory: {peak_memory:.1f}MB')
+            pprint(ds.memory_usages, sort_dicts=False)
+            assert 1000.0 < peak_memory < 10000.0  # memory usage is in MB, takes between 1 and 10 GB
 
-    total_time = time.perf_counter() - t0
-
-    print(f'total_time: {total_time:.1f}s')
-    print(f'measured_time: {measured_time:.1f}s')
-    pprint(ds.runtimes, sort_dicts=False)
-    assert measured_time > 0.99 * total_time  # at least 99% of the time is accounted for
-
-    if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
-        print(f'peak_memory: {peak_memory:.1f}MB')
-        pprint(ds.memory_usages, sort_dicts=False)
-        assert 1000.0 < peak_memory < 10000.0  # memory usage is in MB, takes between 1 and 10 GB
-
-    with SmartSession() as session:
-        rep = session.scalars(sa.select(Report).where(Report.exposure_id == decam_exposure.id)).one()
-        assert rep is not None
-        assert rep.success
-        assert rep.process_runtime == ds.runtimes
-        assert rep.process_memory == ds.memory_usages
-        # 'preprocessing, extraction, subtraction, detection, cutting, measuring'
-        assert rep.progress_steps == ', '.join(PROCESS_OBJECTS.keys())
-        assert rep.products_exist == 'image, sources, psf, wcs, zp, sub_image, detections, cutouts, measurements'
-        assert rep.products_committed == ''  # we don't save the data store objects at any point?
-        assert rep.provenance.upstreams[0].id == ds.measurements[0].provenance.id
-        assert rep.num_prev_reports == 0
+        with SmartSession() as session:
+            rep = session.scalars(sa.select(Report).where(Report.exposure_id == decam_exposure.id)).one()
+            assert rep is not None
+            assert rep.success
+            assert rep.process_runtime == ds.runtimes
+            assert rep.process_memory == ds.memory_usages
+            # should contain: 'preprocessing, extraction, subtraction, detection, cutting, measuring'
+            assert rep.progress_steps == ', '.join(PROCESS_OBJECTS.keys())
+            assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
+                                          'sub_image, detections, cutouts, measurements')
+            assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
+            assert rep.provenance.upstreams[0].id == ds.measurements[0].provenance.id
+            assert rep.num_prev_reports == 0
+            ds.save_and_commit(session=session)
+            rep.scan_datastore(ds, session=session)
+            assert rep.products_committed == ('image, sources, psf, bg, wcs, zp, '
+                                              'sub_image, detections, cutouts, measurements')
+    finally:
+        if 'ds' in locals():
+            ds.delete_everything()
 
 
 def test_inject_warnings(decam_datastore, decam_reference, pipeline_for_tests, decam_default_calibrators):

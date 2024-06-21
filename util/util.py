@@ -21,6 +21,7 @@ from astropy.coordinates import SkyCoord
 from models.base import SmartSession, safe_mkdir
 from util.logger import SCLogger
 
+
 def ensure_file_does_not_exist( filepath, delete=False ):
     """Check if a file exists.  Delete it, or raise an exception, if it does.
 
@@ -351,7 +352,7 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
     The path to the file saved (or written to)
 
     """
-
+    filename = str(filename)  # handle pathlib.Path objects
     hdu = fits.ImageHDU( data, name=extname ) if single_file else fits.PrimaryHDU( data )
 
     if isinstance( header, fits.Header ):

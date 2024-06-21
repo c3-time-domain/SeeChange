@@ -1158,6 +1158,7 @@ class Instrument:
            list of float
 
         """
+        return RuntimeError('We should no longer depend on instruments to give the standard apertures')
         return [ 0.6732, 1., 2., 3., 4., 5., 7., 10. ]
 
     @classmethod
@@ -1186,6 +1187,7 @@ class Instrument:
         # though, for diagnostic purposes.
 
         # Note that this 5 is an index, not the value... it's coincidence that the index number is 5.
+        return RuntimeError('We should no longer depend on instruments to give the fiducial aperture')
         return 5
 
     # Gaia specific methods

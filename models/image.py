@@ -113,6 +113,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         cascade='save-update, merge, refresh-expire, expunge',
         passive_deletes=True,
         lazy='selectin',
+        join_depth=1,  # this enables the eager load of one generation of upstreams
         order_by='images.c.mjd',  # in chronological order of exposure start time
         doc='Images used to produce a multi-image object, like a coadd or a subtraction. '
     )
@@ -460,7 +461,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         'data',
         'flags',
         'weight',
-        'background',  # TODO: remove this when adding the Background object (issue #186)
         'score',  # the matched-filter score of the image (e.g., from ZOGY)
         'psfflux',  # the PSF-fitted equivalent flux of the image (e.g., from ZOGY)
         'psffluxerr', # the error in the PSF-fitted equivalent flux of the image (e.g., from ZOGY)
@@ -468,6 +468,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
+        HasBitFlagBadness.__init__(self)
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
 
         self.raw_data = None  # the raw exposure pixels (2D float or uint16 or whatever) not saved to disk!
@@ -477,7 +478,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         self._data = None  # the underlying pixel data array (2D float array)
         self._flags = None  # the bit-flag array (2D int array)
         self._weight = None  # the inverse-variance array (2D float array)
-        self._background = None  # an estimate for the background flux (2D float array)
         self._score = None  # the image after filtering with the PSF and normalizing to S/N units (2D float array)
         self._psfflux = None  # the PSF-fitted equivalent flux of the image (2D float array)
         self._psffluxerr = None  # the error in the PSF-fitted equivalent flux of the image (2D float array)
@@ -485,6 +485,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         # additional data products that could go with the Image
         self.sources = None  # the sources extracted from this Image (optionally loaded)
         self.psf = None  # the point-spread-function object (optionally loaded)
+        self.bg = None  # the background object (optionally loaded)
         self.wcs = None  # the WorldCoordinates object (optionally loaded)
         self.zp = None  # the zero-point object (optionally loaded)
 
@@ -526,6 +527,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         self.sources = None
         self.psf = None
+        self.bg = None
         self.wcs = None
         self.zp = None
 
@@ -594,16 +596,14 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             self.psf.image_id = new_image.id
             self.psf.provenance_id = self.psf.provenance.id if self.psf.provenance is not None else None
             new_image.psf = self.psf.safe_merge(session=session)
-            if new_image.psf._bitflag is None:  # I don't know why this isn't set to 0 using the default
-                new_image.psf._bitflag = 0
-            if new_image.psf._upstream_bitflag is None:  # I don't know why this isn't set to 0 using the default
-                new_image.psf._upstream_bitflag = 0
+
+        if self.bg is not None:
+            self.bg.image = new_image
+            self.bg.image_id = new_image.id
+            self.bg.provenance_id = self.bg.provenance.id if self.bg.provenance is not None else None
+            new_image.bg = self.bg.safe_merge(session=session)
 
         # take care of the upstream images and their products
-        # if sa.inspect(self).detached:  # self can't load the images, but new_image has them
-        #     upstream_list = new_image.upstream_images
-        # else:
-        #     upstream_list = self.upstream_images  # can use the original images, before merging into new_image
         try:
             upstream_list = self.upstream_images  # can use the original images, before merging into new_image
         except DetachedInstanceError as e:
@@ -1095,7 +1095,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         # verify all products are loaded
         for im in self.upstream_images:
-            if im.sources is None or im.wcs is None or im.zp is None:
+            if im.sources is None or im.bg is None or im.wcs is None or im.zp is None:
                 raise RuntimeError('Some images are missing data products. Try running load_upstream_products().')
 
         aligned = []
@@ -1529,8 +1529,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         Parameters
         ----------
           free_derived_products: bool, default True
-             If True, will also call free on self.sources, self.psf, and
-             self.wcs
+             If True, will also call free on self.sources, self.psf,
+             self.bg and self.wcs.
 
           free_aligned: bool, default True
              Will call free() on each of the aligned images referenced
@@ -1560,11 +1560,11 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 self.sources.free()
             if self.psf is not None:
                 self.psf.free()
-            # This implementation in WCS should be done after PR167 is done.
-            # Not a big deal if it's not done, because WCSes will not use
-            # very much memory
-            # if self.wcs is not None:
-            #     self.wcs.free()
+            if self.bg is not None:
+                self.bg.free()
+            if self.wcs is not None:
+                self.wcs.free()
+
         if free_aligned:
             if self._aligned_images is not None:
                 for alim in self._aligned_images:
@@ -1678,6 +1678,9 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             if im.psf is None or im.psf.provenance_id not in prov_ids:
                 need_to_load = True
                 break
+            if im.bg is None or im.bg.provenance_id not in prov_ids:
+                need_to_load = True
+                break
             if im.wcs is None or im.wcs.provenance_id not in prov_ids:
                 need_to_load = True
                 break
@@ -1690,6 +1693,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         from models.source_list import SourceList
         from models.psf import PSF
+        from models.background import Background
         from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
 
@@ -1714,6 +1718,13 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                     sa.select(PSF).where(
                         PSF.image_id.in_(im_ids),
                         PSF.provenance_id.in_(prov_ids),
+                    )
+                ).all()
+
+                bg_results = session.scalars(
+                    sa.select(Background).where(
+                        Background.image_id.in_(im_ids),
+                        Background.provenance_id.in_(prov_ids),
                     )
                 ).all()
 
@@ -1747,6 +1758,14 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                         )
                     elif len(psfs) == 1:
                         im.psf = psfs[0]
+
+                    bgs = [b for b in bg_results if b.image_id == im.id]  # only get the bgs for this image
+                    if len(bgs) > 1:
+                        raise ValueError(
+                            f"Image {im.id} has more than one Background matching upstream provenance."
+                        )
+                    elif len(bgs) == 1:
+                        im.bg = bgs[0]
 
                     if im.sources is not None:
                         wcses = [w for w in wcs_results if w.sources_id == im.sources.id]  # the wcses for this image
@@ -1804,6 +1823,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                     upstreams.append(im.sources)
                 if im.psf is not None:
                     upstreams.append(im.psf)
+                if im.bg is not None:
+                    upstreams.append(im.bg)
                 if im.wcs is not None:
                     upstreams.append(im.wcs)
                 if im.zp is not None:
@@ -1816,17 +1837,12 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         # avoids circular import
         from models.source_list import SourceList
         from models.psf import PSF
+        from models.background import Background
         from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
 
         downstreams = []
         with SmartSession(session) as session:
-            # get all psfs that are related to this image (regardless of provenance)
-            psfs = session.scalars(sa.select(PSF).where(PSF.image_id == self.id)).all()
-            downstreams += psfs
-            if self.psf is not None and self.psf not in psfs:  # if not in the session, could be duplicate!
-                downstreams.append(self.psf)
-
             # get all source lists that are related to this image (regardless of provenance)
             sources = session.scalars(
                 sa.select(SourceList).where(SourceList.image_id == self.id)
@@ -1834,6 +1850,17 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             downstreams += sources
             if self.sources is not None and self.sources not in sources:  # if not in the session, could be duplicate!
                 downstreams.append(self.sources)
+
+            # get all psfs that are related to this image (regardless of provenance)
+            psfs = session.scalars(sa.select(PSF).where(PSF.image_id == self.id)).all()
+            downstreams += psfs
+            if self.psf is not None and self.psf not in psfs:  # if not in the session, could be duplicate!
+                downstreams.append(self.psf)
+
+            bgs = session.scalars(sa.select(Background).where(Background.image_id == self.id)).all()
+            downstreams += bgs
+            if self.bg is not None and self.bg not in bgs:  # if not in the session, could be duplicate!
+                downstreams.append(self.bg)
 
             wcses = []
             zps = []
@@ -1929,17 +1956,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         self._weight = value
 
     @property
-    def background(self):
-        """An estimate for the background flux (2D float array). """
-        if self._data is None and self.filepath is not None:
-            self.load()
-        return self._background
-
-    @background.setter
-    def background(self, value):
-        self._background = value
-
-    @property
     def score(self):
         """The image after filtering with the PSF and normalizing to S/N units (2D float array). """
         if self._data is None and self.filepath is not None:
@@ -1998,6 +2014,26 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     @nanscore.setter
     def nanscore(self, value):
         self._nanscore = value
+
+    @property
+    def data_bgsub(self):
+        """The image data, after subtracting the background. If no Background object is loaded, will raise. """
+        if self.bg is None:
+            raise ValueError("No background is loaded for this image.")
+        if self.bg.format == 'scalar':
+            return self.data - self.bg.value
+        else:
+            return self.data - self.bg.counts
+
+    @property
+    def nandata_bgsub(self):
+        """The image data, after subtracting the background and masking with NaNs wherever the flag is not zero. """
+        if self.bg is None:
+            raise ValueError("No background is loaded for this image.")
+        if self.bg.format == 'scalar':
+            return self.nandata - self.bg.value
+        else:
+            return self.nandata - self.bg.counts
 
     def show(self, **kwargs):
         """

@@ -125,6 +125,7 @@ class Provenance(Base):
         passive_deletes=True,
         cascade="save-update, merge, expunge, refresh-expire",
         lazy='selectin',  # should be able to get upstream_hashes without a session!
+        join_depth=3,  # how many generations up the upstream chain to load
     )
 
     downstreams = relationship(

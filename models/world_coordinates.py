@@ -75,6 +75,7 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__( self, **kwargs )
+        HasBitFlagBadness.__init__(self)
         SeeChangeBase.__init__( self )
         self._wcs = None
 
@@ -106,11 +107,12 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def get_downstreams(self, session=None, siblings=False):
         """Get the downstreams of this WorldCoordinates.
 
-        If siblings=True  then also include the SourceLists, PSFs, ZPs and background objects
+        If siblings=True  then also include the SourceList, PSF, background object and ZP
         that were created at the same time as this WorldCoordinates.
         """
         from models.source_list import SourceList
         from models.psf import PSF
+        from models.background import Background
         from models.zero_point import ZeroPoint
         from models.provenance import Provenance
 
@@ -143,7 +145,18 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
                 output.append(psf[0])
 
-                # TODO: add background object
+                bgs = session.scalars(
+                    sa.select(Background).where(
+                        Background.image_id == sources.image_id, Background.provenance_id == self.provenance_id
+                    )
+                ).all()
+
+                if len(bgs) > 1:
+                    raise ValueError(
+                        f"Expected exactly one Background for WorldCoordinates {self.id}, but found {len(bgs)}."
+                    )
+
+                output.append(bgs[0])
 
                 zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
 
@@ -223,4 +236,12 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with open( txtpath ) as ifp:
             headertxt = ifp.read()
             self.wcs = WCS( fits.Header.fromstring( headertxt , sep='\\n' ))
-    
+
+    def free(self):
+        """Free loaded world coordinates memory.
+
+        Wipe out the _wcs text field, freeing a small amount of memory.
+        Depends on python garbage collection, so if there are other
+        references to those objects, the memory won't actually be freed.
+        """
+        self._wcs = None

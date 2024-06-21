@@ -1,5 +1,6 @@
 import os
 import datetime
+import time
 import warnings
 
 import sqlalchemy as sa
@@ -7,6 +8,7 @@ import sqlalchemy as sa
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore, UPSTREAM_STEPS
 from pipeline.preprocessing import Preprocessor
+from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 from pipeline.subtraction import Subtractor
@@ -33,7 +35,7 @@ PROCESS_OBJECTS = {
     'extraction': {
         'sources': 'extractor',
         'psf': 'extractor',
-        'background': 'extractor',
+        'bg': 'backgrounder',
         'wcs': 'astrometor',
         'zp': 'photometor',
     },
@@ -52,7 +54,18 @@ class ParsPipeline(Parameters):
         super().__init__()
 
         self.example_pipeline_parameter = self.add_par(
-            'example_pipeline_parameter', 1, int, 'an example pipeline parameter'
+            'example_pipeline_parameter', 1, int, 'an example pipeline parameter', critical=False
+        )
+
+        self.save_before_subtraction = self.add_par(
+            'save_before_subtraction',
+            True,
+            bool,
+            'Save intermediate images to the database, '
+            'after doing extraction, background, and astro/photo calibration, '
+            'if there is no reference, will not continue to doing subtraction'
+            'but will still save the products up to that point. ',
+            critical=False,
         )
 
         self._enforce_no_new_attrs = True  # lock against new parameters
@@ -81,6 +94,12 @@ class Pipeline:
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
+        # background estimation using either sep or other methods
+        background_config = self.config.value('extraction.bg', {})
+        background_config.update(kwargs.get('extraction', {}).get('bg', {}))
+        self.pars.add_defaults_to_dict(background_config)
+        self.backgrounder = Backgrounder(**background_config)
+
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
         astrometor_config = self.config.value('extraction.wcs', {})
         astrometor_config.update(kwargs.get('extraction', {}).get('wcs', {}))
@@ -94,8 +113,14 @@ class Pipeline:
         self.photometor = PhotCalibrator(**photometor_config)
 
         # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
-        siblings = {'sources': self.extractor.pars, 'wcs': self.astrometor.pars, 'zp': self.photometor.pars}
+        siblings = {
+            'sources': self.extractor.pars,
+            'bg': self.backgrounder.pars,
+            'wcs': self.astrometor.pars,
+            'zp': self.photometor.pars,
+        }
         self.extractor.pars.add_siblings(siblings)
+        self.backgrounder.pars.add_siblings(siblings)
         self.astrometor.pars.add_siblings(siblings)
         self.photometor.pars.add_siblings(siblings)
 
@@ -263,7 +288,7 @@ class Pipeline:
         with warnings.catch_warnings(record=True) as w:
             ds.warnings_list = w  # appends warning to this list as it goes along
             # run dark/flat preprocessing, cut out a specific section of the sensor
-            # TODO: save the results as Image objects to DB and disk? Or save at the end?
+
             SCLogger.info(f"preprocessor")
             ds = self.preprocessor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
@@ -274,6 +299,11 @@ class Pipeline:
             SCLogger.info(f"extractor for image id {ds.image.id}")
             ds = self.extractor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
+            ds.update_report('extraction', session)
+
+            # find the background for this image
+            SCLogger.info(f"backgrounder for image id {ds.image.id}")
+            ds = self.backgrounder.run(ds, session)
             ds.update_report('extraction', session)
 
             # find astrometric solution, save WCS into Image object and FITS headers
@@ -287,6 +317,19 @@ class Pipeline:
             ds = self.photometor.run(ds, session)
             if save_intermediate_products: ds.save_and_commit()
             ds.update_report('extraction', session)
+
+            if self.pars.save_before_subtraction:
+                t_start = time.perf_counter()
+                try:
+                    SCLogger.info(f"Saving intermediate image for image id {ds.image.id}")
+                    ds.save_and_commit(session=session)
+                except Exception as e:
+                    ds.update_report('save intermediate', session)
+                    SCLogger.error(f"Failed to save intermediate image for image id {ds.image.id}")
+                    SCLogger.error(e)
+                    raise e
+
+                ds.runtimes['save_intermediate'] = time.perf_counter() - t_start
 
             # fetch reference images and subtract them, save subtracted Image objects to DB and disk
             SCLogger.info(f"subtractor for image id {ds.image.id}")
@@ -314,6 +357,8 @@ class Pipeline:
 
             # measure deep learning models on the cutouts/measurements
             # TODO: add this...
+
+            # TODO: add a saving step at the end too?
 
             ds.finalize_report(session)
 

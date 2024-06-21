@@ -166,20 +166,11 @@ class Subtractor:
         ref_image_data = ref_image.data
         new_image_psf = new_image.psf.get_clip()
         ref_image_psf = ref_image.psf.get_clip()
-        new_image_noise = new_image.bkg_rms_estimate  # TOOD: improve this by using a Background object?
-        ref_image_noise = 1.0  # proper coaddition images have noise=1.0 by construction
+        new_image_noise = new_image.bkg_rms_estimate
+        ref_image_noise = ref_image.bkg_rms_estimate
         new_image_flux_zp = 10 ** (0.4 * new_image.zp.zp)
         ref_image_flux_zp = 10 ** (0.4 * ref_image.zp.zp)
         # TODO: consider adding an estimate for the astrometric uncertainty dx, dy
-
-        # do some additional processing of the new image
-        mu, sigma = sigma_clipping(new_image_data)
-        new_image_data = (new_image_data - mu) / sigma  # TODO: skip this if we already background subtracted
-        if new_image_noise is not None:
-            new_image_noise = new_image_noise / sigma
-        else:
-            new_image_noise = 1.0  # TODO: this can go away after we verify images always have background estimates!
-        new_image_flux_zp = new_image_flux_zp / sigma
 
         new_image_data = self.inpainter.run(new_image_data, new_image.flags, new_image.weight)
 

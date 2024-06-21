@@ -91,23 +91,21 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         doc="Radius of apertures used for aperture photometry in pixels."
     )
 
-    _inf_aper_num = sa.Column(
+    inf_aper_num = sa.Column(
         sa.SMALLINT,
         nullable=True,
         default=None,
         index=False,
-        doc="Which element of aper_rads to use as the 'infinite' aperture; null = last one"
+        doc="Which element of aper_rads to use as the 'infinite' aperture; -1 = last one. "
     )
 
-    @property
-    def inf_aper_num( self ):
-        if self._inf_aper_num is None:
-            if self.aper_rads is None:
-                return None
-            else:
-                return len(self.aper_rads) - 1
-        else:
-            return self._inf_aper_num
+    best_aper_num = sa.Column(
+        sa.SMALLINT,
+        nullable=True,
+        default=None,
+        index=False,
+        doc="Which element of aper_rads to use as the 'best' aperture; -1 = use PSF photometry. "
+    )
 
     num_sources = sa.Column(
         sa.Integer,
@@ -144,6 +142,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
+        HasBitFlagBadness.__init__(self)
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
 
         self._data = None
@@ -409,7 +408,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
           ap: float, default None
             If not None, look for an aperture that's within 0.01 pixels
             of this and return flux in apertures of that radius.  Raises
-            an exception if such an aperture doesn't apear in aper_rads
+            an exception if such an aperture doesn't appear in aper_rads
 
         Returns
         -------
@@ -420,7 +419,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             raise NotImplementedError( f"Not currently implemented for format {self.format}" )
 
         if ap is None:
-            if ( self.aper_rads is None ) or ( apnum < 0 ) or ( apnum >= len(self.aper_rads) ):
+            if ( self.aper_rads is None ) or ( apnum >= len(self.aper_rads) ):
                 raise ValueError( f"Aperture radius number {apnum} doesn't exist." )
         else:
             w = np.where( np.abs( np.array( self.aper_rads) - ap ) < 0.01 )[0]
@@ -485,7 +484,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             inf_aper_num = self.inf_aper_num
         if inf_aper_num is None:
             raise RuntimeError( f"Can't determine which aperture to use as the \"infinite\" aperture" )
-        if ( inf_aper_num < 0 ) or ( inf_aper_num >= len(self.aper_rads) ):
+        if inf_aper_num >= len(self.aper_rads):
             raise ValueError( f"inf_aper_num {inf_aper_num} is outside available list of {len(self.aper_rads)}" )
 
         bigflux, bigfluxerr = self.apfluxadu( apnum=inf_aper_num )
@@ -752,10 +751,11 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def get_downstreams(self, session=None, siblings=False):
         """Get all the data products that are made using this source list.
 
-        If siblings=True then also include the PSFs, WCSes, ZPs and background objects
+        If siblings=True then also include the PSF, Background, WCS, and ZP
         that were created at the same time as this SourceList.
         """
         from models.psf import PSF
+        from models.background import Background
         from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
         from models.cutouts import Cutouts
@@ -780,7 +780,14 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 if len(psfs) != 1:
                     raise ValueError(f"Expected exactly one PSF for SourceList {self.id}, but found {len(psfs)}")
 
-                # TODO: add background object
+                bgs = session.scalars(
+                    sa.select(Background).where(
+                        Background.image_id == self.image_id,
+                        Background.provenance_id == self.provenance_id
+                    )
+                ).all()
+                if len(bgs) != 1:
+                    raise ValueError(f"Expected exactly one Background for SourceList {self.id}, but found {len(bgs)}")
 
                 wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
                 if len(wcs) != 1:
@@ -792,7 +799,8 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     raise ValueError(
                         f"Expected exactly one ZeroPoint for SourceList {self.id}, but found {len(zps)}"
                     )
-                output += psfs + wcs + zps
+
+                output += psfs + bgs + wcs + zps
 
         return output
 

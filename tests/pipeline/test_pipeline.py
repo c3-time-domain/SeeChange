@@ -170,7 +170,7 @@ def test_parameters( test_config ):
         'subtraction': { 'method': 'override' },
         'detection': { 'threshold': 3.14 },
         'cutting': { 'cutout_size': 666 },
-        'measuring': { 'chosen_aperture': 1 }
+        'measuring': { 'outlier_sigma': 3.5 }
     }
     pipelinemodule = {
         'preprocessing': 'preprocessor',
@@ -209,6 +209,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
     sec_id = ref.section_id
     try:  # cleanup the file at the end
         p = Pipeline()
+        p.pars.save_before_subtraction = False
         assert p.extractor.pars.threshold != 3.14
         assert p.detector.pars.threshold != 3.14
 
@@ -230,8 +231,8 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
 
             check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image.id, session, ds)
 
-        # feed the pipeline the same data, but missing the upstream data. TODO: add cutouts and measurements
-        attributes = ['image', 'sources', 'wcs', 'zp', 'sub_image', 'detections']
+        # feed the pipeline the same data, but missing the upstream data.
+        attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements']
 
         for i in range(len(attributes)):
             for j in range(i + 1):
@@ -286,6 +287,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
 
     try:  # cleanup the file at the end
         p = Pipeline()
+        p.pars.save_before_subtraction = False
         exposure.badness = 'banding'  # add a bitflag to check for propagation
 
         # first run the pipeline and check for basic propagation of the single bitflag
@@ -295,6 +297,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.image._upstream_bitflag == 2
         assert ds.sources._upstream_bitflag == 2
         assert ds.psf._upstream_bitflag == 2
+        assert ds.bg._upstream_bitflag == 2
         assert ds.wcs._upstream_bitflag == 2
         assert ds.zp._upstream_bitflag == 2
         assert ds.sub_image._upstream_bitflag == 2
@@ -305,6 +308,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # test part 2: Add a second bitflag partway through and check it propagates to downstreams
 
         # delete downstreams of ds.sources
+        ds.bg = None
         ds.wcs = None
         ds.zp = None
         ds.sub_image = None
@@ -406,16 +410,20 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.wcs.get_upstreams(session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.psf.get_upstreams(session)] == [ds.image.id]
             assert [upstream.id for upstream in ds.zp.get_upstreams(session)] == [ds.sources.id]
-            assert [upstream.id for upstream in ds.sub_image.get_upstreams(session)] == [ref.image.id,
-                                                                                  ref.image.sources.id,
-                                                                                  ref.image.psf.id,
-                                                                                  ref.image.wcs.id,
-                                                                                  ref.image.zp.id,
-                                                                                  ds.image.id,
-                                                                                  ds.sources.id,
-                                                                                  ds.psf.id,
-                                                                                  ds.wcs.id,
-                                                                                  ds.zp.id]
+            assert set([upstream.id for upstream in ds.sub_image.get_upstreams(session)]) == set([
+                ref.image.id,
+                ref.image.sources.id,
+                ref.image.psf.id,
+                ref.image.bg.id,
+                ref.image.wcs.id,
+                ref.image.zp.id,
+                ds.image.id,
+                ds.sources.id,
+                ds.psf.id,
+                ds.bg.id,
+                ds.wcs.id,
+                ds.zp.id,
+            ])
             assert [upstream.id for upstream in ds.detections.get_upstreams(session)] == [ds.sub_image.id]
             for cutout in ds.cutouts:
                 assert [upstream.id for upstream in cutout.get_upstreams(session)] == [ds.detections.id]
@@ -428,11 +436,14 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
 
             # test get_downstreams
             assert [downstream.id for downstream in ds.exposure.get_downstreams(session)] == [ds.image.id]
-            assert set([downstream.id for downstream in ds.image.get_downstreams(session)]) == set([ds.psf.id,
-                                                                                    ds.sources.id,
-                                                                                    ds.wcs.id,
-                                                                                    ds.zp.id,
-                                                                                    ds.sub_image.id])
+            assert set([downstream.id for downstream in ds.image.get_downstreams(session)]) == set([
+                ds.sources.id,
+                ds.psf.id,
+                ds.bg.id,
+                ds.wcs.id,
+                ds.zp.id,
+                ds.sub_image.id
+            ])
             assert [downstream.id for downstream in ds.sources.get_downstreams(session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.psf.get_downstreams(session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.wcs.get_downstreams(session)] == [ds.sub_image.id]
@@ -539,6 +550,7 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
     obj_to_process_name = {
         'preprocessor': 'preprocessing',
         'extractor': 'detection',
+        'backgrounder': 'backgrounding',
         'astrometor': 'astro_cal',
         'photometor': 'photo_cal',
         'subtractor': 'subtraction',

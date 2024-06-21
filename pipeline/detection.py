@@ -3,6 +3,7 @@ import pathlib
 import random
 import subprocess
 import time
+import warnings
 
 import numpy as np
 import numpy.lib.recfunctions as rfn
@@ -23,8 +24,9 @@ from pipeline.data_store import DataStore
 
 from models.base import FileOnDiskMixin, CODE_ROOT
 from models.image import Image
-from models.psf import PSF
 from models.source_list import SourceList
+from models.psf import PSF
+from models.background import Background
 
 from improc.tools import sigma_clipping
 
@@ -47,31 +49,70 @@ class ParsDetector(Parameters):
             critical=True
         )
 
-        self.psf = self.add_par(
-            'psf',
-            None,
-            ( PSF, int, None ),
-            'Use this PSF; pass the PSF object, or its integer id. '
-            'If None, will not do PSF photometry.  Ignored if measure_psf is True.' ,
+        self.background_format = self.add_par(
+            'background_format',
+            'map',
+            str,
+            'Format of the background; one of "map", "scalar", or "polynomial".',
+            critical=True
+        )
+
+        self.background_order = self.add_par(
+            'background_order',
+            2,
+            int,
+            'Order of the polynomial background. Ignored unless background is "polynomial".',
+            critical=True
+        )
+
+        self.background_method = self.add_par(
+            'background_method',
+            'sep',
+            str,
+            'Method to use for background subtraction; currently only "sep" is supported.',
+            critical=True
+        )
+
+        self.background_box_size = self.add_par(
+            'background_box_size',
+            128,
+            int,
+            'Size of the box to use for background estimation in sep.',
+            critical=True
+        )
+
+        self.background_filt_size = self.add_par(
+            'background_filt_size',
+            3,
+            int,
+            'Size of the filter to use for background estimation in sep.',
             critical=True
         )
 
         self.apers = self.add_par(
             'apers',
-            None,
-            ( None, list ),
-            'Apertures in which to measure photometry; a list of floats or None',
+            [1.0, 2.0, 3.0, 5.0],
+            list,
+            'Apertures in which to measure photometry; a list of floats. ',
             critical=True
         )
         self.add_alias( 'apertures', 'apers' )
 
         self.inf_aper_num = self.add_par(
             'inf_aper_num',
-            None,
-            ( None, int ),
-            ( 'Which of apers is the one to use as the "infinite" aperture for aperture corrections; '
-              'default is to use the last one.  Ignored if self.apers is None.' ),
+            -1,
+            int,
+            'Which of apers is the one to use as the "infinite" aperture for aperture corrections. '
+            'If -1, will use the last aperture, not the PSF flux! ',
             critical=True
+        )
+
+        self.best_aper_num = self.add_par(
+            'best_aper_num',
+            0,
+            int,
+            'Which of apers is the one to use as the "best" aperture, for things like plotting or calculating'
+            'the limiting magnitude. Note that -1 will use the PSF flux, not the last aperture on the list. '
         )
 
         self.aperunit = self.add_par(
@@ -307,6 +348,7 @@ class Detector:
                         raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
 
                     sources, psf, bkg, bkgsig = self.extract_sources( image )
+
                     sources.image = image
                     if sources.provenance is None:
                         sources.provenance = prov
@@ -319,14 +361,11 @@ class Detector:
                         psf.provenance = prov
                     else:
                         if psf.provenance.id != prov.id:
-                            raise ValueError('Provenance mismatch for pfs and provenance!')
+                            raise ValueError('Provenance mismatch for PSF and extraction provenance!')
 
                 ds.sources = sources
                 ds.psf = psf
                 ds.image.fwhm_estimate = psf.fwhm_pixels  # TODO: should we only write if the property is None?
-                if self.has_recalculated:
-                    ds.image.bkg_mean_estimate = float( bkg )
-                    ds.image.bkg_rms_estimate = float( bkgsig )
 
                 ds.runtimes['extraction'] = time.perf_counter() - t_start
                 if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
@@ -339,7 +378,25 @@ class Detector:
                 return ds
 
     def extract_sources(self, image):
-        """Calls one of the extraction methods, based on self.pars.method. """
+        """Calls one of the extraction methods, based on self.pars.method.
+
+        Parameters
+        ----------
+        image: Image
+          The Image object from which to extract sources.
+
+        Returns
+        -------
+        sources: SourceList object
+            A list of sources with their positions and fluxes.
+        psf: PSF object
+            An estimate for the point spread function of the image.
+        bkg: float
+            An estimate for the mean value of the background of the image.
+        bkgsig: float
+            An estimate for the standard deviation of the background of the image.
+
+        """
         sources = None
         psf = None
         bkg = None
@@ -348,8 +405,7 @@ class Detector:
             sources = self.extract_sources_sep(image)
         elif self.pars.method == 'sextractor':
             if self.pars.subtraction:
-                psffile = None if self.pars.psf is None else self.pars.psf.get_fullpath()
-                sources, _, _, _ = self.extract_sources_sextractor(image, psffile=psffile)
+                sources, _, _, _ = self.extract_sources_sextractor(image, psffile=None)
             else:
                 sources, psf, bkg, bkgsig = self.extract_sources_sextractor(image)
         elif self.pars.method == 'filter':
@@ -360,14 +416,10 @@ class Detector:
         else:
             raise ValueError(f'Unknown extraction method "{self.pars.method}"')
 
-        if psf is not None:
-            if psf._upstream_bitflag is None:
-                psf._upstream_bitflag = 0
-            psf._upstream_bitflag |= image.bitflag
         if sources is not None:
-            if sources._upstream_bitflag is None:
-                sources._upstream_bitflag = 0
             sources._upstream_bitflag |= image.bitflag
+        if psf is not None:
+            psf._upstream_bitflag |= image.bitflag
 
         return sources, psf, bkg, bkgsig
 
@@ -378,14 +430,7 @@ class Detector:
         psfxmlpath = None
 
         try:  # cleanup at the end
-            if self.pars.apers is None:
-                apers = np.array( image.instrument_object.standard_apertures() )
-                inf_aper_num = image.instrument_object.fiducial_aperture()
-            else:
-                apers = self.pars.apers
-                inf_aper_num = self.pars.inf_aper_num
-                if inf_aper_num is None:
-                    inf_aper_num = len( apers ) - 1
+            apers = np.array(self.pars.apers)
 
             if self.pars.measure_psf:
                 # Run sextractor once without a psf to get objects from
@@ -408,9 +453,6 @@ class Detector:
                 psf = self._run_psfex( tempnamebase, image, do_not_cleanup=True )
                 psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
                 psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
-            elif self.pars.psf is not None:
-                psf = self.pars.psf
-                psfpath, psfxmlpath = psf.get_fullpath()
             else:
                 psf = None
 
@@ -424,28 +466,43 @@ class Detector:
             # Now that we have a psf, run sextractor (maybe a second time)
             # to get the actual measurements.
             SCLogger.debug( "detection: running sextractor with psf to get final source list" )
-            sources, bkg, bkgsig = self._run_sextractor_once( image, apers=apers,
-                                                              psffile=psfpath, tempname=tempnamebase )
+
+            if psf is not None:
+                psf_clip = psf.get_clip()
+                psf_norm = 1 / np.sqrt(np.sum(psf_clip ** 2))  # normalization factor for the sextractor thresholds
+            else:  # we don't have a psf for some reason, use the "good enough" approximation
+                psf_norm = 3.0
+
+            sources, bkg, bkgsig = self._run_sextractor_once(
+                image,
+                apers=apers,
+                psffile=psfpath,
+                psfnorm=psf_norm,
+                tempname=tempnamebase,
+            )
             SCLogger.debug( f"detection: sextractor found {len(sources.data)} sources" )
 
             snr = sources.apfluxadu()[0] / sources.apfluxadu()[1]
             if snr.min() > self.pars.threshold:
-                SCLogger.warning( "SExtractor may not have detected everything down to your threshold." )
+                warnings.warn( "SExtractor may not have detected everything down to your threshold." )
             w = np.where( snr >= self.pars.threshold )
             sources.data = sources.data[w]
             sources.num_sources = len( sources.data )
-            sources._inf_aper_num = inf_aper_num
+            sources.inf_aper_num = self.pars.inf_aper_num
+            sources.best_aper_num = self.pars.best_aper_num
 
         finally:
             # Clean up the temporary files created (that weren't already cleaned up by _run_sextractor_once)
             sourcepath.unlink( missing_ok=True )
-            if ( psffile is None ) and ( self.pars.psf is None ):
-                if psfpath is not None: psfpath.unlink( missing_ok=True )
-                if psfxmlpath is not None: psfxmlpath.unlink( missing_ok=True )
+            if psffile is None:
+                if psfpath is not None:
+                    psfpath.unlink( missing_ok=True )
+                if psfxmlpath is not None:
+                    psfxmlpath.unlink( missing_ok=True )
 
         return sources, psf, bkg, bkgsig
 
-    def _run_sextractor_once( self, image, apers=[5, ], psffile=None, tempname=None, do_not_cleanup=False ):
+    def _run_sextractor_once(self, image, apers=[5, ], psffile=None, psfnorm=3.0, tempname=None, do_not_cleanup=False):
         """Extract a SourceList from a FITS image using SExtractor.
 
         This function should not be called from outside this class.
@@ -462,6 +519,12 @@ class Detector:
           psffile: Path or str, or None
             File that has the PSF to use for PSF photometry.  If None,
             won't do psf photometry.
+
+          psfnorm: float
+            The normalization of the PSF image (i.e., the sqrt of the
+            sum of squares of the psf values).  This is used to set the
+            threshold for sextractor.  When the PSF is not known, we
+            will use a rough approximation and set this value to 3.0.
 
           tempname: str
             If not None, a filename base for where the catalog will be
@@ -619,8 +682,8 @@ class Detector:
                      "-XML_NAME", tmpxml,
                      "-PARAMETERS_NAME", paramfile,
                      "-THRESH_TYPE", "RELATIVE",
-                     "-DETECT_THRESH", str( self.pars.threshold / 3. ),
-                     "-ANALYSIS_THRESH", str( self.pars.threshold / 3. ),
+                     "-DETECT_THRESH", str( self.pars.threshold / psfnorm ),
+                     "-ANALYSIS_THRESH", str( self.pars.threshold / psfnorm ),
                      "-FILTER", "Y",
                      "-FILTER_NAME", str(conv),
                      "-WEIGHT_TYPE", "MAP_WEIGHT",
@@ -631,7 +694,7 @@ class Detector:
                      "-FLAG_TYPE", "OR",
                      "-PHOT_APERTURES", ",".join( [ str(a*2.) for a in apers ] ),
                      "-SATUR_LEVEL", str( image.instrument_object.average_saturation_limit( image ) ),
-                     "-GAIN", "1.0",
+                     "-GAIN", "1.0",  # TODO: we should probably put the instrument gain here
                      "-STARNNW_NAME", nnw,
                      "-BACK_TYPE", "AUTO",
                      "-BACK_SIZE", str( image.instrument_object.background_box_size ),

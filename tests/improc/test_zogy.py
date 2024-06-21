@@ -428,7 +428,8 @@ def test_subtraction_seeing_background():
                             raise ValueError(
                                 f'seeing: ({ref_seeing:.2f}, {new_seeing:.2f}), '
                                 f'background: ({ref_bkg:.2f}, {new_bkg:.2f}), '
-                                f'expected/measured: ({expected:.3f}, {measured:.3f})'
+                                f'expected/measured: ({expected:.3f}, {measured:.3f}), '
+                                f'loss: {(expected - measured) / expected:.3f}'
                             )
 
 

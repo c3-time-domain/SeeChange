@@ -1708,6 +1708,10 @@ class HasBitFlagBadness:
         doc='Free text comment about this data product, e.g., why it is bad. '
     )
 
+    def __init__(self):
+        self._bitflag = 0
+        self._upstream_bitflag = 0
+
     def update_downstream_badness(self, session=None, commit=True, siblings=True):
         """Send a recursive command to update all downstream objects that have bitflags.
 

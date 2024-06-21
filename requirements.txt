@@ -63,6 +63,7 @@ wget==3.2
 # iniconfig==2.0.0
 # kafka-python==2.0.2
 # kiwisolver==1.4.4
+# pylandau==2.2.1
 # matplotlib==3.7.1
 # mpi4py==3.1.4
 # msgpack==1.0.5

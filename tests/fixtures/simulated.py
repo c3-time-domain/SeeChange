@@ -409,7 +409,7 @@ def sim_image_list(
             im.zp = ZeroPoint()
             im.zp.zp = np.random.uniform(25, 30)
             im.zp.dzp = np.random.uniform(0.01, 0.1)
-            im.zp.aper_cor_radii = im.instrument_object.standard_apertures()
+            im.zp.aper_cor_radii = [1.0, 2.0, 3.0, 5.0]
             im.zp.aper_cors = np.random.normal(0, 0.1, len(im.zp.aper_cor_radii))
             im.zp.provenance = provenance_extra
             im.wcs = WorldCoordinates()

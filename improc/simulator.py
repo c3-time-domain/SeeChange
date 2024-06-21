@@ -7,11 +7,14 @@ from scipy.ndimage import gaussian_filter
 
 from util.logger import SCLogger
 
-
+# this is commented out as there are some problems installing it
+# consider replacing with https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.moyal.html
+# if this turns out to be important enough (it is not a main part of the simulator)
 # import pylandau
 
 from pipeline.parameters import Parameters
 from improc.tools import make_gaussian
+
 
 class SimPars(Parameters):
 

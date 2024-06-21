@@ -39,15 +39,11 @@ class ParsMeasurer(Parameters):
             'adjust the annulus size for each image based on the PSF width. '
         )
 
-        # TODO: should we choose the "best aperture" using the config, or should each Image have its own aperture?
-        self.chosen_aperture = self.add_par(
-            'chosen_aperture',
-            0,
-            [str, int],
-            'The aperture radius that is used for photometry. '
-            'Choose either the index in the aperture_radii list, '
-            'the string "psf", or the string "auto" to choose '
-            'the best aperture in each image separately. '
+        self.use_annulus_for_centroids = self.add_par(
+            'use_annulus_for_centroids',
+            True,
+            bool,
+            'Use the local background measurements via an annulus to adjust the centroids and second moments. '
         )
 
         self.analytical_cuts = self.add_par(
@@ -217,6 +213,7 @@ class Measurer:
                     # make sure to remember which cutout belongs to this measurement,
                     # before either of them is in the DB and then use the cutouts_id instead
                     m._cutouts_list_index = i
+                    m.best_aperture = c.sources.best_aper_num
 
                     m.aper_radii = c.sources.image.new_image.zp.aper_cor_radii  # zero point corrected aperture radii
 
@@ -239,14 +236,16 @@ class Measurer:
                         flags,
                         radii=m.aper_radii,
                         annulus=annulus_radii_pixels,
+                        local_bg=self.pars.use_annulus_for_centroids,
                     )
 
                     m.flux_apertures = output['fluxes']
                     m.flux_apertures_err = [np.sqrt(output['variance']) * norm for norm in output['normalizations']]
                     m.aper_radii = output['radii']
                     m.area_apertures = output['areas']
-                    m.background = output['background']
-                    m.background_err = np.sqrt(output['variance'])
+                    m.bkg_mean = output['background']
+                    m.bkg_std = np.sqrt(output['variance'])
+                    m.bkg_pix = output['n_pix_bg']
                     m.offset_x = output['offset_x']
                     m.offset_y = output['offset_y']
                     m.width = (output['major'] + output['minor']) / 2
@@ -288,29 +287,16 @@ class Measurer:
                     m.flux_psf_err = fluxerr
                     m.area_psf = area
 
-                    # decide on the "best" aperture
-                    if self.pars.chosen_aperture == 'auto':
-                        raise NotImplementedError('Automatic aperture selection is not yet implemented.')
-                    if self.pars.chosen_aperture == 'psf':
-                        ap_index = -1
-                    elif isinstance(self.pars.chosen_aperture, int):
-                        ap_index = self.pars.chosen_aperture
-                    else:
-                        raise ValueError(
-                            f'Invalid value "{self.pars.chosen_aperture}" for chosen_aperture in the measuring parameters.'
-                        )
-                    m.best_aperture = ap_index
-
                     # update the provenance
                     m.provenance = prov
                     m.provenance_id = prov.id
 
                     # Apply analytic cuts to each stamp image, to rule out artefacts.
                     m.disqualifier_scores = {}
-                    if m.background != 0 and m.background_err > 0.1:
-                        norm_data = (c.sub_nandata - m.background) / m.background_err  # normalize
+                    if m.bkg_mean != 0 and m.bkg_std > 0.1:
+                        norm_data = (c.sub_nandata - m.bkg_mean) / m.bkg_std  # normalize
                     else:
-                        warnings.warn(f'Background mean= {m.background}, std= {m.background_err}, normalization skipped!')
+                        warnings.warn(f'Background mean= {m.bkg_mean}, std= {m.bkg_std}, normalization skipped!')
                         norm_data = c.sub_nandata  # no good background measurement, do not normalize!
 
                     positives = np.sum(norm_data > self.pars.outlier_sigma)

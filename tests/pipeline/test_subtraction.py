@@ -72,10 +72,8 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_images, subtractor):
     S[ds.sub_image.flags > 0] = np.nan
 
     mu, sigma = sigma_clipping(S)
-    # assert abs(mu) < 0.01  # the mean should be close to zero
-    assert abs(mu) < 0.2  # this is not working perfectly, we need to improve the background removal!
-    # assert abs(sigma - 1) < 0.1  # the standard deviation should be close to 1
-    assert abs(sigma - 1) < 1  # the standard deviation may be also affected by background...
+    assert abs(mu) < 0.1  # the mean should be close to zero
+    assert abs(sigma - 1) < 0.1  # the standard deviation should be close to 1
 
 
 def test_warnings_and_exceptions(decam_datastore, decam_reference, subtractor, decam_default_calibrators):
