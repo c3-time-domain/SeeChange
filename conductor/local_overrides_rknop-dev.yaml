@@ -1,0 +1,18 @@
+conductor:
+  conductor_url: https://ls4-conductor-rknop-dev.lbl.gov/
+  email_from: 'Seechange conductor ls4 rknop dev <raknop@lbl.gov>'
+  email_subject: 'Seechange conductor (ls4 rknop dev) password reset'
+  email_system_name: 'Seechange conductor (ls4 rknop dev)'
+  smtp_server: smtp.lbl.gov
+  smtp_port: 25
+  smtp_use_ssl: false
+  smtp_username: null
+  smtp_password: null
+
+db:
+  host: ls4db.lbl.gov
+  port: 5432
+  database: seechange_rknop_dev
+  user: seechange_rknop_dev
+  password: null
+  password_file: /secrets/postgres_passwd
