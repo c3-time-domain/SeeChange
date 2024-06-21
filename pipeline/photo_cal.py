@@ -308,6 +308,8 @@ class PhotCalibrator:
                 if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
                     import tracemalloc
                     ds.memory_usages['photo_cal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+                
+            image.lim_mag_estimate = sources.estimate_lim_mag()[0]
 
         except Exception as e:
             ds.catch_exception(e)

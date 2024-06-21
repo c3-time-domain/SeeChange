@@ -506,6 +506,29 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return -2.5 * np.log10( meanrat )
 
+    def estimate_lim_mag(self, aperture=1):
+        # if aperture = -1: using psf mags, aperture defaults to 1
+        if aperture >= 0:
+            aperCorr = self.calc_aper_cor(aperture)
+            zeroPoint = self.zp.zp
+            # import pdb; pdb.set_trace()
+            flux, fluxerr = self.apfluxadu(aperture)
+            mags = -2.5 * np.log10(flux) + zeroPoint + aperCorr
+            snr = flux/fluxerr
+            mask = (snr >= 3) & (snr <= 20) #only fitting for sources 3 < SNR < 20 
+            snrMasked = np.log(snr[mask]) #log snrs
+            magsMasked = mags[mask]
+
+            m,c = np.polyfit(snrMasked,magsMasked,1) #calculate slope and intercept of fitted line
+            limMagEst = m * np.log(5) + c #limiting magnitude estimate at SNR = 5
+
+            return limMagEst, snrMasked, magsMasked, m, c
+        else:
+            print('Using psf flux: Will not provide limiting magnitude estimate')
+            limMagEst = None
+            return limMagEst
+
+
     def load(self, filepath=None):
 
         """Load this source list from the file.
