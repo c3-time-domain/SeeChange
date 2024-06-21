@@ -25,6 +25,7 @@ import models.object
 
 from pipeline.data_store import DataStore
 from pipeline.detection import Detector
+from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 
@@ -178,6 +179,14 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
         extraction_config = config.value( 'extraction.sources', {} )
         extractor = Detector( **extraction_config )
         ds = extractor.run( ds )
+
+        # Background
+
+        SCLogger.info( "Background" )
+
+        background_config = config.value( 'extraction.bg', {} )
+        backgrounder = Backgrounder( **background_config )
+        ds = backgrounder.run( ds )
 
         # WCS
 

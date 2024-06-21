@@ -42,22 +42,27 @@ class ConductorConnector:
             self.req = requests.Session()
             response = self.req.post( f'{self.url}/auth/getchallenge', json={ 'username': self.username },
                                       verify=self.verify )
-            data = response.json()
-            challenge = binascii.a2b_base64( data['challenge'] )
-            enc_privkey = binascii.a2b_base64( data['privkey'] )
-            salt = binascii.a2b_base64( data['salt'] )
-            iv = binascii.a2b_base64( data['iv'] )
-            aeskey = PBKDF2( self.password.encode('utf-8'), salt, 32, count=100000, hmac_hash_module=SHA256 )
-            aescipher = AES.new( aeskey, AES.MODE_GCM, nonce=iv )
-            privkeybytes = aescipher.decrypt( enc_privkey )
-            # SOMETHING I DON'T UNDERSTAND, I get back the bytes I expect
-            # (i.e. if I dump doing the equivalent decrypt operation in the
-            # javascript that's in rkauth.js) here, but there are an additional
-            # 16 bytes at the end; I don't know what they are.
-            privkeybytes = privkeybytes[:-16]
-            privkey = RSA.import_key( privkeybytes )
-            rsacipher = PKCS1_OAEP.new( privkey, hashAlgo=SHA256 )
-            decrypted_challenge = rsacipher.decrypt( challenge ).decode( 'utf-8' )
+            if response.status_code != 200:
+                raise RuntimeError( f"Error trying to log into conductor: {response.text}" )
+            try:
+                data = response.json()
+                challenge = binascii.a2b_base64( data['challenge'] )
+                enc_privkey = binascii.a2b_base64( data['privkey'] )
+                salt = binascii.a2b_base64( data['salt'] )
+                iv = binascii.a2b_base64( data['iv'] )
+                aeskey = PBKDF2( self.password.encode('utf-8'), salt, 32, count=100000, hmac_hash_module=SHA256 )
+                aescipher = AES.new( aeskey, AES.MODE_GCM, nonce=iv )
+                privkeybytes = aescipher.decrypt( enc_privkey )
+                # SOMETHING I DON'T UNDERSTAND, I get back the bytes I expect
+                # (i.e. if I dump doing the equivalent decrypt operation in the
+                # javascript that's in rkauth.js) here, but there are an additional
+                # 16 bytes at the end; I don't know what they are.
+                privkeybytes = privkeybytes[:-16]
+                privkey = RSA.import_key( privkeybytes )
+                rsacipher = PKCS1_OAEP.new( privkey, hashAlgo=SHA256 )
+                decrypted_challenge = rsacipher.decrypt( challenge ).decode( 'utf-8' )
+            except Exception as e:
+                raise RuntimeError( "Failed to log in, probably incorrect password." )
 
             response = self.req.post( f'{self.url}/auth/respondchallenge',
                                       json={ 'username': self.username, 'response': decrypted_challenge },
