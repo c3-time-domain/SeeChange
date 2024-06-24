@@ -11,20 +11,22 @@ but in the meantime, install Docker Engine instead of Docker Desktop; instructio
 - Installing Docker Engine : https://docs.docker.com/engine/install/
 - Setting up rootless mode (so you don't have to sudo everything) : https://docs.docker.com/engine/security/rootless/
 
+.. _dev_shell_local_database:
+
 #### Development shell — local database
 
 The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment variables.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
 ```
-  IMGTAG=<yourname>_dev
-  COMPOSE_PROJECT_NAME=<yourname>
-  USERID=<UID>
-  GROUPID=<GID>
-  CONDUCTOR_PORT=<port>
-  WEBAP_PORT=<port>
-  MAILHOG_PORT=<port>
+  IMGTAG=[yourname]_dev
+  COMPOSE_PROJECT_NAME=[yourname]
+  USERID=[UID]
+  GROUPID=[GID]
+  CONDUCTOR_PORT=[port]
+  WEBAP_PORT=[port]
+  MAILHOG_PORT=[port]
 ```
 
-`<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)  The three <port> lines are optional.  CONDUCTOR_PORT defaults to 8082, WEBAP_PORT to 8081, and MAILHOG_PORT to 8025.  If multiple people are running docker on the same machine, you will probably need to configure these; otherwise, the defaults are probably fine.  (If, when running `docker compose up` below, you get errors about ports in use, that means you probably need to set these numbers.)  Once you start a container, services inside the container will be available on those ports of `localhost` on the host machine.  That is, if you've set `CONDUCTOR_PORT=8082` (or just left it at the default), a web browser on the host machine pointed at `https://localhost:8082/` will show the conductor's web interface.  (Because it uses a self-signed SSL certificate inside the dev environment, your browser will give you a security warning that you need to agree to override in order to actually load the page.)
+`[yourname]` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `[UID]` and `[GID]` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)  The three [port] lines are optional.  CONDUCTOR_PORT defaults to 8082, WEBAP_PORT to 8081, and MAILHOG_PORT to 8025.  If multiple people are running docker on the same machine, you will probably need to configure these; otherwise, the defaults are probably fine.  (If, when running `docker compose up` below, you get errors about ports in use, that means you probably need to set these numbers.)  Once you start a container, services inside the container will be available on those ports of `localhost` on the host machine.  That is, if you've set `CONDUCTOR_PORT=8082` (or just left it at the default), a web browser on the host machine pointed at `https://localhost:8082/` will show the conductor's web interface.  (Because it uses a self-signed SSL certificate inside the dev environment, your browser will give you a security warning that you need to agree to override in order to actually load the page.)
 
 Once you've set these environment variables— either in a `.env` file, with three `export` commands, or by prepending them to every `docker compose` command you see below, you can start up a development shell in which to run code by running, while in the `devshell` subdirectory:
 
@@ -79,16 +81,16 @@ TBD
 
 You can run tests in an environment that approximates how they'll be run via CI in github.  Go into the `tests` directory and create a file `.env` with contents:
 ```
-  IMGTAG=<yourname>_test
-  COMPOSE_PROJECT_NAME=<yourname>
-  USERID=<UID>
-  GROUPID=<GID>
-  CONDUCTOR_PORT=<port>
-  WEBAP_PORT=<port>
-  MAILHOG_PORT=<port>
+  IMGTAG=[yourname]_test
+  COMPOSE_PROJECT_NAME=[yourname]
+  USERID=[UID]
+  GROUPID=[GID]
+  CONDUCTOR_PORT=[port]
+  WEBAP_PORT=[port]
+  MAILHOG_PORT=[port]
 ```
 
-(See [Development shell -- local database](#development-shell-local-database) for a description of what all these environment variables mean.)
+(See :ref:`dev_shell_local_database` for a description of what all these environment variables mean.)
 
 Make sure your docker images are up to date with
 ```
@@ -110,7 +112,7 @@ After the test is complete, run
 ```
 (otherwise, the postgres container will still be running).
 
-As with the [dev shell](#development-shell-local-database), you can also get a shell in the test environment with
+As with :ref:`dev_shell_local_database`, you can also get a shell in the test environment with
 ```
    docker compose up -d shell
    docker compose exec -it shell /bin/bash
