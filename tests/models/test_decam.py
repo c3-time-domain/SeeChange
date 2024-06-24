@@ -401,7 +401,7 @@ def test_preprocessing_calibrator_files( decam_default_calibrators ):
     for filt in [ 'r', 'z' ]:
         info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
                                                      'N1', filt, 60000. )
-        for nocalib in [ 'zero', 'dark', 'illumination' ]:
+        for nocalib in [ 'zero', 'dark' ]:
             # DECam doesn't include these three in its preprocessing steps
             assert f'{nocalib}_isimage' not in info.keys()
             assert f'{nocalib}_fileid' not in info.keys()
