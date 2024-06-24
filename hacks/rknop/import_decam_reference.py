@@ -45,7 +45,24 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     # Hopefully since this is a hack one-off, we can just cope.
     with SmartSession() as sess:
 
-        SClogger.info( "Making provenance tree" )
+        SCLogger.info( "Making image provenance" )
+
+        # TODO : when I run a bunch of processes at once I'm getting
+        #   errors about the code version already existing.
+        # Need to really understand how to cope with this sort of thing.
+
+        cvs = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).all()
+        if len( cvs ) == 0:
+            try:
+                code_ver = CodeVersion( id='hack_0.1' )
+                code_ver.update()
+                sess.merge( code_ver )
+                sess.commit()
+            except Exception as ex:
+                SCLogger.warning( "Got error trying to create code version, "
+                                  "going to assume it's a race condition and all is well." )
+                sess.rollback()
+        code_ver = sess.query( CodeVersion ).filter( CodeVersion.id == 'hack_0.1' ).first()
 
         # We should make a get_or_create method for Provenance
         prov = None
@@ -62,8 +79,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
                                parameters = prov_params, upstreams = prov_upstreams )
 
             prov.update_id()
-            prov = sess.merge( prov )
-            sess.commit()
+            prov.merge_concurrent( sess )
             provs = ( sess.query( Provenance )
                       .filter( Provenance.process == prov_process )
                       .filter( Provenance.code_version == code_ver )
@@ -154,10 +170,6 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
 
         image.flags = numpy.zeros_like( msk_data, dtype=numpy.int16 )
         image.flags[ msk_data != 0 ] = string_to_bitflag( 'bad pixel', flag_image_bits_inverse )
-
-        ds, session = DataStore.from_args()
-        with Smartsession(session) as dbsession:
-            provs = self.make_provenance_tree( dbsession )
 
         ds = DataStore( image, session=sess )
 
