@@ -11,7 +11,7 @@ but in the meantime, install Docker Engine instead of Docker Desktop; instructio
 - Installing Docker Engine : https://docs.docker.com/engine/install/
 - Setting up rootless mode (so you don't have to sudo everything) : https://docs.docker.com/engine/security/rootless/
 
-#### Development shell -- local database
+#### Development shell — local database
 
 The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment variables.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
 ```
@@ -24,7 +24,7 @@ The `devshell` directory has a docker compose file that can create a development
   MAILHOG_PORT=<port>
 ```
 
-`<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)  The three <port> lines are optional; see below.  CONDUCTOR_PORT defaults to 8082, WEBAP_PORT to 8081, and MAILHOG_PORT to 8025.  If multiple people are running docker on the same machine, you will probably need to configure these; otherwise, the defaults are fine.  Once you start a container, services inside the container will be available on those ports of `localhost` on the host machine.  That is, if you've set `CONDUCTOR_PORT=8082` (or just left it at the default), a web browser on the host machine pointed at `https://localhost:8082/` will show the conductor's web interface.  (Because it uses a self-signed SSL certificate inside the dev environment, your browser will give you a security warning that you need to agree to override in order to actually load the page.)
+`<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)  The three <port> lines are optional.  CONDUCTOR_PORT defaults to 8082, WEBAP_PORT to 8081, and MAILHOG_PORT to 8025.  If multiple people are running docker on the same machine, you will probably need to configure these; otherwise, the defaults are probably fine.  (If, when running `docker compose up` below, you get errors about ports in use, that means you probably need to set these numbers.)  Once you start a container, services inside the container will be available on those ports of `localhost` on the host machine.  That is, if you've set `CONDUCTOR_PORT=8082` (or just left it at the default), a web browser on the host machine pointed at `https://localhost:8082/` will show the conductor's web interface.  (Because it uses a self-signed SSL certificate inside the dev environment, your browser will give you a security warning that you need to agree to override in order to actually load the page.)
 
 Once you've set these environment variables— either in a `.env` file, with three `export` commands, or by prepending them to every `docker compose` command you see below, you can start up a development shell in which to run code by running, while in the `devshell` subdirectory:
 
@@ -70,7 +70,7 @@ Note that this will almost certainly show you more than you care about; it will 
 
 There is one other bit of cleanup.  Any images created while you work in the devshell docker image will be written under the `devshell/temp_data` directory.  When you exit and come back into the docker compose environment, all those files will still be there.  If you want to clean up, in addition to adding `-v` to `docker compose down`, you will also want to `rm -rf temp_data`.
 
-#### Development shell -- using an external existing database
+#### Development shell — using an external existing database
 
 TBD
 
@@ -98,7 +98,6 @@ then run
 ```
    docker compose run runtests
 ```
-
 
 At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  
 (The output you see to the screen should tell you the same information.)  
@@ -135,7 +134,7 @@ After editing any schema, you have to create new database migrations to apply th
 The comment will go in the filename, so it should really be short.  
 Look out for any warnings, and review the created migration file before applying it (with `alembic upgrade head`).
 
-Note that in the devshell and test docker environments above, database migrations are automatically run when you create the environment with `docker compose up -d`, so there is no need for an initial `alembic upgrade head`.   However, if you then create additional migrations, and you haven't since run `docker compose down -v` (the `-v` being the thing that deletes the database), then you will need to run `alembic upgrade head` to apply those migrations to the running database inside your docker environment.
+Note that in the devshell and test docker environments above, database migrations are automatically run when you create the environment with `docker compose up -d ...`, so there is no need for an initial `alembic upgrade head`.   However, if you then create additional migrations, and you haven't since run `docker compose down -v` (the `-v` being the thing that deletes the database), then you will need to run `alembic upgrade head` to apply those migrations to the running database inside your docker environment.
 
 ### Installing SeeChange on a local machine (not dockerized)
 

@@ -47,7 +47,7 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
 
   postgres:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres:${IMGTAG:-tests}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/postgres:${IMGTAG:-tests}
     build:
       context: ../docker/postgres
     environment:
@@ -84,7 +84,7 @@ services:
         - "${MAILHOG_PORT:-8025}:8025"
 
   conductor:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange_conductor:${IMGTAG:-tests}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/conductor:${IMGTAG:-tests}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
