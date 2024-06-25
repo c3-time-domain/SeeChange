@@ -1,6 +1,7 @@
 import warnings
 import sys
 import os
+import time
 import math
 import types
 import hashlib
@@ -26,6 +27,8 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.dialects.postgresql import array as sqlarray
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.exc import IntegrityError
+from psycopg2.errors import UniqueViolation
 
 from sqlalchemy.schema import CheckConstraint
 
@@ -551,6 +554,37 @@ def get_archive_object():
         if archive_specs is not None:
             ARCHIVE = Archive(**archive_specs)
     return ARCHIVE
+
+def merge_concurrent( obj, session=None, commit=True ):
+    """Merge a database object but make sure it doesn't exist before adding it to the database.
+
+    When multiple processes are running at the same time, and they might
+    create the same objects (which usually happens with provenances),
+    there can be a race condition inside sqlalchemy that leads to a
+    merge failure because of a duplicate primary key violation.  Here,
+    try the merge repeatedly until it works, sleeping an increasing
+    amount of time; if we wait to long, fail for real.
+
+    """
+    output = None
+    with SmartSession(session) as session:
+        for i in range(5):
+            try:
+                output = session.merge(obj)
+                if commit:
+                    session.commit()
+                break
+            except ( IntegrityError, UniqueViolation ) as e:
+                if 'violates unique constraint' in str(e):
+                    session.rollback()
+                    SCLogger.debug( f"Merge failed, sleeping {0.1 * 2**i} seconds before retrying" )
+                    time.sleep(0.1 * 2 ** i)  # exponential sleep
+                else:
+                    raise e
+        else:  # if we didn't break out of the loop, there must have been some integrity error
+            raise e
+
+    return output
 
 
 class FileOnDiskMixin:

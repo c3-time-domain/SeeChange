@@ -45,7 +45,7 @@ jobs:
           files: docker-compose.yaml
           set: |
             archive.tags=gchr.io/${{ github.repository_owner }}/archive
-            archive.cache-from=type=gha,scipe=cached-archive
+            archive.cache-from=type=gha,scope=cached-archive
             archive.cache-to=type=gha,scope=cached-archive,mode=max
             postgres.tags=ghcr.io/${{ github.repository_owner }}/postgres
             postgres.cache-from=type=gha,scope=cached-postgres

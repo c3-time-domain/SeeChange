@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from util.util import get_git_hash
 
+import models.base
 from models.base import Base, SeeChangeBase, SmartSession, safe_merge
 
 
@@ -349,24 +350,25 @@ class Provenance(Base):
         This is expected under the assumptions of "optimistic concurrency".
         If that happens, we simply begin again, checking for the provenance and merging it.
         """
-        output = None
-        with SmartSession(session) as session:
-            for i in range(5):
-                try:
-                    output = session.merge(self)
-                    if commit:
-                        session.commit()
-                    break
-                except IntegrityError as e:
-                    if 'duplicate key value violates unique constraint "pk_provenances"' in str(e):
-                        session.rollback()
-                        time.sleep(0.1 * 2 ** i)  # exponential sleep
-                    else:
-                        raise e
-            else:  # if we didn't break out of the loop, there must have been some integrity error
-                raise e
+        return models.base.merge_concurrent( self, session=session, commit=commit )
+        # output = None
+        # with SmartSession(session) as session:
+        #     for i in range(5):
+        #         try:
+        #             output = session.merge(self)
+        #             if commit:
+        #                 session.commit()
+        #             break
+        #         except IntegrityError as e:
+        #             if 'duplicate key value violates unique constraint "pk_provenances"' in str(e):
+        #                 session.rollback()
+        #                 time.sleep(0.1 * 2 ** i)  # exponential sleep
+        #             else:
+        #                 raise e
+        #     else:  # if we didn't break out of the loop, there must have been some integrity error
+        #         raise e
 
-        return output
+        # return output
 
 
 @event.listens_for(Provenance, "before_insert")

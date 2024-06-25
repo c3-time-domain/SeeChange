@@ -418,7 +418,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
             if not os.getenv( "LIMIT_CACHE_USAGE" ):
                 copy_to_cache( image, decam_cache_dir )
 
-            ds = datastore_factory(image, cache_dir=decam_cache_dir, cache_base_name=f'007/{filebase}')
+            ds = datastore_factory(image, cache_dir=decam_cache_dir, cache_base_name=f'007/{filebase}.{chip:02d}')
 
             for filename in image.get_fullpath( as_list=True ):
                 assert os.path.isfile( filename )
