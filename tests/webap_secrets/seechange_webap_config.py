@@ -1,3 +1,4 @@
+import pathlib
 PG_HOST = 'seechange_postgres'
 PG_PORT = 5432
 PG_USER = 'postgres'

@@ -268,43 +268,49 @@ class Subtractor:
                     sub_image.provenance_id = prov.id
                     sub_image.coordinates_to_alignment_target()  # make sure the WCS is aligned to the correct image
 
-                    # make sure to grab the correct aligned images
-                    new_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.new_image.mjd]
-                    if len(new_image) != 1:
-                        raise ValueError('Cannot find the new image in the aligned images')
-                    new_image = new_image[0]
+                    # Need to make sure the upstream images are loaded into this session before
+                    # we disconnect it from the database.  (We don't want to hold the database
+                    # connection open through all the slow processes below.)
+                    upstream_images = sub_image.upstream_images
 
-                    ref_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.ref_image.mjd]
-                    if len(ref_image) != 1:
-                        raise ValueError('Cannot find the reference image in the aligned images')
-                    ref_image = ref_image[0]
+            if self.has_recalculated:
+                # make sure to grab the correct aligned images
+                new_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.new_image.mjd]
+                if len(new_image) != 1:
+                    raise ValueError('Cannot find the new image in the aligned images')
+                new_image = new_image[0]
 
-                    if self.pars.method == 'naive':
-                        outdict = self._subtract_naive(new_image, ref_image)
-                    elif self.pars.method == 'hotpants':
-                        outdict = self._subtract_hotpants(new_image, ref_image)
-                    elif self.pars.method == 'zogy':
-                        outdict = self._subtract_zogy(new_image, ref_image)
-                    else:
-                        raise ValueError(f'Unknown subtraction method {self.pars.method}')
+                ref_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.ref_image.mjd]
+                if len(ref_image) != 1:
+                    raise ValueError('Cannot find the reference image in the aligned images')
+                ref_image = ref_image[0]
 
-                    sub_image.data = outdict['outim']
-                    sub_image.weight = outdict['outwt']
-                    sub_image.flags = outdict['outfl']
-                    if 'score' in outdict:
-                        sub_image.score = outdict['score']
-                    if 'alpha' in outdict:
+                if self.pars.method == 'naive':
+                    outdict = self._subtract_naive(new_image, ref_image)
+                elif self.pars.method == 'hotpants':
+                    outdict = self._subtract_hotpants(new_image, ref_image)
+                elif self.pars.method == 'zogy':
+                    outdict = self._subtract_zogy(new_image, ref_image)
+                else:
+                    raise ValueError(f'Unknown subtraction method {self.pars.method}')
+
+                sub_image.data = outdict['outim']
+                sub_image.weight = outdict['outwt']
+                sub_image.flags = outdict['outfl']
+                if 'score' in outdict:
+                    sub_image.score = outdict['score']
+                if 'alpha' in outdict:
+                    sub_image.psfflux = outdict['alpha']
+                if 'alpha_err' in outdict:
+                    sub_image.psffluxerr = outdict['alpha_err']
+                if 'psf' in outdict:
+                    # TODO: clip the array to be a cutout around the PSF, right now it is same shape as image!
+                    sub_image.zogy_psf = outdict['psf']  # not saved, can be useful for testing / source detection
+                    if 'alpha' in outdict and 'alpha_err' in outdict:
                         sub_image.psfflux = outdict['alpha']
-                    if 'alpha_err' in outdict:
                         sub_image.psffluxerr = outdict['alpha_err']
-                    if 'psf' in outdict:
-                        # TODO: clip the array to be a cutout around the PSF, right now it is same shape as image!
-                        sub_image.zogy_psf = outdict['psf']  # not saved, can be useful for testing / source detection
-                        if 'alpha' in outdict and 'alpha_err' in outdict:
-                            sub_image.psfflux = outdict['alpha']
-                            sub_image.psffluxerr = outdict['alpha_err']
 
-                    sub_image.subtraction_output = outdict  # save the full output for debugging
+                sub_image.subtraction_output = outdict  # save the full output for debugging
 
             if sub_image._upstream_bitflag is None:
                 sub_image._upstream_bitflag = 0
