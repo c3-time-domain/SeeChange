@@ -369,7 +369,7 @@ def datastore_factory(data_dir, pipeline_factory):
         code_version = args[0].provenance.code_version
         ds = DataStore(*args)  # make a new datastore
 
-        if ( cache_dir is not None ) and ( cache_base_name is not None ) and ( not os.getenv( "LIMIT_CACHE_USE" ) ):
+        if ( cache_dir is not None ) and ( cache_base_name is not None ) and ( not os.getenv( "LIMIT_CACHE_USAGE" ) ):
             ds.cache_base_name = os.path.join(cache_dir, cache_base_name)  # save this for testing purposes
 
         p = pipeline_factory()

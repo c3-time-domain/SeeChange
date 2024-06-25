@@ -59,4 +59,4 @@ jobs:
 
       - name: run test
         run: |
-          TEST_SUBFOLDER=tests/util docker compose run -e LIMIT_CACHE_USE=1 runtests
+          TEST_SUBFOLDER=tests/util docker compose run -e LIMIT_CACHE_USAGE=1 runtests

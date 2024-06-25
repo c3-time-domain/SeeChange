@@ -60,4 +60,4 @@ jobs:
       - name: run test
         run: |
           shopt -s nullglob
-          TEST_SUBFOLDER=$(ls tests/pipeline/test_{a..o}*.py) docker compose run -e LIMIT_CACHE_USE=1 runtests
+          TEST_SUBFOLDER=$(ls tests/pipeline/test_{a..o}*.py) docker compose run -e LIMIT_CACHE_USAGE=1 runtests
