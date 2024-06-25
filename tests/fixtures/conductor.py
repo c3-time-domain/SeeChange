@@ -139,8 +139,9 @@ def conductor_config_for_decam_pull( conductor_connector ):
     del origstatus[ 'lastupdate' ]
     del origstatus[ 'configchangetime' ]
 
-    updateargs = { 'minmjd': 60159.15625,
-                   'maxmjd': 60159.16667,
+    updateargs = { 'minmjd': 60127.33819,
+                   'maxmjd': 60127.36319,
+                   'projects': [ '2023A-716082' ],
                    'proc_type': 'raw' }
     data = conductor_connector.send( 'updateparameters/timeout=120/instrument=DECam/pause=true',
                                      { 'updateargs': updateargs } )
@@ -167,8 +168,8 @@ def conductor_config_for_decam_pull( conductor_connector ):
 
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
-                .filter( KnownExposure.mjd >= 60159.157 )
-                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
+                .filter( KnownExposure.mjd >= 60127.33819 )
+                .filter( KnownExposure.mjd <= 60127.36319) ).all()
         for ke in kes:
             session.delete( ke )
         session.commit()

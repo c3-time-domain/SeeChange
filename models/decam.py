@@ -394,7 +394,7 @@ class DECam(Instrument):
         # the file because calibrator.py imports image.py, image.py
         # imports exposure.py, and exposure.py imports instrument.py --
         # leading to a circular import
-        from models.calibratorfile import CalibratorFile
+        from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
 
         cfg = Config.get()
         cv = Provenance.get_code_version()
@@ -425,10 +425,76 @@ class DECam(Instrument):
         filepath = reldatadir / calibtype / rempath.name
         fileabspath = datadir / calibtype / rempath.name
 
-        retry_download( url, fileabspath )
+        if calibtype == 'linearity':
+            # Linearity requires special handling because it's the same
+            # file for all chips.  So, to avoid chaos, we have to get
+            # the CalibratorFileDownloadLock for it with section=None.
+            # (By the time this this function is called, we should
+            # already have the lock for one specific section, but not
+            # for the whole instrument.)
 
-        with SmartSession( session ) as dbsess:
-            if calibtype in [ 'flat', 'illumination', 'fringe' ]:
+            with CalibratorFileDownloadLock.acquire_lock(
+                    self.name, None, 'externally_supplied', 'linearity', session=session
+            ) as calibfile_lockid:
+
+                with SmartSession( session ) as dbsess:
+                    # Gotta check to see if the file was there from
+                    # something that didn't go all the way through
+                    # before, or if it was downloaded by anothe process
+                    # while we were waiting for the
+                    # calibfile_downloadlock
+                    datafile = dbsess.scalars(sa.select(DataFile).where(DataFile.filepath == str(filepath))).first()
+                    # TODO: what happens if the provenance doesn't match??
+
+                if datafile is None:
+                    retry_download( url, fileabspath )
+                    datafile = DataFile( filepath=str(filepath), provenance=prov )
+                    datafile.save( str(fileabspath) )
+                    datafile = dbsess.merge( datafile )
+                    dbsess.commit()
+                    dbsess.refresh( datafile )
+
+                # Linearity file applies for all chips, so load the database accordingly
+                # Once again, gotta check to make sure the entry doesn't already exist,
+                # because somebody else may have created it while we were waiting for
+                # the calibfile_downloadlock
+                with SmartSession( session ) as dbsess:
+                    for ssec in self._chip_radec_off.keys():
+                        if ( dbsess.query( CalibratorFile )
+                             .filter( CalibratorFile.type=='linearity' )
+                             .filter( CalibratorFile.calibrator_set=='externally_supplied' )
+                             .filter( CalibratorFile.flat_type==None )
+                             .filter( CalibratorFile.instrument=='DECam' )
+                             .filter( CalibratorFile.sensor_section==ssec )
+                             .filter( CalibratorFile.datafile==datafile ) ).count() == 0:
+                            calfile = CalibratorFile( type='linearity',
+                                                      calibrator_set="externally_supplied",
+                                                      flat_type=None,
+                                                      instrument='DECam',
+                                                      sensor_section=ssec,
+                                                      datafile_id=datafile.id
+                                                     )
+                            dbsess.merge( calfile )
+                    dbsess.commit()
+
+                    # Finally pull out the right entry for the sensor section we were actually asked for
+                    calfile = ( dbsess.query( CalibratorFile )
+                                .filter( CalibratorFile.type=='linearity' )
+                                .filter( CalibratorFile.calibrator_set=='externally_supplied' )
+                                .filter( CalibratorFile.flat_type==None )
+                                .filter( CalibratorFile.instrument=='DECam' )
+                                .filter( CalibratorFile.sensor_section==section )
+                                .filter( CalibratorFile.datafile_id==datafile.id )
+                               ).first()
+                    if calfile is None:
+                        raise RuntimeError( f"Failed to get default calibrator file for DECam linearity; "
+                                            f"you should never see this error." )
+        else:
+            # No need to get a new calibfile_downloadlock, we should already have the one for this type and section
+            retry_download( url, fileabspath )
+
+            with SmartSession( session ) as dbsess:
+                # We know calibtype will be one of fringe, flat, or illumination
                 if calibtype == 'fringe':
                     dbtype = 'Fringe'
                 elif calibtype == 'flat':
@@ -457,27 +523,6 @@ class DECam(Instrument):
                                           sensor_section=section,
                                           image=image )
                 calfile = dbsess.merge(calfile)
-                dbsess.commit()
-            else:
-                datafile = dbsess.scalars(sa.select(DataFile).where(DataFile.filepath == str(filepath))).first()
-                # TODO: what happens if the provenance doesn't match??
-
-                if datafile is None:
-                    datafile = DataFile( filepath=str(filepath), provenance=prov )
-                    datafile.save( str(fileabspath) )
-                    datafile = dbsess.merge(datafile)
-
-                # Linearity file applies for all chips, so load the database accordingly
-                for ssec in self._chip_radec_off.keys():
-                    calfile = CalibratorFile( type='Linearity',
-                                              calibrator_set="externally_supplied",
-                                              flat_type=None,
-                                              instrument='DECam',
-                                              sensor_section=ssec,
-                                              datafile=datafile
-                                              )
-                    calfile = dbsess.merge(calfile)
-
                 dbsess.commit()
 
         return calfile

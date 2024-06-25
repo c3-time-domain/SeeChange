@@ -202,15 +202,17 @@ def get_all_database_objects(display=False, session=None):
     from models.cutouts import Cutouts
     from models.measurements import Measurements
     from models.object import Object
-    from models.calibratorfile import CalibratorFile
+    from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
     from models.catalog_excerpt import CatalogExcerpt
     from models.reference import Reference
     from models.instrument import SensorSection
+    from models.user import AuthUser, PasswordLink
 
     models = [
         CodeHash, CodeVersion, Provenance, DataFile, Exposure, Image,
         SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, Object,
-        CalibratorFile, CatalogExcerpt, Reference, SensorSection
+        CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference, SensorSection,
+        AuthUser, PasswordLink
     ]
 
     output = {}

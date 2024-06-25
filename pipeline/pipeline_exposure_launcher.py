@@ -97,7 +97,7 @@ class ExposureProcessor:
         try:
             me = multiprocessing.current_process()
             # (I know that the process names are going to be something like ForkPoolWorker-{number}
-            match = re.search( '(\d+)', me.name )
+            match = re.search( '([0-9]+)', me.name )
             if match is not None:
                 me.name = f'{int(match.group(1)):3d}'
             else:
@@ -234,9 +234,34 @@ class ExposureLauncher:
         url = f'workerheartbeat/{self.pipelineworker_id}'
         self.conductor.send( url )
 
-    def __call__( self ):
+    def __call__( self, max_n_exposures=None, die_on_exception=False ):
+        """Run the pipeline launcher.
+
+        Will run until it's processed max_n_exposures exposures
+        (default: runs indefinitely).  Regularly queries the conductor
+        for an exposure to do.  Sleeps 120s if nothing was found,
+        otherwise, runs an ExposureProcessor to process the exposure.
+
+        Parameters
+        ----------
+        max_n_exposures : int, default None
+           Succesfully process at most this many exposures before
+           exiting.  Primarily useful for testing.  If None, there is no
+           limit.  If you set this, you probably also want to set
+           die_on_exception.  (Otherwise, if it fails each time it tries
+           an exposure, it will never exit.)
+
+        die_on_exception : bool, default False
+           The exposure processing loop is run inside a try block that
+           catches exceptions.  Normally, a log message is printed about
+           the exception and the loop continues.  If this is true, the
+           exception is re-raised.
+
+        """
+        
         done = False
         req = None
+        n_processed = 0
         while not done:
             try:
                 data = self.conductor.send( f'requestexposure/cluster_id={self.cluster_id}' )
@@ -279,10 +304,19 @@ class ExposureLauncher:
 
                 exposure_processor()
                 SCLogger.info( f"Done processing exposure {exposure_processor.exposure.origin_identifier}" )
+
+                n_processed += 1
+                if ( max_n_exposures is not None ) and ( n_processed >= max_n_exposures ):
+                    SCLogger.info( f"Hit max {n_processed} exposures, existing" )
+                    done = True
+                
             except Exception as ex:
-                SCLogger.exception( "Exception in ExposureLauncher loop" )
-                SCLogger.info( f"Sleeping {self.sleeptime} s and continuing" )
-                time.sleep( self.sleeptime )
+                if die_on_exception:
+                    raise
+                else:
+                    SCLogger.exception( "Exception in ExposureLauncher loop" )
+                    SCLogger.info( f"Sleeping {self.sleeptime} s and continuing" )
+                    time.sleep( self.sleeptime )
 
 # ======================================================================
 
@@ -294,7 +328,9 @@ def main():
     parser = argparse.ArgumentParser( 'pipeline_exposure_launcher.py',
                                       description='Ask the conductor for exposures to do, launch piplines to run them',
                                       formatter_class=ArgFormatter,
-                                      epilog="""pipeline_exposure_launcher.py
+                                      epilog=
+
+        """pipeline_exposure_launcher.py
 
 Runs a process that regularly (by default, every 2 minutes) polls the
 SeeChange conductor to see if there are any exposures that need

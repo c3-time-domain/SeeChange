@@ -67,25 +67,26 @@ def test_update_unknown_instrument( conductor_connector ):
 def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
     req = conductor_config_for_decam_pull
 
+    mjd0 = 60127.33819
+    mjd1 = 60127.36319 
+    
     # Verify that the right things are in known exposures
     # (Do this here rather than in a test because we need
     # to clean it up after the yield.)
 
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
-                .filter( KnownExposure.mjd >= 60159.157 )
-                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
-        assert len(kes) == 9
+                .filter( KnownExposure.mjd >= mjd0 )
+                .filter( KnownExposure.mjd <= mjd1 ) ).all()
+        assert len(kes) == 18
         assert all( [ not i.hold for i in kes ] )
-        assert set( [ i.project for i in kes ] ) == { '2023A-921384', '2023A-716082' }
-        assert min( [ i.mjd for i in kes ] ) == pytest.approx( 60159.15722, abs=1e-5 )
-        assert max( [ i.mjd for i in kes ] ) == pytest.approx( 60159.16662, abs=1e-5 )
-        assert set( [ i.exp_time for i in kes ] ) == { 100, 96, 50, 30 }
-        assert set( [ i.filter for i in kes ] ) == { 'VR DECam c0007 6300.0 2600.0',
-                                                     'g DECam SDSS c0001 4720.0 1520.0',
+        assert all( [ i.project == '2023A-716082' for i in kes ] )
+        assert min( [ i.mjd for i in kes ] ) == pytest.approx( 60127.33894, abs=1e-5 )
+        assert max( [ i.mjd for i in kes ] ) == pytest.approx( 60127.36287, abs=1e-5 )
+        assert set( [ i.exp_time for i in kes ] ) == { 60, 86, 130 }
+        assert set( [ i.filter for i in kes ] ) == { 'g DECam SDSS c0001 4720.0 1520.0',
                                                      'r DECam SDSS c0002 6415.0 1480.0',
-                                                     'i DECam SDSS c0003 7835.0 1470.0',
-                                                     'z DECam SDSS c0004 9260.0 1520.0' }
+                                                     'i DECam SDSS c0003 7835.0 1470.0' }
 
     # Run another forced update to make sure that additional knownexposures aren't added
 
@@ -96,24 +97,24 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
 
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
-                .filter( KnownExposure.mjd >= 60159.157 )
-                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
-        assert len(kes) == 9
+                .filter( KnownExposure.mjd >= mjd0 )
+                .filter( KnownExposure.mjd <= mjd1 ) ).all()
+        assert len(kes) == 18
 
 
     # Make sure that if *some* of what is found is already in known_exposures, only the others are added
 
         delkes = ( session.query( KnownExposure )
-                   .filter( KnownExposure.mjd > 60159.160 )
-                   .filter( KnownExposure.mjd < 60159.166 ) ).all()
+                   .filter( KnownExposure.mjd > 60127.338 )
+                   .filter( KnownExposure.mjd < 60127.348 ) ).all()
         for delke in delkes:
             session.delete( delke )
         session.commit()
 
         kes = ( session.query( KnownExposure )
-                .filter( KnownExposure.mjd >= 60159.157 )
-                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
-        assert len(kes) == 3
+                .filter( KnownExposure.mjd >= mjd0 )
+                .filter( KnownExposure.mjd <= mjd1 ) ).all()
+        assert len(kes) == 11
 
     time.sleep(1)  # So we can resolve the time difference
     data = conductor_connector.send( 'forceupdate' )
@@ -123,11 +124,11 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
 
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
-                .filter( KnownExposure.mjd >= 60159.157 )
-                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
-        assert len(kes) == 9
+                .filter( KnownExposure.mjd >= mjd0 )
+                .filter( KnownExposure.mjd <= mjd1 ) ).all()
+        assert len(kes) == 18
 
-    # Make sure hold works
+    # Make sure holding by default works
 
     data = conductor_connector.send( "updateparameters/hold=true" )
     assert data['status'] == 'updated'
@@ -136,8 +137,8 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
 
     with SmartSession() as session:
         delkes = ( session.query( KnownExposure )
-                   .filter( KnownExposure.mjd > 60159.157 )
-                   .filter( KnownExposure.mjd < 60159.167 ) ).all()
+                   .filter( KnownExposure.mjd > mjd0 )
+                   .filter( KnownExposure.mjd < mjd1 ) ).all()
         for delke in delkes:
             session.delete( delke )
         session.commit()
@@ -147,9 +148,9 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
 
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
-                .filter( KnownExposure.mjd >= 60159.157 )
-                .filter( KnownExposure.mjd <= 60159.167 ) ).all()
-        assert len(kes) == 9
+                .filter( KnownExposure.mjd >= mjd0 )
+                .filter( KnownExposure.mjd <= mjd1 ) ).all()
+        assert len(kes) == 18
         assert all( [ i.hold for i in kes ] )
 
 

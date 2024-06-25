@@ -100,6 +100,16 @@ class EnumConverter:
         else:
             raise ValueError(f'{cls.__name__} must be integer/float key or string value, not {type(value)}')
 
+    @classmethod
+    def numeric( cls, value ):
+        """Return the numeric value corresponding to either a string or integer key.
+
+        If given None, will return None.
+
+        """
+        if value is None:
+            return None
+        return value if isinstance( value, int ) else cls.convert( value )
 
 class FormatConverter( EnumConverter ):
     # This is the master format dictionary, that contains all file types for

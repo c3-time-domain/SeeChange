@@ -348,6 +348,147 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
             pass
 
 
+# THINK -- is this really good to have at session scope?
+# Benefit: slow, because it run sextractor and psfex and such
+# to load sources, etc.
+# Drawback: a test might modify the datastore!
+# (Really: we should get the sources, psf, etc. in the
+# test data cache and just download it rather than
+# recalcualte it?)
+@pytest.fixture( scope="session" )
+def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
+    filebase = 'ELAIS-E1-g-templ'
+
+    dses = []
+    delete_list = []
+    for dsindex, chip in enumerate( [ 27, 47 ] ):
+        for ext in [ 'image.fits', 'weight.fits', 'flags.fits', 'image.yaml' ]:
+            cache_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.{ext}' )
+            if os.path.isfile( cache_path ):
+                SCLogger.info( f"{cache_path} exists, not redownloading" )
+            else:
+                url = os.path.join( download_url, 'DECAM', f'{filebase}.{chip:02d}.{ext}' )
+                SCLogger.info( f"Downloading {cache_path}" )
+                retry_download( url, cache_path )
+                if not os.path.isfile( cache_path ):
+                    raise FileNotFoundError( f"Can't find downloaded file {cache_path}" )
+                
+            if not ext.endswith('.yaml'):
+                destination = os.path.join(data_dir, f'007/{filebase}.{chip:02d}.{ext}')
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                if os.getenv( "LIMIT_CACHE_USAGE" ):
+                    shutil.move( cache_path, destination )
+                else:
+                    shutil.copy2( cache_path, destination )
+
+        yaml_path = os.path.join(decam_cache_dir, f'007/{filebase}.{chip:02d}.image.yaml')
+        with open( yaml_path ) as ifp:
+            refyaml = yaml.safe_load( ifp )
+        
+        with SmartSession() as session:
+            code_version = session.merge(code_version)
+            prov = Provenance(
+                process='preprocessing',
+                code_version=code_version,
+                parameters={},
+                upstreams=[],
+                is_testing=True,
+            )
+            # check if this Image is already in the DB
+            existing = session.scalars(
+                sa.select(Image).where(Image.filepath == f'007/{filebase}.{chip:02d}')
+            ).first()
+            if existing is None:
+                image = Image(**refyaml)
+            else:
+                # overwrite the existing row data using the YAML
+                for key, value in refyaml.items():
+                    if (
+                            key not in ['id', 'image_id', 'created_at', 'modified'] and
+                            value is not None
+                    ):
+                        setattr(existing, key, value)
+                image = existing  # replace with the existing object
+
+            image.provenance = prov
+            image.filepath = f'007/{filebase}.{chip:02d}'
+            image.is_coadd = True
+            image.save(verify_md5=False)  # make sure to upload to archive as well
+
+            if not os.getenv( "LIMIT_CACHE_USAGE" ):
+                copy_to_cache( image, decam_cache_dir )
+
+            ds = datastore_factory(image, cache_dir=decam_cache_dir, cache_base_name=f'007/{filebase}')
+
+            for filename in image.get_fullpath( as_list=True ):
+                assert os.path.isfile( filename )
+
+            ds.save_and_commit( session )
+
+            dses.append( ds )
+            delete_list.extend( [ ds.image, ds.sources, ds.psf, ds.wcs, ds.zp,
+                                  ds.sub_image, ds.detections, ds.cutouts, ds.measurements ] )
+            
+    yield dses
+
+    for ds in dses:
+        ds.delete_everything()
+
+    # make sure that these individual objects have their files cleaned up,
+    # even if the datastore is cleared and all database rows are deleted.
+    for obj in delete_list:
+        if obj is not None and hasattr(obj, 'delete_from_disk_and_database'):
+            obj.delete_from_disk_and_database(archive=True)
+
+    ImageAligner.cleanup_temp_images()
+
+@pytest.fixture( scope="session" )
+def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
+    refs = []
+    with SmartSession() as session:
+        for ds in decam_elais_e1_two_refs_datastore:
+            prov = Provenance(
+                code_version=ds.image.provenance.code_version,
+                process='reference',
+                parameters={'test_parameter': 'test_value'},
+                upstreams=[
+                    ds.image.provenance,
+                    ds.sources.provenance,
+                    ],
+                is_testing=True,
+            )
+            prov = session.merge( prov )
+
+            ref = Reference()
+            ref.image = ds.image
+            ref.provenance = prov
+            ref.validity_start = Time(55000, format='mjd', scale='tai').isot
+            ref.validity_end = Time(65000, format='mjd', scale='tai').isot
+            ref.section_id = ds.image.section_id
+            ref.filter = ds.image.filter
+            ref.target = ds.image.target
+            ref.project = ds.image.project
+
+            ref = ref.merge_all(session=session)
+            if not sa.inspect(ref).persistent:
+                ref = session.merge(ref)
+
+            refs.append( ref )
+                
+        session.commit()
+
+    yield refs
+
+    for ref in refs:
+        with SmartSession() as session:
+            ref = session.merge(ref)
+            if sa.inspect(ref).persistent:
+                session.delete(ref.provenance)  # should also delete the reference image
+            session.commit()
+    
+        
+# TODO -- modify this and corresponding tests to use the ELAIS-E1 field
+#   instead of the DEcPS field.
 @pytest.fixture
 def decam_ref_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
     filebase = 'DECaPS-West_20220112.g.32'
