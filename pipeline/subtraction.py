@@ -282,14 +282,13 @@ class Subtractor:
                     sub_image.provenance_id = prov.id
                     sub_image.coordinates_to_alignment_target()  # make sure the WCS is aligned to the correct image
 
-                    # Because we don't want to keep a session open, we have to pull
-                    # out the upstream images now to make sure those relationships
-                    # are loaded in the session
+                    # Need to make sure the upstream images are loaded into this session before
+                    # we disconnect it from the database.  (We don't want to hold the database
+                    # connection open through all the slow processes below.)
                     upstream_images = sub_image.upstream_images
 
-            if sub_image is None:
+            if self.has_recalculated:
                 # make sure to grab the correct aligned images
-                SCLogger.debug( f"Getting aligned images" )
                 new_image = [im for im in sub_image.aligned_images if im.mjd == sub_image.new_image.mjd]
                 if len(new_image) != 1:
                     raise ValueError('Cannot find the new image in the aligned images')
