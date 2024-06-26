@@ -369,7 +369,7 @@ def datastore_factory(data_dir, pipeline_factory):
         code_version = args[0].provenance.code_version
         ds = DataStore(*args)  # make a new datastore
 
-        if ( cache_dir is not None ) and ( cache_base_name is not None ) and ( not os.getenv( "LIMIT_CACHE_USE" ) ):
+        if ( cache_dir is not None ) and ( cache_base_name is not None ) and ( not os.getenv( "LIMIT_CACHE_USAGE" ) ):
             ds.cache_base_name = os.path.join(cache_dir, cache_base_name)  # save this for testing purposes
 
         p = pipeline_factory()
@@ -691,13 +691,17 @@ def datastore_factory(data_dir, pipeline_factory):
                 ds = p.extractor.run(ds, session)
 
                 ds.sources.save(overwrite=True)
-                if cache_dir is not None and cache_base_name is not None:
+                if (    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+                        ( cache_dir is not None ) and ( cache_base_name is not None )
+                    ):
                     output_path = copy_to_cache(ds.sources, cache_dir)
                     if cache_dir is not None and cache_base_name is not None and output_path != sources_cache_path:
                         warnings.warn(f'cache path {sources_cache_path} does not match output path {output_path}')
 
                 ds.psf.save(overwrite=True)
-                if cache_dir is not None and cache_base_name is not None:
+                if (    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+                        ( cache_dir is not None ) and ( cache_base_name is not None )
+                    ):
                     output_path = copy_to_cache(ds.psf, cache_dir)
                     if cache_dir is not None and cache_base_name is not None and output_path != psf_cache_path:
                         warnings.warn(f'cache path {psf_cache_path} does not match output path {output_path}')
@@ -706,7 +710,9 @@ def datastore_factory(data_dir, pipeline_factory):
                 ds = p.backgrounder.run(ds, session)
 
                 ds.bg.save(overwrite=True)
-                if cache_dir is not None and cache_base_name is not None:
+                if (    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+                        ( cache_dir is not None ) and ( cache_base_name is not None )
+                    ):
                     output_path = copy_to_cache(ds.bg, cache_dir)
                     if cache_dir is not None and cache_base_name is not None and output_path != bg_cache_path:
                         warnings.warn(f'cache path {bg_cache_path} does not match output path {output_path}')

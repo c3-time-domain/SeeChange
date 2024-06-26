@@ -1387,7 +1387,8 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
         assert not os.path.isfile(file)
 
 
-@pytest.mark.flaky(max_runs=3)
+# @pytest.mark.flaky(max_runs=3)
+@pytest.mark.skip(reason="We aren't succeeding at controlling garbage collection")
 def test_free( decam_exposure, decam_raw_image, ptf_ref ):
     proc = psutil.Process()
     origmem = proc.memory_info()
