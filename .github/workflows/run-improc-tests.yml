@@ -59,4 +59,10 @@ jobs:
 
       - name: run test
         run: |
-          TEST_SUBFOLDER=tests/improc docker compose run -e LIMIT_CACHE_USAGE=1 runtests
+          # ref: https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          shopt -s nullglob
+          TEST_SUBFOLDER=tests/improc docker compose run runtests
