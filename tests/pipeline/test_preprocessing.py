@@ -17,7 +17,7 @@ def test_preprocessing(
     # _get_default_calibrators won't be called as a side effect of calls
     # to Preprocessor.run().  (To avoid committing.)
     preprocessor.pars.test_parameter = uuid.uuid4().hex  # make a new Provenance for this temporary image
-    ds = preprocessor.run( decam_exposure, 'N1' )
+    ds = preprocessor.run( decam_exposure, 'S3' )
     assert preprocessor.has_recalculated
 
     # TODO: this might not work, because for some filters (g) the fringe correction doesn't happen
@@ -29,8 +29,8 @@ def test_preprocessing(
     assert preprocessor.pars.calibset == 'externally_supplied'
     assert preprocessor.pars.flattype == 'externally_supplied'
     assert preprocessor.pars.steps_required == [ 'overscan', 'linearity', 'flat', 'fringe' ]
-    ds.exposure.filter[:1] == 'g'
-    ds.section_id == 'N1'
+    ds.exposure.filter[:1] == 'r'
+    ds.section_id == 'S3'
     assert set( preprocessor.stepfiles.keys() ) == { 'flat', 'linearity' }
 
     # Make sure that the BSCALE and BZERO keywords got stripped
@@ -42,23 +42,22 @@ def test_preprocessing(
 
     # Flatfielding should have improved the sky noise, though for DECam
     # it looks like this is a really small effect.  I've picked out a
-    # section that's all sky (though it may be in the wings of a bright
-    # star, but, whatever).
+    # section that's all sky.
 
     # 56 is how much got trimmed from this image
-    rawsec = ds.image.raw_data[ 2226:2267, 267+56:308+56 ]
-    flatsec = ds.image.data[ 2226:2267, 267:308 ]
+    rawsec = ds.image.raw_data[ 1780:1820, 830+56:870+56 ]
+    flatsec = ds.image.data[ 1780:1820, 830:870 ]
     assert flatsec.std() < rawsec.std()
 
     # Make sure that some bad pixels got masked, but not too many
-    assert np.all( ds.image._flags[ 1390:1400, 1430:1440 ] == 4 )
-    assert np.all( ds.image._flags[ 4085:4093, 1080:1100 ] == 1 )
+    assert np.all( ds.image._flags[ 2756:2773, 991:996 ] == 4 )
+    assert np.all( ds.image._flags[ 0:4095, 57:60 ] == 1 )
     assert ( ds.image._flags != 0 ).sum() / ds.image.data.size < 0.03
 
     # Make sure that the weight is reasonable
     assert not np.any( ds.image._weight < 0 )
     assert ( ds.image.data[3959:3980, 653:662].std() ==
-             pytest.approx( 1./np.sqrt(ds.image._weight[3959:3980, 653:662]), rel=0.2 ) )
+             pytest.approx( 1./np.sqrt(ds.image._weight[3959:3980, 653:662]), rel=0.05 ) )
 
     # Make sure that the expected files get written
     try:
