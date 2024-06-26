@@ -32,6 +32,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: cleanup
+        run: |
+          # ref: https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          
       - name: setup docker buildx
         uses: docker/setup-buildx-action@v2
         with:
@@ -68,10 +76,5 @@ jobs:
 
       - name: run test
         run: |
-          # ref: https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           shopt -s nullglob
           TEST_SUBFOLDER=tests/improc docker compose run runtests
