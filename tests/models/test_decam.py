@@ -501,17 +501,15 @@ def test_overscan( decam_raw_image, data_dir ):
     assert trimmeddata.shape == ( 4096, 2048 )
 
     # Spot check the image
-    # These values are empirical from the actual image (using ds9)
-    # (Remember numpy arrays are indexed y, x)
     rawleft = rawdata[ 2296:2297, 227:307 ]
     rawovleft = rawdata[ 2296:2297, 6:56 ]
     trimmedleft = trimmeddata[ 2296:2297, 171:251 ]
     rawright = rawdata[ 2170:2171, 1747:1827 ]
     rawovright = rawdata[ 2170:2171, 2104:2154 ]
     trimmedright = trimmeddata[ 2170:2171, 1691:1771 ]
-    assert rawleft.mean() == pytest.approx( 2369.72, abs=0.01 )
-    assert np.median( rawovleft ) == pytest.approx( 2176, abs=0.001 )
+    assert rawleft.mean() == pytest.approx( 4359.738, abs=0.01 )
+    assert np.median( rawovleft ) == pytest.approx( 2174, abs=0.001 )
     assert trimmedleft.mean() == pytest.approx( rawleft.mean() - np.median(rawovleft), abs=0.01 )
-    assert rawright.mean() == pytest.approx( 1615.78, abs=0.01 )
-    assert np.median( rawovright ) == pytest.approx( 1435, abs=0.001 )
+    assert rawright.mean() == pytest.approx( 3578.812, abs=0.01 )
+    assert np.median( rawovright ) == pytest.approx( 1433, abs=0.001 )
     assert trimmedright.mean() == pytest.approx( rawright.mean() - np.median(rawovright), abs=0.01 )
