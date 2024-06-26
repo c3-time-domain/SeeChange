@@ -161,13 +161,17 @@ def decam_reduced_origin_exposures():
                                        proc_type='instcal' )
 
 
+@pytest.fixture(scope='session')
+def decam_raw_origin_exposures_parameters():
+    return { 'minmjd': 60127.33819,
+             'maxmjd': 60127.36319,
+             'projects': [ '2023A-716082' ] ,
+             'proc_type': 'raw' }
+
 @pytest.fixture(scope='module')
-def decam_raw_origin_exposures():
+def decam_raw_origin_exposures( decam_raw_origin_exposures_parameters ):
     decam = DECam()
-    yield decam.find_origin_exposures( minmjd=60159.15625, maxmjd=60159.16667,
-                                       projects='2023A-716082',
-                                       skip_exposures_in_database=False,
-                                       proc_type='raw' )
+    yield decam.find_origin_exposures( decam_raw_origin_exposures_parameters )
 
 
 @pytest.fixture(scope="session")
@@ -372,7 +376,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
                 retry_download( url, cache_path )
                 if not os.path.isfile( cache_path ):
                     raise FileNotFoundError( f"Can't find downloaded file {cache_path}" )
-                
+
             if not ext.endswith('.yaml'):
                 destination = os.path.join(data_dir, f'007/{filebase}.{chip:02d}.{ext}')
                 os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -384,7 +388,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
         yaml_path = os.path.join(decam_cache_dir, f'007/{filebase}.{chip:02d}.image.yaml')
         with open( yaml_path ) as ifp:
             refyaml = yaml.safe_load( ifp )
-        
+
         with SmartSession() as session:
             code_version = session.merge(code_version)
             prov = Provenance(
@@ -428,7 +432,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
             dses.append( ds )
             delete_list.extend( [ ds.image, ds.sources, ds.psf, ds.wcs, ds.zp,
                                   ds.sub_image, ds.detections, ds.cutouts, ds.measurements ] )
-            
+
     yield dses
 
     for ds in dses:
@@ -474,7 +478,7 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
                 ref = session.merge(ref)
 
             refs.append( ref )
-                
+
         session.commit()
 
     yield refs
@@ -485,8 +489,8 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
             if sa.inspect(ref).persistent:
                 session.delete(ref.provenance)  # should also delete the reference image
             session.commit()
-    
-        
+
+
 # TODO -- modify this and corresponding tests to use the ELAIS-E1 field
 #   instead of the DEcPS field.
 @pytest.fixture

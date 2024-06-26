@@ -133,18 +133,14 @@ def conductor_connector( conductor_user ):
     conductcon.send( 'auth/logout' )
 
 @pytest.fixture
-def conductor_config_for_decam_pull( conductor_connector ):
+def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_exposures_parameters ):
     origstatus = conductor_connector.send( 'status' )
     del origstatus[ 'status' ]
     del origstatus[ 'lastupdate' ]
     del origstatus[ 'configchangetime' ]
 
-    updateargs = { 'minmjd': 60127.33819,
-                   'maxmjd': 60127.36319,
-                   'projects': [ '2023A-716082' ],
-                   'proc_type': 'raw' }
     data = conductor_connector.send( 'updateparameters/timeout=120/instrument=DECam/pause=true',
-                                     { 'updateargs': updateargs } )
+                                     { 'updateargs': decam_raw_origin_exposures_parameters } )
     assert data['status'] == 'updated'
     assert data['instrument'] == 'DECam'
     assert data['timeout'] == 120
@@ -168,8 +164,8 @@ def conductor_config_for_decam_pull( conductor_connector ):
 
     with SmartSession() as session:
         kes = ( session.query( KnownExposure )
-                .filter( KnownExposure.mjd >= 60127.33819 )
-                .filter( KnownExposure.mjd <= 60127.36319) ).all()
+                .filter( KnownExposure.mjd >= decam_raw_origin_exposures_parameters['minmjd'] )
+                .filter( KnownExposure.mjd <= decam_raw_origin_exposures_parameters['maxmjd'] ) ).all()
         for ke in kes:
             session.delete( ke )
         session.commit()
