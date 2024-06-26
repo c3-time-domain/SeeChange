@@ -1546,7 +1546,7 @@ class Instrument:
         list of dicts; each element has fields
           'secname': str,
           'biassec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int },
-          'datasec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int }
+          'datasec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int },
         Secname is some subsection identifier, which is instrument
         specific.  By default, it will be 'A' or 'B'.  Sections are in
         C-coordinates (0-offset), using the numpy standard (i.e. x1 is

@@ -15,14 +15,23 @@ from pipeline.pipeline_exposure_launcher import ExposureLauncher
 
 from util.logger import SCLogger
 
-# This is just a basic test that the exposure launcher runs.
-# It does run in parallel, but only two chips.
-# There aren't tests of failure modes written (yet?).
-def test_exposure_launcher( conductor_connector, conductor_config_for_decam_pull, decam_elais_e1_two_references ):
+# This is just a basic test that the exposure launcher runs.  It does
+# run in parallel, but only two chips.  On my desktop, it takes about 2
+# minutes.  There aren't tests of failure modes written (yet?).
+def test_exposure_launcher( conductor_connector,
+                            conductor_config_for_decam_pull,
+                            decam_elais_e1_two_references,
+                            decam_exposure_name ):
     # Hold all exposures
     data = conductor_connector.send( "getknownexposures" )
-    tohold = [ ke['id'] for ke in data['knownexposures'][1:] ]
-    idtodo = data['knownexposures'][0]['id']
+    tohold = []
+    idtodo = None
+    for ke in data['knownexposures']:
+        if ke['identifier'] == decam_exposure_name:
+            idtodo = ke['id']
+        else:
+            tohold.append( ke['id'] )
+    assert idtodo is not None
     res = conductor_connector.send( f"holdexposures/", { 'knownexposure_ids': tohold } )
 
     elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S3', 'N16'], verify=False,
@@ -48,7 +57,7 @@ def test_exposure_launcher( conductor_connector, conductor_config_for_decam_pull
             expq = session.query( Exposure ).join( KnownExposure ).filter( KnownExposure.exposure_id==Exposure.id )
             assert expq.count() == 1
             exposure = expq.first()
-            imgq = session.query( Image ).filter( Image.exposure_id==exposure.id )
+            imgq = session.query( Image ).filter( Image.exposure_id==exposure.id ).order_by( Image.section_id )
             assert imgq.count() == 2
             images = imgq.all()
             # There is probably a cleverl sqlalchemy way to do this
@@ -64,8 +73,10 @@ def test_exposure_launcher( conductor_connector, conductor_config_for_decam_pull
             measq = session.query( Measurements ).join( Cutouts ).join( SourceList ).join( Image )
             meas0 = measq.filter( Image.id==sub0.id ).all()
             meas1 = measq.filter( Image.id==sub1.id ).all()
-            assert len(meas0) == 1
+            assert len(meas0) == 3
             assert len(meas1) == 6
+
+            assert False
 
     finally:
         # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,
@@ -140,5 +151,5 @@ def test_exposure_launcher( conductor_connector, conductor_config_for_decam_pull
             for pw in pws:
                 session.delete( pw )
             session.commit()
-            
-    
+
+

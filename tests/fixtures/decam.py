@@ -175,7 +175,11 @@ def decam_raw_origin_exposures( decam_raw_origin_exposures_parameters ):
 
 
 @pytest.fixture(scope="session")
-def decam_filename(download_url, data_dir, decam_cache_dir):
+def decam_exposure_name():
+    return 'c4d_230702_080904_ori.fits.fz'
+
+@pytest.fixture(scope="session")
+def decam_filename(download_url, data_dir, decam_exposure_name, decam_cache_dir):
     """Secure a DECam exposure.
 
     Pulled from the SeeChange test data cache maintained on the web at
@@ -196,7 +200,7 @@ def decam_filename(download_url, data_dir, decam_cache_dir):
 
     """
     # base_name = 'c4d_221104_074232_ori.fits.fz'
-    base_name = 'c4d_230702_080904_ori.fits.fz'
+    base_name = decam_exposure_name
     filename = os.path.join(data_dir, base_name)
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     url = os.path.join(download_url, 'DECAM', base_name)
@@ -263,8 +267,6 @@ def decam_small_image(decam_raw_image):
     yield image
 
 
-# TODO : produce pre-created source lists, wcs, and zp for the references,
-#  to speed up creation of this datastore
 @pytest.fixture
 def decam_datastore(
         datastore_factory,
@@ -287,9 +289,9 @@ def decam_datastore(
     """
     ds = datastore_factory(
         decam_exposure,
-        'N1',
+        'S3',
         cache_dir=decam_cache_dir,
-        cache_base_name='115/c4d_20221104_074232_N1_g_Sci_NBXRIO',
+        cache_base_name='007/c4d_20230702_080904_S3_r_Sci_NBXRIO',
         save_original_image=True
     )
     # This save is redundant, as the datastore_factory calls save_and_commit
@@ -377,7 +379,7 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 # recalcualte it?)
 @pytest.fixture( scope="session" )
 def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
-    filebase = 'ELAIS-E1-g-templ'
+    filebase = 'ELAIS-E1-r-templ'
 
     dses = []
     delete_list = []
@@ -438,7 +440,10 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
             if not os.getenv( "LIMIT_CACHE_USAGE" ):
                 copy_to_cache( image, decam_cache_dir )
 
-            ds = datastore_factory(image, cache_dir=decam_cache_dir, cache_base_name=f'007/{filebase}.{chip:02d}')
+            ds = datastore_factory(image,
+                                   cache_dir=decam_cache_dir,
+                                   cache_base_name=f'007/{filebase}.{chip:02d}',
+                                   no_sub=True)
 
             for filename in image.get_fullpath( as_list=True ):
                 assert os.path.isfile( filename )
@@ -462,7 +467,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
 
     ImageAligner.cleanup_temp_images()
 
-@pytest.fixture( scope="session" )
+@pytest.fixture
 def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
     refs = []
     with SmartSession() as session:
@@ -506,11 +511,11 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
                 session.delete(ref.provenance)  # should also delete the reference image
             session.commit()
 
-@pytest.fixture( scope="session" )
+@pytest.fixture
 def decam_reference( decam_elais_e1_two_references ):
     return decam_elais_e1_two_references[0]
 
-@pytest.fixture( scope="session" )
+@pytest.fixture
 def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
 

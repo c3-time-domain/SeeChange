@@ -160,7 +160,7 @@ class Preprocessor:
 
             if image._data is None:  # in case we skip all preprocessing steps
                 image.data = image.raw_data 
-            
+
             # the image keeps track of the steps already done to it in image.preproc_bitflag,
             # which is translated into a list of keywords when calling image.preprocessing_done
             # this includes the things that already were applied in the exposure

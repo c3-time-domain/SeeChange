@@ -144,7 +144,7 @@ def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_expos
     assert data['status'] == 'updated'
     assert data['instrument'] == 'DECam'
     assert data['timeout'] == 120
-    assert data['updateargs'] == updateargs
+    assert data['updateargs'] == decam_raw_origin_exposures_parameters
     assert data['hold'] == 0
     assert data['pause'] == 1
 
