@@ -17,6 +17,7 @@ from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
 
+from util.logger import SCLogger
 
 def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_plots):
     det = extractor
@@ -26,11 +27,11 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
     det.pars.test_parameter = uuid.uuid4().hex
     sources, _, _, _ = det.extract_sources(decam_small_image)
 
-    assert sources.num_sources == 158
-    assert max(sources.data['flux']) == 3670450.0
-    assert abs(np.mean(sources.data['x']) - 256) < 10
-    assert abs(np.mean(sources.data['y']) - 256) < 10
-    assert 2.0 < np.median(sources.data['rhalf']) < 2.5
+    assert sources.num_sources == 80
+    assert max(sources.data['flux']) == 624568.375
+    assert abs(np.mean(sources.data['x']) - 256) < 40
+    assert abs(np.mean(sources.data['y']) - 256) < 20
+    assert 2.8 < np.median(sources.data['rhalf']) < 3.2
 
     if blocking_plots:  # use this for debugging / visualization only!
         import matplotlib.pyplot as plt
@@ -61,8 +62,8 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
     assert abs( max(sources2.data['flux']) - max(sources.data['flux'])) / max(sources.data['flux']) < 0.1
 
     # fewer sources also means the mean position will be further from center
-    assert abs(np.mean(sources2.data['x']) - 256) < 25
-    assert abs(np.mean(sources2.data['y']) - 256) < 25
+    assert abs(np.mean(sources2.data['x']) - 256) < 75
+    assert abs(np.mean(sources2.data['y']) - 256) < 45
 
     assert 2.0 < np.median(sources2.data['rhalf']) < 2.5
 
@@ -131,80 +132,80 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
         extractor.pars.test_parameter = uuid.uuid4().hex
         sourcelist, sourcefile, bkg, bkgsig = run_sextractor(decam_datastore.image, extractor)
 
-        assert bkg == pytest.approx( 182.095, abs=0.1 )
-        assert bkgsig == pytest.approx( 7.446, abs=0.01 )
+        assert bkg == pytest.approx( 2169.04, abs=0.1 )
+        assert bkgsig == pytest.approx( 24.0862, abs=0.01 )
 
-        assert sourcelist.num_sources == 5282
+        assert sourcelist.num_sources == 693
         assert len(sourcelist.data) == sourcelist.num_sources
         assert sourcelist.aper_rads == [ 5. ]
 
         assert sourcelist.info['SEXAPED1'] == 10.0
         assert sourcelist.info['SEXAPED2'] == 0.
-        assert sourcelist.info['SEXBKGND'] == pytest.approx( 182.09, abs=0.1 )
+        assert sourcelist.info['SEXBKGND'] == pytest.approx( 2169.04, abs=0.1 )
 
         snr = sourcelist.apfluxadu()[0] / sourcelist.apfluxadu()[1]
-        # print(
-        #     f'sourcelist.x.min()= {sourcelist.x.min()}',
-        #     f'sourcelist.x.max()= {sourcelist.x.max()}',
-        #     f'sourcelist.y.min()= {sourcelist.y.min()}',
-        #     f'sourcelist.y.max()= {sourcelist.y.max()}',
-        #     f'sourcelist.errx.min()= {sourcelist.errx.min()}',
-        #     f'sourcelist.errx.max()= {sourcelist.errx.max()}',
-        #     f'sourcelist.erry.min()= {sourcelist.erry.min()}',
-        #     f'sourcelist.erry.max()= {sourcelist.erry.max()}',
-        #     f'sourcelist.apfluxadu()[0].min()= {sourcelist.apfluxadu()[0].min()}',
-        #     f'sourcelist.apfluxadu()[0].max()= {sourcelist.apfluxadu()[0].max()}',
-        #     f'snr.min()= {snr.min()}',
-        #     f'snr.max()= {snr.max()}',
-        #     f'snr.mean()= {snr.mean()}',
-        #     f'snr.std()= {snr.std()}'
+        # SCLogger.info(
+        #     f'\nsourcelist.x.min()= {sourcelist.x.min()}'
+        #     f'\nsourcelist.x.max()= {sourcelist.x.max()}'
+        #     f'\nsourcelist.y.min()= {sourcelist.y.min()}'
+        #     f'\nsourcelist.y.max()= {sourcelist.y.max()}'
+        #     f'\nsourcelist.errx.min()= {sourcelist.errx.min()}'
+        #     f'\nsourcelist.errx.max()= {sourcelist.errx.max()}'
+        #     f'\nsourcelist.erry.min()= {sourcelist.erry.min()}'
+        #     f'\nsourcelist.erry.max()= {sourcelist.erry.max()}'
+        #     f'\nsourcelist.apfluxadu()[0].min()= {sourcelist.apfluxadu()[0].min()}'
+        #     f'\nsourcelist.apfluxadu()[0].max()= {sourcelist.apfluxadu()[0].max()}'
+        #     f'\nsnr.min()= {snr.min()}'
+        #     f'\nsnr.max()= {snr.max()}'
+        #     f'\nsnr.mean()= {snr.mean()}'
+        #     f'\nsnr.std()= {snr.std()}'
         # )
-        assert sourcelist.x.min() == pytest.approx( 16.19, abs=0.1 )
+        assert sourcelist.x.min() == pytest.approx( 16.32, abs=0.1 )
         assert sourcelist.x.max() == pytest.approx( 2039.88, abs=0.1 )
-        assert sourcelist.y.min() == pytest.approx( 16.43, abs=0.1 )
+        assert sourcelist.y.min() == pytest.approx( 16.93, abs=0.1 )
         assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
-        assert sourcelist.errx.min() == pytest.approx( 0.0005, abs=1e-4 )
-        assert sourcelist.errx.max() == pytest.approx( 0.761, abs=0.01 )
-        assert sourcelist.erry.min() == pytest.approx( 0.0014, abs=1e-3 )
-        assert sourcelist.erry.max() == pytest.approx( 0.728, abs=0.01 )
+        assert sourcelist.errx.min() == pytest.approx( 0.0008, abs=1e-4 )
+        assert sourcelist.errx.max() == pytest.approx( 0.728, abs=0.01 )
+        assert sourcelist.erry.min() == pytest.approx( 0.0016, abs=1e-3 )
+        assert sourcelist.erry.max() == pytest.approx( 0.706, abs=0.01 )
         assert ( np.sqrt( sourcelist.varx ) == sourcelist.errx ).all()
         assert ( np.sqrt( sourcelist.vary ) == sourcelist.erry ).all()
-        assert sourcelist.apfluxadu()[0].min() == pytest.approx( -645.05505, rel=1e-5 )
-        assert sourcelist.apfluxadu()[0].max() == pytest.approx( 2866025.8, rel=1e-5 )
-        assert snr.min() == pytest.approx( -9.80, abs=0.1 )
-        assert snr.max() == pytest.approx( 2356.5, abs=1. )
-        assert snr.mean() == pytest.approx( 155.96, abs=0.1 )
-        assert snr.std() == pytest.approx( 293.5, abs=1. )
+        assert sourcelist.apfluxadu()[0].min() == pytest.approx( -185.322739, rel=1e-5 )
+        assert sourcelist.apfluxadu()[0].max() == pytest.approx( 2162567.0, rel=1e-5 )
+        assert snr.min() == pytest.approx( -0.863, abs=0.1 )
+        assert snr.max() == pytest.approx( 2008.66, abs=1. )
+        assert snr.mean() == pytest.approx( 71.14, abs=0.1 )
+        assert snr.std() == pytest.approx( 227.76, abs=1. )
 
         # Test multiple apertures
         sourcelist, _, _ = extractor._run_sextractor_once( decam_datastore.image, apers=[ 2., 5. ])
 
-        assert sourcelist.num_sources == 5282    # It *finds* the same things
+        assert sourcelist.num_sources == 693    # It *finds* the same things
         assert len(sourcelist.data) == sourcelist.num_sources
         assert sourcelist.aper_rads == [ 2., 5. ]
 
         assert sourcelist.info['SEXAPED1'] == 4.0
         assert sourcelist.info['SEXAPED2'] == 10.0
-        assert sourcelist.info['SEXBKGND'] == pytest.approx( 182.09, abs=0.1 )
+        assert sourcelist.info['SEXBKGND'] == pytest.approx( 2169.04, abs=0.1 )
 
-        # print(
-        #     f'sourcelist.x.min()= {sourcelist.x.min()}',
-        #     f'sourcelist.x.max()= {sourcelist.x.max()}',
-        #     f'sourcelist.y.min()= {sourcelist.y.min()}',
-        #     f'sourcelist.y.max()= {sourcelist.y.max()}',
-        #     f'sourcelist.apfluxadu(apnum=1)[0].min()= {sourcelist.apfluxadu(apnum=1)[0].min()}',
-        #     f'sourcelist.apfluxadu(apnum=1)[0].max()= {sourcelist.apfluxadu(apnum=1)[0].max()}',
-        #     f'sourcelist.apfluxadu(apnum=0)[0].min()= {sourcelist.apfluxadu(apnum=0)[0].min()}',
-        #     f'sourcelist.apfluxadu(apnum=0)[0].max()= {sourcelist.apfluxadu(apnum=0)[0].max()}'
+        # SCLogger.info(
+        #     f'\nsourcelist.x.min()= {sourcelist.x.min()}'
+        #     f'\nsourcelist.x.max()= {sourcelist.x.max()}'
+        #     f'\nsourcelist.y.min()= {sourcelist.y.min()}'
+        #     f'\nsourcelist.y.max()= {sourcelist.y.max()}'
+        #     f'\nsourcelist.apfluxadu(apnum=1)[0].min()= {sourcelist.apfluxadu(apnum=1)[0].min()}'
+        #     f'\nsourcelist.apfluxadu(apnum=1)[0].max()= {sourcelist.apfluxadu(apnum=1)[0].max()}'
+        #     f'\nsourcelist.apfluxadu(apnum=0)[0].min()= {sourcelist.apfluxadu(apnum=0)[0].min()}'
+        #     f'\nsourcelist.apfluxadu(apnum=0)[0].max()= {sourcelist.apfluxadu(apnum=0)[0].max()}'
         # )
-        assert sourcelist.x.min() == pytest.approx( 16.19, abs=0.1 )
+        assert sourcelist.x.min() == pytest.approx( 16.32, abs=0.1 )
         assert sourcelist.x.max() == pytest.approx( 2039.88, abs=0.1 )
-        assert sourcelist.y.min() == pytest.approx( 16.43, abs=0.1 )
+        assert sourcelist.y.min() == pytest.approx( 16.93, abs=0.1 )
         assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
-        assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( -645.05505, rel=1e-5 )
-        assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 2866025.8, rel=1e-5 )
-        assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 106.76501, rel=1e-5 )
-        assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 563223.44, rel=1e-5 )
+        assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( -185.32274, rel=1e-5 )
+        assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 2162567.0, rel=1e-5 )
+        assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 295.125183 , rel=1e-5 )
+        assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 496133.375 , rel=1e-5 )
 
     finally:  # cleanup temporary file
         if 'sourcefile' in locals():

@@ -171,12 +171,15 @@ def decam_raw_origin_exposures_parameters():
 @pytest.fixture(scope='module')
 def decam_raw_origin_exposures( decam_raw_origin_exposures_parameters ):
     decam = DECam()
-    yield decam.find_origin_exposures( decam_raw_origin_exposures_parameters )
+    yield decam.find_origin_exposures( **decam_raw_origin_exposures_parameters )
 
 
 @pytest.fixture(scope="session")
 def decam_filename(download_url, data_dir, decam_cache_dir):
-    """Pull a DECam exposure down from the NOIRLab archives.
+    """Secure a DECam exposure.
+
+    Pulled from the SeeChange test data cache maintained on the web at
+    NERSC (see download_url in conftest.py).
 
     Because this is a slow process (depending on the NOIRLab archive
     speed, it can take up to minutes), first look for this file
@@ -185,22 +188,33 @@ def decam_filename(download_url, data_dir, decam_cache_dir):
     and create a symlink to the temp_dir. That way, until the
     user manually deletes the cached file, we won't have to redo the
     slow NOIRLab download again.
+
+    This exposure is the same as the one pulled down by the
+    test_decam_download_and_commit_exposure test (with expdex 1) in
+    tests/models/test_decam.py, so whichever runs first will load the
+    cache.
+
     """
-    base_name = 'c4d_221104_074232_ori.fits.fz'
+    # base_name = 'c4d_221104_074232_ori.fits.fz'
+    base_name = 'c4d_230702_080904_ori.fits.fz'
     filename = os.path.join(data_dir, base_name)
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     url = os.path.join(download_url, 'DECAM', base_name)
 
     if not os.path.isfile(filename):
         if os.getenv( "LIMIT_CACHE_USAGE" ):
+            SCLogger.debug( f"Downloading {filename}" )
             wget.download( url=url, out=filename )
         else:
             cachedfilename = os.path.join(decam_cache_dir, base_name)
             os.makedirs(os.path.dirname(cachedfilename), exist_ok=True)
 
             if not os.path.isfile(cachedfilename):
+                SCLogger.debug( f"Downloading {filename}" )
                 response = wget.download(url=url, out=cachedfilename)
                 assert response == cachedfilename
+            else:
+                SCLogger.debug( f"Cached file {filename} exists, not redownloading." )
 
             shutil.copy2(cachedfilename, filename)
 
@@ -249,6 +263,8 @@ def decam_small_image(decam_raw_image):
     yield image
 
 
+# TODO : produce pre-created source lists, wcs, and zp for the references,
+#  to speed up creation of this datastore
 @pytest.fixture
 def decam_datastore(
         datastore_factory,
@@ -490,11 +506,19 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
                 session.delete(ref.provenance)  # should also delete the reference image
             session.commit()
 
+@pytest.fixture( scope="session" )
+def decam_reference( decam_elais_e1_two_references ):
+    return decam_elais_e1_two_references[0]
+
+@pytest.fixture( scope="session" )
+def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
+    return decam_elais_e1_two_refs_datastore[0]
 
 # TODO -- modify this and corresponding tests to use the ELAIS-E1 field
 #   instead of the DEcPS field.
 @pytest.fixture
-def decam_ref_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
+def decam_old_ref_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
+    raise RuntimeError( "This should not be used any more" )
     filebase = 'DECaPS-West_20220112.g.32'
 
     # I added this mirror so the tests will pass, and we should remove it once the decam image goes back up to NERSC
@@ -587,7 +611,8 @@ def decam_ref_datastore( code_version, download_url, decam_cache_dir, data_dir, 
 
 
 @pytest.fixture
-def decam_reference(decam_ref_datastore):
+def decam_old_reference(decam_ref_datastore):
+    raise RuntimeError( "This should not be used an more" )
     ds = decam_ref_datastore
     with SmartSession() as session:
         prov = Provenance(

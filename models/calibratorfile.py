@@ -310,7 +310,7 @@ class CalibratorFileDownloadLock(Base, AutoIDMixin):
                     sess.commit()
                     sess.refresh( caliblock )   # is this necessary?
                     lockid = caliblock.id
-                    SCLogger.debug( f"Created calibfile_downloadlock {lockid}" )
+                    # SCLogger.debug( f"Created calibfile_downloadlock {lockid}" )
                 else:
                     if lockq.count() > 1:
                         raise RuntimeError( f"Database corruption: multiple CalibratorFileDownloadLock for "
@@ -350,11 +350,7 @@ class CalibratorFileDownloadLock(Base, AutoIDMixin):
         yield lockid
 
         with SmartSession(session) as sess:
-            # It will be OK if this delete command gets run multiple times (which it may well
-            # be if the same session asks for the same lock more than once).  It will just do
-            # nothing subsequent times.  It will never delete the wront thing, because the id
-            # field is an auto-incrementing primary key, so will never be duplicated.
-            SCLogger.debug( f"Deleting calibfile_downloadlock {lockid}" )
+            # SCLogger.debug( f"Deleting calibfile_downloadlock {lockid}" )
             sess.connection().execute( sa.text( 'DELETE FROM calibfile_downloadlock WHERE id=:id' ),
                                        { 'id': lockid } )
             sess.commit()

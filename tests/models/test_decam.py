@@ -31,18 +31,18 @@ def test_decam_exposure(decam_filename):
     assert e.instrument == 'DECam'
     assert isinstance(e.instrument_object, DECam)
     assert e.telescope == 'CTIO 4.0-m telescope'
-    assert e.mjd == 59887.32121458
-    assert e.end_mjd == 59887.32232569111
-    assert e.ra == 116.32024583333332
-    assert e.dec == -26.25
-    assert e.exp_time == 96.0
-    assert e.filepath == 'c4d_221104_074232_ori.fits.fz'
-    assert e.filter == 'g DECam SDSS c0001 4720.0 1520.0'
+    assert e.mjd == 60127.33963431
+    assert e.end_mjd == 60127.34062968037
+    assert e.ra == 7.874804166666666
+    assert e.dec == -43.0096
+    assert e.exp_time == 86.0
+    assert e.filepath == 'c4d_230702_080904_ori.fits.fz'
+    assert e.filter == 'r DECam SDSS c0002 6415.0 1480.0'
     assert not e.from_db
     assert e.info == {}
     assert e.id is None
-    assert e.target == 'DECaPS-West'
-    assert e.project == '2022A-724693'
+    assert e.target == 'ELAIS-E1'
+    assert e.project == '2023A-716082'
 
     # check that we can lazy load the header from file
     assert len(e.header) == 150
@@ -79,18 +79,16 @@ def test_image_from_decam_exposure(decam_filename, provenance_base, data_dir):
     assert e.telescope == 'CTIO 4.0-m telescope'
     assert not im.from_db
     # should not be the same as the exposure!
-    # assert im.ra == 116.32024583333332
-    # assert im.dec == -26.25
     assert im.ra != e.ra
     assert im.dec != e.dec
-    assert im.ra == 116.32126671843677
-    assert im.dec == -26.337508447652503
-    assert im.mjd == 59887.32121458
-    assert im.end_mjd == 59887.32232569111
-    assert im.exp_time == 96.0
-    assert im.filter == 'g DECam SDSS c0001 4720.0 1520.0'
-    assert im.target == 'DECaPS-West'
-    assert im.project == '2022A-724693'
+    assert im.ra == 7.878344279652849
+    assert im.dec == -43.0961474371319
+    assert im.mjd == 60127.33963431
+    assert im.end_mjd == 60127.34062968037
+    assert im.exp_time == 86.0
+    assert im.filter == 'r DECam SDSS c0002 6415.0 1480.0'
+    assert im.target == 'ELAIS-E1'
+    assert im.project == '2023A-716082'
     assert im.section_id == sec_id
 
     assert im.id is None  # not yet on the DB
@@ -162,19 +160,29 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
 
 
 @pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
-def test_decam_download_origin_exposure( decam_reduced_origin_exposures, cache_dir ):
+def test_decam_download_reduced_origin_exposure( decam_reduced_origin_exposures, cache_dir ):
+
+    # See comment in test_decam_download_and_commit_exposure.
+    # In the past, we've tested this with a list of two items,
+    # which is good, but this is not a fast test, so reduce
+    # it to one item.  Leave the list of two commented out here
+    # so that we can go back to it trivially (and so we might
+    # remember that once we tested that).
+    # whichtodownload = [ 1, 3 ]
+    whichtodownload = [ 3 ]
+    
     assert all( [ row.proc_type == 'instcal' for i, row in decam_reduced_origin_exposures._frame.iterrows() ] )
     try:
         # First try downloading the reduced exposures themselves
         downloaded = decam_reduced_origin_exposures.download_exposures(
             outdir=os.path.join(cache_dir, 'DECam'),
-            indexes=[ 1, 3 ],
+            indexes=whichtodownload,
             onlyexposures=True,
             clobber=False,
             existing_ok=True,
         )
-        assert len(downloaded) == 2
-        for pathdict, dex in zip( downloaded, [ 1, 3 ] ):
+        assert len(downloaded) == len(whichtodownload)
+        for pathdict, dex in zip( downloaded, whichtodownload ):
             assert set( pathdict.keys() ) == { 'exposure' }
             md5 = hashlib.md5()
             with open( pathdict['exposure'], "rb") as ifp:
@@ -184,13 +192,13 @@ def test_decam_download_origin_exposure( decam_reduced_origin_exposures, cache_d
         # Now try downloading exposures, weights, and dataquality masks
         downloaded = decam_reduced_origin_exposures.download_exposures(
             outdir=os.path.join(cache_dir, 'DECam'),
-            indexes=[ 1, 3 ],
+            indexes=whichtodownload,
             onlyexposures=False,
             clobber=False,
             existing_ok=True,
         )
-        assert len(downloaded) == 2
-        for pathdict, dex in zip( downloaded, [ 1, 3 ] ):
+        assert len(downloaded) == len(whichtodownload)
+        for pathdict, dex in zip( downloaded, whichtodownload ):
             assert set( pathdict.keys() ) == { 'exposure', 'wtmap', 'dqmask' }
             for extname, extpath in pathdict.items():
                 if extname == 'exposure':
@@ -221,7 +229,7 @@ def test_add_to_known_exposures( decam_raw_origin_exposures ):
         with SmartSession() as session:
             kes = session.query( KnownExposure ).filter( KnownExposure.identifier.in_( identifiers ) ).all()
             assert len(kes) == 2
-            assert { k.identifier for k in kes } == {'c4d_230803_035529_ori.fits.fz', 'c4d_230803_035409_ori.fits.fz'}
+            assert { k.identifier for k in kes } == { 'c4d_230702_081059_ori.fits.fz', 'c4d_230702_080904_ori.fits.fz' }
             assert all( [ k.instrument == 'DECam' for k in kes ] )
             assert all( [ k.params['url'][0:45] == 'https://astroarchive.noirlab.edu/api/retrieve' for k in kes ] )
 
@@ -258,7 +266,16 @@ def test_decam_download_and_commit_exposure(
     eids = []
     try:
         with SmartSession() as session:
-            expdexes = [ 1, 2 ]
+            # ...yes, it's nice to test that this works with a list, and
+            # we did that for a long time, but this is a slow process
+            # (how slow depends on how the NOIRLab servers are doing,
+            # but each exposure download is typically tens of seconds to
+            # a few minutes) and leaves big files on disk (in the
+            # cache), so just test it with a single exposure.  Leave
+            # this commented out here in case somebody comes back and
+            # thinks, hmm, better test this with more than on exposure.
+            # expdexes = [ 1, 2 ]
+            expdexes = [ 1 ]
 
             # get these downloaded first, to get the filenames to check against the cache
             downloaded = decam_raw_origin_exposures.download_exposures(
@@ -273,6 +290,8 @@ def test_decam_download_and_commit_exposure(
                 assert os.path.isfile( cachedpath )
                 shutil.copy2( cachedpath, os.path.join( data_dir, os.path.basename( cachedpath ) ) )
 
+            # This could download again, but in this case won't because it will see the
+            # files are already in place with the right md5sum
             exposures = decam_raw_origin_exposures.download_and_commit_exposures( indexes=expdexes, clobber=False,
                                                                               existing_ok=True, delete_downloads=False,
                                                                               session=session )

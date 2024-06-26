@@ -1453,7 +1453,7 @@ class Instrument:
 
         """
         section = str(section)
-        SCLogger.debug( f'Looking for calibrators for {calibset} {section}' )
+        # SCLogger.debug( f'Looking for calibrators for {calibset} {section}' )
 
         if ( calibset == 'externally_supplied' ) != ( flattype == 'externally_supplied' ):
             raise ValueError( "Doesn't make sense to have only one of calibset and flattype be externally_supplied" )
@@ -1473,7 +1473,7 @@ class Instrument:
             if calibtype in self.preprocessing_nofile_steps:
                 continue
 
-            SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
+            # SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
 
             calib = None
             with CalibratorFileDownloadLock.acquire_lock(

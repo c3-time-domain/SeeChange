@@ -981,6 +981,9 @@ class DECamOriginExposures:
         if not isinstance( indexes, collections.abc.Sequence ):
             indexes = [ indexes ]
 
+        downloaded = self.download_exposures( outdir=outdir, indexes=indexes, clobber=clobber,
+                                              existing_ok=existing_ok, session=session )
+
         exposures = []
         for dex, expfiledict in zip( indexes, downloaded ):
             if set( expfiledict.keys() ) != { 'exposure' }:
