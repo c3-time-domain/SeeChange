@@ -15,6 +15,12 @@ jobs:
       REGISTRY: gchr.io
       COMPOSE_FILE: tests/docker-compose.yaml
 
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      pull-requests: write
+
     steps:
       - name: Dump docker logs on failure
         if: failure()
@@ -47,10 +53,6 @@ jobs:
 
       - name: bake
         uses: docker/bake-action@v5
-        permissions:
-          actions: read
-          contents: read
-          packages: write
         with:
           workdir: tests
           load: true
