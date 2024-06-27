@@ -3,7 +3,6 @@ name: Run Pipeline Tests 2
 on:
   workflow_run:
     workflows: ["Build Docker Images"]
-    branches: [main]
     types: [completed]
   workflow_dispatch:
 

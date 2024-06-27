@@ -419,7 +419,7 @@ def test_preprocessing_calibrator_files( decam_default_calibrators ):
     linfile = None
     for filt in [ 'r', 'z' ]:
         info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
-                                                     'N1', filt, 60000. )
+                                                     'S3', filt, 60000. )
         for nocalib in [ 'zero', 'dark' ]:
             # DECam doesn't include these three in its preprocessing steps
             assert f'{nocalib}_isimage' not in info.keys()
@@ -449,7 +449,7 @@ def test_preprocessing_calibrator_files( decam_default_calibrators ):
     # gets called the second time around, which it should not.
     for filt in [ 'r', 'z' ]:
         info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
-                                                     'N1', filt, 60000. )
+                                                     'S3', filt, 60000. )
 
 
 def test_overscan_sections( decam_raw_image, data_dir,  ):

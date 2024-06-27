@@ -93,14 +93,14 @@ def test_warnings_and_exceptions(decam_exposure, preprocessor, decam_default_cal
     preprocessor.pars.inject_warnings = 1
 
     with pytest.warns(UserWarning) as record:
-        preprocessor.run(decam_exposure, 'N1')
+        preprocessor.run(decam_exposure, 'S3')
     assert len(record) > 0
     assert any("Warning injected by pipeline parameters in process 'preprocessing'." in str(w.message) for w in record)
 
     preprocessor.pars.inject_warnings = 0
     preprocessor.pars.inject_exceptions = 1
     with pytest.raises(Exception) as excinfo:
-        ds = preprocessor.run(decam_exposure, 'N1')
+        ds = preprocessor.run(decam_exposure, 'S3')
         ds.reraise()
     assert "Exception injected by pipeline parameters in process 'preprocessing'." in str(excinfo.value)
 
