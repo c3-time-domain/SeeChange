@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  pull_request_target:
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -14,13 +14,6 @@ jobs:
     env:
       REGISTRY: ghcr.io
       COMPOSE_FILE: tests/docker-compose.yaml
-
-
-    permissions:
-      actions: read
-      contents: read
-      packages: write
-      pull-requests: write
 
     steps:
       - name: Dump docker logs on failure
@@ -38,7 +31,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          # password: ${{ secrets.REPO_TOKEN }}
 
       - name: cleanup
         run: |

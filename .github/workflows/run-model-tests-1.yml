@@ -31,8 +31,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          # password: ${{ secrets.GITHUB_TOKEN }}
-          password: ${{ secrets.REPO_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: cleanup
         run: |
@@ -42,8 +41,35 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           
+      - name: setup docker buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: bake
+        uses: docker/bake-action@v5
+        with:
+          workdir: tests
+          load: true
+          push: true
+          files: docker-compose.yaml
+          set: |
+            archive.tags=ghcr.io/${{ github.repository_owner }}/archive
+            archive.cache-from=type=gha,scope=cached-archive
+            postgres.tags=ghcr.io/${{ github.repository_owner }}/postgres
+            postgres.cache-from=type=gha,scope=cached-postgres
+            setuptables.tags=ghcr.io/${{ github.repository_owner }}/runtests
+            setuptables.cache-from=type=gha,scope=cached-seechange
+            conductor.tags=ghcr.io/${{ github.repository_owner }}/conductor
+            conductor.cache-from=type=gha,scipe=cached-conductor
+            webap.tags=ghcr.io/${{ github.repository_owner }}/seechange-webap
+            webap.cache-from=type=gha,scipe=cached-seechange-webap
+            runtests.tags=ghcr.io/${{ github.repository_owner }}/runtests
+            runtests.cache-from=type=gha,scope=cached-seechange
+            shell.tags=ghcr.io/${{ github.repository_owner }}/runtests
+            shell.cache-from=type=gha,scope=cached-seechange
+
       - name: run test
         run: |
           shopt -s nullglob
-          docker compose pull
           TEST_SUBFOLDER=$(ls tests/models/test_{a..l}*.py) docker compose run -e SKIP_BIG_MEMORY=1 runtests
