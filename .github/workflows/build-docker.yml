@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  pull_request:
+  pull_request_target:
   workflow_dispatch:
 
 jobs:
@@ -37,9 +37,8 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          # password: ${{ secrets.GITHUB_TOKEN }}
-        secrets:
-          password: ${{ secrets.REPO_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          # password: ${{ secrets.REPO_TOKEN }}
 
       - name: cleanup
         run: |
