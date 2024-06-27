@@ -15,6 +15,7 @@ jobs:
       REGISTRY: ghcr.io
       COMPOSE_FILE: tests/docker-compose.yaml
 
+
     permissions:
       actions: read
       contents: read
