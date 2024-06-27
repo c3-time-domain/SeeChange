@@ -38,6 +38,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           # password: ${{ secrets.GITHUB_TOKEN }}
+        secrets:
           password: ${{ secrets.REPO_TOKEN }}
 
       - name: cleanup
