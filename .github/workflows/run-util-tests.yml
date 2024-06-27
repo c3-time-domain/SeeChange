@@ -2,13 +2,14 @@ name: Run Util Tests
 
 on:
   workflow_run:
-    workflows: ["Build Docker Images"]
-    types: [completed]
+    workflows:
+      - Build Docker Images
+    types:
+      - completed
   workflow_dispatch:
 
 jobs:
   tests:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     name: run tests in docker image
     runs-on: ubuntu-latest
     env:
@@ -16,6 +17,11 @@ jobs:
       COMPOSE_FILE: tests/docker-compose.yaml
 
     steps:
+      - name: dump thing
+        env:
+          THING: ${{ github.event.workflow_run.conclusion == 'success' }}
+        run: echo "$THING"
+
       - name: Dump docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2

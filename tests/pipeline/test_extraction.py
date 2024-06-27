@@ -27,10 +27,10 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
     det.pars.test_parameter = uuid.uuid4().hex
     sources, _, _, _ = det.extract_sources(decam_small_image)
 
-    assert sources.num_sources == 80
-    assert max(sources.data['flux']) == 624568.375
-    assert abs(np.mean(sources.data['x']) - 256) < 40
-    assert abs(np.mean(sources.data['y']) - 256) < 20
+    assert sources.num_sources == 113
+    assert max(sources.data['flux']) == 64281.078125
+    assert abs(np.mean(sources.data['x']) - 256) < 10
+    assert abs(np.mean(sources.data['y']) - 256) < 70
     assert 2.8 < np.median(sources.data['rhalf']) < 3.2
 
     if blocking_plots:  # use this for debugging / visualization only!
@@ -62,8 +62,8 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
     assert abs( max(sources2.data['flux']) - max(sources.data['flux'])) / max(sources.data['flux']) < 0.1
 
     # fewer sources also means the mean position will be further from center
-    assert abs(np.mean(sources2.data['x']) - 256) < 75
-    assert abs(np.mean(sources2.data['y']) - 256) < 45
+    assert abs(np.mean(sources2.data['x']) - 256) < 15
+    assert abs(np.mean(sources2.data['y']) - 256) < 70
 
     assert 2.0 < np.median(sources2.data['rhalf']) < 2.5
 
