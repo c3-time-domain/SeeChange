@@ -77,4 +77,4 @@ jobs:
       - name: run test
         run: |
           shopt -s nullglob
-          TEST_SUBFOLDER=$(ls tests/models/test_{m..z}*.py) docker compose run runtests
+          TEST_SUBFOLDER=$(ls tests/models/test_{m..z}*.py) docker compose run -e SKIP_BIG_MEMORY=1 runtests

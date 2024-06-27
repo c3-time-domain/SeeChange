@@ -134,7 +134,8 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
             if np.fabs( rad - aprad ) <= 0.01:
                 return apcor
 
-        raise ValueError( f"No aperture correction tabulated for image {self.image.id} ({self.image.filepath}) "
+        iminfo = "for image {self.image.id} ({self.image.filepath}) " if self.image is not None else ""
+        raise ValueError( f"No aperture correction tabulated {iminfo}"
                           f"for apertures within 0.01 pixels of {rad}; "
                           f"available apertures are {self.aper_cor_radii}" )
 

@@ -15,13 +15,23 @@ from pipeline.pipeline_exposure_launcher import ExposureLauncher
 
 from util.logger import SCLogger
 
-# This is just a basic test that the exposure launcher runs.  It does
-# run in parallel, but only two chips.  On my desktop, it takes about 2
-# minutes.  There aren't tests of failure modes written (yet?).
+# NOTE -- this test gets killed on github actions; googling about a bit
+# suggests that it uses too much memory.  Given that it launches two
+# image processes tasks, and that we still are allocating more memory
+# than we think we should be, this is perhaps not a surprise.  Put in an
+# env var that will cause it to get skipped on github actions, but to be
+# run by default when run locally.  This env var is set in the github
+# actions workflows.
+
+@pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
 def test_exposure_launcher( conductor_connector,
                             conductor_config_for_decam_pull,
                             decam_elais_e1_two_references,
                             decam_exposure_name ):
+    # This is just a basic test that the exposure launcher runs.  It does
+    # run in parallel, but only two chips.  On my desktop, it takes about 2
+    # minutes.  There aren't tests of failure modes written (yet?).
+
     # Hold all exposures
     data = conductor_connector.send( "getknownexposures" )
     tohold = []

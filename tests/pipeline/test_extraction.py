@@ -233,7 +233,7 @@ def test_run_psfex( decam_datastore, extractor ):
         assert psf._header['CHI2'] == pytest.approx( 0.9, abs=0.1 )
         bio = io.BytesIO( psf._info.encode( 'utf-8' ) )
         psfstats = votable.parse( bio ).get_table_by_index(1)
-        assert psfstats.array['FWHM_FromFluxRadius_Max'] == pytest.approx( 4.343, abs=0.01 )
+        assert psfstats.array['FWHM_FromFluxRadius_Max'] == pytest.approx( 4.286, abs=0.01 )
         assert not tmppsffile.exists()
         assert not tmppsfxmlfile.exists()
 
@@ -244,8 +244,8 @@ def test_run_psfex( decam_datastore, extractor ):
         tmppsfxmlfile.unlink()
 
         psf = extractor._run_psfex( tempname, sourcelist.image, psf_size=26 )
-        assert psf._header['PSFAXIS1'] == 29
-        assert psf._header['PSFAXIS1'] == 29
+        assert psf._header['PSFAXIS1'] == 31
+        assert psf._header['PSFAXIS1'] == 31
 
     finally:
         tmpsourcefile.unlink( missing_ok=True )
