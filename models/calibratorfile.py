@@ -161,7 +161,7 @@ class CalibratorFileDownloadLock(Base, AutoIDMixin):
     )
 
     _locks = {}
-    
+
     @hybrid_property
     def type( self ):
         return CalibratorTypeConverter.convert( self._type )
@@ -235,14 +235,14 @@ class CalibratorFileDownloadLock(Base, AutoIDMixin):
                  f"type={self.type}, "
                  f"flat_type={self.flat_type}, "
                  f"for {self.instrument} section {self.sensor_section})" )
-    
+
     @classmethod
     @contextlib.contextmanager
     def acquire_lock( cls, instrument, section, calibset, calibtype, flattype=None, maxsleep=20, session=None ):
         """Get a lock on updating/adding Calibrators of a given type for a given instrument/section.
 
         This class method should *only* be called as a context manager ("with").
-        
+
         Parameters
         ----------
         instrument: str
@@ -254,7 +254,7 @@ class CalibratorFileDownloadLock(Base, AutoIDMixin):
         calibset: str
            The calibrator set
 
-        calibtype: str 
+        calibtype: str
            The calibrator type (e.g. 'linearity', 'flat', etc.)
 
         flattype: str, default None
@@ -282,7 +282,7 @@ class CalibratorFileDownloadLock(Base, AutoIDMixin):
         database).  That should be rare, because of the use of yield
         below, but a badly-time crash could leave these rows behind.
 
-        """       
+        """
 
         lockid = None
         sleeptime = 0.1

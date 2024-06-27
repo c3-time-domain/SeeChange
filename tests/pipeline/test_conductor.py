@@ -68,8 +68,8 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
     req = conductor_config_for_decam_pull
 
     mjd0 = 60127.33819
-    mjd1 = 60127.36319 
-    
+    mjd1 = 60127.36319
+
     # Verify that the right things are in known exposures
     # (Do this here rather than in a test because we need
     # to clean it up after the yield.)

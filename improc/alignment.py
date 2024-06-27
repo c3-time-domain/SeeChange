@@ -484,7 +484,7 @@ class ImageAligner:
             # #   that.
             # photomotor = PhotCalibrator( **photomotor_config )
             # warpedim.zp = photomotor.run( warpedim ).zp
-            
+
             prov = Provenance(
                 code_version=image.provenance.code_version,
                 process='extraction',

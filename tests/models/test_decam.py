@@ -170,7 +170,7 @@ def test_decam_download_reduced_origin_exposure( decam_reduced_origin_exposures,
     # remember that once we tested that).
     # whichtodownload = [ 1, 3 ]
     whichtodownload = [ 3 ]
-    
+
     assert all( [ row.proc_type == 'instcal' for i, row in decam_reduced_origin_exposures._frame.iterrows() ] )
     try:
         # First try downloading the reduced exposures themselves

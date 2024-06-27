@@ -258,7 +258,7 @@ class ExposureLauncher:
            exception is re-raised.
 
         """
-        
+
         done = False
         req = None
         n_processed = 0
@@ -309,7 +309,7 @@ class ExposureLauncher:
                 if ( max_n_exposures is not None ) and ( n_processed >= max_n_exposures ):
                     SCLogger.info( f"Hit max {n_processed} exposures, existing" )
                     done = True
-                
+
             except Exception as ex:
                 if die_on_exception:
                     raise

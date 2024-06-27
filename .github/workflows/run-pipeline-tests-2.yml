@@ -1,14 +1,15 @@
 name: Run Pipeline Tests 2
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_run:
+    workflows: ["Build Docker Images"]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   tests:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     name: run tests in docker image
     runs-on: ubuntu-latest
     env:
@@ -21,12 +22,12 @@ jobs:
         uses: jwalton/gh-docker-logs@v2
 
       - name: checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: log into github container registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -40,41 +41,8 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           
-      - name: setup docker buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          driver: docker-container
-
-      - name: bake
-        uses: docker/bake-action@v2.3.0
-        with:
-          workdir: tests
-          load: true
-          files: docker-compose.yaml
-          set: |
-            archive.tags=gchr.io/${{ github.repository_owner }}/archive
-            archive.cache-from=type=gha,scope=cached-archive
-            archive.cache-to=type=gha,scope=cached-archive,mode=max
-            postgres.tags=ghcr.io/${{ github.repository_owner }}/postgres
-            postgres.cache-from=type=gha,scope=cached-postgres
-            postgres.cache-to=type=gha,scope=cached-postgres,mode=max
-            setuptables.tags=ghcr.io/${{ github.repository_owner }}/runtests
-            setuptables.cache-from=type=gha,scope=cached-seechange
-            setuptables.cache-to=type=gha,scope=cached-seechange,mode=max
-            conductor.tags=gchr.io/${{ github.repository_owner }}/conductor
-            conductor.cache-from=type=gha,scipe=cached-conductor
-            conductor.cache-to=type=gha,scope=cached-conductor,mode=max
-            webap.tags=gchr.io/${{ github.repository_owner }}/seechange-webap
-            webap.cache-from=type=gha,scipe=cached-seechange-webap
-            webap.cache-to=type=gha,scope=cached-seechange-webap,mode=max
-            runtests.tags=ghcr.io/${{ github.repository_owner }}/runtests
-            runtests.cache-from=type=gha,scope=cached-seechange
-            runtests.cache-to=type=gha,scope=cached-seechange,mode=max
-            shell.tags=ghcr.io/${{ github.repository_owner }}/runtests
-            shell.cache-from=type=gha,scope=cached-seechange
-            shell.cache-to=type=gha,scope=cached-seechange,mode=max
-
       - name: run test
         run: |
           shopt -s nullglob
+          docker compose pull
           TEST_SUBFOLDER=$(ls tests/pipeline/test_{p..z}*.py) docker compose run -e SKIP_BIG_MEMORY=1 runtests

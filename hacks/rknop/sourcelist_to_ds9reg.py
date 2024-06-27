@@ -34,7 +34,7 @@ if args.maglimit is not None:
     maxmag = args.maglimit[1]
 else:
     minmag = None
-    
+
 with fits.open( args.filename, memmap=False ) as hdul:
     for row in hdul[2].data:
         doprint = ( ( minmag is None ) or
