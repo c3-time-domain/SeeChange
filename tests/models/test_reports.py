@@ -15,7 +15,7 @@ from util.util import parse_bool
 
 
 def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrators):
-    report = Report(exposure=decam_exposure, section_id='N1')
+    report = Report(exposure=decam_exposure, section_id='S3')
 
     # test that the progress steps flag is working
     assert report.progress_steps_bitflag == 0
