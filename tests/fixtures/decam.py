@@ -64,7 +64,7 @@ def decam_default_calibrators(cache_dir, data_dir):
                 )
 
         decam = get_instrument_instance( 'DECam' )
-        sections = [ 'N1', 'S1' ]
+        sections = [ 'S3', 'N16' ]
         filters = [ 'r', 'i', 'z', 'g']
         for sec in sections:
             for calibtype in [ 'flat', 'fringe' ]:
@@ -92,7 +92,7 @@ def decam_default_calibrators(cache_dir, data_dir):
         imagestonuke = set()
         datafilestonuke = set()
         with SmartSession() as session:
-            for sec in [ 'N1', 'S1' ]:
+            for sec in [ 'S3', 'N16' ]:
                 for filt in [ 'r', 'i', 'z', 'g' ]:
                     info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
                                                                  sec, filt, 60000, nofetch=True, session=session )
@@ -249,7 +249,7 @@ def decam_exposure(decam_filename, data_dir):
 
 @pytest.fixture
 def decam_raw_image( decam_exposure, provenance_base ):
-    image = Image.from_exposure(decam_exposure, section_id='N1')
+    image = Image.from_exposure(decam_exposure, section_id='S3')
     image.data = image.raw_data.astype(np.float32)
     image.provenance = provenance_base
     image.save()
