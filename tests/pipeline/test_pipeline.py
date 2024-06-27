@@ -521,7 +521,7 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
     assert isinstance(provs, dict)
 
     t_start = datetime.datetime.utcnow()
-    ds = p.run(decam_exposure, 'N1')  # the data should all be there so this should be quick
+    ds = p.run(decam_exposure, 'S3')  # the data should all be there so this should be quick
     t_end = datetime.datetime.utcnow()
 
     assert ds.image.provenance_id == provs['preprocessing'].id

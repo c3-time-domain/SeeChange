@@ -88,8 +88,6 @@ def test_exposure_launcher( conductor_connector,
             assert len(meas0) == 3
             assert len(meas1) == 6
 
-            assert False
-
     finally:
         # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,
         #   that should cascade to most everything else.

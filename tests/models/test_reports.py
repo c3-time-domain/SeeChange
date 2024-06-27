@@ -94,7 +94,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
     t0 = time.perf_counter()
 
     try:
-        ds = p.run(decam_exposure, 'N1')
+        ds = p.run(decam_exposure, 'S3')
 
         total_time = time.perf_counter() - t0
 

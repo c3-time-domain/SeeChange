@@ -531,9 +531,6 @@ class DataStore:
             prov = Provenance(
                 process=process,
                 code_version=code_version,
-                # TODO -- this next line isn't right, it doesn't properly handle
-                #  siblings.  pars_dict needs to be mangled in a way that
-                #  may be kind of complicated.
                 parameters=pars_dict,
                 upstreams=upstreams,
                 is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes
@@ -1409,90 +1406,8 @@ class DataStore:
         else:
             raise ValueError(f'Unknown output format: {output}')
 
-    def merge_all( self, session=None, commit=True ):
-        """Carefully merge all objects including products into the session.
-
-        Merges into the passed session if one was passed, otherwise
-        merges to self.session, otherwise this is probably gratuitous,
-        but should at least ensure that all the objects'
-        cross-references are self-consistent.
-
-        Parameters
-        ----------
-        session: Session
-          The session to merge everything into
-
-        commit: bool, default True
-          If True, will also call session.commit() (several times) and
-          load self.products_committed; otherwise, won't.
-
-        """
-        with SmartSession(session, self.session) as session:
-            if self.image is not None:
-                self.image = self.image.merge_all(session)
-                for att in ['sources', 'psf', 'bg', 'wcs', 'zp']:
-                    setattr(self, att, None)  # avoid automatically appending to the image self's non-merged products
-                for att in ['exposure', 'sources', 'psf', 'wcs', 'zp']:
-                    if getattr(self.image, att, None) is not None:
-                        setattr(self, att, getattr(self.image, att))
-
-            # This may well have updated some ids, as objects got added to the database
-            if self.exposure_id is None and self._exposure is not None:
-                self.exposure_id = self._exposure.id
-            if self.image_id is None and self.image is not None:
-                self.image_id = self.image.id
-
-            self.sources = self.image.sources
-            self.psf = self.image.psf
-            self.bg = self.image.bg
-            self.wcs = self.image.wcs
-            self.zp = self.image.zp
-
-            if commit:
-                session.commit()
-                self.products_committed = 'image, sources, psf, wcs, zp, bg'
-
-            if self.sub_image is not None:
-                if self.reference is not None:
-                    self.reference = self.reference.merge_all(session)
-                self.sub_image.new_image = self.image  # update with the now-merged image
-                self.sub_image = self.sub_image.merge_all(session)  # merges the upstream_images and downstream products
-                self.sub_image.ref_image.id = self.sub_image.ref_image_id
-                self.detections = self.sub_image.sources
-
-                if commit:
-                    session.commit()
-                    self.products_committed += ', sub_image'
-
-            if self.detections is not None:
-                more_products = 'detections'
-                if self.cutouts is not None:
-                    if self.measurements is not None:  # keep track of which cutouts goes to which measurements
-                        for m in self.measurements:
-                            idx = [c.index_in_sources for c in self.cutouts].index(m.cutouts.index_in_sources)
-                            m._cutouts_list_index = idx
-                    for cutout in self.cutouts:
-                        cutout.sources = self.detections
-                    self.cutouts = Cutouts.merge_list(self.cutouts, session)
-                    more_products += ', cutouts'
-
-                if self.measurements is not None:
-                    for i, m in enumerate(self.measurements):
-                        # use the new, merged cutouts
-                        self.measurements[i].cutouts = self.measurements[i].find_cutouts_in_list(self.cutouts)
-                        self.measurements[i].associate_object(session)
-                        self.measurements[i] = session.merge(self.measurements[i])
-                        self.measurements[i].object.measurements.append(self.measurements[i])
-                    more_products += ', measurements'
-
-                if commit:
-                    session.commit()
-                    self.products_committed += ', ' + more_products
-        
-
     def save_and_commit(self, exists_ok=False, overwrite=True, no_archive=False,
                         update_image_header=False, force_save_everything=True, session=None):
-
         """Go over all the data products and add them to the session.
 
         If any of the data products are associated with a file on disk,
@@ -1616,7 +1531,64 @@ class DataStore:
                                    f'a md5sum in the database' )
 
         # carefully merge all the objects including the products
-        self.merge_all( session )
+        with SmartSession(session, self.session) as session:
+            if self.image is not None:
+                self.image = self.image.merge_all(session)
+                for att in ['sources', 'psf', 'bg', 'wcs', 'zp']:
+                    setattr(self, att, None)  # avoid automatically appending to the image self's non-merged products
+                for att in ['exposure', 'sources', 'psf', 'wcs', 'zp']:
+                    if getattr(self.image, att, None) is not None:
+                        setattr(self, att, getattr(self.image, att))
+
+            # This may well have updated some ids, as objects got added to the database
+            if self.exposure_id is None and self._exposure is not None:
+                self.exposure_id = self._exposure.id
+            if self.image_id is None and self.image is not None:
+                self.image_id = self.image.id
+
+            self.sources = self.image.sources
+            self.psf = self.image.psf
+            self.bg = self.image.bg
+            self.wcs = self.image.wcs
+            self.zp = self.image.zp
+
+            session.commit()
+            self.products_committed = 'image, sources, psf, wcs, zp, bg'
+
+            if self.sub_image is not None:
+                if self.reference is not None:
+                    self.reference = self.reference.merge_all(session)
+                self.sub_image.new_image = self.image  # update with the now-merged image
+                self.sub_image = self.sub_image.merge_all(session)  # merges the upstream_images and downstream products
+                self.sub_image.ref_image.id = self.sub_image.ref_image_id
+                self.detections = self.sub_image.sources
+
+                session.commit()
+                self.products_committed += ', sub_image'
+
+            if self.detections is not None:
+                more_products = 'detections'
+                if self.cutouts is not None:
+                    if self.measurements is not None:  # keep track of which cutouts goes to which measurements
+                        for m in self.measurements:
+                            idx = [c.index_in_sources for c in self.cutouts].index(m.cutouts.index_in_sources)
+                            m._cutouts_list_index = idx
+                    for cutout in self.cutouts:
+                        cutout.sources = self.detections
+                    self.cutouts = Cutouts.merge_list(self.cutouts, session)
+                    more_products += ', cutouts'
+
+                if self.measurements is not None:
+                    for i, m in enumerate(self.measurements):
+                        # use the new, merged cutouts
+                        self.measurements[i].cutouts = self.measurements[i].find_cutouts_in_list(self.cutouts)
+                        self.measurements[i].associate_object(session)
+                        self.measurements[i] = session.merge(self.measurements[i])
+                        self.measurements[i].object.measurements.append(self.measurements[i])
+                    more_products += ', measurements'
+
+                session.commit()
+                self.products_committed += ', ' + more_products
 
     def delete_everything(self, session=None, commit=True):
         """Delete everything associated with this sub-image.
