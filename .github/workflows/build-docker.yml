@@ -16,6 +16,12 @@ jobs:
       COMPOSE_FILE: tests/docker-compose.yaml
 
     steps:
+      - name: Update Token Permissions
+        permissions:
+          actions: read
+          contents: read
+          packages: write
+
       - name: Dump docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2
