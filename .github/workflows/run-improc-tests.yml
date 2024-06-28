@@ -40,39 +40,58 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
-      - name: setup docker buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
+      # A NOTE ABOUT DOCKER IMAGES
+      # Because they don't change with every pull request, we've stopped
+      # building them in the github actions.  In pratice, they were
+      # getting rebuilt all the time, which was slowing things down.
+      #
+      # Now, these actions depend on all the docker images having been
+      # pre-built and stored on the github container archive.  Look at
+      # tests/docker-compose.yaml; there, you can see what the various
+      # image names are expected to be.
+      #
+      # If we ever want to go back to building the docker images in
+      # all of the workflow files, the code is below.  However, you
+      # should make sure that all the things under "set" in the "bake"
+      # section are up to date with whats in tests/docker-compose.yaml
 
-      - name: bake
-        uses: docker/bake-action@v5
-        with:
-          workdir: tests
-          load: true
-          files: docker-compose.yaml
-          set: |
-            archive.tags=ghcr.io/${{ github.repository_owner }}/archive
-            archive.cache-from=type=gha,scope=cached-archive
-            archive.cache-to=type=gha,scope=cached-archive,mode=max
-            postgres.tags=ghcr.io/${{ github.repository_owner }}/postgres
-            postgres.cache-from=type=gha,scope=cached-postgres
-            postgres.cache-to=type=gha,scope=cached-postgres,mode=max
-            setuptables.tags=ghcr.io/${{ github.repository_owner }}/runtests
-            setuptables.cache-from=type=gha,scope=cached-seechange
-            setuptables.cache-to=type=gha,scope=cached-seechange,mode=max
-            conductor.tags=ghcr.io/${{ github.repository_owner }}/conductor
-            conductor.cache-from=type=gha,scipe=cached-conductor
-            conductor.cache-to=type=gha,scope=cached-conductor,mode=max
-            webap.tags=ghcr.io/${{ github.repository_owner }}/seechange-webap
-            webap.cache-from=type=gha,scipe=cached-seechange-webap
-            webap.cache-to=type=gha,scope=cached-seechange-webap,mode=max
-            runtests.tags=ghcr.io/${{ github.repository_owner }}/runtests
-            runtests.cache-from=type=gha,scope=cached-seechange
-            runtests.cache-to=type=gha,scope=cached-seechange,mode=max
-            shell.tags=ghcr.io/${{ github.repository_owner }}/runtests
-            shell.cache-from=type=gha,scope=cached-seechange
-            shell.cache-to=type=gha,scope=cached-seechange,mode=max
+      # - name: setup docker buildx
+      #   uses: docker/setup-buildx-action@v3
+      #   with:
+      #     driver: docker-container
+
+      # - name: bake
+      #   uses: docker/bake-action@v5
+      #   with:
+      #     workdir: tests
+      #     load: true
+      #     files: docker-compose.yaml
+      #     set: |
+      #       archive.tags=ghcr.io/${{ github.repository_owner }}/archive
+      #       archive.cache-from=type=gha,scope=cached-archive
+      #       archive.cache-to=type=gha,scope=cached-archive,mode=max
+      #       postgres.tags=ghcr.io/${{ github.repository_owner }}/postgres
+      #       postgres.cache-from=type=gha,scope=cached-postgres
+      #       postgres.cache-to=type=gha,scope=cached-postgres,mode=max
+      #       setuptables.tags=ghcr.io/${{ github.repository_owner }}/runtests
+      #       setuptables.cache-from=type=gha,scope=cached-seechange
+      #       setuptables.cache-to=type=gha,scope=cached-seechange,mode=max
+      #       conductor.tags=ghcr.io/${{ github.repository_owner }}/conductor
+      #       conductor.cache-from=type=gha,scipe=cached-conductor
+      #       conductor.cache-to=type=gha,scope=cached-conductor,mode=max
+      #       webap.tags=ghcr.io/${{ github.repository_owner }}/seechange-webap
+      #       webap.cache-from=type=gha,scipe=cached-seechange-webap
+      #       webap.cache-to=type=gha,scope=cached-seechange-webap,mode=max
+      #       runtests.tags=ghcr.io/${{ github.repository_owner }}/runtests
+      #       runtests.cache-from=type=gha,scope=cached-seechange
+      #       runtests.cache-to=type=gha,scope=cached-seechange,mode=max
+      #       shell.tags=ghcr.io/${{ github.repository_owner }}/runtests
+      #       shell.cache-from=type=gha,scope=cached-seechange
+      #       shell.cache-to=type=gha,scope=cached-seechange,mode=max
+
+      - name: pull images
+        run: |
+          docker compose pull archive postgres conductor webap runtests
 
       - name: run test
         run: |
