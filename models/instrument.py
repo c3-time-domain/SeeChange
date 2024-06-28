@@ -19,7 +19,7 @@ from astropy.coordinates import SkyCoord, Distance
 from models.base import Base, SmartSession, AutoIDMixin
 
 from pipeline.catalog_tools import Bandpass
-from util.util import parse_dateobs, read_fits_image
+from util.util import parse_dateobs, read_fits_image, get_inheritors
 from util.logger import SCLogger
 
 
@@ -44,20 +44,6 @@ class InstrumentOrientation(Enum):
     NrightEdown = 5       # flip-x, then 90° clockwise
     NdownEleft = 6        # flip-x, then 180°
     NleftEup = 7          # flip-x, then 270° clockwise
-
-
-# from: https://stackoverflow.com/a/5883218
-def get_inheritors(klass):
-    """Get all classes that inherit from klass. """
-    subclasses = set()
-    work = [klass]
-    while work:
-        parent = work.pop()
-        for child in parent.__subclasses__():
-            if child not in subclasses:
-                subclasses.add(child)
-                work.append(child)
-    return subclasses
 
 
 def register_all_instruments():
@@ -1467,7 +1453,7 @@ class Instrument:
 
         """
         section = str(section)
-        SCLogger.debug( f'Looking for calibrators for {calibset} {section}' )
+        # SCLogger.debug( f'Looking for calibrators for {calibset} {section}' )
 
         if ( calibset == 'externally_supplied' ) != ( flattype == 'externally_supplied' ):
             raise ValueError( "Doesn't make sense to have only one of calibset and flattype be externally_supplied" )
@@ -1483,56 +1469,18 @@ class Instrument:
 
         expdatetime = pytz.utc.localize( astropy.time.Time( mjd, format='mjd' ).datetime )
 
-        with SmartSession(session) as session:
-            for calibtype in self.preprocessing_steps_available:
-                if calibtype in self.preprocessing_nofile_steps:
-                    continue
+        for calibtype in self.preprocessing_steps_available:
+            if calibtype in self.preprocessing_nofile_steps:
+                continue
 
-                SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
+            # SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
 
-                # We need to avoid a race condition where two processes both look for a calibrator file,
-                #   don't find it, and both try to download it at the same time.  Just using database
-                #   locks doesn't work here, because the process of downloading and committing the
-                #   images takes long enough that the database server starts whining about deadlocks.
-                #   So, we manually invent our own database lock mechanism here and use that.
-                #   (One advantage is that we can just lock the specific thing being downloaded.)
-                # This has a danger : if the code fully crashes during the try block below,
-                #   it will leave behind this fake lock.  That should be rare, as the finally
-                #   block that deletes the fake lock will always happen as long as python is
-                #   functioning properly.  But a very badly-timed machine crash could leave one
-                #   of these fake locks behind.
-
-                caliblock = None
-                try:
-                    sleeptime = 0.1
-                    while caliblock is None:
-                        session.connection().execute( sa.text( 'LOCK TABLE calibfile_downloadlock' ) )
-                        lockq = ( session.query( CalibratorFileDownloadLock )
-                                  .filter( CalibratorFileDownloadLock.calibrator_set == calibset )
-                                  .filter( CalibratorFileDownloadLock.instrument == self.name )
-                                  .filter( CalibratorFileDownloadLock.type == calibtype )
-                                  .filter( CalibratorFileDownloadLock.sensor_section == section )
-                                 )
-                        if calibtype == 'flat':
-                            calibquery = calibquery.filter( CalibratorFileDownloadLock.flat_type == flattype )
-                        if lockq.count() == 0:
-                            caliblock = CalibratorFileDownloadLock( calibrator_set=calibset,
-                                                                    instrument=self.name,
-                                                                    type=calibtype,
-                                                                    sensor_section=section,
-                                                                    flat_type=flattype )
-                            session.add( caliblock )
-                            session.commit()
-                        else:
-                            session.rollback()
-                            if sleeptime > 20:
-                                raise RuntimeError( f"Couldn't get CalibratorFileDownloadLock for "
-                                                    f"{calibset} {self.name} {calibtype} {section} "
-                                                    f"after many tries." )
-                            time.sleep( sleeptime )   # Don't hyperspam the database, but don't wait too long
-                            sleeptime *= 2
-
-                    calibquery = ( session.query( CalibratorFile )
+            calib = None
+            with CalibratorFileDownloadLock.acquire_lock(
+                    self.name, section, calibset, calibtype, flattype, session=session
+            ) as calibfile_lockid:
+                with SmartSession(session) as dbsess:
+                    calibquery = ( dbsess.query( CalibratorFile )
                                    .filter( CalibratorFile.calibrator_set == calibset )
                                    .filter( CalibratorFile.instrument == self.name )
                                    .filter( CalibratorFile.type == calibtype )
@@ -1547,39 +1495,34 @@ class Instrument:
                     if ( calibtype in [ 'flat', 'fringe', 'illumination' ] ) and ( filter is not None ):
                         calibquery = calibquery.join( Image ).filter( Image.filter == filter )
 
-                    calib = None
-                    if ( calibquery.count() == 0 ) and ( calibset == 'externally_supplied' ) and ( not nofetch ):
-                        calib = self._get_default_calibrator( mjd, section, calibtype=calibtype,
-                                                              filter=self.get_short_filter_name( filter ),
-                                                              session=session )
-                        SCLogger.debug( f"Got default calibrator {calib} for {calibtype} {section}" )
-                    else:
-                        if calibquery.count() > 1:
-                            SCLogger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
-                                             f"{self.name} {section}, randomly using one." )
+                    if calibquery.count() > 1:
+                        SCLogger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
+                                          f"{self.name} {section}, randomly using one." )
+                    if calibquery.count() > 0:
                         calib = calibquery.first()
-                        SCLogger.debug( f"Got pre-existing calibrator {calib} for {calibtype} {section}" )
 
-                    if calib is None:
+                if ( calib is None ) and ( calibset == 'externally_supplied' ) and ( not nofetch ):
+                    # This is the real reason we got the calibfile downloadlock, but of course
+                    # we had to do it before searching for the file so that we don't have a race
+                    # condition for multiple processes all downloading the file at once.
+                    calib = self._get_default_calibrator( mjd, section, calibtype=calibtype,
+                                                          filter=self.get_short_filter_name( filter ),
+                                                          session=session )
+                    SCLogger.debug( f"Got default calibrator {calib} for {calibtype} {section}" )
+
+                if calib is None:
+                    params[ f'{calibtype}_isimage' ] = False
+                    params[ f'{calibtype}_fileid' ] = None
+                else:
+                    if calib.image_id is not None:
+                        params[ f'{calibtype}_isimage' ] = True
+                        params[ f'{calibtype}_fileid' ] = calib.image_id
+                    elif calib.datafile_id is not None:
                         params[ f'{calibtype}_isimage' ] = False
-                        params[ f'{calibtype}_fileid'] = None
+                        params[ f'{calibtype}_fileid' ] = calib.datafile_id
                     else:
-                        if calib.image_id is not None:
-                            params[ f'{calibtype}_isimage' ] = True
-                            params[ f'{calibtype}_fileid' ] = calib.image_id
-                        elif calib.datafile_id is not None:
-                            params[ f'{calibtype}_isimage' ] = False
-                            params[ f'{calibtype}_fileid' ] = calib.datafile_id
-                        else:
-                            raise RuntimeError( f'Data corruption: CalibratorFile {calib.id} has neither '
-                                                    f'image_id nor datafile_id' )
-                finally:
-                    if caliblock is not None:
-                        session.delete( caliblock )
-                        session.commit()
-                    # Just in case the LOCK TABLE wasn't released above
-                    session.rollback()
-
+                        raise RuntimeError( f'Data corruption: CalibratorFile {calib.id} has neither '
+                                            f'image_id nor datafile_id' )
         return params
 
     def overscan_sections( self, header ):
@@ -1603,7 +1546,7 @@ class Instrument:
         list of dicts; each element has fields
           'secname': str,
           'biassec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int },
-          'datasec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int }
+          'datasec': { 'x0': int, 'x1': int, 'y0': int, 'y1': int },
         Secname is some subsection identifier, which is instrument
         specific.  By default, it will be 'A' or 'B'.  Sections are in
         C-coordinates (0-offset), using the numpy standard (i.e. x1 is
@@ -1991,10 +1934,66 @@ class DemoInstrument(Instrument):
         """
         return 'Demo'
 
-    def find_origin_exposures( self, skip_exposures_in_database=True,
-                               minmjd=None, maxmjd=None, filters=None,
-                               containing_ra=None, containing_dec=None,
-                               minexptime=None ):
+    def acquire_origin_exposure( cls, identifier, params, outdir=None ):
+        """Does the same thing as InstrumentOriginExposures.download_exposures.
+
+        Works outside of the context of find_origin exposures.
+
+        Parameters
+        ----------
+          identifier : str
+            Identifies the image at the source of exposures.  (See
+            KnownExposure.identfier or Exposure.origin_identifier.)
+
+          params : defined differently for each subclass
+            Necessary parameters for this instrument to download an
+            origin exposure
+
+          outdir : str or Path
+             Directory where to write the downloaded file.  Defaults to
+             FileOnDiskMixin.temp_path.
+
+        Returns
+        -------
+          outpath : pathlib.Path
+            The written file.
+
+        """
+        raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
+                                   f"implemented acquire_origin_exposure" )
+
+    def acquire_and_commit_origin_exposure( cls, identifier, params ):
+        """Call acquire_origin_exposure and add the exposure to the database.
+
+        Parameters
+        ----------
+          identifier : str
+            Identifies the image at the source of exposures.  (See
+            KnownExposure.identfier or Exposure.origin_identifier.)
+
+          params : defined differently for each subclass
+            Necessary parameters for this instrument to download an
+            origin exposure
+
+        Returns
+        -------
+          Exposure
+
+        """
+        raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
+                                   f"implemented acquire_and_commit_origin_exposure" )
+
+    def find_origin_exposures( self,
+                               skip_exposures_in_database=True,
+                               skip_known_exposures=True,
+                               minmjd=None,
+                               maxmjd=None,
+                               filters=None,
+                               containing_ra=None,
+                               containing_dec=None,
+                               minexptime=None,
+                               projects=None
+                              ):
         """Search the external repository associated with this instrument.
 
         Search the external image/exposure repository for this
@@ -2013,6 +2012,9 @@ class DemoInstrument(Instrument):
            If True (default), will filter out any exposures that (as
            best can be determined) are already known in the SeeChange
            database.  If False, will include all exposures.
+        skip_known_exposures: bool
+           If True (default), will filter out any exposures that are
+           already in the knownexposures table in the database.
         minmjd: float
            The earliest time of exposure to search (default: no limit)
         maxmjd: float
@@ -2030,6 +2032,8 @@ class DemoInstrument(Instrument):
         minexptime: float
            Search for exposures that have this minimum exposure time in
            seconds; default, no limit.
+        projects: str or list of str
+           Name of the projects to search for exposures from
 
         Returns
         -------
@@ -2052,6 +2056,45 @@ class InstrumentOriginExposures:
     made about it other than that it's a sequence (and so can be indexed).
 
     """
+
+    def add_to_known_exposures( self,
+                                indexes=None,
+                                hold=False,
+                                skip_loaded_exposures=True,
+                                skip_duplicates=True,
+                                session=None ):
+        """Add exposures to the knownexposures table.
+
+        Parameters
+        ----------
+        indexes: list of int or None, default None
+          List of indexes into the set of origin exposures to add;
+          None means add them all.
+
+        hold: bool, default False
+          The "hold" field to set in the KnownExposures table.  (The
+          conductor will not hand out exposures to pipeline processes
+          for rows where hold is True.)
+
+        skip_duplicates: bool, default True
+          Don't create duplicate entries in the knownexposures table.
+          If the exposure is one that's already in the table, don't add
+          a new record for it.  You probably always want to leave this
+          as True.
+
+        skip_loaded_exposures: bool, default True
+          If True, then try to figure out if this exposure is one that
+          is already loaded into the exposures table in the database.
+          If it is, then don't add it to known_exposures.  Generally,
+          you will want this to be true.
+
+        session: Session, default None
+          Database session to use, or None.
+
+        """
+        raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
+                                   f"implemented add_to_known_exposures." )
+
 
     def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,
                             clobber=False, existing_ok=False, session=None ):

@@ -20,8 +20,12 @@ from models.reference import Reference
 from models.provenance import Provenance, CodeVersion
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
+# Needed to avoid errors about missing classes later
+import models.object
+
 from pipeline.data_store import DataStore
 from pipeline.detection import Detector
+from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 
@@ -32,6 +36,7 @@ prov_process = 'import_image'
 prov_params = {}
 prov_upstreams = []
 
+
 def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     config = Config.get()
 
@@ -40,7 +45,8 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     # Hopefully since this is a hack one-off, we can just cope.
     with SmartSession() as sess:
 
-        # Get the provenance we'll use for the imported references
+        SCLogger.info( "Making image provenance" )
+
         # TODO : when I run a bunch of processes at once I'm getting
         #   errors about the code version already existing.
         # Need to really understand how to cope with this sort of thing.
@@ -73,8 +79,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
                                parameters = prov_params, upstreams = prov_upstreams )
 
             prov.update_id()
-            prov = sess.merge( prov )
-            sess.commit()
+            prov.merge_concurrent( sess )
             provs = ( sess.query( Provenance )
                       .filter( Provenance.process == prov_process )
                       .filter( Provenance.code_version == code_ver )
@@ -168,32 +173,51 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
 
         ds = DataStore( image, session=sess )
 
+        # Make sure extract, background, wcs, and zp all have the right siblings
+
+        extraction_config = config.value( 'extraction.sources', {} )
+        extractor = Detector( **extraction_config )
+        background_config = config.value( 'extraction.bg', {} )
+        backgrounder = Backgrounder( **background_config )
+        astro_cal_config = config.value( 'extraction.wcs', {} )
+        astrometor = AstroCalibrator( **astro_cal_config )
+        photo_cal_config = config.value( 'extraction.zp', {} )
+        photomotor = PhotCalibrator( **photo_cal_config )
+
+        siblings = {
+            'sources': extractor.pars,
+            'bg': backgrounder.pars,
+            'wcs': astrometor.pars,
+            'zp': photomotor.pars
+        }
+        extractor.pars.add_siblings( siblings )
+        backgrounder.pars.add_siblings( siblings )
+        astrometor.pars.add_siblings( siblings )
+        photomotor.pars.add_siblings( siblings )
+
         # Extract sources
 
         SCLogger.info( "Extracting sources" )
-
-        extraction_config = config.value( 'extraction', {} )
-        extractor = Detector( **extraction_config )
         ds = extractor.run( ds )
+
+        # Background
+
+        SCLogger.info( "Background" )
+        ds = backgrounder.run( ds )
 
         # WCS
 
         SCLogger.info( "Astrometric calibration" )
-
-        astro_cal_config = config.value( 'astro_cal', {} )
-        astrometor = AstroCalibrator( **astro_cal_config )
         ds = astrometor.run( ds )
 
         # ZP
 
         SCLogger.info( "Photometric calibration" )
-
-        photo_cal_config = config.value( 'photo_cal', {} )
-        photomotor = PhotCalibrator( **photo_cal_config )
         ds = photomotor.run( ds )
 
-        SCLogger.info( "Saving data products" )
+        # Write out all these data files
 
+        SCLogger.info( "Saving data products" )
         ds.save_and_commit()
 
         # Make the reference

@@ -18,6 +18,7 @@ import astropy.coordinates
 import astropy.units as u
 
 from util.util import read_fits_image, save_fits_image_file
+from util.logger import SCLogger
 
 from models.base import (
     Base,
@@ -1100,6 +1101,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         aligned = []
         for i, image in enumerate(self.upstream_images):
+            SCLogger.debug( f"Aligning {image.id} ({image.filepath})" )
             new_image = self._aligner.run(image, alignment_target)
             aligned.append(new_image)
             # ImageAligner.temp_images.append(new_image)  # keep track of all these images for cleanup purposes

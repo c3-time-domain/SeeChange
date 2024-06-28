@@ -1,0 +1,15 @@
+# When building the "included_code" image, this will be imported as /seechange/local_overrides.yaml
+# Edit this file to make the thing inside the image different
+
+path:
+  data_root: /seechange/data
+  data_temp: /seechange/temp
+
+
+db:
+  user: seechange
+  password: null
+  password_file: /secrets/seechange_dbpasswd
+  host: ls4db.lbl.gov
+  port: 5432
+  database: seechange

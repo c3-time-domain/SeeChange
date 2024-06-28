@@ -480,7 +480,7 @@ class Detector:
                 psfnorm=psf_norm,
                 tempname=tempnamebase,
             )
-            SCLogger.debug( f"detection: sextractor found {len(sources.data)} sources" )
+            SCLogger.debug( f"detection: sextractor found {len(sources.data)} sources on image {image.filepath}" )
 
             snr = sources.apfluxadu()[0] / sources.apfluxadu()[1]
             if snr.min() > self.pars.threshold:

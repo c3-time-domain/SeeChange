@@ -122,3 +122,27 @@ def parse_dec_dms_to_deg(dec):
         raise ValueError(f"Value of dec ({dec}) is outside range (-90 -> +90).")
 
     return dec
+
+def radec_to_gal_ecl( ra, dec ):
+    """Convert ra and dec to galactic and ecliptic coordinates.
+
+    Parameters
+    ----------
+      ra : float
+        RA in decimal degrees.
+
+      dec : float
+        Dec in decimal degreese
+
+    Returns
+    -------
+    gallat, gallon, ecllat, ecllon
+
+    """
+    coords = SkyCoord(ra, dec, unit="deg", frame="icrs")
+    gallat = float(coords.galactic.b.deg)
+    gallon = float(coords.galactic.l.deg)
+    ecllat = float(coords.barycentrictrueecliptic.lat.deg)
+    ecllon = float(coords.barycentrictrueecliptic.lon.deg)
+
+    return gallat, gallon, ecllat, ecllon

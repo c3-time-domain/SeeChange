@@ -9,6 +9,8 @@ import numpy as np
 
 import sqlalchemy as sa
 
+import selenium.webdriver
+
 from util.config import Config
 from models.base import (
     FileOnDiskMixin,
@@ -34,6 +36,7 @@ pytest_plugins = [
     'tests.fixtures.ztf',
     'tests.fixtures.ptf',
     'tests.fixtures.pipeline_objects',
+    'tests.fixtures.conductor',
 ]
 
 ARCHIVE_PATH = None
@@ -80,7 +83,8 @@ def pytest_sessionfinish(session, exitstatus):
         any_objects = False
         for Class, ids in objects.items():
             # TODO: check that surviving provenances have test_parameter
-            if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt', 'Provenance', 'Object']:
+            if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt',
+                                  'Provenance', 'Object', 'PasswordLink']:
                 SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             elif len(ids) > 0:
                 SCLogger.info(

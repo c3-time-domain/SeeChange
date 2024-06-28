@@ -51,18 +51,18 @@ def test_decam_photo_cal( decam_datastore, photometor, blocking_plots ):
         plt.show(block=blocking_plots)
         fig.savefig( ofpath )
 
-        # WORRY : zp + apercor (for the first aperture) is off from the
-        # aperture-specific zeropoint that the lensgrinder pipeline
-        # calculated for this image by 0.13 mags.  That was calibrated to
-        # either DECaPS or PanSTARRS (investigate this), and it's
-        # entirely possible that it's the lensgrinder zeropoint that is
-        # off.
-        assert ds.zp.zp == pytest.approx( 30.168, abs=0.01 )
-        assert ds.zp.dzp == pytest.approx( 1.38e-7, rel=0.1 )   # That number is absurd, but oh well
-        assert ds.zp.aper_cor_radii == pytest.approx( [ 2.915, 4.331, 8.661, 12.992,
-                                                        17.323, 21.653, 30.315, 43.307 ], abs=0.01 )
-        assert ds.zp.aper_cors == pytest.approx( [-0.457, -0.177, -0.028, -0.007,
-                                                  0.0, 0.003, 0.005, 0.006 ], abs=0.01 )
+    # WORRY : zp + apercor (for the first aperture) is off from the
+    # aperture-specific zeropoint that the lensgrinder pipeline
+    # calculated for this image by 0.13 mags.  That was calibrated to
+    # either DECaPS or PanSTARRS (investigate this), and it's
+    # entirely possible that it's the lensgrinder zeropoint that is
+    # off. <--- that comment was written for a different image.
+    # investigate if it's still true for the image we're looking
+    # at now.
+    assert ds.zp.zp == pytest.approx( 30.128, abs=0.01 )
+    assert ds.zp.dzp == pytest.approx( 2.15e-6, rel=0.1 )   # That number is absurd, but oh well
+    assert ds.zp.aper_cor_radii == pytest.approx( [ 4.164, 8.328, 12.492, 20.819 ], abs=0.01 )
+    assert ds.zp.aper_cors == pytest.approx( [ -0.205, -0.035, -0.006, 0. ], abs=0.01 )
 
 
 def test_warnings_and_exceptions(decam_datastore, photometor):

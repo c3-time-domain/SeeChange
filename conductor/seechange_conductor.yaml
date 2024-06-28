@@ -1,0 +1,37 @@
+# This default config file works for the tests and devshell conductors
+#
+# To customize it for where you're actually running the conductor,
+# before building the docker image, edit the file local_overrides.yaml
+# in this directory and put in the relevant confing.
+
+preloads:
+  - default_config.yaml
+overrides:
+  - local_overrides.yaml
+augments:
+  - local_augments.yaml
+
+db:
+  host: postgres
+
+# The conductor will not be using these,
+#  but it has to have something because
+#  startup code that will get run upon
+#  module import is going to try to
+#  make sure these directories exist, using
+#  defaults that turn out not to be
+#  writeable if they don't exist.
+path:
+  data_root: /tmp
+  data_temp: /tmp
+
+conductor:
+  conductor_url: https://conductor:8082/
+  email_from: 'Seechange conductor <nobody@nowhere.org>'
+  email_subject: 'Seechange conductor password reset'
+  email_system_name: 'Seechange conductor'
+  smtp_server: 'mailhog'
+  smtp_port: 1025
+  smtp_use_ssl: false
+  smtp_username: null
+  smtp_password: null

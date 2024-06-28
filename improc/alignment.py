@@ -11,6 +11,7 @@ import astropy.table
 import astropy.wcs.utils
 
 from util import ldac
+from util.config import Config
 from util.exceptions import SubprocessFailure
 from util.util import read_fits_image, save_fits_image_file
 from util.logger import SCLogger
@@ -27,6 +28,7 @@ from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 from pipeline.data_store import DataStore
 from pipeline.parameters import Parameters
 from pipeline.detection import Detector
+from pipeline.photo_cal import PhotCalibrator
 from improc.bitmask_tools import dilate_bitflag
 
 
@@ -169,6 +171,7 @@ class ImageAligner:
 
         warpedim.calculate_coordinates()
         warpedim.zp = image.zp  # zp not available when loading from DB (zp.image_id doesn't point to warpedim)
+
         # TODO: are the WorldCoordinates also included? Are they valid for the warped image?
         # --> warpedim should get a copy of target.wcs
 
@@ -503,9 +506,10 @@ class ImageAligner:
             outimhead.unlink( missing_ok=True )
             outflhead.unlink( missing_ok=True )
             outbghead.unlink( missing_ok=True )
-            for f in swarp_vmem_dir.iterdir():
-                f.unlink()
-            swarp_vmem_dir.rmdir()
+            if swarp_vmem_dir.is_dir():
+                for f in swarp_vmem_dir.iterdir():
+                    f.unlink()
+                swarp_vmem_dir.rmdir()
 
     def run( self, source_image, target_image ):
         """Warp source image so that it is aligned with target image.
@@ -534,6 +538,9 @@ class ImageAligner:
             has not been run.
 
         """
+        SCLogger.debug( f"ImageAligner.run: aligning image {source_image.id} ({source_image.filepath}) "
+                        f"to {target_image.id} ({target_image.filepath})" )
+
         # Make sure we have what we need
         source_sources = source_image.sources
         if source_sources is None:
@@ -553,6 +560,7 @@ class ImageAligner:
             raise RuntimeError( f'Image {target_image.id} has no wcs' )
 
         if target_image == source_image:
+            SCLogger.debug( "...target and source are the same, not warping " )
             warped_image = Image.copy_image( source_image )
             warped_image.type = 'Warped'
             if source_image.bg is None:
@@ -584,7 +592,7 @@ class ImageAligner:
             # TODO: should these objects be copies of the products, or references to the same objects?
         else:  # Do the warp
             if self.pars.method == 'swarp':
-                SCLogger.debug( 'Aligning with swarp' )
+                SCLogger.debug( '...aligning with swarp' )
                 if ( source_sources.format != 'sextrfits' ) or ( target_sources.format != 'sextrfits' ):
                     raise RuntimeError( f'swarp ImageAligner requires sextrfits sources' )
                 warped_image = self._align_swarp(source_image, target_image, source_sources, target_sources)

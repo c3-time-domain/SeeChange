@@ -11,33 +11,45 @@ but in the meantime, install Docker Engine instead of Docker Desktop; instructio
 - Installing Docker Engine : https://docs.docker.com/engine/install/
 - Setting up rootless mode (so you don't have to sudo everything) : https://docs.docker.com/engine/security/rootless/
 
-#### Development shell -- local database
+.. _dev_shell_local_database:
+
+#### Development shell — local database
 
 The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment variables.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
 ```
-  IMGTAG=<yourname>_dev
-  COMPOSE_PROJECT_NAME=<yourname>
-  USERID=<UID>
-  GROUPID=<GID>
+  IMGTAG=[yourname]_dev
+  COMPOSE_PROJECT_NAME=[yourname]
+  USERID=[UID]
+  GROUPID=[GID]
+  CONDUCTOR_PORT=[port]
+  WEBAP_PORT=[port]
+  MAILHOG_PORT=[port]
 ```
 
-`<yourname>` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `<UID>` and `<GID>` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)
+`[yourname]` can be any string you want.  If you are also using `docker compose` in the tests subdirectory, you will be happier if you use a different string here than you use there.  `[UID]` and `[GID]` are your userid and groupid respectively; you can find these on Linux by running the command `id`; use the numbers after `uid=` and `gid=`. (Do not include the name in parentheses, just the number.)  The three [port] lines are optional.  CONDUCTOR_PORT defaults to 8082, WEBAP_PORT to 8081, and MAILHOG_PORT to 8025.  If multiple people are running docker on the same machine, you will probably need to configure these; otherwise, the defaults are probably fine.  (If, when running `docker compose up` below, you get errors about ports in use, that means you probably need to set these numbers.)  Once you start a container, services inside the container will be available on those ports of `localhost` on the host machine.  That is, if you've set `CONDUCTOR_PORT=8082` (or just left it at the default), a web browser on the host machine pointed at `https://localhost:8082/` will show the conductor's web interface.  (Because it uses a self-signed SSL certificate inside the dev environment, your browser will give you a security warning that you need to agree to override in order to actually load the page.)
+
 Once you've set these environment variables— either in a `.env` file, with three `export` commands, or by prepending them to every `docker compose` command you see below, you can start up a development shell in which to run code by running, while in the `devshell` subdirectory:
+
 ```
+  docker compose build
   docker compose up -d seechange
 ```
 
-That will start several services.  You can see what's there by running
+The `build` command doesn't need to be run every time, but should be run every time you update from the archive, or make any changes to the dockerfiles, requirements file, or docker compose files.  (In pratice: run this every so often.  It will be pretty fast (less than 1 minute) if no rebuilds are actually needed.)
+
+The `docker compose up...` command will start several services.  You can see what's there by running
 ```
    docker compose ps
 ```
 
-The services started include an archive server, a postgres database server, and a shell host.  The database server should have all of the schema necessary for SeeChange already created.  To connect to the shell host in order to run within this environment, run
+The services started include an archive server, a postgres database server, a webap, a conductor, a test mail server, and a shell host.  The database server should have all of the schema necessary for SeeChange already created.  To connect to the shell host in order to run within this environment, run
 ```
    docker compose exec -it seechange /bin/bash
 ```
 
 Do whatever you want inside that shell; most likely, this will involve running `python` together with either some SeeChange test, or some SeeChange executable. This docker image bind-mounts your seechange checkout (the parent directory of the `devshell` directory where you're working) at `/seechange`.  That means if you work in that directory, it's the same as working in the checkout.  If you edit something outside the container, the differences will be immediately available inside the container (since it's the same physical filesystem).  This means there's no need to rebuild the container every time you change any bit of code.
+
+Assuming you're running this on your local machine (i.e. you are running your web browser on the same machine as where you did `docker compose up -d seechange`), there are a couple of web servers available to you.  The SeeChange webap will be running at `localhost:8081` (with the value you specified in the env var `WEBAP_PORT` in place of 8081, if applicable), and the conductor's web interface will be running at `localhost:8082` (or the value you specified in `CONDUCTOR_PORT` in place of 8082).
 
 When you're done running things, you can just `exit` out of the seechange shell.  Making sure you're back in a shell on the host machine, and in the `devshell` subdirectory, bring down all of the services you started with:
 ```
@@ -60,47 +72,52 @@ Note that this will almost certainly show you more than you care about; it will 
 
 There is one other bit of cleanup.  Any images created while you work in the devshell docker image will be written under the `devshell/temp_data` directory.  When you exit and come back into the docker compose environment, all those files will still be there.  If you want to clean up, in addition to adding `-v` to `docker compose down`, you will also want to `rm -rf temp_data`.
 
-#### Development shell -- using an external existing database
+#### Development shell — using an external existing database
 
 TBD
 
 
 #### Running tests
 
-To run the tests on your local system in an environment that approximates how they'll be run on github, 
-cd into `tests` and run the following command (which requires the "docker compose CLI plugin" installed to work):
+You can run tests in an environment that approximates how they'll be run via CI in github.  Go into the `tests` directory and create a file `.env` with contents:
 ```
-   export IMGTAG=<yourname>_tests
-   export USERID=<uid>
-   export GROUPID=<gid>
+  IMGTAG=[yourname]_test
+  COMPOSE_PROJECT_NAME=[yourname]
+  USERID=[UID]
+  GROUPID=[GID]
+  CONDUCTOR_PORT=[port]
+  WEBAP_PORT=[port]
+  MAILHOG_PORT=[port]
+```
+
+(See :ref:`dev_shell_local_database` for a description of what all these environment variables mean.)
+
+Make sure your docker images are up to date with
+```
    docker compose build
-   COMPOSE_PROJECT_NAME=<yourname> docker compose run runtests
 ```
-where you replace `<uid>` and `<gid>` with your own userid and groupid; 
-if you don't do this, the tests will run, but various pycache files will get created in your checkout owned by root, which is annoying.  
-`<yourname>` can be any string you want.  If you are working on a single-user machine, you can omit the `IMGTAG` and `COMPOSE_PROJECT_NAME` variables; 
-the purpose of it is to avoid colliding with other users on the same machine.  
-To avoid typing this all the time, you can create a file called `.env` in the `tests` subdirectory with contents:
+then run
 ```
-  IMGTAG=<yourname>_dev
-  COMPOSE_PROJECT_NAME=<yourname>
-  USERID=<UID>
-  GROUPID=<GID>
+   docker compose run runtests
 ```
 
 At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  
 (The output you see to the screen should tell you the same information.)  
 This will take a long time the first time you do it, as it has to build the docker images, 
 but after that, it should be fast (unless the Dockerfile has changed for either image).  
-The variable GITHUB_RESPOSITORY_OWNER must be set to *something*; it only matters if you try to push or pull the images.  
-Try setting it to your github username, though if you really want to push and pull you're going to have to look up 
-making tokens on github.  (The docker-compose.yaml file is written to run on github, which is why it includes this variable.)
 
 After the test is complete, run
 ```
-    COMPOSE_PROJECT_NAME=<yourname> docker compose down -v
+    docker compose down -v
 ```
 (otherwise, the postgres container will still be running).
+
+As with :ref:`dev_shell_local_database`, you can also get a shell in the test environment with
+```
+   docker compose up -d shell
+   docker compose exec -it shell /bin/bash
+```
+in which you can manually run all the tests, run individual tests, etc.
 
 
 ### Database migrations
@@ -119,7 +136,7 @@ After editing any schema, you have to create new database migrations to apply th
 The comment will go in the filename, so it should really be short.  
 Look out for any warnings, and review the created migration file before applying it (with `alembic upgrade head`).
 
-Note that in the devshell and test docker environments above, database migrations are automatically run when you create the environment with `docker compose up -d`, so there is no need for an initial `alembic upgrade head`.   However, if you then create additional migrations, and you haven't since run `docker compose down -v` (the `-v` being the thing that deletes the database), then you will need to run `alembic upgrade head` to apply those migrations to the running database inside your docker environment.
+Note that in the devshell and test docker environments above, database migrations are automatically run when you create the environment with `docker compose up -d ...`, so there is no need for an initial `alembic upgrade head`.   However, if you then create additional migrations, and you haven't since run `docker compose down -v` (the `-v` being the thing that deletes the database), then you will need to run `alembic upgrade head` to apply those migrations to the running database inside your docker environment.
 
 ### Installing SeeChange on a local machine (not dockerized)
 

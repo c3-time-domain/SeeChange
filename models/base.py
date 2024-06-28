@@ -1,6 +1,7 @@
 import warnings
 import sys
 import os
+import time
 import math
 import types
 import hashlib
@@ -26,6 +27,8 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.dialects.postgresql import array as sqlarray
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.exc import IntegrityError
+from psycopg2.errors import UniqueViolation
 
 from sqlalchemy.schema import CheckConstraint
 
@@ -39,6 +42,7 @@ from models.enums_and_bitflags import (
 import util.config as config
 from util.archive import Archive
 from util.logger import SCLogger
+from util.radec import radec_to_gal_ecl
 
 utcnow = func.timezone("UTC", func.current_timestamp())
 
@@ -115,7 +119,15 @@ def Session():
 
     if _Session is None:
         cfg = config.Config.get()
-        url = (f'{cfg.value("db.engine")}://{cfg.value("db.user")}:{cfg.value("db.password")}'
+
+        password = cfg.value( "db.password" )
+        if password is None:
+            if cfg.value( "db.password_file" ) is None:
+                raise RuntimeError( "Must specify either db.password or db.password_file in config" )
+            with open( cfg.value( "db.password_file" ) ) as ifp:
+                password = ifp.readline().strip()
+
+        url = (f'{cfg.value("db.engine")}://{cfg.value("db.user")}:{password}'
                f'@{cfg.value("db.host")}:{cfg.value("db.port")}/{cfg.value("db.database")}')
         _engine = sa.create_engine(url, future=True, poolclass=sa.pool.NullPool)
 
@@ -193,15 +205,17 @@ def get_all_database_objects(display=False, session=None):
     from models.cutouts import Cutouts
     from models.measurements import Measurements
     from models.object import Object
-    from models.calibratorfile import CalibratorFile
+    from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
     from models.catalog_excerpt import CatalogExcerpt
     from models.reference import Reference
     from models.instrument import SensorSection
+    from models.user import AuthUser, PasswordLink
 
     models = [
         CodeHash, CodeVersion, Provenance, DataFile, Exposure, Image,
         SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, Object,
-        CalibratorFile, CatalogExcerpt, Reference, SensorSection
+        CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference, SensorSection,
+        AuthUser, PasswordLink
     ]
 
     output = {}
@@ -462,7 +476,12 @@ class SeeChangeBase:
             if isinstance(value, np.number):
                 value = value.item()
 
-            if key in ['modified', 'created_at'] and isinstance(value, datetime.datetime):
+            # 'claim_time' is from knownexposure, lastheartbeat is from PipelineWorker
+            # We should probably define a class-level variable "_datetimecolumns" and list them
+            #   there, other than adding to what's hardcoded here.  (Likewise for the ndarray aper stuff
+            #   above.)
+            if (   ( key in ['modified', 'created_at', 'claim_time', 'lastheartbeat'] ) and
+                   isinstance(value, datetime.datetime) ):
                 value = value.isoformat()
 
             if isinstance(value, (datetime.datetime, np.ndarray)):
@@ -535,6 +554,37 @@ def get_archive_object():
         if archive_specs is not None:
             ARCHIVE = Archive(**archive_specs)
     return ARCHIVE
+
+def merge_concurrent( obj, session=None, commit=True ):
+    """Merge a database object but make sure it doesn't exist before adding it to the database.
+
+    When multiple processes are running at the same time, and they might
+    create the same objects (which usually happens with provenances),
+    there can be a race condition inside sqlalchemy that leads to a
+    merge failure because of a duplicate primary key violation.  Here,
+    try the merge repeatedly until it works, sleeping an increasing
+    amount of time; if we wait to long, fail for real.
+
+    """
+    output = None
+    with SmartSession(session) as session:
+        for i in range(5):
+            try:
+                output = session.merge(obj)
+                if commit:
+                    session.commit()
+                break
+            except ( IntegrityError, UniqueViolation ) as e:
+                if 'violates unique constraint' in str(e):
+                    session.rollback()
+                    SCLogger.debug( f"Merge failed, sleeping {0.1 * 2**i} seconds before retrying" )
+                    time.sleep(0.1 * 2 ** i)  # exponential sleep
+                else:
+                    raise e
+        else:  # if we didn't break out of the loop, there must have been some integrity error
+            raise e
+
+    return output
 
 
 class FileOnDiskMixin:
@@ -1407,11 +1457,8 @@ class SpatiallyIndexed:
         if self.ra is None or self.dec is None:
             return
 
-        coords = SkyCoord(self.ra, self.dec, unit="deg", frame="icrs")
-        self.gallat = float(coords.galactic.b.deg)
-        self.gallon = float(coords.galactic.l.deg)
-        self.ecllat = float(coords.barycentrictrueecliptic.lat.deg)
-        self.ecllon = float(coords.barycentrictrueecliptic.lon.deg)
+        self.gallat, self.gallon, self.ecllat, self.ecllon = radec_to_gal_ecl( self.ra, self.dec )
+
 
     @hybrid_method
     def within( self, fourcorn ):
@@ -1503,9 +1550,9 @@ class FourCorners:
         Parameters
         ----------
           ras: list of float
-             Four ra values in a list. 
+             Four ra values in a list.
           decs: list of float
-             Four dec values in a list. 
+             Four dec values in a list.
 
         Returns
         -------

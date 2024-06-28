@@ -18,7 +18,7 @@ def test_measuring_background(decam_processed_image, backgrounder):
     # is the background subtracted image a good representation?
     mu, sig = sigma_clipping(ds.image.nandata_bgsub)  # also checks that nandata_bgsub exists
     assert mu == pytest.approx(0, abs=sig)
-    assert sig < 10
+    assert sig < 25
 
     # most of the pixels are inside a 3 sigma range
     assert np.sum(np.abs(ds.image.nandata_bgsub) < 3 * sig) > 0.9 * ds.image.nandata.size

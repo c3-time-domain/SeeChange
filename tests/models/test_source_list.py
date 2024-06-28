@@ -242,12 +242,12 @@ def test_calc_apercor( decam_datastore ):
     sources = decam_datastore.get_sources()
 
     # These numbers are when you don't use is_star at all:
-    assert sources.calc_aper_cor() == pytest.approx(-0.1768, abs=0.01)
-    assert sources.calc_aper_cor(aper_num=1) == pytest.approx(-0.0258, abs=0.01)
-    assert sources.calc_aper_cor(inf_aper_num=3) == pytest.approx(-0.1768, abs=0.01)
-    assert sources.calc_aper_cor(inf_aper_num=1) == pytest.approx(-0.1508, abs=0.01)
-    assert sources.calc_aper_cor(aper_num=2) == pytest.approx(-0.00629, abs=0.01)
-    assert sources.calc_aper_cor(aper_num=2, inf_aper_num=3) == pytest.approx(-0.00629, abs=0.01)
+    assert sources.calc_aper_cor() == pytest.approx(-0.2048, abs=0.01)
+    assert sources.calc_aper_cor(aper_num=1) == pytest.approx(-0.0353, abs=0.01)
+    assert sources.calc_aper_cor(inf_aper_num=3) == pytest.approx(-0.2048, abs=0.01)
+    assert sources.calc_aper_cor(inf_aper_num=1) == pytest.approx(-0.1716, abs=0.01)
+    assert sources.calc_aper_cor(aper_num=2) == pytest.approx(-0.0059, abs=0.01)
+    assert sources.calc_aper_cor(aper_num=2, inf_aper_num=3) == pytest.approx(-0.0059, abs=0.01)
 
     # The numbers below are what you get when you use CLASS_STAR in SourceList.is_star
     # assert sources.calc_aper_cor() == pytest.approx( -0.457, abs=0.01 )

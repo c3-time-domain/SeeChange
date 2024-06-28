@@ -8,6 +8,8 @@ import git
 from collections import defaultdict
 import numpy as np
 from datetime import datetime
+import dateutil.parser
+import uuid
 
 import sqlalchemy as sa
 
@@ -17,6 +19,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 
 from models.base import SmartSession, safe_mkdir
+from util.logger import SCLogger
 
 
 def ensure_file_does_not_exist( filepath, delete=False ):
@@ -276,7 +279,7 @@ def read_fits_image(filename, ext=0, output='data'):
             # But, the sep library depends on native byte ordering
             # So, swap if necessary
             if not data.dtype.isnative:
-                data = data.astype( data.dtype.name ) 
+                data = data.astype( data.dtype.name )
 
         if output in ['header', 'both']:
             header = hdul[ext].header
@@ -396,3 +399,90 @@ def parse_bool(text):
         return False
     else:
         raise ValueError(f'Cannot parse boolean value from "{text}"')
+
+# from: https://stackoverflow.com/a/5883218
+def get_inheritors(klass):
+    """Get all classes that inherit from klass. """
+    subclasses = set()
+    work = [klass]
+    while work:
+        parent = work.pop()
+        for child in parent.__subclasses__():
+            if child not in subclasses:
+                subclasses.add(child)
+                work.append(child)
+    return subclasses
+
+
+def as_UUID( val, canbenone=True ):
+    """Convert a string or None to a uuid.UUID
+
+    Parameters
+    ----------
+       val : uuid.UUID, str, or None
+         The UUID to be converted.  Will throw a ValueError if val isn't
+         properly formatted.
+
+       canbenone : bool, default True
+         If True, when val is None this function returns None.  If
+         False, when val is None, when val is None this function returns
+         uuid.UUID(''00000000-0000-0000-0000-000000000000').
+
+    Returns
+    -------
+      uuid.UUID or None
+
+    """
+
+    if val is None:
+        if canbenone:
+            return None
+        else:
+            return uuid.UUID( '00000000-0000-0000-0000-000000000000' )
+    if isinstance( val, uuid.UUID ):
+        return val
+    else:
+        return uuid.UUID( val )
+
+
+def as_datetime( string ):
+    """Convert a string to datetime.date with some error checking, allowing a null op.
+
+    Doesn't do anything to take care of timezone aware vs. timezone
+    unaware dates.  It probably should.  Dealing with that is always a
+    nightmare.
+
+    Parmeters
+    ---------
+      string : str or datetime.datetime
+         The string to convert.  If a datetime.datetime, the return
+         value is just this.  If none or an empty string ("^\s*$"), will
+         return None.  Otherwise, must be a string that
+         dateutil.parser.parse can handle.
+
+    Returns
+    -------
+      datetime.datetime or None
+
+    """
+
+    if string is None:
+        return None
+    if isinstance( string, datetime ):
+        return string
+    if not isinstance( string, str ):
+        raise TypeError( f'Error, must pass either a datetime or a string to asDateTime, not a {type(string)}' )
+    string = string.strip()
+    if len(string) == 0:
+        return None
+    try:
+        dateval = dateutil.parser.parse( string )
+        return dateval
+    except Exception as e:
+        if hasattr( e, 'message' ):
+            SCLogger.error( f'Exception in asDateTime: {e.message}\n' )
+        else:
+            SCLogger.error( f'Exception in asDateTime: {e}\n' )
+        raise ValueError( f'Error, {string} is not a valid date and time.' )
+
+

@@ -364,7 +364,8 @@ def datastore_factory(data_dir, pipeline_factory):
             overrides={},
             augments={},
             bad_pixel_map=None,
-            save_original_image=False
+            save_original_image=False,
+            no_sub=False
     ):
         code_version = args[0].provenance.code_version
         ds = DataStore(*args)  # make a new datastore
@@ -492,33 +493,37 @@ def datastore_factory(data_dir, pipeline_factory):
 
             # TODO: move the code below here up to above preprocessing, once we have reference sets
             try:  # check if this datastore can load a reference
-                # this is a hack to tell the datastore that the given image's provenance is the right one to use
-                ref = ds.get_reference(session=session)
-                ref_prov = ref.provenance
+                if no_sub:
+                    ref = None
+                else:
+                    # this is a hack to tell the datastore that the given image's provenance is the right one to use
+                    ref = ds.get_reference(session=session)
+                    ref_prov = ref.provenance
             except ValueError as e:
                 if 'No reference image found' in str(e):
                     ref = None
-                    # make a placeholder reference just to be able to make a provenance tree
-                    # this doesn't matter in this case, because if there is no reference
-                    # then the datastore is returned without a subtraction, so all the
-                    # provenances that have the reference provenances as upstream will
-                    # not even exist.
-
-                    # TODO: we really should be working in a state where there is a reference set
-                    #  that has one provenance attached to it, that exists before we start up
-                    #  the pipeline. Here we are doing the opposite: we first check if a specific
-                    #  reference exists, and only then chose the provenance based on the available ref.
-                    # TODO: once we have a reference that is independent of the image, we can move this
-                    #  code that makes the prov_tree up to before preprocessing
-                    ref_prov = Provenance(
-                        process='reference',
-                        code_version=code_version,
-                        parameters={},
-                        upstreams=[],
-                        is_testing=True,
-                    )
                 else:
                     raise e  # if any other error comes up, raise it
+            if ref is None:
+                # make a placeholder reference just to be able to make a provenance tree
+                # this doesn't matter in this case, because if there is no reference
+                # then the datastore is returned without a subtraction, so all the
+                # provenances that have the reference provenances as upstream will
+                # not even exist.
+
+                # TODO: we really should be working in a state where there is a reference set
+                #  that has one provenance attached to it, that exists before we start up
+                #  the pipeline. Here we are doing the opposite: we first check if a specific
+                #  reference exists, and only then chose the provenance based on the available ref.
+                # TODO: once we have a reference that is independent of the image, we can move this
+                #  code that makes the prov_tree up to before preprocessing
+                ref_prov = Provenance(
+                    process='reference',
+                    code_version=code_version,
+                    parameters={},
+                    upstreams=[],
+                    is_testing=True,
+                )
 
             ############# extraction to create sources / PSF / BG / WCS / ZP #############
             if (   ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
@@ -739,210 +744,211 @@ def datastore_factory(data_dir, pipeline_factory):
             if ref is None:
                 return ds  # if no reference is found, simply return the datastore without the rest of the products
 
-            # try to find the subtraction image in the cache
-            if cache_dir is not None:
+            if not no_sub:
+                # try to find the subtraction image in the cache
+                if cache_dir is not None:
+                    prov = Provenance(
+                        code_version=code_version,
+                        process='subtraction',
+                        upstreams=[
+                            ds.image.provenance,
+                            ds.sources.provenance,
+                            ref.image.provenance,
+                            ref.sources.provenance,
+                        ],
+                        parameters=p.subtractor.pars.get_critical_pars(),
+                        is_testing=True,
+                    )
+                    prov = session.merge(prov)
+                    session.commit()
+
+                    sub_im = Image.from_new_and_ref(ds.image, ref.image)
+                    sub_im.provenance = prov
+                    cache_sub_name = sub_im.invent_filepath()
+                    cache_name = cache_sub_name + '.image.fits.json'
+                    if os.path.isfile(os.path.join(cache_dir, cache_name)):
+                        SCLogger.debug('loading subtraction image from cache. ')
+                        ds.sub_image = copy_from_cache(Image, cache_dir, cache_name)
+
+                        ds.sub_image.provenance = prov
+                        ds.sub_image.upstream_images.append(ref.image)
+                        ds.sub_image.ref_image_id = ref.image_id
+                        ds.sub_image.new_image = ds.image
+                        ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
+
+                        # try to load the aligned images from cache
+                        prov_aligned_ref = Provenance(
+                            code_version=code_version,
+                            parameters={
+                                'method': 'swarp',
+                                'to_index': 'new',
+                                'max_arcsec_residual': 0.2,
+                                'crossid_radius': 2.0,
+                                'max_sources_to_use': 2000,
+                                'min_frac_matched': 0.1,
+                                'min_matched': 10,
+                            },
+                            upstreams=[
+                                ds.image.provenance,
+                                ds.sources.provenance,  # this also includes the PSF's provenance
+                                ds.wcs.provenance,
+                                ds.ref_image.provenance,
+                                ds.ref_image.sources.provenance,
+                                ds.ref_image.wcs.provenance,
+                                ds.ref_image.zp.provenance,
+                            ],
+                            process='alignment',
+                            is_testing=True,
+                        )
+                        # TODO: can we find a less "hacky" way to do this?
+                        f = ref.image.invent_filepath()
+                        f = f.replace('ComSci', 'Warped')  # not sure if this or 'Sci' will be in the filename
+                        f = f.replace('Sci', 'Warped')     # in any case, replace it with 'Warped'
+                        f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
+                        filename_aligned_ref = f
+
+                        prov_aligned_new = Provenance(
+                            code_version=code_version,
+                            parameters=prov_aligned_ref.parameters,
+                            upstreams=[
+                                ds.image.provenance,
+                                ds.sources.provenance,  # this also includes provs for PSF, BG, WCS, ZP
+                            ],
+                            process='alignment',
+                            is_testing=True,
+                        )
+                        f = ds.sub_image.new_image.invent_filepath()
+                        f = f.replace('ComSci', 'Warped')
+                        f = f.replace('Sci', 'Warped')
+                        f = f[:-6] + prov_aligned_new.id[:6]
+                        filename_aligned_new = f
+
+                        cache_name_ref = filename_aligned_ref + '.fits.json'
+                        cache_name_new = filename_aligned_new + '.fits.json'
+                        if (
+                                os.path.isfile(os.path.join(cache_dir, cache_name_ref)) and
+                                os.path.isfile(os.path.join(cache_dir, cache_name_new))
+                        ):
+                            SCLogger.debug('loading aligned reference image from cache. ')
+                            image_aligned_ref = copy_from_cache(Image, cache_dir, cache_name)
+                            image_aligned_ref.provenance = prov_aligned_ref
+                            image_aligned_ref.info['original_image_id'] = ds.ref_image_id
+                            image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
+                            image_aligned_ref.save(verify_md5=False, no_archive=True)
+                            # TODO: should we also load the aligned image's sources, PSF, and ZP?
+
+                            SCLogger.debug('loading aligned new image from cache. ')
+                            image_aligned_new = copy_from_cache(Image, cache_dir, cache_name)
+                            image_aligned_new.provenance = prov_aligned_new
+                            image_aligned_new.info['original_image_id'] = ds.image_id
+                            image_aligned_new.info['original_image_filepath'] = ds.image.filepath
+                            image_aligned_new.save(verify_md5=False, no_archive=True)
+                            # TODO: should we also load the aligned image's sources, PSF, and ZP?
+
+                            if image_aligned_ref.mjd < image_aligned_new.mjd:
+                                ds.sub_image._aligned_images = [image_aligned_ref, image_aligned_new]
+                            else:
+                                ds.sub_image._aligned_images = [image_aligned_new, image_aligned_ref]
+
+                if ds.sub_image is None:  # no hit in the cache
+                    ds = p.subtractor.run(ds, session)
+                    ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
+                    if not os.getenv( "LIMIT_CACHE_USAGE" ):
+                        copy_to_cache(ds.sub_image, cache_dir)
+
+                # make sure that the aligned images get into the cache, too
+                if (
+                        ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+                        'cache_name_ref' in locals() and
+                        os.path.isfile(os.path.join(cache_dir, cache_name_ref)) and
+                        'cache_name_new' in locals() and
+                        os.path.isfile(os.path.join(cache_dir, cache_name_new))
+                ):
+                    for im in ds.sub_image.aligned_images:
+                        copy_to_cache(im, cache_dir)
+
+                ############ detecting to create a source list ############
                 prov = Provenance(
                     code_version=code_version,
-                    process='subtraction',
-                    upstreams=[
-                        ds.image.provenance,
-                        ds.sources.provenance,
-                        ref.image.provenance,
-                        ref.sources.provenance,
-                    ],
-                    parameters=p.subtractor.pars.get_critical_pars(),
+                    process='detection',
+                    upstreams=[ds.sub_image.provenance],
+                    parameters=p.detector.pars.get_critical_pars(),
                     is_testing=True,
                 )
                 prov = session.merge(prov)
                 session.commit()
 
-                sub_im = Image.from_new_and_ref(ds.image, ref.image)
-                sub_im.provenance = prov
-                cache_sub_name = sub_im.invent_filepath()
-                cache_name = cache_sub_name + '.image.fits.json'
-                if os.path.isfile(os.path.join(cache_dir, cache_name)):
-                    SCLogger.debug('loading subtraction image from cache. ')
-                    ds.sub_image = copy_from_cache(Image, cache_dir, cache_name)
+                cache_name = os.path.join(cache_dir, cache_sub_name + f'.sources_{prov.id[:6]}.npy.json')
+                if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_name) ):
+                    SCLogger.debug('loading detections from cache. ')
+                    ds.detections = copy_from_cache(SourceList, cache_dir, cache_name)
+                    ds.detections.provenance = prov
+                    ds.detections.image = ds.sub_image
+                    ds.sub_image.sources = ds.detections
+                    ds.detections.save(verify_md5=False)
+                else:  # cannot find detections on cache
+                    ds = p.detector.run(ds, session)
+                    ds.detections.save(verify_md5=False)
+                    if not os.getenv( "LIMIT_CACHE_USAGE" ):
+                        copy_to_cache(ds.detections, cache_dir, cache_name)
 
-                    ds.sub_image.provenance = prov
-                    ds.sub_image.upstream_images.append(ref.image)
-                    ds.sub_image.ref_image_id = ref.image_id
-                    ds.sub_image.new_image = ds.image
-                    ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
+                ############ cutting to create cutouts ############
+                prov = Provenance(
+                    code_version=code_version,
+                    process='cutting',
+                    upstreams=[ds.detections.provenance],
+                    parameters=p.cutter.pars.get_critical_pars(),
+                    is_testing=True,
+                )
+                prov = session.merge(prov)
+                session.commit()
 
-                    # try to load the aligned images from cache
-                    prov_aligned_ref = Provenance(
-                        code_version=code_version,
-                        parameters={
-                            'method': 'swarp',
-                            'to_index': 'new',
-                            'max_arcsec_residual': 0.2,
-                            'crossid_radius': 2.0,
-                            'max_sources_to_use': 2000,
-                            'min_frac_matched': 0.1,
-                            'min_matched': 10,
-                        },
-                        upstreams=[
-                            ds.image.provenance,
-                            ds.sources.provenance,  # this also includes the PSF's provenance
-                            ds.wcs.provenance,
-                            ds.ref_image.provenance,
-                            ds.ref_image.sources.provenance,
-                            ds.ref_image.wcs.provenance,
-                            ds.ref_image.zp.provenance,
-                        ],
-                        process='alignment',
-                        is_testing=True,
-                    )
-                    # TODO: can we find a less "hacky" way to do this?
-                    f = ref.image.invent_filepath()
-                    f = f.replace('ComSci', 'Warped')  # not sure if this or 'Sci' will be in the filename
-                    f = f.replace('Sci', 'Warped')     # in any case, replace it with 'Warped'
-                    f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
-                    filename_aligned_ref = f
+                cache_name = os.path.join(cache_dir, cache_sub_name + f'.cutouts_{prov.id[:6]}.h5')
+                if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_name) ):
+                    SCLogger.debug('loading cutouts from cache. ')
+                    ds.cutouts = copy_list_from_cache(Cutouts, cache_dir, cache_name)
+                    ds.cutouts = Cutouts.load_list(os.path.join(ds.cutouts[0].local_path, ds.cutouts[0].filepath))
+                    [setattr(c, 'provenance', prov) for c in ds.cutouts]
+                    [setattr(c, 'sources', ds.detections) for c in ds.cutouts]
+                    Cutouts.save_list(ds.cutouts)  # make sure to save to archive as well
+                else:  # cannot find cutouts on cache
+                    ds = p.cutter.run(ds, session)
+                    Cutouts.save_list(ds.cutouts)
+                    if not os.getenv( "LIMIT_CACHE_USAGE" ):
+                        copy_list_to_cache(ds.cutouts, cache_dir)
 
-                    prov_aligned_new = Provenance(
-                        code_version=code_version,
-                        parameters=prov_aligned_ref.parameters,
-                        upstreams=[
-                            ds.image.provenance,
-                            ds.sources.provenance,  # this also includes provs for PSF, BG, WCS, ZP
-                        ],
-                        process='alignment',
-                        is_testing=True,
-                    )
-                    f = ds.sub_image.new_image.invent_filepath()
-                    f = f.replace('ComSci', 'Warped')
-                    f = f.replace('Sci', 'Warped')
-                    f = f[:-6] + prov_aligned_new.id[:6]
-                    filename_aligned_new = f
+                ############ measuring to create measurements ############
+                prov = Provenance(
+                    code_version=code_version,
+                    process='measuring',
+                    upstreams=[ds.cutouts[0].provenance],
+                    parameters=p.measurer.pars.get_critical_pars(),
+                    is_testing=True,
+                )
+                prov = session.merge(prov)
+                session.commit()
 
-                    cache_name_ref = filename_aligned_ref + '.fits.json'
-                    cache_name_new = filename_aligned_new + '.fits.json'
-                    if (
-                            os.path.isfile(os.path.join(cache_dir, cache_name_ref)) and
-                            os.path.isfile(os.path.join(cache_dir, cache_name_new))
-                    ):
-                        SCLogger.debug('loading aligned reference image from cache. ')
-                        image_aligned_ref = copy_from_cache(Image, cache_dir, cache_name)
-                        image_aligned_ref.provenance = prov_aligned_ref
-                        image_aligned_ref.info['original_image_id'] = ds.ref_image_id
-                        image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
-                        image_aligned_ref.save(verify_md5=False, no_archive=True)
-                        # TODO: should we also load the aligned image's sources, PSF, and ZP?
+                cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{prov.id[:6]}.json')
 
-                        SCLogger.debug('loading aligned new image from cache. ')
-                        image_aligned_new = copy_from_cache(Image, cache_dir, cache_name)
-                        image_aligned_new.provenance = prov_aligned_new
-                        image_aligned_new.info['original_image_id'] = ds.image_id
-                        image_aligned_new.info['original_image_filepath'] = ds.image.filepath
-                        image_aligned_new.save(verify_md5=False, no_archive=True)
-                        # TODO: should we also load the aligned image's sources, PSF, and ZP?
+                if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_name) ):
+                    # note that the cache contains ALL the measurements, not only the good ones
+                    SCLogger.debug('loading measurements from cache. ')
+                    ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, cache_name)
+                    [setattr(m, 'provenance', prov) for m in ds.all_measurements]
+                    [setattr(m, 'cutouts', c) for m, c in zip(ds.all_measurements, ds.cutouts)]
 
-                        if image_aligned_ref.mjd < image_aligned_new.mjd:
-                            ds.sub_image._aligned_images = [image_aligned_ref, image_aligned_new]
-                        else:
-                            ds.sub_image._aligned_images = [image_aligned_new, image_aligned_ref]
+                    ds.measurements = []
+                    for m in ds.all_measurements:
+                        threshold_comparison = p.measurer.compare_measurement_to_thresholds(m)
+                        if threshold_comparison != "delete":  # all disqualifiers are below threshold
+                            m.is_bad = threshold_comparison == "bad"
+                            ds.measurements.append(m)
 
-            if ds.sub_image is None:  # no hit in the cache
-                ds = p.subtractor.run(ds, session)
-                ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
-                if not os.getenv( "LIMIT_CACHE_USAGE" ):
-                    copy_to_cache(ds.sub_image, cache_dir)
-
-            # make sure that the aligned images get into the cache, too
-            if (
-                    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
-                    'cache_name_ref' in locals() and
-                    os.path.isfile(os.path.join(cache_dir, cache_name_ref)) and
-                    'cache_name_new' in locals() and
-                    os.path.isfile(os.path.join(cache_dir, cache_name_new))
-            ):
-                for im in ds.sub_image.aligned_images:
-                    copy_to_cache(im, cache_dir)
-
-            ############ detecting to create a source list ############
-            prov = Provenance(
-                code_version=code_version,
-                process='detection',
-                upstreams=[ds.sub_image.provenance],
-                parameters=p.detector.pars.get_critical_pars(),
-                is_testing=True,
-            )
-            prov = session.merge(prov)
-            session.commit()
-
-            cache_name = os.path.join(cache_dir, cache_sub_name + f'.sources_{prov.id[:6]}.npy.json')
-            if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_name) ):
-                SCLogger.debug('loading detections from cache. ')
-                ds.detections = copy_from_cache(SourceList, cache_dir, cache_name)
-                ds.detections.provenance = prov
-                ds.detections.image = ds.sub_image
-                ds.sub_image.sources = ds.detections
-                ds.detections.save(verify_md5=False)
-            else:  # cannot find detections on cache
-                ds = p.detector.run(ds, session)
-                ds.detections.save(verify_md5=False)
-                if not os.getenv( "LIMIT_CACHE_USAGE" ):
-                    copy_to_cache(ds.detections, cache_dir, cache_name)
-
-            ############ cutting to create cutouts ############
-            prov = Provenance(
-                code_version=code_version,
-                process='cutting',
-                upstreams=[ds.detections.provenance],
-                parameters=p.cutter.pars.get_critical_pars(),
-                is_testing=True,
-            )
-            prov = session.merge(prov)
-            session.commit()
-
-            cache_name = os.path.join(cache_dir, cache_sub_name + f'.cutouts_{prov.id[:6]}.h5')
-            if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_name) ):
-                SCLogger.debug('loading cutouts from cache. ')
-                ds.cutouts = copy_list_from_cache(Cutouts, cache_dir, cache_name)
-                ds.cutouts = Cutouts.load_list(os.path.join(ds.cutouts[0].local_path, ds.cutouts[0].filepath))
-                [setattr(c, 'provenance', prov) for c in ds.cutouts]
-                [setattr(c, 'sources', ds.detections) for c in ds.cutouts]
-                Cutouts.save_list(ds.cutouts)  # make sure to save to archive as well
-            else:  # cannot find cutouts on cache
-                ds = p.cutter.run(ds, session)
-                Cutouts.save_list(ds.cutouts)
-                if not os.getenv( "LIMIT_CACHE_USAGE" ):
-                    copy_list_to_cache(ds.cutouts, cache_dir)
-
-            ############ measuring to create measurements ############
-            prov = Provenance(
-                code_version=code_version,
-                process='measuring',
-                upstreams=[ds.cutouts[0].provenance],
-                parameters=p.measurer.pars.get_critical_pars(),
-                is_testing=True,
-            )
-            prov = session.merge(prov)
-            session.commit()
-
-            cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{prov.id[:6]}.json')
-
-            if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_name) ):
-                # note that the cache contains ALL the measurements, not only the good ones
-                SCLogger.debug('loading measurements from cache. ')
-                ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, cache_name)
-                [setattr(m, 'provenance', prov) for m in ds.all_measurements]
-                [setattr(m, 'cutouts', c) for m, c in zip(ds.all_measurements, ds.cutouts)]
-
-                ds.measurements = []
-                for m in ds.all_measurements:
-                    threshold_comparison = p.measurer.compare_measurement_to_thresholds(m)
-                    if threshold_comparison != "delete":  # all disqualifiers are below threshold
-                        m.is_bad = threshold_comparison == "bad"
-                        ds.measurements.append(m)
-
-                [m.associate_object(session) for m in ds.measurements]  # create or find an object for each measurement
-                # no need to save list because Measurements is not a FileOnDiskMixin!
-            else:  # cannot find measurements on cache
-                ds = p.measurer.run(ds, session)
-                copy_list_to_cache(ds.all_measurements, cache_dir, cache_name)  # must provide filepath!
+                    [m.associate_object(session) for m in ds.measurements]  # create or find an object for each measurement
+                    # no need to save list because Measurements is not a FileOnDiskMixin!
+                else:  # cannot find measurements on cache
+                    ds = p.measurer.run(ds, session)
+                    copy_list_to_cache(ds.all_measurements, cache_dir, cache_name)  # must provide filepath!
 
             ds.save_and_commit(session=session)
 

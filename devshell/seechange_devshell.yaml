@@ -10,12 +10,20 @@ path:
   data_temp: 'devshell/temp_data'
 
 db:
-  host: devshell_seechange_postgres
+  host: postgres
 
 archive:
-  archive_url: http://devshell_archive:8080/
+  archive_url: http://archive:8080/
   verify_cert: false
   path_base: test/
   local_read_dir: null
   local_write_dir: null
   token: insecure
+
+conductor:
+  conductor_url: https://conductor:8082/
+  username: test
+  password: test_password
+
+subtraction:
+  method: zogy

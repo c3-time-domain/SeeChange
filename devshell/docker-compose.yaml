@@ -1,7 +1,5 @@
-version: "3.3"
-
 services:
-  devshell_make-archive-directories:
+  make-archive-directories:
     image: rknop/upload-connector:${IMGTAG:-devshell}
     build:
       context: ../extern/nersc-upload-connector
@@ -12,11 +10,15 @@ services:
       - type: volume
         source: devshell-archive-storage
         target: /storage
-    entrypoint: bash -c "mkdir -p /storage/base && chown ${USERID:?err}:${GROUPID:?err} /storage/base && chmod a+rwx /storage/base"
+    entrypoint: >
+      bash -c
+      "mkdir -p /storage/base &&
+      chown ${USERID:-0}:${GROUPID:-0} /storage/base &&
+      chmod a+rwx /storage/base"
 
-  devshell_archive:
+  archive:
     depends_on:
-      devshell_make-archive-directories:
+      make-archive-directories:
         condition: service_completed_successfully
     image: rknop/upload-connector:${IMGTAG:-devshell}
     build:
@@ -44,7 +46,7 @@ services:
       - connector_tokens
     user: ${USERID:?err}:${GROUPID:?err}
 
-  devshell_seechange_postgres:
+  postgres:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-postgres:${IMGTAG:-devshell}
     build:
       context: ../docker/postgres
@@ -59,15 +61,16 @@ services:
       timeout: 10s
       retries: 5
 
-  devshell_setuptables:
+  setuptables:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: bindmount_code
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
-      devshell_seechange_postgres:
+      postgres:
          condition: service_healthy
     volumes:
       - type: bind
@@ -77,18 +80,48 @@ services:
     user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: [ "alembic", "upgrade", "head" ]
 
-  devshell_webap:
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "${MAILHOG_PORT:-8025}:8025"
+
+  conductor:
     depends_on:
-      devshell_setuptables:
+      setuptables:
         condition: service_completed_successfully
-      devshell_make-archive-directories:
+      mailhog:
+        condition: service_started
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange_conductor:${IMGTAG:-devshell}
+    build:
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
+      target: conductor
+    user: ${USERID:?err}:${GROUPID:?err}
+    ports:
+      - "${CONDUCTOR_PORT:-8082}:8082"
+    healthcheck:
+      test: netcat -w 1 localhost 8082
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - type: volume
+        source: conductor-sessions
+        target: /sessions
+    command: [ "./run_conductor.sh", "8082", "1" ]
+
+  webap:
+    depends_on:
+      setuptables:
+        condition: service_completed_successfully
+      make-archive-directories:
         condition: service_completed_successfully
     image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-devshell}
     build:
       context: ../webap
     user: ${USERID:-0}:${GROUPID:-0}
     ports:
-      - "8081:8081"
+      - "${WEBAP_PORT:-8081}:8081"
     healthcheck:
       test: netcat -w 1 localhost 8081
       interval: 5s
@@ -103,11 +136,12 @@ services:
         target: /secrets
     entrypoint: [ "gunicorn", "-w", "4", "-b", "0.0.0.0:8081", "--timeout", "0", "seechange_webap:app" ]
 
-  devshell_make_data_dir:
+  make_data_dir:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: bindmount_code
     volumes:
       - type: bind
         source: ..
@@ -123,14 +157,17 @@ services:
       dockerfile: ./docker/application/Dockerfile
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
+      SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
     depends_on:
-      devshell_setuptables:
+      setuptables:
         condition: service_completed_successfully
-      devshell_archive:
+      archive:
         condition: service_healthy
-      devshell_make_data_dir:
+      make_data_dir:
         condition: service_completed_successfully
-      devshell_webap:
+      webap:
+        condition: service_healthy
+      conductor:
         condition: service_healthy
     volumes:
       - type: bind
@@ -148,10 +185,11 @@ services:
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: bindmount_code
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
-      devshell_make_data_dir:
+      make_data_dir:
         condition: service_completed_successfully
     volumes:
       - type: bind
@@ -166,12 +204,13 @@ services:
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: bindmount_code
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
-      devshell_seechange_postgres:
+      postgres:
         condition: service_healthy
-      devshell_make_data_dir:
+      make_data_dir:
         condition: service_completed_successfully
     volumes:
       - type: bind
@@ -188,3 +227,4 @@ secrets:
 volumes:
   devshell-archive-storage:
   seechange-devshell-postgres-dbdata:
+  conductor-sessions:

@@ -15,6 +15,9 @@ from models.reference import Reference
 from models.instrument import get_instrument_instance
 from models.decam import DECam
 
+# Needed because of sqlalchemy references and imports breaking things
+import models.object
+
 from import_decam_reference import import_decam_reference
 
 class Importer:
@@ -107,7 +110,7 @@ def main():
     parser = argparse.ArgumentParser( "Import DECam refs",
                                       formatter_class=argparse.ArgumentDefaultsHelpFormatter )
     parser.add_argument( "-t", "--target", default="COSMOS-1", help="target / field name" )
-    parser.add_argument( "-n", "--numprocs", type=int, default=10, help="Number of importer processes" )
+    parser.add_argument( "-n", "--numprocs", type=int, default=20, help="Number of importer processes" )
     parser.add_argument( "-b", "--basedir", default="/refs", help="Base directory; rest of path is assumed standard" )
     parser.add_argument( "-f", "--filters", nargs='+', default=['g','r','i'], help="Filters" )
     parser.add_argument( "-c", "--ccdnums", nargs='+', type=int, default=[],

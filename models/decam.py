@@ -2,6 +2,7 @@ import math
 import copy
 import pathlib
 import requests
+import json
 import collections.abc
 
 import numpy as np
@@ -12,7 +13,9 @@ from astropy.io import fits
 import sqlalchemy as sa
 
 from models.base import SmartSession, FileOnDiskMixin
-from models.instrument import Instrument, InstrumentOrientation, SensorSection
+from models.exposure import Exposure
+from models.knownexposure import KnownExposure
+from models.instrument import Instrument, InstrumentOrientation, SensorSection, get_instrument_instance
 from models.image import Image
 from models.datafile import DataFile
 from models.provenance import Provenance
@@ -20,6 +23,7 @@ from util.config import Config
 import util.util
 from util.retrydownload import retry_download
 from util.logger import SCLogger
+from util.radec import radec_to_gal_ecl
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
 
@@ -124,7 +128,7 @@ class DECam(Instrument):
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE
         Instrument.__init__(self, **kwargs)
 
-        self.preprocessing_steps_available = [ 'overscan', 'linearity', 'flat', 'fringe' ]
+        self.preprocessing_steps_available = [ 'overscan', 'linearity', 'flat', 'illumination', 'fringe' ]
         self.preprocessing_steps_done = []
 
     @classmethod
@@ -135,8 +139,10 @@ class DECam(Instrument):
         We are using the names of the FITS extensions (e.g., N12, S22, etc.).
         See ref: https://noirlab.edu/science/sites/default/files/media/archives/images/DECamOrientation.png
         """
-        n_list = [f'N{i}' for i in range(1, 32)]
-        s_list = [f'S{i}' for i in range(1, 32)]
+        # CCDs 31 (S7) and 61 (N30) are bad CCDS
+        # https://noirlab.edu/science/index.php/programs/ctio/instruments/Dark-Energy-Camera/Status-DECam-CCDs
+        n_list = [ f'N{i}' for i in range(1, 32) if i != 30 ]
+        s_list = [ f'S{i}' for i in range(1, 32) if i != 7 ]
         return n_list + s_list
 
     @classmethod
@@ -388,7 +394,7 @@ class DECam(Instrument):
         # the file because calibrator.py imports image.py, image.py
         # imports exposure.py, and exposure.py imports instrument.py --
         # leading to a circular import
-        from models.calibratorfile import CalibratorFile
+        from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
 
         cfg = Config.get()
         cv = Provenance.get_code_version()
@@ -398,7 +404,11 @@ class DECam(Instrument):
         datadir = pathlib.Path( FileOnDiskMixin.local_path ) / reldatadir
 
         if calibtype == 'flat':
-            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.flatbase")}-'
+            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.flatbase")}/'
+                                    f'{filter}.out.{self._chip_radec_off[section]["ccdnum"]:02d}_trim_med.fits' )
+
+        elif calibtype == 'illumination':
+            rempath = pathlib.Path( f'{cfg.value("DECam.calibfiles.illuminationbase")}-'
                                     f'{filter}I_ci_{filter}_{self._chip_radec_off[section]["ccdnum"]:02d}.fits' )
         elif calibtype == 'fringe':
             if filter not in [ 'z', 'Y' ]:
@@ -415,11 +425,82 @@ class DECam(Instrument):
         filepath = reldatadir / calibtype / rempath.name
         fileabspath = datadir / calibtype / rempath.name
 
-        retry_download( url, fileabspath )
+        if calibtype == 'linearity':
+            # Linearity requires special handling because it's the same
+            # file for all chips.  So, to avoid chaos, we have to get
+            # the CalibratorFileDownloadLock for it with section=None.
+            # (By the time this this function is called, we should
+            # already have the lock for one specific section, but not
+            # for the whole instrument.)
 
-        with SmartSession( session ) as dbsess:
-            if calibtype in [ 'flat', 'fringe' ]:
-                dbtype = 'Fringe' if calibtype == 'fringe' else 'SkyFlat'
+            with CalibratorFileDownloadLock.acquire_lock(
+                    self.name, None, 'externally_supplied', 'linearity', session=session
+            ) as calibfile_lockid:
+
+                with SmartSession( session ) as dbsess:
+                    # Gotta check to see if the file was there from
+                    # something that didn't go all the way through
+                    # before, or if it was downloaded by anothe process
+                    # while we were waiting for the
+                    # calibfile_downloadlock
+                    datafile = dbsess.scalars(sa.select(DataFile).where(DataFile.filepath == str(filepath))).first()
+                    # TODO: what happens if the provenance doesn't match??
+
+                if datafile is None:
+                    retry_download( url, fileabspath )
+                    datafile = DataFile( filepath=str(filepath), provenance=prov )
+                    datafile.save( str(fileabspath) )
+                    datafile = dbsess.merge( datafile )
+                    dbsess.commit()
+                    dbsess.refresh( datafile )
+
+                # Linearity file applies for all chips, so load the database accordingly
+                # Once again, gotta check to make sure the entry doesn't already exist,
+                # because somebody else may have created it while we were waiting for
+                # the calibfile_downloadlock
+                with SmartSession( session ) as dbsess:
+                    for ssec in self._chip_radec_off.keys():
+                        if ( dbsess.query( CalibratorFile )
+                             .filter( CalibratorFile.type=='linearity' )
+                             .filter( CalibratorFile.calibrator_set=='externally_supplied' )
+                             .filter( CalibratorFile.flat_type==None )
+                             .filter( CalibratorFile.instrument=='DECam' )
+                             .filter( CalibratorFile.sensor_section==ssec )
+                             .filter( CalibratorFile.datafile==datafile ) ).count() == 0:
+                            calfile = CalibratorFile( type='linearity',
+                                                      calibrator_set="externally_supplied",
+                                                      flat_type=None,
+                                                      instrument='DECam',
+                                                      sensor_section=ssec,
+                                                      datafile_id=datafile.id
+                                                     )
+                            dbsess.merge( calfile )
+                    dbsess.commit()
+
+                    # Finally pull out the right entry for the sensor section we were actually asked for
+                    calfile = ( dbsess.query( CalibratorFile )
+                                .filter( CalibratorFile.type=='linearity' )
+                                .filter( CalibratorFile.calibrator_set=='externally_supplied' )
+                                .filter( CalibratorFile.flat_type==None )
+                                .filter( CalibratorFile.instrument=='DECam' )
+                                .filter( CalibratorFile.sensor_section==section )
+                                .filter( CalibratorFile.datafile_id==datafile.id )
+                               ).first()
+                    if calfile is None:
+                        raise RuntimeError( f"Failed to get default calibrator file for DECam linearity; "
+                                            f"you should never see this error." )
+        else:
+            # No need to get a new calibfile_downloadlock, we should already have the one for this type and section
+            retry_download( url, fileabspath )
+
+            with SmartSession( session ) as dbsess:
+                # We know calibtype will be one of fringe, flat, or illumination
+                if calibtype == 'fringe':
+                    dbtype = 'Fringe'
+                elif calibtype == 'flat':
+                    dbtype = 'ComDomeFlat'
+                elif calibtype == 'illumination':
+                    dbtype = 'ComSkyFlat'
                 mjd = float( cfg.value( "DECam.calibfiles.mjd" ) )
                 image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
                                telescope='CTIO4m', filter=filter, section_id=section, filepath=str(filepath),
@@ -442,27 +523,6 @@ class DECam(Instrument):
                                           sensor_section=section,
                                           image=image )
                 calfile = dbsess.merge(calfile)
-                dbsess.commit()
-            else:
-                datafile = dbsess.scalars(sa.select(DataFile).where(DataFile.filepath == str(filepath))).first()
-                # TODO: what happens if the provenance doesn't match??
-
-                if datafile is None:
-                    datafile = DataFile( filepath=str(filepath), provenance=prov )
-                    datafile.save( str(fileabspath) )
-                    datafile = dbsess.merge(datafile)
-
-                # Linearity file applies for all chips, so load the database accordingly
-                for ssec in self._chip_radec_off.keys():
-                    calfile = CalibratorFile( type='Linearity',
-                                              calibrator_set="externally_supplied",
-                                              flat_type=None,
-                                              instrument='DECam',
-                                              sensor_section=ssec,
-                                              datafile=datafile
-                                              )
-                    calfile = dbsess.merge(calfile)
-
                 dbsess.commit()
 
         return calfile
@@ -510,16 +570,132 @@ class DECam(Instrument):
                                                 * ( linhdu[ccdnum].data[lindex+1][ampdex]
                                                     - linhdu[ccdnum].data[lindex][ampdex] )
                                                 / ( linhdu[ccdnum].data[lindex+1]['ADU']
-                                                    - linhdu[ccdnum].data[lindex]['ADU'] ) 
+                                                    - linhdu[ccdnum].data[lindex]['ADU'] )
                                                ) )
 
         return newdata
 
-    def find_origin_exposures( self, skip_exposures_in_database=True,
-                               minmjd=None, maxmjd=None, filters=None,
-                               containing_ra=None, containing_dec=None,
-                               minexptime=None, proc_type='raw',
-                               proposals=None ):
+    def acquire_origin_exposure( self, identifier, params, outdir=None ):
+        """Download exposure from NOIRLab; see Instrument.acquire_origin_exposure
+
+        NOTE : assumes downloading proc_type 'raw' images, so does not
+        look for dqmask or weight images, just downlaods the single
+        exposure.
+
+        """
+        outdir = pathlib.Path( outdir ) if outdir is not None else pathlib.Path( FileOnDiskMixin.temp_path )
+        outdir.mkdir( parents=True, exist_ok=True )
+        outfile = outdir / identifier
+        retry_download( params['url'], outfile, retries=5, sleeptime=5, exists_ok=True,
+                        clobber=True, md5sum=params['md5sum'], sizelog='GiB', logger=SCLogger.get() )
+        return outfile
+
+    def _commit_exposure( self, origin_identifier, expfile, obs_type='Sci', proc_type='raw', session=None ):
+        """Add to the Exposures table in the database an exposure downloaded from NOIRLab.
+
+        Used internally by acquire_and_commit_origin_exposure and
+        DECamOriginExposures.download_and_commit_exposures
+
+        Parameters
+        ----------
+        origin_identifier : str
+          The filename part of the archive_filename from the NOIRLab archive
+
+        expfile : str or Path
+          The path where the downloaded exposure can be found on disk
+
+        obs_type : str, default 'Sci'
+          The obs_type parameter (generally parsed from the exposure header, or pulled from the NOIRLab archive)
+
+        session : Session
+          Optional database session
+
+        Returns
+        -------
+        Exposure
+
+        """
+        outdir = pathlib.Path( FileOnDiskMixin.local_path )
+
+        # This import is here rather than at the top of the file
+        #  because Exposure imports Instrument, so we've got
+        #  a circular import.  Here, instrument will have been
+        #  fully initialized before we try to import Exposure,
+        #  so we should be OK.
+        from models.exposure import Exposure
+
+        obstypemap = { 'object': 'Sci',
+                       'dark': 'Dark',
+                       'dome flat': 'DomeFlat',
+                       'zero': 'Bias'
+                      }
+
+        with SmartSession(session) as dbsess:
+            provenance = Provenance(
+                process='download',
+                parameters={ 'proc_type': proc_type, 'Instrument': 'DECam' },
+                code_version=Provenance.get_code_version(session=dbsess)
+            )
+            provenance = provenance.merge_concurrent( dbsess, commit=True )
+
+            with fits.open( expfile ) as ifp:
+                hdr = { k: v for k, v in ifp[0].header.items()
+                        if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
+                                  'OBS-LONG', 'OBS-LAT', 'EXPTIME', 'DARKTIME', 'OBSID',
+                                  'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
+                                  'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
+                                  'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
+            exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
+                                                                'project', 'target' ] )
+            ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
+            dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
+
+            q = ( dbsess.query( Exposure )
+                  .filter( Exposure.instrument == 'DECam' )
+                  .filter( Exposure.origin_identifier == origin_identifier )
+                 )
+            existing = q.first()
+            # Maybe check that q.count() isn't >1; if it is, throw an exception
+            #  about database corruption?
+            if existing is not None:
+                raise FileExistsError( f"Exposure with origin identifier {origin_identifier} "
+                                       f"already exists in the database. ({existing.filepath})" )
+            if obs_type not in obstypemap:
+                SCLogger.warning( f"DECam obs_type {obs_type} not known, assuming Sci" )
+                obs_type = 'Sci'
+            else:
+                obs_type = obstypemap[ obs_type ]
+            expobj = Exposure( current_file=expfile, invent_filepath=True,
+                               type=obs_type, format='fits', provenance=provenance, ra=ra, dec=dec,
+                               instrument='DECam', origin_identifier=origin_identifier, header=hdr,
+                               **exphdrinfo )
+            dbpath = outdir / expobj.filepath
+            expobj.save( expfile )
+            expobj = dbsess.merge( expobj )
+            dbsess.commit()
+
+        return expobj
+
+
+    def acquire_and_commit_origin_exposure( self, identifier, params ):
+        """Download exposure from NOIRLab, add it to the database; see Instrument.acquire_and_commit_origin_exposure.
+
+        """
+        downloaded = self.acquire_origin_exposure( identifier, params )
+        return self._commit_exposure( identifier, downloaded, params['obs_type'], params['proc_type'] )
+
+
+    def find_origin_exposures( self,
+                               skip_exposures_in_database=True,
+                               skip_known_exposures=True,
+                               minmjd=None,
+                               maxmjd=None,
+                               filters=None,
+                               containing_ra=None,
+                               containing_dec=None,
+                               minexptime=None,
+                               proc_type='raw',
+                               projects=None ):
         """Search the NOIRLab data archive for exposures.
 
         See Instrument.find_origin_exposures for documentation; in addition:
@@ -530,12 +706,16 @@ class DECam(Instrument):
            The short (i.e. single character) filter names ('g', 'r',
            'i', 'z', or 'Y') to search for.  If not given, will
            return images from all filters.
-        proposals: str or list of str
+        projects: str or list of str
            The NOIRLab proposal ids to limit the search to.  If not
            given, will not filter based on proposal id.
         proc_type: str
-           'raw' or 'instcal' : the processing type to get 
+           'raw' or 'instcal' : the processing type to get
            from the NOIRLab data archive.
+
+        TODO -- deal with provenances!  Right now, skip_known_exposures
+        will skip exposures of *any* provenance, may or may not be what
+        we want.  See Issue #310.
 
         """
 
@@ -566,7 +746,10 @@ class DECam(Instrument):
                 "dateobs_center",
                 "ifilter",
                 "exposure",
+                "ra_center",
+                "dec_center",
                 "md5sum",
+                "OBJECT",
                 "MJD-OBS",
                 "DATE-OBS",
                 "AIRMASS",
@@ -579,7 +762,7 @@ class DECam(Instrument):
         }
 
         filters = util.util.listify( filters, require_string=True )
-        proposals = util.util.listify( proposals, require_string=True )
+        proposals = util.util.listify( projects, require_string=True )
 
         if proposals is not None:
             spec["search"].append( [ "proposal" ] + proposals )
@@ -619,9 +802,27 @@ class DECam(Instrument):
             files = files[ files.exposure >= minexptime ]
         files.sort_values( by='dateobs_center', inplace=True )
         files['filtercode'] = files.ifilter.str[0]
+        files['filter'] = files.ifilter
+
+        if skip_known_exposures:
+            identifiers = [ pathlib.Path( f ).name for f in files.archive_filename.values ]
+            with SmartSession() as session:
+                ke = session.query( KnownExposure ).filter( KnownExposure.identifier.in_( identifiers ) ).all()
+            existing = [ i.identifier for i in ke ]
+            keep = [ i not in existing for i in identifiers ]
+            files = files[keep].reset_index( drop=True )
 
         if skip_exposures_in_database:
-            raise NotImplementedError( "TODO: implement skip_exposures_in_database" )
+            identifiers = [ pathlib.Path( f ).name for f in files.archive_filename.values ]
+            with SmartSession() as session:
+                exps = session.query( Exposure ).filter( Exposure.origin_identifier.in_( identifiers ) ).all()
+            existing = [ i.origin_identifier for i in exps ]
+            keep = [ i not in existing for i in identifiers ]
+            files = files[keep].reset_index( drop=True )
+
+        if len(files) == 0:
+            SCLogger.info( "DEcam exposure search found no files afters skipping known and databsae exposures" )
+            return None
 
         # If we were downloaded reduced images, we're going to have multiple prod_types
         # for the same image (reason: there are dq mask and weight images in addition
@@ -654,11 +855,79 @@ class DECamOriginExposures:
         """
         self.proc_type = proc_type
         self._frame = frame
+        self.decam = get_instrument_instance( 'DECam' )
 
     def __len__( self ):
         # The length is the number of values there are in the *first* index
         # as that is the number of different exposures.
         return len( self._frame.index.levels[0] )
+
+    def add_to_known_exposures( self,
+                                indexes=None,
+                                hold=False,
+                                skip_loaded_exposures=True,
+                                skip_duplicates=True,
+                                session=None):
+        """See InstrumentOriginExposures.add_to_known_exposures"""
+
+        if indexes is None:
+            indexes = range( len(self._frame) )
+        if not isinstance( indexes, collections.abc.Sequence ):
+            indexes = [ indexes ]
+
+        with SmartSession( session ) as dbsess:
+            identifiers = [ pathlib.Path( self._frame.loc[ dex, 'image' ].archive_filename ).name for dex in indexes ]
+
+            # There is a database race condition here that I've chosen
+            # not to worry about.  Reason: in general usage, there will
+            # be one conductor process running, and that will be the
+            # only process to call this method, so nothing will be
+            # racing with it re: the knownexposures table.  While in
+            # principle this process is racing with all running
+            # instances of the pipeline for the exposures table, in
+            # practice we won't be launching a pipeline to work on an
+            # exposure until after it was already loaded into the
+            # knownexposures table.  So, as long as skip_duplicates is
+            # True, there will not (in the usual case) be anything in
+            # exposures that both we are searching for right now and
+            # that's not already in knownexposures.
+
+            skips = []
+            if skip_loaded_exposures:
+                skips.extend( list( dbsess.query( Exposure.origin_identifier )
+                                    .filter( Exposure.origin_identifier.in_( identifiers ) ) ) )
+            if skip_duplicates:
+                skips.extend( list( dbsess.query( KnownExposure.identifier )
+                                    .filter( KnownExposure.identifier.in_( identifiers ) ) ) )
+            skips = set( skips )
+
+            for dex in indexes:
+                identifier = pathlib.Path( self._frame.loc[ dex, 'image' ].archive_filename ).name
+                if identifier in skips:
+                    continue
+                expinfo = self._frame.loc[ dex, 'image' ]
+                gallat, gallon, ecllat, ecllon = radec_to_gal_ecl( expinfo.ra_center, expinfo.dec_center )
+                ke = KnownExposure( instrument='DECam', identifier=identifier,
+                                    params={ 'url': expinfo.url,
+                                             'md5sum': expinfo.md5sum,
+                                             'obs_type': expinfo.obs_type,
+                                             'proc_type': expinfo.proc_type },
+                                    hold=hold,
+                                    exp_time=expinfo.exposure,
+                                    filter=expinfo.ifilter,
+                                    project=expinfo.proposal,
+                                    target=expinfo.OBJECT,
+                                    mjd=util.util.parse_dateobs( expinfo.dateobs_center, output='float' ),
+                                    ra=expinfo.ra_center,
+                                    dec=expinfo.dec_center,
+                                    ecllat=ecllat,
+                                    ecllon=ecllon,
+                                    gallat=gallat,
+                                    gallon=gallon
+                                   )
+                dbsess.merge( ke )
+            dbsess.commit()
+
 
     def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,
                             clobber=False, existing_ok=False, session=None ):
@@ -666,7 +935,7 @@ class DECamOriginExposures:
 
         Parameters
         ----------
-        Same as Instrument.download_exposures, plus:
+        Same as InstrumentOriginExposures.download_exposures, plus:
 
         onlyexposures: bool
           If True, only download the main exposure.  If False, also
@@ -712,90 +981,26 @@ class DECamOriginExposures:
         if not isinstance( indexes, collections.abc.Sequence ):
             indexes = [ indexes ]
 
+        downloaded = self.download_exposures( outdir=outdir, indexes=indexes, clobber=clobber,
+                                              existing_ok=existing_ok, session=session )
+
         exposures = []
-
-        # This import is here rather than at the top of the file
-        #  because Exposure imports Instrument, so we've got
-        #  a circular import.  Here, instrument will have been
-        #  fully initialized before we try to import Exposure,
-        #  so we should be OK.
-        from models.exposure import Exposure
-
-        obstypemap = { 'object': 'Sci',
-                       'dark': 'Dark',
-                       'dome flat': 'DomeFlat',
-                       'zero': 'Bias'
-                      }
-
-        with SmartSession(session) as dbsess:
-            provenance = Provenance(
-                process='download',
-                parameters={ 'proc_type': self.proc_type, 'Instrument': 'DECam' },
-                code_version=Provenance.get_code_version(session=dbsess),
-                is_testing=True,
-            )
-            provenance = dbsess.merge( provenance )
-
-            downloaded = self.download_exposures( outdir=outdir, indexes=indexes,
-                                                  clobber=clobber, existing_ok=existing_ok )
-            for dex, expfiledict in zip( indexes, downloaded ):
-                if set( expfiledict.keys() ) != { 'exposure' }:
-                    SCLogger.warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
-                                     f"from DECam, but only loading the exposure file into the database." )
-                    # TODO: load these as file extensions (see
-                    # FileOnDiskMixin), if we're ever going to actually
-                    # use the observatory-reduced DECam images It's more
-                    # work than just what needs to be done here, because
-                    # we will need to think about that in
-                    # Image.from_exposure(), and perhaps other places as
-                    # well.
-                expfile = expfiledict[ 'exposure' ]
-                with fits.open( expfile ) as ifp:
-                    hdr = { k: v for k, v in ifp[0].header.items()
-                            if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
-                                      'OBS-LONG', 'OBS-LAT', 'EXPTIME', 'DARKTIME', 'OBSID',
-                                      'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
-                                      'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
-                                      'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
-                exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
-                                                                    'project', 'target' ] )
-                origin_identifier = pathlib.Path( self._frame.loc[dex,'image'].archive_filename ).name
-
-                ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
-                dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
-
-                q = ( dbsess.query( Exposure )
-                      .filter( Exposure.instrument == 'DECam' )
-                      .filter( Exposure.origin_identifier == origin_identifier )
-                     )
-                existing = q.first()
-                # Maybe check that q.count() isn't >1; if it is, throw an exception
-                #  about database corruption?
-                if existing is not None:
-                    if skip_existing:
-                        SCLogger.info( f"download_and_commit_exposures: exposure with origin identifier "
-                                      f"{origin_identifier} is already in the database, skipping. "
-                                      f"({existing.filepath})" )
-                        continue
-                    else:
-                        raise FileExistsError( f"Exposure with origin identifier {origin_identifier} "
-                                               f"already exists in the database. ({existing.filepath})" )
-                obstype = self._frame.loc[dex,'image'].obs_type
-                if obstype not in obstypemap:
-                    SCLogger.warning( f"DECam obs_type {obstype} not known, assuming Sci" )
-                    obstype = 'Sci'
-                else:
-                    obstype = obstypemap[ obstype ]
-                expobj = Exposure( current_file=expfile, invent_filepath=True,
-                                   type=obstype, format='fits', provenance=provenance, ra=ra, dec=dec, 
-                                   instrument='DECam', origin_identifier=origin_identifier, header=hdr,
-                                   **exphdrinfo )
-                dbpath = outdir / expobj.filepath
-                expobj.save( expfile )
-                expobj = dbsess.merge(expobj)
-                dbsess.commit()
-                if delete_downloads and ( dbpath.resolve() != expfile.resolve() ):
-                    expfile.unlink()
-                exposures.append( expobj )
+        for dex, expfiledict in zip( indexes, downloaded ):
+            if set( expfiledict.keys() ) != { 'exposure' }:
+                SCLogger.warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
+                                 f"from DECam, but only loading the exposure file into the database." )
+                # TODO: load these as file extensions (see
+                # FileOnDiskMixin), if we're ever going to actually
+                # use the observatory-reduced DECam images It's more
+                # work than just what needs to be done here, because
+                # we will need to think about that in
+                # Image.from_exposure(), and perhaps other places as
+                # well.
+            expfile = expfiledict[ 'exposure' ]
+            origin_identifier = pathlib.Path( self._frame.loc[dex,'image'].archive_filename ).name
+            obs_type = self._frame.loc[dex,'image'].obs_type
+            proc_type = self._frame.loc[dex,'image'].proc_type
+            expobj = self.decam._commit_exposure( origin_identifier, expfile, obs_type, proc_type, session=session )
+            exposures.append( expobj )
 
         return exposures

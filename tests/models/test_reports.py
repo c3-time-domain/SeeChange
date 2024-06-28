@@ -15,7 +15,7 @@ from util.util import parse_bool
 
 
 def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrators):
-    report = Report(exposure=decam_exposure, section_id='N1')
+    report = Report(exposure=decam_exposure, section_id='S3')
 
     # test that the progress steps flag is working
     assert report.progress_steps_bitflag == 0
@@ -94,7 +94,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
     t0 = time.perf_counter()
 
     try:
-        ds = p.run(decam_exposure, 'N1')
+        ds = p.run(decam_exposure, 'S3')
 
         total_time = time.perf_counter() - t0
 

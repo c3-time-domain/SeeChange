@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: conductor-sessions-rknop-dev-20240612
+  namespace: ls4-rknop-dev
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 32Mi
+  storageClassName: nfs-client
+  volumeMode: Filesystem

@@ -68,6 +68,10 @@ class SCLogger:
         cls.instance()._logger.setLevel( level )
 
     @classmethod
+    def getEffectiveLevel( cls ):
+        return cls.instance()._logger.getEffectiveLevel()
+
+    @classmethod
     def debug( cls, *args, **kwargs ):
         cls.get().debug( *args, **kwargs )
 

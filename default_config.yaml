@@ -11,6 +11,7 @@ db:
   engine: postgresql
   user: postgres
   password: fragile
+  password_file: null
   host: localhost
   port: 5432
   database: seechange
@@ -48,6 +49,17 @@ storage:
 #   write_dir: the directory to write to if the archive is on the local filesystem, or null
 
 archive: null
+
+# ======================================================================
+# Conductor
+#
+# (There will be other values set in a config file used by the actual conductor.)
+
+conductor:
+  conductor_url: unknown
+  username: unknown
+  password: unknown
+
 
 # ======================================================================
 # Gaia DR3 server
@@ -116,6 +128,12 @@ subtraction:
   alignment:
     method: swarp
     to_index: new
+  reference:
+    minovfrac: 0.85
+    must_match_instrument: true
+    must_match_filter: true
+    must_match_section: false
+    must_match_target: false
 
 detection:
   subtraction: true
@@ -220,5 +238,6 @@ DECam:
     urlbase: https://portal.nersc.gov/cfs/m4616/decam_calibration_files/
     linearity: DECamMasterCal_56475/linearity/linearity_table_v0.4.fits
     fringebase: DECamMasterCal_56876/fringecor/DECam_Master_20131115v1
-    flatbase: DECamMasterCal_56876/starflat/DECam_Master_20130829v3
+    flatbase: DECam_domeflat/
+    illuminationbase: DECamMasterCal_56876/starflat/DECam_Master_20130829v3
     bpmbase: DECamMasterCal_56876/bpm/DECam_Master_20140209v2_cd_
