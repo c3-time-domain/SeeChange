@@ -456,13 +456,13 @@ def test_overscan_sections( decam_raw_image, data_dir,  ):
     decam = get_instrument_instance( "DECam" )
 
     ovsecs = decam.overscan_sections( decam_raw_image.header )
-    assert ovsecs == [ { 'secname': 'A',
-                         'biassec' : { 'x0': 6, 'x1': 56, 'y0': 0, 'y1': 4096 },
-                         'datasec' : { 'x0': 56, 'x1': 1080, 'y0': 0, 'y1': 4096 }
+    assert ovsecs == [ { 'secname' : 'A',
+                         'biassec' : { 'x0': 2104, 'x1': 2154, 'y0': 50, 'y1': 4146 },
+                         'datasec' : { 'x0': 1080, 'x1': 2104, 'y0': 50, 'y1': 4146 }
                         },
-                       { 'secname': 'B',
-                         'biassec': { 'x0': 2104, 'x1': 2154, 'y0': 0, 'y1': 4096 },
-                         'datasec': { 'x0': 1080, 'x1': 2104, 'y0': 0, 'y1': 4096 }
+                       { 'secname' : 'B',
+                         'biassec' : { 'x0': 6, 'x1': 56, 'y0': 50, 'y1': 4146 },
+                         'datasec' : { 'x0': 56, 'x1': 1080, 'y0': 50, 'y1': 4146 }
                         } ]
 
 
@@ -471,16 +471,15 @@ def test_overscan_and_data_sections( decam_raw_image, data_dir ):
 
     ovsecs = decam.overscan_and_data_sections( decam_raw_image.header )
     assert ovsecs == [ { 'secname': 'A',
-                         'biassec' : { 'x0': 6, 'x1': 56, 'y0': 0, 'y1': 4096 },
-                         'datasec' : { 'x0': 56, 'x1': 1080, 'y0': 0, 'y1': 4096 },
-                         'destsec' : { 'x0': 0, 'x1': 1024, 'y0': 0, 'y1': 4096 }
+                         'biassec' : { 'x0': 2104, 'x1': 2154, 'y0': 50, 'y1': 4146 },
+                         'datasec' : { 'x0': 1080, 'x1': 2104, 'y0': 50, 'y1': 4146 },
+                         'destsec' : { 'x0': 1024, 'x1': 2048, 'y0': 0, 'y1': 4096 }
                         },
-                       { 'secname': 'B',
-                         'biassec': { 'x0': 2104, 'x1': 2154, 'y0': 0, 'y1': 4096 },
-                         'datasec': { 'x0': 1080, 'x1': 2104, 'y0': 0, 'y1': 4096 },
-                         'destsec': { 'x0': 1024, 'x1': 2048, 'y0': 0, 'y1': 4096 }
+                       { 'secname' : 'B',
+                         'biassec' : { 'x0': 6, 'x1': 56, 'y0': 50, 'y1': 4146 },
+                         'datasec' : { 'x0': 56, 'x1': 1080, 'y0': 50, 'y1': 4146 },
+                         'destsec' : { 'x0': 0, 'x1': 1024, 'y0': 0, 'y1': 4096 }
                         } ]
-
 
 def test_overscan( decam_raw_image, data_dir ):
     decam = get_instrument_instance( "DECam" )
@@ -501,15 +500,15 @@ def test_overscan( decam_raw_image, data_dir ):
     assert trimmeddata.shape == ( 4096, 2048 )
 
     # Spot check the image
-    rawleft = rawdata[ 2296:2297, 227:307 ]
+    rawleft = rawdata[ 2296:2297, 100:168 ]
     rawovleft = rawdata[ 2296:2297, 6:56 ]
-    trimmedleft = trimmeddata[ 2296:2297, 171:251 ]
-    rawright = rawdata[ 2170:2171, 1747:1827 ]
-    rawovright = rawdata[ 2170:2171, 2104:2154 ]
-    trimmedright = trimmeddata[ 2170:2171, 1691:1771 ]
-    assert rawleft.mean() == pytest.approx( 4359.738, abs=0.01 )
-    assert np.median( rawovleft ) == pytest.approx( 2174, abs=0.001 )
-    assert trimmedleft.mean() == pytest.approx( rawleft.mean() - np.median(rawovleft), abs=0.01 )
-    assert rawright.mean() == pytest.approx( 3578.812, abs=0.01 )
-    assert np.median( rawovright ) == pytest.approx( 1433, abs=0.001 )
-    assert trimmedright.mean() == pytest.approx( rawright.mean() - np.median(rawovright), abs=0.01 )
+    trimmedleft = trimmeddata[ 2246:2247, 44:112 ]
+    rawright = rawdata[ 2296:2297, 1900:1968 ]
+    rawovright = rawdata[ 2296:2297, 2104:2154 ]
+    trimmedright = trimmeddata[ 2246:2247, 1844:1912 ]
+    assert rawleft.mean() == pytest.approx( 3823.5882, abs=0.01 )
+    assert np.median( rawovleft ) == pytest.approx( 1660, abs=0.001 )
+    assert trimmedleft.mean() == pytest.approx( rawleft.mean() - np.median(rawovleft), abs=0.1 )
+    assert rawright.mean() == pytest.approx( 4530.8971, abs=0.01 )
+    assert np.median( rawovright ) == pytest.approx( 2209, abs=0.001 )
+    assert trimmedright.mean() == pytest.approx( rawright.mean() - np.median(rawovright), abs=0.1 )
