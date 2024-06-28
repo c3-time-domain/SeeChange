@@ -1,14 +1,14 @@
 name: Run Pipeline Tests 1
 
 on:
-  workflow_run:
-    workflows: ["Build Docker Images"]
-    types: [completed]
+  push:
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
 
 jobs:
   tests:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     name: run tests in docker image
     runs-on: ubuntu-latest
     env:
@@ -39,7 +39,7 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          
+
       - name: setup docker buildx
         uses: docker/setup-buildx-action@v3
         with:
