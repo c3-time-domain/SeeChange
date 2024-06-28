@@ -2,8 +2,8 @@ import sys
 import multiprocessing
 import logging
 
-# _default_log_level = logging.WARNING
-_default_log_level = logging.DEBUG
+_default_log_level = logging.WARNING
+# _default_log_level = logging.DEBUG
 
 class SCLogger:
     """Holds the logging instance that we use throught SeeChange.

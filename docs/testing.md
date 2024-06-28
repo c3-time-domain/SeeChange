@@ -50,6 +50,7 @@ In the https://github.com/c3-time-domain/SeeChange repository, we have set up so
 * `ghcr.io/c3-time-domain/seechange:[tag]`
 * `ghcr.io/c3-time-domain/conductor:[tag]`
 * `ghcr.io/c3-time-domain/seechange-webap:[tag]`
+
 where `[tag]` is the current tag expected by that compose file.You can figure out what this should be by finding a line in `tests/docker-compose.yaml` like:
 ```
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-tests20240628}
@@ -73,8 +74,6 @@ where [tag] is exactly what you see in the `docker-compose.yaml` file, followed 
    docker push ghcr.io/c3-time-domain/seechange-webap:[tag]
 ```
 
-(Explicitly setting `IMGTAG` isn't necessary if you don't have a `.env` file in your `tests` subdirectory, as the default will be the right thing.  However, if you _do_ have a `.env` file there, it will override the default, which is why these instructions tell you to explicitly set it.)
-
 For this push to work, you must have the requisite permissions on the `c3-time-domain` organizaton at github.
 
 ### When making changes to dockerfiles or pip requirements
@@ -82,7 +81,7 @@ For this push to work, you must have the requisite permissions on the `c3-time-d
 This set of docker images depend on the following files:
 * `docker/application/*`
 * `docker/postgres/*`
-* `docker/webap/*`
+* `webap/*`
 * `requirements.text`
 
-If you change any of those files, you will need to build and push new docker images.  Before doing that, edit `tests/docker-compose.yaml` and bump the date part of the tag for _every_ image, so that your changed images will only get used for your branch, and so that they will get used by other brances once your branch has been merged to main.
+If you change any of those files, you will need to build and push new docker images.  Before doing that, edit `tests/docker-compose.yaml` and bump the date part of the tag for _every_ image, so that your changed images will only get used for your branch while you're still finalizing your pull request, and so that the updated images will get used by everybody else once your branch has been merged to main.

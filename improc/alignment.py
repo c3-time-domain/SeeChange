@@ -170,11 +170,6 @@ class ImageAligner:
                 setattr(warpedim, f'{att}_corner_{corner}', getattr(target, f'{att}_corner_{corner}'))
 
         warpedim.calculate_coordinates()
-        # MAYBE
-        # This next line caused trouble.  Reason: the warped image may
-        # end up with a slightly different FWHM measured from its source
-        # list, as a result of the warping.  As such, the aperture radii
-        # in image.zp won't be quite right
         warpedim.zp = image.zp  # zp not available when loading from DB (zp.image_id doesn't point to warpedim)
 
         # TODO: are the WorldCoordinates also included? Are they valid for the warped image?
@@ -472,18 +467,6 @@ class ImageAligner:
             warpedsrc, warpedpsf, _, _ = extractor.extract_sources(warpedim)
             warpedim.sources = warpedsrc
             warpedim.psf = warpedpsf
-
-            # # re-calculate the zeropoint for the warped image
-            # # (We can't just copy the source image's zeropoint because
-            # # the warping could have changed aperture sizes.)
-            # SCLogger.debug( "...recalculating zeropoint for warped image" )
-            # photomotor_config = Config.get().value( 'extraction.zp', {} )
-            # # TODO : if somebody passed keyword arguments to override
-            # #   the config to a parent function that called this function,
-            # #   we're not getting that here.  Not sure quite how to handle
-            # #   that.
-            # photomotor = PhotCalibrator( **photomotor_config )
-            # warpedim.zp = photomotor.run( warpedim ).zp
 
             prov = Provenance(
                 code_version=image.provenance.code_version,
