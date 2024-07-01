@@ -277,8 +277,8 @@ Only parameters that affect the product values are included.
 The upstreams are other `Provenance` objects defined for the data products that 
 are an input to the current processing step. 
 The flowchart of the different process steps is defined in `pipeline.datastore.UPSTREAM_STEPS`. 
-E.g., the upstreams for the `subtraction` object are `['preprocessing', 'extraction', 'reference']`.
-Note that the `reference` upstream is replaced by the provenances 
+E.g., the upstreams for the `subtraction` object are `['preprocessing', 'extraction', 'referencing']`.
+Note that the `referencing` upstream is replaced by the provenances 
 of the reference's `preprocessing` and `extraction` steps.
 
 When a `Provenance` object has all the required inputs, it will produce a hash identifier

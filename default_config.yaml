@@ -88,13 +88,18 @@ catalog_gaiadr3:
 # For documentation on the parameters, see the Parameters subclass
 # in the file that defines each part of the pipeline
 
-pipeline: {}
+pipeline:
+  # save images and their products before the stage where we look for a reference and make a subtraction
+  save_before_subtraction: true
+  # automatically save all the products at the end of the pipeline run
+  save_at_finish: true
 
 preprocessing:
+  # these steps need to be done on the images: either they came like that or we do it in the pipeline
   steps_required: [ 'overscan', 'linearity', 'flat', 'fringe' ]
 
 extraction:
-  sources:
+  sources:  # this part of the extraction parameters is for finding sources and calculating the PSF
     method: sextractor
     measure_psf: true
     apertures: [1.0, 2.0, 3.0, 5.0]
@@ -104,27 +109,32 @@ extraction:
     separation_fwhm: 1.0
     threshold: 3.0
     subtraction: false
-  bg:
+  bg:  # this part of the extraction parameters is for estimating the background
     format: map
     method: sep
     poly_order: 1
     sep_box_size: 128
     sep_filt_size: 3
-  wcs:
+  wcs:  # this part of the extraction parameters is for finding the world coordinates system (astrometric calibration)
     cross_match_catalog: gaia_dr3
     solution_method: scamp
-    max_catalog_mag: [20.0]
-    mag_range_catalog: 4.0
+    max_catalog_mag: [22.0]
+    mag_range_catalog: 6.0
     min_catalog_stars: 50
     max_sources_to_use: [2000, 1000, 500, 200]
-  zp:
+  zp:  # this part of the extraction parameters is for finding the zero point (photometric calibration)
     cross_match_catalog: gaia_dr3
-    max_catalog_mag: [20.0]
-    mag_range_catalog: 4.0
+    max_catalog_mag: [22.0]
+    mag_range_catalog: 6.0
     min_catalog_stars: 50
 
+# how to do the subtractions
 subtraction:
   method: zogy
+  # set refset to null to only make references (no subtraction will happen).
+  # to start running subtractions, first make a ref set and use the name of that
+  # in this field.
+  refset: null
   alignment:
     method: swarp
     to_index: new
@@ -135,55 +145,48 @@ subtraction:
     must_match_section: false
     must_match_target: false
 
+# how to extract sources (detections) from the subtration image
 detection:
-  subtraction: true
+  subtraction: true  # this sets up the Detector object to run on subtraction images
   method: filter  # when using ZOGY subtraction, detection method must be "filter"!
   threshold: 5.0
 
+# how to make the cutouts
 cutting:
   cutout_size: 25
 
+# how to measure things like fluxes and centroids, and make analytical cuts
 measuring:
   annulus_radii: [10, 15]
   annulus_units: pixels
   use_annulus_for_centroids: true
+   # TODO: remove these in favor of the thresholds dict (and put None to not threshold any one of them)? Issue #319
   analytical_cuts: ['negatives', 'bad pixels', 'offsets', 'filter bank']
-  outlier_sigma: 3.0
-  bad_pixel_radius: 3.0
-  bad_pixel_exclude: []
-  streak_filter_angle_step: 5.0
-  width_filter_multipliers: [0.25, 2.0, 5.0, 10.0]
-  association_radius: 2.0
-  thresholds:
+  outlier_sigma: 3.0  # how many times the noise rms counts as a positive/negative outlier
+  bad_pixel_radius: 3.0  # how far from the centroid counts as having a bad pixel
+  bad_pixel_exclude: []  # which types of bad pixels are ok to have near the source
+  streak_filter_angle_step: 5.0  # how many degrees to step through the angles for the streak filter
+  width_filter_multipliers: [0.25, 2.0, 5.0, 10.0]  # try different width, if they trigger a high S/N, disqualify it
+  association_radius: 2.0  # when matching sources, how close counts as being from the same underlying object
+  thresholds:  # any of the analytical cuts that score above these thresholds will be disqualified
     negatives: 0.3
     bad pixels: 1
     offsets: 5.0
     filter bank: 1
-  deletion_thresholds:
+  deletion_thresholds:  # any of the analytical cuts that score above these thresholds will be deleted
     negatives: 0.3
     bad pixels: 1
     offsets: 5.0
     filter bank: 1
 
 
-# Specific configuration for specific instruments.
-# Instruments should override the two defaults from
-# instrument_default; they may add additional
-# configuration that their code needs.
-
-instrument_default:
-  calibratorset: nightly
-  flattype: sky
-
-# Config for astromatic utilities (sextractor, scamp, swarp, psfex)
-astromatic:
-  # An absolute path to where astromatic config files are
-  config_dir: null
-  # A path relative to models/base/CODE_ROOT where the astromatic
-  # config files are. Ignored if config_dir is not null
-  config_subdir: data/astromatic_config
-
+# use these parameters when running the coaddition pipeline, e.g., for making weekly coadds
+# the coaddition pipeline will load the regular configuration first, then the coaddition config:
 coaddition:
+  # the pipeline handles any top level configuration (e.g., how to choose images)
+  pipeline:
+    # how many days back you'd like to collect the images for
+    date_range: 7.0
   coaddition:
     method: zogy
     noise_estimator: sep
@@ -199,24 +202,110 @@ coaddition:
       ignore_flags: 0
   # The following are used to override the regular "extraction" parameters
   extraction:
-    sources:
+    sources:  # override the regular source and psf extraction parameters
       measure_psf: true
       threshold: 3.0
       method: sextractor
-      background_method: zero
-    # The following are used to override the regular astrometric calibration parameters
-    wcs:
+    bg:  # override the regular background estimation parameters
+      format: map
+      method: sep
+    wcs:  # override the regular astrometric calibration parameters
       cross_match_catalog: gaia_dr3
       solution_method: scamp
       max_catalog_mag: [22.0]
       mag_range_catalog: 6.0
       min_catalog_stars: 50
-    # The following are used to override the regular photometric calibration parameters
-    zp:
+    zp:  # override the regular photometric calibration parameters
       cross_match_catalog: gaia_dr3
       max_catalog_mag: [22.0]
       mag_range_catalog: 6.0
       min_catalog_stars: 50
+
+# use these parameters to make references by coadding images
+# the reference pipeline will load the regular configuration first,
+# then the coaddition config, and only in the end, override with this:
+referencing:
+  maker:  # these handles the top level configuration (e.g., how to choose images that go into the reference maker)
+    name: best_references  # the name of the reference set that you want to make references for
+    allow_append: true  # can we add different image load criteria to an existing reference set with this name?
+    start_time: null  # only grab images after this time
+    end_time: null  # only grab images before this time
+    instrument: null  # only grab images from this instrument (if list, will make cross-instrument references)
+    filter: null  # only grab images with this filter
+    project: null  # only grab images with this project
+    min_airmass: null  # only grab images with airmass above this
+    max_airmass: null  # only grab images with airmass below this
+    min_background: null  # only grab images with background rms above this
+    max_background: null  # only grab images with background rms below this
+    min_seeing: null  # only grab images with seeing above this
+    max_seeing: null  # only grab images with seeing below this
+    min_lim_mag: null  # only grab images with limiting magnitude above this
+    max_lim_mag: null  # only grab images with limiting magnitude below this
+    min_exp_time: null  # only grab images with exposure time above this
+    max_exp_time: null  # only grab images with exposure time below this
+    min_number: 7  # only create a reference if this many images can be found
+    max_number: 30  # do not add more than this number of images to the reference
+    seeing_quality_factor: 3.0  # linear coefficient for adding lim_mag and seeing to get the "image quality"
+    save_new_refs: true  # should the new references be saved to disk and committed to the database?
+  pipeline:  # The following are used to override the regular "extraction" parameters
+    extraction:
+      sources:  # override the regular source and psf extraction parameters
+        measure_psf: true
+#        threshold: 3.0
+#        method: sextractor
+#      bg:
+#        format: map
+#        method: sep
+#        poly_order: 1
+#        sep_box_size: 128
+#        sep_filt_size: 3
+#      wcs:  # override the regular astrometric calibration parameters
+#        cross_match_catalog: gaia_dr3
+#        solution_method: scamp
+#        max_catalog_mag: [22.0]
+#        mag_range_catalog: 6.0
+#        min_catalog_stars: 50
+#      zp:  # override the regular photometric calibration parameters
+#        cross_match_catalog: gaia_dr3
+#        max_catalog_mag: [22.0]
+#        mag_range_catalog: 6.0
+#        min_catalog_stars: 50
+
+  coaddition:  # override the coaddition parameters in the general "coaddition" config
+    coaddition:  # override the way coadds are made, from the general "coaddition" config
+      method: zogy
+    extraction:  # override the coaddition/regular pipeline config, when extracting for the coadd images
+      sources: # override the regular source and psf extraction parameters and the coadd extraction parameters
+        measure_psf: true
+#        threshold: 3.0
+#        method: sextractor
+#      bg: # override the regular background estimation parameters and the coadd extraction parameters
+#        format: map
+#        method: sep
+#        poly_order: 1
+#        sep_box_size: 128
+#        sep_filt_size: 3
+#      wcs:  # override the regular astrometric calibration parameters and the coadd extraction parameters
+#        cross_match_catalog: gaia_dr3
+#        solution_method: scamp
+#        max_catalog_mag: [22.0]
+#        mag_range_catalog: 6.0
+#        min_catalog_stars: 50
+#      zp:  # override the regular photometric calibration parameters and the coadd extraction parameters
+#        cross_match_catalog: gaia_dr3
+#        max_catalog_mag: [22.0]
+#        mag_range_catalog: 6.0
+#        min_catalog_stars: 50
+
+
+# Specific configuration for specific instruments.
+# Instruments should override the two defaults from
+# instrument_default; they may add additional
+# configuration that their code needs.
+
+instrument_default:
+  calibratorset: nightly
+  flattype: sky
 
 
 # DECam
@@ -241,3 +330,12 @@ DECam:
     flatbase: DECam_domeflat/
     illuminationbase: DECamMasterCal_56876/starflat/DECam_Master_20130829v3
     bpmbase: DECamMasterCal_56876/bpm/DECam_Master_20140209v2_cd_
+
+
+# Config for astromatic utilities (sextractor, scamp, swarp, psfex)
+astromatic:
+  # An absolute path to where astromatic config files are
+  config_dir: null
+  # A path relative to models/base/CODE_ROOT where the astromatic
+  # config files are. Ignored if config_dir is not null
+  config_subdir: data/astromatic_config

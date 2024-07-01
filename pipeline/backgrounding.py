@@ -1,4 +1,3 @@
-import os
 import time
 
 import numpy as np
@@ -11,7 +10,7 @@ from pipeline.data_store import DataStore
 from models.background import Background
 
 from util.logger import SCLogger
-from util.util import parse_bool
+from util.util import env_as_bool
 
 
 class ParsBackgrounder(Parameters):
@@ -65,6 +64,9 @@ class ParsBackgrounder(Parameters):
     def get_process_name(self):
         return 'backgrounding'
 
+    def require_siblings(self):
+        return True
+
 
 class Backgrounder:
     def __init__(self, **kwargs):
@@ -89,7 +91,7 @@ class Backgrounder:
 
         try:
             t_start = time.perf_counter()
-            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+            if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -145,21 +147,23 @@ class Backgrounder:
                 ds.image.bkg_mean_estimate = float( bg.value )
                 ds.image.bkg_rms_estimate = float( bg.noise )
 
+            sources = ds.get_sources(session=session)
+            if sources is None:
+                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+            psf = ds.get_psf(session=session)
+            if psf is None:
+                raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.get_inputs()}')
+
             bg._upstream_bitflag = 0
             bg._upstream_bitflag |= ds.image.bitflag
-
-            sources = ds.get_sources(session=session)
-            if sources is not None:
-                bg._upstream_bitflag |= sources.bitflag
-
-            psf = ds.get_psf(session=session)
-            if psf is not None:
-                bg._upstream_bitflag |= psf.bitflag
+            bg._upstream_bitflag |= sources.bitflag
+            bg._upstream_bitflag |= psf.bitflag
 
             ds.bg = bg
 
             ds.runtimes['backgrounding'] = time.perf_counter() - t_start
-            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+
+            if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
                 ds.memory_usages['backgrounding'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 

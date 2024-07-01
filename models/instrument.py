@@ -1040,6 +1040,7 @@ class Instrument:
             instrument=['INSTRUME', 'INSTRUMENT'],
             telescope=['TELESCOP', 'TELESCOPE'],
             gain=['GAIN'],
+            airmass=['AIRMASS'],
         )
         return t
         # TODO: add more!

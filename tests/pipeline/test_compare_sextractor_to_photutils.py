@@ -10,9 +10,10 @@ from models.base import CODE_ROOT
 from improc.sextrsky import sextrsky
 
 from util.logger import SCLogger
+from util.util import env_as_bool
 
 
-@pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_compare_sextr_photutils( decam_datastore ):
     plot_dir = os.path.join(CODE_ROOT, 'tests/plots/sextractor_comparison')
     os.makedirs( plot_dir, exist_ok=True)

@@ -1,4 +1,3 @@
-import os
 import datetime
 import time
 import warnings
@@ -18,13 +17,13 @@ from pipeline.measuring import Measurer
 
 from models.base import SmartSession, merge_concurrent
 from models.provenance import Provenance
-from models.reference import Reference
+from models.refset import RefSet
 from models.exposure import Exposure
 from models.report import Report
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import parse_bool
+from util.util import env_as_bool
 
 # describes the pipeline objects that are used to produce each step of the pipeline
 # if multiple objects are used in one step, replace the string with a sub-dictionary,
@@ -68,6 +67,14 @@ class ParsPipeline(Parameters):
             critical=False,
         )
 
+        self.save_at_finish = self.add_par(
+            'save_at_finish',
+            True,
+            bool,
+            'Save the final products to the database and disk',
+            critical=False,
+        )
+
         self._enforce_no_new_attrs = True  # lock against new parameters
 
         self.override(kwargs)
@@ -75,39 +82,39 @@ class ParsPipeline(Parameters):
 
 class Pipeline:
     def __init__(self, **kwargs):
-        self.config = Config.get()
+        config = Config.get()
 
         # top level parameters
-        self.pars = ParsPipeline(**(self.config.value('pipeline', {})))
+        self.pars = ParsPipeline(**(config.value('pipeline', {})))
         self.pars.augment(kwargs.get('pipeline', {}))
 
         # dark/flat and sky subtraction tools
-        preprocessing_config = self.config.value('preprocessing', {})
+        preprocessing_config = config.value('preprocessing', {})
         preprocessing_config.update(kwargs.get('preprocessing', {}))
         self.pars.add_defaults_to_dict(preprocessing_config)
         self.preprocessor = Preprocessor(**preprocessing_config)
 
         # source detection ("extraction" for the regular image!)
-        extraction_config = self.config.value('extraction.sources', {})
+        extraction_config = config.value('extraction.sources', {})
         extraction_config.update(kwargs.get('extraction', {}).get('sources', {}))
         extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
         # background estimation using either sep or other methods
-        background_config = self.config.value('extraction.bg', {})
+        background_config = config.value('extraction.bg', {})
         background_config.update(kwargs.get('extraction', {}).get('bg', {}))
         self.pars.add_defaults_to_dict(background_config)
         self.backgrounder = Backgrounder(**background_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometor_config = self.config.value('extraction.wcs', {})
+        astrometor_config = config.value('extraction.wcs', {})
         astrometor_config.update(kwargs.get('extraction', {}).get('wcs', {}))
         self.pars.add_defaults_to_dict(astrometor_config)
         self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photometor_config = self.config.value('extraction.zp', {})
+        photometor_config = config.value('extraction.zp', {})
         photometor_config.update(kwargs.get('extraction', {}).get('zp', {}))
         self.pars.add_defaults_to_dict(photometor_config)
         self.photometor = PhotCalibrator(**photometor_config)
@@ -125,26 +132,26 @@ class Pipeline:
         self.photometor.pars.add_siblings(siblings)
 
         # reference fetching and image subtraction
-        subtraction_config = self.config.value('subtraction', {})
+        subtraction_config = config.value('subtraction', {})
         subtraction_config.update(kwargs.get('subtraction', {}))
         self.pars.add_defaults_to_dict(subtraction_config)
         self.subtractor = Subtractor(**subtraction_config)
 
         # source detection ("detection" for the subtracted image!)
-        detection_config = self.config.value('detection', {})
+        detection_config = config.value('detection', {})
         detection_config.update(kwargs.get('detection', {}))
         self.pars.add_defaults_to_dict(detection_config)
         self.detector = Detector(**detection_config)
         self.detector.pars.subtraction = True
 
         # produce cutouts for detected sources:
-        cutting_config = self.config.value('cutting', {})
+        cutting_config = config.value('cutting', {})
         cutting_config.update(kwargs.get('cutting', {}))
         self.pars.add_defaults_to_dict(cutting_config)
         self.cutter = Cutter(**cutting_config)
 
         # measure photometry, analytical cuts, and deep learning models on the Cutouts:
-        measuring_config = self.config.value('measuring', {})
+        measuring_config = config.value('measuring', {})
         measuring_config.update(kwargs.get('measuring', {}))
         self.pars.add_defaults_to_dict(measuring_config)
         self.measurer = Measurer(**measuring_config)
@@ -156,7 +163,7 @@ class Pipeline:
                 if isinstance(PROCESS_OBJECTS[key], dict):
                     for sub_key, sub_value in PROCESS_OBJECTS[key].items():
                         if sub_key in value:
-                            getattr(self, PROCESS_OBJECTS[key][sub_value]).pars.override(value[sub_key])
+                            getattr(self, sub_value).pars.override(value[sub_key])
                 elif isinstance(PROCESS_OBJECTS[key], str):
                     getattr(self, PROCESS_OBJECTS[key]).pars.override(value)
             else:
@@ -198,7 +205,7 @@ class Pipeline:
         ds, session = DataStore.from_args(*args, **kwargs)
 
         if ds.exposure is None:
-            raise RuntimeError('Not sure if there is a way to run this pipeline method without an exposure!')
+            raise RuntimeError('Cannot run this pipeline method without an exposure!')
 
         try:  # must make sure the exposure is on the DB
             ds.exposure = ds.exposure.merge_concurrent(session=session)
@@ -265,88 +272,110 @@ class Pipeline:
             The DataStore object that includes all the data products.
 
         """
-        ds, session = self.setup_datastore(*args, **kwargs)
-        if ds.image is not None:
-            SCLogger.info(f"Pipeline starting for image {ds.image.id} ({ds.image.filepath})")
-        elif ds.exposure is not None:
-            SCLogger.info(f"Pipeline starting for exposure {ds.exposure.id} ({ds.exposure}) section {ds.section_id}")
-        else:
-            SCLogger.info(f"Pipeline starting with args {args}, kwargs {kwargs}")
+        try:  # first make sure we get back a datastore, even an empty one
+            ds, session = self.setup_datastore(*args, **kwargs)
+        except Exception as e:
+            return DataStore.catch_failure_to_parse(e, *args)
 
-        if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
-            # ref: https://docs.python.org/3/library/tracemalloc.html#record-the-current-and-peak-size-of-all-traced-memory-blocks
-            import tracemalloc
-            tracemalloc.start()  # trace the size of memory that is being used
+        try:
+            if ds.image is not None:
+                SCLogger.info(f"Pipeline starting for image {ds.image.id} ({ds.image.filepath})")
+            elif ds.exposure is not None:
+                SCLogger.info(f"Pipeline starting for exposure {ds.exposure.id} ({ds.exposure}) section {ds.section_id}")
+            else:
+                SCLogger.info(f"Pipeline starting with args {args}, kwargs {kwargs}")
 
-        with warnings.catch_warnings(record=True) as w:
-            ds.warnings_list = w  # appends warning to this list as it goes along
-            # run dark/flat preprocessing, cut out a specific section of the sensor
+            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+                # ref: https://docs.python.org/3/library/tracemalloc.html#record-the-current-and-peak-size-of-all-traced-memory-blocks
+                import tracemalloc
+                tracemalloc.start()  # trace the size of memory that is being used
 
-            SCLogger.info(f"preprocessor")
-            ds = self.preprocessor.run(ds, session)
-            ds.update_report('preprocessing', session)
-            SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
+            with warnings.catch_warnings(record=True) as w:
+                ds.warnings_list = w  # appends warning to this list as it goes along
+                # run dark/flat preprocessing, cut out a specific section of the sensor
 
-            # extract sources and make a SourceList and PSF from the image
-            SCLogger.info(f"extractor for image id {ds.image.id}")
-            ds = self.extractor.run(ds, session)
-            ds.update_report('extraction', session)
+                SCLogger.info(f"preprocessor")
+                ds = self.preprocessor.run(ds, session)
+                ds.update_report('preprocessing', session=None)
+                SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
 
-            # find the background for this image
-            SCLogger.info(f"backgrounder for image id {ds.image.id}")
-            ds = self.backgrounder.run(ds, session)
-            ds.update_report('extraction', session)
+                # extract sources and make a SourceList and PSF from the image
+                SCLogger.info(f"extractor for image id {ds.image.id}")
+                ds = self.extractor.run(ds, session)
+                ds.update_report('extraction', session=None)
 
-            # find astrometric solution, save WCS into Image object and FITS headers
-            SCLogger.info(f"astrometor for image id {ds.image.id}")
-            ds = self.astrometor.run(ds, session)
-            ds.update_report('extraction', session)
+                # find the background for this image
+                SCLogger.info(f"backgrounder for image id {ds.image.id}")
+                ds = self.backgrounder.run(ds, session)
+                ds.update_report('extraction', session=None)
 
-            # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
-            SCLogger.info(f"photometor for image id {ds.image.id}")
-            ds = self.photometor.run(ds, session)
-            ds.update_report('extraction', session)
+                # find astrometric solution, save WCS into Image object and FITS headers
+                SCLogger.info(f"astrometor for image id {ds.image.id}")
+                ds = self.astrometor.run(ds, session)
+                ds.update_report('extraction', session=None)
 
-            if self.pars.save_before_subtraction:
-                t_start = time.perf_counter()
-                try:
-                    SCLogger.info(f"Saving intermediate image for image id {ds.image.id}")
-                    ds.save_and_commit(session=session)
-                except Exception as e:
-                    ds.update_report('save intermediate', session)
-                    SCLogger.error(f"Failed to save intermediate image for image id {ds.image.id}")
-                    SCLogger.error(e)
-                    raise e
+                # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
+                SCLogger.info(f"photometor for image id {ds.image.id}")
+                ds = self.photometor.run(ds, session)
+                ds.update_report('extraction', session=None)
 
-                ds.runtimes['save_intermediate'] = time.perf_counter() - t_start
+                if self.pars.save_before_subtraction:
+                    t_start = time.perf_counter()
+                    try:
+                        SCLogger.info(f"Saving intermediate image for image id {ds.image.id}")
+                        ds.save_and_commit(session=session)
+                    except Exception as e:
+                        ds.update_report('save intermediate', session=None)
+                        SCLogger.error(f"Failed to save intermediate image for image id {ds.image.id}")
+                        SCLogger.error(e)
+                        raise e
 
-            # fetch reference images and subtract them, save subtracted Image objects to DB and disk
-            SCLogger.info(f"subtractor for image id {ds.image.id}")
-            ds = self.subtractor.run(ds, session)
-            ds.update_report('subtraction', session)
+                    ds.runtimes['save_intermediate'] = time.perf_counter() - t_start
 
-            # find sources, generate a source list for detections
-            SCLogger.info(f"detector for image id {ds.image.id}")
-            ds = self.detector.run(ds, session)
-            ds.update_report('detection', session)
+                # fetch reference images and subtract them, save subtracted Image objects to DB and disk
+                SCLogger.info(f"subtractor for image id {ds.image.id}")
+                ds = self.subtractor.run(ds, session)
+                ds.update_report('subtraction', session=None)
 
-            # make cutouts of all the sources in the "detections" source list
-            SCLogger.info(f"cutter for image id {ds.image.id}")
-            ds = self.cutter.run(ds, session)
-            ds.update_report('cutting', session)
+                # find sources, generate a source list for detections
+                SCLogger.info(f"detector for image id {ds.image.id}")
+                ds = self.detector.run(ds, session)
+                ds.update_report('detection', session=None)
 
-            # extract photometry and analytical cuts
-            SCLogger.info(f"measurer for image id {ds.image.id}")
-            ds = self.measurer.run(ds, session)
-            ds.update_report('measuring', session)
+                # make cutouts of all the sources in the "detections" source list
+                SCLogger.info(f"cutter for image id {ds.image.id}")
+                ds = self.cutter.run(ds, session)
+                ds.update_report('cutting', session=None)
 
-            # measure deep learning models on the cutouts/measurements
-            # TODO: add this...
+                # extract photometry and analytical cuts
+                SCLogger.info(f"measurer for image id {ds.image.id}")
+                ds = self.measurer.run(ds, session)
+                ds.update_report('measuring', session=None)
 
-            # TODO: add a saving step at the end too?
+                # measure deep learning models on the cutouts/measurements
+                # TODO: add this...
 
-            ds.finalize_report(session)
+                if self.pars.save_at_finish:
+                    t_start = time.perf_counter()
+                    try:
+                        SCLogger.info(f"Saving final products for image id {ds.image.id}")
+                        ds.save_and_commit(session=session)
+                    except Exception as e:
+                        ds.update_report('save final', session)
+                        SCLogger.error(f"Failed to save final products for image id {ds.image.id}")
+                        SCLogger.error(e)
+                        raise e
 
+                    ds.runtimes['save_final'] = time.perf_counter() - t_start
+
+                ds.finalize_report(session)
+
+                return ds
+
+        except Exception as e:
+            ds.catch_exception(e)
+        finally:
+            # make sure the DataStore is returned in case the calling scope want to debug the pipeline run
             return ds
 
     def run_with_session(self):
@@ -358,7 +387,7 @@ class Pipeline:
         with SmartSession() as session:
             self.run(session=session)
 
-    def make_provenance_tree(self, exposure, reference=None, overrides=None, session=None, commit=True):
+    def make_provenance_tree(self, exposure, overrides=None, session=None, commit=True):
         """Use the current configuration of the pipeline and all the objects it has
         to generate the provenances for all the processing steps.
         This will conclude with the reporting step, which simply has an upstreams
@@ -370,15 +399,6 @@ class Pipeline:
         exposure : Exposure
             The exposure to use to get the initial provenance.
             This provenance should be automatically created by the exposure.
-        reference: str, Provenance object or None
-            Can be a string matching a valid reference set. This tells the pipeline which
-            provenance to load for the reference.
-            Instead, can provide either a Reference object with a Provenance
-            or the Provenance object of a reference directly.
-            If not given, will simply load the most recently created reference provenance.
-            # TODO: when we implement reference sets, we will probably not allow this input directly to
-            #  this function anymore. Instead, you will need to define the reference set in the config,
-            #  under the subtraction parameters.
         overrides: dict, optional
             A dictionary of provenances to override any of the steps in the pipeline.
             For example, set overrides={'preprocessing': prov} to use a specific provenance
@@ -404,71 +424,61 @@ class Pipeline:
 
         with SmartSession(session) as session:
             # start by getting the exposure and reference
-            # TODO: need a better way to find the relevant reference PROVENANCE for this exposure
-            #  i.e., we do not look for a valid reference and get its provenance, instead,
-            #  we look for a provenance based on our policy (that can be defined in the subtraction parameters)
-            #  and find a specific provenance id that matches our policy.
-            #  If we later find that no reference with that provenance exists that overlaps our images,
-            #  that will be recorded as an error in the report.
-            #  One way to do this would be to add a RefSet table that has a name (e.g., "standard") and
-            #  a validity time range (which will be removed from Reference), maybe also the instrument.
-            #  That would allow us to use a combination of name+obs_time to find a specific RefSet,
-            #  which has a single reference provenance ID. If you want a custom reference,
-            #  add a new RefSet with a new name.
-            #  This also means that the reference making pipeline MUST use a single set of policies
-            #  to create all the references for a given RefSet... we need to make sure we can actually
-            #  make that happen consistently (e.g., if you change parameters or start mixing instruments
-            #  when you make the references it will create multiple provenances for the same RefSet).
-            if isinstance(reference, str):
-                raise NotImplementedError('See issue #287')
-            elif isinstance(reference, Reference):
-                ref_prov = reference.provenance
-            elif isinstance(reference, Provenance):
-                ref_prov = reference
-            elif reference is None:  # use the latest provenance that has to do with references
-                ref_prov = session.scalars(
-                    sa.select(Provenance).where(
-                        Provenance.process == 'reference'
-                    ).order_by(Provenance.created_at.desc())
-                ).first()
-
             exp_prov = session.merge(exposure.provenance)  # also merges the code_version
             provs = {'exposure': exp_prov}
             code_version = exp_prov.code_version
             is_testing = exp_prov.is_testing
 
-            for step in PROCESS_OBJECTS:
-                if step in overrides:
+            ref_provs = None  # allow multiple reference provenances for each refset
+            refset_name = self.subtractor.pars.refset
+            # If refset is None, we will just fail to produce a subtraction, but everything else works...
+            # Note that the upstreams for the subtraction provenance will be wrong, because we don't have
+            # any reference provenances to link to. But this is what you get when putting refset=None.
+            # Just know that the "output provenance" (e.g., of the Measurements) will never actually exist,
+            # even though you can use it to make the Report provenance (just so you have something to refer to).
+            if refset_name is not None:
+
+                refset = session.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
+                if refset is None:
+                    raise ValueError(f'No reference set with name {refset_name} found in the database!')
+
+                ref_provs = refset.provenances
+                if ref_provs is None or len(ref_provs) == 0:
+                    raise ValueError(f'No provenances found for reference set {refset_name}!')
+
+            provs['referencing'] = ref_provs  # notice that this is a list, not a single provenance!
+            for step in PROCESS_OBJECTS:  # produce the provenance for this step
+                if step in overrides:  # accept override from user input
                     provs[step] = overrides[step]
-                else:
-                    obj_name = PROCESS_OBJECTS[step]
-                    if isinstance(obj_name, dict):
+                else:  # load the parameters from the objects on the pipeline
+                    obj_name = PROCESS_OBJECTS[step]  # translate the step to the object name
+                    if isinstance(obj_name, dict):  # sub-objects, e.g., extraction.sources, extraction.wcs, etc.
                         # get the first item of the dictionary and hope its pars object has siblings defined correctly:
                         obj_name = obj_name.get(list(obj_name.keys())[0])
                     parameters = getattr(self, obj_name).pars.get_critical_pars()
-
-                    # some preprocessing parameters (the "preprocessing_steps") don't come from the
-                    # config file, but instead come from the preprocessing itself.
-                    # TODO: fix this as part of issue #147
-                    # if step == 'preprocessing':
-                    #     parameters['preprocessing_steps'] = ['overscan', 'linearity', 'flat', 'fringe']
 
                     # figure out which provenances go into the upstreams for this step
                     up_steps = UPSTREAM_STEPS[step]
                     if isinstance(up_steps, str):
                         up_steps = [up_steps]
-                    upstreams = []
+                    upstream_provs = []
                     for upstream in up_steps:
-                        if upstream == 'reference':
-                            upstreams += ref_prov.upstreams
-                        else:
-                            upstreams.append(provs[upstream])
+                        if upstream == 'referencing':  # this is an externally supplied provenance upstream
+                            if ref_provs is not None:
+                                # we never put the Reference object's provenance into the upstreams of the subtraction
+                                # instead, put the provenances of the coadd image and its extraction products
+                                # this is so the subtraction provenance has the (preprocessing+extraction) provenance
+                                # for each one of its upstream_images (in this case, ref+new).
+                                # by construction all references on the refset SHOULD have the same upstreams
+                                upstream_provs += ref_provs[0].upstreams
+                        else:  # just grab the provenance of what is upstream of this step from the existing tree
+                            upstream_provs.append(provs[upstream])
 
                     provs[step] = Provenance(
                         code_version=code_version,
                         process=step,
                         parameters=parameters,
-                        upstreams=upstreams,
+                        upstreams=upstream_provs,
                         is_testing=is_testing,
                     )
 
@@ -478,3 +488,5 @@ class Pipeline:
                 session.commit()
 
             return provs
+
+

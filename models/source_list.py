@@ -191,7 +191,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
         new_sources = self.safe_merge(session=session)
         session.flush()
-        for att in ['wcs', 'zp']:
+        for att in ['wcs', 'zp', 'cutouts']:
             sub_obj = getattr(self, att, None)
             if sub_obj is not None:
                 sub_obj.sources = new_sources  # make sure to first point this relationship back to new_sources
@@ -200,7 +200,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     sub_obj = sub_obj.safe_merge(session=session)
                 setattr(new_sources, att, sub_obj)
 
-        for att in ['cutouts', 'measurements']:
+        for att in ['measurements']:
             sub_obj = getattr(self, att, None)
             if sub_obj is not None:
                 new_list = []
@@ -762,13 +762,15 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.provenance import Provenance
 
         with SmartSession(session) as session:
-            subs = session.scalars(
-                sa.select(Image).where(
-                    Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-                    Image.upstream_images.any(Image.id == self.image_id),
-                )
-            ).all()
-            output = subs
+            output = []
+            if self.image_id is not None and self.provenance is not None:
+                subs = session.scalars(
+                    sa.select(Image).where(
+                        Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
+                        Image.upstream_images.any(Image.id == self.image_id),
+                    )
+                ).all()
+                output += subs
 
             if self.is_sub:
                 cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()

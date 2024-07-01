@@ -224,11 +224,12 @@ def iterative_cutouts_photometry(
             bkg_estimate = 0.0
 
         denominator = np.nansum(nandata - bkg_estimate)
+        # prevent division by zero and other rare cases
         epsilon = 0.01
         if denominator == 0:
             denominator = epsilon
         elif abs(denominator) < epsilon:
-            denominator = epsilon * np.sign(denominator)  # prevent division by zero and other rare cases
+            denominator = epsilon * np.sign(denominator)
 
         cx = np.nansum(xgrid * (nandata - bkg_estimate)) / denominator
         cy = np.nansum(ygrid * (nandata - bkg_estimate)) / denominator

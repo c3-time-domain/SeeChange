@@ -488,6 +488,10 @@ class Parameters:
 
         self.__sibling_parameters__.update(siblings)
 
+    def require_siblings(self):
+        """If not overriden, returns False. For subclasses that depend on siblings, this should return True."""
+        return False
+
     def get_critical_pars(self, ignore_siblings=False):
         """
         Get a dictionary of the critical parameters.
@@ -507,6 +511,8 @@ class Parameters:
         # if there is no dictionary, or it is empty (or if asked to ignore siblings) just return the critical parameters
         if ignore_siblings or not self.__sibling_parameters__:
             return self.to_dict(critical=True, hidden=True)
+        elif not self.__sibling_parameters__ and self.require_siblings():
+            raise ValueError("This object requires sibling parameters, but none were provided. Use add_siblings().")
         else:  # a dictionary based on keys in __sibling_parameters__ with critical pars sub-dictionaries
             return {
                 key: value.get_critical_pars(ignore_siblings=True)

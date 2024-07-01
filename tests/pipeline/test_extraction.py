@@ -8,14 +8,13 @@ import shutil
 import random
 
 import numpy as np
-import sqlalchemy as sa
 
 from astropy.io import votable
 
 from models.base import SmartSession, FileOnDiskMixin, get_archive_object, CODE_ROOT
 from models.provenance import Provenance
-from models.image import Image
-from models.source_list import SourceList
+
+from tests.conftest import SKIP_WARNING_TESTS
 
 from util.logger import SCLogger
 
@@ -319,12 +318,13 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
 
 
 def test_warnings_and_exceptions(decam_datastore, extractor):
-    extractor.pars.inject_warnings = 1
+    if not SKIP_WARNING_TESTS:
+        extractor.pars.inject_warnings = 1
 
-    with pytest.warns(UserWarning) as record:
-        extractor.run(decam_datastore)
-    assert len(record) > 0
-    assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
+        with pytest.warns(UserWarning) as record:
+            extractor.run(decam_datastore)
+        assert len(record) > 0
+        assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
 
     extractor.pars.inject_warnings = 0
     extractor.pars.inject_exceptions = 1

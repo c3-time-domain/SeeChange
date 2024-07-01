@@ -5,6 +5,8 @@ import numpy as np
 
 from improc.tools import sigma_clipping
 
+from tests.conftest import SKIP_WARNING_TESTS
+
 
 def test_measuring_background(decam_processed_image, backgrounder):
     backgrounder.pars.test_parameter = uuid.uuid4().hex  # make sure there is no hashed value
@@ -36,12 +38,13 @@ def test_measuring_background(decam_processed_image, backgrounder):
 
 
 def test_warnings_and_exceptions(decam_datastore, backgrounder):
-    backgrounder.pars.inject_warnings = 1
+    if not SKIP_WARNING_TESTS:
+        backgrounder.pars.inject_warnings = 1
 
-    with pytest.warns(UserWarning) as record:
-        backgrounder.run(decam_datastore)
-    assert len(record) > 0
-    assert any("Warning injected by pipeline parameters in process 'backgrounding'." in str(w.message) for w in record)
+        with pytest.warns(UserWarning) as record:
+            backgrounder.run(decam_datastore)
+        assert len(record) > 0
+        assert any("Warning injected by pipeline parameters in process 'backgrounding'." in str(w.message) for w in record)
 
     backgrounder.pars.inject_warnings = 0
     backgrounder.pars.inject_exceptions = 1

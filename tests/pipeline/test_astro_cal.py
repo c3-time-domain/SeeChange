@@ -13,6 +13,10 @@ from models.base import SmartSession, CODE_ROOT
 from models.image import Image
 from models.world_coordinates import WorldCoordinates
 
+from util.util import env_as_bool
+
+from tests.conftest import SKIP_WARNING_TESTS
+
 
 def test_solve_wcs_scamp_failures( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astrometor ):
     catexp = ztf_gaia_dr3_excerpt
@@ -48,7 +52,7 @@ def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astro
     ds = ztf_datastore_uncommitted
 
     # Make True for visual testing purposes
-    if os.getenv('INTERACTIVE', False):
+    if env_as_bool('INTERACTIVE'):
         basename = os.path.join(CODE_ROOT, 'tests/plots')
         catexp.ds9_regfile( os.path.join(basename, 'catexp.reg'), radius=4 )
         ds.sources.ds9_regfile( os.path.join(basename, 'sources.reg'), radius=3 )
@@ -184,12 +188,13 @@ def test_run_scamp( decam_datastore, astrometor ):
 
 
 def test_warnings_and_exceptions(decam_datastore, astrometor):
-    astrometor.pars.inject_warnings = 1
 
-    with pytest.warns(UserWarning) as record:
-        astrometor.run(decam_datastore)
-    assert len(record) > 0
-    assert any("Warning injected by pipeline parameters in process 'astro_cal'." in str(w.message) for w in record)
+    if not SKIP_WARNING_TESTS:
+        astrometor.pars.inject_warnings = 1
+        with pytest.warns(UserWarning) as record:
+            astrometor.run(decam_datastore)
+        assert len(record) > 0
+        assert any("Warning injected by pipeline parameters in process 'astro_cal'." in str(w.message) for w in record)
 
     astrometor.pars.inject_warnings = 0
     astrometor.pars.inject_exceptions = 1

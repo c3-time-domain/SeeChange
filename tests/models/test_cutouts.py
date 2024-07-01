@@ -1,6 +1,6 @@
 import os
-import h5py
 import uuid
+import h5py
 
 import numpy as np
 import pytest
@@ -15,98 +15,94 @@ def test_make_save_load_cutouts(decam_detection_list, cutter):
     try:
         cutter.pars.test_parameter = uuid.uuid4().hex
         ds = cutter.run(decam_detection_list)
+
         assert cutter.has_recalculated
-        assert isinstance(ds.cutouts, list)
-        assert len(ds.cutouts) > 1
-        assert isinstance(ds.cutouts[0], Cutouts)
+        assert isinstance(ds.cutouts, Cutouts)
+        assert len(ds.cutouts.co_dict) == ds.cutouts.sources.num_sources
 
-        c = ds.cutouts[0]
-        assert c.sub_image == decam_detection_list.image
-        assert c.ref_image == decam_detection_list.image.ref_aligned_image
-        assert c.new_image == decam_detection_list.image.new_aligned_image
+        subdict_key = "source_index_0"
+        co_subdict = ds.cutouts.co_dict[subdict_key]
 
-        assert isinstance(c.sub_data, np.ndarray)
-        assert isinstance(c.sub_weight, np.ndarray)
-        assert isinstance(c.sub_flags, np.ndarray)
-        assert isinstance(c.ref_data, np.ndarray)
-        assert isinstance(c.ref_weight, np.ndarray)
-        assert isinstance(c.ref_flags, np.ndarray)
-        assert isinstance(c.new_data, np.ndarray)
-        assert isinstance(c.new_weight, np.ndarray)
-        assert isinstance(c.new_flags, np.ndarray)
-        assert isinstance(c.source_row, dict)
-        assert c.bitflag is not None
+        assert ds.cutouts.sub_image == decam_detection_list.image
+        assert ds.cutouts.ref_image == decam_detection_list.image.ref_aligned_image
+        assert ds.cutouts.new_image == decam_detection_list.image.new_aligned_image
+
+        assert isinstance(co_subdict["sub_data"], np.ndarray)
+        assert isinstance(co_subdict["sub_weight"], np.ndarray)
+        assert isinstance(co_subdict["sub_flags"], np.ndarray)
+        assert isinstance(co_subdict["ref_data"], np.ndarray)
+        assert isinstance(co_subdict["ref_weight"], np.ndarray)
+        assert isinstance(co_subdict["ref_flags"], np.ndarray)
+        assert isinstance(co_subdict["new_data"], np.ndarray)
+        assert isinstance(co_subdict["new_weight"], np.ndarray)
+        assert isinstance(co_subdict["new_flags"], np.ndarray)
+        assert ds.cutouts.bitflag is not None
 
         # set the bitflag just to see if it is loaded or not
-        c.bitflag = 2 ** 41  # should be Cosmic Ray
+        ds.cutouts.bitflag = 2 ** 41  # should be Cosmic Ray
 
-        # save an individual cutout
-        Cutouts.save_list([c])
+        # save the Cutouts
+        ds.cutouts.save()
 
         # open the file manually and compare
-        with h5py.File(c.get_fullpath(), 'r') as file:
-            assert 'source_0' in file
+        with h5py.File(ds.cutouts.get_fullpath(), 'r') as file:
             for im in ['sub', 'ref', 'new']:
                 for att in ['data', 'weight', 'flags']:
-                    assert f'{im}_{att}' in file['source_0']
-                    assert np.array_equal(getattr(c, f'{im}_{att}'), file['source_0'][f'{im}_{att}'])
-            assert dict(file['source_0'].attrs) == c.source_row
+                    assert f'{im}_{att}' in file[subdict_key]
+                    assert np.array_equal(co_subdict.get(f'{im}_{att}'),
+                                          file[subdict_key][f'{im}_{att}'])
 
-        # load it from file and compare
-        c2 = Cutouts.from_file(c.get_fullpath(), source_number=0)
-        assert c.check_equals(c2)
+        # load a cutouts from file and compare
+        c2 = Cutouts()
+        c2.filepath = ds.cutouts.filepath
+        c2.sources = ds.cutouts.sources  # necessary for co_dict
+        c2.load_all_co_data()  # explicitly load co_dict
 
-        assert c2.bitflag == 0  # should not load all column data from file (e.g., bitflag)
+        co_subdict2 = c2.co_dict[subdict_key]
 
-        # save a second cutout to the same file
-        Cutouts.save_list(ds.cutouts[1:2])
-        assert ds.cutouts[1].filepath == c.filepath
+        for im in ['sub', 'ref', 'new']:
+            for att in ['data', 'weight', 'flags']:
+                assert np.array_equal(co_subdict.get(f'{im}_{att}'),
+                                        co_subdict2.get(f'{im}_{att}'))
+
+        assert c2.bitflag == 0  # should not load all column data from file
 
         # change the value of one of the arrays
-        c.sub_data[0, 0] = 100
+        ds.cutouts.co_dict[subdict_key]['sub_data'][0, 0] = 100
+        co_subdict2['sub_data'][0, 0] = 100  # for comparison later
 
         # make sure we can re-save
-        Cutouts.save_list([c])
+        ds.cutouts.save()
 
-        with h5py.File(c.get_fullpath(), 'r') as file:
-            assert np.array_equal(c.sub_data, file['source_0']['sub_data'])
-            assert file['source_0']['sub_data'][0, 0] == 100  # change has been propagated
-
-        # save the whole list of cutouts
-        Cutouts.save_list(ds.cutouts)
-
-        # load it from file and compare
-        loaded_cutouts = Cutouts.load_list(c.get_fullpath())
-
-        for cut1, cut2 in zip(ds.cutouts, loaded_cutouts):
-            assert cut1.check_equals(cut2)
-
-        # make sure that deleting one cutout does not delete the file
-        with pytest.raises(NotImplementedError, match='no support for removing one Cutout at a time'):
-            # TODO: fix this if we ever bring back this functionality
-            ds.cutouts[1].remove_data_from_disk()
-            assert os.path.isfile(ds.cutouts[0].get_fullpath())
-
-            # delete one file from the archive, should still keep the file:
-            # TODO: this is not yet implemented! see issue #207
-            # ds.cutouts[1].delete_from_archive()
-            # TODO: check that the file still exists on the archive
+        with h5py.File(ds.cutouts.get_fullpath(), 'r') as file:
+            assert np.array_equal(ds.cutouts.co_dict[subdict_key]['sub_data'],
+                                file[subdict_key]['sub_data'])
+            assert file[subdict_key]['sub_data'][0, 0] == 100  # change has propagated
 
         # check that we can add the cutouts to the database
         with SmartSession() as session:
-            ds.cutouts = Cutouts.merge_list(ds.cutouts, session=session)
+            ds.cutouts = session.merge(ds.cutouts)
+            session.commit()
 
+        ds.cutouts.load_all_co_data()  # need to re-load after merge
         assert ds.cutouts is not None
-        assert len(ds.cutouts) > 0
+        assert len(ds.cutouts.co_dict) > 0
 
         with SmartSession() as session:
             loaded_cutouts = session.scalars(
-                sa.select(Cutouts).where(Cutouts.provenance_id == ds.cutouts[0].provenance.id)
+                sa.select(Cutouts).where(Cutouts.provenance_id == ds.cutouts.provenance.id)
             ).all()
-            for cut1, cut2 in zip(ds.cutouts, loaded_cutouts):
-                assert cut1.check_equals(cut2)
+            assert len(loaded_cutouts) == 1
+            loaded_cutouts = loaded_cutouts[0]
+
+            # make sure data is correct
+            loaded_cutouts.load_all_co_data()
+            co_subdict = loaded_cutouts.co_dict[subdict_key]
+            for im in ['sub', 'ref', 'new']:
+                for att in ['data', 'weight', 'flags']:
+                    assert np.array_equal(co_subdict.get(f'{im}_{att}'),
+                                            co_subdict2.get(f'{im}_{att}'))
 
     finally:
         if 'ds' in locals() and ds.cutouts is not None:
-            Cutouts.delete_list(ds.cutouts)
-
+            ds.cutouts.delete_from_disk_and_database()

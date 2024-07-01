@@ -6,6 +6,7 @@ import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy import orm
+
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm.exc import DetachedInstanceError
@@ -17,8 +18,9 @@ from astropy.io import fits
 import astropy.coordinates
 import astropy.units as u
 
-from util.util import read_fits_image, save_fits_image_file
-from util.logger import SCLogger
+from util.util import read_fits_image, save_fits_image_file, parse_dateobs, listify
+from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
+form util.logger import SCLogger
 
 from models.base import (
     Base,
@@ -30,6 +32,7 @@ from models.base import (
     FourCorners,
     HasBitFlagBadness,
 )
+from models.provenance import Provenance
 from models.exposure import Exposure
 from models.instrument import get_instrument_instance
 from models.enums_and_bitflags import (
@@ -396,6 +399,13 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         doc='Has the sky been subtracted from this image. '
     )
 
+    airmass = sa.Column(
+        sa.REAL,
+        nullable=True,
+        index=True,
+        doc='Airmass of the observation. '
+    )
+
     fwhm_estimate = sa.Column(
         sa.REAL,
         nullable=True,
@@ -518,7 +528,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
     @orm.reconstructor
     def init_on_load(self):
-        Base.init_on_load(self)
+        SeeChangeBase.init_on_load(self)
         FileOnDiskMixin.init_on_load(self)
         self.raw_data = None
         self._header = None
@@ -558,9 +568,9 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         if self.sources is not None:
             self.sources.image = new_image
-            self.sources.image_id = new_image.id
             self.sources.provenance_id = self.sources.provenance.id if self.sources.provenance is not None else None
-            new_image.sources = self.sources.merge_all(session=session)
+            new_sources = self.sources.merge_all(session=session)
+            new_image.sources = new_sources
 
             if new_image.sources.wcs is not None:
                 new_image.wcs = new_image.sources.wcs
@@ -676,7 +686,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             self.ecllat = sc.barycentrictrueecliptic.lat.deg
             self.ecllon = sc.barycentrictrueecliptic.lon.deg
 
-
     @classmethod
     def from_exposure(cls, exposure, section_id):
         """
@@ -709,6 +718,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             'mjd',
             'end_mjd',
             'exp_time',
+            'airmass',
             'instrument',
             'telescope',
             'filter',
@@ -834,6 +844,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             'preproc_bitflag',
             'astro_cal_done',
             'sky_sub_done',
+            'airmass',
             'fwhm_estimate',
             'zero_point_estimate',
             'lim_mag_estimate',
@@ -1042,7 +1053,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         # get some more attributes from the new image
         for att in ['section_id', 'instrument', 'telescope', 'project', 'target',
-                    'exp_time', 'mjd', 'end_mjd', 'info', 'header',
+                    'exp_time', 'airmass', 'mjd', 'end_mjd', 'info', 'header',
                     'gallon', 'gallat', 'ecllon', 'ecllat', 'ra', 'dec',
                     'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
                     'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11' ]:
@@ -1171,7 +1182,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     def coordinates_to_alignment_target(self):
         """Make sure the coordinates (RA,dec, corners and WCS) all match the alignment target image. """
         target = self._get_alignment_target_image()
-        for att in ['ra', 'dec', 'wcs',
+        for att in ['ra', 'dec',
                     'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
                     'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11' ]:
             self.__setattr__(att, getattr(target, att))
@@ -1572,6 +1583,79 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 for alim in self._aligned_images:
                     alim.free( free_derived_products=free_derived_products, only_free=only_free )
 
+    def load_products(self, provenances, session=None, must_find_all=True):
+        """Load the products associated with this image, using a list of provenances.
+
+        Parameters
+        ----------
+        provenances: single Provenance or list of Provenance objects
+            A list to go over, that can contain any number of Provenance objects.
+            Will search the database for matching objects to each provenance in turn,
+            and will assign them into "self" if found.
+            Note that it will keep the first successfully loaded product on the provenance list.
+            Will overwrite any existing products on the Image.
+            Will ignore provenances that do not match any of the products
+            (e.g., provenances for a different processing step).
+        session: SQLAlchemy session, optional
+            The session to use for the database queries.
+            If not provided, will open a session internally
+            and close it when the function exits.
+
+        """
+        from models.source_list import SourceList
+        from models.psf import PSF
+        from models.background import Background
+        from models.world_coordinates import WorldCoordinates
+        from models.zero_point import ZeroPoint
+
+        if self.id is None:
+            raise ValueError('Cannot load products for an image without an ID!')
+
+        provenances = listify(provenances)
+        if not provenances:
+            raise ValueError('Need at least one provenance to load products! ')
+
+        sources = psf = bg = wcs = zp = None
+        with SmartSession(session) as session:
+            for p in provenances:
+                if sources is None:
+                    sources = session.scalars(
+                        sa.select(SourceList).where(SourceList.image_id == self.id, SourceList.provenance_id == p.id)
+                    ).first()
+                if psf is None:
+                    psf = session.scalars(
+                        sa.select(PSF).where(PSF.image_id == self.id, PSF.provenance_id == p.id)
+                    ).first()
+                if bg is None:
+                    bg = session.scalars(
+                        sa.select(Background).where(Background.image_id == self.id, Background.provenance_id == p.id)
+                    ).first()
+
+                if sources is not None:
+                    if wcs is None:
+                        wcs = session.scalars(
+                            sa.select(WorldCoordinates).where(
+                                WorldCoordinates.sources_id == sources.id, WorldCoordinates.provenance_id == p.id
+                            )
+                        ).first()
+                    if zp is None:
+                        zp = session.scalars(
+                            sa.select(ZeroPoint).where(
+                                ZeroPoint.sources_id == sources.id, ZeroPoint.provenance_id == p.id
+                            )
+                        ).first()
+
+            if sources is not None:
+                self.sources = sources
+            if psf is not None:
+                self.psf = psf
+            if bg is not None:
+                self.bg = bg
+            if wcs is not None:
+                self.wcs = wcs
+            if zp is not None:
+                self.zp = zp
+
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.
 
@@ -1896,6 +1980,266 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
             return downstreams
 
+    @staticmethod
+    def query_images(
+            ra=None,
+            dec=None,
+            target=None,
+            section_id=None,
+            project=None,
+            instrument=None,
+            filter=None,
+            min_mjd=None,
+            max_mjd=None,
+            min_dateobs=None,
+            max_dateobs=None,
+            min_exp_time=None,
+            max_exp_time=None,
+            min_seeing=None,
+            max_seeing=None,
+            min_lim_mag=None,
+            max_lim_mag=None,
+            min_airmass=None,
+            max_airmass=None,
+            min_background=None,
+            max_background=None,
+            min_zero_point=None,
+            max_zero_point=None,
+            order_by='latest',
+            seeing_quality_factor=3.0,
+            provenance_ids=None,
+            type=[1, 2, 3, 4],  # TODO: is there a smarter way to only get science images?
+    ):
+        """Get a SQL alchemy statement object for Image objects, with some filters applied.
+
+        This is a convenience method to get a statement object that can be further filtered.
+        If no parameters are given, will happily return all images (be careful with this).
+        It is highly recommended to supply ra/dec to find all images overlapping with that point.
+
+        The images are sorted either by MJD or by image quality.
+        Quality is defined as sum of the limiting magnitude and the seeing,
+        multiplied by the negative "seeing_quality_factor" parameter:
+          <quality> = <limiting_mag> - <seeing_quality_factor> * <seeing FWHM>
+        This means that as the seeing FWHM is smaller, and the limiting magnitude
+        is bigger (fainter) the quality is higher.
+        Choose a higher seeing_quality_factor to give more weight to the seeing,
+        and less weight to the limiting magnitude.
+
+        Parameters
+        ----------
+        ra: float or str (optional)
+            The right ascension of the target in degrees or in HMS format.
+            Will find all images that contain this position.
+            If given, must also give dec.
+        dec: float or str (optional)
+            The declination of the target in degrees or in DMS format.
+            Will find all images that contain this position.
+            If given, must also give ra.
+        target: str or list of strings (optional)
+            Find images that have this target name (e.g., field ID or Object name).
+            If given as a list, will match all the target names in the list.
+        section_id: int/str or list of ints/strings (optional)
+            Find images with this section ID.
+            If given as a list, will match all the section IDs in the list.
+        project: str or list of strings (optional)
+            Find images from this project.
+            If given as a list, will match all the projects in the list.
+        instrument: str or list of str (optional)
+            Find images taken using this instrument.
+            Provide a list to match multiple instruments.
+        filter: str or list of str (optional)
+            Find images taken using this filter.
+            Provide a list to match multiple filters.
+        min_mjd: float (optional)
+            Find images taken after this MJD.
+        max_mjd: float (optional)
+            Find images taken before this MJD.
+        min_dateobs: str (optional)
+            Find images taken after this date (use ISOT format or a datetime object).
+        max_dateobs: str (optional)
+            Find images taken before this date (use ISOT format or a datetime object).
+        min_exp_time: float (optional)
+            Find images with exposure time longer than this (in seconds).
+        max_exp_time: float (optional)
+            Find images with exposure time shorter than this (in seconds).
+        min_seeing: float (optional)
+            Find images with seeing FWHM larger than this (in arcsec).
+        max_seeing: float (optional)
+            Find images with seeing FWHM smaller than this (in arcsec).
+        min_lim_mag: float (optional)
+            Find images with limiting magnitude larger (fainter) than this.
+        max_lim_mag: float (optional)
+            Find images with limiting magnitude smaller (brighter) than this.
+        min_airmass: float (optional)
+            Find images with airmass larger than this.
+        max_airmass: float (optional)
+            Find images with airmass smaller than this.
+        min_background: float (optional)
+            Find images with background rms higher than this.
+        max_background: float (optional)
+            Find images with background rms lower than this.
+        min_zero_point: float (optional)
+            Find images with zero point higher than this.
+        max_zero_point: float (optional)
+            Find images with zero point lower than this.
+        order_by: str, default 'latest'
+            Sort the images by 'earliest', 'latest' or 'quality'.
+            The 'earliest' and 'latest' order by MJD, in ascending/descending order, respectively.
+            The 'quality' option will try to order the images by quality, as defined above,
+            with the highest quality images first.
+        seeing_quality_factor: float, default 3.0
+            The factor to multiply the seeing FWHM by in the quality calculation.
+        provenance_ids: str or list of strings
+            Find images with these provenance IDs.
+        type: integer or string or list of integers or strings, default [1,2,3,4]
+            List of integer converted types of images to search for.
+            This defaults to [1,2,3,4] which corresponds to the
+            science images, coadds and subtractions
+            (see enums_and_bitflags.ImageTypeConverter for more details).
+            Choose 1 to get only the regular (non-coadd, non-subtraction) images.
+
+        Returns
+        -------
+        stmt: SQL alchemy select statement
+            The statement to be executed to get the images.
+            Do session.scalars(stmt).all() to get the images.
+            Additional filtering can be done on the statement before executing it.
+        """
+        stmt = sa.select(Image)
+
+        # filter by coordinates being contained in the image
+        if ra is not None and dec is not None:
+            if isinstance(ra, str):
+                ra = parse_ra_hms_to_deg(ra)
+            if isinstance(dec, str):
+                dec = parse_dec_dms_to_deg(dec)
+            stmt = stmt.where(Image.containing(ra, dec))
+        elif ra is not None or dec is not None:
+            raise ValueError("Both ra and dec must be provided to search by position.")
+
+        # filter by target (e.g., field ID, object name) and possibly section ID and/or project
+        targets = listify(target)
+        if targets is not None:
+            stmt = stmt.where(Image.target.in_(targets))
+        section_ids = listify(section_id)
+        if section_ids is not None:
+            stmt = stmt.where(Image.section_id.in_(section_ids))
+        projects = listify(project)
+        if projects is not None:
+            stmt = stmt.where(Image.project.in_(projects))
+
+        # filter by filter and instrument
+        filters = listify(filter)
+        if filters is not None:
+            stmt = stmt.where(Image.filter.in_(filters))
+        instruments = listify(instrument)
+        if instruments is not None:
+            stmt = stmt.where(Image.instrument.in_(instruments))
+
+        # filter by MJD or dateobs
+        if min_mjd is not None:
+            if min_dateobs is not None:
+                raise ValueError("Cannot filter by both minimal MJD and dateobs.")
+            stmt = stmt.where(Image.mjd >= min_mjd)
+        if max_mjd is not None:
+            if max_dateobs is not None:
+                raise ValueError("Cannot filter by both maximal MJD and dateobs.")
+            stmt = stmt.where(Image.mjd <= max_mjd)
+        if min_dateobs is not None:
+            min_dateobs = parse_dateobs(min_dateobs, output='mjd')
+            stmt = stmt.where(Image.mjd >= min_dateobs)
+        if max_dateobs is not None:
+            max_dateobs = parse_dateobs(max_dateobs, output='mjd')
+            stmt = stmt.where(Image.mjd <= max_dateobs)
+
+        # filter by exposure time
+        if min_exp_time is not None:
+            stmt = stmt.where(Image.exp_time >= min_exp_time)
+        if max_exp_time is not None:
+            stmt = stmt.where(Image.exp_time <= max_exp_time)
+
+        # filter by seeing FWHM
+        if min_seeing is not None:
+            stmt = stmt.where(Image.fwhm_estimate >= min_seeing)
+        if max_seeing is not None:
+            stmt = stmt.where(Image.fwhm_estimate <= max_seeing)
+
+        # filter by limiting magnitude
+        if max_lim_mag is not None:
+            stmt = stmt.where(Image.lim_mag_estimate <= max_lim_mag)
+        if min_lim_mag is not None:
+            stmt = stmt.where(Image.lim_mag_estimate >= min_lim_mag)
+
+        # filter by airmass
+        if max_airmass is not None:
+            stmt = stmt.where(Image.airmass <= max_airmass)
+        if min_airmass is not None:
+            stmt = stmt.where(Image.airmass >= min_airmass)
+
+        # filter by background
+        if max_background is not None:
+            stmt = stmt.where(Image.bkg_rms_estimate <= max_background)
+        if min_background is not None:
+            stmt = stmt.where(Image.bkg_rms_estimate >= min_background)
+
+        # filter by zero point
+        if max_zero_point is not None:
+            stmt = stmt.where(Image.zero_point_estimate <= max_zero_point)
+        if min_zero_point is not None:
+            stmt = stmt.where(Image.zero_point_estimate >= min_zero_point)
+
+        # filter by provenances
+        provenance_ids = listify(provenance_ids)
+        if provenance_ids is not None:
+            stmt = stmt.where(Image.provenance_id.in_(provenance_ids))
+
+        # filter by image types
+        types = listify(type)
+        if types is not None:
+            int_types = [ImageTypeConverter.to_int(t) for t in types]
+            stmt = stmt.where(Image._type.in_(int_types))
+
+        # sort the images
+        if order_by == 'earliest':
+            stmt = stmt.order_by(Image.mjd)
+        elif order_by == 'latest':
+            stmt = stmt.order_by(sa.desc(Image.mjd))
+        elif order_by == 'quality':
+            stmt = stmt.order_by(
+                sa.desc(Image.lim_mag_estimate - abs(seeing_quality_factor) * Image.fwhm_estimate)
+            )
+        else:
+            raise ValueError(f'Unknown order_by parameter: {order_by}. Use "earliest", "latest" or "quality".')
+
+        return stmt
+
+    @staticmethod
+    def get_image_from_upstreams(images, prov_id=None, session=None):
+        """Finds the combined image that was made from exactly the list of images (with a given provenance). """
+        with SmartSession(session) as session:
+            association = image_upstreams_association_table
+            
+            stmt = sa.select(Image).join(
+                association, Image.id == association.c.downstream_id
+            ).group_by(Image.id).having(
+                sa.func.count(association.c.upstream_id) == len(images)
+            )
+
+            if prov_id is not None:  # pick only those with the right provenance id
+                if isinstance(prov_id, Provenance):
+                    prov_id = prov_id.id
+                stmt = stmt.where(Image.provenance_id == prov_id)
+
+            output = session.scalars(stmt).all()
+            if len(output) > 1:
+                raise ValueError(
+                    f"More than one combined image found with provenance ID {prov_id} and upstreams {images}."
+                )
+            elif len(output) == 0:
+                return None
+
+            return output[0]  # should usually return one Image or None
+
     def get_psf(self):
         """Load the PSF object for this image.
 
@@ -1905,6 +2249,17 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             return self.psf
         if self.new_image is not None:
             return self.new_image.psf
+        return None
+
+    def get_wcs(self):
+        """Load the WCS object for this image.
+
+        If it is a sub image, it will load the WCS from the new image.
+        """
+        if self.wcs is not None:
+            return self.wcs
+        if self.new_image is not None:
+            return self.new_image.wcs
         return None
 
     @property

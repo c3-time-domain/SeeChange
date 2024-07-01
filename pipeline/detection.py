@@ -1,4 +1,3 @@
-import os
 import pathlib
 import random
 import subprocess
@@ -17,7 +16,7 @@ from astropy.io import fits, votable
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import parse_bool
+from util.util import env_as_bool
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -26,7 +25,6 @@ from models.base import FileOnDiskMixin, CODE_ROOT
 from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
-from models.background import Background
 
 from improc.tools import sigma_clipping
 
@@ -46,46 +44,6 @@ class ParsDetector(Parameters):
             ( 'Measure PSF?  If false, will use existing image PSF.  If true, '
               'will measure PSF and put it in image object; will also iterate '
               'on source extraction to get PSF photometry with the returned PSF.' ),
-            critical=True
-        )
-
-        self.background_format = self.add_par(
-            'background_format',
-            'map',
-            str,
-            'Format of the background; one of "map", "scalar", or "polynomial".',
-            critical=True
-        )
-
-        self.background_order = self.add_par(
-            'background_order',
-            2,
-            int,
-            'Order of the polynomial background. Ignored unless background is "polynomial".',
-            critical=True
-        )
-
-        self.background_method = self.add_par(
-            'background_method',
-            'sep',
-            str,
-            'Method to use for background subtraction; currently only "sep" is supported.',
-            critical=True
-        )
-
-        self.background_box_size = self.add_par(
-            'background_box_size',
-            128,
-            int,
-            'Size of the box to use for background estimation in sep.',
-            critical=True
-        )
-
-        self.background_filt_size = self.add_par(
-            'background_filt_size',
-            3,
-            int,
-            'Size of the filter to use for background estimation in sep.',
             critical=True
         )
 
@@ -163,6 +121,12 @@ class ParsDetector(Parameters):
 
     def get_process_name(self):
         return 'detection'
+
+    def require_siblings(self):
+        if self.pars.subtraction:
+            return False
+        else:
+            return True
 
 
 class Detector:
@@ -262,7 +226,7 @@ class Detector:
         if self.pars.subtraction:
             try:
                 t_start = time.perf_counter()
-                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
                     tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -309,7 +273,7 @@ class Detector:
                 ds.detections = detections
 
                 ds.runtimes['detection'] = time.perf_counter() - t_start
-                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
                     ds.memory_usages['detection'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
@@ -322,7 +286,7 @@ class Detector:
             prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
             try:
                 t_start = time.perf_counter()
-                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
                     tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -368,7 +332,7 @@ class Detector:
                 ds.image.fwhm_estimate = psf.fwhm_pixels  # TODO: should we only write if the property is None?
 
                 ds.runtimes['extraction'] = time.perf_counter() - t_start
-                if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+                if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
                     ds.memory_usages['extraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
@@ -987,7 +951,7 @@ class Detector:
         xys = ndimage.center_of_mass(abs(image.data), labels, all_idx)
         x = np.array([xy[1] for xy in xys])
         y = np.array([xy[0] for xy in xys])
-        coords = image.wcs.wcs.pixel_to_world(x, y)
+        coords = image.get_wcs().wcs.pixel_to_world(x, y)
         ra = [c.ra.value for c in coords]
         dec = [c.dec.value for c in coords]
 

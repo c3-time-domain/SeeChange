@@ -113,7 +113,7 @@ class ParsImageAligner(Parameters):
             critical=False,
         )
 
-        self.enforce_no_new_attrs = True
+        self._enforce_no_new_attrs = True
         self.override( kwargs )
 
     def get_process_name(self):
@@ -585,11 +585,45 @@ class ImageAligner:
                     bg.variance = source_image.bg.variance
                 warped_image.bg = bg
 
-            warped_image.psf = source_image.psf
-            warped_image.zp = source_image.zp
-            warped_image.wcs = source_image.wcs
-            # TODO: what about SourceList?
-            # TODO: should these objects be copies of the products, or references to the same objects?
+            # make sure to copy these as new objects into the warped image
+            if source_image.sources is not None:
+                warped_image.sources = source_image.sources.copy()
+                if source_image.sources.data is not None:
+                    warped_image.sources.data = source_image.sources.data.copy()
+
+                warped_image.sources.image = warped_image
+                warped_image.sources.provenance = source_image.sources.provenance
+                warped_image.sources.filepath = None
+                warped_image.sources.md5sum = None
+
+            if source_image.psf is not None:
+                warped_image.psf = source_image.psf.copy()
+                if source_image.psf.data is not None:
+                    warped_image.psf.data = source_image.psf.data.copy()
+                if source_image.psf.header is not None:
+                    warped_image.psf.header = source_image.psf.header.copy()
+                if source_image.psf.info is not None:
+                    warped_image.psf.info = source_image.psf.info
+
+                warped_image.psf.image = warped_image
+                warped_image.psf.provenance = warped_image.provenance
+                warped_image.psf.filepath = None
+                warped_image.psf.md5sum = None
+
+            if warped_image.wcs is not None:
+                warped_image.wcs = source_image.wcs.copy()
+                if warped_image.wcs._wcs is not None:
+                    warped_image.wcs._wcs = source_image.wcs._wcs.deepcopy()
+
+                warped_image.wcs.sources = warped_image.sources
+                warped_image.wcs.provenance = source_image.wcs.provenance
+                warped_image.wcs.filepath = None
+                warped_image.wcs.md5sum = None
+
+            warped_image.zp = source_image.zp.copy()
+            warped_image.zp.sources = warped_image.sources
+            warped_image.zp.provenance = source_image.zp.provenance
+
         else:  # Do the warp
             if self.pars.method == 'swarp':
                 SCLogger.debug( '...aligning with swarp' )

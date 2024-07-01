@@ -3,11 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal
 
-from astropy.io import fits
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 
 from improc.tools import sigma_clipping, make_gaussian, make_cutouts
+
+from tests.conftest import SKIP_WARNING_TESTS
 
 # os.environ['INTERACTIVE'] = '1'  # for diagnostics only
 
@@ -153,12 +154,13 @@ def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cac
 
 
 def test_warnings_and_exceptions(decam_datastore, detector):
-    detector.pars.inject_warnings = 1
+    if not SKIP_WARNING_TESTS:
+        detector.pars.inject_warnings = 1
 
-    with pytest.warns(UserWarning) as record:
-        detector.run(decam_datastore)
-    assert len(record) > 0
-    assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
+        with pytest.warns(UserWarning) as record:
+            detector.run(decam_datastore)
+        assert len(record) > 0
+        assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
 
     detector.pars.inject_warnings = 0
     detector.pars.inject_exceptions = 1

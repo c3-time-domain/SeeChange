@@ -1,20 +1,23 @@
+
 import sqlalchemy as sa
-from sqlalchemy import orm, func
+from sqlalchemy import orm
 
 from models.base import Base, AutoIDMixin, SmartSession
-from models.image import Image
 from models.provenance import Provenance
+from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
 from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 
+from util.util import listify
+
 
 class Reference(Base, AutoIDMixin):
     """
     A table that refers to each reference Image object,
-    based on the validity time range, and the object/field it is targeting.
+    based on the object/field it is targeting.
     The provenance of this table (tagged with the "reference" process)
     will have as its upstream IDs the provenance IDs of the image,
     the source list, the PSF, the WCS, and the zero point.
@@ -74,24 +77,8 @@ class Reference(Base, AutoIDMixin):
         doc="Section ID of the reference image. "
     )
 
-    # this allows choosing a different reference for images taken before/after the validity time range
-    validity_start = sa.Column(
-        sa.DateTime,
-        nullable=True,
-        index=True,
-        doc="The start of the validity time range of this reference image. "
-    )
-
-    validity_end = sa.Column(
-        sa.DateTime,
-        nullable=True,
-        index=True,
-        doc="The end of the validity time range of this reference image. "
-    )
-
     # this badness is in addition to the regular bitflag of the underlying products
     # it can be used to manually kill a reference and replace it with another one
-    # even if they share the same time validity range
     is_bad = sa.Column(
         sa.Boolean,
         nullable=False,
@@ -170,8 +157,10 @@ class Reference(Base, AutoIDMixin):
         if this_object_session is not None:  # if just loaded, should usually have a session!
             self.load_upstream_products(this_object_session)
 
-    def make_provenance(self):
+    def make_provenance(self, parameters=None):
         """Make a provenance for this reference image. """
+        if parameters is None:
+            parameters = {}
         upstreams = [self.image.provenance]
         for att in ['image', 'sources', 'psf', 'bg', 'wcs', 'zp']:
             if getattr(self, att) is not None:
@@ -181,8 +170,8 @@ class Reference(Base, AutoIDMixin):
 
         self.provenance = Provenance(
             code_version=self.image.provenance.code_version,
-            process='reference',
-            parameters={},  # do we need any parameters for a reference's provenance?
+            process='referencing',
+            parameters=parameters,
             upstreams=upstreams,
         )
 
@@ -301,3 +290,89 @@ class Reference(Base, AutoIDMixin):
         new_ref.image = self.image.merge_all(session)
 
         return new_ref
+
+    @classmethod
+    def get_references(
+            cls,
+            ra=None,
+            dec=None,
+            target=None,
+            section_id=None,
+            filter=None,
+            skip_bad=True,
+            provenance_ids=None,
+            session=None
+    ):
+        """Find all references in the specified part of the sky, with the given filter.
+        Can also match specific provenances and will (by default) not return bad references.
+
+        Parameters
+        ----------
+        ra: float or string, optional
+            Right ascension in degrees, or a hexagesimal string (in hours!).
+            If given, must also give the declination.
+        dec: float or string, optional
+            Declination in degrees, or a hexagesimal string (in degrees).
+            If given, must also give the right ascension.
+        target: string, optional
+            Name of the target object or field id.
+            If given, must also provide the section_id.
+            TODO: can we relax this requirement? Issue #320
+        section_id: string, optional
+            Section ID of the reference image.
+            If given, must also provide the target.
+        filter: string, optional
+            Filter of the reference image.
+            If not given, will return references with any filter.
+        provenance_ids: list of strings or Provenance objects, optional
+            List of provenance IDs to match.
+            The references must have a provenance with one of these IDs.
+            If not given, will load all matching references with any provenance.
+        skip_bad: bool
+            Whether to skip bad references. Default is True.
+        session: Session, optional
+            The database session to use.
+            If not given, will open a session and close it at end of function.
+
+        """
+        if target is not None and section_id is not None:
+            if ra is not None or dec is not None:
+                raise ValueError('Cannot provide target/section_id and also ra/dec! ')
+            stmt = sa.select(cls).where(
+                cls.target == target,
+                cls.section_id == str(section_id),
+            )
+        elif target is not None or section_id is not None:
+            raise ValueError("Must provide both target and section_id, or neither.")
+
+        if ra is not None and dec is not None:
+            stmt = sa.select(cls).where(
+                cls.image.has(Image.containing(ra, dec))
+            )
+        elif ra is not None or dec is not None:
+            raise ValueError("Must provide both ra and dec, or neither.")
+
+        if ra is None and target is None:  # the above also implies the dec and section_id are also missing
+            raise ValueError("Must provide either ra and dec, or target and section_id.")
+
+        if filter is not None:
+            stmt = stmt.where(cls.filter == filter)
+
+        if skip_bad:
+            stmt = stmt.where(cls.is_bad.is_(False))
+
+        provenance_ids = listify(provenance_ids)
+
+        if provenance_ids is not None:
+            for i, prov in enumerate(provenance_ids):
+                if isinstance(prov, Provenance):
+                    provenance_ids[i] = prov.id
+                elif not isinstance(prov, str):
+                    raise ValueError(f"Provenance ID must be a string or a Provenance object, not {type(prov)}.")
+
+            stmt = stmt.where(cls.provenance_id.in_(provenance_ids))
+
+        with SmartSession(session) as session:
+            return session.scalars(stmt).all()
+
+

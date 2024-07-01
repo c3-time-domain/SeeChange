@@ -17,9 +17,9 @@ from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.report import Report
 
-from util.logger import SCLogger
-
 from pipeline.top_level import Pipeline
+
+from tests.conftest import SKIP_WARNING_TESTS
 
 
 def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session, ds):
@@ -119,21 +119,19 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session
     assert det is not None
     assert ds.detections.id == det.id
 
-    # find the Cutouts list
+    # find the Cutouts
     cutouts = session.scalars(
         sa.select(Cutouts).where(
             Cutouts.sources_id == det.id,
-            Cutouts.provenance_id == ds.cutouts[0].provenance_id,
+            Cutouts.provenance_id == ds.cutouts.provenance_id,
         )
-    ).all()
-    assert len(cutouts) > 0
-    assert len(ds.cutouts) == len(cutouts)
-    assert set([c.id for c in ds.cutouts]) == set([c.id for c in cutouts])
+    ).first()
+    assert ds.cutouts.id == cutouts.id
 
     # Measurements
     measurements = session.scalars(
         sa.select(Measurements).where(
-            Measurements.cutouts_id.in_([c.id for c in cutouts]),
+            Measurements.cutouts_id == cutouts.id,
             Measurements.provenance_id == ds.measurements[0].provenance_id,
         )
     ).all()
@@ -172,16 +170,6 @@ def test_parameters( test_config ):
         'cutting': { 'cutout_size': 666 },
         'measuring': { 'outlier_sigma': 3.5 }
     }
-    pipelinemodule = {
-        'preprocessing': 'preprocessor',
-        'extraction': 'extractor',
-        'astro_cal': 'astrometor',
-        'photo_cal': 'photometor',
-        'subtraction': 'subtractor',
-        'detection': 'detector',
-        'cutting': 'cutter',
-        'measuring': 'measurer'
-    }
 
     def check_override( new_values_dict, pars ):
         for key, value in new_values_dict.items():
@@ -201,15 +189,30 @@ def test_parameters( test_config ):
     assert check_override(overrides['measuring'], pipeline.measurer.pars)
 
 
-def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, archive):
+def test_running_without_reference(decam_exposure, decam_refset, decam_default_calibrators, pipeline_for_tests):
+    p = pipeline_for_tests
+    p.subtractor.pars.refset = 'test_refset_decam'  # pointing out this ref set doesn't mean we have an actual reference
+    p.pars.save_before_subtraction = True  # need this so images get saved even though it crashes on "no reference"
+
+    with pytest.raises(ValueError, match='Cannot find a reference image corresponding to.*'):
+        ds = p.run(decam_exposure, 'N1')
+        ds.reraise()
+
+    # make sure the data is saved
+    with SmartSession() as session:
+        im = session.scalars(sa.select(Image).where(Image.id == ds.image.id)).first()
+        assert im is not None
+
+
+def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
     """Test that the pipeline runs end-to-end."""
     exposure = decam_exposure
 
     ref = decam_reference
     sec_id = ref.section_id
     try:  # cleanup the file at the end
-        p = Pipeline()
-        p.pars.save_before_subtraction = False
+        p = pipeline_for_tests
+        p.subtractor.pars.refset = 'test_refset_decam'
         assert p.extractor.pars.threshold != 3.14
         assert p.detector.pars.threshold != 3.14
 
@@ -276,7 +279,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, a
         shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
 
 
-def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, archive):
+def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
     """
     Test that adding a bitflag to the exposure propagates to all downstreams as they are created
     Does not check measurements, as they do not have the HasBitflagBadness Mixin.
@@ -287,6 +290,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
 
     try:  # cleanup the file at the end
         p = Pipeline()
+        p.subtractor.pars.refset = 'test_refset_decam'
         p.pars.save_before_subtraction = False
         exposure.badness = 'banding'  # add a bitflag to check for propagation
 
@@ -302,8 +306,9 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.zp._upstream_bitflag == 2
         assert ds.sub_image._upstream_bitflag == 2
         assert ds.detections._upstream_bitflag == 2
-        for cutout in ds.cutouts:   # cutouts is a list of cutout objects
-            assert cutout._upstream_bitflag == 2
+        assert ds.cutouts._upstream_bitflag == 2
+        for m in ds.measurements:
+            assert m._upstream_bitflag == 2
 
         # test part 2: Add a second bitflag partway through and check it propagates to downstreams
 
@@ -325,8 +330,9 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.zp._upstream_bitflag == desired_bitflag
         assert ds.sub_image._upstream_bitflag == desired_bitflag
         assert ds.detections._upstream_bitflag == desired_bitflag
-        for cutout in ds.cutouts:
-            assert cutout._upstream_bitflag == desired_bitflag
+        assert ds.cutouts._upstream_bitflag == desired_bitflag
+        for m in ds.measurements:
+            assert m._upstream_bitflag == desired_bitflag
         assert ds.image.bitflag == 2  # not in the downstream of sources
 
         # test part 3: test update_downstream_badness() function by adding and removing flags
@@ -354,8 +360,9 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
             assert ds.zp.bitflag == desired_bitflag
             assert ds.sub_image.bitflag == desired_bitflag
             assert ds.detections.bitflag == desired_bitflag
-            for cutout in ds.cutouts:
-                assert cutout.bitflag == desired_bitflag
+            assert ds.cutouts.bitflag == desired_bitflag
+            for m in ds.measurements:
+                assert m.bitflag == desired_bitflag
 
             # remove the bitflag and check that it disappears in downstreams
             ds.image._bitflag = 0  # remove 'bad subtraction'
@@ -371,8 +378,9 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
             assert ds.zp.bitflag == desired_bitflag
             assert ds.sub_image.bitflag == desired_bitflag
             assert ds.detections.bitflag == desired_bitflag
-            for cutout in ds.cutouts:
-                assert cutout.bitflag == desired_bitflag
+            assert ds.cutouts.bitflag == desired_bitflag
+            for m in ds.measurements:
+                assert m.bitflag == desired_bitflag
 
     finally:
         if 'ds' in locals():
@@ -397,6 +405,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
 
     try:  # cleanup the file at the end
         p = Pipeline()
+        p.subtractor.pars.refset = 'test_refset_decam'
         ds = p.run(exposure, sec_id)
 
         # commit to DB using this session
@@ -425,14 +434,10 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
                 ds.zp.id,
             ])
             assert [upstream.id for upstream in ds.detections.get_upstreams(session)] == [ds.sub_image.id]
-            for cutout in ds.cutouts:
-                assert [upstream.id for upstream in cutout.get_upstreams(session)] == [ds.detections.id]
-            #  measurements are a challenge to make sure the *right* measurement is with the right cutout
-            # for the time being, check that the measurements upstream is one of the cutouts
-            cutout_ids = np.unique([cutout.id for cutout in ds.cutouts])
+            assert [upstream.id for upstream in ds.cutouts.get_upstreams(session)] == [ds.detections.id]
+
             for measurement in ds.measurements:
-                m_upstream_ids =  np.array([upstream.id for upstream in measurement.get_upstreams(session)])
-                assert np.all(np.isin(m_upstream_ids, cutout_ids))
+                assert [upstream.id for upstream in measurement.get_upstreams(session)] == [ds.cutouts.id]
 
             # test get_downstreams
             assert [downstream.id for downstream in ds.exposure.get_downstreams(session)] == [ds.image.id]
@@ -449,14 +454,9 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [downstream.id for downstream in ds.wcs.get_downstreams(session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.zp.get_downstreams(session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.sub_image.get_downstreams(session)] == [ds.detections.id]
-            assert np.all(np.isin([downstream.id for downstream in ds.detections.get_downstreams(session)], cutout_ids))
-            # basic test: check the downstreams of cutouts is one of the measurements
-            measurement_ids = np.unique([measurement.id for measurement in ds.measurements])
-            for cutout in ds.cutouts:
-                c_downstream_ids = [downstream.id for downstream in cutout.get_downstreams(session)]
-                assert np.all(np.isin(c_downstream_ids, measurement_ids))
-            for measurement in ds.measurements:
-                assert [downstream.id for downstream in measurement.get_downstreams(session)] == []
+            assert [downstream.id for downstream in ds.detections.get_downstreams(session)] == [ds.cutouts.id]
+            measurement_ids = set([measurement.id for measurement in ds.measurements])
+            assert set([downstream.id for downstream in ds.cutouts.get_downstreams(session)]) == measurement_ids
 
     finally:
         if 'ds' in locals():
@@ -478,8 +478,8 @@ def test_datastore_delete_everything(decam_datastore):
     sub_paths = sub.get_fullpath(as_list=True)
     det = decam_datastore.detections
     det_path = det.get_fullpath()
-    cutouts_list = decam_datastore.cutouts
-    cutouts_file_path = cutouts_list[0].get_fullpath()
+    cutouts = decam_datastore.cutouts
+    cutouts_file_path = cutouts.get_fullpath()
     measurements_list = decam_datastore.measurements
 
     # make sure we can delete everything
@@ -508,15 +508,17 @@ def test_datastore_delete_everything(decam_datastore):
         assert session.scalars(sa.select(PSF).where(PSF.id == psf.id)).first() is None
         assert session.scalars(sa.select(Image).where(Image.id == sub.id)).first() is None
         assert session.scalars(sa.select(SourceList).where(SourceList.id == det.id)).first() is None
-        assert session.scalars(sa.select(Cutouts).where(Cutouts.id == cutouts_list[0].id)).first() is None
+        assert session.scalars(sa.select(Cutouts).where(Cutouts.id == cutouts.id)).first() is None
         if len(measurements_list) > 0:
             assert session.scalars(
                 sa.select(Measurements).where(Measurements.id == measurements_list[0].id)
             ).first() is None
 
 
-def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, decam_reference):
+def test_provenance_tree(pipeline_for_tests, decam_refset, decam_exposure, decam_datastore, decam_reference):
     p = pipeline_for_tests
+    p.subtractor.pars.refset = 'test_refset_decam'
+
     provs = p.make_provenance_tree(decam_exposure)
     assert isinstance(provs, dict)
 
@@ -531,7 +533,7 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
     assert ds.zp.provenance_id == provs['extraction'].id
     assert ds.sub_image.provenance_id == provs['subtraction'].id
     assert ds.detections.provenance_id == provs['detection'].id
-    assert ds.cutouts[0].provenance_id == provs['cutting'].id
+    assert ds.cutouts.provenance_id == provs['cutting'].id
     assert ds.measurements[0].provenance_id == provs['measuring'].id
 
     with SmartSession() as session:
@@ -547,80 +549,90 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
 def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_tests):
     from pipeline.top_level import PROCESS_OBJECTS
     p = pipeline_for_tests
-    obj_to_process_name = {
-        'preprocessor': 'preprocessing',
-        'extractor': 'detection',
-        'backgrounder': 'backgrounding',
-        'astrometor': 'astro_cal',
-        'photometor': 'photo_cal',
-        'subtractor': 'subtraction',
-        'detector': 'detection',
-        'cutter': 'cutting',
-        'measurer': 'measuring',
-    }
-    for process, objects in PROCESS_OBJECTS.items():
-        if isinstance(objects, str):
-            objects = [objects]
-        elif isinstance(objects, dict):
-            objects = list(set(objects.values()))  # e.g., "extractor", "astrometor", "photometor"
+    p.subtractor.pars.refset = 'test_refset_decam'
 
-        # first reset all warnings and errors
-        for obj in objects:
-            for _, objects2 in PROCESS_OBJECTS.items():
-                if isinstance(objects2, str):
-                    objects2 = [objects2]
-                elif isinstance(objects2, dict):
-                    objects2 = list(set(objects2.values()))  # e.g., "extractor", "astrometor", "photometor"
-                for obj2 in objects2:
-                    getattr(p, obj2).pars.inject_exceptions = False
-                    getattr(p, obj2).pars.inject_warnings = False
+    try:
+        obj_to_process_name = {
+            'preprocessor': 'preprocessing',
+            'extractor': 'detection',
+            'backgrounder': 'backgrounding',
+            'astrometor': 'astro_cal',
+            'photometor': 'photo_cal',
+            'subtractor': 'subtraction',
+            'detector': 'detection',
+            'cutter': 'cutting',
+            'measurer': 'measuring',
+        }
+        for process, objects in PROCESS_OBJECTS.items():
+            if isinstance(objects, str):
+                objects = [objects]
+            elif isinstance(objects, dict):
+                objects = list(set(objects.values()))  # e.g., "extractor", "astrometor", "photometor"
 
-            # set the warning:
-            getattr(p, obj).pars.inject_warnings = True
+            # first reset all warnings and errors
+            for obj in objects:
+                for _, objects2 in PROCESS_OBJECTS.items():
+                    if isinstance(objects2, str):
+                        objects2 = [objects2]
+                    elif isinstance(objects2, dict):
+                        objects2 = list(set(objects2.values()))  # e.g., "extractor", "astrometor", "photometor"
+                    for obj2 in objects2:
+                        getattr(p, obj2).pars.inject_exceptions = False
+                        getattr(p, obj2).pars.inject_warnings = False
 
-            # run the pipeline
-            ds = p.run(decam_datastore)
-            expected = (f"{process}: <class 'UserWarning'> Warning injected by pipeline parameters "
-                        f"in process '{obj_to_process_name[obj]}'")
-            assert expected in ds.report.warnings
+                if not SKIP_WARNING_TESTS:
+                    # set the warning:
+                    getattr(p, obj).pars.inject_warnings = True
 
-            # these are used to find the report later on
-            exp_id = ds.exposure_id
-            sec_id = ds.section_id
-            prov_id = ds.report.provenance_id
+                    # run the pipeline
+                    ds = p.run(decam_datastore)
+                    expected = (f"{process}: <class 'UserWarning'> Warning injected by pipeline parameters "
+                                f"in process '{obj_to_process_name[obj]}'")
+                    assert expected in ds.report.warnings
 
-            # set the error instead
-            getattr(p, obj).pars.inject_warnings = False
-            getattr(p, obj).pars.inject_exceptions = True
-            # run the pipeline again, this time with an exception
+                # these are used to find the report later on
+                exp_id = ds.exposure_id
+                sec_id = ds.section_id
+                prov_id = ds.report.provenance_id
 
-            with pytest.raises(
-                    RuntimeError,
-                    match=f"Exception injected by pipeline parameters in process '{obj_to_process_name[obj]}'"
-            ):
-                ds = p.run(decam_datastore)
+                # set the error instead
+                getattr(p, obj).pars.inject_warnings = False
+                getattr(p, obj).pars.inject_exceptions = True
+                # run the pipeline again, this time with an exception
 
-            # fetch the report object
-            with SmartSession() as session:
-                reports = session.scalars(
-                    sa.select(Report).where(
-                        Report.exposure_id == exp_id,
-                        Report.section_id == sec_id,
-                        Report.provenance_id == prov_id
-                    ).order_by(Report.start_time.desc())
-                ).all()
-                report = reports[0]  # the last report is the one we just generated
-                assert len(reports) - 1 == report.num_prev_reports
-                assert not report.success
-                assert report.error_step == process
-                assert report.error_type == 'RuntimeError'
-                assert 'Exception injected by pipeline parameters' in report.error_message
+                with pytest.raises(
+                        RuntimeError,
+                        match=f"Exception injected by pipeline parameters in process '{obj_to_process_name[obj]}'"
+                ):
+                    ds = p.run(decam_datastore)
+                    ds.reraise()
+
+                # fetch the report object
+                with SmartSession() as session:
+                    reports = session.scalars(
+                        sa.select(Report).where(
+                            Report.exposure_id == exp_id,
+                            Report.section_id == sec_id,
+                            Report.provenance_id == prov_id
+                        ).order_by(Report.start_time.desc())
+                    ).all()
+                    report = reports[0]  # the last report is the one we just generated
+                    assert len(reports) - 1 == report.num_prev_reports
+                    assert not report.success
+                    assert report.error_step == process
+                    assert report.error_type == 'RuntimeError'
+                    assert 'Exception injected by pipeline parameters' in report.error_message
+
+    finally:
+        if 'ds' in locals():
+            ds.read_exception()
+            ds.delete_everything()
 
 
 def test_multiprocessing_make_provenances_and_exposure(decam_exposure, decam_reference, pipeline_for_tests):
     from multiprocessing import SimpleQueue, Process
     process_list = []
-
+    pipeline_for_tests.subtractor.pars.refset = 'test_refset_decam'
     def make_provenances(exposure, pipeline, queue):
         provs = pipeline.make_provenance_tree(exposure)
         queue.put(provs)

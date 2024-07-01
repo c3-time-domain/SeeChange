@@ -33,10 +33,6 @@ from models.provenance import Provenance
 from models.enums_and_bitflags import (
     ImageFormatConverter,
     ImageTypeConverter,
-    image_badness_inverse,
-    data_badness_dict,
-    string_to_bitflag,
-    bitflag_to_string,
 )
 
 # columns key names that must be loaded from the header for each Exposure
@@ -49,7 +45,8 @@ EXPOSURE_COLUMN_NAMES = [
     'exp_time',
     'filter',
     'telescope',
-    'instrument'
+    'instrument',
+    'airmass',
 ]
 
 # these are header keywords that are not stored as columns of the Exposure table,
@@ -256,6 +253,8 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
     filter = sa.Column(sa.Text, nullable=True, index=True, doc="Name of the filter used to make this exposure. ")
 
+    airmass = sa.Column(sa.REAL, nullable=True, index=True, doc="Airmass taken from the header of the exposure. ")
+
     @property
     def filter_short(self):
         if self.filter is None:
@@ -368,7 +367,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         if self.filepath is None:
             # in this case, the instrument must have been given
             if self.provenance is None:
-                self.make_provenance()  # a default provenance for exposures
+                self.provenance = self.make_provenance(self.instrument)  # a default provenance for exposures
 
             if invent_filepath:
                 self.filepath = self.invent_filepath()
@@ -380,7 +379,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
         # this can happen if the instrument is not given, but the filepath is
         if self.provenance is None:
-            self.make_provenance()  # a default provenance for exposures
+            self.provenance = self.make_provenance(self.instrument)  # a default provenance for exposures
 
         # instrument_obj is lazy loaded when first getting it
         if current_file is None:
@@ -393,7 +392,8 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
         self.calculate_coordinates()  # galactic and ecliptic coordinates
 
-    def make_provenance(self):
+    @classmethod
+    def make_provenance(cls, instrument):
         """Generate a Provenance for this exposure.
 
         The provenance will have only one parameter,
@@ -405,12 +405,14 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         the upstream images when e.g., making a coadd).
         """
         codeversion = Provenance.get_code_version()
-        self.provenance = Provenance(
+        prov = Provenance(
             code_version=codeversion,
             process='load_exposure',
-            parameters={'instrument': self.instrument},
+            parameters={'instrument': instrument},
             upstreams=[],
         )
+
+        return prov
 
     @sa.orm.reconstructor
     def init_on_load(self):

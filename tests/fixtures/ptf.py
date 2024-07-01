@@ -25,13 +25,12 @@ from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
 
-from pipeline.coaddition import CoaddPipeline
-
 from improc.alignment import ImageAligner
 
 from util.retrydownload import retry_download
 from util.logger import SCLogger
 from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
+from util.util import env_as_bool
 
 
 @pytest.fixture(scope='session')
@@ -51,7 +50,7 @@ def ptf_bad_pixel_map(download_url, data_dir, ptf_cache_dir):
     data_dir = os.path.join(data_dir, 'PTF_calibrators')
     data_path = os.path.join(data_dir, filename)
 
-    if os.getenv( "LIMIT_CACHE_USAGE" ):
+    if env_as_bool( "LIMIT_CACHE_USAGE" ):
         if not os.path.isfile( data_path ):
             os.makedirs( os.path.dirname( data_path ), exist_ok=True )
             retry_download( url + filename, data_path )
@@ -110,7 +109,7 @@ def ptf_downloader(provenance_preprocessing, download_url, data_dir, ptf_cache_d
         # url = f'https://portal.nersc.gov/project/m2218/pipeline/test_images/{filename}'
         url = os.path.join(download_url, 'PTF/10cwm', filename)
 
-        if os.getenv( "LIMIT_CACHE_USAGE" ):
+        if env_as_bool( "LIMIT_CACHE_USAGE" ):
             retry_download( url, destination )
             if not os.path.isfile( destination ):
                 raise FileNotFoundError( f"Can't read {destination}.  It should have been downloaded!" )
@@ -174,7 +173,7 @@ def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_b
         11,
         cache_dir=ptf_cache_dir,
         cache_base_name='187/PTF_20110429_040004_11_R_Sci_BNKEKA',
-        overrides={'extraction': {'threshold': 5}},
+        overrides={'extraction': {'threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
         bad_pixel_map=ptf_bad_pixel_map,
     )
     yield ds
@@ -211,7 +210,7 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
     def factory(start_date='2009-04-04', end_date='2013-03-03', max_images=None):
         # see if any of the cache names were saved to a manifest file
         cache_names = {}
-        if (   ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+        if (   ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and
                ( os.path.isfile(os.path.join(ptf_cache_dir, 'manifest.txt')) )
             ):
             with open(os.path.join(ptf_cache_dir, 'manifest.txt')) as f:
@@ -250,9 +249,10 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
                     bad_pixel_map=ptf_bad_pixel_map,
                 )
 
-                if (    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
-                        ( hasattr(ds, 'cache_base_name') ) and ( ds.cache_base_name is not None )
-                    ):
+                if (
+                        not env_as_bool( "LIMIT_CACHE_USAGE" ) and
+                        hasattr(ds, 'cache_base_name') and ds.cache_base_name is not None
+                ):
                     cache_name = ds.cache_base_name
                     if cache_name.startswith(ptf_cache_dir):
                         cache_name = cache_name[len(ptf_cache_dir) + 1:]
@@ -323,7 +323,7 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
     cache_dir = os.path.join(ptf_cache_dir, 'aligned_images')
 
     # try to load from cache
-    if (    ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and
+    if (    ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and
             ( os.path.isfile(os.path.join(cache_dir, 'manifest.txt')) )
         ):
         with open(os.path.join(cache_dir, 'manifest.txt')) as f:
@@ -359,10 +359,12 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
             image.save()
             filepath = copy_to_cache(image, cache_dir)
             if image.psf.filepath is None:  # save only PSF objects that haven't been saved yet
+                image.psf.provenance = coadd_image.upstream_images[0].psf.provenance
                 image.psf.save(overwrite=True)
             if image.bg.filepath is None:  # save only Background objects that haven't been saved yet
+                image.bg.provenance = coadd_image.upstream_images[0].bg.provenance
                 image.bg.save(overwrite=True)
-            if not os.getenv( "LIMIT_CACHE_USAGE" ):
+            if not env_as_bool( "LIMIT_CACHE_USAGE" ):
                 copy_to_cache(image.psf, cache_dir)
                 copy_to_cache(image.bg, cache_dir)
                 copy_to_cache(image.zp, cache_dir, filepath=filepath[:-len('.image.fits.json')]+'.zp.json')
@@ -370,7 +372,7 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
             psf_paths.append(image.psf.filepath)
             bg_paths.append(image.bg.filepath)
 
-        if not os.getenv( "LIMIT_CACHE_USAGE" ):
+        if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             os.makedirs(cache_dir, exist_ok=True)
             with open(os.path.join(cache_dir, 'manifest.txt'), 'w') as f:
                 for filename, psf_path, bg_path in zip(filenames, psf_paths, bg_paths):
@@ -383,7 +385,8 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
     if 'output_images' in locals():
         for image in output_images:
             image.psf.delete_from_disk_and_database()
-            image.delete_from_disk_and_database()
+            image.bg.delete_from_disk_and_database()
+            image.delete_from_disk_and_database(remove_downstreams=True)
 
     if 'coadd_image' in locals():
         coadd_image.delete_from_disk_and_database()
@@ -395,10 +398,6 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
                 action='ignore',
                 message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
             )
-            # warnings.filterwarnings(
-            #     'ignore',
-            #     message=r".*Object of type .* not in session, .* operation along .* won't proceed.*"
-            # )
             for image in ptf_reference_images:
                 image = session.merge(image)
                 image.exposure.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
@@ -408,14 +407,15 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
 
 @pytest.fixture
 def ptf_ref(
+        refmaker_factory,
         ptf_reference_images,
         ptf_aligned_images,
-        coadd_pipeline_for_tests,
         ptf_cache_dir,
         data_dir,
         code_version
 ):
-    pipe = coadd_pipeline_for_tests
+    refmaker = refmaker_factory('test_ref_ptf', 'PTF')
+    pipe = refmaker.coadd_pipeline
 
     # build up the provenance tree
     with SmartSession() as session:
@@ -450,7 +450,7 @@ def ptf_ref(
     ]
     filenames = [os.path.join(ptf_cache_dir, cache_base_name) + f'.{ext}.json' for ext in extensions]
 
-    if ( not os.getenv( "LIMIT_CACHE_USAGE" ) and
+    if ( not env_as_bool( "LIMIT_CACHE_USAGE" ) and
          all([os.path.isfile(filename) for filename in filenames])
     ):  # can load from cache
         # get the image:
@@ -500,7 +500,7 @@ def ptf_ref(
         pipe.datastore.save_and_commit()
         coadd_image = pipe.datastore.image
 
-        if not os.getenv( "LIMIT_CACHE_USAGE" ):
+        if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             # save all products into cache:
             copy_to_cache(pipe.datastore.image, ptf_cache_dir)
             copy_to_cache(pipe.datastore.sources, ptf_cache_dir)
@@ -513,7 +513,7 @@ def ptf_ref(
         coadd_image = coadd_image.merge_all(session)
 
         ref = Reference(image=coadd_image)
-        ref.make_provenance()
+        ref.make_provenance(parameters=refmaker.pars.get_critical_pars())
         ref.provenance.parameters['test_parameter'] = 'test_value'
         ref.provenance.is_testing = True
         ref.provenance.update_id()
@@ -531,28 +531,91 @@ def ptf_ref(
 
 
 @pytest.fixture
+def ptf_ref_offset(ptf_ref):
+    with SmartSession() as session:
+        offset_image = Image.copy_image(ptf_ref.image)
+        offset_image.ra_corner_00 -= 0.5
+        offset_image.ra_corner_01 -= 0.5
+        offset_image.ra_corner_10 -= 0.5
+        offset_image.ra_corner_11 -= 0.5
+        offset_image.filepath = ptf_ref.image.filepath + '_offset'
+        offset_image.provenance = ptf_ref.image.provenance
+        offset_image.md5sum = uuid.uuid4()  # spoof this so we don't have to save to archive
+
+        new_ref = Reference()
+        new_ref.image = offset_image
+        pars = ptf_ref.provenance.parameters.copy()
+        pars['test_parameter'] = uuid.uuid4().hex
+        prov = Provenance(
+            process='referencing',
+            parameters=pars,
+            upstreams=ptf_ref.provenance.upstreams,
+            code_version=ptf_ref.provenance.code_version,
+            is_testing=True,
+        )
+        new_ref.provenance = prov
+        new_ref = session.merge(new_ref)
+        session.commit()
+
+    yield new_ref
+
+    new_ref.image.delete_from_disk_and_database()
+
+
+@pytest.fixture(scope='session')
+def ptf_refset(refmaker_factory):
+    refmaker = refmaker_factory('test_refset_ptf', 'PTF')
+    refmaker.pars.save_new_refs = True
+
+    refmaker.make_refset()  # this makes a refset without making any references
+
+    yield refmaker.refset
+
+    # delete all the references and the refset
+    with SmartSession() as session:
+        for prov in refmaker.refset.provenances:
+            refs = session.scalars(sa.select(Reference).where(Reference.provenance_id == prov.id)).all()
+            for ref in refs:
+                session.delete(ref)
+
+        session.delete(refmaker.refset)
+
+        session.commit()
+
+
+@pytest.fixture
 def ptf_subtraction1(ptf_ref, ptf_supernova_images, subtractor, ptf_cache_dir):
+    subtractor.pars.refset = 'test_refset_ptf'
+    upstreams = [
+        ptf_ref.image.provenance,
+        ptf_ref.image.sources.provenance,
+        ptf_supernova_images[0].provenance,
+        ptf_supernova_images[0].sources.provenance,
+    ]
+    prov = Provenance(
+        process='subtraction',
+        parameters=subtractor.pars.get_critical_pars(),
+        upstreams=upstreams,
+        code_version=ptf_ref.image.provenance.code_version,
+        is_testing=True,
+    )
+    cache_path = os.path.join(
+        ptf_cache_dir,
+        f'187/PTF_20100216_075004_11_R_Diff_{prov.id[:6]}_u-iig7a2.image.fits.json'
+    )
 
-    cache_path = os.path.join(ptf_cache_dir, '187/PTF_20100216_075004_11_R_Diff_VXUBFA_u-7ogkop.image.fits.json')
-
-    if ( not os.getenv( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_path) ):  # try to load this from cache
+    if ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_path) ):  # try to load this from cache
         im = copy_from_cache(Image, ptf_cache_dir, cache_path)
         im.upstream_images = [ptf_ref.image, ptf_supernova_images[0]]
         im.ref_image_id = ptf_ref.image.id
-        prov = Provenance(
-            process='subtraction',
-            parameters=subtractor.pars.get_critical_pars(),
-            upstreams=im.get_upstream_provenances(),
-            code_version=ptf_ref.image.provenance.code_version,
-            is_testing=True,
-        )
+
         im.provenance = prov
 
     else:  # cannot find it on cache, need to produce it, using other fixtures
         ds = subtractor.run(ptf_supernova_images[0])
         ds.sub_image.save()
 
-        if not os.getenv( "LIMIT_CACHE_USAGE" ) :
+        if not env_as_bool( "LIMIT_CACHE_USAGE" ) :
             copy_to_cache(ds.sub_image, ptf_cache_dir)
         im = ds.sub_image
 

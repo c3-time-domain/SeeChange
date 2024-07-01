@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from models.base import CODE_ROOT, safe_mkdir
 from improc.simulator import Simulator
 from improc.zogy import zogy_subtract
-from util.logger import SCLogger
+from util.util import env_as_bool
 
 imsize = 256
 
@@ -158,7 +158,7 @@ def test_subtraction_no_new_sources():
     assert zogy_failures == 0
 
 
-@pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_subtraction_snr_histograms(blocking_plots):
     background = 5.0
     seeing = 3.0

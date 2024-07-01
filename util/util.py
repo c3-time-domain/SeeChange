@@ -1,11 +1,8 @@
-import pathlib
 import collections.abc
 
-import sys
 import os
 import pathlib
 import git
-from collections import defaultdict
 import numpy as np
 from datetime import datetime
 import dateutil.parser
@@ -15,8 +12,6 @@ import sqlalchemy as sa
 
 from astropy.io import fits
 from astropy.time import Time
-from astropy import units as u
-from astropy.coordinates import SkyCoord
 
 from models.base import SmartSession, safe_mkdir
 from util.logger import SCLogger
@@ -167,7 +162,7 @@ def parse_dateobs(dateobs=None, output='datetime'):
         The dateobs to parse.
     output: str
         Choose one of the output formats:
-        'datetime', 'Time', 'float', 'str'.
+        'datetime', 'Time', 'float', 'mjd', 'str'.
 
     Returns
     -------
@@ -194,7 +189,7 @@ def parse_dateobs(dateobs=None, output='datetime'):
         return dateobs.datetime
     elif output == 'Time':
         return dateobs
-    elif output == 'float':
+    elif output in ['float', 'mjd']:
         return dateobs.mjd
     elif output == 'str':
         return dateobs.isot
@@ -393,6 +388,8 @@ def parse_bool(text):
     """Check if a string of text that represents a boolean value is True or False."""
     if text is None:
         return False
+    if isinstance(text, bool):
+        return text
     elif text.lower() in ['true', 'yes', '1']:
         return True
     elif text.lower() in ['false', 'no', '0']:
@@ -485,4 +482,6 @@ def as_datetime( string ):
             SCLogger.error( f'Exception in asDateTime: {e}\n' )
         raise ValueError( f'Error, {string} is not a valid date and time.' )
 
-
+def env_as_bool(varname):
+    """Parse an environmental variable as a boolean."""
+    return parse_bool(os.getenv(varname))

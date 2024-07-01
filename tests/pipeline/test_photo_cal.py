@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 
 from models.base import CODE_ROOT
 
+from tests.conftest import SKIP_WARNING_TESTS
+
 # os.environ['INTERACTIVE'] = '1'  # for diagnostics only
 
 
@@ -66,12 +68,13 @@ def test_decam_photo_cal( decam_datastore, photometor, blocking_plots ):
 
 
 def test_warnings_and_exceptions(decam_datastore, photometor):
-    photometor.pars.inject_warnings = 1
+    if not SKIP_WARNING_TESTS:
+        photometor.pars.inject_warnings = 1
 
-    with pytest.warns(UserWarning) as record:
-        photometor.run(decam_datastore)
-    assert len(record) > 0
-    assert any("Warning injected by pipeline parameters in process 'photo_cal'." in str(w.message) for w in record)
+        with pytest.warns(UserWarning) as record:
+            photometor.run(decam_datastore)
+        assert len(record) > 0
+        assert any("Warning injected by pipeline parameters in process 'photo_cal'." in str(w.message) for w in record)
 
     photometor.pars.inject_warnings = 0
     photometor.pars.inject_exceptions = 1

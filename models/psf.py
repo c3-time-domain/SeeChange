@@ -541,13 +541,15 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.provenance import Provenance
 
         with SmartSession(session) as session:
-            subs = session.scalars(
-                sa.select(Image).where(
-                    Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-                    Image.upstream_images.any(Image.id == self.image_id),
-                )
-            ).all()
-            output = subs
+            output = []
+            if self.image_id is not None and self.provenance is not None:
+                subs = session.scalars(
+                    sa.select(Image).where(
+                        Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
+                        Image.upstream_images.any(Image.id == self.image_id),
+                    )
+                ).all()
+                output += subs
 
             if siblings:
                 # There should be exactly one source list, wcs, and zp per PSF, with the same provenance

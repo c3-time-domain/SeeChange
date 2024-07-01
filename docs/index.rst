@@ -17,7 +17,7 @@ Welcome to SeeChange's documentation!
    pipeline
    instruments
    versioning
-   coadd_pipeline
+   references
    testing
    contribution
    miscellaneous

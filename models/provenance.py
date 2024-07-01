@@ -298,8 +298,7 @@ class Provenance(Base):
             super().__setattr__(key, value)
 
     def update_id(self):
-        """
-        Update the id using the code_version, parameters and upstream_hashes.
+        """Update the id using the code_version, process, parameters and upstream_hashes.
         """
         if self.process is None or self.parameters is None or self.code_version is None:
             raise ValueError('Provenance must have process, code_version, and parameters defined. ')
@@ -313,6 +312,13 @@ class Provenance(Base):
         json_string = json.dumps(superdict, sort_keys=True)
 
         self.id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
+
+    def get_combined_upstream_hash(self):
+        """Make a single hash from the hashes of the upstreams.
+        This is useful for identifying RefSets.
+        """
+        json_string = json.dumps(self.upstream_hashes, sort_keys=True)
+        return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
     @classmethod
     def get_code_version(cls, session=None):

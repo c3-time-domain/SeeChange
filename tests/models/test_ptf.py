@@ -24,7 +24,7 @@ def test_ptf_datastore(ptf_datastore):
     assert isinstance(ptf_datastore.zp, ZeroPoint)
     assert isinstance(ptf_datastore.sub_image, Image)
     assert isinstance(ptf_datastore.detections, SourceList)
-    assert all([isinstance(c, Cutouts) for c in ptf_datastore.cutouts])
+    assert isinstance(ptf_datastore.cutouts, Cutouts)
     assert all([isinstance(m, Measurements) for m in ptf_datastore.measurements])
 
     # using that bad row of pixels from the mask image

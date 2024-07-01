@@ -159,12 +159,14 @@ class ZeroPoint(Base, AutoIDMixin, HasBitFlagBadness):
         from models.provenance import Provenance
 
         with SmartSession(session) as session:
-            subs = session.scalars(
-                sa.select(Image).where(
-                    Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id))
-                )
-            ).all()
-            output = subs
+            output = []
+            if self.provenance is not None:
+                subs = session.scalars(
+                    sa.select(Image).where(
+                        Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id))
+                    )
+                ).all()
+                output += subs
 
             if siblings:
                 sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()

@@ -18,7 +18,7 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     aper_radii = test_config.value('extraction.sources.apertures')
     ds = measurer.run(ptf_datastore.cutouts)
     # check that the measurer actually loaded the measurements from db, and not recalculated
-    assert len(ds.measurements) <= len(ds.cutouts)  # not all cutouts have saved measurements
+    assert len(ds.measurements) <= len(ds.cutouts.co_dict)  # not all cutouts have saved measurements
     assert len(ds.measurements) == len(ptf_datastore.measurements)
     assert ds.measurements[0].from_db
     assert not measurer.has_recalculated
@@ -52,10 +52,7 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     # check that background is subtracted from the "flux" and "magnitude" properties
     if m.best_aperture == -1:
         assert m.flux == m.flux_psf - m.bkg_mean * m.area_psf
-        # This test was failing for me (assert 20.55965026783631 > 20.560926).  It
-        #   sounds like this may have already been a background-subtracted image.
-        # (Does mag_psf *not* have the background subtracted?)
-        # assert m.magnitude > m.mag_psf  # the magnitude has background subtracted from it
+        assert m.magnitude != m.mag_psf  # the magnitude has background subtracted from it
         assert m.magnitude_err > m.mag_psf_err  # the magnitude error is larger because of the error in background
     else:
         assert m.flux == m.flux_apertures[m.best_aperture] - m.bkg_mean * m.area_apertures[m.best_aperture]
@@ -89,39 +86,8 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     # TODO: add test for limiting magnitude (issue #143)
 
 
-@pytest.mark.skip(reason="This test fails on GA but not locally, see issue #306")
-# @pytest.mark.flaky(max_runs=3)
 def test_filtering_measurements(ptf_datastore):
-    # printout the list of relevant environmental variables:
-    import os
-    print("SeeChange environment variables:")
-    for key in [
-        'INTERACTIVE',
-        'LIMIT_CACHE_USAGE',
-        'SKIP_NOIRLAB_DOWNLOADS',
-        'RUN_SLOW_TESTS',
-        'SEECHANGE_TRACEMALLOC',
-    ]:
-        print(f'{key}: {os.getenv(key)}')
-
     measurements = ptf_datastore.measurements
-    from pprint import pprint
-    print('measurements: ')
-    pprint(measurements)
-
-    if hasattr(ptf_datastore, 'all_measurements'):
-        idx = [m.cutouts.index_in_sources for m in measurements]
-        chosen = np.array(ptf_datastore.all_measurements)[idx]
-        pprint([(m, m.is_bad, m.cutouts.sub_nandata[12, 12]) for m in chosen])
-
-    print(f'new image values: {ptf_datastore.image.data[250, 240:250]}')
-    print(f'ref_image values: {ptf_datastore.ref_image.data[250, 240:250]}')
-    print(f'sub_image values: {ptf_datastore.sub_image.data[250, 240:250]}')
-
-    print(f'number of images in ref image: {len(ptf_datastore.ref_image.upstream_images)}')
-    for i, im in enumerate(ptf_datastore.ref_image.upstream_images):
-        print(f'upstream image {i}: {im.data[250, 240:250]}')
-
     m = measurements[0]  # grab the first one as an example
 
     # test that we can filter on some measurements properties

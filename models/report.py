@@ -1,3 +1,4 @@
+import time
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -313,7 +314,15 @@ class Report(Base, AutoIDMixin):
             The session to use for committing the changes to the database.
             If not given, will open a session and close it at the end
             of the function.
+
+            NOTE: it may be better not to provide the external session
+            to this function. That way it will only commit this report,
+            and not also save other objects that were pending on the session.
         """
+        t0 = time.perf_counter()
+        if 'reporting' not in self.process_runtime:
+            self.process_runtime['reporting'] = 0.0
+
         # parse the error, if it exists, so we can get to other data products without raising
         exception = ds.read_exception()
         
@@ -325,8 +334,8 @@ class Report(Base, AutoIDMixin):
         self.products_committed = ds.products_committed
         
         # store the runtime and memory usage statistics
-        self.process_runtime = ds.runtimes  # update with new dictionary
-        self.process_memory = ds.memory_usages  # update with new dictionary
+        self.process_runtime.update(ds.runtimes)  # update with new dictionary
+        self.process_memory.update(ds.memory_usages)  # update with new dictionary
 
         if process_step is not None:
             # append the newest step to the progress bitflag
@@ -348,6 +357,8 @@ class Report(Base, AutoIDMixin):
 
         with SmartSession(session) as session:
             new_report = self.commit_to_database(session=session)
+
+        self.process_runtime['reporting'] += time.perf_counter() - t0
 
         if exception is not None:
             raise exception

@@ -110,6 +110,8 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
             The source-noise-corrected translient score.
         translient_corr_sigma: numpy.ndarray
             The corrected translient score, converted to S/N units assuming a chi2 distribution.
+        zero_point: float
+            the flux based zero point estimate based on the input zero point and backgrounds
 
     """
     if dy is None:
@@ -273,6 +275,7 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         translient_sigma=translient_sigma,
         translient_corr=translient_corr,
         translient_corr_sigma=translient_corr_sigma,
+        zero_point=F_D
     )
 
 

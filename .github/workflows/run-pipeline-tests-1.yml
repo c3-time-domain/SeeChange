@@ -34,6 +34,7 @@ jobs:
 
       - name: cleanup
         run: |
+          # try to save HDD space on the runner by removing some uneeded stuff
           # ref: https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc

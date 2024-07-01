@@ -9,7 +9,7 @@ _radecparse = re.compile( '^ *(?P<sign>[\-\+])? *(?P<d>[0-9]{1,2}): *(?P<m>[0-9]
                           ' *(?P<s>[0-9]{1,2}(\.[0-9]*)?) *$' )
 
 
-def parse_sexigesimal_degrees( strval, hours=False, **kwargs ):
+def parse_sexigesimal_degrees( strval, hours=False, positive=None ):
     """Parse [+-]dd:mm::ss to decimal degrees in the range [0, 360) or (-180, 180]
 
     Parameters
@@ -28,16 +28,12 @@ def parse_sexigesimal_degrees( strval, hours=False, **kwargs ):
     float, the value in degrees
 
     """
-
-    keys = list( kwargs.keys() )
-    if ( keys != [ 'positive' ] ) and ( keys != [] ):
-        raise RuntimeError( f'parse_sexigesimal_degrees: unknown keyword arguments '
-                            f'{[ k for k in keys if k != "positive"]}' )
-    positive = kwargs['positive'] if 'positive' in keys else hours
+    if positive is None:
+        positive = hours
 
     match = _radecparse.search( strval )
     if match is None:
-        raise RuntimeError( f"Error parsing {strval} for [+-]dd:mm::ss" )
+        raise ValueError( f"Error parsing {strval} for [+-]dd:mm::ss" )
     val = float(match.group('d')) + float(match.group('m'))/60. + float(match.group('s'))/3600.
     val *= -1 if match.group('sign') == '-' else 1
     val *= 15. if hours else 1.
@@ -74,6 +70,7 @@ def radec_to_gal_and_eclip( ra, dec ):
 
     return ( gal_l, gal_b, ecl_lon, ecl_lat )
 
+
 def parse_ra_deg_to_hms(ra):
     """
     Convert an RA in degrees to a string in sexagesimal format (in hh:mm:ss).
@@ -82,6 +79,7 @@ def parse_ra_deg_to_hms(ra):
         raise ValueError("RA out of range.")
     ra /= 15.0  # convert to hours
     return f"{int(ra):02d}:{int((ra % 1) * 60):02d}:{((ra % 1) * 60) % 1 * 60:05.2f}"
+
 
 def parse_dec_deg_to_dms(dec):
     """
@@ -92,6 +90,7 @@ def parse_dec_deg_to_dms(dec):
     return (
         f"{int(dec):+03d}:{int((dec % 1) * 60):02d}:{((dec % 1) * 60) % 1 * 60:04.1f}"
     )
+
 
 def parse_ra_hms_to_deg(ra):
     """
@@ -107,6 +106,7 @@ def parse_ra_hms_to_deg(ra):
         raise ValueError(f"Value of RA ({ra}) is outside range (0 -> 360).")
 
     return ra
+
 
 def parse_dec_dms_to_deg(dec):
     """

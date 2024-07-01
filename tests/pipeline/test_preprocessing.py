@@ -3,11 +3,12 @@ import pathlib
 import uuid
 
 import numpy as np
-import sqlalchemy as sa
 from astropy.io import fits
 
 from models.base import FileOnDiskMixin, SmartSession
 from models.image import Image
+
+from tests.conftest import SKIP_WARNING_TESTS
 
 
 def test_preprocessing(
@@ -90,12 +91,13 @@ def test_preprocessing(
 
 
 def test_warnings_and_exceptions(decam_exposure, preprocessor, decam_default_calibrators, archive):
-    preprocessor.pars.inject_warnings = 1
+    if not SKIP_WARNING_TESTS:
+        preprocessor.pars.inject_warnings = 1
 
-    with pytest.warns(UserWarning) as record:
-        preprocessor.run(decam_exposure, 'S3')
-    assert len(record) > 0
-    assert any("Warning injected by pipeline parameters in process 'preprocessing'." in str(w.message) for w in record)
+        with pytest.warns(UserWarning) as record:
+            preprocessor.run(decam_exposure, 'S3')
+        assert len(record) > 0
+        assert any("Warning injected by pipeline parameters in process 'preprocessing'." in str(w.message) for w in record)
 
     preprocessor.pars.inject_warnings = 0
     preprocessor.pars.inject_exceptions = 1

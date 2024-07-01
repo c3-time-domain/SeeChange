@@ -10,12 +10,13 @@ from models.base import CODE_ROOT
 from improc.simulator import Simulator, SimGalaxies, SimStreaks, SimCosmicRays
 from improc.sky_flat import sigma_clipping
 from util.logger import SCLogger
+from util.util import env_as_bool
 
 # uncomment this to run the plotting tests interactively
 # os.environ['INTERACTIVE'] = '1'
 
 
-@pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_make_star_field(blocking_plots):
     s = Simulator( image_size_x=256, star_number=1000, galaxy_number=0)
     s.make_image()
@@ -30,7 +31,7 @@ def test_make_star_field(blocking_plots):
     plt.savefig(filename+'.pdf')
 
 
-@pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_make_galaxy_field(blocking_plots):
     s = Simulator( image_size_x=256, star_number=0, galaxy_number=1000, galaxy_min_width=1, galaxy_min_flux=1000 )
     t0 = time.time()
@@ -159,7 +160,7 @@ def test_bleeding_pixels(blocking_plots):
         plt.show(block=True)
 
 
-@pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_streak_images(blocking_plots):
     im = SimStreaks.make_streak_image(center_x=50.3, length=25)
 
@@ -175,7 +176,7 @@ def test_streak_images(blocking_plots):
         plt.show(block=True)
 
 
-@pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_track_images(blocking_plots):
     im = SimCosmicRays.make_track_image(center_x=50.3, length=25, energy=10)
 

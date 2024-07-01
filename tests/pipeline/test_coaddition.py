@@ -9,6 +9,7 @@ from numpy.fft import fft2, ifft2, fftshift
 from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
+from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 
@@ -408,7 +409,7 @@ def test_coaddition_pipeline_inputs(ptf_reference_images):
     )
     im_ids = set([im.id for im in pipe.images])
     ptf_im_ids = set([im.id for im in ptf_reference_images])
-    assert ptf_im_ids == im_ids
+    assert ptf_im_ids.issubset(im_ids)
 
     ptf_ras = [im.ra for im in ptf_reference_images]
     ptf_decs = [im.dec for im in ptf_reference_images]
@@ -429,7 +430,7 @@ def test_coaddition_pipeline_inputs(ptf_reference_images):
 
     im_ids = set([im.id for im in pipe.images])
     ptf_im_ids = set([im.id for im in ptf_reference_images])
-    assert ptf_im_ids == im_ids
+    assert ptf_im_ids.issubset(im_ids)
 
 
 def test_coaddition_pipeline_outputs(ptf_reference_images, ptf_aligned_images):
@@ -493,6 +494,7 @@ def test_coadded_reference(ptf_ref):
     assert ref_image.type == 'ComSci'
     assert isinstance(ref_image.sources, SourceList)
     assert isinstance(ref_image.psf, PSF)
+    assert isinstance(ref_image.bg, Background)
     assert isinstance(ref_image.wcs, WorldCoordinates)
     assert isinstance(ref_image.zp, ZeroPoint)
 
@@ -500,11 +502,8 @@ def test_coadded_reference(ptf_ref):
     assert ptf_ref.filter == ref_image.filter
     assert ptf_ref.section_id == ref_image.section_id
 
-    assert ptf_ref.validity_start is None
-    assert ptf_ref.validity_end is None
-
     assert ptf_ref.provenance.upstreams[0].id == ref_image.provenance_id
-    assert ptf_ref.provenance.process == 'reference'
+    assert ptf_ref.provenance.process == 'referencing'
 
     assert ptf_ref.provenance.parameters['test_parameter'] == 'test_value'
 

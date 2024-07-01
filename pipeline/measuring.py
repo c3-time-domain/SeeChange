@@ -1,9 +1,10 @@
-import os
 import time
 import warnings
 import numpy as np
 
 from scipy import signal
+
+from astropy.table import Table
 
 from improc.photometry import iterative_cutouts_photometry
 from improc.tools import make_gaussian
@@ -15,7 +16,7 @@ from models.enums_and_bitflags import BitFlagConverter, BadnessConverter
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from util.util import parse_session, parse_bool
+from util.util import parse_session, env_as_bool
 
 
 class ParsMeasurer(Parameters):
@@ -156,17 +157,11 @@ class Measurer:
         """
         self.has_recalculated = False
         try:  # first make sure we get back a datastore, even an empty one
-            # most likely to get a Cutouts object or list of Cutouts
             if isinstance(args[0], Cutouts):
-                new_args = [args[0]]  # make it a list if we got a single Cutouts object for some reason
-                new_args += list(args[1:])
-                args = tuple(new_args)
-
-            if isinstance(args[0], list) and all([isinstance(c, Cutouts) for c in args[0]]):
                 args, kwargs, session = parse_session(*args, **kwargs)
                 ds = DataStore()
                 ds.cutouts = args[0]
-                ds.detections = ds.cutouts[0].sources
+                ds.detections = ds.cutouts.sources
                 ds.sub_image = ds.detections.image
                 ds.image = ds.sub_image.new_image
             else:
@@ -176,7 +171,7 @@ class Measurer:
 
         try:
             t_start = time.perf_counter()
-            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+            if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -185,54 +180,56 @@ class Measurer:
             # get the provenance for this step:
             prov = ds.get_provenance('measuring', self.pars.get_critical_pars(), session=session)
 
+            detections = ds.get_detections(session=session)
+            if detections is None:
+                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+
+            cutouts = ds.get_cutouts(session=session)
+            if cutouts is None:
+                raise ValueError(f'Cannot find cutouts corresponding to the datastore inputs: {ds.get_inputs()}')
+            else:
+                cutouts.load_all_co_data()
+
             # try to find some measurements in memory or in the database:
             measurements_list = ds.get_measurements(prov, session=session)
 
             # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
             if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements
                 self.has_recalculated = True
-                # use the latest source list in the data store,
-                # or load using the provenance given in the
-                # data store's upstream_provs, or just use
-                # the most recent provenance for "detection"
-                detections = ds.get_detections(session=session)
-
-                if detections is None:
-                    raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
-
-                cutouts = ds.get_cutouts(session=session)
 
                 # prepare the filter bank for this batch of cutouts
-                if self._filter_psf_fwhm is None or self._filter_psf_fwhm != cutouts[0].sources.image.get_psf().fwhm_pixels:
-                    self.make_filter_bank(cutouts[0].sub_data.shape[0], cutouts[0].sources.image.get_psf().fwhm_pixels)
+                if self._filter_psf_fwhm is None or self._filter_psf_fwhm != cutouts.sources.image.get_psf().fwhm_pixels:
+                    self.make_filter_bank(cutouts.co_dict["source_index_0"]["sub_data"].shape[0], cutouts.sources.image.get_psf().fwhm_pixels)
 
                 # go over each cutouts object and produce a measurements object
                 measurements_list = []
-                for i, c in enumerate(cutouts):
-                    m = Measurements(cutouts=c)
-                    # make sure to remember which cutout belongs to this measurement,
-                    # before either of them is in the DB and then use the cutouts_id instead
-                    m._cutouts_list_index = i
-                    m.best_aperture = c.sources.best_aper_num
+                for key, co_subdict in cutouts.co_dict.items():
+                    m = Measurements(cutouts=cutouts)
+                    m.index_in_sources = int(key[13:]) # grab just the number from "source_index_xxx"
 
-                    m.aper_radii = c.sources.image.new_image.zp.aper_cor_radii  # zero point corrected aperture radii
+                    m.best_aperture = cutouts.sources.best_aper_num
+
+                    m.center_x_pixel = cutouts.sources.x[m.index_in_sources]  # These will be rounded by Measurements.__setattr__
+                    m.center_y_pixel = cutouts.sources.y[m.index_in_sources]
+
+                    m.aper_radii = cutouts.sources.image.new_image.zp.aper_cor_radii  # zero point corrected aperture radii
 
                     ignore_bits = 0
                     for badness in self.pars.bad_pixel_exclude:
                         ignore_bits |= 2 ** BitFlagConverter.convert(badness)
 
                     # remove the bad pixels that we want to ignore
-                    flags = c.sub_flags.astype('uint16') & ~np.array(ignore_bits).astype('uint16')
+                    flags = co_subdict['sub_flags'].astype('uint16') & ~np.array(ignore_bits).astype('uint16')
 
                     annulus_radii_pixels = self.pars.annulus_radii
                     if self.pars.annulus_units == 'fwhm':
-                        fwhm = c.source.image.get_psf().fwhm_pixels
+                        fwhm = cutouts.source.image.get_psf().fwhm_pixels
                         annulus_radii_pixels = [rad * fwhm for rad in annulus_radii_pixels]
 
                     # TODO: consider if there are any additional parameters that photometry needs
                     output = iterative_cutouts_photometry(
-                        c.sub_data,
-                        c.sub_weight,
+                        co_subdict['sub_data'],
+                        co_subdict['sub_weight'],
                         flags,
                         radii=m.aper_radii,
                         annulus=annulus_radii_pixels,
@@ -253,11 +250,12 @@ class Measurer:
                     m.position_angle = output['angle']
 
                     # update the coordinates using the centroid offsets
-                    x = c.x + m.offset_x
-                    y = c.y + m.offset_y
+                    x = m.center_x_pixel + m.offset_x
+                    y = m.center_y_pixel + m.offset_y
                     ra, dec = m.cutouts.sources.image.new_image.wcs.wcs.pixel_to_world_values(x, y)
                     m.ra = float(ra)
                     m.dec = float(dec)
+                    m.calculate_coordinates()
 
                     # PSF photometry:
                     # Two options: use the PSF flux from ZOGY, or use the new image PSF to measure the flux.
@@ -294,10 +292,17 @@ class Measurer:
                     # Apply analytic cuts to each stamp image, to rule out artefacts.
                     m.disqualifier_scores = {}
                     if m.bkg_mean != 0 and m.bkg_std > 0.1:
-                        norm_data = (c.sub_nandata - m.bkg_mean) / m.bkg_std  # normalize
+                        norm_data = (m.sub_nandata - m.bkg_mean) / m.bkg_std  # normalize
                     else:
-                        warnings.warn(f'Background mean= {m.bkg_mean}, std= {m.bkg_std}, normalization skipped!')
-                        norm_data = c.sub_nandata  # no good background measurement, do not normalize!
+                        # only provide this warning if the offset is within the image
+                        # otherwise, this measurement is never going to pass any cuts
+                        # and we don't want to spam the logs with this warning
+                        if (
+                                abs(m.offset_x) < m.sub_data.shape[1] and
+                                abs(m.offset_y) < m.sub_data.shape[0]
+                        ):
+                            warnings.warn(f'Background mean= {m.bkg_mean}, std= {m.bkg_std}, normalization skipped!')
+                        norm_data = m.sub_nandata  # no good background measurement, do not normalize!
 
                     positives = np.sum(norm_data > self.pars.outlier_sigma)
                     negatives = np.sum(norm_data < -self.pars.outlier_sigma)
@@ -308,9 +313,9 @@ class Measurer:
                     else:
                         m.disqualifier_scores['negatives'] = negatives / positives
 
-                    x, y = np.meshgrid(range(c.sub_data.shape[0]), range(c.sub_data.shape[1]))
-                    x = x - c.sub_data.shape[1] // 2 - m.offset_x
-                    y = y - c.sub_data.shape[0] // 2 - m.offset_y
+                    x, y = np.meshgrid(range(m.sub_data.shape[0]), range(m.sub_data.shape[1]))
+                    x = x - m.sub_data.shape[1] // 2 - m.offset_x
+                    y = y - m.sub_data.shape[0] // 2 - m.offset_y
                     r = np.sqrt(x ** 2 + y ** 2)
                     bad_pixel_inclusion = r <= self.pars.bad_pixel_radius + 0.5
                     m.disqualifier_scores['bad pixels'] = np.sum(flags[bad_pixel_inclusion] > 0)
@@ -329,31 +334,35 @@ class Measurer:
 
                     # TODO: add additional disqualifiers
 
-                    m._upstream_bitflag = 0
-                    m._upstream_bitflag |= c.bitflag
-
-                    ignore_bits = 0
-                    for badness in self.pars.bad_flag_exclude:
-                        ignore_bits |= 2 ** BadnessConverter.convert(badness)
-
-                    m.disqualifier_scores['bad_flag'] = np.bitwise_and(
-                        np.array(m.bitflag).astype('uint64'),
-                        ~np.array(ignore_bits).astype('uint64'),
-                    )
-
                     # make sure disqualifier scores don't have any numpy types
                     for k, v in m.disqualifier_scores.items():
                         if isinstance(v, np.number):
                             m.disqualifier_scores[k] = v.item()
 
                     measurements_list.append(m)
+            else:
+                [setattr(m, 'cutouts', cutouts) for m in measurements_list]  # update with newest cutouts
 
-                saved_measurements = []
-                for m in measurements_list:
-                    threshold_comparison = self.compare_measurement_to_thresholds(m)
-                    if threshold_comparison != "delete":  # all disqualifiers are below threshold
-                        m.is_bad = threshold_comparison == "bad"
-                        saved_measurements.append(m)
+            saved_measurements = []
+            for m in measurements_list:
+                # regardless of wether we created these now, or loaded from DB,
+                # the bitflag should be updated based on the most recent data
+                m._upstream_bitflag = 0
+                m._upstream_bitflag |= m.cutouts.bitflag
+
+                ignore_bits = 0
+                for badness in self.pars.bad_flag_exclude:
+                    ignore_bits |= 2 ** BadnessConverter.convert(badness)
+
+                m.disqualifier_scores['bad_flag'] = int(np.bitwise_and(
+                    np.array(m.bitflag).astype('uint64'),
+                    ~np.array(ignore_bits).astype('uint64'),
+                ))
+
+                threshold_comparison = self.compare_measurement_to_thresholds(m)
+                if threshold_comparison != "delete":  # all disqualifiers are below threshold
+                    m.is_bad = threshold_comparison == "bad"
+                    saved_measurements.append(m)
 
                 # add the resulting measurements to the data store
                 ds.all_measurements = measurements_list  # debugging only
@@ -362,7 +371,7 @@ class Measurer:
                 ds.sub_image.measurements = saved_measurements
 
             ds.runtimes['measuring'] = time.perf_counter() - t_start
-            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+            if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
                 ds.memory_usages['measuring'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 

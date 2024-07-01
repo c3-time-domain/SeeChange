@@ -2,6 +2,7 @@ import pytest
 
 from util import radec
 
+
 def test_parse_sexigesimal_degrees():
     deg = radec.parse_sexigesimal_degrees( '15:32:25' )
     assert deg == pytest.approx( 15.54027778, abs=1e-8 )
@@ -25,6 +26,15 @@ def test_parse_sexigesimal_degrees():
     assert deg == 352.5
     deg = radec.parse_sexigesimal_degrees( '-00:30:00', hours=True, positive=False )
     assert deg == -7.5
+
+    # make sure it fails on bad inputs:
+    with pytest.raises( ValueError, match='Error parsing'):
+        radec.parse_sexigesimal_degrees( '12:30:36:00' )
+    with pytest.raises( ValueError, match='Error parsing'):
+        radec.parse_sexigesimal_degrees( '12:30' )
+    with pytest.raises( ValueError, match='Error parsing'):
+        radec.parse_sexigesimal_degrees( 'foobar' )
+
 
 def test_radec_to_gal_and_eclip():
     gal_l, gal_b, ecl_lon, ecl_lat = radec.radec_to_gal_and_eclip( 210.53, -32.3 )

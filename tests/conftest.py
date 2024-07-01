@@ -25,7 +25,7 @@ from models.exposure import Exposure
 from models.object import Object
 
 from util.archive import Archive
-from util.util import remove_empty_folders
+from util.util import remove_empty_folders, env_as_bool
 from util.retrydownload import retry_download
 from util.logger import SCLogger
 
@@ -36,10 +36,13 @@ pytest_plugins = [
     'tests.fixtures.ztf',
     'tests.fixtures.ptf',
     'tests.fixtures.pipeline_objects',
+    'tests.fixtures.datastore_factory',
     'tests.fixtures.conductor',
 ]
 
 ARCHIVE_PATH = None
+
+SKIP_WARNING_TESTS = False
 
 # We may want to turn this on only for tests, as it may add a lot of runtime/memory overhead
 # ref: https://www.mail-archive.com/python-list@python.org/msg443129.html
@@ -50,9 +53,11 @@ ARCHIVE_PATH = None
 # (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionstart(session):
     # Will be executed before the first test
+    global SKIP_WARNING_TESTS
 
-    # this is only to make the warnings into errors, so it is easier to track them down...
-    # warnings.filterwarnings('error', append=True)  # comment this out in regular usage
+    if False:  # this is only to make the warnings into errors, so it is easier to track them down...
+        warnings.filterwarnings('error', append=True)  # comment this out in regular usage
+        SKIP_WARNING_TESTS = True
 
     setup_warning_filters()  # load the list of warnings that are to be ignored (not just in tests)
     # below are additional warnings that are ignored only during tests:
@@ -65,6 +70,15 @@ def pytest_sessionstart(session):
     Config.get(configfile=test_config_file, setdefault=True)
     FileOnDiskMixin.configure_paths()
     # SCLogger.setLevel( logging.INFO )
+
+    # get rid of any catalog excerpts from previous runs:
+    with SmartSession() as session:
+        catexps = session.scalars(sa.select(CatalogExcerpt)).all()
+        for catexp in catexps:
+            if os.path.isfile(catexp.get_fullpath()):
+                os.remove(catexp.get_fullpath())
+            session.delete(catexp)
+        session.commit()
 
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
@@ -87,12 +101,10 @@ def pytest_sessionfinish(session, exitstatus):
                                   'Provenance', 'Object', 'PasswordLink']:
                 SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             elif len(ids) > 0:
-                SCLogger.info(
-                    f'There are {len(ids)} {Class.__name__} objects in the database. Please make sure to cleanup!'
-                )
+                print(f'There are {len(ids)} {Class.__name__} objects in the database. Please make sure to cleanup!')
                 for id in ids:
                     obj = dbsession.scalars(sa.select(Class).where(Class.id == id)).first()
-                    SCLogger.info(f'  {obj}')
+                    print(f'  {obj}')
                     any_objects = True
 
         # delete the CodeVersion object (this should remove all provenances as well)
@@ -183,13 +195,13 @@ def blocking_plots():
      - It is set to a True value: make the plots, but stop the test execution until the figure is closed.
 
     If a test only makes plots and does not test functionality, it should be marked with
-    @pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
+    @pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 
     If a test makes a diagnostic plot, that is only ever used to visually inspect the results,
     then it should be surrounded by an if blocking_plots: statement. It will only run in interactive mode.
 
     If a test makes a plot that should be saved to disk, it should either have the skipif mentioned above,
-    or have an if os.getenv('INTERACTIVE'): statement surrounding the plot itself.
+    or have an if env_as_bool('INTERACTIVE'): statement surrounding the plot itself.
     You may want to add plt.show(block=blocking_plots) to allow the figure to stick around in interactive mode,
     on top of saving the figure at the end of the test.
     """
@@ -200,7 +212,7 @@ def blocking_plots():
     if not os.path.isdir(os.path.join(CODE_ROOT, 'tests/plots')):
         os.makedirs(os.path.join(CODE_ROOT, 'tests/plots'))
 
-    inter = os.getenv('INTERACTIVE', False)
+    inter = env_as_bool('INTERACTIVE')
     if isinstance(inter, str):
         inter = inter.lower() in ('true', '1', 'on', 'yes')
 

@@ -11,7 +11,7 @@ from pipeline.top_level import PROCESS_OBJECTS
 from models.base import SmartSession
 from models.report import Report
 
-from util.util import parse_bool
+from util.util import env_as_bool
 
 
 def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrators):
@@ -89,13 +89,14 @@ def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrat
 def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_tests, decam_default_calibrators):
     # make sure we get a random new provenance, not reuse any of the existing data
     p = pipeline_for_tests
+    p.subtractor.pars.refset = 'test_refset_decam'
+    p.pars.save_before_subtraction = True
+    p.pars.save_at_finish = False
     p.preprocessor.pars.test_parameter = uuid.uuid4().hex
 
-    t0 = time.perf_counter()
-
     try:
+        t0 = time.perf_counter()
         ds = p.run(decam_exposure, 'S3')
-
         total_time = time.perf_counter() - t0
 
         assert p.preprocessor.has_recalculated
@@ -112,15 +113,15 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         peak_memory = 0
         for step in ds.runtimes.keys():  # also make sure all the keys are present in both dictionaries
             measured_time += ds.runtimes[step]
-            if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+            if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 peak_memory = max(peak_memory, ds.memory_usages[step])
 
         print(f'total_time: {total_time:.1f}s')
         print(f'measured_time: {measured_time:.1f}s')
-        pprint(ds.runtimes, sort_dicts=False)
-        assert measured_time > 0.98 * total_time  # at least 99% of the time is accounted for
+        pprint(ds.report.process_runtime, sort_dicts=False)
+        assert measured_time > 0.99 * total_time  # at least 99% of the time is accounted for
 
-        if parse_bool(os.getenv('SEECHANGE_TRACEMALLOC')):
+        if env_as_bool('SEECHANGE_TRACEMALLOC'):
             print(f'peak_memory: {peak_memory:.1f}MB')
             pprint(ds.memory_usages, sort_dicts=False)
             assert 1000.0 < peak_memory < 10000.0  # memory usage is in MB, takes between 1 and 10 GB
@@ -129,7 +130,9 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
             rep = session.scalars(sa.select(Report).where(Report.exposure_id == decam_exposure.id)).one()
             assert rep is not None
             assert rep.success
-            assert rep.process_runtime == ds.runtimes
+            runtimes = rep.process_runtime.copy()
+            runtimes.pop('reporting')
+            assert runtimes == ds.runtimes
             assert rep.process_memory == ds.memory_usages
             # should contain: 'preprocessing, extraction, subtraction, detection, cutting, measuring'
             assert rep.progress_steps == ', '.join(PROCESS_OBJECTS.keys())

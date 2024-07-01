@@ -101,15 +101,18 @@ class EnumConverter:
             raise ValueError(f'{cls.__name__} must be integer/float key or string value, not {type(value)}')
 
     @classmethod
-    def numeric( cls, value ):
-        """Return the numeric value corresponding to either a string or integer key.
+    def to_int(cls, value):
+        if isinstance(value, int):
+            return value
+        else:
+            return cls.convert(value)
 
-        If given None, will return None.
-
-        """
-        if value is None:
-            return None
-        return value if isinstance( value, int ) else cls.convert( value )
+    @classmethod
+    def to_string(cls, value):
+        if isinstance(value, str):
+            return value
+        else:
+            return cls.convert(value)
 
 class FormatConverter( EnumConverter ):
     # This is the master format dictionary, that contains all file types for
@@ -420,8 +423,8 @@ bg_badness_dict = {
 bg_badness_inverse = {EnumConverter.c(v): k for k, v in bg_badness_dict.items()}
 
 
-# these are the ways a Cutouts object is allowed to be bad
-cutouts_badness_dict = {
+# these are the ways a Measurements object is allowed to be bad
+measurements_badness_dict = {
     41: 'cosmic ray',
     42: 'ghost',
     43: 'satellite',
@@ -429,13 +432,13 @@ cutouts_badness_dict = {
     45: 'bad pixel',
     46: 'bleed trail',
 }
-cutouts_badness_inverse = {EnumConverter.c(v): k for k, v in cutouts_badness_dict.items()}
+measurements_badness_inverse = {EnumConverter.c(v): k for k, v in measurements_badness_dict.items()}
 
 
 # join the badness:
 data_badness_dict = {}
 data_badness_dict.update(image_badness_dict)
-data_badness_dict.update(cutouts_badness_dict)
+data_badness_dict.update(measurements_badness_dict)
 data_badness_dict.update(source_list_badness_dict)
 data_badness_dict.update(psf_badness_dict)
 data_badness_dict.update(bg_badness_dict)

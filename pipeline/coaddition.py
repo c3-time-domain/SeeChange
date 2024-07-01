@@ -1,8 +1,6 @@
 import numpy as np
 from numpy.fft import fft2, ifft2, fftshift
 
-import sqlalchemy as sa
-
 from astropy.time import Time
 
 from sep import Background
@@ -18,7 +16,6 @@ from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 from util.util import get_latest_provenance, parse_session
-from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
 
 from improc.bitmask_tools import dilate_bitflag
 from improc.inpainting import Inpainter
@@ -74,7 +71,7 @@ class ParsCoadd(Parameters):
             critical=True,
         )
 
-        self.enforce_no_new_attrs = True
+        self._enforce_no_new_attrs = True
         self.override( kwargs )
 
     def get_process_name(self):
@@ -585,14 +582,9 @@ class CoaddPipeline:
             raise ValueError('All unnamed arguments must be Image objects. ')
 
         if self.images is None:  # get the images from the DB
-            # TODO: this feels like it could be a useful tool, maybe need to move it to Image class? Issue 188
             # if no images were given, parse the named parameters
             ra = kwargs.get('ra', None)
-            if isinstance(ra, str):
-                ra = parse_ra_hms_to_deg(ra)
             dec = kwargs.get('dec', None)
-            if isinstance(dec, str):
-                dec = parse_dec_dms_to_deg(dec)
             target = kwargs.get('target', None)
             if target is None and (ra is None or dec is None):
                 raise ValueError('Must give either target or RA and Dec. ')
@@ -604,14 +596,10 @@ class CoaddPipeline:
             if start_time is None:
                 start_time = end_time - self.pars.date_range
 
-            if isinstance(end_time, str):
-                end_time = Time(end_time).mjd
-            if isinstance(start_time, str):
-                start_time = Time(start_time).mjd
-
             instrument = kwargs.get('instrument', None)
             filter = kwargs.get('filter', None)
             section_id = str(kwargs.get('section_id', None))
+
             provenance_ids = kwargs.get('provenance_ids', None)
             if provenance_ids is None:
                 prov = get_latest_provenance('preprocessing', session=session)
@@ -619,19 +607,17 @@ class CoaddPipeline:
             provenance_ids = listify(provenance_ids)
 
             with SmartSession(session) as dbsession:
-                stmt = sa.select(Image).where(
-                        Image.mjd >= start_time,
-                        Image.mjd <= end_time,
-                        Image.instrument == instrument,
-                        Image.filter == filter,
-                        Image.section_id == section_id,
-                        Image.provenance_id.in_(provenance_ids),
-                    )
-
-                if target is not None:
-                    stmt = stmt.where(Image.target == target)
-                else:
-                    stmt = stmt.where(Image.containing( ra, dec ))
+                stmt = Image.query_images(
+                    ra=ra,
+                    dec=dec,
+                    target=target,
+                    section_id=section_id,
+                    instrument=instrument,
+                    filter=filter,
+                    min_dateobs=start_time,
+                    max_dateobs=end_time,
+                    provenance_ids=provenance_ids
+                )
                 self.images = dbsession.scalars(stmt.order_by(Image.mjd.asc())).all()
 
         return session
@@ -641,11 +627,34 @@ class CoaddPipeline:
         if self.images is None or len(self.images) == 0:
             raise ValueError('No images found matching the given parameters. ')
 
-        self.datastore = DataStore()
-        self.datastore.prov_tree = self.make_provenance_tree(session=session)
+        # use the images and their source lists to get a list of provenances and code versions
+        coadd_upstreams = set()
+        code_versions = set()
+        # assumes each image given to the coaddition pipline has sources loaded
+        for im in self.images:
+            coadd_upstreams.add(im.provenance)
+            coadd_upstreams.add(im.sources.provenance)
+            code_versions.add(im.provenance.code_version)
+            code_versions.add(im.sources.provenance.code_version)
 
-        # the self.aligned_images is None unless you explicitly pass in the pre-aligned images to save time
-        self.datastore.image = self.coadder.run(self.images, self.aligned_images)
+        code_versions = list(code_versions)
+        code_versions.sort(key=lambda x: x.id)
+        code_version = code_versions[-1]  # choose the most recent ID if there are multiple code versions
+        coadd_upstreams = list(coadd_upstreams)
+
+        self.datastore = DataStore()
+        self.datastore.prov_tree = self.make_provenance_tree(coadd_upstreams, code_version, session=session)
+
+        # check if this exact coadd image already exists in the DB
+        with SmartSession(session) as dbsession:
+            coadd_prov = self.datastore.prov_tree['coaddition']
+            coadd_image = Image.get_image_from_upstreams(self.images, coadd_prov, session=dbsession)
+
+        if coadd_image is not None:
+            self.datastore.image = coadd_image
+        else:
+            # the self.aligned_images is None unless you explicitly pass in the pre-aligned images to save time
+            self.datastore.image = self.coadder.run(self.images, self.aligned_images)
 
         # TODO: add the warnings/exception capturing, runtime/memory tracking (and Report making) as in top_level.py
         self.datastore = self.extractor.run(self.datastore)
@@ -655,27 +664,15 @@ class CoaddPipeline:
 
         return self.datastore.image
 
-    def make_provenance_tree(self, session=None):
+    def make_provenance_tree(self, coadd_upstreams, code_version, session=None):
         """Make a (short) provenance tree to use when fetching the provenances of upstreams. """
         with SmartSession(session) as session:
-            coadd_upstreams = set()
-            code_versions = set()
-            # assumes each image given to the coaddition pipline has sources, psf, background, wcs, zp, all loaded
-            for im in self.images:
-                coadd_upstreams.add(im.provenance)
-                coadd_upstreams.add(im.sources.provenance)
-                code_versions.add(im.provenance.code_version)
-                code_versions.add(im.sources.provenance.code_version)
-
-            code_versions = list(code_versions)
-            code_versions.sort(key=lambda x: x.id)
-            code_version = code_versions[-1]  # choose the most recent ID if there are multiple code versions
 
             pars_dict = self.coadder.pars.get_critical_pars()
             coadd_prov = Provenance(
                 code_version=code_version,
                 process='coaddition',
-                upstreams=list(coadd_upstreams),
+                upstreams=coadd_upstreams,
                 parameters=pars_dict,
                 is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes
             )
@@ -694,3 +691,19 @@ class CoaddPipeline:
 
         return {'coaddition': coadd_prov, 'extraction': extract_prov}
 
+    def override_parameters(self, **kwargs):
+        """Override the parameters of this pipeline and its sub objects. """
+        from pipeline.top_level import PROCESS_OBJECTS
+
+        for key, value in kwargs.items():
+            if key in PROCESS_OBJECTS:
+                if isinstance(PROCESS_OBJECTS[key], dict):
+                    for sub_key, sub_value in PROCESS_OBJECTS[key].items():
+                        if sub_key in value:
+                            getattr(self, sub_value).pars.override(value[sub_key])
+                elif isinstance(PROCESS_OBJECTS[key], str):
+                    getattr(self, PROCESS_OBJECTS[key]).pars.override(value)
+            elif key == 'coaddition':
+                self.coadder.pars.override(value)
+            else:
+                self.pars.override({key: value})

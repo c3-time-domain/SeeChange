@@ -10,6 +10,7 @@ from sqlalchemy.ext.associationproxy import association_proxy
 
 from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness
 from models.cutouts import Cutouts
+from models.enums_and_bitflags import measurements_badness_inverse
 
 from improc.photometry import get_circle
 
@@ -19,7 +20,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     __tablename__ = 'measurements'
 
     __table_args__ = (
-        UniqueConstraint('cutouts_id', 'provenance_id', name='_measurements_cutouts_provenance_uc'),
+        UniqueConstraint('cutouts_id', 'index_in_sources', 'provenance_id', name='_measurements_cutouts_provenance_uc'),
         sa.Index("ix_measurements_scores_gin", "disqualifier_scores", postgresql_using="gin"),
     )
 
@@ -36,6 +37,13 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         passive_deletes=True,
         lazy='selectin',
         doc="The cutouts object that this measurements object is associated with. "
+    )
+
+    index_in_sources = sa.Column(
+        sa.Integer,
+        nullable=False,
+        doc="Index of the data for this Measurements"
+            "in the source list (of detections in the difference image). "
     )
 
     object_id = sa.Column(
@@ -178,23 +186,23 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     @property
     def lim_mag(self):
-        return self.cutouts.sources.image.new_image.lim_mag_estimate  # TODO: improve this when done with issue #143
+        return self.sources.image.new_image.lim_mag_estimate  # TODO: improve this when done with issue #143
 
     @property
     def zp(self):
-        return self.cutouts.sources.image.new_image.zp
+        return self.sources.image.new_image.zp
 
     @property
     def fwhm_pixels(self):
-        return self.cutouts.sources.image.get_psf().fwhm_pixels
+        return self.sources.image.get_psf().fwhm_pixels
 
     @property
     def psf(self):
-        return self.cutouts.sources.image.get_psf().get_clip(x=self.cutouts.x, y=self.cutouts.y)
+        return self.sources.image.get_psf().get_clip(x=self.center_x_pixel, y=self.center_y_pixel)
 
     @property
     def pixel_scale(self):
-        return self.cutouts.sources.image.new_image.wcs.get_pixel_scale()
+        return self.sources.image.new_image.wcs.get_pixel_scale()
 
     @property
     def sources(self):
@@ -204,15 +212,15 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     @property
     def image(self):
-        if self.cutouts is None or self.cutouts.sources is None:
+        if self.cutouts is None or self.sources is None:
             return None
-        return self.cutouts.sources.image
+        return self.sources.image
 
     @property
     def instrument_object(self):
-        if self.cutouts is None or self.cutouts.sources is None or self.cutouts.sources.image is None:
+        if self.cutouts is None or self.sources is None or self.sources.image is None:
             return None
-        return self.cutouts.sources.image.instrument_object
+        return self.sources.image.instrument_object
 
     bkg_mean = sa.Column(
         sa.REAL,
@@ -243,6 +251,20 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         ARRAY(sa.REAL, zero_indexes=True),
         nullable=False,
         doc="Areas of the apertures used for calculating flux. Remove a * background from the flux measurement. "
+    )
+
+    center_x_pixel = sa.Column(
+        sa.Integer,
+        nullable=False,
+        doc="X pixel coordinate of the center of the cutout (in the full image coordinates),"
+            "rounded to nearest integer pixel. "
+    )
+
+    center_y_pixel = sa.Column(
+        sa.Integer,
+        nullable=False,
+        doc="Y pixel coordinate of the center of the cutout (in the full image coordinates),"
+            "rounded to nearest integer pixel. "
     )
 
     offset_x = sa.Column(
@@ -297,10 +319,43 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             "The higher the score, the more likely the measurement is to be an artefact. "
     )
 
+    @property
+    def sub_nandata(self):
+        if self.sub_data is None or self.sub_flags is None:
+            return None
+        return np.where(self.sub_flags > 0, np.nan, self.sub_data)
+
+    @property
+    def ref_nandata(self):
+        if self.ref_data is None or self.ref_flags is None:
+            return None
+        return np.where(self.ref_flags > 0, np.nan, self.ref_data)
+
+    @property
+    def new_nandata(self):
+        if self.new_data is None or self.new_flags is None:
+            return None
+        return np.where(self.new_flags > 0, np.nan, self.new_data)
+
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
         HasBitFlagBadness.__init__(self)
-        self._cutouts_list_index = None  # helper (transient) attribute that helps find the right cutouts in a list
+        
+        self.index_in_sources = None
+
+        self._sub_data = None
+        self._sub_weight = None
+        self._sub_flags = None
+        self._sub_psfflux = None
+        self._sub_psffluxerr = None
+
+        self._ref_data = None
+        self._ref_weight = None
+        self._ref_flags = None
+
+        self._new_data = None
+        self._new_weight = None
+        self._new_flags = None
 
         # manually set all properties (columns or not)
         for key, value in kwargs.items():
@@ -309,20 +364,60 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         self.calculate_coordinates()
 
+    @orm.reconstructor
+    def init_on_load(self):
+        Base.init_on_load(self)
+
+        self._sub_data = None
+        self._sub_weight = None
+        self._sub_flags = None
+        self._sub_psfflux = None
+        self._sub_psffluxerr = None
+
+        self._ref_data = None
+        self._ref_weight = None
+        self._ref_flags = None
+
+        self._new_data = None
+        self._new_weight = None
+        self._new_flags = None
+
     def __repr__(self):
         return (
             f"<Measurements {self.id} "
             f"from SourceList {self.cutouts.sources_id} "
-            f"(number {self.cutouts.index_in_sources}) "
+            f"(number {self.index_in_sources}) "
             f"from Image {self.cutouts.sub_image_id} "
-            f"at x,y= {self.cutouts.x}, {self.cutouts.y}>"
+            f"at x,y= {self.center_x_pixel}, {self.center_y_pixel}>"
         )
 
     def __setattr__(self, key, value):
         if key in ['flux_apertures', 'flux_apertures_err', 'aper_radii']:
             value = np.array(value)
 
+        if key in ['center_x_pixel', 'center_y_pixel'] and value is not None:
+            value = int(np.round(value))
+
         super().__setattr__(key, value)
+
+    def get_data_from_cutouts(self):
+        """Populates this object with the cutout data arrays used in
+        calculations. This allows us to use, for example, self.sub_data
+        without having to look constantly back into the related Cutouts.
+
+        Importantly, the data for this measurements should have already
+        been loaded by the Co_Dict class
+        """
+        groupname = f'source_index_{self.index_in_sources}'
+
+        if not self.cutouts.co_dict.get(groupname):
+            raise ValueError(f"No subdict found for {groupname}")
+
+        co_data_dict = self.cutouts.co_dict[groupname] # get just the subdict with data for this
+
+        for att in Cutouts.get_data_dict_attributes():
+            setattr(self, att, co_data_dict.get(att))
+
 
     def get_filter_description(self, number=None):
         """Use the number of the filter in the filter bank to get a string describing it.
@@ -342,12 +437,12 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             raise ValueError('Filter number must be non-negative.')
         if self.provenance is None:
             raise ValueError('No provenance for this measurement, cannot recover the parameters used. ')
-        if self.cutouts is None or self.cutouts.sources is None or self.cutouts.sources.image is None:
+        if self.cutouts is None or self.sources is None or self.sources.image is None:
             raise ValueError('No cutouts for this measurement, cannot recover the PSF width. ')
 
         mult = self.provenance.parameters['width_filter_multipliers']
         angles = np.arange(-90.0, 90.0, self.provenance.parameters['streak_filter_angle_step'])
-        fwhm = self.cutouts.sources.image.get_psf().fwhm_pixels
+        fwhm = self.sources.image.get_psf().fwhm_pixels
 
         if number == 0:
             return f'PSF match (FWHM= 1.00 x {fwhm:.2f})'
@@ -359,21 +454,6 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             return f'Streaked (angle= {angles[number - len(mult) - 1]:.1f} deg)'
 
         raise ValueError('Filter number too high for the filter bank. ')
-
-    def find_cutouts_in_list(self, cutouts_list):
-        """Given a list of cutouts, find the one that matches this object. """
-        # this is faster, and works without needing DB indices to be set
-        if self._cutouts_list_index is not None:
-            return cutouts_list[self._cutouts_list_index]
-
-        # after loading from DB (or merging) we must use the cutouts_id to associate these
-        if self.cutouts_id is not None:
-            for i, cutouts in enumerate(cutouts_list):
-                if cutouts.id == self.cutouts_id:
-                    self._cutouts_list_index = i
-                    return cutouts
-
-        raise ValueError('Cutouts not found in the list. ')
 
     def associate_object(self, session=None):
         """Find or create a new object and associate it with this measurement.
@@ -446,15 +526,15 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         if aperture == 'psf':
             aperture = -1
 
-        im = self.cutouts.sub_nandata  # the cutouts image we are working with (includes NaNs for bad pixels)
+        im = self.sub_nandata  # the cutouts image we are working with (includes NaNs for bad pixels)
 
-        wcs = self.cutouts.sources.image.new_image.wcs.wcs
+        wcs = self.sources.image.new_image.wcs.wcs
         # these are the coordinates relative to the center of the cutouts
         image_pixel_x = wcs.world_to_pixel_values(ra, dec)[0]
         image_pixel_y = wcs.world_to_pixel_values(ra, dec)[1]
 
-        offset_x = image_pixel_x - self.cutouts.x
-        offset_y = image_pixel_y - self.cutouts.y
+        offset_x = image_pixel_x - self.center_x_pixel
+        offset_y = image_pixel_y - self.center_y_pixel
 
         if abs(offset_x) > im.shape[1] / 2 or abs(offset_y) > im.shape[0] / 2:
             return np.nan, np.nan, np.nan  # quietly return NaNs for large offsets, they will fail the cuts anyway...
@@ -464,7 +544,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         if aperture == -1:
             # get the subtraction PSF or (if unavailable) the new image PSF
-            psf = self.cutouts.sources.image.get_psf()
+            psf = self.sources.image.get_psf()
             psf_clip = psf.get_clip(x=image_pixel_x, y=image_pixel_y)
             offset_ix = int(np.round(offset_x))
             offset_iy = int(np.round(offset_y))
@@ -482,9 +562,14 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             mask = np.zeros_like(im, dtype=float)
             mask[start_y:end_y, start_x:end_x] = psf_clip[start_y + dy:end_y + dy, start_x + dx:end_x + dx]
             mask[np.isnan(im)] = 0  # exclude bad pixels from the mask
-            flux = np.nansum(im * mask) / np.nansum(mask ** 2)
-            fluxerr = self.bkg_std / np.sqrt(np.nansum(mask ** 2))
-            area = np.nansum(mask) / (np.nansum(mask ** 2))
+
+            mask_sum = np.nansum(mask ** 2)
+            if mask_sum > 0:
+                flux = np.nansum(im * mask) / np.nansum(mask ** 2)
+                fluxerr = self.bkg_std / np.sqrt(np.nansum(mask ** 2))
+                area = np.nansum(mask) / (np.nansum(mask ** 2))
+            else:
+                flux = fluxerr = area = np.nan
         else:
             radius = self.aper_radii[aperture]
             # get the aperture mask
@@ -504,6 +589,9 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def get_downstreams(self, session=None, siblings=False):
         """Get the downstreams of this Measurements"""
         return []
+
+    def _get_inverse_badness(self):
+        return measurements_badness_inverse
 
     @classmethod
     def delete_list(cls, measurements_list, session=None, commit=True):
@@ -530,3 +618,35 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             if commit:
                 session.commit()
 
+# use these three functions to quickly add the "property" accessor methods
+def load_attribute(object, att):
+    """Load the data for a given attribute of the object. Load from Cutouts, but
+    if the data needs to be loaded from disk, ONLY load the subdict that contains
+    data for this object, not all objects in the Cutouts."""
+    if not hasattr(object, f'_{att}'):
+        raise AttributeError(f"The object {object} does not have the attribute {att}.")
+    if getattr(object, f'_{att}') is None:
+        if len(object.cutouts.co_dict) == 0 and object.cutouts.filepath is None:
+            return None  # objects just now created and not saved cannot lazy load data!
+        
+        groupname = f'source_index_{object.index_in_sources}'
+        if object.cutouts.co_dict[groupname] is not None:  # will check disk as Co_Dict
+            object.get_data_from_cutouts()
+
+    # after data is filled, should be able to just return it
+    return getattr(object, f'_{att}')
+
+def set_attribute(object, att, value):
+    """Set the value of the attribute on the object. """
+    setattr(object, f'_{att}', value)
+
+# add "@property" functions to all the data attributes
+for att in Cutouts.get_data_dict_attributes():
+    setattr(
+        Measurements,
+        att,
+        property(
+            fget=lambda self, att=att: load_attribute(self, att),
+            fset=lambda self, value, att=att: set_attribute(self, att, value),
+        )
+    )

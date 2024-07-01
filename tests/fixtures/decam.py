@@ -3,7 +3,6 @@ import os
 import wget
 import yaml
 import shutil
-import warnings
 
 import sqlalchemy as sa
 import numpy as np
@@ -17,7 +16,6 @@ from models.decam import DECam  # need this import to make sure DECam is added t
 from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
-from models.source_list import SourceList
 from models.datafile import DataFile
 from models.reference import Reference
 
@@ -25,16 +23,8 @@ from improc.alignment import ImageAligner
 
 from util.retrydownload import retry_download
 from util.logger import SCLogger
-from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
-
-
-@pytest.fixture(scope='session')
-def decam_cache_dir(cache_dir):
-    output = os.path.join(cache_dir, 'DECam')
-    if not os.path.isdir(output):
-        os.makedirs(output)
-
-    yield output
+from util.cache import copy_to_cache, copy_from_cache
+from util.util import env_as_bool
 
 
 @pytest.fixture(scope='session')
@@ -55,7 +45,7 @@ def decam_cache_dir(cache_dir):
 def decam_default_calibrators(cache_dir, data_dir):
     try:
         # try to get the calibrators from the cache folder
-        if not os.getenv( "LIMIT_CACHE_USAGE" ):
+        if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             if os.path.isdir(os.path.join(cache_dir, 'DECam_default_calibrators')):
                 shutil.copytree(
                     os.path.join(cache_dir, 'DECam_default_calibrators'),
@@ -73,7 +63,7 @@ def decam_default_calibrators(cache_dir, data_dir):
         decam._get_default_calibrator( 60000, sec, calibtype='linearity' )
 
         # store the calibration files in the cache folder
-        if not os.getenv( "LIMIT_CACHE_USAGE" ):
+        if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             if not os.path.isdir(os.path.join(cache_dir, 'DECam_default_calibrators')):
                 os.makedirs(os.path.join(cache_dir, 'DECam_default_calibrators'), exist_ok=True)
             for folder in os.listdir(os.path.join(data_dir, 'DECam_default_calibrators')):
@@ -206,7 +196,7 @@ def decam_filename(download_url, data_dir, decam_exposure_name, decam_cache_dir)
     url = os.path.join(download_url, 'DECAM', base_name)
 
     if not os.path.isfile(filename):
-        if os.getenv( "LIMIT_CACHE_USAGE" ):
+        if env_as_bool( "LIMIT_CACHE_USAGE" ):
             SCLogger.debug( f"Downloading {filename}" )
             wget.download( url=url, out=filename )
         else:
@@ -292,6 +282,7 @@ def decam_datastore(
         'S3',
         cache_dir=decam_cache_dir,
         cache_base_name='007/c4d_20230702_080904_S3_r_Sci_NBXRIO',
+        overrides={'subtraction': {'refset': 'test_refset_decam'}},
         save_original_image=True
     )
     # This save is redundant, as the datastore_factory calls save_and_commit
@@ -344,7 +335,7 @@ def decam_fits_image_filename(download_url, decam_cache_dir):
 
     yield filename
 
-    if os.getenv( "LIMIT_CACHE_USAGE" ):
+    if env_as_bool( "LIMIT_CACHE_USAGE" ):
         try:
             os.unlink( filepath )
         except FileNotFoundError:
@@ -363,7 +354,7 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 
     yield filename
 
-    if os.getenv( "LIMIT_CACHE_USAGE" ):
+    if env_as_bool( "LIMIT_CACHE_USAGE" ):
         try:
             os.unlink( filepath )
         except FileNotFoundError:
@@ -371,77 +362,74 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 
 
 @pytest.fixture
-def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
+def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir,
+                                       datastore_factory, refmaker_factory ):
     filebase = 'ELAIS-E1-r-templ'
+    maker = refmaker_factory( 'test_refset_decam', 'DECam' )
 
-    dses = []
-    delete_list = []
-    for dsindex, chip in enumerate( [ 27, 47 ] ):
-        for ext in [ 'image.fits', 'weight.fits', 'flags.fits', 'image.yaml' ]:
-            cache_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.{ext}' )
-            if os.path.isfile( cache_path ):
-                SCLogger.info( f"{cache_path} exists, not redownloading" )
-            else:
-                url = os.path.join( download_url, 'DECAM', f'{filebase}.{chip:02d}.{ext}' )
-                SCLogger.info( f"Downloading {cache_path}" )
-                retry_download( url, cache_path )
-                if not os.path.isfile( cache_path ):
-                    raise FileNotFoundError( f"Can't find downloaded file {cache_path}" )
+    with SmartSession() as session:
+        maker.make_refset(session=session)
+        code_version = session.merge(code_version)
+        # prov = Provenance(
+        #     process='preprocessing',
+        #     code_version=code_version,
+        #     parameters={},
+        #     upstreams=[],
+        #     is_testing=True,
+        # )
+        prov = maker.coadd_im_prov
 
-            if not ext.endswith('.yaml'):
-                destination = os.path.join(data_dir, f'007/{filebase}.{chip:02d}.{ext}')
-                os.makedirs(os.path.dirname(destination), exist_ok=True)
-                if os.getenv( "LIMIT_CACHE_USAGE" ):
-                    shutil.move( cache_path, destination )
+        dses = []
+        delete_list = []
+        for dsindex, chip in enumerate( [ 27, 47 ] ):
+            for ext in [ 'image.fits', 'weight.fits', 'flags.fits', 'image.yaml' ]:
+                cache_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.{ext}' )
+                if os.path.isfile( cache_path ):
+                    SCLogger.info( f"{cache_path} exists, not redownloading" )
                 else:
-                    shutil.copy2( cache_path, destination )
+                    url = os.path.join( download_url, 'DECAM', f'{filebase}.{chip:02d}.{ext}' )
+                    SCLogger.info( f"Downloading {cache_path}" )
+                    retry_download( url, cache_path )
+                    if not os.path.isfile( cache_path ):
+                        raise FileNotFoundError( f"Can't find downloaded file {cache_path}" )
 
-        yaml_path = os.path.join(decam_cache_dir, f'007/{filebase}.{chip:02d}.image.yaml')
-        with open( yaml_path ) as ifp:
-            refyaml = yaml.safe_load( ifp )
+                if not ext.endswith('.yaml'):
+                    destination = os.path.join(data_dir, f'007/{filebase}.{chip:02d}.{ext}')
+                    os.makedirs(os.path.dirname(destination), exist_ok=True)
+                    if os.getenv( "LIMIT_CACHE_USAGE" ):
+                        shutil.move( cache_path, destination )
+                    else:
+                        shutil.copy2( cache_path, destination )
 
-        with SmartSession() as session:
-            code_version = session.merge(code_version)
-            prov = Provenance(
-                process='preprocessing',
-                code_version=code_version,
-                parameters={},
-                upstreams=[],
-                is_testing=True,
-            )
-            # check if this Image is already in the DB
-            existing = session.scalars(
-                sa.select(Image).where(Image.filepath == f'007/{filebase}.{chip:02d}')
-            ).first()
-            if existing is None:
+
+            # the JSON file is generated by our cache system, not downloaded from the NERSC archive
+            json_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.image.fits.json' )
+            if not env_as_bool( "LIMIT_CACHE_USAGE" ) and os.path.isfile( json_path ):
+                image = copy_from_cache(Image, decam_cache_dir, json_path)
+                image.provenance = prov
+                image.save(verify_md5=False)  # make sure to upload to archive as well
+            else:  # no cache, must create a new image object
+                yaml_path = os.path.join(decam_cache_dir, f'007/{filebase}.{chip:02d}.image.yaml')
+
+                with open( yaml_path ) as ifp:
+                    refyaml = yaml.safe_load( ifp )
+
                 image = Image(**refyaml)
-            else:
-                # overwrite the existing row data using the YAML
-                for key, value in refyaml.items():
-                    if (
-                            key not in ['id', 'image_id', 'created_at', 'modified'] and
-                            value is not None
-                    ):
-                        setattr(existing, key, value)
-                image = existing  # replace with the existing object
+                image.provenance = prov
+                image.filepath = f'007/{filebase}.{chip:02d}'
+                image.is_coadd = True
+                image.save()  # make sure to upload to archive as well
 
-            image.provenance = prov
-            image.filepath = f'007/{filebase}.{chip:02d}'
-            image.is_coadd = True
-            image.save(verify_md5=False)  # make sure to upload to archive as well
+                if not env_as_bool( "LIMIT_CACHE_USAGE" ):  # save a copy of the image in the cache
+                    copy_to_cache( image, decam_cache_dir )
 
-            if not os.getenv( "LIMIT_CACHE_USAGE" ):
-                copy_to_cache( image, decam_cache_dir )
+            # the datastore factory will load from cache or recreate all the other products
+            ds = datastore_factory(image, cache_dir=decam_cache_dir, cache_base_name=f'007/{filebase}.{chip:02d}')
 
-            ds = datastore_factory(image,
-                                   cache_dir=decam_cache_dir,
-                                   cache_base_name=f'007/{filebase}.{chip:02d}',
-                                   no_sub=True)
+            for filename in image.get_fullpath(as_list=True):
+                assert os.path.isfile(filename)
 
-            for filename in image.get_fullpath( as_list=True ):
-                assert os.path.isfile( filename )
-
-            ds.save_and_commit( session )
+            ds.save_and_commit(session)
 
             dses.append( ds )
             delete_list.extend( [ ds.image, ds.sources, ds.psf, ds.wcs, ds.zp,
@@ -461,21 +449,17 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
     ImageAligner.cleanup_temp_images()
 
 @pytest.fixture
+def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
+    return decam_elais_e1_two_refs_datastore[0]
+
+@pytest.fixture
 def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
     refs = []
     with SmartSession() as session:
+        maker = refmaker_factory('test_refset_decam', 'DECam')
         for ds in decam_elais_e1_two_refs_datastore:
-            prov = Provenance(
-                code_version=ds.image.provenance.code_version,
-                process='reference',
-                parameters={'test_parameter': 'test_value'},
-                upstreams=[
-                    ds.image.provenance,
-                    ds.sources.provenance,
-                    ],
-                is_testing=True,
-            )
-            prov = session.merge( prov )
+            prov = maker.refset.provenances[0]
+            prov = session.merge(prov)
 
             ref = Reference()
             ref.image = ds.image
@@ -493,15 +477,13 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
 
             refs.append( ref )
 
-        session.commit()
-
     yield refs
 
     for ref in refs:
         with SmartSession() as session:
-            ref = session.merge(ref)
+            ref = session.merge( ref )
             if sa.inspect(ref).persistent:
-                session.delete(ref.provenance)  # should also delete the reference image
+                session.delete( ref )
             session.commit()
 
 @pytest.fixture
@@ -511,6 +493,28 @@ def decam_reference( decam_elais_e1_two_references ):
 @pytest.fixture
 def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
+
+@pytest.fixture(scope='session')
+def decam_refset(refmaker_factory):
+    refmaker = refmaker_factory('test_refset_decam', 'DECam')
+    refmaker.pars.save_new_refs = True
+
+    refmaker.make_refset()
+
+    yield refmaker.refset
+
+    # delete all the references and the refset
+    with SmartSession() as session:
+        refmaker.refset = session.merge(refmaker.refset)
+        for prov in refmaker.refset.provenances:
+            refs = session.scalars(sa.select(Reference).where(Reference.provenance_id == prov.id)).all()
+            for ref in refs:
+                session.delete(ref)
+
+        session.delete(refmaker.refset)
+
+        session.commit()
+
 
 @pytest.fixture
 def decam_subtraction(decam_datastore):

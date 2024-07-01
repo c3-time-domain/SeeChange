@@ -1,12 +1,11 @@
 import warnings
-import math
 import datetime
 import sqlalchemy as sa
 
-from util.util import parse_session
+from util.util import parse_session, listify
 from util.logger import SCLogger
 
-from models.base import SmartSession, FileOnDiskMixin
+from models.base import SmartSession, FileOnDiskMixin, FourCorners
 from models.provenance import CodeVersion, Provenance
 from models.exposure import Exposure
 from models.image import Image, image_upstreams_association_table
@@ -24,7 +23,7 @@ UPSTREAM_STEPS = {
     'exposure': [],  # no upstreams
     'preprocessing': ['exposure'],
     'extraction': ['preprocessing'],
-    'subtraction': ['reference', 'preprocessing', 'extraction'],
+    'subtraction': ['referencing', 'preprocessing', 'extraction'],
     'detection': ['subtraction'],
     'cutting': ['detection'],
     'measuring': ['cutting'],
@@ -36,8 +35,8 @@ PROCESS_PRODUCTS = {
     'exposure': 'exposure',
     'preprocessing': 'image',
     'coaddition': 'image',
-    'extraction': ['sources', 'psf', 'background', 'wcs', 'zp'],
-    'reference': 'reference',
+    'extraction': ['sources', 'psf', 'bg', 'wcs', 'zp'],
+    'referencing': 'reference',
     'subtraction': 'sub_image',
     'detection': 'detections',
     'cutting': 'cutouts',
@@ -219,7 +218,7 @@ class DataStore:
                 self.image = val
 
         if self.image is not None:
-            for att in ['sources', 'psf', 'wcs', 'zp', 'detections', 'cutouts', 'measurements']:
+            for att in ['sources', 'psf', 'bg', 'wcs', 'zp', 'detections', 'cutouts', 'measurements']:
                 if getattr(self.image, att, None) is not None:
                     setattr(self, att, getattr(self.image, att))
 
@@ -255,7 +254,8 @@ class DataStore:
     def reraise(self):
         """If an exception is logged to the datastore, raise it. Otherwise pass. """
         if self.exception is not None:
-            raise self.exception
+            e = self.read_exception()
+            raise e
 
     def __init__(self, *args, **kwargs):
         """
@@ -389,11 +389,8 @@ class DataStore:
             if key == 'detections' and not isinstance(value, SourceList):
                 raise ValueError(f'detections must be a SourceList object, got {type(value)}')
 
-            if key == 'cutouts' and not isinstance(value, list):
-                raise ValueError(f'cutouts must be a list of Cutout objects, got {type(value)}')
-
-            if key == 'cutouts' and not all([isinstance(c, Cutouts) for c in value]):
-                raise ValueError(f'cutouts must be a list of Cutouts objects, got list with {[type(c) for c in value]}')
+            if key == 'cutouts' and not isinstance(value, Cutouts):
+                raise ValueError(f'cutouts must be a Cutouts object, got {type(value)}')
 
             if key == 'measurements' and not isinstance(value, list):
                 raise ValueError(f'measurements must be a list of Measurements objects, got {type(value)}')
@@ -521,8 +518,8 @@ class DataStore:
             if len(upstreams) != len(UPSTREAM_STEPS[process]):
                 raise ValueError(f'Could not find all upstream provenances for process {process}.')
 
-            for u in upstreams:  # check if "reference" is in the list, if so, replace it with its upstreams
-                if u.process == 'reference':
+            for u in upstreams:  # check if "referencing" is in the list, if so, replace it with its upstreams
+                if u.process == 'referencing':
                     upstreams.remove(u)
                     for up in u.upstreams:
                         upstreams.append(up)
@@ -655,7 +652,8 @@ class DataStore:
                     self.image = None
                 if self.exposure is not None and self.image.exposure_id != self.exposure.id:
                     self.image = None
-                if self.section is not None and str(self.image.section_id) != self.section.identifier:
+                if ( self.section is not None and self.image is not None and
+                        str(self.image.section_id) != self.section.identifier ):
                     self.image = None
                 if self.image is not None and provenance is not None and self.image.provenance.id != provenance.id:
                     self.image = None
@@ -736,7 +734,7 @@ class DataStore:
         if self.sources is None:
             with SmartSession(session, self.session) as session:
                 image = self.get_image(session=session)
-                if image is not None:
+                if image is not None and provenance is not None:
                     self.sources = session.scalars(
                         sa.select(SourceList).where(
                             SourceList.image_id == image.id,
@@ -962,92 +960,36 @@ class DataStore:
 
         return self.zp
 
-    @classmethod
-    def _overlap_frac(cls, image, refim):
-        """Calculate the overlap fraction between image and refim.
-
-        Parameters
-        ----------
-        image: Image
-            The search image; we want to find a reference image that has
-            maximum overlap with this image.
-
-        refim: Image
-            The reference image to check.
-
-        Returns
-        -------
-        overlap_frac: float
-            The fraction of image's area that is covered by the
-            intersection of image and refim.
-
-        WARNING: Right now this assumes that the images are aligned N/S and
-        E/W. TODO: areas of general quadrilaterals and interssections of
-        general quadrilaterals.
-
-        For the "image area", it uses
-            max(image E ra) - min(image W ra) ) * ( max(image N dec) - min( imageS dec)
-        (where "image E ra" refers to the corners of the image that are
-        on the eastern side, i.e. ra_corner_10 and ra_corner_11).  This
-        will in general overestimate the image area, though the
-        overestimate will be small if the image is very close to
-        oriented square to the sky.
-
-        For the "overlap area", it uses
-          ( min( image E ra, ref E ra ) - max( image W ra, ref W ra ) *
-            min( image N dec, ref N dec ) - max( image S dec, ref S dec ) )
-        This will in general underestimate the overlap area, though the
-        underestimate will be small if both the image and reference
-        are oriented close to square to the sky.
-
-        (RA ranges in all cases are scaled by cos(dec).)
-
-        """
-
-        dimra = (((image.ra_corner_10 + image.ra_corner_11) / 2. -
-                  (image.ra_corner_00 + image.ra_corner_01) / 2.
-                  ) / math.cos(image.dec * math.pi / 180.))
-        dimdec = ((image.dec_corner_01 + image.dec_corner_11) / 2. -
-                  (image.dec_corner_00 + image.dec_corner_10) / 2.)
-        r0 = max(refim.ra_corner_00, refim.ra_corner_01,
-                 image.ra_corner_00, image.ra_corner_01)
-        r1 = min(refim.ra_corner_10, refim.ra_corner_10,
-                 image.ra_corner_10, image.ra_corner_10)
-        d0 = max(refim.dec_corner_00, refim.dec_corner_10,
-                 image.dec_corner_00, image.dec_corner_10)
-        d1 = min(refim.dec_corner_01, refim.dec_corner_11,
-                 image.dec_corner_01, image.dec_corner_11)
-        dra = (r1 - r0) / math.cos((d1 + d0) / 2. * math.pi / 180.)
-        ddec = d1 - d0
-
-        return (dra * ddec) / (dimra * dimdec)
-
-    def get_reference(self, minovfrac=0.85, must_match_instrument=True, must_match_filter=True,
-                      must_match_target=False, must_match_section=False, session=None ):
+    def get_reference(self, provenances=None, min_overlap=0.85, match_filter=True,
+                      ignore_target_and_section=False, skip_bad=True, session=None ):
         """Get the reference for this image.
 
         Parameters
         ----------
-        minovfrac: float, default 0.85
+        provenances: list of provenance objects
+            A list of provenances to use to identify a reference.
+            Will check for existing references for each one of these provenances,
+            and will apply any additional criteria to each resulting reference, in turn,
+            until the first one qualifies and is the one returned
+            (i.e, it is possible to take the reference matching the first provenance
+            and never load the others).
+            If not given, will try to get the provenances from the prov_tree attribute.
+            If those are not given, or if no qualifying reference is found, will return None.
+        min_overlap: float, default 0.85
             Area of overlap region must be at least this fraction of the
             area of the search image for the reference to be good.
             (Warning: calculation implicitly assumes that images are
             aligned N/S and E/W.)  Make this <= 0 to not consider
             overlap fraction when finding a reference.
-        must_match_instrument: bool, default True
-            If True, only find a reference from the same instrument
-            as that of the DataStore's image.
-        must_match_filter: bool, default True
+        match_filter: bool, default True
             If True, only find a reference whose filter matches the
             DataStore's images' filter.
-        must_match_target: bool, default False
-            If True, only find a reference if the "target" field of the
-            reference image matches the "target" field of the image in
-            the DataStore.
-        must_match_section: bool, default False
-            If True, only find a reference if the "section_id" field of
-            the reference image matches that of the image in the
-            Datastore.
+        ignore_target_and_section: bool, default False
+            If False, will try to match based on the datastore image's target and
+            section_id parameters (if they are not None) and only use RA/dec to match
+            if they are missing. If True, will only use RA/dec to match.
+        skip_bad: bool, default True
+            If True, will skip references that are marked as bad.
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -1059,78 +1001,83 @@ class DataStore:
         ref: Image object
             The reference image for this image, or None if no reference is found.
 
-        It will only return references whose validity date range
-        includes DataStore.image.observation_time.
-
-        If minovfrac is given, it will return the reference that has the
-        highest ovfrac.  (If, by unlikely chance, more than one have
+        If min_overlap is given, it will return the reference that has the
+        highest overlap fraction.  (If, by unlikely chance, more than one have
         identical overlap fractions, an undeterministically chosen
         reference will be returned.  Ideally, by construction, you will
         never have this situation in your database; you will only have a
         single valid reference image for a given instrument/filter/date
         that has an appreciable overlap with any possible image from
         that instrument.  The software does not enforce this, however.)
-
-        If minovfrac is not given, it will return the first reference found
-        that matches the other criteria.  Be careful with this.
-
         """
+        image = self.get_image(session=session)
+        if image is None:
+            return None  # cannot find a reference without a new image to match
+
+        if provenances is None:  # try to get it from the prov_tree
+            provenances = self._get_provenance_for_an_upstream('referencing')
+
+        provenances = listify(provenances)
+
+        if provenances is None:
+            self.reference = None  # cannot get a reference without any associated provenances
+
+        # first, some checks to see if existing reference is ok
+        if self.reference is not None and provenances is not None:  # check for a mismatch of reference to provenances
+            if self.reference.provenance_id not in [p.id for p in provenances]:
+                self.reference = None
+
+        if self.reference is not None and min_overlap is not None and min_overlap > 0:
+            ovfrac = FourCorners.get_overlap_frac(image, self.reference.image)
+            if ovfrac < min_overlap:
+                self.reference = None
+
+        if self.reference is not None and skip_bad:
+            if self.reference.is_bad:
+                self.reference = None
+
+        if self.reference is not None and match_filter:
+            if self.reference.filter != image.filter:
+                self.reference = None
+
+        if (
+                self.reference is not None and not ignore_target_and_section and
+                image.target is not None and image.section_id is not None
+        ):
+            if self.reference.target != image.target or self.reference.section_id != image.section_id:
+                self.reference = None
+
+        # if we have survived this long without losing the reference, can return it here:
+        if self.reference is not None:
+            return self.reference
+
+        # No reference was found (or it didn't match other parameters) must find a new one
         with SmartSession(session, self.session) as session:
-            image = self.get_image(session=session)
+            if ignore_target_and_section or image.target is None or image.section_id is None:
+                arguments = dict(ra=image.ra, dec=image.dec)
+            else:
+                arguments = dict(target=image.target, section_id=image.section_id)
 
-            if self.reference is not None:
-                ovfrac = self._overlap_frac( image, self.reference.image ) if minovfrac > 0. else 0.
-                if not (
-                        ( self.reference.validity_start is None or
-                          self.reference.validity_start <= image.observation_time ) and
-                        ( self.reference.validity_end is None or
-                          self.reference.validity_end >= image.observation_time ) and
-                        ( ( not must_match_instrument ) or ( self.reference.image.instrument
-                                                             == image.instrument ) ) and
-                        ( ( not must_match_filter) or ( self.reference.filter == image.filter ) ) and
-                        ( ( not must_match_target ) or ( self.image.target == self.reference.target ) ) and
-                        ( ( not must_match_section ) or ( self.image.section_id == self.reference.section_id ) ) and
-                        ( self.reference.is_bad is False ) and
-                        ( ( minovfrac <= 0. ) or ( ovfrac > minovfrac ) )
-                ):
-                    self.reference = None
+            if match_filter:
+                arguments['filter'] = image.filter
+            else:
+                arguments['filter'] = None
 
-            if self.reference is None:
-                q = ( session.query( Reference, Image )
-                      .filter( Reference.image_id == Image.id )
-                      .filter( sa.or_( Reference.validity_start.is_(None),
-                                       Reference.validity_start <= image.observation_time ) )
-                      .filter( sa.or_( Reference.validity_end.is_(None),
-                                       Reference.validity_end >= image.observation_time ) )
-                      .filter( Reference.is_bad.is_(False ) )
-                     )
-                if minovfrac > 0.:
-                    q = ( q
-                          .filter( Image.ra >= min( image.ra_corner_00, image.ra_corner_01 ) )
-                          .filter( Image.ra <= max( image.ra_corner_10, image.ra_corner_11 ) )
-                          .filter( Image.dec >= min( image.dec_corner_00, image.dec_corner_10 ) )
-                          .filter( Image.dec <= max( image.dec_corner_01, image.dec_corner_11 ) )
-                         )
-                if must_match_instrument: q = q.filter( Image.instrument == image.instrument )
-                if must_match_filter: q = q.filter( Reference.filter == image.filter )
-                if must_match_target: q = q.filter( Reference.target == image.target )
-                if must_match_section: q = q.filter( Reference.section_id == image.section_id )
+            arguments['skip_bad'] = skip_bad
+            arguments['provenance_ids'] = provenances
+            references = Reference.get_references(**arguments, session=session)
 
-                ref = None
-                if minovfrac <= 0.:
-                    ref, refim = q.first()
-                else:
-                    maxov = minovfrac
-                    for curref, currefim in q.all():
-                        ovfrac = self._overlap_frac( image, currefim )
-                        if ovfrac > maxov:
-                            maxov = ovfrac
-                            ref = curref
-
-                if ref is None:
-                    raise ValueError(f'No reference image found for image {image.id}')
-
-                self.reference = curref
+            self.reference = None
+            for ref in references:
+                if min_overlap is not None and min_overlap > 0:
+                    ovfrac = FourCorners.get_overlap_frac(image, ref.image)
+                    # print(
+                    #     f'ref.id= {ref.id}, ra_left= {ref.image.ra_corner_00:.2f}, '
+                    #     f'ra_right= {ref.image.ra_corner_11:.2f}, ovfrac= {ovfrac}'
+                    # )
+                    if ovfrac >= min_overlap:
+                        self.reference = ref
+                        break
 
         return self.reference
 
@@ -1285,16 +1232,16 @@ class DataStore:
         if provenance is None:  # try to get the provenance from the prov_tree
             provenance = self._get_provenance_for_an_upstream(process_name, session)
 
-        # not in memory, look for it on the DB
         if self.cutouts is not None:
-            if len(self.cutouts) == 0:
+            self.cutouts.load_all_co_data()
+            if len(self.cutouts.co_dict) == 0:
                 self.cutouts = None  # TODO: what about images that actually don't have any detections?
 
             # make sure the cutouts have the correct provenance
             if self.cutouts is not None:
-                if self.cutouts[0].provenance is None:
+                if self.cutouts.provenance is None:
                     raise ValueError('Cutouts have no provenance!')
-                if provenance is not None and provenance.id != self.cutouts[0].provenance.id:
+                if provenance is not None and provenance.id != self.cutouts.provenance.id:
                     self.cutouts = None
 
         # not in memory, look for it on the DB
@@ -1316,7 +1263,7 @@ class DataStore:
                         Cutouts.sources_id == sub_image.sources.id,
                         Cutouts.provenance_id == provenance.id,
                     )
-                ).all()
+                ).first()
 
         return self.cutouts
 
@@ -1360,11 +1307,10 @@ class DataStore:
         if self.measurements is None:
             with SmartSession(session, self.session) as session:
                 cutouts = self.get_cutouts(session=session)
-                cutout_ids = [c.id for c in cutouts]
 
                 self.measurements = session.scalars(
                     sa.select(Measurements).where(
-                        Measurements.cutouts_id.in_(cutout_ids),
+                        Measurements.cutouts_id == cutouts.id,
                         Measurements.provenance_id == provenance.id,
                     )
                 ).all()
@@ -1485,11 +1431,6 @@ class DataStore:
             if obj is None:
                 continue
 
-            if isinstance(obj, list) and len(obj) > 0:  # handle cutouts and measurements
-                if hasattr(obj[0], 'save_list'):
-                    obj[0].save_list(obj, overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive)
-                continue
-
             SCLogger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
                             f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 
@@ -1536,7 +1477,7 @@ class DataStore:
                 self.image = self.image.merge_all(session)
                 for att in ['sources', 'psf', 'bg', 'wcs', 'zp']:
                     setattr(self, att, None)  # avoid automatically appending to the image self's non-merged products
-                for att in ['exposure', 'sources', 'psf', 'wcs', 'zp']:
+                for att in ['exposure', 'sources', 'psf', 'bg', 'wcs', 'zp']:
                     if getattr(self.image, att, None) is not None:
                         setattr(self, att, getattr(self.image, att))
 
@@ -1569,19 +1510,14 @@ class DataStore:
             if self.detections is not None:
                 more_products = 'detections'
                 if self.cutouts is not None:
-                    if self.measurements is not None:  # keep track of which cutouts goes to which measurements
-                        for m in self.measurements:
-                            idx = [c.index_in_sources for c in self.cutouts].index(m.cutouts.index_in_sources)
-                            m._cutouts_list_index = idx
-                    for cutout in self.cutouts:
-                        cutout.sources = self.detections
-                    self.cutouts = Cutouts.merge_list(self.cutouts, session)
+                    self.cutouts.sources = self.detections
+                    self.cutouts = session.merge(self.cutouts)
                     more_products += ', cutouts'
 
                 if self.measurements is not None:
                     for i, m in enumerate(self.measurements):
                         # use the new, merged cutouts
-                        self.measurements[i].cutouts = self.measurements[i].find_cutouts_in_list(self.cutouts)
+                        self.measurements[i].cutouts = self.cutouts
                         self.measurements[i].associate_object(session)
                         self.measurements[i] = session.merge(self.measurements[i])
                         self.measurements[i].object.measurements.append(self.measurements[i])
