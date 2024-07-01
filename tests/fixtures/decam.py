@@ -453,10 +453,11 @@ def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
 
 @pytest.fixture
-def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
+def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_factory ):
     refs = []
     with SmartSession() as session:
         maker = refmaker_factory('test_refset_decam', 'DECam')
+        maker.make_refset(session=session)
         for ds in decam_elais_e1_two_refs_datastore:
             prov = maker.refset.provenances[0]
             prov = session.merge(prov)

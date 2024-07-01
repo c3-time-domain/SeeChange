@@ -20,7 +20,7 @@ import astropy.units as u
 
 from util.util import read_fits_image, save_fits_image_file, parse_dateobs, listify
 from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
-form util.logger import SCLogger
+from util.logger import SCLogger
 
 from models.base import (
     Base,

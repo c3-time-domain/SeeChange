@@ -1,7 +1,7 @@
 """rework cutouts and measurements
 
 Revision ID: 7384c6d07485
-Revises: a375526c8260
+Revises: 370933973646
 Create Date: 2024-06-28 17:57:44.173607
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '7384c6d07485'
-down_revision = 'a375526c8260'
+down_revision = '370933973646'
 branch_labels = None
 depends_on = None
 
