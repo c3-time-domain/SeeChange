@@ -1497,6 +1497,7 @@ class DataStore:
             self.products_committed = 'image, sources, psf, wcs, zp, bg'
 
             if self.sub_image is not None:
+                import pdb; pdb.set_trace()
                 if self.reference is not None:
                     self.reference = self.reference.merge_all(session)
                 self.sub_image.new_image = self.image  # update with the now-merged image

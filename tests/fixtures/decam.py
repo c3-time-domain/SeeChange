@@ -458,10 +458,9 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_f
     with SmartSession() as session:
         maker = refmaker_factory('test_refset_decam', 'DECam')
         maker.make_refset(session=session)
+        prov = maker.refset.provenances[0]
+        prov = session.merge(prov)
         for ds in decam_elais_e1_two_refs_datastore:
-            prov = maker.refset.provenances[0]
-            prov = session.merge(prov)
-
             ref = Reference()
             ref.image = ds.image
             ref.provenance = prov
@@ -474,9 +473,10 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_f
 
             ref = ref.merge_all(session=session)
             if not sa.inspect(ref).persistent:
-                ref = session.merge(ref)
-
+                ref = session.merge( ref )
             refs.append( ref )
+
+        session.commit()
 
     yield refs
 
