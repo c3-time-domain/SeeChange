@@ -13,6 +13,7 @@ import util.config as config
 import models.base
 from models.base import Base, SmartSession, AutoIDMixin, FileOnDiskMixin, FourCorners
 from models.image import Image
+from tests.util.testing_classes import DiskFile
 
 
 def test_to_dict(data_dir):
@@ -59,15 +60,6 @@ def test_to_dict(data_dir):
 # This set of tests isn't complete, because some of the actual saving
 # functionality will be tested as a side effect of the save testing in
 # test_image.py
-
-
-class DiskFile(Base, AutoIDMixin, FileOnDiskMixin):
-    """A temporary database table for testing FileOnDiskMixin
-
-    """
-    hexbarf = ''.join( [ random.choice( '0123456789abcdef' ) for i in range(8) ] )
-    __tablename__ = f"test_diskfiles_{hexbarf}"
-    nofile = True
 
 
 @pytest.fixture(scope='session')

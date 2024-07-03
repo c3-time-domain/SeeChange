@@ -347,6 +347,37 @@ class SeeChangeBase:
         """
         raise NotImplementedError('get_downstreams not implemented for this class')
 
+    def get_downstreams_recursive(self, session=None):
+        """Get all data products that were created from this object (recursive).
+
+        Will recursively call get_downstreams on each data product and return a Python set
+        of all downstream objects.
+        """
+        downstreams = set()
+        checked_downstreams = set()
+
+        # somehow ensure that an object that shouldn't call this cannot call this
+        with SmartSession(session) as session:
+            downstreams.update(self.get_downstreams(session=session))
+
+            done_searching = False
+            while not done_searching:
+                done_searching = True
+
+                for ds in downstreams.difference(checked_downstreams):
+
+                    new_downstreams = set(ds.get_downstreams(session=session))
+                    if new_downstreams != set() and not new_downstreams.issubset(downstreams):
+                        done_searching = False
+                        downstreams.update(new_downstreams)
+
+                    # do not re-check this object in further loops
+                    checked_downstreams.add(ds)
+
+            # consider whether it is worth trying to make sure everything is in the session
+        return list(downstreams)
+
+
     def delete_from_database(self, session=None, commit=True, remove_downstreams=False):
         """Remove the object from the database.
 
@@ -1311,11 +1342,65 @@ class FileOnDiskMixin:
         self.md5sum = None
         self.md5sum_extensions = None
 
+    # def delete_from_disk_and_database(
+    #         self, session=None, commit=True, remove_folders=True, remove_downstreams=False, archive=True,
+    # ):
+    #     """
+    #     Delete the data from disk, archive and the database.
+    #     Use this to clean up an entry from all locations.
+    #     Will delete the object from the DB using the given session
+    #     (or using an internal session).
+    #     If using an internal session, commit must be True,
+    #     to allow the change to be committed before closing it.
+
+    #     This will silently continue if the file does not exist
+    #     (locally or on the archive), or if it isn't on the database,
+    #     and will attempt to delete from any locations regardless
+    #     of if it existed elsewhere or not.
+
+    #     TODO : this is sometimes broken if you don't pass a session.
+
+    #     Parameters
+    #     ----------
+    #     session: sqlalchemy session
+    #         The session to use for the deletion. If None, will open a new session,
+    #         which will also close at the end of the call.
+    #     commit: bool
+    #         Whether to commit the deletion to the database.
+    #         Default is True. When session=None then commit must be True,
+    #         otherwise the session will exit without committing
+    #         (in this case the function will raise a RuntimeException).
+    #     remove_folders: bool
+    #         If True, will remove any folders on the path to the files
+    #         associated to this object, if they are empty.
+    #     remove_downstreams: bool
+    #         If True, will also remove any downstream data.
+    #         Will recursively call get_downstreams() and find any objects
+    #         that can have their data deleted from disk, archive and database.
+    #         Default is False.
+    #     archive: bool
+    #         If True, will also delete the file from the archive.
+    #         Default is True.
+    #     """
+    #     if session is None and not commit:
+    #         raise RuntimeError("When session=None, commit must be True!")
+
+    #     SeeChangeBase.delete_from_database(self, session=session, commit=commit, remove_downstreams=remove_downstreams)
+
+    #     self.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=remove_downstreams)
+
+    #     if archive:
+    #         self.delete_from_archive(remove_downstreams=remove_downstreams)
+
+    #     # make sure these are set to null just in case we fail
+    #     # to commit later on, we will at least know something is wrong
+    #     self.filepath_extensions = None
+    #     self.filepath = None
+
     def delete_from_disk_and_database(
             self, session=None, commit=True, remove_folders=True, remove_downstreams=False, archive=True,
     ):
-        """
-        Delete the data from disk, archive and the database.
+        """Delete the data from disk, archive, and database.
         Use this to clean up an entry from all locations.
         Will delete the object from the DB using the given session
         (or using an internal session).
@@ -1324,47 +1409,100 @@ class FileOnDiskMixin:
 
         This will silently continue if the file does not exist
         (locally or on the archive), or if it isn't on the database,
-        and will attempt to delete from any locations regardless
-        of if it existed elsewhere or not.
-
-        TODO : this is sometimes broken if you don't pass a session.
-
-        Parameters
-        ----------
-        session: sqlalchemy session
-            The session to use for the deletion. If None, will open a new session,
-            which will also close at the end of the call.
-        commit: bool
-            Whether to commit the deletion to the database.
-            Default is True. When session=None then commit must be True,
-            otherwise the session will exit without committing
-            (in this case the function will raise a RuntimeException).
-        remove_folders: bool
-            If True, will remove any folders on the path to the files
-            associated to this object, if they are empty.
-        remove_downstreams: bool
-            If True, will also remove any downstream data.
-            Will recursively call get_downstreams() and find any objects
-            that can have their data deleted from disk, archive and database.
-            Default is False.
-        archive: bool
-            If True, will also delete the file from the archive.
-            Default is True.
+        and will attempt to delete from any locations regardless of if it existed elsewhere or not.
         """
-        if session is None and not commit:
-            raise RuntimeError("When session=None, commit must be True!")
+        from models.measurements import Measurements
+        from models.cutouts import Cutouts
+        from models.source_list import SourceList
+        from models.image import Image
+        from models.reference import Reference
+        from models.psf import PSF
+        from models.background import Background
+        from models.world_coordinates import WorldCoordinates
+        from models.zero_point import ZeroPoint
+        from models.exposure import Exposure
+        from tests.util.testing_classes import DiskFile
+        from models.datafile import DataFile
+        from models.catalog_excerpt import CatalogExcerpt
+        #add in commit check
 
-        SeeChangeBase.delete_from_database(self, session=session, commit=commit, remove_downstreams=remove_downstreams)
+        # first, acquire the set of all downstreams plus this item that need to be removed
+        # WHPR TODO : Test this functionality for not getting downstreams
+        with SmartSession(session) as session:
+            objs_to_delete = [self]  # consider whether we should merge/add this or not (thinking yes)
+            if remove_downstreams:
+                objs_to_delete += self.get_downstreams_recursive(session=session)
 
-        self.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=remove_downstreams)
+        # hard code in an order of object types that will be murdered starting from the bottom
+        # eg. ["Measurement", "Cutouts", "SourceList", ...]
+        order_to_delete = [Measurements,
+                           Cutouts,
+                           SourceList,  # detections (is_sub)
+                           Image, # sub_image
+                           Reference,
+                           SourceList,  # sources
+                           PSF,
+                           Background,
+                           WorldCoordinates,
+                           ZeroPoint,
+                           Image, # not sub_image
+                           Exposure,
+                           # Below are other models used more rarely
+                           DiskFile, # WHPR only used in testing, find a better solution than adding it here
+                           CatalogExcerpt,
+                           DataFile] 
 
-        if archive:
-            self.delete_from_archive(remove_downstreams=remove_downstreams)
+        # Iterate through the object types, doing
+        #     delete from disk
+        #     delete from archive
+        #     delete from database
+        need_commit = False
+        sources_counter = 0
+        image_counter = 0
+        deleted_objs = []
+        for product_class in order_to_delete:
+            # remember to implement a special case for ones that appear multiply (SourceList, Image)
+            #WHPR TODO eventually replace d with obj
+            for d in objs_to_delete:
 
-        # make sure these are set to null just in case we fail
-        # to commit later on, we will at least know something is wrong
-        self.filepath_extensions = None
-        self.filepath = None
+                if isinstance(d, product_class) and d not in deleted_objs:
+                    # special case for SourceList, which has detections and sources
+                    if product_class == SourceList and sources_counter == 0 and not d.is_sub:
+                        continue  # this is a sources, not a detection
+
+                    #special case for Image, which can be sub_image
+                    if product_class == Image and image_counter == 0 and not d.is_sub:
+                        continue  # this object is not a detection
+
+                    # delete from disk
+                    if hasattr(d, 'remove_data_from_disk'):
+                        d.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=False)
+                    # delete from archive
+                    if archive and hasattr(d, 'delete_from_archive'):
+                        d.delete_from_archive(remove_downstreams=False)
+                    # delete from database
+                    if d.delete_from_database(session=session, commit=False, remove_downstreams=False):
+                        need_commit = True
+
+                    # make sure these are set to null just in case we fail
+                    # to commit later on, we will at least know something is wrong
+                    d.filepath_extensions = None
+                    d.filepath = None
+
+                    deleted_objs.append(d)
+
+            if product_class == SourceList:
+                sources_counter += 1
+            if product_class == Image:
+                image_counter += 1
+
+        if len(objs_to_delete) != len(deleted_objs):
+            # breakpoint()
+            raise ValueError(f"Not all objects were deleted. Still have {objs_to_delete}")
+
+        if need_commit and commit:
+            session.commit()
+
 
 
 # load the default paths from the config

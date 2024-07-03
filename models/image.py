@@ -1933,18 +1933,21 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 sa.select(SourceList).where(SourceList.image_id == self.id)
             ).all()
             downstreams += sources
-            if self.sources is not None and self.sources not in sources:  # if not in the session, could be duplicate!
+            if (self.sources is not None and self.sources not in sources
+                and self.sources.id not in [obj.id for obj in sources]):  # if not in the session, could be duplicate! NOMORE
                 downstreams.append(self.sources)
 
             # get all psfs that are related to this image (regardless of provenance)
             psfs = session.scalars(sa.select(PSF).where(PSF.image_id == self.id)).all()
             downstreams += psfs
-            if self.psf is not None and self.psf not in psfs:  # if not in the session, could be duplicate!
+            if (self.psf is not None and self.psf not in psfs
+                and self.psf.id not in [obj.id for obj in psfs]):  # if not in the session, could be duplicate! NOMORE
                 downstreams.append(self.psf)
 
             bgs = session.scalars(sa.select(Background).where(Background.image_id == self.id)).all()
             downstreams += bgs
-            if self.bg is not None and self.bg not in bgs:  # if not in the session, could be duplicate!
+            if (self.bg is not None and self.bg not in bgs
+                and self.bg.id not in [obj.id for obj in bgs]):  # if not in the session, could be duplicate! NOMORE
                 downstreams.append(self.bg)
 
             wcses = []
@@ -1957,9 +1960,11 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                 zps += session.scalars(
                     sa.select(ZeroPoint).where(ZeroPoint.sources_id == s.id)
                 ).all()
-            if self.wcs is not None and self.wcs not in wcses:  # if not in the session, could be duplicate!
+            if (self.wcs is not None and self.wcs not in wcses
+                and self.wcs.id not in [obj.id for obj in wcses]):  # if not in the session, could be duplicate! NOMORE
                 wcses.append(self.wcs)
-            if self.zp is not None and self.zp not in zps:  # if not in the session, could be duplicate!
+            if (self.zp is not None and self.zp not in zps
+                and self.zp.id not in [obj.id for obj in zps]):  # if not in the session, could be duplicate! NOMORE
                 zps.append(self.zp)
 
             downstreams += wcses

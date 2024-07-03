@@ -524,7 +524,7 @@ def ptf_ref(
     yield ref
 
     with SmartSession() as session:
-        coadd_image = coadd_image.merge_all(session=session)
+        # coadd_image = coadd_image.merge_all(session=session) # questionable, ask guy
         coadd_image.delete_from_disk_and_database(commit=True, session=session, remove_downstreams=True)
         ref_in_db = session.scalars(sa.select(Reference).where(Reference.id == ref.id)).first()
         assert ref_in_db is None  # should have been deleted by cascade when image is deleted
