@@ -126,6 +126,16 @@ subtraction:
   alignment:
     method: swarp
     to_index: new
+  inpainting:
+    multi_image_method: median
+    feather_width: 2
+    rescale_method: median
+    single_image_method: biharmonic
+    ignore_flags: 0
+  subtiling:
+    cut_size: 256
+    overlap: hanning
+    pad_value: null
 
 # how to extract sources (detections) from the subtration image
 detection:

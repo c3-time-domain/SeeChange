@@ -1,3 +1,8 @@
+import os
+
+import sep
+import time
+
 import pytest
 import numpy as np
 import h5py
@@ -72,9 +77,15 @@ def test_save_load_backgrounds(decam_raw_image, code_version):
         with pytest.raises(RuntimeError, match='Counts shape .* does not match image shape .*'):
             b2.save()
 
-        b2.counts = np.random.normal(bg_mean, 1, size=image.data.shape)
-        b2.variance = np.random.normal(bg_var, 1, size=image.data.shape)
+        # use actual background measurements so we can get a realistic estimate of the compression
+        back = sep.Background(image.data)
+        b2.counts = back.back()
+        b2.variance = back.rms() ** 2
+
+        t0 = time.perf_counter()
         b2.save()
+        # print(f'Background save time: {time.perf_counter() - t0:.3f} s')
+        # print(f'Background file size: {os.path.getsize(b2.get_fullpath()) / 1024 ** 2:.3f} MB')
 
         # check the filename contains the provenance hash
         assert prov.id[:6] in b2.get_fullpath()

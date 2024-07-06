@@ -8,6 +8,7 @@ from util.logger import SCLogger
 # ======================================================================
 # Functions for copying FileOnDisk objects to/from cache
 
+
 def copy_to_cache(FoD, cache_dir, filepath=None):
     """Save a copy of the object (and, potentially, associated files) into a cache directory.
 
@@ -79,6 +80,7 @@ def copy_to_cache(FoD, cache_dir, filepath=None):
 
     return json_filepath
 
+
 def copy_list_to_cache(obj_list, cache_dir, filepath=None):
     """Copy a correlated list of objects to the cache directory.
 
@@ -136,6 +138,7 @@ def copy_list_to_cache(obj_list, cache_dir, filepath=None):
         json.dump([obj.to_dict() for obj in obj_list], fp, indent=2)
 
     return json_filepath
+
 
 def copy_from_cache(cls, cache_dir, filepath):
     """Copy and reconstruct an object from the cache directory.
@@ -199,6 +202,7 @@ def copy_from_cache(cls, cache_dir, filepath):
             shutil.copyfile(source_f, target_f)
 
     return output
+
 
 def copy_list_from_cache(cls, cache_dir, filepath):
     """Copy and reconstruct a list of objects from the cache directory.
