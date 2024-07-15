@@ -392,3 +392,22 @@ def catexp(data_dir, cache_dir, download_url):
     if os.path.isfile(filepath):
         os.remove(filepath)
 
+# ======================================================================
+# FOR REASONS I DO NOT UNDERSTAND, adding this fixture caused
+#  models/test_image_querying.py::test_image_query to pass
+#
+# Without this fixture, that test failed, saying that the exposure file
+# did not exist.  This lead me to believe that some other test was
+# improperly removing it (since decam_exposure is a session fixture, so
+[# that exposure should never get removed), and I added this fixture to
+# figure out which other test was doing that.  However, it caused
+# everything to pass... so it's a mystery.  I want to solve this
+# mystery, but for now this is here because it seems to make things
+# work.  (My real worry is that it's not a test doing something wrong,
+# but that there is something in the code that's too eager to delete
+# things.  In that case, we really need to find it.)
+
+@pytest.fixture( autouse=True )
+def hack_check_for_exposure( decam_exposure ):
+    yield True
+    assert pathlib.Path( decam_exposure.get_fullpath() ).is_file()
