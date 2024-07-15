@@ -11,7 +11,6 @@ import astropy.table
 import astropy.wcs.utils
 
 from util import ldac
-from util.config import Config
 from util.exceptions import SubprocessFailure
 from util.util import read_fits_image, save_fits_image_file
 from util.logger import SCLogger
@@ -28,7 +27,6 @@ from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 from pipeline.data_store import DataStore
 from pipeline.parameters import Parameters
 from pipeline.detection import Detector
-from pipeline.photo_cal import PhotCalibrator
 from improc.bitmask_tools import dilate_bitflag
 
 

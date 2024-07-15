@@ -1501,6 +1501,12 @@ class DataStore:
                     self.reference = self.reference.merge_all(session)
                     self.sub_image.ref_image = self.reference.image
                 self.sub_image.new_image = self.image  # update with the now-merged image
+                # Make sure that the sub_image's image upstreams are the things that are now properly
+                #  merged with the session.  (OMG sqlalchemy is a nightmare)
+                if ( self.sub_image.new_image.mjd < self.sub_image.ref_image.mjd ):
+                    self.sub_image.upstreams = [ self.sub_image.new_image, self.sub_image.ref_image ]
+                else:
+                    self.sub_image.upstreams = [ self.sub_image.ref_image, self.sub_image.new_image ]
                 self.sub_image = self.sub_image.merge_all(session)  # merges the upstream_images and downstream products
                 self.sub_image.ref_image.id = self.sub_image.ref_image_id
                 self.detections = self.sub_image.sources

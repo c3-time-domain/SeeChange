@@ -543,8 +543,23 @@ class SeeChangeBase:
         """Make a new instance of this object, with all column-based attributed (shallow) copied. """
         new = self.__class__()
         for key in sa.inspect(self).mapper.columns.keys():
-            value = getattr(self, key)
-            setattr(new, key, value)
+            # HACK ALERT
+            # I was getting a sqlalchemy.orm.exc.DetachedInstanceError
+            #   trying to copy a zeropoint deep inside alignment, and it
+            #   was on the line value = getattr(self, key) trying to load
+            #   the "modified" colum.  Rather than trying to figure out WTF
+            #   is going on with SQLAlchmey *this* time, I just decided that
+            #   when we copy an object, we don't copy the modified field,
+            #   so that I could move on with life.
+            # (This isn't necessarily terrible; one could make the argument
+            #   that the modified field of the new object *should* be now(),
+            #   which is the default.  The real worry is that it's yet another
+            #   mysterious SQLAlchemy thing, which just happened to be this field
+            #   this time around.  As long as we're tied to the albatross that is
+            #   SQLAlchemy, these kinds of things are going to keep happening.)
+            if key != 'modified':
+                value = getattr(self, key)
+                setattr(new, key, value)
 
         return new
 
