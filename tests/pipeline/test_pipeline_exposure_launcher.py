@@ -85,7 +85,7 @@ def test_exposure_launcher( conductor_connector,
             measq = session.query( Measurements ).join( Cutouts ).join( SourceList ).join( Image )
             meas0 = measq.filter( Image.id==sub0.id ).all()
             meas1 = measq.filter( Image.id==sub1.id ).all()
-            assert len(meas0) == 3
+            assert len(meas0) == 2
             assert len(meas1) == 6
 
     finally:

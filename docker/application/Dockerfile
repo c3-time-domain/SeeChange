@@ -285,7 +285,7 @@ ADD conductor/ /usr/src/seechange/conductor/
 # Need special handling of symlinks, because the
 #  ADD above copied the links as is, but they point
 #  to something that won't exist at the destination.
-ADD conductor/flaskauth.py /usr/src/seechange/conductor/flaskauth.py
+ADD conductor/rkauth_flask.py /usr/src/seechange/conductor/rkauth_flask.py
 ADD conductor/static/rkwebutil.js /usr/src/seechange/conductor/static/rkwebutil.js
 ADD conductor/static/rkauth.js /usr/src/seechange/conductor/static/rkauth.js
 ADD conductor/static/seechange.css /usr/src/seechange/conductor/static/seechange.css

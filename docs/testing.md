@@ -63,7 +63,7 @@ Normally, all of these image should already be present in the `ghcr.io` archive,
 
 To build and push the docker images, in the `tests` subdirectory run:
 ```
-   IMTGAG=[tag] docker compose build
+   IMGTAG=[tag] docker compose build
 ```
 where [tag] is exactly what you see in the `docker-compose.yaml` file, followed by:
 ```
@@ -84,4 +84,4 @@ This set of docker images depend on the following files:
 * `webap/*`
 * `requirements.text`
 
-If you change any of those files, you will need to build and push new docker images.  Before doing that, edit `tests/docker-compose.yaml` and bump the date part of the tag for _every_ image, so that your changed images will only get used for your branch while you're still finalizing your pull request, and so that the updated images will get used by everybody else once your branch has been merged to main.
+If you change any of those files, you will need to build and push new docker images.  Before doing that, edit `tests/docker-compose.yaml` and bump the date part of the tag for _every_ image (search and replace is your friend), so that your changed images will only get used for your branch while you're still finalizing your pull request, and so that the updated images will get used by everybody else once your branch has been merged to main.

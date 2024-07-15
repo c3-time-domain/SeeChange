@@ -387,16 +387,29 @@ server_session = flask_session.Session( app )
 # Import and configure the auth subapp
 
 sys.path.insert( 0, pathlib.Path(__name__).parent )
-import flaskauth
+import rkauth_flask
+
+kwargs = {
+    'db_host': cfg.value( 'db.host' ),
+    'db_port': cfg.value( 'db.port' ),
+    'db_name': cfg.value( 'db.database' ),
+    'db_user': cfg.value( 'db.user' )
+}
+password = cfg.value( 'db.password' )
+if password is None:
+    if cfg.value( 'db.password_file' ) is None:
+        raise RuntimeError( 'In config, one of db.password or db.password_file must be specified' )
+    with open( cfg.value( 'db.password_file' ) ) as ifp:
+        password = ifp.readline().strip()
+kwargs[ 'db_password' ] = password
+
 for attr in [ 'email_from', 'email_subject', 'email_system_name',
               'smtp_server', 'smtp_port', 'smtp_use_ssl', 'smtp_username', 'smtp_password' ]:
-    setattr( flaskauth.RKAuthConfig, attr, cfg.value( f'conductor.{attr}' ) )
-flaskauth.RKAuthConfig.webap_url = cfg.value('conductor.conductor_url')
-if flaskauth.RKAuthConfig.webap_url[-1] != '/':
-    flaskauth.RKAuthConfig.webap_url += '/'
-flaskauth.RKAuthConfig.webap_url += "auth"
-# app.logger.debug( f'webap_url is {flaskauth.RKAuthConfig.webap_url}' )
-app.register_blueprint( flaskauth.bp )
+    kwargs[ attr ] = cfg.value( f'conductor.{attr}' )
+
+rkauth_flask.RKAuthConfig.setdbparams( **kwargs )
+
+app.register_blueprint( rkauth_flask.bp )
 
 # Configure urls
 
