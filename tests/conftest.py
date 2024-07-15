@@ -399,7 +399,7 @@ def catexp(data_dir, cache_dir, download_url):
 # Without this fixture, that test failed, saying that the exposure file
 # did not exist.  This lead me to believe that some other test was
 # improperly removing it (since decam_exposure is a session fixture, so
-[# that exposure should never get removed), and I added this fixture to
+# that exposure should never get removed), and I added this fixture to
 # figure out which other test was doing that.  However, it caused
 # everything to pass... so it's a mystery.  I want to solve this
 # mystery, but for now this is here because it seems to make things
