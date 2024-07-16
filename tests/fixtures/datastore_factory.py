@@ -168,7 +168,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if image_cache_path is not None and output_path != image_cache_path:
                         warnings.warn(f'cache path {image_cache_path} does not match output path {output_path}')
                     else:
-                        cache_base_name = output_path[:-10]  # remove the '.image.fits' part
+                        cache_base_name = output_path[:-16]  # remove the '.image.fits.json' part
                         ds.cache_base_name = output_path
                         SCLogger.debug(f'Saving image to cache at: {output_path}')
                         use_cache = True  # the two other conditions are true to even get to this part...

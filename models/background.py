@@ -294,8 +294,9 @@ class Background(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                         f"Variance shape {self.variance.shape} does not match image shape {self.image_shape}"
                     )
 
-                bggrp.create_dataset( 'counts', data=self.counts )
-                bggrp.create_dataset( 'variance', data=self.variance )
+                opts = dict(compression='gzip', compression_opts=1, chunks=(128, 128))
+                bggrp.create_dataset( 'counts', data=self.counts, **opts )
+                bggrp.create_dataset( 'variance', data=self.variance, **opts )
             elif self.format == 'polynomial':
                 raise NotImplementedError('Currently we do not support a polynomial background model. ')
                 bggrp.create_dataset( 'coeffs', data=self.counts )
