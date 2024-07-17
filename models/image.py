@@ -1228,7 +1228,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             f"exp: {self.exp_time}s, "
             f"filt: {self.filter_short}, "
             f"from: {self.instrument}/{self.telescope} {self.section_id}, "
-            f"filepath: {self.filepath"
+            f"filepath: {self.filepath}"
         )
 
         output += ")"
