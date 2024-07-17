@@ -74,7 +74,7 @@ db:
 * Get a SSL cert for `ls4-conductor-rknop-dev.lbl.gov`
 * Put the b64 encoded stuff in `conductor-cert.yaml` and apply it
 * Uncomment the stuff in `conductor.yaml` and apply it
-* Create user rknop manually in the conductor database (until such a time as the conductor has an actual interfrace for this).
+* Create user rknop manually in the conductor database (until such a time as the conductor has an actual interface for this).
 * (Once the ls4-conductor-rknop-dev.lbl.gov address is available.)  Use the web interface to ls4-conductor-rknop-dev.lbl.gov to set rknop's password on the conductor.  (Consider saving the database barf for the public and private keys to avoid having to do this upon database recreation.)
 
 ### Set up the archive

@@ -16,7 +16,7 @@ class KnownExposure(Base, AutoIDMixin):
     Most fields are nullable because we can't be sure a priori how much
     information we'll be able to get about known exposures before we
     download them and start processing them -- they may only be a list
-    of filenames, for instance.  exposuresurce must be known (because
+    of filenames, for instance.  exposuresource must be known (because
     that's where they come from), and we're assuming that the instrument
     will be known.  identifier required, and is some sort of unique
     identifier that specifies this exposure; it's interpretation is

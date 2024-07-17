@@ -9,7 +9,7 @@ import logging
 import json
 import multiprocessing
 
-# Have to manaully import any instrument modules
+# Have to manually import any instrument modules
 #  we want to be able to find.  (Otherwise, they
 #  won't be found when models.instrument  is
 #  initialized.)

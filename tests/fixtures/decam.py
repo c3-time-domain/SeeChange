@@ -189,7 +189,6 @@ def decam_filename(download_url, data_dir, decam_exposure_name, decam_cache_dir)
     cache.
 
     """
-    # base_name = 'c4d_221104_074232_ori.fits.fz'
     base_name = decam_exposure_name
     filename = os.path.join(data_dir, base_name)
     os.makedirs(os.path.dirname(filename), exist_ok=True)
