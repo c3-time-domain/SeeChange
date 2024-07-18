@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from astropy.io import fits
 
-from models.base import SmartSession
+from models.base import SmartSession, safe_merge
 from models.ptf import PTF  # need this import to make sure PTF is added to the Instrument list
 from models.provenance import Provenance
 from models.exposure import Exposure
@@ -399,7 +399,7 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
                 message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
             )
             for image in ptf_reference_images:
-                image = session.safe_merge(image)
+                image = safe_merge( session, image )
                 image.exposure.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
                 # image.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
             session.commit()
