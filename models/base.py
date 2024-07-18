@@ -1368,6 +1368,8 @@ class FileOnDiskMixin:
                     d.delete_from_disk_and_database( session=session, commit=commit,
                                                      remove_folders=remove_folders, archive=archive,
                                                      remove_downstreams=True )
+                else:
+                    raise RuntimeError( f"A {self.__class__} isn't able to remove a downstream {d.__class__}" )
 
 
         if archive:
