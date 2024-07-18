@@ -1287,29 +1287,20 @@ class FileOnDiskMixin:
             else:
                 self.md5sum = remmd5
 
-    def remove_data_from_disk(self, remove_folders=True, remove_downstreams=False):
+    def remove_data_from_disk(self, remove_folders=True):
         """Delete the data from local disk, if it exists.
         If remove_folders=True, will also remove any folders
         if they are empty after the deletion.
-        Use remove_downstreams=True to also remove any
-        downstream data (e.g., for an Image, that would be the
-        data for the SourceLists and PSFs that depend on this Image).
-        This function will not remove database rows or archive files,
-        only cleanup local storage for this object and its downstreams.
 
         To remove both the files and the database entry, use
-        delete_from_disk_and_database() instead.
+        delete_from_disk_and_database() instead.  That one
+        also supports removing downstreams.
 
         Parameters
         ----------
         remove_folders: bool
             If True, will remove any folders on the path to the files
             associated to this object, if they are empty.
-        remove_downstreams: bool
-            If True, will also remove any downstream data.
-            Will recursively call get_downstreams() and find any objects
-            that have remove_data_from_disk() implemented, and call it.
-            Default is False.
         """
         if self.filepath is not None:
             # get the filepath, but don't check if the file exists!
@@ -1324,54 +1315,6 @@ class FileOnDiskMixin:
                                 os.rmdir(folder)
                             else:
                                 break
-
-        if remove_downstreams:
-            try:
-                downstreams = self.get_downstreams()
-                for d in downstreams:
-                    if hasattr(d, 'remove_data_from_disk'):
-                        d.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=True)
-                    if isinstance(d, list) and len(d) > 0 and hasattr(d[0], 'delete_list'):
-                        d[0].delete_list(d, remove_local=True, archive=False, database=False)
-            except NotImplementedError as e:
-                pass  # if this object does not implement get_downstreams, it is ok
-
-    def delete_from_archive(self, remove_downstreams=False):
-        """Delete the file from the archive, if it exists.
-        This will not remove the file from local disk, nor
-        from the database.  Use delete_from_disk_and_database()
-        to do that.
-
-        Parameters
-        ----------
-        remove_downstreams: bool
-            If True, will also remove any downstream data.
-            Will recursively call get_downstreams() and find any objects
-            that have delete_from_archive() implemented, and call it.
-            Default is False.
-        """
-        if remove_downstreams:
-            try:
-                downstreams = self.get_downstreams()
-                for d in downstreams:
-                    if hasattr(d, 'delete_from_archive'):
-                        d.delete_from_archive(remove_downstreams=True)  # TODO: do we need remove_folders?
-                    if isinstance(d, list) and len(d) > 0 and hasattr(d[0], 'delete_list'):
-                        d[0].delete_list(d, remove_local=False, archive=True, database=False)
-            except NotImplementedError as e:
-                pass  # if this object does not implement get_downstreams, it is ok
-
-        if self.filepath is not None:
-            if self.filepath_extensions is None:
-                self.archive.delete( self.filepath, okifmissing=True )
-            else:
-                for ext in self.filepath_extensions:
-                    self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
-
-        # make sure these are set to null just in case we fail
-        # to commit later on, we will at least know something is wrong
-        self.md5sum = None
-        self.md5sum_extensions = None
 
     def delete_from_disk_and_database(
             self, session=None, commit=True, remove_folders=True, remove_downstreams=False, archive=True,
@@ -1416,12 +1359,35 @@ class FileOnDiskMixin:
         if session is None and not commit:
             raise RuntimeError("When session=None, commit must be True!")
 
-        SeeChangeBase.delete_from_database(self, session=session, commit=commit, remove_downstreams=remove_downstreams)
+        # Recursively remove downstreams first
 
-        self.remove_data_from_disk(remove_folders=remove_folders, remove_downstreams=remove_downstreams)
+        if remove_downstreams:
+            downstreams = self.get_downstreams()
+            for d in downstreams:
+                if hasattr( d, 'delete_from_disk_and_database' ):
+                    d.delete_from_disk_and_database( session=session, commit=commit,
+                                                     remove_folders=remove_folders, archive=archive,
+                                                     remove_downstreams=True )
+
 
         if archive:
-            self.delete_from_archive(remove_downstreams=remove_downstreams)
+            if self.filepath is not None:
+                if self.filepath_extensions is None:
+                    self.archive.delete( self.filepath, okifmissing=True )
+                else:
+                    for ext in self.filepath_extensions:
+                        self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
+
+            # make sure these are set to null just in case we fail
+            # to commit later on, we will at least know something is wrong
+            self.md5sum = None
+            self.md5sum_extensions = None
+
+
+        self.remove_data_from_disk( remove_folders=remove_folders )
+
+        # Don't pass remove_downstreams here because we took care of downstreams above.
+        SeeChangeBase.delete_from_database( self, session=session, commit=commit, remove_downstreams=False )
 
         # make sure these are set to null just in case we fail
         # to commit later on, we will at least know something is wrong

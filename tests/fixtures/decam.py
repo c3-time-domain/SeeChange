@@ -92,6 +92,7 @@ def decam_default_calibrators(cache_dir, data_dir):
                                 imagestonuke.add( info[ f'{filetype}_fileid' ] )
                             else:
                                 datafilestonuke.add( info[ f'{filetype}_fileid' ] )
+
             for imid in imagestonuke:
                 im = session.scalars( sa.select(Image).where(Image.id == imid )).first()
                 im.delete_from_disk_and_database( session=session, commit=False )
