@@ -357,24 +357,6 @@ class Provenance(Base):
         If that happens, we simply begin again, checking for the provenance and merging it.
         """
         return models.base.merge_concurrent( self, session=session, commit=commit )
-        # output = None
-        # with SmartSession(session) as session:
-        #     for i in range(5):
-        #         try:
-        #             output = session.merge(self)
-        #             if commit:
-        #                 session.commit()
-        #             break
-        #         except IntegrityError as e:
-        #             if 'duplicate key value violates unique constraint "pk_provenances"' in str(e):
-        #                 session.rollback()
-        #                 time.sleep(0.1 * 2 ** i)  # exponential sleep
-        #             else:
-        #                 raise e
-        #     else:  # if we didn't break out of the loop, there must have been some integrity error
-        #         raise e
-
-        # return output
 
 
 @event.listens_for(Provenance, "before_insert")

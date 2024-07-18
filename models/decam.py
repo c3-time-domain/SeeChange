@@ -654,9 +654,10 @@ class DECam(Instrument):
                   .filter( Exposure.instrument == 'DECam' )
                   .filter( Exposure.origin_identifier == origin_identifier )
                  )
+            if q.count() > 1:
+                raise RuntimeError( f"Database error: got more than one Exposure "
+                                    f"with origin_identifier {origin_identifier}" )
             existing = q.first()
-            # Maybe check that q.count() isn't >1; if it is, throw an exception
-            #  about database corruption?
             if existing is not None:
                 raise FileExistsError( f"Exposure with origin identifier {origin_identifier} "
                                        f"already exists in the database. ({existing.filepath})" )

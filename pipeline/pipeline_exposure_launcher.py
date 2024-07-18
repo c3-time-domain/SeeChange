@@ -47,7 +47,7 @@ class ExposureProcessor:
 
         numprocs: int
           Number of worker processes (not including the manager process)
-          to run at once.  0 = do all work in the main manager process.
+          to run at once.  0 or 1 = do all work in the main manager process.
 
         onlychips : list, default None
           If not None, will only process the sensor sections whose names

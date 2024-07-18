@@ -292,10 +292,7 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
     assert sources.apfluxadu()[0].std() == pytest.approx( 90700, rel=0.01 )
 
     assert sources.good.sum() == pytest.approx(530, rel=0.01)
-    # This value is what you get using the SPREAD_MODEL parameter
-    # assert sources.is_star.sum() == ???
-    # assert ( sources.good & sources.is_star ).sum() == ???
-    # This is what you get with CLASS_STAR
+    # This is what you get with CLASS_STAR; you'll get different values with SPREAD_MODEL
     assert sources.is_star.sum() == pytest.approx(43, rel=0.01)
     assert ( sources.good & sources.is_star ).sum() == pytest.approx(15, abs=5)
 

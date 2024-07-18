@@ -442,7 +442,7 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
 
             with SmartSession() as session:
                 expsrs = session.query( Exposure ).filter(
-                    Exposure.filepath.in_( [ i.exposure.filepath for i in images ] ) ).all()
+                    Exposure.filepath.in_( [ i.exposure.filepath for i in ptf_reference_images ] ) ).all()
             for expsr in expsrs:
                 expsr.delete_from_disk_and_database( commit=True, remove_downstreams=True )
 

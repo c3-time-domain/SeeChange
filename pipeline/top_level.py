@@ -239,8 +239,6 @@ class Pipeline:
                     )
                 ).all()
                 report.num_prev_reports = len(prev_rep)
-                # report = dbsession.merge(report)
-                # dbsession.commit()
                 report = merge_concurrent( report, dbsession, True )
 
             if report.exposure_id is None:
