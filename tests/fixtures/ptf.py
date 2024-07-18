@@ -287,14 +287,19 @@ def ptf_reference_images(ptf_images_factory):
 
     yield images
 
-    with SmartSession() as session:
-        session.autoflush = False
+    for image in images:
+        image.exposure.delete_from_disk_and_database(commit=True)
+        image.delete_from_disk_and_database(commit=True, remove_downstreams=True)
 
-        for image in images:
-            image = session.merge(image)
-            image.exposure.delete_from_disk_and_database(session=session, commit=False)
-            image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
-        session.commit()
+    # ROB REMOVE THIS COMMENT
+    # with SmartSession() as session:
+    #     session.autoflush = False
+
+    #     for image in images:
+    #         image = session.merge(image)
+    #         image.exposure.delete_from_disk_and_database(session=session, commit=False)
+    #         image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
+    #     session.commit()
 
 
 @pytest.fixture(scope='session')
@@ -303,17 +308,22 @@ def ptf_supernova_images(ptf_images_factory):
 
     yield images
 
-    with SmartSession() as session:
-        session.autoflush = False
+    for image in images:
+        image.delete_from_disk_and_database(commit=True, remove_downstreams=True)
+        image.exposure.delete_from_disk_and_database(session=session, commit=True)
 
-        for image in images:
-            image = session.merge(image)
-            # first delete the image and all it's products and the associated data (locally and on archive)
-            image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
-            # only then delete the exposure, so it doesn't cascade delete the image and prevent deleting products
-            image.exposure.delete_from_disk_and_database(session=session, commit=False)
+    # ROB REMOVE THIS COMMENT
+    # with SmartSession() as session:
+    #     session.autoflush = False
 
-        session.commit()
+    #     for image in images:
+    #         image = session.merge(image)
+    #         # first delete the image and all it's products and the associated data (locally and on archive)
+    #         image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
+    #         # only then delete the exposure, so it doesn't cascade delete the image and prevent deleting products
+    #         image.exposure.delete_from_disk_and_database(session=session, commit=False)
+
+    #     session.commit()
 
 
 # conditionally call the ptf_reference_images fixture if cache is not there:
@@ -393,16 +403,26 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
 
     # must delete these here, as the cleanup for the getfixturevalue() happens after pytest_sessionfinish!
     if 'ptf_reference_images' in locals():
-        with SmartSession() as session, warnings.catch_warnings():
+
+        with warnings.catch_warnings():
             warnings.filterwarnings(
                 action='ignore',
                 message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
             )
             for image in ptf_reference_images:
-                # image = merge( session, image )
-                image.exposure.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
-                # image.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
-            session.commit()
+                image.exposure.delete_from_disk_and_database( commit=True, remove_downstreams=True )
+
+        # ROB REMOVE THIS COMMENT
+        # with SmartSession() as session, warnings.catch_warnings():
+        #     warnings.filterwarnings(
+        #         action='ignore',
+        #         message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
+        #     )
+        #     for image in ptf_reference_images:
+        #         image = merge( session, image )
+        #         image.exposure.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
+        #         # image.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
+        #     session.commit()
 
 
 @pytest.fixture
@@ -523,9 +543,8 @@ def ptf_ref(
 
     yield ref
 
+    coadd_image.delete_from_disk_and_database(commit=True, remove_downstreams=True)
     with SmartSession() as session:
-        coadd_image = coadd_image.merge_all(session=session)
-        coadd_image.delete_from_disk_and_database(commit=True, session=session, remove_downstreams=True)
         ref_in_db = session.scalars(sa.select(Reference).where(Reference.id == ref.id)).first()
         assert ref_in_db is None  # should have been deleted by cascade when image is deleted
 

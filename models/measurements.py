@@ -614,7 +614,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         with SmartSession(session) as session:
             for m in measurements_list:
-                m.delete_from_database(session=session, commit=False)
+                m.delete_from_disk_and_database(session=session, commit=False)
             if commit:
                 session.commit()
 

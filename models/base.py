@@ -358,8 +358,8 @@ class SeeChangeBase:
         """
         raise NotImplementedError('get_downstreams not implemented for this class')
 
-    def delete_from_database(self, session=None, commit=True, remove_downstreams=False):
-        """Remove the object from the database.
+    def _delete_from_database(self, session=None, commit=True, remove_downstreams=False):
+        """Remove the object from the database -- don't call this, call delete_from_disk_and_database.
 
         This does not remove any associated files (if this is a FileOnDiskMixin)
         and does not remove the object from the archive.
@@ -392,8 +392,8 @@ class SeeChangeBase:
                 try:
                     downstreams = self.get_downstreams(session=session)
                     for d in downstreams:
-                        if hasattr(d, 'delete_from_database'):
-                            if d.delete_from_database(session=session, commit=False, remove_downstreams=True):
+                        if hasattr(d, '_delete_from_database'):
+                            if d._delete_from_database(session=session, commit=False, remove_downstreams=True):
                                 need_commit = True
                         if isinstance(d, list) and len(d) > 0 and hasattr(d[0], 'delete_list'):
                             d[0].delete_list(d, remove_local=False, archive=False, commit=False, session=session)
@@ -419,6 +419,85 @@ class SeeChangeBase:
                 session.commit()
 
         return need_commit  # to be able to recursively report back if there's a need to commit
+
+    def delete_from_disk_and_database(
+            self, session=None, commit=True, remove_folders=True, remove_downstreams=False, archive=True,
+    ):
+        """Delete any data from disk, archive and the database.
+
+        Use this to clean up an entry from all locations, as relevant
+        for the particular class.  Will delete the object from the DB
+        using the given session (or using an internal session).  If
+        using an internal session, commit must be True, to allow the
+        change to be committed before closing it.
+
+        This will silently continue if the file does not exist
+        (locally or on the archive), or if it isn't on the database,
+        and will attempt to delete from any locations regardless
+        of if it existed elsewhere or not.
+
+        TODO : this is sometimes broken if you don't pass a session.
+
+        Parameters
+        ----------
+        session: sqlalchemy session
+            The session to use for the deletion. If None, will open a new session,
+            which will also close at the end of the call.
+        commit: bool
+            Whether to commit the deletion to the database.
+            Default is True. When session=None then commit must be True,
+            otherwise the session will exit without committing
+            (in this case the function will raise a RuntimeException).
+        remove_folders: bool
+            If True, will remove any folders on the path to the files
+            associated to this object, if they are empty.
+        remove_downstreams: bool
+            If True, will also remove any downstream data.
+            Will recursively call get_downstreams() and find any objects
+            that can have their data deleted from disk, archive and database.
+            Default is False.
+        archive: bool
+            If True, will also delete the file from the archive.
+            Default is True.
+
+        """
+        if session is None and not commit:
+            raise RuntimeError("When session=None, commit must be True!")
+
+        # Recursively remove downstreams first
+
+        if remove_downstreams:
+            downstreams = self.get_downstreams()
+            for d in downstreams:
+                if hasattr( d, 'delete_from_disk_and_database' ):
+                    d.delete_from_disk_and_database( session=session, commit=commit,
+                                                     remove_folders=remove_folders, archive=archive,
+                                                     remove_downstreams=True )
+
+        if archive and hasattr( self, "filepath" ):
+            if self.filepath is not None:
+                if self.filepath_extensions is None:
+                    self.archive.delete( self.filepath, okifmissing=True )
+                else:
+                    for ext in self.filepath_extensions:
+                        self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
+
+            # make sure these are set to null just in case we fail
+            # to commit later on, we will at least know something is wrong
+            self.md5sum = None
+            self.md5sum_extensions = None
+
+
+        if hasattr( self, "remove_data_from_disk" ):
+            self.remove_data_from_disk( remove_folders=remove_folders )
+            # make sure these are set to null just in case we fail
+            # to commit later on, we will at least know something is wrong
+            self.filepath_extensions = None
+            self.filepath = None
+
+        # Don't pass remove_downstreams here because we took care of downstreams above.
+        SeeChangeBase._delete_from_database( self, session=session, commit=commit, remove_downstreams=False )
+
 
     def to_dict(self):
         """Translate all the SQLAlchemy columns into a dictionary.
@@ -1315,86 +1394,6 @@ class FileOnDiskMixin:
                                 os.rmdir(folder)
                             else:
                                 break
-
-    def delete_from_disk_and_database(
-            self, session=None, commit=True, remove_folders=True, remove_downstreams=False, archive=True,
-    ):
-        """
-        Delete the data from disk, archive and the database.
-        Use this to clean up an entry from all locations.
-        Will delete the object from the DB using the given session
-        (or using an internal session).
-        If using an internal session, commit must be True,
-        to allow the change to be committed before closing it.
-
-        This will silently continue if the file does not exist
-        (locally or on the archive), or if it isn't on the database,
-        and will attempt to delete from any locations regardless
-        of if it existed elsewhere or not.
-
-        TODO : this is sometimes broken if you don't pass a session.
-
-        Parameters
-        ----------
-        session: sqlalchemy session
-            The session to use for the deletion. If None, will open a new session,
-            which will also close at the end of the call.
-        commit: bool
-            Whether to commit the deletion to the database.
-            Default is True. When session=None then commit must be True,
-            otherwise the session will exit without committing
-            (in this case the function will raise a RuntimeException).
-        remove_folders: bool
-            If True, will remove any folders on the path to the files
-            associated to this object, if they are empty.
-        remove_downstreams: bool
-            If True, will also remove any downstream data.
-            Will recursively call get_downstreams() and find any objects
-            that can have their data deleted from disk, archive and database.
-            Default is False.
-        archive: bool
-            If True, will also delete the file from the archive.
-            Default is True.
-        """
-        if session is None and not commit:
-            raise RuntimeError("When session=None, commit must be True!")
-
-        # Recursively remove downstreams first
-
-        if remove_downstreams:
-            downstreams = self.get_downstreams()
-            for d in downstreams:
-                if hasattr( d, 'delete_from_disk_and_database' ):
-                    d.delete_from_disk_and_database( session=session, commit=commit,
-                                                     remove_folders=remove_folders, archive=archive,
-                                                     remove_downstreams=True )
-                else:
-                    raise RuntimeError( f"A {self.__class__} isn't able to remove a downstream {d.__class__}" )
-
-
-        if archive:
-            if self.filepath is not None:
-                if self.filepath_extensions is None:
-                    self.archive.delete( self.filepath, okifmissing=True )
-                else:
-                    for ext in self.filepath_extensions:
-                        self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
-
-            # make sure these are set to null just in case we fail
-            # to commit later on, we will at least know something is wrong
-            self.md5sum = None
-            self.md5sum_extensions = None
-
-
-        self.remove_data_from_disk( remove_folders=remove_folders )
-
-        # Don't pass remove_downstreams here because we took care of downstreams above.
-        SeeChangeBase.delete_from_database( self, session=session, commit=commit, remove_downstreams=False )
-
-        # make sure these are set to null just in case we fail
-        # to commit later on, we will at least know something is wrong
-        self.filepath_extensions = None
-        self.filepath = None
 
 
 # load the default paths from the config
