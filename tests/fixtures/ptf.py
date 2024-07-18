@@ -399,7 +399,7 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
                 message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
             )
             for image in ptf_reference_images:
-                image = session.merge(image)
+                image = session.safe_merge(image)
                 image.exposure.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
                 # image.delete_from_disk_and_database(commit=False, session=session, remove_downstreams=True)
             session.commit()
