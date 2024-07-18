@@ -423,7 +423,12 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
                     copy_to_cache( image, decam_cache_dir )
 
             # the datastore factory will load from cache or recreate all the other products
-            ds = datastore_factory(image, cache_dir=decam_cache_dir, cache_base_name=f'007/{filebase}.{chip:02d}')
+            # Use skip_sub because we don't want to try to find a reference for or subtract
+            #   from this reference!
+            ds = datastore_factory( image,
+                                    cache_dir=decam_cache_dir,
+                                    cache_base_name=f'007/{filebase}.{chip:02d}',
+                                    skip_sub=True )
 
             for filename in image.get_fullpath(as_list=True):
                 assert os.path.isfile(filename)
@@ -471,8 +476,14 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_f
             ref.project = ds.image.project
 
             ref = ref.merge_all(session=session)
-            if not sa.inspect(ref).persistent:
-                ref = session.merge( ref )
+            # These next two lines shouldn't do anything,
+            #  but they were there, so I'm leaving them
+            #  commented in case it turns out that
+            #  somebody understood something about
+            #  sqlalchemty that I didn't and put
+            #  them here for a reason.
+            # if not sa.inspect(ref).persistent:
+            #     ref = session.merge( ref )
             refs.append( ref )
 
         session.commit()

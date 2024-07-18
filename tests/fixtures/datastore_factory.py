@@ -57,13 +57,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
             overrides={},
             augments={},
             bad_pixel_map=None,
-            save_original_image=False
+            save_original_image=False,
+            skip_sub=False
     ):
         code_version = args[0].provenance.code_version
         ds = DataStore(*args)  # make a new datastore
         use_cache = cache_dir is not None and cache_base_name is not None and not env_as_bool( "LIMIT_CACHE_USAGE" )
-        
-        if cache_base_name is not None: 
+
+        if cache_base_name is not None:
             cache_name = cache_base_name + '.image.fits.json'
             image_cache_path = os.path.join(cache_dir, cache_name)
         else:
@@ -395,6 +396,10 @@ def datastore_factory(data_dir, pipeline_factory, request):
             # make a new copy of the image to cache, including the estimates for lim_mag, fwhm, etc.
             if not env_as_bool("LIMIT_CACHE_USAGE"):
                 output_path = copy_to_cache(ds.image, cache_dir)
+
+            # If we were told not to try to do a subtraction, then we're done
+            if skip_sub:
+                return ds
 
             # must provide the reference provenance explicitly since we didn't build a prov_tree
             ref = ds.get_reference(ref_prov, session=session)
