@@ -287,9 +287,30 @@ def ptf_reference_images(ptf_images_factory):
 
     yield images
 
-    for image in images:
-        image.exposure.delete_from_disk_and_database(commit=True)
-        image.delete_from_disk_and_database(commit=True, remove_downstreams=True)
+    # Not just using an sqlalchmey merge on the objects here, because
+    # that was leading to MSEs (Mysterious SQLAlchmey Errors -- they
+    # happen often enough that we need a bloody acronym for them).  So,
+    # even though we're using SQLAlchemy, figure out what needs to be
+    # deleted the "database" way rather than counting on opaque
+    # SA merges.  (The images in the images variable created above
+    # won't have their database IDs yet, but may well have received them
+    # in something that uses this fixture, which is why we have to search
+    # the database for filepath.)
+
+    with SmartSession() as session:
+        imgs = session.query( Image ).filter( Image.filepath.in_( [ i.filepath for i in images ] ) ).all()
+        expsrs = session.query( Exposure ).filter(
+            Exposure.filepath.in_( [ i.exposure.filepath for i in images ] ) ).all()
+    # Deliberately do *not* pass the session on to
+    #   delete_from_disk_and_database to avoid further SQLAlchemy
+    #   automatic behavior-- though since in this case we just got these
+    #   images, we *might* know what's been loaded with them and that
+    #   will then be automatically refreshed at some point (But, with
+    #   SA, you can never really be sure.)
+    for expsr in expsrs:
+        expsr.delete_from_disk_and_database( commit=True )
+    for image in imgs:
+        image.delete_from_disk_and_database( commit=True, remove_downstreams=True )
 
     # ROB REMOVE THIS COMMENT
     # with SmartSession() as session:
@@ -308,9 +329,16 @@ def ptf_supernova_images(ptf_images_factory):
 
     yield images
 
-    for image in images:
-        image.delete_from_disk_and_database(commit=True, remove_downstreams=True)
-        image.exposure.delete_from_disk_and_database(session=session, commit=True)
+    # See comment in ptf_reference_images
+
+    with SmartSession() as session:
+        imgs = session.query( Image ).filter( Image.filepath.in_( [ i.filepath for i in images ] ) ).all()
+        expsrs = session.query( Exposure ).filter(
+            Exposure.filepath.in_( [ i.exposure.filepath for i in images ] ) ).all()
+    for expsr in expsrs:
+        expsr.delete_from_disk_and_database( commit=True )
+    for image in imgs:
+        image.delete_from_disk_and_database( commit=True, remove_downstreams=True )
 
     # ROB REMOVE THIS COMMENT
     # with SmartSession() as session:
@@ -409,8 +437,17 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
                 action='ignore',
                 message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
             )
-            for image in ptf_reference_images:
-                image.exposure.delete_from_disk_and_database( commit=True, remove_downstreams=True )
+
+            # See comment in ptf_reference images
+
+            with SmartSession() as session:
+                expsrs = session.query( Exposure ).filter(
+                    Exposure.filepath.in_( [ i.exposure.filepath for i in images ] ) ).all()
+            for expsr in expsrs:
+                expsr.delete_from_disk_and_database( commit=True, remove_downstreams=True )
+
+            # for image in ptf_reference_images:
+            #     image.exposure.delete_from_disk_and_database( commit=True, remove_downstreams=True )
 
         # ROB REMOVE THIS COMMENT
         # with SmartSession() as session, warnings.catch_warnings():

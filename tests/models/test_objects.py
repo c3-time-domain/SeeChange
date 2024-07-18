@@ -156,10 +156,10 @@ def test_filtering_measurements_on_object(sim_lightcurves):
         assert set([m.id for m in found]).issubset(set([m.id for m in new_measurements]))
 
         # get measurements that are very close to the source
-        found = obj.get_measurements_list(radius=0.2)  # should include only 1-3 measurements
+        found = obj.get_measurements_list(radius=0.1)  # should include only 1-3 measurements
         assert len(found) > 0
         assert len(found) < len(new_measurements)
-        assert all(m.distance_to(obj) <= 0.2 for m in found)
+        assert all(m.distance_to(obj) <= 0.1 for m in found)
         assert set([m.id for m in found]).issubset(set([m.id for m in new_measurements]))
 
         # filter on all the offsets disqualifier score
