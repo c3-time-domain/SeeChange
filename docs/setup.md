@@ -140,6 +140,8 @@ Note that in the devshell and test docker environments above, database migration
 
 ### Installing SeeChange on a local machine (not dockerized)
 
+**WARNING:** This section is no longer complete.  What's described here will get you partway there.  However, the tests now require a number of external servers to be running, and setting all of them up is not documented here.  The best way to get everything set up as necessary to run all of the code, and all of the tests, is to use a dockerized environment as described above.
+
 As always, checkout the code from github: <https://github.com/c3-time-domain/SeeChange>.
 We recommend using a virtual environment to install the dependencies. For example:
 
@@ -155,7 +157,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-This covers the basic python dependencies. 
+This covers (most of) the basic python dependencies. 
 
 Install some of the standalone executables needed for 
 analyzing astronomical images:

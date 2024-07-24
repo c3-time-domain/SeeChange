@@ -29,6 +29,13 @@ from util.util import remove_empty_folders, env_as_bool
 from util.retrydownload import retry_download
 from util.logger import SCLogger
 
+# Set this to False to avoid errors about things left over in the database and archive
+#   at the end of tests.  In general, we want this to be True, so we can make sure
+#   that our tests are properly cleaning up after themselves.  However, the errors
+#   from this can hide other errors and failures, so when debugging, set it to False.
+verify_archive_database_empty = True
+# verify_archive_database_empty = False
+
 
 pytest_plugins = [
     'tests.fixtures.simulated',
@@ -83,6 +90,8 @@ def pytest_sessionstart(session):
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionfinish(session, exitstatus):
+    global verify_archive_database_empty
+
     # SCLogger.debug('Final teardown fixture executed! ')
     with SmartSession() as dbsession:
         # first get rid of any Exposure loading Provenances, if they have no Exposures attached
@@ -114,8 +123,6 @@ def pytest_sessionfinish(session, exitstatus):
         dbsession.execute(sa.delete(Object).where(Object.is_test.is_(True)))
 
         dbsession.commit()
-
-        verify_archive_database_empty = True  # set to False to avoid spurious errors at end of tests (when debugging)
 
         if any_objects and verify_archive_database_empty:
             raise RuntimeError('There are objects in the database. Some tests are not properly cleaning up!')

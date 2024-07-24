@@ -8,28 +8,28 @@ of the pipeline are consistent with previous code versions.
 
 ### Running tests
 
-To run the tests, simply run the following command from the root directory of the project:
+If you are in an environment that has all of the SeeChange prerequisites, you can run the tests by simply runing the following command from the root directory of the project:
 
 ```bash
 pytest
 ```
 
-To run the tests in a dockerized environment, see the setup.md file, under "Running tests". 
+The tests have a lot of infrastructure necessary to run, however.  If you really know what you're doing, you may be able to set up the full environment.  However, most users will find it easier to use the dockerized environment designed to run with our tests.  See "Setting up a SeeChange instance" for more information.
 
-### Test caching and data folders
+### Testing tips
+
+#### Files left over in database / archive / disk at end of tests
+
+The tests are supposed to clean up after themselves, so at the end of a test run there should be nothing left in the database or on the archive.  (There are some exceptions of things allowed to linger.)  If things are found at the end of the tests, this will raise errors.  Unfortunately, these errors can hide the real errors you had in your test (which may also be the reasons things were left behind!)  When debugging, you often want to turn off the check that things are left over at the end, so you can see the real errors you're getting.  Edit `tests/fixtures/conftest.py` and set the variable `verify_archive_database_empty` to `False`.  (Remember to set it back to `True` before pushing your final commit for a PR, to re-enable the leftover file tests!)
+
+#### Test caching and data folders
 
 Some of our tests require large datasets (mostly images). 
 We include a few example images in the repo itself, 
 but most of the required data is lazy downloaded from 
 the appropriate servers (e.g., from Noirlab). 
 
-To avoid downloading the same data over and over again, we cache the
-data in the `data/cache` folder.  To make sure the downloading process
-works as expected, users can choose to delete this folder. (One may also
-need to delete the `tests/temp_data` folder, if tests were interrupted.
-Ideally, the tests don't depend on anything specific in there, but there
-may be things left behind.)  In the tests, the path to this folder is
-given by the `cache_dir` fixture.
+To avoid downloading the same data over and over again, we cache the data in the `data/cache` folder.  To make sure the downloading process works as expected, users can choose to delete this folder.  Sometimes, also, tests may fail because things have changed, but there are older versions left behind in the cache; in this case, clearing out the cache directory will also solve the problem.  (One may also need to delete the `tests/temp_data` folder, if tests were interrupted.  Ideally, the tests don't depend on anything specific in there, but there may be things left behind.)  In the tests, the path to this folder is given by the `cache_dir` fixture.
 
 Note that the persistent data, that comes with the 
 repo, is anything else in the `data` folder, 

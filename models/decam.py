@@ -508,6 +508,7 @@ class DECam(Instrument):
                                info={}, exp_time=0, ra=0., dec=0.,
                                ra_corner_00=0., ra_corner_01=0.,ra_corner_10=0., ra_corner_11=0.,
                                dec_corner_00=0., dec_corner_01=0., dec_corner_10=0., dec_corner_11=0.,
+                               minra=0, maxra=0, mindec=0, maxdec=0,
                                target="", project="" )
                 # Use FileOnDiskMixin.save instead of Image.save here because we're doing
                 # a lower-level operation.  image.save would be if we wanted to read and

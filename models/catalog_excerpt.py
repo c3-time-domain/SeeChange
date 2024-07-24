@@ -200,6 +200,10 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
             catexp.dec_corner_10 = catexp.dec_corner_00
             catexp.dec_corner_01 = tbl[ 'Y_WORLD' ].max()
             catexp.dec_corner_11 = catexp.dec_corner_01
+            catexp.minra = catexp.ra_corner_00
+            catexp.maxra = catexp.ra_corner_11
+            catexp.mindec = catexp.dec_corner_00
+            catexp.maxdec = catexp.dec_corner_11
             catexp.ra = ( catexp.ra_corner_00 + catexp.ra_corner_10 ) / 2.
             catexp.dec = ( catexp.dec_corner_00 + catexp.dec_corner_01 ) / 2.
             catexp.calculate_coordinates()
