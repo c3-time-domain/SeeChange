@@ -46,7 +46,7 @@ def test_image_no_null_values(provenance_base):
         'minra': 0.,
         'maxra': 0.,
         'mindec': 0.,
-        'maxra': 0.,
+        'maxdec': 0.,
         'instrument': 'DemoInstrument',
         'telescope': 'DemoTelescope',
         'project': 'foo',

@@ -8,7 +8,7 @@ of the pipeline are consistent with previous code versions.
 
 ### Running tests
 
-If you are in an environment that has all of the SeeChange prerequisites, you can run the tests by simply runing the following command from the root directory of the project:
+If you are in an environment that has all of the SeeChange prerequisites, you can run the tests by simply running the following command from the root directory of the project:
 
 ```bash
 pytest

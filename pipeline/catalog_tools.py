@@ -490,10 +490,10 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
                 catexp = None
                 pathlib.Path( localfile ).unlink( missing_ok=True )
 
-        if catexp is None:
-            s = f"Failed to fetch Gaia DR3 stars at ( {(minra+maxra)/2.:.04f},{(mindec+maxdec)/2.:.04f} )"
-            SCLogger.error( s )
-            raise CatalogNotFoundError( s )
+    if catexp is None:
+        s = f"Failed to fetch Gaia DR3 stars at ( {(minra+maxra)/2.:.04f},{(mindec+maxdec)/2.:.04f} )"
+        SCLogger.error( s )
+        raise CatalogNotFoundError( s )
 
     return catexp
 
