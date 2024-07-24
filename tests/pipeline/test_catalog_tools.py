@@ -5,7 +5,8 @@ import pytest
 from util.exceptions import CatalogNotFoundError
 from util import ldac
 from pipeline.catalog_tools import download_gaia_dr3, fetch_gaia_dr3_excerpt
-
+from models.base import FourCorners
+from models.image import Image
 
 def test_download_gaia_dr3(data_dir):
     firstfilepath = None
@@ -92,3 +93,56 @@ def test_gaia_dr3_excerpt( ztf_datastore_uncommitted, ztf_gaia_dr3_excerpt ):
     # Make sure we can't read the cache for something that doesn't exist
     with pytest.raises( CatalogNotFoundError, match='Failed to fetch Gaia DR3 stars' ):
         newcatexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=[20.5], magrange=4.0, minstars=50, onlycached=True )
+
+def test_gaia_dr3_excerpt_ra_span_zero():
+
+    stars = None
+    firstcat = None
+    try:
+        ra = 0.
+        dec = 0.
+        ras = [ 359.79, 359.81, 0.19, 0.21 ]
+        decs = [ -0.19, 0.21, -0.21, 0.19 ]
+        ras, decs = FourCorners.sort_radec( ras, decs )
+        minra = min( ras )
+        maxra = max( ras )
+        mindec = min( decs )
+        maxdec = max( decs )
+        img = Image( ra=ra, dec=dec,
+                     ra_corner_00=ras[0],
+                     ra_corner_01=ras[1],
+                     ra_corner_10=ras[2],
+                     ra_corner_11=ras[3],
+                     minra=minra,
+                     maxra=maxra,
+                     dec_corner_00=decs[0],
+                     dec_corner_01=decs[1],
+                     dec_corner_10=decs[2],
+                     dec_corner_11=decs[3],
+                     mindec=mindec,
+                     maxdec=maxdec )
+        stars = fetch_gaia_dr3_excerpt( img )
+        assert stars.num_items == 776
+        lt0ras = stars.object_ras[ stars.object_ras > 180. ]
+        gt0ras = stars.object_ras[ stars.object_ras < 180. ]
+        assert len(lt0ras) == 399
+        assert len(gt0ras) == 377
+        # The numbers below take into account the 5% padding on each side that fetch_gaia_dr3_excerpt uses
+        assert min(lt0ras) == pytest.approx( 359.748, abs=0.003 )
+        assert max(lt0ras) == pytest.approx( 360., abs=0.001 )
+        assert min(gt0ras) == pytest.approx( 0., abs=0.001 )
+        assert max(gt0ras) == pytest.approx( 0.252, abs=0.003 )
+        assert min(stars.object_decs) == pytest.approx( -0.252, abs=0.003 )
+        assert max(stars.object_decs) == pytest.approx( 0.252, abs=0.003 )
+
+        # Do it again, make sure we get the same thing
+        firstcat = stars
+        stars = fetch_gaia_dr3_excerpt( img )
+        assert stars.id == firstcat.id
+
+    finally:
+        # Clean up
+        if stars is not None:
+            stars.delete_from_disk_and_database()
+        if firstcat is not None:
+            firstcat.delete_from_disk_and_database()

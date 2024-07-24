@@ -250,6 +250,8 @@ def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
         ptf_datastore.image.ra_corner_01 -= 0.5
         ptf_datastore.image.ra_corner_10 -= 0.5
         ptf_datastore.image.ra_corner_11 -= 0.5
+        ptf_datastore.image.minra -= 0.5
+        ptf_datastore.image.maxra -= 0.5
 
         ref = ptf_datastore.get_reference(provenances=refset.provenances, session=session)
 

@@ -672,10 +672,14 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         self.ra_corner_01 = ras[1]
         self.ra_corner_10 = ras[2]
         self.ra_corner_11 = ras[3]
+        self.minra = min( ras )
+        self.maxra = max( ras )
         self.dec_corner_00 = decs[0]
         self.dec_corner_01 = decs[1]
         self.dec_corner_10 = decs[2]
         self.dec_corner_11 = decs[3]
+        self.mindec = min( decs )
+        self.maxdec = max( decs )
 
         if setradec:
             sc = wcs.pixel_to_world( data.shape[1] / 2., data.shape[0] / 2. )

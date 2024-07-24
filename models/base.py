@@ -2,6 +2,7 @@ import warnings
 import os
 import time
 import math
+import copy
 import types
 import hashlib
 import pathlib
@@ -126,7 +127,11 @@ def Session():
 
         url = (f'{cfg.value("db.engine")}://{cfg.value("db.user")}:{password}'
                f'@{cfg.value("db.host")}:{cfg.value("db.port")}/{cfg.value("db.database")}')
-        _engine = sa.create_engine(url, future=True, poolclass=sa.pool.NullPool)
+        _engine = sa.create_engine( url,
+                                    future=True,
+                                    poolclass=sa.pool.NullPool,
+                                    connect_args={ "options": "-c timezone=utc" }
+                                   )
 
         _Session = sessionmaker(bind=_engine, expire_on_commit=False)
 
@@ -276,7 +281,7 @@ class SeeChangeBase:
     """Base class for all SeeChange classes."""
 
     created_at = sa.Column(
-        sa.DateTime,
+        sa.DateTime(timezone=True),
         nullable=False,
         default=utcnow,
         index=True,
@@ -284,7 +289,7 @@ class SeeChangeBase:
     )
 
     modified = sa.Column(
-        sa.DateTime,
+        sa.DateTime(timezone=True),
         default=utcnow,
         onupdate=utcnow,
         nullable=False,
@@ -1528,6 +1533,18 @@ class FourCorners:
     dec_corner_11 = sa.Column( sa.REAL, nullable=False, index=True,
                                doc="Dec of the high-RA, high-Dec corner (degrees)" )
 
+    # These next four can be calcualted from the columns above, but are here to speed up
+    #   searches.  They are filled assuming that no RA/Dec goes outside the corners,
+    #   which isn't strictly true on a sphere, but damn close for the sizes of
+    #   things we're going to be dealing with.
+    # ra is cyclic in the range [0,360), so maxra may be less than
+    #   minra, e.g. maxra=1, minra=359 is a 2° ra range cenetered on 0.
+    minra = sa.Column( sa.REAL, nullable=False, index=True, doc="Min RA of image (degrees)" )
+    maxra = sa.Column( sa.REAL, nullable=False, index=True, doc="Max RA of image (degrees)" )
+    mindec = sa.Column( sa.REAL, nullable=False, index=True, doc="Min Dec of image (degrees)" )
+    maxdec = sa.Column( sa.REAL, nullable=False, index=True, doc="Max Dec of image (degrees)" )
+
+
     @classmethod
     def sort_radec( cls, ras, decs ):
         """Sort ra and dec lists so they're each in the order in models.base.FourCorners
@@ -1552,6 +1569,16 @@ class FourCorners:
 
         raorder = list( range(4) )
         raorder.sort( key=lambda i: ras[i] )
+
+        # Try to detect an RA that spans 0.
+        if ras[raorder[3]] - ras[raorder[0]] > 180.:
+            newras = []
+            for ra in ras:
+                if ra > 180.:
+                    newras.append( ra - 360. )
+                else:
+                    newras.append( ra )
+            raorder.sort( key=lambda i: newras[i] )
 
         # Of two lowest ras, of those, pick the one with the lower dec;
         #   that's lowRA,lowDec; the other one is lowRA, highDec
@@ -1600,7 +1627,8 @@ class FourCorners:
         # a temp table, and then do the polygon search on that temp table.
         #
         # I have no clue how to implement that simply here as as an
-        # SQLAlchemy filter, so I implement it in find_containing()
+        # SQLAlchemy filter.  So, there is the find_containing() class
+        # method below.
 
         return func.q3c_poly_query( ra, dec, sqlarray( [ self.ra_corner_00, self.dec_corner_00,
                                                          self.ra_corner_01, self.dec_corner_01,
@@ -1608,7 +1636,7 @@ class FourCorners:
                                                          self.ra_corner_10, self.dec_corner_10 ] ) )
 
     @classmethod
-    def find_containing( cls, siobj, session=None ):
+    def find_containing_siobj( cls, siobj, session=None ):
         """Return all images (or whatever) that contain the given SpatiallyIndexed thing
 
         Parameters
@@ -1622,24 +1650,88 @@ class FourCorners:
 
         """
 
-        # Overabundance of caution to avoid SQL injection
+        # Overabundance of caution to avoid Bobby Tables.
+        # (Because pyhon is not strongly typed, siobj.ra and
+        # siobj.dec could be set to anything.)
         ra = float( siobj.ra )
         dec = float( siobj.dec )
+        return cls.find_containing( ra, dec, session=session )
+
+    @classmethod
+    def _find_possibly_containing_temptable( cls, ra, dec, session, prov_id=None ):
+        """Internal.
+
+        Looks for all cls objects where ra, dec is between minra:maxra,
+        mindec:maxdec.  This will be a superset of the images that
+        contain ra, dec.
+
+        Lots of special case code for images that cross RA 0.
+
+        Loads up the temp table temp_find_containing
+
+        Parameters
+        ----------
+          ra, dec : float
+             Coordinates to search for; deciam degrees.
+
+          session : Session
+             Required here, otherwise the temp table would be useless.
+
+          prov_id : str or None
+             If not None, search for objects with this provenance.
+
+        """
+        session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_containing" ) )
+
+        # Shouldn't need this, but just in case somebody gave us a wrapped RA:
+        while ( ra < 0 ): ra += 360.
+        while ( ra >= 360.): ra -= 360.
+
+        query = ( "SELECT i.id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+                  "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
+                  "INTO TEMP TABLE temp_find_containing "
+                  f"FROM {cls.__tablename__} i "
+                  "WHERE ( "
+                  "  ( maxdec >= :dec AND mindec <= :dec ) "
+                  "  AND ( "
+                  "    ( (maxra > minra ) AND "
+                  "      ( maxra >= :ra AND minra <= :ra ) )"
+                  "    OR "
+                  "    ( ( maxra < minra ) AND "
+                  "      ( ( maxra >= :ra OR :ra > 180. ) AND ( minra <= :ra OR ra <= 180. ) ) )"
+                  "  )"
+                  ")"
+                 )
+        subdict = { "ra": ra, "dec": dec }
+        if prov_id is not None:
+            query += " AND provenance_id=:prov"
+            subdict['prov'] = prov_id
+
+        session.execute( sa.text( query ), subdict )
+
+
+    @classmethod
+    def find_containing( cls, ra, dec, prov_id=None, session=None ):
+        """Return all objects in this class that contain the given RA and Dec
+
+        Parameters
+        ----------
+          ra, dec: float, decimal degrees
+
+          prov_id: str or None
+             id of the provenance of cls objects to search; if None, won't filter on provenance
+
+        Returns
+        -------
+          An sql query result thingy
+
+        """
+        # This should protect against SQL injection
+        if ( not isinstance( ra, float ) ) or ( not isinstance( dec, float ) ):
+            return TypeError( f"(ra,dec) must be floats, got ({type(ra)},{type(dec)})" )
 
         with SmartSession( session ) as sess:
-            sess.execute( sa.text( f"SELECT i.id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
-                                   f"       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
-                                   f"INTO TEMP TABLE temp_find_containing "
-                                   f"FROM {cls.__tablename__} i "
-                                   f"WHERE GREATEST(i.ra_corner_00, i.ra_corner_01, "
-                                   f"               i.ra_corner_10, i.ra_corner_11 ) >= :ra "
-                                   f"  AND LEAST(i.ra_corner_00, i.ra_corner_01, "
-                                   f"            i.ra_corner_10, i.ra_corner_11 ) <= :ra "
-                                   f"  AND GREATEST(i.dec_corner_00, i.dec_corner_01, "
-                                   f"               i.dec_corner_10, i.dec_corner_11 ) >= :dec "
-                                   f"  AND LEAST(i.dec_corner_00, i.dec_corner_01, "
-                                   f"            i.dec_corner_10, i.dec_corner_11 ) <= :dec" ),
-                          { 'ra': ra, 'dec': dec } )
+            cls._find_possibly_containing_temptable( ra, dec, session, prov_id=prov_id )
             query = sa.text( f"SELECT i.id FROM temp_find_containing i "
                              f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ i.ra_corner_00, i.dec_corner_00, "
                              f"                                          i.ra_corner_01, i.dec_corner_01, "
@@ -1647,6 +1739,115 @@ class FourCorners:
                              f"                                          i.ra_corner_10, i.dec_corner_10 ])" )
             objs = sess.scalars( sa.select( cls ).from_statement( query ) ).all()
             sess.execute( sa.text( "DROP TABLE temp_find_containing" ) )
+            return objs
+
+    @classmethod
+    def _find_potential_overlapping_temptable( cls, fcobj, session, prov_id=None ):
+        """Internal.
+
+        Given a FourCorners object fcobj, will return all objects of
+        this class that *might* overlap that object.  It does this by
+        making sure that each object's min(ra,dec) is less than the
+        other object's max(ra,dec).  If all four of those criteria are
+        true, then we have a potential overlap.
+
+        (...except for the special case of one or both images including
+        RA=0°, when things are a bit more complicated.)
+
+        Parameters
+        ----------
+          fcobj : FourCorners
+
+          session : Session
+             required here; otherwise, the temp table wouldn't be useful
+
+          prov_id : str, default None
+             The id of the provenance of objects to look for; defaults to
+             not filtering on provenance (which is almost enver what you want).
+
+        """
+
+        session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_overlapping" ) )
+
+        # All kinds of special cases (everything from the first OR
+        # onwards) below to deal with the the case where RA crosses 0
+        # TODO : speed tests once we have a big enough database for that
+        # to matter to see how much this hurts us.
+
+        query = ( "SELECT i.id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+                  "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
+                  "INTO TEMP TABLE temp_find_overlapping "
+                  f"FROM {cls.__tablename__} i "
+                  "WHERE ( "
+                  "  ( i.maxdec >= :mindec AND i.mindec <= :maxdec ) "
+                  "  AND "
+                  "  ( ( ( i.maxra >= i.minra AND :maxra >= :minra ) AND "
+                  "      i.maxra >= :minra AND i.minra <= :maxra ) "
+                  "    OR "
+                  "    ( i.maxra < i.minra AND :maxra < :minra ) "   # both include RA=0, will overlap in RA
+                  "    OR "
+                  "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra <= 180. ) AND "
+                  "      i.maxra >= :minra ) "
+                  "    OR "
+                  "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra > 180. ) AND "
+                  "      i.minra <= :maxra ) "
+                  "    OR "
+                  "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra <= 180. ) AND "
+                  "      i.minra <= :maxra ) "
+                  "    OR "
+                  "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra > 180. ) AND "
+                  "      i.maxra >= :minra ) "
+                  "  )"
+                  ") " )
+        subdict = { 'minra': fcobj.minra, 'maxra': fcobj.maxra,
+                    'mindec': fcobj.mindec, 'maxdec': fcobj.maxdec }
+        if prov_id is not None:
+            query += "AND provenance_id=:prov"
+            subdict['prov'] = prov_id
+
+        session.execute( sa.text( query ), subdict )
+
+
+    @classmethod
+    def find_potential_overlapping( cls, fcobj, prov_id=None, session=None ):
+        """Return all objects of this class that *might* overlap FourCorners object fcobj.
+
+        This will in general be a superset of things that actually do
+        overlap.  To do this, it defines NS-EW bounding rectangles for
+        cls objects.  (We're assuming that the spherical trig isn't
+        going to kill us here, so this may get wonky with big Δra/Δdec
+        or right near the poles.)  This box is defined by the least/greatest
+        RA/dec of all four corners.  (Below: the actual image is tilted
+        rectangle (modulo your font aspect ratio), the bounding box is the
+        one square to the screen.)
+
+                  __
+                 │╱╲│
+                 │╲╱│
+                  ‾‾
+
+        Parameters
+        ----------
+          fcobj: FourCorners object
+             The FourCorners object to look for overlaps with.
+
+          prov_id: str
+             The ide of the provenance of objects in this class to search for
+
+          session: Session
+             (Optional) SA session.
+
+        Returns
+        -------
+          The result of a sess.scalars(...).all() with members of this class.
+
+        """
+        with SmartSession( session ) as sess:
+            cls._find_potential_overlapping_temptable( fcobj, sess, prov_id=prov_id )
+            objs = sess.scalars( sa.select( cls )
+                                 .from_statement( sa.text( "SELECT id FROM temp_find_overlapping" ) )
+                                ).all()
+            sess.execute( sa.text( "DROP TABLE temp_find_overlapping" ) )
             return objs
 
     @classmethod
@@ -1679,23 +1880,38 @@ class FourCorners:
         (RA ranges in all cases are scaled by cos(dec).)
 
         """
-        dimra = (((obj1.ra_corner_10 + obj1.ra_corner_11) / 2. -
-                  (obj1.ra_corner_00 + obj1.ra_corner_01) / 2.
-                  ) / np.cos(obj1.dec * np.pi / 180.))
-        dimdec = ((obj1.dec_corner_01 + obj1.dec_corner_11) / 2. -
-                  (obj1.dec_corner_00 + obj1.dec_corner_10) / 2.)
-        r0 = max(obj2.ra_corner_00, obj2.ra_corner_01,
-                 obj1.ra_corner_00, obj1.ra_corner_01)
-        r1 = min(obj2.ra_corner_10, obj2.ra_corner_10,
-                 obj1.ra_corner_10, obj1.ra_corner_10)
-        d0 = max(obj2.dec_corner_00, obj2.dec_corner_10,
-                 obj1.dec_corner_00, obj1.dec_corner_10)
-        d1 = min(obj2.dec_corner_01, obj2.dec_corner_11,
-                 obj1.dec_corner_01, obj1.dec_corner_11)
-        dra = (r1 - r0) / np.cos((d1 + d0) / 2. * np.pi / 180.)
+
+        o1ra = np.array( [ [ obj1.ra_corner_00, obj1.ra_corner_01 ], [ obj1.ra_corner_10, obj1.ra_corner_11 ] ] )
+        o2ra = np.array( [ [ obj2.ra_corner_00, obj2.ra_corner_01 ], [ obj2.ra_corner_10, obj2.ra_corner_11 ] ] )
+        o1dec = np.array( [ [ obj1.dec_corner_00, obj1.dec_corner_01 ], [ obj1.dec_corner_10, obj1.dec_corner_11 ] ] )
+        o2dec = np.array( [ [ obj2.dec_corner_00, obj2.dec_corner_01 ], [ obj2.dec_corner_10, obj2.dec_corner_11 ] ] )
+
+        # Have to handle the case of ra spanning 0
+        # This happens when maxra < minra.  In that case,
+        # take all ras > 180 and subtract 360 to make them
+        # negative.  Subsequent computations will then work.
+        # (Can check each image individually.  If one is
+        # all above 0, and the other is all below 0, they
+        # don't overlap, so no need to do fancy things.)
+        if ( obj1.maxra < obj1.minra ) or ( obj2.maxra < obj2.minra ):
+            o1ra[ o1ra > 180. ] -= 360.
+            o2ra[ o2ra > 180. ] -= 360.
+
+        dimra = ( ( ( o1ra[1,0] + o1ra[1,1] ) / 2. -
+                    ( o1ra[0,0] + o1ra[0,1] ) / 2.
+                   ) / np.cos( obj1.dec * np.pi / 180. ) )
+        dimdec = ( ( o1dec[0,1] + o1dec[1,1] ) / 2. -
+                   ( o1dec[0,0] + o1dec[1,0] ) / 2. )
+
+        r0 = max( o2ra[0,0], o2ra[0,1], o1ra[0,0], o1ra[0,1] )
+        r1 = min( o2ra[1,0], o2ra[1,1], o1ra[1,0], o1ra[1,1] )
+        d0 = max( o2dec[0,0], o2dec[1,0], o1dec[0,0], o2dec[1,0] )
+        d1 = min( o2dec[0,1], o2dec[1,1], o1dec[0,1], o1dec[1,1] )
+
+        dra = ( r1 - r0 ) / np.cos( (d1+d0 ) / 2. * np.pi / 180. )
         ddec = d1 - d0
 
-        return (dra * ddec) / (dimra * dimdec)
+        return ( dra * ddec ) / ( dimra * dimdec )
 
 
 class HasBitFlagBadness:

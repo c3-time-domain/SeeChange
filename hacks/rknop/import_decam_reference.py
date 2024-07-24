@@ -131,6 +131,10 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
                 dec_corner_11 = cdec
             else:
                 raise RuntimeError( "This should never happen" )
+        minra = min( ra_corner_00, ra_corner_01 )
+        maxra = max( ra_corner_10, ra_corner_11 )
+        mindec = min( dec_corner_00, dec_corner_10 )
+        maxdec = max( dec_corner_01, dec_corner_11 )
 
         image = Image( provenance=prov,
                        format='fits',
@@ -157,7 +161,11 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
                        dec_corner_00=dec_corner_00,
                        dec_corner_01=dec_corner_01,
                        dec_corner_10=dec_corner_10,
-                       dec_corner_11=dec_corner_11 )
+                       dec_corner_11=dec_corner_11,
+                       minra=minra,
+                       maxra=maxra,
+                       mindec=mindec,
+                       maxdec=maxdec )
 
         image.header = img_hdr
         image.data = img_data

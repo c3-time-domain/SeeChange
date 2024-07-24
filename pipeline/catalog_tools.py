@@ -127,6 +127,14 @@ def get_bandpasses_Gaia():
 
 def _download_gaia_dr3_custom_server( minra, maxra, mindec, maxdec, minmag, maxmag ):
     cfg = Config.get()
+    # Don't have to worry about minra/maxra being backwards in the case of
+    #  ra spanning 0, because the server will detect that and correct for it.
+    # However make sure that all ras are in the range 0..360
+    minra = minra if minra >= 0. else minra + 360.
+    minra = minra if minra < 360. else minra - 360.
+    maxra = maxra if maxra >= 0. else maxra + 360.
+    maxra = maxra if maxra < 360. else maxra - 360.
+
     url = f"{cfg.value( 'catalog_gaiadr3.server_url' )}/gaiarect/{minra}/{maxra}/{mindec}/{maxdec}"
     if maxmag is not None:
         url += f"/{maxmag}"
@@ -146,10 +154,14 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
     Will Get a square on the sky given the limits, with the limits
     fractionally expanded at each edge by padding.
 
+    NOTE: the code assumes that the RA range is not more than 180° (which
+    is not realistic anyway, it should always be less than a few
+    degrees).
+
     minra: float
-       Minimum ra of the image we're trying to match.
+       Minimum ra (degrees) of the image we're trying to match.
     maxra: float
-       Maximum ra of the image we're trying to match.
+       Maximum ra (degrees) of the image we're trying to match.
     mindec: float
        Minimum dec of the image we're trying to match.
     maxdec: float
@@ -188,9 +200,17 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
     if maxdec < mindec:
         mindec, maxdec = maxdec, mindec
 
+    # Handle ra that spans 0°: make
+    #   minra negative, fix that later
+    #   (The call to _download_gaia_dr3_custom_server can handle negative RAs)
+    if maxra - minra > 180.:
+        maxra, minra = minra, maxra
+        minra -= 360.
+
     ra = ( maxra + minra ) / 2.
-    dec = ( maxdec + mindec ) / 2.
     dra = maxra - minra
+    ra = ra if ra >= 0. else ra + 360.    # Make sure ra is non-negative
+    dec = ( maxdec + mindec ) / 2.
     ddec = maxdec - mindec
     ralow = minra - padding * dra
     rahigh = maxra + padding * dra
@@ -218,38 +238,44 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
 
     if ( ( ( df is None ) and cfg.value( 'catalog_gaiadr3.fallback_datalab' ) )
          or ( cfg.value( 'catalog_gaiadr3.use_datalab' ) ) ):
-        SCLogger.info( f'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
+        SCLogger.error( 'Skipping quering NOIRLab Astro Data Archive for Gaia DR3 stars; '
+                        'need to handle RA spanning 0, or verify that noirlab does it right.' )
+        # Leave this code here for the unspecified future time when we deal with
+        # ra spanning 0.  For now, we'll hope that the custom gaia dr3 server
+        # is just working....
+        if False:
+            SCLogger.info( f'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
 
-        gaia_query = (
-            f"SELECT ra, dec, ra_error, dec_error, pm, pmra, pmdec, "
-            f"       phot_g_mean_mag, phot_g_mean_flux_over_error, "
-            f"       phot_bp_mean_mag, phot_bp_mean_flux_over_error, "
-            f"       phot_rp_mean_mag, phot_rp_mean_flux_over_error, "
-            f"       classprob_dsc_combmod_star "
-            f"FROM gaia_dr3.gaia_source "
-            f"WHERE ra>={ralow} AND ra<={rahigh} AND dec>={declow} AND dec<={dechigh} "
-        )
-        if minmag is not None:
-            gaia_query += f"AND phot_g_mean_mag>={minmag} "
-        if maxmag is not None:
-            gaia_query += f"AND phot_g_mean_mag<={maxmag} "
-        SCLogger.debug( f'gaia_query is "{gaia_query}"' )
+            gaia_query = (
+                f"SELECT ra, dec, ra_error, dec_error, pm, pmra, pmdec, "
+                f"       phot_g_mean_mag, phot_g_mean_flux_over_error, "
+                f"       phot_bp_mean_mag, phot_bp_mean_flux_over_error, "
+                f"       phot_rp_mean_mag, phot_rp_mean_flux_over_error, "
+                f"       classprob_dsc_combmod_star "
+                f"FROM gaia_dr3.gaia_source "
+                f"WHERE ra>={ralow} AND ra<={rahigh} AND dec>={declow} AND dec<={dechigh} "
+            )
+            if minmag is not None:
+                gaia_query += f"AND phot_g_mean_mag>={minmag} "
+            if maxmag is not None:
+                gaia_query += f"AND phot_g_mean_mag<={maxmag} "
+            SCLogger.debug( f'gaia_query is "{gaia_query}"' )
 
-        for i in range(5):
-            try:
-                qresult = queryClient.query( sql=gaia_query )
-                break
-            except Exception as e:
-                SCLogger.info( f"Failed NOIRLab data lab Gaia download: {str(e)}" )
-                if i < 4:
-                    SCLogger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
-                    time.sleep(5)
-        else:
-            errstr = f"NOIRLab data lab Gaia query giving up after {i} repeated failures."
-            SCLogger.error( errstr )
-            raise RuntimeError( errstr )
+            for i in range(5):
+                try:
+                    qresult = queryClient.query( sql=gaia_query )
+                    break
+                except Exception as e:
+                    SCLogger.info( f"Failed NOIRLab data lab Gaia download: {str(e)}" )
+                    if i < 4:
+                        SCLogger.info( "Sleeping 5s and retrying gaia query after failed attempt." )
+                        time.sleep(5)
+            else:
+                errstr = f"NOIRLab data lab Gaia query giving up after {i} repeated failures."
+                SCLogger.error( errstr )
+                raise RuntimeError( errstr )
 
-        df = dl.helpers.utils.convert( qresult, "pandas" )
+            df = dl.helpers.utils.convert( qresult, "pandas" )
 
     if df is None:
         raise RuntimeError( "Failed to download Gaia DR3 sources" )
@@ -300,11 +326,14 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
     SCLogger.debug( f"Writing {len(fitstab)} gaia stars to {ofpath}" )
     ldac.save_table_as_ldac( fitstab, ofpath, overwrite=True )
 
+    # Fix ralow in the case of ra range spanning 0
+    ralow = ralow if ralow >= 0 else ralow + 360
+
     catexp = CatalogExcerpt( format='fitsldac', origin='gaia_dr3', num_items=len(fitstab),
                              minmag=minmag, maxmag=maxmag, ra=ra, dec=dec,
                              ra_corner_00=ralow, ra_corner_01=ralow, ra_corner_10=rahigh, ra_corner_11=rahigh,
-                             dec_corner_00=declow, dec_corner_10=declow,
-                             dec_corner_01=dechigh, dec_corner_11=dechigh )
+                             dec_corner_00=declow, dec_corner_10=declow, dec_corner_01=dechigh, dec_corner_11=dechigh,
+                             minra=ralow, maxra=rahigh, mindec=declow, maxdec=dechigh )
     catexp.calculate_coordinates()
 
     return catexp, str( ofpath ), str( dbpath )
@@ -363,16 +392,28 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
       CatalogExcerpt
 
     """
-    minra = min( image.ra_corner_00, image.ra_corner_01, image.ra_corner_10, image.ra_corner_11 )
-    maxra = max( image.ra_corner_00, image.ra_corner_01, image.ra_corner_10, image.ra_corner_11 )
-    mindec = min( image.dec_corner_00, image.dec_corner_01, image.dec_corner_10, image.dec_corner_11 )
-    maxdec = max( image.dec_corner_00, image.dec_corner_01, image.dec_corner_10, image.dec_corner_11 )
+
+    ras = np.array( [ [ image.ra_corner_00, image.ra_corner_01], [ image.ra_corner_10, image.ra_corner_11 ] ] )
+    decs = np.array( [ [ image.dec_corner_00, image.dec_corner_01], [ image.dec_corner_10, image.dec_corner_11 ] ] )
+
+    # Detect ra spanning 0
+    if ( ras.max() - ras.min() > 180. ):
+        ras[ ras > 180. ] -= 360.
+
+    minra = ras.min()
+    maxra = ras.max()
+    mindec = decs.min()
+    maxdec = decs.max()
     dra = ( maxra - minra ) * np.cos( ( maxdec + mindec ) / 2. * np.pi / 180. )
     ddec = maxdec - mindec
+
     # Limits we'll use when searching cached CatalogExcerpts.
     # Put in a 5% padding, assuming that the initial corners
     # on the image are at least that good.
     ralow = minra - 0.05 * dra
+    # Handle ra spanning 0
+    if ralow < 0:
+        ralow += 360.
     rahigh = maxra + 0.05 * dra
     declow = mindec - 0.05 * ddec
     dechigh = maxdec + 0.05 * ddec
@@ -380,12 +421,21 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
     maxmags = listify( maxmags )
 
     catexp = None
-    with SmartSession(session) as session:
-        # Cycle through the given limiting magnitudes to see if we
-        #  can get a catalog with enough stars
-        for maxmag in maxmags:
-            # See if there's a cached catalog we can use.
-            q = ( session.query( CatalogExcerpt )
+    # Cycle through the given limiting magnitudes to see if we
+    #  can get a catalog with enough stars
+    for maxmag in maxmags:
+        minmag = None if magrange is None else maxmag - magrange
+
+        # See if there's a cached catalog we can use.
+        # NOTE: there's a pathalogical case here where ralow is
+        # slightly above 0; it won't detect catalogs with
+        # ra_corner_00 below 0 as overlapping!  For now, accept
+        # that, as that will be uncommon, and will just lead to
+        # occasionally downloading a new exceprt that we didn't
+        # strictly need to download.
+        # See tests/pipeline/test_catalog_tools.py::test_gaia_dr3_excerpt_ra_span_zero
+        with SmartSession(session) as dbsess:
+            q = ( dbsess.query( CatalogExcerpt )
                   .filter( CatalogExcerpt.origin == 'gaia_dr3' )
                   .filter( CatalogExcerpt.ra_corner_00 <= ralow )
                   .filter( CatalogExcerpt.ra_corner_01 <= ralow )
@@ -399,8 +449,7 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
                   .filter( CatalogExcerpt.maxmag <= maxmag+0.1 )
                   .filter( CatalogExcerpt.num_items >= minstars )
                  )
-            if magrange is not None:
-                minmag = maxmag - magrange
+            if minmag is not None:
                 q = ( q.filter( CatalogExcerpt.minmag >= minmag-0.1 )
                       .filter( CatalogExcerpt.minmag <= minmag+0.1 ) )
             if q.count() > 0:
@@ -408,37 +457,38 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
 
                 if not os.path.isfile( catexp.get_fullpath() ):
                     SCLogger.info( f"CatalogExcerpt {catexp.id} has no file at {catexp.filepath}")
-                    session.delete( catexp )
-                    session.commit()
+                    dbsess.delete( catexp )
+                    dbsess.commit()
                     catexp = None
                 else:
                     break
 
-            if catexp is None and not onlycached:
-                # No cached catalog excerpt, so query the NOIRLab server
-                catexp, localfile, dbfile = download_gaia_dr3(
-                    minra,
-                    maxra,
-                    mindec,
-                    maxdec,
-                    minmag=minmag,
-                    maxmag=maxmag,
-                )
-                if catexp.num_items >= minstars:
-                    catexp.filepath = dbfile
-                    catexp.save( localfile )
-                    existing_catexp = session.scalars(
+        if catexp is None and not onlycached:
+            # No cached catalog excerpt, so query the NOIRLab server
+            catexp, localfile, dbfile = download_gaia_dr3(
+                minra,
+                maxra,
+                mindec,
+                maxdec,
+                minmag=minmag,
+                maxmag=maxmag,
+            )
+            if catexp.num_items >= minstars:
+                catexp.filepath = dbfile
+                catexp.save( localfile )
+                with SmartSession( session ) as dbsess:
+                    existing_catexp = dbsess.scalars(
                         sa.select(CatalogExcerpt).where(CatalogExcerpt.filepath == dbfile)
                     ).first()
                     if existing_catexp is None:
-                        session.add( catexp )  # add if it doesn't exist
+                        dbsess.add( catexp )  # add if it doesn't exist
                     else:
-                        raise RuntimeError('CatalogExcerpt already exists in the database!')
-                    session.commit()
+                        raise RuntimeError(f'CatalogExcerpt {dbfile} already exists in the database!')
+                    dbsess.commit()
                     break
-                else:
-                    catexp = None
-                    pathlib.Path( localfile ).unlink( missing_ok=True )
+            else:
+                catexp = None
+                pathlib.Path( localfile ).unlink( missing_ok=True )
 
         if catexp is None:
             s = f"Failed to fetch Gaia DR3 stars at ( {(minra+maxra)/2.:.04f},{(mindec+maxdec)/2.:.04f} )"

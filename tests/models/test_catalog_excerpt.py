@@ -17,6 +17,10 @@ def test_create_from_file( catexp ):
     assert catexp.ra_corner_11 == catexp.ra_corner_10
     assert catexp.dec_corner_10 == catexp.dec_corner_00
     assert catexp.dec_corner_11 == catexp.dec_corner_01
+    assert catexp.minra == catexp.ra_corner_00
+    assert catexp.maxra == catexp.ra_corner_11
+    assert catexp.mindec == catexp.dec_corner_00
+    assert catexp.maxdec == catexp.dec_corner_11
 
     assert catexp.data['MAG_G'][0] == pytest.approx( 17.73, abs=0.01 )
     assert catexp.data['MAG_G'][21] == pytest.approx( 17.48, abs=0.01 )

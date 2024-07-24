@@ -99,7 +99,7 @@ def test_fileondisk_save_failuremodes( diskfile ):
 
     # Verify failure of filepath_extensions, md5sum_extensions, and extension= are inconsistent
     diskfile.filepath_extensions = [ '1', '2' ]
-    with pytest.raises( RuntimeError, match='Tried to save a non-extension file, but this file has extensions' ): 
+    with pytest.raises( RuntimeError, match='Tried to save a non-extension file, but this file has extensions' ):
         diskfile.save( data1 )
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath()[0], 'rb' )
@@ -477,24 +477,50 @@ def test_fourcorners_sort_radec():
     assert ras ==  [ -1.366, -0.366,  0.366, 1.366 ]
     assert decs == [ -0.366,  1.366, -1.366, 0.366 ]
 
+    # Make sure ra/dec spanning 0 works right
+    ras = [ 0.19, 0.21, 359.79, 359.81 ]
+    decs = [ -0.21, 0.19, -0.19, 0.21 ]
+    ras, decs = FourCorners.sort_radec( ras, decs )
+    assert ras == [ 359.79, 359.81, 0.19, 0.21 ]
+    assert decs == [ -0.19, 0.21, -0.21, 0.19 ]
 
-def test_four_corners_overlap_frac():
+    ras = [ 0.39, 0.41, 359.99, 0.01 ]
+    decs = [ -0.21, 0.19, -0.19, 0.21 ]
+    ras, decs = FourCorners.sort_radec( ras, decs )
+    assert ras == [ 359.99, 0.01, 0.39, 0.41 ]
+    assert decs == [ -0.19, 0.21, -0.21, 0.19 ]
+
+
+def test_fourcorners_overlap_frac():
     dra = 0.75
     ddec = 0.375
-    radec1 = [(10., -3.), (10., -45.), (10., -80.)]
+    radec1 = [(10., -3.), (10., -45.), (10., -80.), ( 0., 0. ), ( 0., 80 ), ( 359.9, 20. ), ( 0.2, -20 ) ]
 
     # TODO : add tests where things aren't perfectly square
     for ra, dec in radec1:
         cd = np.cos(dec * np.pi / 180.)
-        i1 = Image(ra=ra, dec=dec,
-                   ra_corner_00=ra - dra / 2. / cd,
-                   ra_corner_01=ra - dra / 2. / cd,
-                   ra_corner_10=ra + dra / 2. / cd,
-                   ra_corner_11=ra + dra / 2. / cd,
-                   dec_corner_00=dec - ddec / 2.,
-                   dec_corner_10=dec - ddec / 2.,
-                   dec_corner_01=dec + ddec / 2.,
-                   dec_corner_11=dec + ddec / 2.)
+        minra = ra - dra / 2. / cd
+        maxra = ra + dra / 2. / cd
+        minra = minra if minra >= 0. else minra + 360.
+        minra = minra if minra < 360. else minra - 360.
+        maxra = maxra if maxra >= 0. else maxra + 360.
+        maxra = maxra if maxra < 360. else maxra - 360.
+        mindec = dec - ddec / 2.
+        maxdec = dec + ddec / 2.
+        ras, decs = FourCorners.sort_radec( [ minra, minra, maxra, maxra ], [ mindec, maxdec, mindec, maxdec ] )
+        i1 = Image( ra=ra, dec=dec,
+                    ra_corner_00=ras[0],
+                    ra_corner_01=ras[1],
+                    ra_corner_10=ras[2],
+                    ra_corner_11=ras[3],
+                    minra=minra,
+                    maxra=maxra,
+                    dec_corner_00=decs[0],
+                    dec_corner_01=decs[1],
+                    dec_corner_10=decs[2],
+                    dec_corner_11=decs[3],
+                    mindec=mindec,
+                    maxdec=maxdec )
         for frac, offx, offy in [(1., 0., 0.),
                                  (0.5, 0.5, 0.),
                                  (0.5, -0.5, 0.),
@@ -511,16 +537,36 @@ def test_four_corners_overlap_frac():
                                  (0., -1., -1.),
                                  (0., 1., -1.)]:
             ra2 = ra + offx * dra / cd
+            ra2 = ra2 if ra2 >= 0. else ra2 + 360.
+            ra2 = ra2 if ra2 < 360. else ra2 - 360.
             dec2 = dec + offy * ddec
-            i2 = Image(ra=ra2, dec=dec2,
-                       ra_corner_00=ra2 - dra / 2. / cd,
-                       ra_corner_01=ra2 - dra / 2. / cd,
-                       ra_corner_10=ra2 + dra / 2. / cd,
-                       ra_corner_11=ra2 + dra / 2. / cd,
-                       dec_corner_00=dec2 - ddec / 2.,
-                       dec_corner_10=dec2 - ddec / 2.,
-                       dec_corner_01=dec2 + ddec / 2.,
-                       dec_corner_11=dec2 + ddec / 2.)
-            assert FourCorners.get_overlap_frac(i1, i2) == pytest.approx(frac, abs=0.01)
+            cd = np.cos( dec2 * np.pi / 180. )
+            minra = ra2 - dra / 2. / cd
+            maxra = ra2 + dra / 2. / cd
+            minra = minra if minra >= 0. else minra + 360.
+            minra = minra if minra < 360. else minra - 360.
+            maxra = maxra if maxra >= 0. else maxra + 360.
+            maxra = maxra if maxra < 360. else maxra - 360.
+            mindec= dec2 - ddec / 2.
+            maxdec = dec2 + ddec / 2.
+            ras, decs = FourCorners.sort_radec( [ minra, minra, maxra, maxra ], [ mindec, maxdec, mindec, maxdec ] )
+            i2 = Image( ra=ra2, dec=dec2,
+                        ra_corner_00=ras[0],
+                        ra_corner_01=ras[1],
+                        ra_corner_10=ras[2],
+                        ra_corner_11=ras[3],
+                        minra=minra,
+                        maxra=maxra,
+                        dec_corner_00=decs[0],
+                        dec_corner_01=decs[1],
+                        dec_corner_10=decs[2],
+                        dec_corner_11=decs[3],
+                        mindec=mindec,
+                        maxdec=maxdec )
 
-
+            calcfrac = FourCorners.get_overlap_frac(i1, i2)
+            # More leeway for high dec
+            if np.fabs( dec ) > 70.:
+                assert calcfrac == pytest.approx( frac, abs=0.02 )
+            else:
+                assert calcfrac == pytest.approx(frac, abs=0.01)
