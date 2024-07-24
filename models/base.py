@@ -1651,7 +1651,7 @@ class FourCorners:
         """
 
         # Overabundance of caution to avoid Bobby Tables.
-        # (Because pyhon is not strongly typed, siobj.ra and
+        # (Because python is not strongly typed, siobj.ra and
         # siobj.dec could be set to anything.)
         ra = float( siobj.ra )
         dec = float( siobj.dec )
@@ -1763,7 +1763,7 @@ class FourCorners:
 
           prov_id : str, default None
              The id of the provenance of objects to look for; defaults to
-             not filtering on provenance (which is almost enver what you want).
+             not filtering on provenance (which is almost never what you want).
 
         """
 
