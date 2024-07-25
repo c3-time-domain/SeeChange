@@ -2,12 +2,14 @@ import time
 import json
 import base64
 import hashlib
+from collections import defaultdict
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
 from sqlalchemy import event
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.schema import UniqueConstraint
 
 from util.util import get_git_hash
 
@@ -384,6 +386,8 @@ class ProvenanceTagExistsError(Exception):
 class ProvenanceTag(Base, AutoIDMixin):
     __tablename__ = "provenance_tags"
 
+    __table_args__ = ( UniqueConstraint( 'tag', 'provenance_id', name='_provenancetag_prov_tag_uc' ), )
+
     tag = sa.Column(
         sa.String,
         nullable=False,
@@ -403,6 +407,11 @@ class ProvenanceTag(Base, AutoIDMixin):
         lazy='selectin',
         doc=( "Provenance" )
     )
+
+    def __repr__( self ):
+        return ( '<ProvenanceTag('
+                 f'tag={self.tag}, '
+                 f'provenance_id={self.provenance_id}>' )
 
     @classmethod
     def newtag( cls, tag, provs, session=None ):
@@ -460,3 +469,45 @@ class ProvenanceTag(Base, AutoIDMixin):
                 # Make sure no lock is left behind; exiting the with block
                 #   ought to do this, but be paranoid.
                 sess.rollback()
+
+    @classmethod
+    def validate( cls, tag, processes=None, session=None ):
+        """Verify that a given tag doesn't have multiply defined processes.
+
+        One exception: referenceing can have multiply defined processes.
+
+        Raises an exception if things don't work.
+
+        Parameters
+        ----------
+          tag: str
+            The tag to validate
+
+          processes: list of str
+            The processes to make sure are present.  If None, won't make sure
+            that any processes are present, will just make sure there are no
+            duplicates.
+
+        """
+
+        repeatok = { 'referencing' }
+
+        with SmartSession( session ) as sess:
+            ptags = ( sess.query( (ProvenanceTag.id,Provenance.process) )
+                      .filter( ProvenanceTag.provenance_id==Provenance.id )
+                      .filter( ProvenanceTag.tag==tag )
+                     ).all()
+
+        count = defaultdict( lambda: 0 )
+        for ptagid, process in ptags:
+            count[ process ] += 1
+
+        multiples = [ i for i in count.keys() if count[i] > 1 and i not in repeatok ]
+        if len(multiples) > 0:
+            raise ValueError( f"Database integrity error: ProcessTag {tag} has more than one "
+                              f"provenance for processes {multiples}" )
+
+        if processes is not None:
+            missing = [ i for i in processes if i not in count.keys() ]
+            if len( missing ) > 0:
+                raise ValueError( f"Some processes missing from ProcessTag {tag}: {missing}" )

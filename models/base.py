@@ -196,8 +196,9 @@ def get_all_database_objects(display=False, session=None):
         A dictionary with the object class names as keys and the IDs list as values.
 
     """
-    from models.provenance import Provenance, CodeVersion, CodeHash
+    from models.provenance import Provenance, ProvenanceTag, CodeVersion, CodeHash
     from models.datafile import DataFile
+    from models.knownexposure import KnownExposure, PipelineWorker
     from models.exposure import Exposure
     from models.image import Image
     from models.source_list import SourceList
@@ -214,10 +215,10 @@ def get_all_database_objects(display=False, session=None):
     from models.user import AuthUser, PasswordLink
 
     models = [
-        CodeHash, CodeVersion, Provenance, DataFile, Exposure, Image,
+        CodeHash, CodeVersion, Provenance, ProvenanceTag, DataFile, Exposure, Image,
         SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, Object,
         CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference, SensorSection,
-        AuthUser, PasswordLink
+        AuthUser, PasswordLink, KnownExposure, PipelineWorker
     ]
 
     output = {}

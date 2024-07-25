@@ -311,7 +311,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
     sec_id = ref.section_id
 
     try:  # cleanup the file at the end
-        p = Pipeline()
+        p = Pipeline( pipeline={'provenance_tag': 'test_bitflag_propagation'} )
         p.subtractor.pars.refset = 'test_refset_decam'
         p.pars.save_before_subtraction = False
         exposure.badness = 'banding'  # add a bitflag to check for propagation
@@ -414,6 +414,9 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         with SmartSession() as session:
             ds.exposure.bitflag = 0
             session.merge(ds.exposure)
+            session.commit()
+            # Remove the ProvenanceTag that will have been created
+            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag='test_bitflag_propagation'" ) )
             session.commit()
 
 
@@ -574,59 +577,61 @@ def test_provenance_tree(pipeline_for_tests, decam_refset, decam_exposure, decam
         assert all( [ pid in ptagprovids for pid in provids ] )
         return ptags
 
-    try:
-        provs = p.make_provenance_tree( decam_exposure, provtag='test_pipeline_test_provenance_tree' )
-        assert isinstance(provs, dict)
+    provs = p.make_provenance_tree( decam_exposure )
+    assert isinstance(provs, dict)
 
-        # Make sure the ProvenanceTag got created properly
-        ptags = check_prov_tag( provs.values(), 'test_pipeline_test_provenance_tree' )
+    # Make sure the ProvenanceTag got created properly
+    ptags = check_prov_tag( provs.values(), 'pipeline_for_tests' )
 
-        t_start = datetime.datetime.utcnow()
-        ds = p.run(decam_exposure, 'S3')  # the data should all be there so this should be quick
-        t_end = datetime.datetime.utcnow()
+    t_start = datetime.datetime.utcnow()
+    ds = p.run(decam_exposure, 'S3')  # the data should all be there so this should be quick
+    t_end = datetime.datetime.utcnow()
 
-        assert ds.image.provenance_id == provs['preprocessing'].id
-        assert ds.sources.provenance_id == provs['extraction'].id
-        assert ds.psf.provenance_id == provs['extraction'].id
-        assert ds.wcs.provenance_id == provs['extraction'].id
-        assert ds.zp.provenance_id == provs['extraction'].id
-        assert ds.sub_image.provenance_id == provs['subtraction'].id
-        assert ds.detections.provenance_id == provs['detection'].id
-        assert ds.cutouts.provenance_id == provs['cutting'].id
-        assert ds.measurements[0].provenance_id == provs['measuring'].id
+    assert ds.image.provenance_id == provs['preprocessing'].id
+    assert ds.sources.provenance_id == provs['extraction'].id
+    assert ds.psf.provenance_id == provs['extraction'].id
+    assert ds.wcs.provenance_id == provs['extraction'].id
+    assert ds.zp.provenance_id == provs['extraction'].id
+    assert ds.sub_image.provenance_id == provs['subtraction'].id
+    assert ds.detections.provenance_id == provs['detection'].id
+    assert ds.cutouts.provenance_id == provs['cutting'].id
+    assert ds.measurements[0].provenance_id == provs['measuring'].id
 
-        with SmartSession() as session:
-            report = session.scalars(
-                sa.select(Report).where(Report.exposure_id == decam_exposure.id).order_by(Report.start_time.desc())
-            ).first()
-            assert report is not None
-            assert report.success
-            assert abs(report.start_time - t_start) < datetime.timedelta(seconds=1)
-            assert abs(report.finish_time - t_end) < datetime.timedelta(seconds=1)
+    with SmartSession() as session:
+        report = session.scalars(
+            sa.select(Report).where(Report.exposure_id == decam_exposure.id).order_by(Report.start_time.desc())
+        ).first()
+        assert report is not None
+        assert report.success
+        assert abs(report.start_time - t_start) < datetime.timedelta(seconds=1)
+        assert abs(report.finish_time - t_end) < datetime.timedelta(seconds=1)
 
-        # Make sure that the provenance tags are reused if we ask for the same thing
-        newprovs = p.make_provenance_tree( decam_exposure, provtag='test_pipeline_test_provenance_tree' )
-        provids = []
-        for prov in provs.values():
-            if isinstance( prov, list ):
-                provids.extend( [ i.id for i in prov ] )
-            else:
-                provids.append( prov.id )
-        newprovids = []
-        for prov in newprovs.values():
-            if isinstance( prov, list ):
-                newprovids.extend( [ i.id for i in prov ] )
-            else:
-                newprovids.append( prov.id )
-        assert set( newprovids ) == set( provids )
-        newptags = check_prov_tag( newprovs.values(), 'test_pipeline_test_provenance_tree' )
-        assert set( [ i.id for i in newptags ] ) == set( [ i.id for i in ptags ] )
+    # Make sure that the provenance tags are reused if we ask for the same thing
+    newprovs = p.make_provenance_tree( decam_exposure )
+    provids = []
+    for prov in provs.values():
+        if isinstance( prov, list ):
+            provids.extend( [ i.id for i in prov ] )
+        else:
+            provids.append( prov.id )
+    newprovids = []
+    for prov in newprovs.values():
+        if isinstance( prov, list ):
+            newprovids.extend( [ i.id for i in prov ] )
+        else:
+            newprovids.append( prov.id )
+    assert set( newprovids ) == set( provids )
+    newptags = check_prov_tag( newprovs.values(), 'pipeline_for_tests' )
+    assert set( [ i.id for i in newptags ] ) == set( [ i.id for i in ptags ] )
 
-    finally:
-        # Clean up the ProvenanceTag we created
-        with SmartSession() as session:
-            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag='test_pipeline_test_provenance_tree'" ) )
-            session.commit()
+    # Make sure that we get an exception if we ask for a mismatched provenance tree
+    # Do this by creating a new pipeline with inconsistent parameters but asking
+    # for the same provenance tag.
+    newp = Pipeline( pipeline={'provenance_tag': 'pipeline_for_tests'},
+                     extraction={'sources': { 'threshold': 42. } } )
+    with pytest.raises( RuntimeError,
+                        match='The following provenances are not associated with provenance tag pipeline_for_tests' ):
+        newp.make_provenance_tree( decam_exposure )
 
 
 def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_tests):

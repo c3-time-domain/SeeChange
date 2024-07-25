@@ -93,6 +93,8 @@ pipeline:
   save_before_subtraction: true
   # automatically save all the products at the end of the pipeline run
   save_at_finish: true
+  # the ProvenanceTag that the products of the pipline should be associated with
+  provenance_tag: current
 
 preprocessing:
   # these steps need to be done on the images: either they came like that or we do it in the pipeline

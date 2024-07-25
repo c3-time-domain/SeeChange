@@ -76,6 +76,16 @@ class ParsPipeline(Parameters):
             critical=False,
         )
 
+        self.provenance_tag = self.add_par(
+            'provenance_tag',
+            'current',
+            ( None, str ),
+            "The ProvenanceTag that data products should be associated with.  Will be "
+            "created it doesn't exist;  if it does exist, will verify that all the "
+            "provenances we're running with are properly tagged there.",
+            critical=False
+        )
+
         self._enforce_no_new_attrs = True  # lock against new parameters
 
         self.override(kwargs)
@@ -222,21 +232,14 @@ class Pipeline:
         try:  # must make sure the report is on the DB
             report = Report(exposure=ds.exposure, section_id=ds.section_id)
             report.start_time = datetime.datetime.utcnow()
-            prov = Provenance(
-                process='report',
-                code_version=ds.exposure.provenance.code_version,
-                parameters={},
-                upstreams=[provs['measuring']],
-                is_testing=ds.exposure.provenance.is_testing,
-            )
-            report.provenance = prov
+            report.provenance = provs['report']
             with SmartSession(session) as dbsession:
                 # check how many times this report was generated before
                 prev_rep = dbsession.scalars(
                     sa.select(Report).where(
                         Report.exposure_id == ds.exposure.id,
                         Report.section_id == ds.section_id,
-                        Report.provenance_id == prov.id,
+                        Report.provenance_id == provs['report'].id,
                     )
                 ).all()
                 report.num_prev_reports = len(prev_rep)
@@ -386,7 +389,7 @@ class Pipeline:
         with SmartSession() as session:
             self.run(session=session)
 
-    def make_provenance_tree( self, exposure, overrides=None, session=None, provtag=None, commit=True ):
+    def make_provenance_tree( self, exposure, overrides=None, session=None, no_provtag=False, commit=True ):
         """Use the current configuration of the pipeline and all the objects it has
         to generate the provenances for all the processing steps.
         This will conclude with the reporting step, which simply has an upstreams
@@ -400,26 +403,30 @@ class Pipeline:
             This provenance should be automatically created by the exposure.
 
         overrides: dict, optional
-            A dictionary of provenances to override any of the steps in the pipeline.
-            For example, set overrides={'preprocessing': prov} to use a specific provenance
-            for the basic Image provenance.
+            A dictionary of provenances to override any of the steps in
+            the pipeline.  For example, set overrides={'preprocessing':
+            prov} to use a specific provenance for the basic Image
+            provenance.
 
         session : SmartSession, optional
-            The function needs to work with the database to merge existing provenances.
-            If a session is given, it will use that, otherwise it will open a new session,
-            which will also close automatically at the end of the function.
+            The function needs to work with the database to merge
+            existing provenances.  If a session is given, it will use
+            that, otherwise it will open a new session, which will also
+            close automatically at the end of the function.
 
-        provtag: str, optional
-            If not None, this is the name of a provenance tag to associate with this tree
-            of provenances.  It will create a new provenance tag using all the provenances
-            in the tree if that tag doesn't exist.  If the tag does exist, it will verify
-            that all the provenances in the tree are in that tag, and throw an exception
-            otherwise.  If None, provenance tags are ignored.  If not None, requires commit.
+        no_provtag: bool, default False
+            If True, won't create a provenance tag, and won't ensure
+            that the provenances created match the provenance_tag
+            parameter to the pipeline.  If False, will create the
+            provenance tag if it doesn't exist.  If it does exist, will
+            verify that all the provenances in the created provenance
+            tree are what's tagged
 
         commit: bool, optional, default True
-            By default, the provenances are merged and committed inside this function.
-            To disable this, set commit=False. This may leave the provenances in a
-            transient state, and is most likely not what you want.
+            By default, the provenances are merged and committed inside
+            this function.  To disable this, set commit=False. This may
+            leave the provenances in a transient state, and is most
+            likely not what you want.
 
         Returns
         -------
@@ -427,12 +434,13 @@ class Pipeline:
             A dictionary of all the provenances that were created in this function,
             keyed according to the different steps in the pipeline.
             The provenances are all merged to the session.
+
         """
         if overrides is None:
             overrides = {}
 
-        if ( provtag is not None ) and ( not commit ):
-            raise RuntimeError( "Non-None provtag requires commit" )
+        if ( not no_provtag ) and ( not commit ):
+            raise RuntimeError( "Commit required when no_provtag is not set" )
 
         with SmartSession(session) as sess:
             # start by getting the exposure and reference
@@ -459,6 +467,7 @@ class Pipeline:
                     raise ValueError(f'No provenances found for reference set {refset_name}!')
 
             provs['referencing'] = ref_provs  # notice that this is a list, not a single provenance!
+
             for step in PROCESS_OBJECTS:  # produce the provenance for this step
                 if step in overrides:  # accept override from user input
                     provs[step] = overrides[step]
@@ -496,10 +505,22 @@ class Pipeline:
 
                 provs[step] = provs[step].merge_concurrent(session=sess, commit=commit)
 
+            # Make the report provenance
+            prov = Provenance(
+                process='report',
+                code_version=exposure.provenance.code_version,
+                parameters={},
+                upstreams=[provs['measuring']],
+                is_testing=exposure.provenance.is_testing,
+            )
+            provs['report'] = prov.merge_concurrent( session=sess, commit=commit )
+
             if commit:
                 sess.commit()
 
-            if provtag is not None:
+            # Ensure that the provenance tag is right, creating it if it doesn't exist
+            if not no_provtag:
+                provtag = self.pars.provenance_tag
                 try:
                     provids = []
                     for prov in provs.values():

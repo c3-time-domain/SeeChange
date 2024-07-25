@@ -1,8 +1,8 @@
 """provenancetag
 
-Revision ID: f40c336a18be
+Revision ID: 05bb57675701
 Revises: d86b7dee2172
-Create Date: 2024-07-25 14:55:44.125220
+Create Date: 2024-07-25 18:51:53.756271
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'f40c336a18be'
+revision = '05bb57675701'
 down_revision = 'd86b7dee2172'
 branch_labels = None
 depends_on = None
@@ -25,7 +25,8 @@ def upgrade() -> None:
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='provenance_tags_provenance_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('tag', 'provenance_id', name='_provenancetag_prov_tag_uc')
     )
     op.create_index(op.f('ix_provenance_tags_created_at'), 'provenance_tags', ['created_at'], unique=False)
     op.create_index(op.f('ix_provenance_tags_id'), 'provenance_tags', ['id'], unique=False)

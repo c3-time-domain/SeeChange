@@ -1,5 +1,9 @@
 import pytest
 
+import sqlalchemy as sa
+
+from models.base import SmartSession
+
 from pipeline.preprocessing import Preprocessor
 from pipeline.detection import Detector
 from pipeline.backgrounding import Backgrounder
@@ -237,8 +241,11 @@ def pipeline_factory(
         measurer_factory,
         test_config,
 ):
-    def make_pipeline():
-        p = Pipeline(**test_config.value('pipeline'))
+    def make_pipeline( provtag=None ):
+        kwargs = {}
+        if provtag is not None:
+            kwargs['pipeline'] = { 'provenance_tag': provtag }
+        p = Pipeline(**kwargs)
         p.pars.save_before_subtraction = False
         p.pars.save_at_finish = False
         p.preprocessor = preprocessor_factory()
@@ -271,7 +278,11 @@ def pipeline_factory(
 
 @pytest.fixture
 def pipeline_for_tests(pipeline_factory):
-    return pipeline_factory()
+    yield pipeline_factory( 'pipeline_for_tests' )
+    # Remove the ProvenanceTag might have been created if this pipeline was run
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag='pipeline_for_tests'" ) )
+        session.commit()
 
 
 @pytest.fixture(scope='session')
