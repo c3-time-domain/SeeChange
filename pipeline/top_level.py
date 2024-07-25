@@ -1,3 +1,4 @@
+import io
 import datetime
 import time
 import warnings
@@ -16,7 +17,7 @@ from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
 
 from models.base import SmartSession, merge_concurrent
-from models.provenance import Provenance
+from models.provenance import Provenance, ProvenanceTag, ProvenanceTagExistsError
 from models.refset import RefSet
 from models.exposure import Exposure
 from models.report import Report
@@ -385,7 +386,7 @@ class Pipeline:
         with SmartSession() as session:
             self.run(session=session)
 
-    def make_provenance_tree(self, exposure, overrides=None, session=None, commit=True):
+    def make_provenance_tree( self, exposure, overrides=None, session=None, provtag=None, commit=True ):
         """Use the current configuration of the pipeline and all the objects it has
         to generate the provenances for all the processing steps.
         This will conclude with the reporting step, which simply has an upstreams
@@ -397,14 +398,24 @@ class Pipeline:
         exposure : Exposure
             The exposure to use to get the initial provenance.
             This provenance should be automatically created by the exposure.
+
         overrides: dict, optional
             A dictionary of provenances to override any of the steps in the pipeline.
             For example, set overrides={'preprocessing': prov} to use a specific provenance
             for the basic Image provenance.
+
         session : SmartSession, optional
             The function needs to work with the database to merge existing provenances.
             If a session is given, it will use that, otherwise it will open a new session,
             which will also close automatically at the end of the function.
+
+        provtag: str, optional
+            If not None, this is the name of a provenance tag to associate with this tree
+            of provenances.  It will create a new provenance tag using all the provenances
+            in the tree if that tag doesn't exist.  If the tag does exist, it will verify
+            that all the provenances in the tree are in that tag, and throw an exception
+            otherwise.  If None, provenance tags are ignored.  If not None, requires commit.
+
         commit: bool, optional, default True
             By default, the provenances are merged and committed inside this function.
             To disable this, set commit=False. This may leave the provenances in a
@@ -420,9 +431,12 @@ class Pipeline:
         if overrides is None:
             overrides = {}
 
-        with SmartSession(session) as session:
+        if ( provtag is not None ) and ( not commit ):
+            raise RuntimeError( "Non-None provtag requires commit" )
+
+        with SmartSession(session) as sess:
             # start by getting the exposure and reference
-            exp_prov = session.merge(exposure.provenance)  # also merges the code_version
+            exp_prov = sess.merge(exposure.provenance)  # also merges the code_version
             provs = {'exposure': exp_prov}
             code_version = exp_prov.code_version
             is_testing = exp_prov.is_testing
@@ -436,7 +450,7 @@ class Pipeline:
             # even though you can use it to make the Report provenance (just so you have something to refer to).
             if refset_name is not None:
 
-                refset = session.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
+                refset = sess.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
                 if refset is None:
                     raise ValueError(f'No reference set with name {refset_name} found in the database!')
 
@@ -480,10 +494,42 @@ class Pipeline:
                         is_testing=is_testing,
                     )
 
-                provs[step] = provs[step].merge_concurrent(session=session, commit=commit)
+                provs[step] = provs[step].merge_concurrent(session=sess, commit=commit)
 
             if commit:
-                session.commit()
+                sess.commit()
+
+            if provtag is not None:
+                try:
+                    provids = []
+                    for prov in provs.values():
+                        if isinstance( prov, list ):
+                            provids.extend( [ i.id for i in prov ] )
+                        else:
+                            provids.append( prov.id )
+                    ProvenanceTag.newtag( provtag, provids, session=session )
+                except ProvenanceTagExistsError as ex:
+                    pass
+
+                # The rest of this could be inside the except block,
+                #   but leaving it outside verifies that the
+                #   ProvenanceTag.newtag worked properly.
+                missing = []
+                with SmartSession( session ) as sess:
+                    ptags = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag==provtag ).all()
+                    ptag_pids = [ pt.provenance_id for pt in ptags ]
+                for step, prov in provs.items():
+                    if isinstance( prov, list ):
+                        missing.extend( [ i.id for i in prov if i.id not in ptag_pids ] )
+                    elif prov.id not in ptag_pids:
+                        missing.append( prov )
+                if len( missing ) != 0:
+                    strio = io.StringIO()
+                    strio.write( f"The following provenances are not associated with provenance tag {provtag}:\n " )
+                    for prov in missing:
+                        strio.write( f"   {prov.process}: {prov.id}\n" )
+                    SCLogger.error( strio.getvalue() )
+                    raise RuntimeError( strio.getvalue() )
 
             return provs
 

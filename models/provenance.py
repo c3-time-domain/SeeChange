@@ -3,6 +3,7 @@ import json
 import base64
 import hashlib
 import sqlalchemy as sa
+import sqlalchemy.orm as orm
 from sqlalchemy import event
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -11,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from util.util import get_git_hash
 
 import models.base
-from models.base import Base, SeeChangeBase, SmartSession, safe_merge
+from models.base import Base, AutoIDMixin, SeeChangeBase, SmartSession, safe_merge
 
 
 class CodeHash(Base):
@@ -375,3 +376,87 @@ CodeVersion.provenances = relationship(
     foreign_keys="Provenance.code_version_id",
     passive_deletes=True,
 )
+
+
+class ProvenanceTagExistsError(Exception):
+    pass
+
+class ProvenanceTag(Base, AutoIDMixin):
+    __tablename__ = "provenance_tags"
+
+    tag = sa.Column(
+        sa.String,
+        nullable=False,
+        index=True,
+        doc='Human-readable tag name; one tag has many provenances associated with it.'
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey( 'provenances.id', ondelete="CASCADE", name='provenance_tags_provenance_id_fkey' ),
+        index=True,
+        doc='Provenance ID.  Each tag/process should only have one provenance.'
+    )
+
+    provenance = orm.relationship(
+        'Provenance',
+        cascade='save-update, merge, refresh-expire, expunge',
+        lazy='selectin',
+        doc=( "Provenance" )
+    )
+
+    @classmethod
+    def newtag( cls, tag, provs, session=None ):
+        """Add a new ProvenanceTag.  Will thrown an error if it already exists.
+
+        Usually, this is called from pipeline.top_level.make_provenance_tree, not directly.
+
+        Always commits.
+
+        Parameters
+        ----------
+          tag: str
+            The human-readable provenance tag.  For cleanliness, should be ASCII, no spaces.
+
+          provs: list of str or Provenance
+            The provenances to include in this tag.  Usually, you want to make sure to include
+            a provenance for every process in the pipeline: exposure, referencing, preprocessing,
+            extraction, subtraction, detection, cutting, measuring, [TODO MORE: deepscore, alert]
+
+            -oo- load_exposure, download, import_image, alignment or aligning, coaddition
+
+        """
+
+        with SmartSession( session ) as sess:
+            # Get all the provenance IDs we're going to insert
+            provids = []
+            for prov in provs:
+                if isinstance( prov, Provenance ):
+                    provids.append( prov.id )
+                elif isinstance( prov, str ):
+                    provobj = sess.get( Provenance, prov )
+                    if provobj is None:
+                        raise ValueError( f"Unknown Provenance ID {prov}" )
+                    provids.append( provobj.id )
+                else:
+                    raise TypeError( f"Everything in the provs list must be Provenance or str, not {type(prov)}" )
+
+            try:
+                # Make sure that this tag doesn't already exist.  To avoid race
+                #  conditions of two processes creating it at once (which,
+                #  given how we expect the code to be used, should probably
+                #  not happen in practice), lock the table before searching
+                #  and only unlock after inserting.
+                sess.connection().execute( sa.text( "LOCK TABLE provenance_tags" ) )
+                current = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag == tag )
+                if current.count() != 0:
+                    sess.rollback()
+                    raise ProvenanceTagExistsError( f"ProvenanceTag {tag} already exists." )
+
+                for provid in provids:
+                    sess.add( ProvenanceTag( tag=tag, provenance_id=provid ) )
+
+                sess.commit()
+            finally:
+                # Make sure no lock is left behind; exiting the with block
+                #   ought to do this, but be paranoid.
+                sess.rollback()

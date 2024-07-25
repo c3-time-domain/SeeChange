@@ -7,6 +7,7 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from models.base import SmartSession
 from models.provenance import CodeHash, CodeVersion, Provenance
 
+# Note: ProvenanceTag.newtag is tested as part of pipeline/test_pipeline.py::test_provenance_tree
 
 @pytest.mark.xfail
 def test_code_versions():
