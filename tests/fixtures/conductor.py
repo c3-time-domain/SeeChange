@@ -66,17 +66,6 @@ nRVct/brmHSH0KXam2bLZFECAwEAAQ==
 
 
 @pytest.fixture
-def browser():
-    opts = selenium.webdriver.FirefoxOptions()
-    opts.add_argument( "--headless" )
-    ff = selenium.webdriver.Firefox( options=opts )
-    # This next line lets us use self-signed certs on test servers
-    ff.accept_untrusted_certs = True
-    yield ff
-    ff.close()
-    ff.quit()
-
-@pytest.fixture
 def conductor_browser_logged_in( browser, conductor_user ):
     cfg = Config.get()
     conductor_url = cfg.value( 'conductor.conductor_url' )

@@ -399,6 +399,24 @@ def catexp(data_dir, cache_dir, download_url):
     if os.path.isfile(filepath):
         os.remove(filepath)
 
+
+@pytest.fixture
+def browser():
+    opts = selenium.webdriver.FirefoxOptions()
+    opts.add_argument( "--headless" )
+    ff = selenium.webdriver.Firefox( options=opts )
+    # This next line lets us use self-signed certs on test servers
+    ff.accept_untrusted_certs = True
+    yield ff
+    ff.close()
+    ff.quit()
+
+
+@pytest.fixture( scope="session" )
+def webap_url():
+    return "http://webap:8081/"
+
+
 # ======================================================================
 # FOR REASONS I DO NOT UNDERSTAND, adding this fixture caused
 #  models/test_image_querying.py::test_image_query to pass

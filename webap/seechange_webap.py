@@ -68,11 +68,29 @@ def mainpage():
 
 # **********************************************************************
 
+@app.route( "/provtags", methods=['POST'], strict_slashes=False )
+def provtags():
+    try:
+        conn = next( dbconn() )
+        cursor = conn.cursor()
+        cursor.execute( 'SELECT DISCTINCT ON(tag) tag FROM provenance_tags ORDER BY tag' )
+        return { 'status': ok,
+                 'provenance_tags': [ row[0] for row in cursor.fetchall() ]
+                }
+    except Exception as ex:
+        app.logger.exception( ex )
+        return { 'status': 'error',
+                 'error': f'Exception: {ex}' }
+
+
+# **********************************************************************
+
 @app.route( "/exposures", methods=['POST'], strict_slashes=False )
 def exposures():
     try:
         data = { 'startdate': None,
-                 'enddate': None
+                 'enddate': None,
+                 'provenancetag': None,
                 }
         if flask.request.is_json:
             data.update( flask.request.json )

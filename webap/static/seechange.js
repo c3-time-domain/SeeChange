@@ -27,14 +27,31 @@ seechange.Context = function()
 seechange.Context.prototype.render_page = function()
 {
     var self = this;
+    let p, button;
 
     if ( this.frontpagediv == null ) {
 
         // TODO : users, login
 
         this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv );
-        let p = rkWebUtil.elemaker( "p", this.frontpagediv );
-        let button = rkWebUtil.button( p, "Show Exposures", function() { self.show_exposures(); } );
+
+        p = rkWebUtil.elemaker( "p", this.frontpagediv, { "text": "Search provenance tag: " } );
+        this.provtag_wid = rkWebUtil.elemaker( "select", p );
+        rkWebUtil.elemaker( "option", this.provtag_wid,
+                            { "text": "<all>",
+                              "attributes": { "value": "<all>",
+                                              "selected": 1 } } );
+        this.connector.sendHttpRequest( "provtags", {}, (data) => { self.populate_provtag_wid(data) } );
+        rkWebUtil.elemaker( "option", this.provtag_wid,
+                            { "text": "second",
+                              "attributes": { "value": "second" } } );
+        rkWebUtil.elemaker( "option", this.provtag_wid,
+                            { "text": "third",
+                              "attributes": { "value": "third" } } );
+
+
+        p = rkWebUtil.elemaker( "p", this.frontpagediv );
+        button = rkWebUtil.button( p, "Show Exposures", function() { self.show_exposures(); } );
         p.appendChild( document.createTextNode( " from " ) );
         this.startdatewid = rkWebUtil.elemaker( "input", p,
                                                 { "attributes": { "type": "text",
@@ -54,10 +71,20 @@ seechange.Context.prototype.render_page = function()
         rkWebUtil.elemaker( "hr", this.frontpagediv );
         this.subdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
 
+        rkWebUtil.elemaker( "input", this.frontpagediv,
+                            { "attributes": { "id": "seechange_context_render_page_complete",
+                                              "type": "hidden" } } );
     }
     else {
         rkWebUtil.wipeDiv( this.maindiv );
         this.maindiv.appendChild( this.frontpagediv );
+    }
+}
+
+seechange.Context.prototype.populate_provtag_wid = function( data )
+{
+    for ( let provtag of data.provenance_tags ) {
+        rkWebUtil.elemaker( "option", this.provtag_wid, { "text": provtag, "attributes": { "value": provtag } } );
     }
 }
 
