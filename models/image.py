@@ -562,8 +562,31 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         Must provide a session to merge into. Need to commit at the end.
 
         Returns the merged image with all its products on the same session.
+
+        DEVELOPER NOTE: changing what gets merged in this function
+        requires a corresponding change in
+        pipeline/data_store.py::DataStore.save_and_commit
+
         """
         new_image = self.safe_merge(session=session)
+
+        import io
+        strio = io.StringIO()
+        strio.write( "In image.merge_all; objects in session:\n" )
+        if len( session.new ) > 0 :
+            strio.write( "    NEW:\n" )
+            for obj in session.new:
+                strio.write( f"        {obj}\n" )
+        if len( session.dirty ) > 0:
+            strio.write( "    DIRTY:\n" )
+            for obj in session.dirty:
+                strio.write( f"        {obj}\n" )
+        if len( session.deleted ) > 0:
+            strio.write( "    DELETED:\n" )
+            for obj in session.deleted:
+                strio.write( f"        {obj}\n" )
+        SCLogger.debug( strio.getvalue() )
+
         session.flush()  # make sure new_image gets an ID
 
         if self.sources is not None:

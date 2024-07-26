@@ -1,3 +1,4 @@
+import io
 import warnings
 import datetime
 import sqlalchemy as sa
@@ -1379,6 +1380,9 @@ class DataStore:
         True), as the image headers get "first-look" values, not
         necessarily the latest and greatest if we tune either process.
 
+        DEVELOPER NOTE: this code has to stay synced properly with
+        models/image.py::Image.merge_all
+
         Parameters
         ----------
         exists_ok: bool, default False
@@ -1431,8 +1435,15 @@ class DataStore:
             if obj is None:
                 continue
 
-            SCLogger.debug( f'save_and_commit considering a {obj.__class__.__name__} with filepath '
-                            f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
+            strio = io.StringIO()
+            strio.write( f"save_and_commit of {att} considering a {obj.__class__.__name__}" )
+            if isinstance( obj, FileOnDiskMixin ):
+                strio.write( f" with filepath {obj.filepath}" )
+            elif isinstance( obj, list ):
+                strio.write( f" of types {[type(i) for i in obj]}" )
+            SCLogger.debug( strio.getvalue() )
+            # SCLogger.debug( f'save_and_commit of {att} considering a {obj.__class__.__name__} with filepath '
+            #                 f'{obj.filepath if isinstance(obj,FileOnDiskMixin) else "<none>"}' )
 
             if isinstance(obj, FileOnDiskMixin):
                 mustsave = True

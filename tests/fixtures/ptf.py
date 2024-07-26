@@ -29,7 +29,7 @@ from improc.alignment import ImageAligner
 
 from util.retrydownload import retry_download
 from util.logger import SCLogger
-from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
+from util.cache import copy_to_cache, copy_from_cache
 from util.util import env_as_bool
 
 
@@ -360,6 +360,14 @@ def ptf_supernova_images(ptf_images_factory):
 def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
     cache_dir = os.path.join(ptf_cache_dir, 'aligned_images')
 
+    prov = Provenance(
+        code_version=code_version,
+        parameters={'alignment': {'method': 'swarp', 'to_index': 'last'}, 'test_parameter': 'test_value'},
+        upstreams=[],
+        process='coaddition',
+        is_testing=True,
+    )
+
     # try to load from cache
     if (    ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and
             ( os.path.isfile(os.path.join(cache_dir, 'manifest.txt')) )
@@ -370,20 +378,26 @@ def ptf_aligned_images(request, ptf_cache_dir, data_dir, code_version):
         for filename in filenames:
             imfile, psffile, bgfile = filename.split()
             output_images.append(copy_from_cache(Image, cache_dir, imfile + '.image.fits'))
+            output_images[-1].provenance = prov
+            # Associate other objects
+            # BROKEN -- we don't set the provenance properly below!
+            #   Set the provenance_id to None to explicitly indicate
+            #   that we're not depending on the proper provenance
+            #   to happen to have the same id this time around as it
+            #   did when the cache was written.
             output_images[-1].psf = copy_from_cache(PSF, cache_dir, psffile + '.fits')
+            output_images[-1].psf.image = output_images[-1]
+            output_images[-1].psf.provenance_id = None
             output_images[-1].bg = copy_from_cache(Background, cache_dir, bgfile)
+            output_images[-1].bg.image = output_images[-1]
+            output_images[-1].bg.provenance_id = None
             output_images[-1].zp = copy_from_cache(ZeroPoint, cache_dir, imfile + '.zp')
+            output_images[-1].zp.sources_id = None    # This isn't right, but we dont' have what we need
+            output_images[-1].zp.provenance_id = None
     else:  # no cache available
         ptf_reference_images = request.getfixturevalue('ptf_reference_images')
 
         images_to_align = ptf_reference_images
-        prov = Provenance(
-            code_version=code_version,
-            parameters={'alignment': {'method': 'swarp', 'to_index': 'last'}, 'test_parameter': 'test_value'},
-            upstreams=[],
-            process='coaddition',
-            is_testing=True,
-        )
         coadd_image = Image.from_images(images_to_align, index=-1)
         coadd_image.provenance = prov
         coadd_image.provenance_id = prov.id
@@ -522,16 +536,21 @@ def ptf_ref(
         coadd_image.sources = copy_from_cache(
             SourceList, ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
         )
+        # Make sure that any automated fields set in the database don't have
+        #  the values they happened to have when the cache was created
+        coadd_image.sources.image = coadd_image
         coadd_image.sources.provenance = sources_prov
         assert coadd_image.sources.provenance_id == coadd_image.sources.provenance.id
 
         # get the PSF:
         coadd_image.psf = copy_from_cache(PSF, ptf_cache_dir, cache_base_name + f'.psf_{sources_prov.id[:6]}.fits')
+        caddd_image.psf.image = coadd_image
         coadd_image.psf.provenance = sources_prov
         assert coadd_image.psf.provenance_id == coadd_image.psf.provenance.id
 
         # get the background:
         coadd_image.bg = copy_from_cache(Background, ptf_cache_dir, cache_base_name + f'.bg_{sources_prov.id[:6]}.h5')
+        coadd_image.bg.image = coadd_image
         coadd_image.bg.provenance = sources_prov
         assert coadd_image.bg.provenance_id == coadd_image.bg.provenance.id
 
@@ -539,12 +558,14 @@ def ptf_ref(
         coadd_image.wcs = copy_from_cache(
             WorldCoordinates, ptf_cache_dir, cache_base_name + f'.wcs_{sources_prov.id[:6]}.txt'
         )
+        coadd_image.wcs.sources = coadd_image.sources
         coadd_image.wcs.provenance = sources_prov
         coadd_image.sources.wcs = coadd_image.wcs
         assert coadd_image.wcs.provenance_id == coadd_image.wcs.provenance.id
 
         # get the zero point:
         coadd_image.zp = copy_from_cache(ZeroPoint, ptf_cache_dir, cache_base_name + '.zp')
+        coadd_image.zp.sources = coadd_image.sources
         coadd_image.zp.provenance = sources_prov
         coadd_image.sources.zp = coadd_image.zp
         assert coadd_image.zp.provenance_id == coadd_image.zp.provenance.id
@@ -664,7 +685,6 @@ def ptf_subtraction1(ptf_ref, ptf_supernova_images, subtractor, ptf_cache_dir):
         im = copy_from_cache(Image, ptf_cache_dir, cache_path)
         im.upstream_images = [ptf_ref.image, ptf_supernova_images[0]]
         im.ref_image_id = ptf_ref.image.id
-
         im.provenance = prov
 
     else:  # cannot find it on cache, need to produce it, using other fixtures

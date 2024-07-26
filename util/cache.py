@@ -1,6 +1,20 @@
+# DO NOT USE THESE OUTSIDE OF TESTS IN tests/
+#
+# (The cache has some scariness to it, and we don't want
+# it built into the mainstream pipeline.)
+#
+# What's more, because of how it functions, tests will probably fail if
+# you don't empty the cache every time you reinitialize the database.
+# See Issue #339/
+
+# (The cache is still not useless, because if you run multiple tests,
+# the cache will be used internally to avoid recalculating stuff for
+# different tests.)
+
 import os
 import shutil
 import json
+import datetime
 
 from models.base import FileOnDiskMixin
 from util.logger import SCLogger
@@ -153,6 +167,14 @@ def copy_from_cache(cls, cache_dir, filepath):
     with its files but will not necessarily have the correct
     relationships to other objects.
 
+    WARNING : this caches database records to json files, including
+    values of things that are determined automatically (e.g. ids set
+    from database sequences) or that are foreign ids whose values depend
+    on the history of what was built into the database, and which may
+    well not be the same when the object is restored from the cache.  As
+    such, anything that uses this cache needs to very carefully go
+    thorugh all fields like that and make sure that they're wiped!
+
     Parameters
     ----------
     cls : Class that derives from FileOnDiskMixin, or that implements from_dict(dict)
@@ -180,6 +202,20 @@ def copy_from_cache(cls, cache_dir, filepath):
         json_dict = json.load(fp)
 
     output = cls.from_dict(json_dict)
+
+    # COMMENTED THE NEXT OUT.
+    # It's the right thing to do -- automatically assigned
+    #  database attributes should *not* be restored
+    #  from whatever they happened to be when the cache
+    #  was written -- but it was leading to mysterious
+    #  sqlalchemy errors elsewhere.
+    # if hasattr( output, 'id' ):
+    #     output.id = None
+    # now = datetime.datetime.now( tz=datetime.timezone.utc )
+    # if hasattr( output, 'created_at' ):
+    #     output.created_at = now
+    # if hasattr( output, 'modified' ):
+    #     output.modified = now
 
     # copy any associated files
     if isinstance(output, FileOnDiskMixin):
@@ -212,6 +248,8 @@ def copy_list_from_cache(cls, cache_dir, filepath):
     it will be able to figure out where all the associated files are saved
     based on the filepath and extensions in the JSON file.
 
+    See the WARNING in copy_from_cache docstring.
+
     Parameters
     ----------
     cls: Class that derives from FileOnDiskMixin, or that implements from_dict(dict)
@@ -225,6 +263,7 @@ def copy_list_from_cache(cls, cache_dir, filepath):
     -------
     output: list
         The list of reconstructed objects, of the same type as the class.
+
     """
     # allow user to give an absolute path, so long as it is in the cache dir
     if filepath.startswith(cache_dir):
@@ -239,8 +278,16 @@ def copy_list_from_cache(cls, cache_dir, filepath):
         json_list = json.load(fp)
 
     output = []
+    now = datetime.datetime.now( tz=datetime.timezone.utc )
     for obj_dict in json_list:
-        output.append(cls.from_dict(obj_dict))
+        newobj = cls.from_dict( obj_dict )
+        if hasattr( newobj, 'id' ):
+            newobj.id = None
+        if hasattr( newobj, 'created_at' ):
+            newobj.created_at = now
+        if hasattr( newobj, 'modified' ):
+            newobj.modified = now
+        output.append( newobj )
 
     if len(output) == 0:
         return []
