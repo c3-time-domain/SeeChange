@@ -61,6 +61,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             skip_sub=False
     ):
         code_version = args[0].provenance.code_version
+        SCLogger.debug( f"make_datastore called with args {args}, overrides={overrides}, augments={augments}" )
         ds = DataStore(*args)  # make a new datastore
         use_cache = cache_dir is not None and cache_base_name is not None and not env_as_bool( "LIMIT_CACHE_USAGE" )
 
@@ -83,6 +84,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             code_version = session.merge(code_version)
 
             if ds.image is not None:  # if starting from an externally provided Image, must merge it first
+                SCLogger.debug( f"make_datastore was provided an external image; merging it" )
                 ds.image = ds.image.merge_all(session)
 
             ############ load the reference set ############
@@ -97,14 +99,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
             refset = session.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
 
             if refset is None:
-                raise ValueError(f'No reference set found with name {refset_name}')
+                raise ValueError(f'make_datastore found no reference with name {refset_name}')
 
             ref_prov = refset.provenances[0]
 
             ############ preprocessing to create image ############
             if ds.image is None and use_cache:  # check if preprocessed image is in cache
                 if os.path.isfile(image_cache_path):
-                    SCLogger.debug('loading image from cache. ')
+                    SCLogger.debug('make_datastore loading image from cache. ')
                     ds.image = copy_from_cache(Image, cache_dir, cache_name)
                     # assign the correct exposure to the object loaded from cache
                     if ds.exposure_id is not None:
@@ -133,6 +135,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     # if Image already exists on the database, use that instead of this one
                     existing = session.scalars(sa.select(Image).where(Image.filepath == ds.image.filepath)).first()
                     if existing is not None:
+                        SCLogger.debug( f"make_datastore updating existing image {existing.id} "
+                                        f"({existing.filepath}) with image loaded from cache" )
                         # overwrite the existing row data using the JSON cache file
                         for key in sa.inspect(ds.image).mapper.columns.keys():
                             value = getattr(ds.image, key)
@@ -142,6 +146,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ):
                                 setattr(existing, key, value)
                         ds.image = existing  # replace with the existing row
+                    else:
+                        SCLogger.debug( f"make_datastore did not find image with filepath "
+                                        f"{ds.image.filepath} in database" )
 
                     ds.image.provenance = prov
 
@@ -149,7 +156,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.image.save(verify_md5=False)
 
             if ds.image is None:  # make the preprocessed image
-                SCLogger.debug('making preprocessed image. ')
+                SCLogger.debug('make_datastore making preprocessed image. ')
                 ds = p.preprocessor.run(ds, session)
                 ds.image.provenance.is_testing = True
                 if bad_pixel_map is not None:
@@ -202,15 +209,16 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 cache_name = f'{cache_base_name}.sources_{prov.id[:6]}.fits.json'
                 sources_cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(sources_cache_path):
-                    SCLogger.debug('loading source list from cache. ')
+                    SCLogger.debug('make_datastore loading source list from cache. ')
                     ds.sources = copy_from_cache(SourceList, cache_dir, cache_name)
-
                     # if SourceList already exists on the database, use that instead of this one
                     existing = session.scalars(
                         sa.select(SourceList).where(SourceList.filepath == ds.sources.filepath)
                     ).first()
                     if existing is not None:
                         # overwrite the existing row data using the JSON cache file
+                        SCLogger.debug( f"make_datastore updating existing source list {existing.id} "
+                                        f"({existing.filepath}) with source list loaded from cache" )
                         for key in sa.inspect(ds.sources).mapper.columns.keys():
                             value = getattr(ds.sources, key)
                             if (
@@ -219,6 +227,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ):
                                 setattr(existing, key, value)
                         ds.sources = existing  # replace with the existing row
+                    else:
+                        SCLogger.debug( f"make_datastore did not find source list with filepath "
+                                        f"{ds.sources.filepath} in the database" )
 
                     ds.sources.provenance = prov
                     ds.sources.image = ds.image
@@ -230,15 +241,16 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 cache_name = f'{cache_base_name}.psf_{prov.id[:6]}.fits.json'
                 psf_cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(psf_cache_path):
-                    SCLogger.debug('loading PSF from cache. ')
+                    SCLogger.debug('make_datastore loading PSF from cache. ')
                     ds.psf = copy_from_cache(PSF, cache_dir, cache_name)
-
                     # if PSF already exists on the database, use that instead of this one
                     existing = session.scalars(
                         sa.select(PSF).where(PSF.filepath == ds.psf.filepath)
                     ).first()
                     if existing is not None:
                         # overwrite the existing row data using the JSON cache file
+                        SCLogger.debug( f"make_datastore updating existing psf {existing.id} "
+                                        f"({existing.filepath}) with psf loaded from cache" )
                         for key in sa.inspect(ds.psf).mapper.columns.keys():
                             value = getattr(ds.psf, key)
                             if (
@@ -247,6 +259,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ):
                                 setattr(existing, key, value)
                         ds.psf = existing  # replace with the existing row
+                    else:
+                        SCLogger.debug( f"make_datastore did not find psf with filepath "
+                                        f"{ds.psf.filepath} in the database" )
 
                     ds.psf.provenance = prov
                     ds.psf.image = ds.image
@@ -258,15 +273,16 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 cache_name = f'{cache_base_name}.bg_{prov.id[:6]}.h5.json'
                 bg_cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(bg_cache_path):
-                    SCLogger.debug('loading background from cache. ')
+                    SCLogger.debug('make_datastore loading background from cache. ')
                     ds.bg = copy_from_cache(Background, cache_dir, cache_name)
-
                     # if BG already exists on the database, use that instead of this one
                     existing = session.scalars(
                         sa.select(Background).where(Background.filepath == ds.bg.filepath)
                     ).first()
                     if existing is not None:
                         # overwrite the existing row data using the JSON cache file
+                        SCLogger.debug( f"make_datastore updating existing background {existing.id} "
+                                        f"({existing.filepath}) with source list loaded from cache" )
                         for key in sa.inspect(ds.bg).mapper.columns.keys():
                             value = getattr(ds.bg, key)
                             if (
@@ -275,6 +291,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ):
                                 setattr(existing, key, value)
                         ds.bg = existing
+                    else:
+                        SCLogger.debug( f"make_datastore did not find background with filepath "
+                                        f"{ds.bg.filepath} in the database" )
 
                     ds.bg.provenance = prov
                     ds.bg.image = ds.image
@@ -286,7 +305,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 cache_name = f'{cache_base_name}.wcs_{prov.id[:6]}.txt.json'
                 wcs_cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(wcs_cache_path):
-                    SCLogger.debug('loading WCS from cache. ')
+                    SCLogger.debug('make_datastore loading WCS from cache. ')
                     ds.wcs = copy_from_cache(WorldCoordinates, cache_dir, cache_name)
                     prov = session.merge(prov)
 
@@ -303,6 +322,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                     if existing is not None:
                         # overwrite the existing row data using the JSON cache file
+                        SCLogger.debug( f"make_datastore updating existing wcs {existing.id} "
+                                        f"with wcs loaded from cache" )
                         for key in sa.inspect(ds.wcs).mapper.columns.keys():
                             value = getattr(ds.wcs, key)
                             if (
@@ -311,6 +332,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ):
                                 setattr(existing, key, value)
                         ds.wcs = existing  # replace with the existing row
+                    else:
+                        SCLogger.debug( f"make_datastore did not find existing wcs in database" )
 
                     ds.wcs.provenance = prov
                     ds.wcs.sources = ds.sources
@@ -321,7 +344,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 cache_name = cache_base_name + '.zp.json'
                 zp_cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(zp_cache_path):
-                    SCLogger.debug('loading zero point from cache. ')
+                    SCLogger.debug('make_datastore loading zero point from cache. ')
                     ds.zp = copy_from_cache(ZeroPoint, cache_dir, cache_name)
 
                     # check if ZP already exists on the database
@@ -337,6 +360,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                     if existing is not None:
                         # overwrite the existing row data using the JSON cache file
+                        SCLogger.debug( f"make_datastore updating existing zp {existing.id} "
+                                        f"with zp loaded from cache" )
                         for key in sa.inspect(ds.zp).mapper.columns.keys():
                             value = getattr(ds.zp, key)
                             if (
@@ -345,13 +370,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ):
                                 setattr(existing, key, value)
                         ds.zp = existing  # replace with the existing row
+                    else:
+                        SCLogger.debug( "make_datastore did not find existing zp in database" )
 
                     ds.zp.provenance = prov
                     ds.zp.sources = ds.sources
 
             # if any data product is missing, must redo the extraction step
             if ds.sources is None or ds.psf is None or ds.bg is None or ds.wcs is None or ds.zp is None:
-                SCLogger.debug('extracting sources. ')
+                SCLogger.debug('make_datastore extracting sources. ')
                 ds = p.extractor.run(ds, session)
 
                 ds.sources.save(overwrite=True)
@@ -391,6 +418,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if output_path != zp_cache_path:
                         warnings.warn(f'cache path {zp_cache_path} does not match output path {output_path}')
 
+            SCLogger.debug( "make_datastore running ds.save_and_commit on image (before subtraction)" )
             ds.save_and_commit(session=session)
 
             # make a new copy of the image to cache, including the estimates for lim_mag, fwhm, etc.
@@ -399,14 +427,17 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
             # If we were told not to try to do a subtraction, then we're done
             if skip_sub:
+                SCLogger.debug( "make_datastore : skip_sub is True, returning" )
                 return ds
 
             # must provide the reference provenance explicitly since we didn't build a prov_tree
             ref = ds.get_reference(ref_prov, session=session)
             if ref is None:
+                SCLogger.debug( "make_datastore : could not find a reference, returning" )
                 return ds  # if no reference is found, simply return the datastore without the rest of the products
 
             if use_cache:  # try to find the subtraction image in the cache
+                SCLogger.debug( "make_datstore looking for subtraction image in cache..." )
                 prov = Provenance(
                     code_version=code_version,
                     process='subtraction',
@@ -428,7 +459,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 cache_name = cache_sub_name + '.image.fits.json'
                 sub_cache_path = os.path.join(cache_dir, cache_name)
                 if os.path.isfile(sub_cache_path):
-                    SCLogger.debug('loading subtraction image from cache. ')
+                    SCLogger.debug('make_datastore loading subtraction image from cache: {sub_cache_path}" ')
                     ds.sub_image = copy_from_cache(Image, cache_dir, cache_name)
 
                     ds.sub_image.provenance = prov
@@ -505,8 +536,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ds.sub_image._aligned_images = [image_aligned_ref, image_aligned_new]
                         else:
                             ds.sub_image._aligned_images = [image_aligned_new, image_aligned_ref]
+                else:
+                    SCLogger.debug( "make_datastore didn't find subtraction image in cache" )
 
             if ds.sub_image is None:  # no hit in the cache
+                SCLogger.debug( "make_datastore running subtractor to create subtraction image" )
                 ds = p.subtractor.run(ds, session)
                 ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
                 if use_cache:
@@ -515,6 +549,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         warnings.warn(f'cache path {sub_cache_path} does not match output path {output_path}')
 
             if use_cache:  # save the aligned images to cache
+                SCLogger.debug( "make_datastore saving aligned images to cache" )
                 for im in ds.sub_image.aligned_images:
                     im.save(no_archive=True)
                     copy_to_cache(im, cache_dir)
@@ -532,13 +567,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.sources_{prov.id[:6]}.npy.json')
             if use_cache and os.path.isfile(cache_name):
-                SCLogger.debug('loading detections from cache. ')
+                SCLogger.debug( "make_datastore loading detections from cache." )
                 ds.detections = copy_from_cache(SourceList, cache_dir, cache_name)
                 ds.detections.provenance = prov
                 ds.detections.image = ds.sub_image
                 ds.sub_image.sources = ds.detections
                 ds.detections.save(verify_md5=False)
             else:  # cannot find detections on cache
+                SCLogger.debug( "make_datastore running detector to find detections" )
                 ds = p.detector.run(ds, session)
                 ds.detections.save(verify_md5=False)
                 if use_cache:
@@ -557,13 +593,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
             cache_name = os.path.join(cache_dir, cache_sub_name + f'.cutouts_{prov.id[:6]}.h5')
             if use_cache and ( os.path.isfile(cache_name) ):
-                SCLogger.debug('loading cutouts from cache. ')
+                SCLogger.debug( 'make_datastore loading cutouts from cache.' )
                 ds.cutouts = copy_from_cache(Cutouts, cache_dir, cache_name)
                 ds.cutouts.provenance = prov
                 ds.cutouts.sources = ds.detections
                 ds.cutouts.load_all_co_data()  # sources must be set first
                 ds.cutouts.save()  # make sure to save to archive as well
             else:  # cannot find cutouts on cache
+                SCLogger.debug( "make_datastore running cutter to create cutouts" )
                 ds = p.cutter.run(ds, session)
                 ds.cutouts.save()
                 if use_cache:
@@ -584,7 +621,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
             if use_cache and ( os.path.isfile(cache_name) ):
                 # note that the cache contains ALL the measurements, not only the good ones
-                SCLogger.debug('loading measurements from cache. ')
+                SCLogger.debug( 'make_datastore loading measurements from cache.' )
                 ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, cache_name)
                 [setattr(m, 'provenance', prov) for m in ds.all_measurements]
                 [setattr(m, 'cutouts', ds.cutouts) for m in ds.all_measurements]
@@ -599,10 +636,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 [m.associate_object(session) for m in ds.measurements]  # create or find an object for each measurement
                 # no need to save list because Measurements is not a FileOnDiskMixin!
             else:  # cannot find measurements on cache
+                SCLogger.debug( "make_datastore running measurer to create measurements" )
                 ds = p.measurer.run(ds, session)
                 if use_cache:
                     copy_list_to_cache(ds.all_measurements, cache_dir, cache_name)  # must provide filepath!
 
+            SCLogger.debug( "make_datastore running ds.save_and_commit after subtraction/etc" )
             ds.save_and_commit(session=session)
 
             return ds
