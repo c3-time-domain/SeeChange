@@ -5,8 +5,8 @@ import re
 from astropy.coordinates import SkyCoord, BarycentricTrueEcliptic
 import astropy.units as u
 
-_radecparse = re.compile( '^ *(?P<sign>[\-\+])? *(?P<d>[0-9]{1,2}): *(?P<m>[0-9]{1,2}):'
-                          ' *(?P<s>[0-9]{1,2}(\.[0-9]*)?) *$' )
+_radecparse = re.compile( r'^ *(?P<sign>[\-\+])? *(?P<d>[0-9]{1,2}): *(?P<m>[0-9]{1,2}):'
+                          r' *(?P<s>[0-9]{1,2}(\.[0-9]*)?) *$' )
 
 
 def parse_sexigesimal_degrees( strval, hours=False, positive=None ):

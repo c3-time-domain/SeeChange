@@ -453,7 +453,7 @@ def as_datetime( string ):
     ---------
       string : str or datetime.datetime
          The string to convert.  If a datetime.datetime, the return
-         value is just this.  If none or an empty string ("^\s*$"), will
+         value is just this.  If none or an empty string ("^\\s*$"), will
          return None.  Otherwise, must be a string that
          dateutil.parser.parse can handle.
 

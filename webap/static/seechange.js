@@ -36,32 +36,27 @@ seechange.Context.prototype.render_page = function()
         this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv );
 
         p = rkWebUtil.elemaker( "p", this.frontpagediv, { "text": "Search provenance tag: " } );
-        this.provtag_wid = rkWebUtil.elemaker( "select", p );
-        rkWebUtil.elemaker( "option", this.provtag_wid,
-                            { "text": "<all>",
-                              "attributes": { "value": "<all>",
-                                              "selected": 1 } } );
+        this.provtag_wid = rkWebUtil.elemaker( "select", p, { "attributes": { "id": "provtag_wid" } } );
+        // rkWebUtil.elemaker( "option", this.provtag_wid,
+        //                     { "text": "<all>",
+        //                       "attributes": { "value": "<all>",
+        //                                       "selected": 1 } } );
         this.connector.sendHttpRequest( "provtags", {}, (data) => { self.populate_provtag_wid(data) } );
-        rkWebUtil.elemaker( "option", this.provtag_wid,
-                            { "text": "second",
-                              "attributes": { "value": "second" } } );
-        rkWebUtil.elemaker( "option", this.provtag_wid,
-                            { "text": "third",
-                              "attributes": { "value": "third" } } );
-
 
         p = rkWebUtil.elemaker( "p", this.frontpagediv );
         button = rkWebUtil.button( p, "Show Exposures", function() { self.show_exposures(); } );
         p.appendChild( document.createTextNode( " from " ) );
         this.startdatewid = rkWebUtil.elemaker( "input", p,
-                                                { "attributes": { "type": "text",
+                                                { "attributes": { "id": "show_exposures_from_wid",
+                                                                  "type": "text",
                                                                   "size": 20 } } );
         this.startdatewid.addEventListener( "blur", function(e) {
             rkWebUtil.validateWidgetDate( self.startdatewid );
         } );
         p.appendChild( document.createTextNode( " to " ) );
         this.enddatewid = rkWebUtil.elemaker( "input", p,
-                                              { "attributes": { "type": "text",
+                                              { "attributes": { "id": "show_exposures_to_wid",
+                                                                "type": "text",
                                                                 "size": 20 } } );
         this.enddatewid.addEventListener( "blur", function(e) {
             rkWebUtil.validateWidgetDate( self.enddatewid );
@@ -91,7 +86,7 @@ seechange.Context.prototype.populate_provtag_wid = function( data )
 seechange.Context.prototype.show_exposures = function()
 {
     var self = this;
-    var startdate, enddate;
+    var startdate, enddate, provtag;
     try {
         startdate = this.startdatewid.value.trim();
         if ( startdate.length > 0 )
@@ -108,12 +103,15 @@ seechange.Context.prototype.show_exposures = function()
         console.log( "Exception parsing dates: " + ex.toString() );
         return;
     }
+    provtag = this.provtag_wid.value;
+    if ( provtag == '<all>' ) provtag = null;
 
     rkWebUtil.wipeDiv( this.subdiv );
     rkWebUtil.elemaker( "p", this.subdiv, { "text": "Loading exposures...",
                                             "classes": [ "warning", "bold", "italic" ] } );
 
-    this.connector.sendHttpRequest( "exposures", { "startdate": startdate, "enddate": enddate },
+    this.connector.sendHttpRequest( "exposures",
+                                    { "startdate": startdate, "enddate": enddate, "provenancetag": provtag },
                                     function( data ) { self.actually_show_exposures( data ); } );
 }
 
@@ -124,7 +122,11 @@ seechange.Context.prototype.actually_show_exposures = function( data )
         window.alert( "Unexpected response from server when looking for exposures." );
         return
     }
-    let exps = new seechange.ExposureList( this, this.subdiv, data["exposures"], data["startdate"], data["enddate"] );
+    let exps = new seechange.ExposureList( this, this.subdiv,
+                                           data["exposures"],
+                                           data["startdate"],
+                                           data["enddate"],
+                                           data["provenance_tag"] );
     exps.render_page();
 }
 
@@ -132,13 +134,14 @@ seechange.Context.prototype.actually_show_exposures = function( data )
 // **********************************************************************
 // **********************************************************************
 
-seechange.ExposureList = function( context, parentdiv, exposures, fromtime, totime )
+seechange.ExposureList = function( context, parentdiv, exposures, fromtime, totime, provtag )
 {
     this.context = context;
     this.parentdiv = parentdiv;
     this.exposures = exposures;
     this.fromtime = fromtime;
     this.totime = totime;
+    this.provtag = provtag;
     this.masterdiv = null;
     this.listdiv = null;
     this.exposurediv = null;
@@ -189,16 +192,27 @@ seechange.ExposureList.prototype.render_page = function()
         h2.appendChild( document.createTextNode( " from " + this.fromtime + " to " + this.totime ) );
     }
 
-    table = rkWebUtil.elemaker( "table", this.listdiv, { "classes": [ "exposurelist" ] } );
+    if ( this.provtag == null ) {
+        h2.appendChild( document.createTextNode( " including all provenances" ) );
+    } else {
+        h2.appendChild( document.createTextNode( " with provenance tag " + this.provtag ) );
+    }
+
+    rkWebUtil.elemaker( "p", this.listdiv,
+                        { "text": '"Detections" are everything found on subtratcions; ' +
+                          '"Sources" are things that passed prelminary cuts.' } )
+
+    table = rkWebUtil.elemaker( "table", this.listdiv, { "classes": [ "exposurelist" ],
+                                                         "attributes": { "id": "exposure_list_table" } } );
     tr = rkWebUtil.elemaker( "tr", table );
     th = rkWebUtil.elemaker( "th", tr, { "text": "Exposure" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "MJD" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "target" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "filter" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "t_exp (s)" } );
-    th = rkWebUtil.elemaker( "th", tr, { "text": "n_images" } );
-    th = rkWebUtil.elemaker( "th", tr, { "text": "n_cutouts" } );
-    th = rkWebUtil.elemaker( "th", tr, { "text": "n_sources" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "subs" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "detections" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "sources" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "n_successim" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "n_errors" } );
 
@@ -226,9 +240,9 @@ seechange.ExposureList.prototype.render_page = function()
         td = rkWebUtil.elemaker( "td", row, { "text": exps["target"][i] } );
         td = rkWebUtil.elemaker( "td", row, { "text": exps["filter"][i] } );
         td = rkWebUtil.elemaker( "td", row, { "text": exps["exp_time"][i] } );
-        td = rkWebUtil.elemaker( "td", row, { "text": exps["n_images"][i] } );
-        td = rkWebUtil.elemaker( "td", row, { "text": exps["n_cutouts"][i] } );
+        td = rkWebUtil.elemaker( "td", row, { "text": exps["n_subs"][i] } );
         td = rkWebUtil.elemaker( "td", row, { "text": exps["n_sources"][i] } );
+        td = rkWebUtil.elemaker( "td", row, { "text": exps["n_measurements"][i] } );
         td = rkWebUtil.elemaker( "td", row, { "text": exps["n_successim"][i] } );
         td = rkWebUtil.elemaker( "td", row, { "text": exps["n_errors"][i] } );
         countdown -= 1;
@@ -252,7 +266,8 @@ seechange.ExposureList.prototype.show_exposure = function( id, name, mjd, filter
         rkWebUtil.wipeDiv( this.exposurediv );
         rkWebUtil.elemaker( "p", this.exposurediv, { "text": "Loading...",
                                                      "classes": [ "warning", "bold", "italic" ] } );
-        this.context.connector.sendHttpRequest( "exposure_images/" + id, null,
+        this.context.connector.sendHttpRequest( "exposure_images/" + id + "/" + this.provtag,
+                                                null,
                                                 (data) => {
                                                     self.actually_show_exposure( id, name, mjd, filter,
                                                                                  target, exp_time, data );
@@ -343,6 +358,8 @@ seechange.Exposure.prototype.render_page = function()
     h2 = rkWebUtil.elemaker( "h2", this.div, { "text": "Exposure " + this.name } );
     ul = rkWebUtil.elemaker( "ul", this.div );
     li = rkWebUtil.elemaker( "li", ul );
+    li.innerHTML = "<b>provenance tag:</b> " + this.data.provenancetag;
+    li = rkWebUtil.elemaker( "li", ul );
     li.innerHTML = "<b>target:</b> " + this.target;
     li = rkWebUtil.elemaker( "li", ul );
     li.innerHTML = "<b>mjd:</b> " + this.mjd
@@ -359,15 +376,19 @@ seechange.Exposure.prototype.render_page = function()
     let totncutouts = 0;
     let totnsources = 0;
     for ( let i in this.data['id'] ) {
-        totncutouts += this.data['numcutouts'][i];
+        totncutouts += this.data['numsources'][i];
         totnsources += this.data['nummeasurements'][i];
     }
 
+    let numsubs = 0;
+    for ( let sid of this.data.subid ) if ( sid != null ) numsubs += 1;
     p = rkWebUtil.elemaker( "p", this.imagesdiv,
-                            { "text": "Exposure has " + this.data.id.length + " completed subtractions." } )
+                            { "text": ( "Exposure has " + this.data.id.length + " images and " + numsubs +
+                                        " completed subtractions" ) } )
     p = rkWebUtil.elemaker( "p", this.imagesdiv,
                             { "text": ( totnsources.toString() + " out of " +
-                                        totncutouts.toString() + " sources pass preliminary cuts." ) } );
+                                        totncutouts.toString() + " detections pass preliminary cuts " +
+                                        "(i.e. are \"sources\")." ) } );
 
     p = rkWebUtil.elemaker( "p", this.imagesdiv );
 
@@ -385,7 +406,7 @@ seechange.Exposure.prototype.render_page = function()
                                           { "type": "checkbox",
                                             "id": "cutouts_sans_measurements",
                                             "name": "cutouts_sans_measurements_checkbox" } } );
-    rkWebUtil.elemaker( "label", p, { "text": "Show cutouts that failed the preliminary cuts",
+    rkWebUtil.elemaker( "label", p, { "text": "Show detections that failed the preliminary cuts (i.e. aren't sources)",
                                       "attributes": { "for": "cutouts_sans_measurements_checkbox" } } );
 
 
@@ -400,8 +421,8 @@ seechange.Exposure.prototype.render_page = function()
     th = rkWebUtil.elemaker( "th", tr, { "text": "fwhm" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "zp" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "mag_lim" } );
-    th = rkWebUtil.elemaker( "th", tr, { "text": "n_cutouts" } );
-    th = rkWebUtil.elemaker( "th", tr, { "text": "n_sources" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "detections" } );
+    th = rkWebUtil.elemaker( "th", tr, { "text": "sources" } );
     th = rkWebUtil.elemaker( "th", tr, { "text": "compl. step" } );
     th = rkWebUtil.elemaker( "th", tr, {} ); // products exist
     th = rkWebUtil.elemaker( "th", tr, {} ); // error
@@ -431,7 +452,7 @@ seechange.Exposure.prototype.render_page = function()
         td = rkWebUtil.elemaker( "td", tr,
                                  { "text": seechange.nullorfixed( this.data["zero_point_estimate"][i], 2 ) } );
         td = rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data["lim_mag_estimate"][i], 1 ) } );
-        td = rkWebUtil.elemaker( "td", tr, { "text": this.data["numcutouts"][i] } );
+        td = rkWebUtil.elemaker( "td", tr, { "text": this.data["numsources"][i] } );
         td = rkWebUtil.elemaker( "td", tr, { "text": this.data["nummeasurements"][i] } );
 
         td = rkWebUtil.elemaker( "td", tr );
@@ -503,7 +524,7 @@ seechange.Exposure.prototype.update_cutouts = function()
 
     if ( this.cutoutsallimages_checkbox.checked ) {
         rkWebUtil.elemaker( "p", this.cutoutsdiv,
-                            { "text": "Sources for all succesfully completed chips" } );
+                            { "text": "Sources for all successfully completed chips" } );
         let div = rkWebUtil.elemaker( "div", this.cutoutsdiv );
         rkWebUtil.elemaker( "p", div,
                             { "text": "...updating cutouts...",
@@ -517,7 +538,7 @@ seechange.Exposure.prototype.update_cutouts = function()
         }
         else {
             this.context.connector.sendHttpRequest(
-                "png_cutouts_for_sub_image/" + this.id + "/0/" + withnomeas,
+                "png_cutouts_for_sub_image/" + this.id + "/" + this.data.provenancetag + "/0/" + withnomeas,
                 {},
                 (data) => { self.show_cutouts_for_image( div, prop, data ); }
             );
@@ -544,7 +565,8 @@ seechange.Exposure.prototype.update_cutouts = function()
                 }
                 else {
                     this.context.connector.sendHttpRequest(
-                        "png_cutouts_for_sub_image/" + this.data['subid'][i] + "/1/" + withnomeas,
+                        "png_cutouts_for_sub_image/" + this.data['subid'][i] + "/" + this.data.provenancetag +
+                            "/1/" + withnomeas,
                         {},
                         (data) => { self.show_cutouts_for_image( div, prop, data ); }
                     );
@@ -625,19 +647,25 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
         // TODO: use "warning" color for low r/b
         if ( data.cutouts['flux'][i] == null ) td.classList.add( 'bad' );
         else td.classList.add( 'good' );
-        subdiv.innerHTML = ( "<b>chip:</b> " + data.cutouts.section_id[i] + "<br>" +
-                             // "<b>cutout (α, δ):</b> (" + data.cutouts['ra'][i].toFixed(5) + " , "
-                             // + data.cutouts['dec'][i].toFixed(5) + ")<br>" +
-                             "<b>(α, δ):</b> (" + seechange.nullorfixed( data.cutouts['measra'][i], 5 ) + " , "
-                             + seechange.nullorfixed( data.cutouts['measdec'][i],5 ) + ")<br>" +
-                             "<b>(x, y):</b> (" + data.cutouts['x'][i].toFixed(2) + " , "
-                             + data.cutouts['y'][i].toFixed(2) + ")<br>" +
-                             "<b>Flux:</b> " + seechange.nullorfixed( data.cutouts['flux'][i], 0 )
-                             + " ± " + seechange.nullorfixed( data.cutouts['dflux'][i], 0 )
-                             + "  (aper r=" + seechange.nullorfixed( data.cutouts['aperrad'][i], 2) + " px)"
-                             + "<br>" + "<b>Mag:</b> " + seechange.nullorfixed( data.cutouts['mag'][i], 2 )
-                             + " ± " + seechange.nullorfixed( data.cutouts['dmag'][i], 2 )
-                           );
+        let textblob = ( "<b>chip:</b> " + data.cutouts.section_id[i] + "<br>" +
+                         // "<b>cutout (α, δ):</b> (" + data.cutouts['ra'][i].toFixed(5) + " , "
+                         // + data.cutouts['dec'][i].toFixed(5) + ")<br>" +
+                         "<b>(α, δ):</b> (" + seechange.nullorfixed( data.cutouts['measra'][i], 5 ) + " , "
+                         + seechange.nullorfixed( data.cutouts['measdec'][i],5 ) + ")<br>" +
+                         // TODO : put x, y back if the server ever starts returning it again! -- Issue #340
+                         // "<b>(x, y):</b> (" + data.cutouts['x'][i].toFixed(2) + " , "
+                         // + data.cutouts['y'][i].toFixed(2) + ")<br>" +
+                         "<b>Flux:</b> " + seechange.nullorfixed( data.cutouts['flux'][i], 0 )
+                         + " ± " + seechange.nullorfixed( data.cutouts['dflux'][i], 0 )
+                       );
+        if ( ( data.cutouts['aperrad'][i] == null ) || ( data.cutouts['aperrad'][i] <= 0 ) )
+            textblob += "  (psf)";
+        else
+            textblob +=  + "  (aper r=" + seechange.nullorfixed( data.cutouts['aperrad'][i], 2) + " px)";
+        textblob += ("<br>" + "<b>Mag:</b> " + seechange.nullorfixed( data.cutouts['mag'][i], 2 )
+                     + " ± " + seechange.nullorfixed( data.cutouts['dmag'][i], 2 )
+                    );
+        subdiv.innerHTML = textblob;
     }
 }
 

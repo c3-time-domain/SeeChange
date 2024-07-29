@@ -384,6 +384,14 @@ class ProvenanceTagExistsError(Exception):
     pass
 
 class ProvenanceTag(Base, AutoIDMixin):
+    """A human-readable tag to associate with provenances.
+
+    A well-defined provenane tag will have a provenance defined for every step, but there will
+    only be a *single* provenance for each step (except for refrenceing, where there could be
+    multiple provenances defined).  The class method validate can check this for duplicates.
+
+    """
+
     __tablename__ = "provenance_tags"
 
     __table_args__ = ( UniqueConstraint( 'tag', 'provenance_id', name='_provenancetag_prov_tag_uc' ), )
@@ -437,15 +445,15 @@ class ProvenanceTag(Base, AutoIDMixin):
 
         with SmartSession( session ) as sess:
             # Get all the provenance IDs we're going to insert
-            provids = []
+            provids = set()
             for prov in provs:
                 if isinstance( prov, Provenance ):
-                    provids.append( prov.id )
+                    provids.add( prov.id )
                 elif isinstance( prov, str ):
                     provobj = sess.get( Provenance, prov )
                     if provobj is None:
                         raise ValueError( f"Unknown Provenance ID {prov}" )
-                    provids.append( provobj.id )
+                    provids.add( provobj.id )
                 else:
                     raise TypeError( f"Everything in the provs list must be Provenance or str, not {type(prov)}" )
 
