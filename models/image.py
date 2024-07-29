@@ -570,22 +570,31 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         """
         new_image = self.safe_merge(session=session)
 
-        import io
-        strio = io.StringIO()
-        strio.write( "In image.merge_all; objects in session:\n" )
-        if len( session.new ) > 0 :
-            strio.write( "    NEW:\n" )
-            for obj in session.new:
-                strio.write( f"        {obj}\n" )
-        if len( session.dirty ) > 0:
-            strio.write( "    DIRTY:\n" )
-            for obj in session.dirty:
-                strio.write( f"        {obj}\n" )
-        if len( session.deleted ) > 0:
-            strio.write( "    DELETED:\n" )
-            for obj in session.deleted:
-                strio.write( f"        {obj}\n" )
-        SCLogger.debug( strio.getvalue() )
+        # Note -- this next block of code is useful for trying to debug
+        #  sqlalchemy weirdness.  However, because it calls the __repr__
+        #  method of various objects, it actually causes tests to fail.
+        #  In particular, there are tests that use 'ZTF' as the instrument,
+        #  but the code has no ZTF instrument defined, so calling
+        #  Image.__repr__ throws an error.  As such, comment the
+        #  code out below, but leave it here in case somebody wants
+        #  to temporarily re-enable it for debugging purposes.
+        #
+        # import io
+        # strio = io.StringIO()
+        # strio.write( "In image.merge_all; objects in session:\n" )
+        # if len( session.new ) > 0 :
+        #     strio.write( "    NEW:\n" )
+        #     for obj in session.new:
+        #         strio.write( f"        {obj}\n" )
+        # if len( session.dirty ) > 0:
+        #     strio.write( "    DIRTY:\n" )
+        #     for obj in session.dirty:
+        #         strio.write( f"        {obj}\n" )
+        # if len( session.deleted ) > 0:
+        #     strio.write( "    DELETED:\n" )
+        #     for obj in session.deleted:
+        #         strio.write( f"        {obj}\n" )
+        # SCLogger.debug( strio.getvalue() )
 
         session.flush()  # make sure new_image gets an ID
 
