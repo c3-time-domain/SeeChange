@@ -544,7 +544,7 @@ def ptf_ref(
 
         # get the PSF:
         coadd_image.psf = copy_from_cache(PSF, ptf_cache_dir, cache_base_name + f'.psf_{sources_prov.id[:6]}.fits')
-        caddd_image.psf.image = coadd_image
+        coadd_image.psf.image = coadd_image
         coadd_image.psf.provenance = sources_prov
         assert coadd_image.psf.provenance_id == coadd_image.psf.provenance.id
 
