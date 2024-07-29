@@ -38,6 +38,17 @@ def test_zeropoint_committing(ztf_datastore_uncommitted, provenance_base, proven
             image.psf.save()
             image.provenance = provenance_base
             image.save()
+            # For some reason, the next image.merge_all line started to
+            # fail with ZTF not being a known instrument.  I'm not sure
+            # why it would start to fail, and not have failed before,
+            # but to make it pass, make sure instruments are all
+            # registered.  (Think about if there's a better way to
+            # register instruments.  One would be just to import all the
+            # instrument classes manually in
+            # instrument.register_all_instruments()....  Inelegant, but
+            # it woudl work.)
+            import models.instrument
+            models.instrument.register_all_instruments()
             image = image.merge_all(session)
 
             zp = ZeroPoint(zp=20.1, dzp=0.1)
