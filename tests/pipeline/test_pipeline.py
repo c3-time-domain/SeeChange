@@ -429,7 +429,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
     sec_id = ref.section_id
 
     try:  # cleanup the file at the end
-        p = Pipeline()
+        p = Pipeline( pipeline={'provenance_tag': 'test_get_upstreams_and_downstreams'} ))
         p.subtractor.pars.refset = 'test_refset_decam'
         ds = p.run(exposure, sec_id)
 
@@ -505,6 +505,11 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
     finally:
         if 'ds' in locals():
             ds.delete_everything()
+        # Clean up the provenance tag created by the pipeline
+        with SmartSession() as session:
+            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag",
+                                      { 'tag': 'test_get_upstreams_and_downstreams' } ) )
+            session.commit()
         # added this cleanup to make sure the temp data folder is cleaned up
         # this should be removed after we add datastore failure modes (issue #150)
         shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
