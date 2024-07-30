@@ -34,8 +34,8 @@ from util.logger import SCLogger
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -126,7 +126,21 @@ def any_objects_in_database( dbsession ):
 
 # Uncomment this fixture to run the "empty database" check after each
 # test.  This can be useful in figuring out which test is leaving stuff
-# behind.
+# behind.  Because of session scope fixtures, it will cause nearly every
+# (or every) test to fail, but at least you'll have enough debug output
+# to (hopefully) find the tests that are leaving behind extra stuff.
+#
+# NOTE -- for this to work, ironically, you have to set
+# verify_archive_database_empty to False at the top of this file.
+# Otherwise, at the end of all the tests, the things left over in the
+# databse you are looking for will cause everything to fail, and you
+# *only* get that message instead of all the error messages from here
+# that you wanted to get!  (Oh, pytest.)
+#
+# (This is probably not practical, becasuse there is *so much* module
+# and session scope stuff that lots of things are left behind by tests.
+# You will have to sift through a lot of output to find what you're
+# looking for.  We need a better way.)
 @pytest.fixture(autouse=True)
 def check_empty_database_at_end_of_each_test():
     yield True
