@@ -340,19 +340,6 @@ def ptf_supernova_images(ptf_images_factory):
     for image in imgs:
         image.delete_from_disk_and_database( commit=True, remove_downstreams=True )
 
-    # ROB REMOVE THIS COMMENT
-    # with SmartSession() as session:
-    #     session.autoflush = False
-
-    #     for image in images:
-    #         image = session.merge(image)
-    #         # first delete the image and all it's products and the associated data (locally and on archive)
-    #         image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
-    #         # only then delete the exposure, so it doesn't cascade delete the image and prevent deleting products
-    #         image.exposure.delete_from_disk_and_database(session=session, commit=False)
-
-    #     session.commit()
-
 
 # conditionally call the ptf_reference_images fixture if cache is not there:
 # ref: https://stackoverflow.com/a/75337251

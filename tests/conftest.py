@@ -34,8 +34,8 @@ from util.logger import SCLogger
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-# verify_archive_database_empty = True
-verify_archive_database_empty = False
+verify_archive_database_empty = True
+# verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -141,11 +141,11 @@ def any_objects_in_database( dbsession ):
 # and session scope stuff that lots of things are left behind by tests.
 # You will have to sift through a lot of output to find what you're
 # looking for.  We need a better way.)
-@pytest.fixture(autouse=True)
-def check_empty_database_at_end_of_each_test():
-    yield True
-    with SmartSession() as dbsession:
-        assert not any_objects_in_database( dbsession )
+# @pytest.fixture(autouse=True)
+# def check_empty_database_at_end_of_each_test():
+#     yield True
+#     with SmartSession() as dbsession:
+#         assert not any_objects_in_database( dbsession )
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionfinish(session, exitstatus):

@@ -271,7 +271,15 @@ def pipeline_factory(
         p.cutter = cutter_factory()
         p.measurer = measurer_factory()
 
-        return p
+        yield p
+        # Clean up the provenance tag and provenances potentially created by the pipeline
+        tag = p.pars.provenance_tag
+        with SmartSession() as sess:
+            session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+                                      "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+                             { 'tag': tag } );
+            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+            session.commit()
 
     return make_pipeline
 
@@ -279,10 +287,6 @@ def pipeline_factory(
 @pytest.fixture
 def pipeline_for_tests(pipeline_factory):
     yield pipeline_factory( 'pipeline_for_tests' )
-    # Remove the ProvenanceTag might have been created if this pipeline was run
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag='pipeline_for_tests'" ) )
-        session.commit()
 
 
 @pytest.fixture(scope='session')
