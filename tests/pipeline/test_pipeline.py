@@ -191,7 +191,7 @@ def test_parameters( test_config ):
 
 
 def test_running_without_reference(decam_exposure, decam_refset, decam_default_calibrators, pipeline_for_tests):
-    p = next( pipeline_for_tests )
+    p = pipeline_for_tests
     p.subtractor.pars.refset = 'test_refset_decam'  # choosing ref set doesn't mean we have an actual reference
     p.pars.save_before_subtraction = True  # need this so images get saved even though it crashes on "no reference"
 

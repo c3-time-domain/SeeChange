@@ -58,7 +58,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
             augments={},
             bad_pixel_map=None,
             save_original_image=False,
-            skip_sub=False
+            skip_sub=False,
+            provtag='datastore_factory'
     ):
         code_version = args[0].provenance.code_version
         SCLogger.debug( f"make_datastore called with args {args}, overrides={overrides}, augments={augments}" )
@@ -74,7 +75,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if use_cache:
             ds.cache_base_name = os.path.join(cache_dir, cache_base_name)  # save this for testing purposes
 
-        p = next( pipeline_factory() )
+        p = pipeline_factory( provtag )
 
         # allow calling scope to override/augment parameters for any of the processing steps
         p.override_parameters(**overrides)

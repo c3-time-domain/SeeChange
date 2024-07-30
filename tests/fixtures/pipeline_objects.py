@@ -2,6 +2,8 @@ import pytest
 
 import sqlalchemy as sa
 
+from util.logger import SCLogger
+
 from models.base import SmartSession
 
 from pipeline.preprocessing import Preprocessor
@@ -271,22 +273,26 @@ def pipeline_factory(
         p.cutter = cutter_factory()
         p.measurer = measurer_factory()
 
-        yield p
-        # Clean up the provenance tag and provenances potentially created by the pipeline
-        tag = p.pars.provenance_tag
-        with SmartSession() as sess:
-            session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
-                                      "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
-                             { 'tag': tag } );
-            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
-            session.commit()
+        return p
 
     return make_pipeline
 
 
 @pytest.fixture
 def pipeline_for_tests(pipeline_factory):
-    yield next( pipeline_factory( 'pipeline_for_tests' ) )
+    p = pipeline_factory( 'pipeline_for_tests' )
+    yield p
+
+    # Clean up the provenance tag potentially created by the pipeline
+    tag = p.pars.provenance_tag
+    with SmartSession() as sess:
+        tag = 'pipeline_for_tests'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
+
 
 
 @pytest.fixture(scope='session')
@@ -331,14 +337,14 @@ def coadd_pipeline_for_tests(coadd_pipeline_factory):
 @pytest.fixture(scope='session')
 def refmaker_factory(test_config, pipeline_factory, coadd_pipeline_factory):
 
-    def make_refmaker(name, instrument):
+    def make_refmaker(name, instrument, provtag='refmaker_factory'):
         maker = RefMaker(maker={'name': name, 'instruments': [instrument]})
         maker.pars._enforce_no_new_attrs = False
         maker.pars.test_parameter = maker.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
         )
         maker.pars._enforce_no_new_attrs = True
-        maker.pipeline = next( pipeline_factory() )
+        maker.pipeline = pipeline_factory( provtag )
         maker.pipeline.override_parameters(**test_config.value('referencing.pipeline'))
         maker.coadd_pipeline = coadd_pipeline_factory()
         maker.coadd_pipeline.override_parameters(**test_config.value('referencing.coaddition'))

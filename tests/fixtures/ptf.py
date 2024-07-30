@@ -175,11 +175,21 @@ def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_b
         cache_base_name='187/PTF_20110429_040004_11_R_Sci_BNKEKA',
         overrides={'extraction': {'threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
         bad_pixel_map=ptf_bad_pixel_map,
+        provtag='ptf_datastore'
     )
     yield ds
     ds.delete_everything()
 
     ImageAligner.cleanup_temp_images()
+
+    # Clean out the provenance tag that may have been created by the datastore_factory
+    with SmartSession() as session:
+        tag = 'ptf_datastore'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
 
 
 @pytest.fixture(scope='session')
@@ -207,7 +217,7 @@ def ptf_urls(download_url):
 @pytest.fixture(scope='session')
 def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_dir, ptf_bad_pixel_map):
 
-    def factory(start_date='2009-04-04', end_date='2013-03-03', max_images=None):
+    def factory(start_date='2009-04-04', end_date='2013-03-03', max_images=None, provtag='ptf_images_factory'):
         # see if any of the cache names were saved to a manifest file
         cache_names = {}
         if (   ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and
@@ -247,6 +257,7 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
                     cache_base_name=cache_names.get(url, None),
                     overrides={'extraction': {'threshold': 5}},
                     bad_pixel_map=ptf_bad_pixel_map,
+                    provtag=provtag
                 )
 
                 if (
@@ -283,7 +294,7 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
 
 @pytest.fixture(scope='session')
 def ptf_reference_images(ptf_images_factory):
-    images = ptf_images_factory('2009-04-05', '2009-05-01', max_images=5)
+    images = ptf_images_factory('2009-04-05', '2009-05-01', max_images=5, provtag='ptf_reference_images')
 
     yield images
 
@@ -312,20 +323,19 @@ def ptf_reference_images(ptf_images_factory):
     for image in imgs:
         image.delete_from_disk_and_database( commit=True, remove_downstreams=True )
 
-    # ROB REMOVE THIS COMMENT
-    # with SmartSession() as session:
-    #     session.autoflush = False
-
-    #     for image in images:
-    #         image = session.merge(image)
-    #         image.exposure.delete_from_disk_and_database(session=session, commit=False)
-    #         image.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
-    #     session.commit()
+    # Clean out the provenance tag that may have been created by the datastore_factory
+    with SmartSession() as session:
+        tag = 'ptf_reference_images'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
 
 
 @pytest.fixture(scope='session')
 def ptf_supernova_images(ptf_images_factory):
-    images = ptf_images_factory('2010-02-01', '2013-12-31', max_images=2)
+    images = ptf_images_factory('2010-02-01', '2013-12-31', max_images=2, provtag='ptf_supernova_images')
 
     yield images
 
@@ -340,6 +350,14 @@ def ptf_supernova_images(ptf_images_factory):
     for image in imgs:
         image.delete_from_disk_and_database( commit=True, remove_downstreams=True )
 
+    # Clean out the provenance tag that may have been created by the datastore_factory
+    with SmartSession() as session:
+        tag = 'ptf_supernova_images'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
 
 # conditionally call the ptf_reference_images fixture if cache is not there:
 # ref: https://stackoverflow.com/a/75337251
@@ -472,7 +490,7 @@ def ptf_ref(
         data_dir,
         code_version
 ):
-    refmaker = refmaker_factory('test_ref_ptf', 'PTF')
+    refmaker = refmaker_factory('test_ref_ptf', 'PTF', provtag='ptf_ref')
     pipe = refmaker.coadd_pipeline
 
     # build up the provenance tree
@@ -593,6 +611,14 @@ def ptf_ref(
         ref_in_db = session.scalars(sa.select(Reference).where(Reference.id == ref.id)).first()
         assert ref_in_db is None  # should have been deleted by cascade when image is deleted
 
+    # Clean out the provenance tag that may have been created by the refmaker_factory
+    with SmartSession() as session:
+        tag = 'ptf_ref'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
 
 @pytest.fixture
 def ptf_ref_offset(ptf_ref):
@@ -628,7 +654,7 @@ def ptf_ref_offset(ptf_ref):
 
 @pytest.fixture(scope='session')
 def ptf_refset(refmaker_factory):
-    refmaker = refmaker_factory('test_refset_ptf', 'PTF')
+    refmaker = refmaker_factory('test_refset_ptf', 'PTF', 'ptf_refset')
     refmaker.pars.save_new_refs = True
 
     refmaker.make_refset()  # this makes a refset without making any references
@@ -644,6 +670,15 @@ def ptf_refset(refmaker_factory):
 
         session.delete(refmaker.refset)
 
+        session.commit()
+
+    # Clean out the provenance tag that may have been created by the refmaker_factory
+    with SmartSession() as session:
+        tag = 'ptf_refset'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
         session.commit()
 
 

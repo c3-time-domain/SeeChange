@@ -283,7 +283,8 @@ def decam_datastore(
         cache_dir=decam_cache_dir,
         cache_base_name='007/c4d_20230702_080904_S3_r_Sci_NBXRIO',
         overrides={'subtraction': {'refset': 'test_refset_decam'}},
-        save_original_image=True
+        save_original_image=True,
+        provtag='decam_datastore'
     )
     # This save is redundant, as the datastore_factory calls save_and_commit
     # However, I leave this here because it is a good test that calling it twice
@@ -312,6 +313,16 @@ def decam_datastore(
     os.unlink( ds.path_to_original_image )
 
     ImageAligner.cleanup_temp_images()
+
+    # Clean up the provenance tag potentially created by the pipeline
+    tag = p.pars.provenance_tag
+    with SmartSession() as sess:
+        tag = 'decam_datastore'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
 
 
 @pytest.fixture
@@ -365,7 +376,7 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir,
                                        datastore_factory, refmaker_factory ):
     filebase = 'ELAIS-E1-r-templ'
-    maker = refmaker_factory( 'test_refset_decam', 'DECam' )
+    maker = refmaker_factory( 'test_refset_decam', 'DECam', 'decam_elais_e1_two_refs_datastore' )
 
     with SmartSession() as session:
         maker.make_refset(session=session)
@@ -429,7 +440,8 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
             ds = datastore_factory( image,
                                     cache_dir=decam_cache_dir,
                                     cache_base_name=f'007/{filebase}.{chip:02d}',
-                                    skip_sub=True )
+                                    skip_sub=True,
+                                    provtag='decam_elais_e1_two_refs_datastore_datastore_factory')
 
             for filename in image.get_fullpath(as_list=True):
                 assert os.path.isfile(filename)
@@ -451,6 +463,16 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
         if obj is not None and hasattr(obj, 'delete_from_disk_and_database'):
             obj.delete_from_disk_and_database(archive=True)
 
+    # Clean out the provenance tag that may have been created by the refmaker_factory and datastore_factory
+    with SmartSession() as session:
+        for tag in [ 'decam_elais_e1_two_refs_datastore',
+                     'decam_elais_e1_two_refs_datastore_datastore_factory' ]:
+            # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+            #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+            #                  { 'tag': tag } );
+            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
+
     ImageAligner.cleanup_temp_images()
 
 @pytest.fixture
@@ -461,7 +483,7 @@ def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
 def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_factory ):
     refs = []
     with SmartSession() as session:
-        maker = refmaker_factory('test_refset_decam', 'DECam')
+        maker = refmaker_factory('test_refset_decam', 'DECam', 'decam_elais_e1_two_references' )
         maker.make_refset(session=session)
         prov = maker.refset.provenances[0]
         prov = session.merge(prov)
@@ -498,6 +520,16 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_f
                 session.delete( ref )
             session.commit()
 
+    # clean out the provenance tag that may have been created by the refmaker_factory
+    with SmartSession() as session:
+        tag = 'decam_elais_e1_two_references'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
+
+
 @pytest.fixture
 def decam_reference( decam_elais_e1_two_references ):
     return decam_elais_e1_two_references[0]
@@ -508,7 +540,7 @@ def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
 
 @pytest.fixture(scope='session')
 def decam_refset(refmaker_factory):
-    refmaker = refmaker_factory('test_refset_decam', 'DECam')
+    refmaker = refmaker_factory('test_refset_decam', 'DECam', 'decam_refset' )
     refmaker.pars.save_new_refs = True
 
     refmaker.make_refset()
@@ -527,6 +559,14 @@ def decam_refset(refmaker_factory):
 
         session.commit()
 
+    # Clean out the provenance tag that may have been created by the refmaker_factory
+    with SmartSession() as session:
+        tag = 'decam_refset'
+        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
+        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
+        #                  { 'tag': tag } );
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.commit()
 
 @pytest.fixture
 def decam_subtraction(decam_datastore):
