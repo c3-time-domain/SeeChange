@@ -200,7 +200,7 @@ seechange.ExposureList.prototype.render_page = function()
 
     rkWebUtil.elemaker( "p", this.listdiv,
                         { "text": '"Detections" are everything found on subtratcions; ' +
-                          '"Sources" are things that passed prelminary cuts.' } )
+                          '"Sources" are things that passed preliminary cuts.' } )
 
     table = rkWebUtil.elemaker( "table", this.listdiv, { "classes": [ "exposurelist" ],
                                                          "attributes": { "id": "exposure_list_table" } } );
