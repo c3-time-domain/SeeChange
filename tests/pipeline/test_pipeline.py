@@ -429,7 +429,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
     sec_id = ref.section_id
 
     try:  # cleanup the file at the end
-        p = Pipeline( pipeline={'provenance_tag': 'test_get_upstreams_and_downstreams'} ))
+        p = Pipeline( pipeline={'provenance_tag': 'test_get_upstreams_and_downstreams'} )
         p.subtractor.pars.refset = 'test_refset_decam'
         ds = p.run(exposure, sec_id)
 
