@@ -74,7 +74,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if use_cache:
             ds.cache_base_name = os.path.join(cache_dir, cache_base_name)  # save this for testing purposes
 
-        p = pipeline_factory()
+        p = next( pipeline_factory() )
 
         # allow calling scope to override/augment parameters for any of the processing steps
         p.override_parameters(**overrides)

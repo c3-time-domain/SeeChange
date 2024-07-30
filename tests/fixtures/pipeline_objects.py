@@ -286,7 +286,7 @@ def pipeline_factory(
 
 @pytest.fixture
 def pipeline_for_tests(pipeline_factory):
-    yield pipeline_factory( 'pipeline_for_tests' )
+    yield next( pipeline_factory( 'pipeline_for_tests' ) )
 
 
 @pytest.fixture(scope='session')
@@ -338,7 +338,7 @@ def refmaker_factory(test_config, pipeline_factory, coadd_pipeline_factory):
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
         )
         maker.pars._enforce_no_new_attrs = True
-        maker.pipeline = pipeline_factory()
+        maker.pipeline = next( pipeline_factory() )
         maker.pipeline.override_parameters(**test_config.value('referencing.pipeline'))
         maker.coadd_pipeline = coadd_pipeline_factory()
         maker.coadd_pipeline.override_parameters(**test_config.value('referencing.coaddition'))
