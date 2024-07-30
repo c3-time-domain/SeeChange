@@ -315,13 +315,8 @@ def decam_datastore(
     ImageAligner.cleanup_temp_images()
 
     # Clean up the provenance tag potentially created by the pipeline
-    tag = p.pars.provenance_tag
-    with SmartSession() as sess:
-        tag = 'decam_datastore'
-        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
-        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
-        #                  { 'tag': tag } );
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_datastore' } )
         session.commit()
 
 
@@ -467,9 +462,6 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
     with SmartSession() as session:
         for tag in [ 'decam_elais_e1_two_refs_datastore',
                      'decam_elais_e1_two_refs_datastore_datastore_factory' ]:
-            # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
-            #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
-            #                  { 'tag': tag } );
             session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
         session.commit()
 
@@ -522,11 +514,8 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_f
 
     # clean out the provenance tag that may have been created by the refmaker_factory
     with SmartSession() as session:
-        tag = 'decam_elais_e1_two_references'
-        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
-        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
-        #                  { 'tag': tag } );
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ),
+                         {'tag': 'decam_elais_e1_two_references' } )
         session.commit()
 
 
@@ -561,11 +550,7 @@ def decam_refset(refmaker_factory):
 
     # Clean out the provenance tag that may have been created by the refmaker_factory
     with SmartSession() as session:
-        tag = 'decam_refset'
-        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
-        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
-        #                  { 'tag': tag } );
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_refset' } )
         session.commit()
 
 @pytest.fixture

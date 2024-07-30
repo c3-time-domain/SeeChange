@@ -284,13 +284,8 @@ def pipeline_for_tests(pipeline_factory):
     yield p
 
     # Clean up the provenance tag potentially created by the pipeline
-    tag = p.pars.provenance_tag
-    with SmartSession() as sess:
-        tag = 'pipeline_for_tests'
-        # session.execute( sa.text( "DELETE FROM provenances WHERE id IN "
-        #                           "( SELECT provenance_id FROM provenance_tags WHERE tag=:tag )" ),
-        #                  { 'tag': tag } );
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': tag } )
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'pipeline_for_tests' } )
         session.commit()
 
 
