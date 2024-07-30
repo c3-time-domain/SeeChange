@@ -507,8 +507,8 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             ds.delete_everything()
         # Clean up the provenance tag created by the pipeline
         with SmartSession() as session:
-            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag",
-                                      { 'tag': 'test_get_upstreams_and_downstreams' } ) )
+            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" )
+                            { 'tag': 'test_get_upstreams_and_downstreams' } )
             session.commit()
         # added this cleanup to make sure the temp data folder is cleaned up
         # this should be removed after we add datastore failure modes (issue #150)
