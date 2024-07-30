@@ -1,4 +1,5 @@
 import os
+import io
 import warnings
 import pytest
 import uuid
@@ -87,6 +88,50 @@ def pytest_sessionstart(session):
             session.delete(catexp)
         session.commit()
 
+def any_objects_in_database( dbsession ):
+    """Look in the database, print errors and return False if things are left behind.
+
+    The "allowed" tables (CodeVersion, CodeHash, SensorSection,
+    CatalogExcerpt, Provenance, Object, PasswordLink) will not cause
+    False to be returned, but will just print a debug message.
+
+    Parameters
+    ----------
+      dbsession: Session
+
+    Returns
+    -------
+      True if there are only database rows in allowed tables.
+      False if there are any databse rows in non-allowed tables.
+
+    """
+
+    objects = get_all_database_objects( session=dbsession )
+    any_objects = False
+    for Class, ids in objects.items():
+        # TODO: check that surviving provenances have test_parameter
+        if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt',
+                              'Provenance', 'Object', 'PasswordLink']:
+            SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
+        elif len(ids) > 0:
+            any_objects = True
+            strio = io.StringIO()
+            strio.write( f'There are {len(ids)} {Class.__name__} objects in the database. '
+                         f'Please make sure to cleanup!')
+            for id in ids:
+                obj = dbsession.scalars(sa.select(Class).where(Class.id == id)).first()
+                strio.write( f'\n    {obj}' )
+            SCLogger.error( strio.getvalue() )
+    return any_objects
+
+# Uncomment this fixture to run the "empty database" check after each
+# test.  This can be useful in figuring out which test is leaving stuff
+# behind.
+@pytest.fixture(autouse=True)
+def check_empty_database_at_end_of_each_test():
+    yield True
+    with SmartSession() as dbsession:
+        assert not any_objects_in_database( dbsession )
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
 def pytest_sessionfinish(session, exitstatus):
@@ -102,19 +147,7 @@ def pytest_sessionfinish(session, exitstatus):
                 dbsession.delete(prov)
         dbsession.commit()
 
-        objects = get_all_database_objects(session=dbsession)
-        any_objects = False
-        for Class, ids in objects.items():
-            # TODO: check that surviving provenances have test_parameter
-            if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt',
-                                  'Provenance', 'Object', 'PasswordLink']:
-                SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
-            elif len(ids) > 0:
-                print(f'There are {len(ids)} {Class.__name__} objects in the database. Please make sure to cleanup!')
-                for id in ids:
-                    obj = dbsession.scalars(sa.select(Class).where(Class.id == id)).first()
-                    print(f'  {obj}')
-                    any_objects = True
+        any_objects = any_objects_in_database( dbsession )
 
         # delete the CodeVersion object (this should remove all provenances as well)
         dbsession.execute(sa.delete(CodeVersion).where(CodeVersion.id == 'test_v1.0.0'))
@@ -193,6 +226,7 @@ def data_dir():
 
 @pytest.fixture(scope="session")
 def blocking_plots():
+
     """
     Control how and when plots will be generated.
     There are three options for the environmental variable "INTERACTIVE".
