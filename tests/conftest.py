@@ -20,7 +20,7 @@ from models.base import (
     get_all_database_objects,
     setup_warning_filters
 )
-from models.provenance import CodeVersion, Provenance
+from models.provenance import CodeVersion, CodeHash, Provenance
 from models.catalog_excerpt import CatalogExcerpt
 from models.exposure import Exposure
 from models.object import Object
@@ -295,28 +295,28 @@ def code_version():
         cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
         if cv is None:
             cv = CodeVersion(id="test_v1.0.0")
-            cv.update()
             session.add( cv )
-            session.commit()
-        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
+            cv.update( session=session, commit=True )
+        # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
 
     yield cv
 
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM code_versions WHERE id='test_v1.0.0'" ) )
+        # Verify that the code hashes got cleaned out too
+        them = session.query( CodeHash ).filter( CodeHash.code_version_id == 'test_v1.0.0' ).all()
+        assert len(them) == 0
 
 @pytest.fixture
 def provenance_base(code_version):
-    with SmartSession() as session:
-        code_version = session.merge(code_version)
-        p = Provenance(
-            process="test_base_process",
-            code_version=code_version,
-            parameters={"test_parameter": uuid.uuid4().hex},
-            upstreams=[],
-            is_testing=True,
-        )
-        p = session.merge(p)
-
-        session.commit()
+    p = Provenance(
+        process="test_base_process",
+        code_version_id=code_version.id,
+        parameters={"test_parameter": uuid.uuid4().hex},
+        upstreams=[],
+        is_testing=True,
+    )
+    p.save()
 
     yield p
 
@@ -327,17 +327,14 @@ def provenance_base(code_version):
 
 @pytest.fixture
 def provenance_extra( provenance_base ):
-    with SmartSession() as session:
-        provenance_base = session.merge(provenance_base)
-        p = Provenance(
-            process="test_base_process",
-            code_version=provenance_base.code_version,
-            parameters={"test_parameter": uuid.uuid4().hex},
-            upstreams=[provenance_base],
-            is_testing=True,
-        )
-        p = session.merge(p)
-        session.commit()
+    p = Provenance(
+        process="test_base_process",
+        code_version_id=provenance_base.code_version_id,
+        parameters={"test_parameter": uuid.uuid4().hex},
+        upstreams=[provenance_base],
+        is_testing=True,
+    )
+    p.save()
 
     yield p
 

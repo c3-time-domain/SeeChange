@@ -1,7 +1,8 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
-from models.base import Base, SeeChangeBase, AutoIDMixin, SmartSession
+from models.base import Base, SeeChangeBase, UUIDMixin, SmartSession
 from models.provenance import Provenance
 
 
@@ -16,13 +17,13 @@ refset_provenance_association_table = sa.Table(
               ),
               primary_key=True),
     sa.Column('refset_id',
-              sa.Integer,
+              sqlUUID,
               sa.ForeignKey('refsets.id', ondelete="CASCADE", name='refsets_provenances_association_refset_id_fkey'),
               primary_key=True),
 )
 
 
-class RefSet(Base, AutoIDMixin):
+class RefSet(Base, UUIDMixin):
     __tablename__ = 'refsets'
 
     name = sa.Column(
@@ -46,13 +47,20 @@ class RefSet(Base, AutoIDMixin):
         doc="Hash of the upstreams used to make the reference provenance. "
     )
 
-    provenances = orm.relationship(
-        Provenance,
-        secondary=refset_provenance_association_table,
-        backref='refsets',  # add refsets attribute to Provenance
-        order_by=Provenance.created_at,
-        cascade='all'
-    )
+    # provenances = orm.relationship(
+    #     Provenance,
+    #     secondary=refset_provenance_association_table,
+    #     backref='refsets',  # add refsets attribute to Provenance
+    #     order_by=Provenance.created_at,
+    #     cascade='all'
+    # )
+    @property
+    def provenances( self ):
+        raise RuntimeError( "Rob, write RefSet.get_provenances()" )
+
+    @provenances.setter
+    def provenances( self, val ):
+        raise RuntimeError( "Rob, write RefSet.set_provenances()" )
 
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values

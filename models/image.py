@@ -1,6 +1,7 @@
 import os
 import base64
 import hashlib
+import itertools
 
 import numpy as np
 
@@ -8,6 +9,8 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
+from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.schema import CheckConstraint
@@ -26,7 +29,7 @@ from models.base import (
     Base,
     SeeChangeBase,
     SmartSession,
-    AutoIDMixin,
+    UUIDMixin,
     FileOnDiskMixin,
     SpatiallyIndexed,
     FourCorners,
@@ -55,19 +58,28 @@ image_upstreams_association_table = sa.Table(
     'image_upstreams_association',
     Base.metadata,
     sa.Column('upstream_id',
-              sa.Integer,
+              sqlUUID,
               sa.ForeignKey('images.id', ondelete="CASCADE", name='image_upstreams_association_upstream_id_fkey'),
               primary_key=True),
     sa.Column('downstream_id',
-              sa.Integer,
+              sqlUUID,
               sa.ForeignKey('images.id', ondelete="CASCADE", name='image_upstreams_association_downstream_id_fkey'),
               primary_key=True),
 )
 
 
-class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, HasBitFlagBadness):
+class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, HasBitFlagBadness):
 
     __tablename__ = 'images'
+
+    @declared_attr
+    def __table_args__( cls ):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               name=f'{cls.__tablename__}_md5sum_check' ),
+            sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+        )
 
     _format = sa.Column(
         sa.SMALLINT,
@@ -100,39 +112,39 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         )
     )
 
-    exposure = orm.relationship(
-        'Exposure',
-        cascade='save-update, merge, refresh-expire, expunge',
-        doc=(
-            "Exposure from which this image was derived. "
-            "Only set for single-image objects."
-        )
-    )
+    # exposure = orm.relationship(
+    #     'Exposure',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     doc=(
+    #         "Exposure from which this image was derived. "
+    #         "Only set for single-image objects."
+    #     )
+    # )
 
-    upstream_images = orm.relationship(
-        'Image',
-        secondary=image_upstreams_association_table,
-        primaryjoin='images.c.id == image_upstreams_association.c.downstream_id',
-        secondaryjoin='images.c.id == image_upstreams_association.c.upstream_id',
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        lazy='selectin',
-        join_depth=1,  # this enables the eager load of one generation of upstreams
-        order_by='images.c.mjd',  # in chronological order of exposure start time
-        doc='Images used to produce a multi-image object, like a coadd or a subtraction. '
-    )
+    # upstream_images = orm.relationship(
+    #     'Image',
+    #     secondary=image_upstreams_association_table,
+    #     primaryjoin='images.c.id == image_upstreams_association.c.downstream_id',
+    #     secondaryjoin='images.c.id == image_upstreams_association.c.upstream_id',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     lazy='selectin',
+    #     join_depth=1,  # this enables the eager load of one generation of upstreams
+    #     order_by='images.c.mjd',  # in chronological order of exposure start time
+    #     doc='Images used to produce a multi-image object, like a coadd or a subtraction. '
+    # )
 
-    downstream_images = orm.relationship(
-        'Image',
-        secondary=image_upstreams_association_table,
-        primaryjoin='images.c.id == image_upstreams_association.c.upstream_id',
-        secondaryjoin='images.c.id == image_upstreams_association.c.downstream_id',
-        overlaps="upstream_images",
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        order_by='images.c.mjd',  # in chronological order of exposure start time
-        doc='Combined Images (like coadds or a subtractions) that use this image in their production. '
-    )
+    # downstream_images = orm.relationship(
+    #     'Image',
+    #     secondary=image_upstreams_association_table,
+    #     primaryjoin='images.c.id == image_upstreams_association.c.upstream_id',
+    #     secondaryjoin='images.c.id == image_upstreams_association.c.downstream_id',
+    #     overlaps="upstream_images",
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     order_by='images.c.mjd',  # in chronological order of exposure start time
+    #     doc='Combined Images (like coadds or a subtractions) that use this image in their production. '
+    # )
 
     ref_image_id = sa.Column(
         sa.ForeignKey('images.id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
@@ -141,15 +153,15 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         doc="ID of the reference image used to produce this image, in the upstream_images list. "
     )
 
-    ref_image = orm.relationship(
-        'Image',
-        primaryjoin='Image.ref_image_id == Image.id',
-        remote_side='Image.id',
-        cascade='save-update, merge, refresh-expire, expunge',
-        uselist=False,
-        lazy='selectin',
-        doc="Reference image used to produce this image, in the upstream_images list. "
-    )
+    # ref_image = orm.relationship(
+    #     'Image',
+    #     primaryjoin='Image.ref_image_id == Image.id',
+    #     remote_side='Image.id',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     uselist=False,
+    #     lazy='selectin',
+    #     doc="Reference image used to produce this image, in the upstream_images list. "
+    # )
 
     @property
     def new_image(self):
@@ -159,46 +171,47 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             return None
         return image[0]
 
-    @new_image.setter
-    def new_image(self, value):
-        if value is None:
-            raise ValueError('Do not assign None to new_image. Simply clear the upstream_images list.')
-        if not isinstance(value, Image):
-            raise ValueError("The new_image must be an Image object.")
-        if len(self.upstream_images) not in [1, 2]:
-            raise ValueError("This only works for subtractions that have one or two upstream images.")
+    # @new_image.setter
+    # def new_image(self, value):
+    #     if value is None:
+    #         raise ValueError('Do not assign None to new_image. Simply clear the upstream_images list.')
+    #     if not isinstance(value, Image):
+    #         raise ValueError("The new_image must be an Image object.")
+    #     if len(self.upstream_images) not in [1, 2]:
+    #         raise ValueError("This only works for subtractions that have one or two upstream images.")
 
-        if self.upstream_images[0].id == self.ref_image_id:
-            if len(self.upstream_images) == 1:
-                self.upstream_images.append(value)
-            elif len(self.upstream_images) == 2:
-                self.upstream_images[1] = value
-            else:
-                raise ValueError('This should not happen!')
-        elif self.upstream_images[1].id == self.ref_image_id:
-            self.upstream_images[0] = value
-        else:
-            raise ValueError(f"The ref_image_id ({self.ref_image_id}) is not in the upstream_images list.")
+    #     if self.upstream_images[0].id == self.ref_image_id:
+    #         if len(self.upstream_images) == 1:
+    #             self.upstream_images.append(value)
+    #         elif len(self.upstream_images) == 2:
+    #             self.upstream_images[1] = value
+    #         else:
+    #             raise ValueError('This should not happen!')
+    #     elif self.upstream_images[1].id == self.ref_image_id:
+    #         self.upstream_images[0] = value
+    #     else:
+    #         raise ValueError(f"The ref_image_id ({self.ref_image_id}) is not in the upstream_images list.")
 
-    @property
-    def new_aligned_image(self):
-        """Get the aligned image that is NOT the reference image.
-        This only works on subtractions (with ref+new upstreams).
-        Will lazy-calculate the aligned images, if they are missing.
-        """
-        image = [im for im in self.aligned_images if im.info['original_image_id'] != self.ref_image_id]
-        if len(image) == 0 or len(image) > 1:
-            return None
-        return image[0]
+    # @property
+    # def new_aligned_image(self):
+    #     """Get the aligned image that is NOT the reference image.
+    #     This only works on subtractions (with ref+new upstreams).
+    #     Will lazy-calculate the aligned images, if they are missing.
+    #     """
+    #     image = [im for im in self.aligned_images if im.info['original_image_id'] != self.ref_image_id]
+    #     if len(image) == 0 or len(image) > 1:
+    #         return None
+    #     return image[0]
 
-    @property
-    def ref_aligned_image(self):
-        """Get the aligned reference image. Will lazy-calculate the aligned images, if they are missing. """
-        image = [im for im in self.aligned_images if im.info['original_image_id'] == self.ref_image_id]
-        if len(image) == 0:
-            return None
-        return image[0]
+    # @property
+    # def ref_aligned_image(self):
+    #     """Get the aligned reference image. Will lazy-calculate the aligned images, if they are missing. """
+    #     image = [im for im in self.aligned_images if im.info['original_image_id'] == self.ref_image_id]
+    #     if len(image) == 0:
+    #         return None
+    #     return image[0]
 
+    # TODO: Perhaps replace this with a check that ref_image is not NULL?
     is_sub = sa.Column(
         sa.Boolean,
         nullable=False,
@@ -252,16 +265,16 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         )
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this image. "
-            "The provenance will contain a record of the code version "
-            "and the parameters used to produce this image. "
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this image. "
+    #         "The provenance will contain a record of the code version "
+    #         "and the parameters used to produce this image. "
+    #     )
+    # )
 
     info = sa.Column(
         JSONB,
@@ -457,12 +470,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         )
     )
 
-    __table_args__ = (
-        CheckConstraint(
-            sqltext='NOT(md5sum IS NULL AND md5sum_extensions IS NULL)',
-            name='md5sum_or_md5sum_extensions_check'
-        ),
-    )
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
@@ -494,14 +501,14 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         self._psffluxerr = None  # the error in the PSF-fitted equivalent flux of the image (2D float array)
 
         # additional data products that could go with the Image
-        self.sources = None  # the sources extracted from this Image (optionally loaded)
-        self.psf = None  # the point-spread-function object (optionally loaded)
-        self.bg = None  # the background object (optionally loaded)
-        self.wcs = None  # the WorldCoordinates object (optionally loaded)
-        self.zp = None  # the zero-point object (optionally loaded)
+        # self.sources = None  # the sources extracted from this Image (optionally loaded)
+        # self.psf = None  # the point-spread-function object (optionally loaded)
+        # self.bg = None  # the background object (optionally loaded)
+        # self.wcs = None  # the WorldCoordinates object (optionally loaded)
+        # self.zp = None  # the zero-point object (optionally loaded)
 
-        self._aligner = None  # an ImageAligner object (lazy loaded using the provenance parameters)
-        self._aligned_images = None  # a list of Images that are aligned to one image (lazy calculated, not committed)
+        # self._aligner = None  # an ImageAligner object (lazy loaded using the provenance parameters)
+        # self._aligned_images = None  # a list of Images that are aligned to one image (lazy calculated, not committed)
         self._nandata = None  # a copy of the image data, only with NaNs at each flagged point. Lazy calculated.
         self._nanscore = None  # a copy of the image score, only with NaNs at each flagged point. Lazy calculated.
 
@@ -536,14 +543,14 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         for att in self.saved_extensions:
             setattr(self, f'_{att}', None)
 
-        self.sources = None
-        self.psf = None
-        self.bg = None
-        self.wcs = None
-        self.zp = None
+        # self.sources = None
+        # self.psf = None
+        # self.bg = None
+        # self.wcs = None
+        # self.zp = None
 
-        self._aligner = None
-        self._aligned_images = None
+        # self._aligner = None
+        # self._aligned_images = None
         self._nandata = None
         self._nanscore = None
 
@@ -568,6 +575,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         pipeline/data_store.py::DataStore.save_and_commit
 
         """
+        raise RuntimeError( "merge_all should no longer be necessary" )
+        
         new_image = self.safe_merge(session=session)
 
         # Note -- this next block of code is useful for trying to debug
@@ -747,7 +756,12 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         if not isinstance(exposure, Exposure):
             raise ValueError(f"The exposure must be an Exposure object. Got {type(exposure)} instead.")
 
+        if exposure.id is None:
+            raise RuntimeError( "Exposure id can't be none to use Image.from_exposure" )
+
         new = cls()
+
+        new.exposure_id = exposure.id
 
         same_columns = [
             'type',
@@ -842,12 +856,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             new.maxdec = dec1
 
         new.info = header_info  # save any additional header keys into a JSONB column
-
-        # the exposure_id will be set automatically at commit time
-        # ...but we have to set it right now because other things are
-        # going to check to see if exposure.id matches image.exposure.id
-        new.exposure_id = exposure.id
-        new.exposure = exposure
 
 
         return new
@@ -950,6 +958,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         output: Image
             The new Image object. It would not have any data variables or filepath.
         """
+        raise RuntimeError( "Rob, this one needs work -- see upstream images, etc." )
+        
         if len(images) < 1:
             raise ValueError("Must provide at least one image to combine.")
 
@@ -1046,6 +1056,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         output: Image
             The new Image object. It would not have any data variables or filepath.
         """
+        raise RuntimeError( "Rob, this one needs work: see ref_image, upstream_images, etc." )
+        
         if ref_image is None:
             raise ValueError("Must provide a reference image.")
         if new_image is None:
@@ -1125,6 +1137,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         to the database. Note that each aligned image is also referred to by
         a global variable under the ImageAligner.temp_images list.
         """
+        raise RunTimeError( "Deprecated" )
+    
         from improc.alignment import ImageAligner  # avoid circular import
         if self.provenance is None or self.provenance.parameters is None:
             raise RuntimeError('Cannot align images without a Provenance with legal parameters!')
@@ -1173,6 +1187,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         If they are inconsistent, they will be removed and the _aligned_images
         attribute will be set to None to be lazy filled by _make_aligned_images().
         """
+        raise RuntimeError( "Depcrecated" )
         if self._aligned_images is None:
             return
 
@@ -1201,6 +1216,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
     def _get_alignment_target_image(self):
         """Get the image in upstream_images that is the target to which we align all other images. """
+        raise RuntimeError( "Rob, think about this one" )
+
         if self.provenance is None or self.provenance.parameters is None:
             raise RuntimeError('Cannot get alignment target without a Provenance with legal parameters!')
         if 'alignment' not in self.provenance.parameters:
@@ -1226,6 +1243,8 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
     def coordinates_to_alignment_target(self):
         """Make sure the coordinates (RA,dec, corners and WCS) all match the alignment target image. """
+        raise RuntimeError( "Rob, think about this one" )
+
         target = self._get_alignment_target_image()
         for att in ['ra', 'dec',
                     'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
@@ -1233,19 +1252,19 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
                     'minra', 'maxra', 'mindec', 'maxdec' ]:
             self.__setattr__(att, getattr(target, att))
 
-    @property
-    def aligned_images(self):
-        """A set of images matching the upstream_images, only aligned (warped) to one of the image. """
-        self._check_aligned_images()  # possibly destroy the old aligned images
+    # @property
+    # def aligned_images(self):
+    #     """A set of images matching the upstream_images, only aligned (warped) to one of the image. """
+    #     self._check_aligned_images()  # possibly destroy the old aligned images
 
-        if self._aligned_images is None:
-            self._make_aligned_images()
+    #     if self._aligned_images is None:
+    #         self._make_aligned_images()
 
-        return self._aligned_images
+    #     return self._aligned_images
 
-    @aligned_images.setter
-    def aligned_images(self, value):
-        self._aligned_images = value
+    # @aligned_images.setter
+    # def aligned_images(self, value):
+    #     self._aligned_images = value
 
     @property
     def instrument_object(self):
@@ -1368,6 +1387,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         # TODO: which elements of the naming convention are really necessary?
         #  and what is a good way to make sure the filename actually depends on them?
 
+        raise RuntimeError( "Rob, think about this, don't use upstream_images" )
         try:
             if self.upstream_images is not None and len(self.upstream_images) > 0:
                 utag = hashlib.sha256()
@@ -1588,14 +1608,6 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
         Parameters
         ----------
-          free_derived_products: bool, default True
-             If True, will also call free on self.sources, self.psf,
-             self.bg and self.wcs.
-
-          free_aligned: bool, default True
-             Will call free() on each of the aligned images referenced
-             by this image (if any).
-
           only_free: set or list of strings
              If you pass this string, it will not free everything, but
              only the things you specify here.  Members of the string
@@ -1615,20 +1627,20 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             else:
                 setattr( self, f'_{prop}', None )
 
-        if free_derived_products:
-            if self.sources is not None:
-                self.sources.free()
-            if self.psf is not None:
-                self.psf.free()
-            if self.bg is not None:
-                self.bg.free()
-            if self.wcs is not None:
-                self.wcs.free()
+        # if free_derived_products:
+        #     if self.sources is not None:
+        #         self.sources.free()
+        #     if self.psf is not None:
+        #         self.psf.free()
+        #     if self.bg is not None:
+        #         self.bg.free()
+        #     if self.wcs is not None:
+        #         self.wcs.free()
 
-        if free_aligned:
-            if self._aligned_images is not None:
-                for alim in self._aligned_images:
-                    alim.free( free_derived_products=free_derived_products, only_free=only_free )
+        # if free_aligned:
+        #     if self._aligned_images is not None:
+        #         for alim in self._aligned_images:
+        #             alim.free( free_derived_products=free_derived_products, only_free=only_free )
 
     def load_products(self, provenances, session=None, must_find_all=True):
         """Load the products associated with this image, using a list of provenances.
@@ -1649,59 +1661,60 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
             and close it when the function exits.
 
         """
-        from models.source_list import SourceList
-        from models.psf import PSF
-        from models.background import Background
-        from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
+        raise RuntimeError( "Don't use this, data products are in DataStore" )
+        # from models.source_list import SourceList
+        # from models.psf import PSF
+        # from models.background import Background
+        # from models.world_coordinates import WorldCoordinates
+        # from models.zero_point import ZeroPoint
 
-        if self.id is None:
-            raise ValueError('Cannot load products for an image without an ID!')
+        # if self.id is None:
+        #     raise ValueError('Cannot load products for an image without an ID!')
 
-        provenances = listify(provenances)
-        if not provenances:
-            raise ValueError('Need at least one provenance to load products! ')
+        # provenances = listify(provenances)
+        # if not provenances:
+        #     raise ValueError('Need at least one provenance to load products! ')
 
-        sources = psf = bg = wcs = zp = None
-        with SmartSession(session) as session:
-            for p in provenances:
-                if sources is None:
-                    sources = session.scalars(
-                        sa.select(SourceList).where(SourceList.image_id == self.id, SourceList.provenance_id == p.id)
-                    ).first()
-                if psf is None:
-                    psf = session.scalars(
-                        sa.select(PSF).where(PSF.image_id == self.id, PSF.provenance_id == p.id)
-                    ).first()
-                if bg is None:
-                    bg = session.scalars(
-                        sa.select(Background).where(Background.image_id == self.id, Background.provenance_id == p.id)
-                    ).first()
+        # sources = psf = bg = wcs = zp = None
+        # with SmartSession(session) as session:
+        #     for p in provenances:
+        #         if sources is None:
+        #             sources = session.scalars(
+        #                 sa.select(SourceList).where(SourceList.image_id == self.id, SourceList.provenance_id == p.id)
+        #             ).first()
+        #         if psf is None:
+        #             psf = session.scalars(
+        #                 sa.select(PSF).where(PSF.image_id == self.id, PSF.provenance_id == p.id)
+        #             ).first()
+        #         if bg is None:
+        #             bg = session.scalars(
+        #                 sa.select(Background).where(Background.image_id == self.id, Background.provenance_id == p.id)
+        #             ).first()
 
-                if sources is not None:
-                    if wcs is None:
-                        wcs = session.scalars(
-                            sa.select(WorldCoordinates).where(
-                                WorldCoordinates.sources_id == sources.id, WorldCoordinates.provenance_id == p.id
-                            )
-                        ).first()
-                    if zp is None:
-                        zp = session.scalars(
-                            sa.select(ZeroPoint).where(
-                                ZeroPoint.sources_id == sources.id, ZeroPoint.provenance_id == p.id
-                            )
-                        ).first()
+        #         if sources is not None:
+        #             if wcs is None:
+        #                 wcs = session.scalars(
+        #                     sa.select(WorldCoordinates).where(
+        #                         WorldCoordinates.sources_id == sources.id, WorldCoordinates.provenance_id == p.id
+        #                     )
+        #                 ).first()
+        #             if zp is None:
+        #                 zp = session.scalars(
+        #                     sa.select(ZeroPoint).where(
+        #                         ZeroPoint.sources_id == sources.id, ZeroPoint.provenance_id == p.id
+        #                     )
+        #                 ).first()
 
-            if sources is not None:
-                self.sources = sources
-            if psf is not None:
-                self.psf = psf
-            if bg is not None:
-                self.bg = bg
-            if wcs is not None:
-                self.wcs = wcs
-            if zp is not None:
-                self.zp = zp
+        #     if sources is not None:
+        #         self.sources = sources
+        #     if psf is not None:
+        #         self.psf = psf
+        #     if bg is not None:
+        #         self.bg = bg
+        #     if wcs is not None:
+        #         self.wcs = wcs
+        #     if zp is not None:
+        #         self.zp = zp
 
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.
@@ -1740,57 +1753,59 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         list of Provenance objects:
             A list of all the provenances for the upstream objects.
         """
-        output = []
-        # split the images into groups based on their provenance hash
-        im_prov_hashes = list(set([im.provenance.id for im in self.upstream_images]))
-        for im_prov_hash in im_prov_hashes:
+        raise RuntimeError( "Don't use this, ROB FIGURE THIS OUT" )
+    
+        # output = []
+        # # split the images into groups based on their provenance hash
+        # im_prov_hashes = list(set([im.provenance.id for im in self.upstream_images]))
+        # for im_prov_hash in im_prov_hashes:
 
-            im_group = [im for im in self.upstream_images if im.provenance.id == im_prov_hash]
-            sources_provs = {}
-            psf_provs = {}
-            wcs_provs = {}
-            zp_provs = {}
+        #     im_group = [im for im in self.upstream_images if im.provenance.id == im_prov_hash]
+        #     sources_provs = {}
+        #     psf_provs = {}
+        #     wcs_provs = {}
+        #     zp_provs = {}
 
-            for im in im_group:
-                if im.sources is not None:
-                    sources_provs[im.sources.provenance.id] = im.sources.provenance
-                if im.psf is not None:
-                    psf_provs[im.psf.provenance.id] = im.psf.provenance
-                if im.wcs is not None:
-                    wcs_provs[im.wcs.provenance.id] = im.wcs.provenance
-                if im.zp is not None:
-                    zp_provs[im.zp.provenance.id] = im.zp.provenance
+        #     for im in im_group:
+        #         if im.sources is not None:
+        #             sources_provs[im.sources.provenance.id] = im.sources.provenance
+        #         if im.psf is not None:
+        #             psf_provs[im.psf.provenance.id] = im.psf.provenance
+        #         if im.wcs is not None:
+        #             wcs_provs[im.wcs.provenance.id] = im.wcs.provenance
+        #         if im.zp is not None:
+        #             zp_provs[im.zp.provenance.id] = im.zp.provenance
 
-            if len(sources_provs) > 1:
-                raise ValueError(
-                    f"Image group with provenance {im_prov_hash} "
-                    "has SourceList objects with different provenances."
-                )
-            if len(psf_provs) > 1:
-                raise ValueError(
-                    f"Image group with provenance {im_prov_hash} "
-                    "has PSF objects with different provenances."
-                )
-            if len(wcs_provs) > 1:
-                raise ValueError(
-                    f"Image group with provenance {im_prov_hash} "
-                    "has WCS objects with different provenances."
-                )
-            if len(zp_provs) > 1:
-                raise ValueError(
-                    f"Image group with provenance {im_prov_hash} "
-                    "has ZeroPoint objects with different provenances."
-                )
-            output += [im_group[0].provenance]
-            output += list(sources_provs.values())
-            output += list(psf_provs.values())
-            output += list(wcs_provs.values())
-            output += list(zp_provs.values())
+        #     if len(sources_provs) > 1:
+        #         raise ValueError(
+        #             f"Image group with provenance {im_prov_hash} "
+        #             "has SourceList objects with different provenances."
+        #         )
+        #     if len(psf_provs) > 1:
+        #         raise ValueError(
+        #             f"Image group with provenance {im_prov_hash} "
+        #             "has PSF objects with different provenances."
+        #         )
+        #     if len(wcs_provs) > 1:
+        #         raise ValueError(
+        #             f"Image group with provenance {im_prov_hash} "
+        #             "has WCS objects with different provenances."
+        #         )
+        #     if len(zp_provs) > 1:
+        #         raise ValueError(
+        #             f"Image group with provenance {im_prov_hash} "
+        #             "has ZeroPoint objects with different provenances."
+        #         )
+        #     output += [im_group[0].provenance]
+        #     output += list(sources_provs.values())
+        #     output += list(psf_provs.values())
+        #     output += list(wcs_provs.values())
+        #     output += list(zp_provs.values())
 
-        # because each Image group has a different prov-hash, no products from different groups
-        # could ever have the same provenance (it is hashed using the upstreams) so we don't need
-        # to also check for repeated provenances between groups
-        return output
+        # # because each Image group has a different prov-hash, no products from different groups
+        # # could ever have the same provenance (it is hashed using the upstreams) so we don't need
+        # # to also check for repeated provenances between groups
+        # return output
 
     def load_upstream_products(self, session=None):
         """Make sure each upstream image has its related products loaded.
@@ -1799,123 +1814,124 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         with provenances consistent with what is saved in this Image's provenance
         and its own upstreams.
         """
-        if self.provenance is None:
-            return
-        prov_ids = self.provenance.upstream_ids
-        # check to make sure there is any need to load
-        need_to_load = False
-        for im in self.upstream_images:
-            if im.sources is None or im.sources.provenance_id not in prov_ids:
-                need_to_load = True
-                break
-            if im.psf is None or im.psf.provenance_id not in prov_ids:
-                need_to_load = True
-                break
-            if im.bg is None or im.bg.provenance_id not in prov_ids:
-                need_to_load = True
-                break
-            if im.wcs is None or im.wcs.provenance_id not in prov_ids:
-                need_to_load = True
-                break
-            if im.zp is None or im.zp.provenance_id not in prov_ids:
-                need_to_load = True
-                break
+        raise RuntimeError( "Don't use this, data products are in DataStore" )
+        # if self.provenance is None:
+        #     return
+        # prov_ids = self.provenance.upstream_ids
+        # # check to make sure there is any need to load
+        # need_to_load = False
+        # for im in self.upstream_images:
+        #     if im.sources is None or im.sources.provenance_id not in prov_ids:
+        #         need_to_load = True
+        #         break
+        #     if im.psf is None or im.psf.provenance_id not in prov_ids:
+        #         need_to_load = True
+        #         break
+        #     if im.bg is None or im.bg.provenance_id not in prov_ids:
+        #         need_to_load = True
+        #         break
+        #     if im.wcs is None or im.wcs.provenance_id not in prov_ids:
+        #         need_to_load = True
+        #         break
+        #     if im.zp is None or im.zp.provenance_id not in prov_ids:
+        #         need_to_load = True
+        #         break
 
-        if not need_to_load:
-            return
+        # if not need_to_load:
+        #     return
 
-        from models.source_list import SourceList
-        from models.psf import PSF
-        from models.background import Background
-        from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
+        # from models.source_list import SourceList
+        # from models.psf import PSF
+        # from models.background import Background
+        # from models.world_coordinates import WorldCoordinates
+        # from models.zero_point import ZeroPoint
 
-        # split the images into groups based on their provenance hash
-        im_prov_hashes = list(set([im.provenance.id for im in self.upstream_images]))
+        # # split the images into groups based on their provenance hash
+        # im_prov_hashes = list(set([im.provenance.id for im in self.upstream_images]))
 
-        with SmartSession(session) as session:
-            for im_prov_hash in im_prov_hashes:
-                im_group = [im for im in self.upstream_images if im.provenance.id == im_prov_hash]
-                im_ids = [im.id for im in im_group]
+        # with SmartSession(session) as session:
+        #     for im_prov_hash in im_prov_hashes:
+        #         im_group = [im for im in self.upstream_images if im.provenance.id == im_prov_hash]
+        #         im_ids = [im.id for im in im_group]
 
-                # get all the products for all images in this group
-                sources_result = session.scalars(
-                    sa.select(SourceList).where(
-                        SourceList.image_id.in_(im_ids),
-                        SourceList.provenance_id.in_(prov_ids),
-                    )
-                ).all()
-                sources_ids = [s.id for s in sources_result]
+        #         # get all the products for all images in this group
+        #         sources_result = session.scalars(
+        #             sa.select(SourceList).where(
+        #                 SourceList.image_id.in_(im_ids),
+        #                 SourceList.provenance_id.in_(prov_ids),
+        #             )
+        #         ).all()
+        #         sources_ids = [s.id for s in sources_result]
 
-                psf_results = session.scalars(
-                    sa.select(PSF).where(
-                        PSF.image_id.in_(im_ids),
-                        PSF.provenance_id.in_(prov_ids),
-                    )
-                ).all()
+        #         psf_results = session.scalars(
+        #             sa.select(PSF).where(
+        #                 PSF.image_id.in_(im_ids),
+        #                 PSF.provenance_id.in_(prov_ids),
+        #             )
+        #         ).all()
 
-                bg_results = session.scalars(
-                    sa.select(Background).where(
-                        Background.image_id.in_(im_ids),
-                        Background.provenance_id.in_(prov_ids),
-                    )
-                ).all()
+        #         bg_results = session.scalars(
+        #             sa.select(Background).where(
+        #                 Background.image_id.in_(im_ids),
+        #                 Background.provenance_id.in_(prov_ids),
+        #             )
+        #         ).all()
 
-                wcs_results = session.scalars(
-                    sa.select(WorldCoordinates).where(
-                        WorldCoordinates.sources_id.in_(sources_ids),
-                        WorldCoordinates.provenance_id.in_(prov_ids),
-                    )
-                ).all()
+        #         wcs_results = session.scalars(
+        #             sa.select(WorldCoordinates).where(
+        #                 WorldCoordinates.sources_id.in_(sources_ids),
+        #                 WorldCoordinates.provenance_id.in_(prov_ids),
+        #             )
+        #         ).all()
 
-                zp_results = session.scalars(
-                    sa.select(ZeroPoint).where(
-                        ZeroPoint.sources_id.in_(sources_ids),
-                        ZeroPoint.provenance_id.in_(prov_ids),
-                    )
-                ).all()
+        #         zp_results = session.scalars(
+        #             sa.select(ZeroPoint).where(
+        #                 ZeroPoint.sources_id.in_(sources_ids),
+        #                 ZeroPoint.provenance_id.in_(prov_ids),
+        #             )
+        #         ).all()
 
-                for im in im_group:
-                    sources = [s for s in sources_result if s.image_id == im.id]  # only get the sources for this image
-                    if len(sources) > 1:
-                        raise ValueError(
-                            f"Image {im.id} has more than one SourceList matching upstream provenance."
-                        )
-                    elif len(sources) == 1:
-                        im.sources = sources[0]
+        #         for im in im_group:
+        #             sources = [s for s in sources_result if s.image_id == im.id]  # only get the sources for this image
+        #             if len(sources) > 1:
+        #                 raise ValueError(
+        #                     f"Image {im.id} has more than one SourceList matching upstream provenance."
+        #                 )
+        #             elif len(sources) == 1:
+        #                 im.sources = sources[0]
 
-                    psfs = [p for p in psf_results if p.image_id == im.id]  # only get the psfs for this image
-                    if len(psfs) > 1:
-                        raise ValueError(
-                            f"Image {im.id} has more than one PSF matching upstream provenance."
-                        )
-                    elif len(psfs) == 1:
-                        im.psf = psfs[0]
+        #             psfs = [p for p in psf_results if p.image_id == im.id]  # only get the psfs for this image
+        #             if len(psfs) > 1:
+        #                 raise ValueError(
+        #                     f"Image {im.id} has more than one PSF matching upstream provenance."
+        #                 )
+        #             elif len(psfs) == 1:
+        #                 im.psf = psfs[0]
 
-                    bgs = [b for b in bg_results if b.image_id == im.id]  # only get the bgs for this image
-                    if len(bgs) > 1:
-                        raise ValueError(
-                            f"Image {im.id} has more than one Background matching upstream provenance."
-                        )
-                    elif len(bgs) == 1:
-                        im.bg = bgs[0]
+        #             bgs = [b for b in bg_results if b.image_id == im.id]  # only get the bgs for this image
+        #             if len(bgs) > 1:
+        #                 raise ValueError(
+        #                     f"Image {im.id} has more than one Background matching upstream provenance."
+        #                 )
+        #             elif len(bgs) == 1:
+        #                 im.bg = bgs[0]
 
-                    if im.sources is not None:
-                        wcses = [w for w in wcs_results if w.sources_id == im.sources.id]  # the wcses for this image
-                        if len(wcses) > 1:
-                            raise ValueError(
-                                f"SourceList {im.sources.id} has more than one WCS matching upstream provenance."
-                            )
-                        elif len(wcses) == 1:
-                            im.wcs = wcses[0]
+        #             if im.sources is not None:
+        #                 wcses = [w for w in wcs_results if w.sources_id == im.sources.id]  # the wcses for this image
+        #                 if len(wcses) > 1:
+        #                     raise ValueError(
+        #                         f"SourceList {im.sources.id} has more than one WCS matching upstream provenance."
+        #                     )
+        #                 elif len(wcses) == 1:
+        #                     im.wcs = wcses[0]
 
-                        zps = [z for z in zp_results if z.sources_id == im.sources.id]  # the zps for this image
-                        if len(zps) > 1:
-                            raise ValueError(
-                                f"SourceList {im.sources.id} has more than one ZeroPoint matching upstream provenance."
-                            )
-                        elif len(zps) == 1:
-                            im.zp = zps[0]
+        #                 zps = [z for z in zp_results if z.sources_id == im.sources.id]  # the zps for this image
+        #                 if len(zps) > 1:
+        #                     raise ValueError(
+        #                         f"SourceList {im.sources.id} has more than one ZeroPoint matching upstream provenance."
+        #                     )
+        #                 elif len(zps) == 1:
+        #                     im.zp = zps[0]
 
     def get_upstreams(self, session=None):
         """Get the upstream images and associated products that were used to make this image.
@@ -1935,6 +1951,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         upstreams: list of Image objects
             The upstream images.
         """
+        raise RuntimeError( "Rob, think about this" )
         with SmartSession(session) as session:
             self.load_upstream_products(session)
             upstreams = []
@@ -1967,6 +1984,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
     def get_downstreams(self, session=None, siblings=False):
         """Get all the objects that were created based on this image. """
+        raise RuntimeError( "Rob, think about this" )
         # avoids circular import
         from models.source_list import SourceList
         from models.psf import PSF
@@ -2263,6 +2281,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     @staticmethod
     def get_image_from_upstreams(images, prov_id=None, session=None):
         """Finds the combined image that was made from exactly the list of images (with a given provenance). """
+        raise RuntimeError( "Rob, think about this" )
         with SmartSession(session) as session:
             association = image_upstreams_association_table
 
@@ -2287,27 +2306,27 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
 
             return output[0]  # should usually return one Image or None
 
-    def get_psf(self):
-        """Load the PSF object for this image.
+    # def get_psf(self):
+    #     """Load the PSF object for this image.
 
-        If it is a sub image, it will load the PSF from the new image.
-        """
-        if self.psf is not None:
-            return self.psf
-        if self.new_image is not None:
-            return self.new_image.psf
-        return None
+    #     If it is a sub image, it will load the PSF from the new image.
+    #     """
+    #     if self.psf is not None:
+    #         return self.psf
+    #     if self.new_image is not None:
+    #         return self.new_image.psf
+    #     return None
 
-    def get_wcs(self):
-        """Load the WCS object for this image.
+    # def get_wcs(self):
+    #     """Load the WCS object for this image.
 
-        If it is a sub image, it will load the WCS from the new image.
-        """
-        if self.wcs is not None:
-            return self.wcs
-        if self.new_image is not None:
-            return self.new_image.wcs
-        return None
+    #     If it is a sub image, it will load the WCS from the new image.
+    #     """
+    #     if self.wcs is not None:
+    #         return self.wcs
+    #     if self.new_image is not None:
+    #         return self.new_image.wcs
+    #     return None
 
     @property
     def data(self):
@@ -2422,6 +2441,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     @property
     def data_bgsub(self):
         """The image data, after subtracting the background. If no Background object is loaded, will raise. """
+        raise RuntimeError( "Rob, think about this" )
         if self.bg is None:
             raise ValueError("No background is loaded for this image.")
         if self.bg.format == 'scalar':
@@ -2432,6 +2452,7 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
     @property
     def nandata_bgsub(self):
         """The image data, after subtracting the background and masking with NaNs wherever the flag is not zero. """
+        raise RuntimeError( "Rob, think about this" )
         if self.bg is None:
             raise ValueError("No background is loaded for this image.")
         if self.bg.format == 'scalar':
@@ -2459,7 +2480,156 @@ class Image(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, H
         defaults.update(kwargs)
         plt.imshow(self.nandata, **defaults)
 
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
 
+    @property
+    def provenance( self ):
+        raise RuntimeError( "Don't use provenance, use provenance_id" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( "Don't use provenance, use provenance_id" )
+
+    @property
+    def exposure( self ):
+        raise RuntimeError( "Don't use exposure, use exposure_id" )
+
+    @exposure.setter
+    def exposure( self, val ):
+        raise RuntimeError( "Don't use exposure, use exposure_id" )
+
+    @property
+    def upstream_images( self ):
+        raise RuntimeError( "Don't use upstream_images, use ROB FIX THIS" )
+
+    @upstream_images.setter
+    def upstream_images( self, val ):
+        raise RuntimeError( "Don't use upstream_images, use ROB FIX THIS" )
+    
+    @property
+    def downstream_images( self ):
+        raise RuntimeError( "Don't use downstream_images, use ROB FIX THIS" )
+
+    @upstream_images.setter
+    def downstream_images( self, val ):
+        raise RuntimeError( "Don't use downstream_images, use ROB FIX THIS" )
+    
+    @property
+    def ref_image( self ):
+        raise RuntimeError( "Don't use ref_image, use ref_image_id" )
+
+    @ref_image.setter
+    def ref_image( self, val ):
+        raise RuntimeError( "Don't use ref_image, use ref_image_id" )
+    
+    @property
+    def new_image( self ):
+        raise RuntimeError( "Don't use new_image, use new_image_id" )
+
+    @new_image.setter
+    def new_image( self, val ):
+        raise RuntimeError( "Don't use new_image, use new_image_id" )
+
+    @property
+    def new_aligned_image( self ):
+        raise RuntimeError( "Don't use new_aligned_image, use ROB FIX THIS" )
+
+    @new_aligned_image.setter
+    def new_aligned_image( self ):
+        raise RuntimeError( "Don't use new_aligned_image, use ROB FIX THIS" )
+
+    @property
+    def ref_aligned_image( self ):
+        raise RuntimeError( "Don't use ref_aligned_image, use ROB FIX THIS" )
+
+    @ref_aligned_image.setter
+    def ref_aligned_image( self, val ):
+        raise RuntimeError( "Don't use ref_aligned_image, use ROB FIX THIS" )
+
+    @property
+    def sources( self ):
+        raise RuntimeError( f"Image.sources is deprecated, don't use it" )
+
+    @sources.setter
+    def sources( self, val ):
+        raise RuntimeError( f"Image.sources is deprecated, don't use it" )
+
+    @property
+    def psf( self ):
+        raise RuntimeError( f"Image.psf is deprecated, don't use it" )
+
+    @psf.setter
+    def psf( self, val ):
+        raise RuntimeError( f"Image.psf is deprecated, don't use it" )
+
+    @property
+    def bg( self ):
+        raise RuntimeError( f"Image.bg is deprecated, don't use it" )
+
+    @bg.setter
+    def bg( self, val ):
+        raise RuntimeError( f"Image.bg is deprecated, don't use it" )
+
+    @property
+    def wcs( self ):
+        raise RuntimeError( f"Image.wcs is deprecated, don't use it" )
+
+    @wcs.setter
+    def wcs( self, val ):
+        raise RuntimeError( f"Image.wcs is deprecated, don't use it" )
+
+    @property
+    def zp( self ):
+        raise RuntimeError( f"Image.zp is deprecated, don't use it" )
+
+    @zp.setter
+    def zp( self, val ):
+        raise RuntimeError( f"Image.zp is deprecated, don't use it" )
+
+    @property
+    def _aligner( self ):
+        raise RuntimeError( f"Image._aligner is deprecated, don't use it" )
+
+    @_aligner.setter
+    def _aligner( self, val ):
+        raise RuntimeError( f"Image._aligner is deprecated, don't use it" )
+
+    @property
+    def _aligned_images( self ):
+        raise RuntimeError( f"Image._aligned_images is deprecated, don't use it" )
+
+    @_aligned_images.setter
+    def _aligned_images( self, val ):
+        raise RuntimeError( f"Image._aligned_images is deprecated, don't use it" )
+
+    @property
+    def aligned_images( self ):
+        raise RuntimeError( f"Image.aligned_images is deprecated, don't use it" )
+
+    @aligned_images.setter
+    def aligned_images( self, val ):
+        raise RuntimeError( f"Image.aligned_images is deprecated, don't use it" )
+
+    @property
+    def get_psf( self ):
+        raise RuntimeError( f"Image.get_psf is deprecated, don't use it" )
+
+    @get_psf.setter
+    def get_psf( self, val ):
+        raise RuntimeError( f"Image.get_psf is deprecated, don't use it" )
+
+    @property
+    def get_wcs( self ):
+        raise RuntimeError( f"Image.get_wcs is deprecated, don't use it" )
+
+    @get_wcs.setter
+    def get_wcs( self, val ):
+        raise RuntimeError( f"Image.get_wcs is deprecated, don't use it" )
+
+
+        
 if __name__ == '__main__':
     SCLogger.warning( "Running image.py doesn't actually do anything." )
 

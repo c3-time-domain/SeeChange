@@ -8,13 +8,13 @@ from collections import defaultdict
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.schema import UniqueConstraint, CheckConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 
 import astropy.table
 
-from models.base import Base, SmartSession, AutoIDMixin, FileOnDiskMixin, SeeChangeBase, HasBitFlagBadness
+from models.base import Base, SmartSession, UUIDMixin, FileOnDiskMixin, SeeChangeBase, HasBitFlagBadness
 from models.image import Image
 from models.enums_and_bitflags import (
     SourceListFormatConverter,
@@ -25,7 +25,7 @@ from util.logger import SCLogger
 import util.ldac
 
 
-class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     """Encapsulates a source list.
 
     By default, uses SExtractor.
@@ -40,9 +40,14 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     __tablename__ = 'source_lists'
 
-    __table_args__ = (
-        UniqueConstraint('image_id', 'provenance_id', name='_source_list_image_provenance_uc'),
-    )
+    @declared_attr
+    def __table_args__( cls ):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               name=f'{cls.__tablename__}_md5sum_check' ),
+            UniqueConstraint('image_id', 'provenance_id', name='_source_list_image_provenance_uc')
+        )
 
     _format = sa.Column(
         sa.SMALLINT,
@@ -72,16 +77,16 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         doc="ID of the image this source list was generated from. "
     )
 
-    image = orm.relationship(
-        Image,
-        lazy='selectin',
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        doc="The image this source list was generated from. "
-    )
+    # image = orm.relationship(
+    #     Image,
+    #     lazy='selectin',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     doc="The image this source list was generated from. "
+    # )
 
-    is_sub = association_proxy('image', 'is_sub')
-    is_coadd = association_proxy('image', 'is_coadd')
+    # is_sub = association_proxy('image', 'is_sub')
+    # is_coadd = association_proxy('image', 'is_coadd')
 
     aper_rads = sa.Column(
         ARRAY( sa.REAL, zero_indexes=True ),
@@ -125,16 +130,16 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         )
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this source list. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this source list. "
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this source list. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this source list. "
+    #     )
+    # )
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
@@ -149,10 +154,10 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._bitflag = 0
         self._info = None
         self._is_star = None
-        self.wcs = None
-        self.zp = None
-        self.cutouts = None
-        self.measurements = None
+        # self.wcs = None
+        # self.zp = None
+        # self.cutouts = None
+        # self.measurements = None
 
         # manually set all properties (columns or not)
         self.set_attributes_from_dict(kwargs)
@@ -172,10 +177,10 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._info = None
         self._is_star = None
 
-        self.wcs = None
-        self.zp = None
-        self.cutouts = None
-        self.measurements = None
+        # self.wcs = None
+        # self.zp = None
+        # self.cutouts = None
+        # self.measurements = None
 
     def merge_all(self, session):
         """Use safe_merge to merge all the downstream products and assign them back to self.
@@ -189,6 +194,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         Returns the merged SourceList with its products on the same session.
         """
+        raise RuntimeError( "merge_all should no longer be necessary" )
         new_sources = self.safe_merge(session=session)
         session.flush()
         for att in ['wcs', 'zp', 'cutouts']:
@@ -507,7 +513,6 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         return -2.5 * np.log10( meanrat )
 
     def load(self, filepath=None):
-
         """Load this source list from the file.
 
         Updates self._data and self._info.
@@ -584,6 +589,7 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             raise NotImplementedError( f"Don't know how to load source lists of format {self.format}" )
 
     def invent_filepath( self ):
+        raise RuntimeError( "Rob think about this" )
         if self.image is None:
             raise RuntimeError( f"Can't invent a filepath for sources without an image" )
         if self.provenance is None:
@@ -754,57 +760,58 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         If siblings=True then also include the PSF, Background, WCS, and ZP
         that were created at the same time as this SourceList.
         """
-        from models.psf import PSF
-        from models.background import Background
-        from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
-        from models.cutouts import Cutouts
-        from models.provenance import Provenance
+        raise RunTimeError( "get_downstreams is deprecated, ROB THINK ABOUT THIS" )
+        # from models.psf import PSF
+        # from models.background import Background
+        # from models.world_coordinates import WorldCoordinates
+        # from models.zero_point import ZeroPoint
+        # from models.cutouts import Cutouts
+        # from models.provenance import Provenance
 
-        with SmartSession(session) as session:
-            output = []
-            if self.image_id is not None and self.provenance is not None:
-                subs = session.scalars(
-                    sa.select(Image).where(
-                        Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-                        Image.upstream_images.any(Image.id == self.image_id),
-                    )
-                ).all()
-                output += subs
+        # with SmartSession(session) as session:
+        #     output = []
+        #     if self.image_id is not None and self.provenance is not None:
+        #         subs = session.scalars(
+        #             sa.select(Image).where(
+        #                 Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
+        #                 Image.upstream_images.any(Image.id == self.image_id),
+        #             )
+        #         ).all()
+        #         output += subs
 
-            if self.is_sub:
-                cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
-                output += cutouts
-            elif siblings:  # for "detections" we don't have siblings
-                psfs = session.scalars(
-                    sa.select(PSF).where(PSF.image_id == self.image_id, PSF.provenance_id == self.provenance_id)
-                ).all()
-                if len(psfs) != 1:
-                    raise ValueError(f"Expected exactly one PSF for SourceList {self.id}, but found {len(psfs)}")
+        #     if self.is_sub:
+        #         cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
+        #         output += cutouts
+        #     elif siblings:  # for "detections" we don't have siblings
+        #         psfs = session.scalars(
+        #             sa.select(PSF).where(PSF.image_id == self.image_id, PSF.provenance_id == self.provenance_id)
+        #         ).all()
+        #         if len(psfs) != 1:
+        #             raise ValueError(f"Expected exactly one PSF for SourceList {self.id}, but found {len(psfs)}")
 
-                bgs = session.scalars(
-                    sa.select(Background).where(
-                        Background.image_id == self.image_id,
-                        Background.provenance_id == self.provenance_id
-                    )
-                ).all()
-                if len(bgs) != 1:
-                    raise ValueError(f"Expected exactly one Background for SourceList {self.id}, but found {len(bgs)}")
+        #         bgs = session.scalars(
+        #             sa.select(Background).where(
+        #                 Background.image_id == self.image_id,
+        #                 Background.provenance_id == self.provenance_id
+        #             )
+        #         ).all()
+        #         if len(bgs) != 1:
+        #             raise ValueError(f"Expected exactly one Background for SourceList {self.id}, but found {len(bgs)}")
 
-                wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
-                if len(wcs) != 1:
-                    raise ValueError(
-                        f"Expected exactly one WorldCoordinates for SourceList {self.id}, but found {len(wcs)}"
-                    )
-                zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
-                if len(zps) != 1:
-                    raise ValueError(
-                        f"Expected exactly one ZeroPoint for SourceList {self.id}, but found {len(zps)}"
-                    )
+        #         wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
+        #         if len(wcs) != 1:
+        #             raise ValueError(
+        #                 f"Expected exactly one WorldCoordinates for SourceList {self.id}, but found {len(wcs)}"
+        #             )
+        #         zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
+        #         if len(zps) != 1:
+        #             raise ValueError(
+        #                 f"Expected exactly one ZeroPoint for SourceList {self.id}, but found {len(zps)}"
+        #             )
 
-                output += psfs + bgs + wcs + zps
+        #         output += psfs + bgs + wcs + zps
 
-        return output
+        # return output
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.
@@ -820,20 +827,90 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self.image.show(**kwargs)
         plt.plot(self.x, self.y, 'ro', markersize=5, fillstyle='none')
 
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
 
-# TODO: replace these with association proxies?
-# add "property" attributes to SourceList referencing the image for convenience
-for att in [
-    'section_id',
-    'mjd',
-    'filter',
-    'filter_short',
-    'telescope',
-    'instrument',
-    'instrument_object',
-]:
-    setattr(
-        SourceList,
-        att,
-        property(fget=lambda self, att=att: getattr(self.image, att) if self.image is not None else None)
-    )
+    @property
+    def provenance( self ):
+        raise RuntimeError( f"SourceList.provenance is deprecated, don't use it" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( f"SourceList.provenance is deprecated, don't use it" )
+
+    @property
+    def image( self ):
+        raise RuntimeError( f"Don't use SourceList.image, use image_id" )
+
+    @image.setter
+    def image( self, val ):
+        raise RuntimeError( f"Don't use SourceList.image, use image_id" )
+
+    @property
+    def is_sub( self ):
+        raise RuntimeError( f"SourceList.is_sub is deprecated, don't use it" )
+
+    @is_sub.setter
+    def is_sub( self, val ):
+        raise RuntimeError( f"SourceList.is_sub is deprecated, don't use it" )
+
+    @property
+    def is_coadd( self ):
+        raise RuntimeError( f"SourceList.is_coadd is deprecated, don't use it" )
+
+    @is_coadd.setter
+    def is_coadd( self, val ):
+        raise RuntimeError( f"SourceList.is_coadd is deprecated, don't use it" )
+
+    @property
+    def wcs( self ):
+        raise RuntimeError( f"SourceList.wcs is deprecated, don't use it" )
+
+    @wcs.setter
+    def wcs( self, val ):
+        raise RuntimeError( f"SourceList.wcs is deprecated, don't use it" )
+
+    @property
+    def zp( self ):
+        raise RuntimeError( f"SourceList.zp is deprecated, don't use it" )
+
+    @zp.setter
+    def zp( self, val ):
+        raise RuntimeError( f"SourceList.zp is deprecated, don't use it" )
+
+    @property
+    def cutouts( self ):
+        raise RuntimeError( f"SourceList.cutouts is deprecated, don't use it" )
+
+    @cutouts.setter
+    def cutouts( self, val ):
+        raise RuntimeError( f"SourceList.cutouts is deprecated, don't use it" )
+
+    @property
+    def measurements( self ):
+        raise RuntimeError( f"SourceList.measurements is deprecated, don't use it" )
+
+    @measurements.setter
+    def measurements( self, val ):
+        raise RuntimeError( f"SourceList.measurements is deprecated, don't use it" )
+
+
+
+
+# # TODO: replace these with association proxies?
+# # add "property" attributes to SourceList referencing the image for convenience
+# for att in [
+#     'section_id',
+#     'mjd',
+#     'filter',
+#     'filter_short',
+#     'telescope',
+#     'instrument',
+#     'instrument_object',
+# ]:
+#     setattr(
+#         SourceList,
+#         att,
+#         property(fget=lambda self, att=att: getattr(self.image, att) if self.image is not None else None)
+#     )

@@ -6,14 +6,14 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 
-from models.base import Base, AutoIDMixin, SmartSession
+from models.base import Base, UUIDMixin, SmartSession
 from models.image import Image
 from models.datafile import DataFile
 from models.enums_and_bitflags import CalibratorTypeConverter, CalibratorSetConverter, FlatTypeConverter
 
 from util.logger import SCLogger
 
-class CalibratorFile(Base, AutoIDMixin):
+class CalibratorFile(Base, UUIDMixin):
     __tablename__ = 'calibrator_files'
 
     _type = sa.Column(
@@ -149,7 +149,7 @@ class CalibratorFile(Base, AutoIDMixin):
 # This next table is kind of an ugly hack put in place
 #   to deal with race conditions; see Instrument.preprocessing_calibrator_files
 
-class CalibratorFileDownloadLock(Base, AutoIDMixin):
+class CalibratorFileDownloadLock(Base, UUIDMixin):
     __tablename__ = 'calibfile_downloadlock'
 
     _type = sa.Column(
@@ -370,3 +370,24 @@ class CalibratorFileDownloadLock(Base, AutoIDMixin):
             for oldlock in oldlocks:
                 sess.delete( oldlock )
             sess.commit()
+
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+    @property
+    def image( self ):
+        raise RuntimeError( f"Don't use CalibratorFile.image, use image_id" )
+
+    @image.setter
+    def image( self, val ):
+        raise RuntimeError( f"Don't use CalibratorFile.image, use image_id" )
+
+    @property
+    def datafile( self ):
+        raise RuntimeError( f"Don't use CalibratorFile.datafile, use datafile_id" )
+
+    @datafile.setter
+    def datafile( self, val ):
+        raise RuntimeError( f"Don't use CalibratorFile.datafile, use datafile_id" )
+

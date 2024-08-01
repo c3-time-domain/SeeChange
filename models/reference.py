@@ -2,7 +2,7 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base, AutoIDMixin, SmartSession
+from models.base import Base, UUIDMixin, SmartSession
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
@@ -14,7 +14,7 @@ from models.zero_point import ZeroPoint
 from util.util import listify
 
 
-class Reference(Base, AutoIDMixin):
+class Reference(Base, UUIDMixin):
     """
     A table that refers to each reference Image object,
     based on the object/field it is targeting.
@@ -36,13 +36,13 @@ class Reference(Base, AutoIDMixin):
         doc="ID of the reference image that this object is referring to. "
     )
 
-    image = orm.relationship(
-        'Image',
-        lazy='selectin',
-        cascade='save-update, merge, refresh-expire, expunge',
-        foreign_keys=[image_id],
-        doc="The reference image that this entry is referring to. "
-    )
+    # image = orm.relationship(
+    #     'Image',
+    #     lazy='selectin',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     foreign_keys=[image_id],
+    #     doc="The reference image that this entry is referring to. "
+    # )
 
     # the following can't be association products (as far as I can tell) because they need to be indexed
     target = sa.Column(
@@ -112,50 +112,50 @@ class Reference(Base, AutoIDMixin):
         )
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this reference. "
-            "The provenance will contain a record of the code version "
-            "and the parameters used to produce this reference. "
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this reference. "
+    #         "The provenance will contain a record of the code version "
+    #         "and the parameters used to produce this reference. "
+    #     )
+    # )
 
     def __init__(self, **kwargs):
-        self.sources = None
-        self.psf = None
-        self.bg = None
-        self.wcs = None
-        self.zp = None
+        # self.sources = None
+        # self.psf = None
+        # self.bg = None
+        # self.wcs = None
+        # self.zp = None
         super().__init__(**kwargs)
 
     def __setattr__(self, key, value):
-        if key == 'image' and value is not None:
-            self.target = value.target
-            self.instrument = value.instrument
-            self.filter = value.filter
-            self.section_id = value.section_id
-            self.sources = value.sources
-            self.psf = value.psf
-            self.bg = value.bg
-            self.wcs = value.wcs
-            self.zp = value.zp
+        # if key == 'image' and value is not None:
+        #     self.target = value.target
+        #     self.instrument = value.instrument
+        #     self.filter = value.filter
+        #     self.section_id = value.section_id
+        #     self.sources = value.sources
+        #     self.psf = value.psf
+        #     self.bg = value.bg
+        #     self.wcs = value.wcs
+        #     self.zp = value.zp
 
         super().__setattr__(key, value)
 
     @orm.reconstructor
     def init_on_load(self):
         Base.init_on_load(self)
-        self.sources = None
-        self.psf = None
-        self.bg = None
-        self.wcs = None
-        self.zp = None
-        this_object_session = orm.Session.object_session(self)
-        if this_object_session is not None:  # if just loaded, should usually have a session!
-            self.load_upstream_products(this_object_session)
+        # self.sources = None
+        # self.psf = None
+        # self.bg = None
+        # self.wcs = None
+        # self.zp = None
+        # this_object_session = orm.Session.object_session(self)
+        # if this_object_session is not None:  # if just loaded, should usually have a session!
+        #     self.load_upstream_products(this_object_session)
 
     def make_provenance(self, parameters=None):
         """Make a provenance for this reference image. """
@@ -185,6 +185,7 @@ class Reference(Base, AutoIDMixin):
         list of Provenance objects:
             a list of unique provenances, one for each data type.
         """
+        raise RuntimeError( "Rob think about this" )
         prov = []
         if self.image is None or self.image.provenance is None or self.image.provenance.id is None:
             raise ValueError('Reference must have a valid image with a valid provenance ID.')
@@ -209,6 +210,7 @@ class Reference(Base, AutoIDMixin):
         This only works after the image and products are committed to the database,
         with provenances consistent with what is saved in this Reference's provenance.
         """
+        raise RuntimeError( "Rob, think about this, probably remove it" )
         with SmartSession(session) as session:
             prov_ids = self.provenance.upstream_ids
 
@@ -285,7 +287,7 @@ class Reference(Base, AutoIDMixin):
 
     def merge_all(self, session):
         """Merge the reference into the session, along with Image and products. """
-
+        raise RuntimeError( "merge_all should no longer be needed" )
         new_ref = session.merge(self)
         new_ref.image = self.image.merge_all(session)
 
@@ -375,4 +377,64 @@ class Reference(Base, AutoIDMixin):
         with SmartSession(session) as session:
             return session.scalars(stmt).all()
 
+
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+    @property
+    def image( self ):
+        raise RuntimeError( f"Don't use Reference.image, use image_id" )
+
+    @image.setter
+    def image( self, val ):
+        raise RuntimeError( f"Don't use Reference.image, use image_id" )
+
+    @property
+    def provenance( self ):
+        raise RuntimeError( f"Don't use Reference.provenance, use provenance_id" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( f"Don't use Reference.provenance, use provenance_id" )
+
+    @property
+    def sources( self ):
+        raise RuntimeError( f"Reference.sources is deprecated, don't use it" )
+
+    @sources.setter
+    def sources( self, val ):
+        raise RuntimeError( f"Reference.sources is deprecated, don't use it" )
+
+    @property
+    def psf( self ):
+        raise RuntimeError( f"Reference.psf is deprecated, don't use it" )
+
+    @psf.setter
+    def psf( self, val ):
+        raise RuntimeError( f"Reference.psf is deprecated, don't use it" )
+
+    @property
+    def bg( self ):
+        raise RuntimeError( f"Reference.bg is deprecated, don't use it" )
+
+    @bg.setter
+    def bg( self, val ):
+        raise RuntimeError( f"Reference.bg is deprecated, don't use it" )
+
+    @property
+    def wcs( self ):
+        raise RuntimeError( f"Reference.wcs is deprecated, don't use it" )
+
+    @wcs.setter
+    def wcs( self, val ):
+        raise RuntimeError( f"Reference.wcs is deprecated, don't use it" )
+
+    @property
+    def zp( self ):
+        raise RuntimeError( f"Reference.zp is deprecated, don't use it" )
+
+    @zp.setter
+    def zp( self, val ):
+        raise RuntimeError( f"Reference.zp is deprecated, don't use it" )
 

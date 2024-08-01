@@ -217,7 +217,13 @@ def decam_filename(download_url, data_dir, decam_exposure_name, decam_cache_dir)
     if os.path.isfile(filename):
         os.remove(filename)
 
-
+# Making this a session fixture means running a single
+#   fast test starts kinda slow.  (It seems that
+#   the fixture is run even if the one test doesn't
+#   ask for it.)
+# Make it not a session fixture will make tests that
+#   reuse it kinda slow.
+# There is no good answer.
 @pytest.fixture(scope="session")
 def decam_exposure(decam_filename, data_dir):
     filename = decam_filename
@@ -230,7 +236,8 @@ def decam_exposure(decam_filename, data_dir):
         exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
         exposure.save()  # save to archive and get an MD5 sum
 
-        exposure = exposure.merge_concurrent(session)  # also commits the session
+        # ROB TODO -- fix this!!!
+        # exposure = exposure.merge_concurrent(session)  # also commits the session
 
     yield exposure
 

@@ -3,17 +3,19 @@ import numpy
 import sqlalchemy as sa
 import sqlalchemy.types
 from sqlalchemy import orm
+from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.schema import CheckConstraint
 
 import util.ldac
 from util.util import ensure_file_does_not_exist
 from util.logger import SCLogger
-from models.base import Base, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
+from models.base import Base, SeeChangeBase, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
 from models.enums_and_bitflags import CatalogExcerptFormatConverter, CatalogExcerptOriginConverter
 from sqlalchemy.dialects.postgresql import ARRAY
 
 
-class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
+class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners):
     """A class for storing catalog excerpts.
 
     The primary use for this is a cache.  For instance, for astrometry,
@@ -33,6 +35,16 @@ class CatalogExcerpt(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourC
 
     __tablename__ = 'catalog_excerpts'
 
+    @declared_attr
+    def __table_args__( cls ):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                             '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                             name=f'{cls.__tablename__}_md5sum_check' ),
+            sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+        )
+
+        
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,

@@ -8,6 +8,7 @@ import hashlib
 import pathlib
 import json
 import datetime
+import uuid
 from uuid import UUID
 
 from contextlib import contextmanager
@@ -264,6 +265,8 @@ def safe_merge(session, obj, db_check_att='filepath'):
         if it is already on the session or if it
         doesn't have an ID.
     """
+    raise RuntimeError( "safe_merge should no longer be necessary" )
+
     if obj is None:  # given None, return None
         return None
 
@@ -349,20 +352,21 @@ class SeeChangeBase:
 
     def safe_merge(self, session, db_check_att='filepath'):
         """Safely merge this object into the session. See safe_merge()."""
+        raise RuntimeError( "safe_merge should no longer be necessary" )
         return safe_merge(session, self, db_check_att=db_check_att)
 
-    def get_upstreams(self, session=None):
-        """Get all data products that were directly used to create this object (non-recursive)."""
-        raise NotImplementedError('get_upstreams not implemented for this class')
+    # def get_upstreams(self, session=None):
+    #     """Get all data products that were directly used to create this object (non-recursive)."""
+    #     raise NotImplementedError('get_upstreams not implemented for this class')
 
-    def get_downstreams(self, session=None, siblings=True):
-        """Get all data products that were created directly from this object (non-recursive).
+    # def get_downstreams(self, session=None, siblings=True):
+    #     """Get all data products that were created directly from this object (non-recursive).
 
-        This optionally includes siblings: data products that are co-created in the same pipeline step
-        and depend on one another. E.g., a source list and psf have an image upstream and a (subtraction?) image
-        as a downstream, but they are each other's siblings.
-        """
-        raise NotImplementedError('get_downstreams not implemented for this class')
+    #     This optionally includes siblings: data products that are co-created in the same pipeline step
+    #     and depend on one another. E.g., a source list and psf have an image upstream and a (subtraction?) image
+    #     as a downstream, but they are each other's siblings.
+    #     """
+    #     raise NotImplementedError('get_downstreams not implemented for this class')
 
     def _delete_from_database(self, session=None, commit=True, remove_downstreams=False):
         """Remove the object from the database -- don't call this, call delete_from_disk_and_database.
@@ -672,6 +676,7 @@ def merge_concurrent( obj, session=None, commit=True ):
     amount of time; if we wait to long, fail for real.
 
     """
+    raise RuntimeError( "Instead of this, use the object's insert_or_load" )
     output = None
     with SmartSession(session) as session:
         for i in range(5):
@@ -766,6 +771,26 @@ class FileOnDiskMixin:
     local_path = None
     temp_path = None
 
+    # ref: https://docs.sqlalchemy.org/en/20/orm/declarative_mixins.html#creating-indexes-with-mixins
+    # ...but I have not succeded in finding a way for it to work with multiple mixins and having
+    # cls.__tablename__ be the subclass tablename, not the mixin tablename.  So, for now, the solution
+    # is the manual stuff below
+    # @declared_attr
+    # def __table_args__( cls ):
+    #     return (
+    #         CheckConstraint(
+    #             sqltext='NOT(md5sum IS NULL AND '
+    #                     '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+    #             name=f'{cls.__tablename__}_md5sum_check'
+    #         ),
+    #     )
+
+    # Subclasses of this class must include the following in __table_args__:
+    #   CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+    #                    '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+    #                    name=f'{cls.__tablename__}_md5sum_check' )
+    
+    
     @classmethod
     def configure_paths(cls):
         cfg = config.Config.get()
@@ -854,17 +879,6 @@ class FileOnDiskMixin:
         default=None,
         doc="md5sum of extension files; must have same number of elements as filepath_extensions"
     )
-
-    # ref: https://docs.sqlalchemy.org/en/20/orm/declarative_mixins.html#creating-indexes-with-mixins
-    @declared_attr
-    def __table_args__(cls):
-        return (
-            CheckConstraint(
-                sqltext='NOT(md5sum IS NULL AND '
-                        '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
-                name=f'{cls.__tablename__}_md5sum_check'
-            ),
-        )
 
     def __init__(self, *args, **kwargs):
         """
@@ -1410,19 +1424,44 @@ def safe_mkdir(path):
     FileOnDiskMixin.safe_mkdir(path)
 
 
-class AutoIDMixin:
+class UUIDMixin:
+    # Note that even though the default is uuid.uuid4(), this is set by SQLAlchemy
+    #   when the object is saved to the database, not when the object is created.
+    #   It will be None when a new object is created if not explicitly set.
     id = sa.Column(
-        sa.BigInteger,
+        sqlUUID,
         primary_key=True,
         index=True,
-        autoincrement=True,
-        doc="Autoincrementing unique identifier for this dataset",
+        default=uuid.uuid4,
+        doc="Unique identifier for this row",
     )
 
+    def get_id( self ):
+        """Return the id, or generate one if it's currently none.
+
+        The id will already exist if this object was loaded from the
+        databse.  If it wasn't, it means the object is probably not yet
+        in the databse, so one needs to be generated.
+
+        """
+        if self.id is None:
+            self.id=uuid.uuid4()
+        return self.id
+    
 
 class SpatiallyIndexed:
     """A mixin for tables that have ra and dec fields indexed via q3c."""
 
+    # @declared_attr
+    # def __table_args__( cls ):
+    #     return (
+    #         sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+    #     )
+
+    # Subclasses of this class must include the following in __table_args__:
+    #   sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec))
+    
+    
     ra = sa.Column(sa.Double, nullable=False, doc='Right ascension in degrees')
 
     dec = sa.Column(sa.Double, nullable=False, doc='Declination in degrees')
@@ -1434,13 +1473,6 @@ class SpatiallyIndexed:
     ecllat = sa.Column(sa.Double, index=True, doc="Ecliptic latitude of the target. ")
 
     ecllon = sa.Column(sa.Double, index=False, doc="Ecliptic longitude of the target. ")
-
-    @declared_attr
-    def __table_args__(cls):
-        tn = cls.__tablename__
-        return (
-            sa.Index(f"{tn}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
-        )
 
     def calculate_coordinates(self):
         """Fill self.gallat, self.gallon, self.ecllat, and self.ecllong based on self.ra and self.dec."""

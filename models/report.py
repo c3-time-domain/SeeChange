@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import JSONB
 
-from models.base import Base, SeeChangeBase, AutoIDMixin, SmartSession
+from models.base import Base, SeeChangeBase, UUIDMixin, SmartSession
 from models.enums_and_bitflags import (
     bitflag_to_string,
     string_to_bitflag,
@@ -16,7 +16,7 @@ from models.enums_and_bitflags import (
 
 from util.logger import SCLogger
 
-class Report(Base, AutoIDMixin):
+class Report(Base, UUIDMixin):
     """A report on the status of analysis of one section from an Exposure.
 
     The report's main role is to keep a database record of when we started
@@ -34,13 +34,13 @@ class Report(Base, AutoIDMixin):
         )
     )
 
-    exposure = orm.relationship(
-        'Exposure',
-        cascade='save-update, merge, refresh-expire, expunge',
-        doc=(
-            "Exposure for which the report was made. "
-        )
-    )
+    # exposure = orm.relationship(
+    #     'Exposure',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     doc=(
+    #         "Exposure for which the report was made. "
+    #     )
+    # )
 
     section_id = sa.Column(
         sa.Text,
@@ -383,3 +383,15 @@ class Report(Base, AutoIDMixin):
         warnings_list.clear()  # remove all the warnings but keep the list object
 
         return ', '.join(formatted_warnings)
+
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+    @property
+    def exposure( self ):
+        raise RuntimeError( f"Don't use Report.exposure, use exposure_id" )
+
+    @exposure.setter
+    def exposure( self, val ):
+        raise RuntimeError( f"Don't use Report.exposure, use exposure_id" )

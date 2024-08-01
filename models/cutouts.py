@@ -3,9 +3,9 @@ import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy import orm
+from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.schema import UniqueConstraint
-from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.schema import UniqueConstraint, CheckConstraint
 
 import h5py
 
@@ -15,7 +15,7 @@ from models.base import (
     SmartSession,
     Base,
     SeeChangeBase,
-    AutoIDMixin,
+    UUIDMixin,
     FileOnDiskMixin,
     HasBitFlagBadness,
 )
@@ -43,16 +43,19 @@ class Co_Dict(dict):
         return super().__getitem__(key)
 
 
-class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     __tablename__ = 'cutouts'
 
     # a unique constraint on the provenance and the source list
-    __table_args__ = (
-        UniqueConstraint(
-            'sources_id', 'provenance_id', name='_cutouts_sources_provenance_uc'
-        ),
-    )
+    @declared_attr
+    def __table_args__(cls):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                             '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                             name=f'{cls.__tablename__}_md5sum_check' ),
+            UniqueConstraint('sources_id', 'provenance_id', name='_cutouts_sources_provenance_uc')
+        )
 
     _format = sa.Column(
         sa.SMALLINT,
@@ -82,16 +85,16 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         doc="ID of the source list (of detections in the difference image) this cutouts object is associated with. "
     )
 
-    sources = orm.relationship(
-        SourceList,
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        lazy='selectin',
-        doc="The source list (of detections in the difference image) this cutouts object is associated with. "
-    )
+    # sources = orm.relationship(
+    #     SourceList,
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     lazy='selectin',
+    #     doc="The source list (of detections in the difference image) this cutouts object is associated with. "
+    # )
 
-    sub_image_id = association_proxy('sources', 'image_id')
-    sub_image = association_proxy('sources', 'image')
+    # sub_image_id = association_proxy('sources', 'image_id')
+    # sub_image = association_proxy('sources', 'image')
 
     provenance_id = sa.Column(
         sa.ForeignKey('provenances.id', ondelete="CASCADE", name='cutouts_provenance_id_fkey'),
@@ -104,26 +107,26 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         )
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this cutout. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this cutout. "
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this cutout. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this cutout. "
+    #     )
+    # )
 
-    @property
-    def new_image(self):
-        """Get the aligned new image using the sub_image. """
-        return self.sub_image.new_aligned_image
+    # @property
+    # def new_image(self):
+    #     """Get the aligned new image using the sub_image. """
+    #     return self.sub_image.new_aligned_image
 
-    @property
-    def ref_image(self):
-        """Get the aligned reference image using the sub_image. """
-        return self.sub_image.ref_aligned_image
+    # @property
+    # def ref_image(self):
+    #     """Get the aligned reference image using the sub_image. """
+    #     return self.sub_image.ref_aligned_image
 
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
@@ -411,14 +414,83 @@ class Cutouts(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     for groupname in file:
                         self.co_dict[groupname] = self._load_dataset_dict_from_hdf5(file, groupname)
 
-    def get_upstreams(self, session=None):
-        """Get the detections SourceList that was used to make this cutout. """
-        with SmartSession(session) as session:
-            return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+    # def get_upstreams(self, session=None):
+    #     """Get the detections SourceList that was used to make this cutout. """
+    #     with SmartSession(session) as session:
+    #         return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
 
-    def get_downstreams(self, session=None, siblings=False):
-        """Get the downstream Measurements that were made from this Cutouts object. """
-        from models.measurements import Measurements
+    # def get_downstreams(self, session=None, siblings=False):
+    #     """Get the downstream Measurements that were made from this Cutouts object. """
+    #     from models.measurements import Measurements
 
-        with SmartSession(session) as session:
-            return session.scalars(sa.select(Measurements).where(Measurements.cutouts_id == self.id)).all()
+    #     with SmartSession(session) as session:
+    #         return session.scalars(sa.select(Measurements).where(Measurements.cutouts_id == self.id)).all()
+
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+    @property
+    def sources( self ):
+        raise RuntimeError( f"Don't use Cutouts.sources, use sources_id" )
+
+    @sources.setter
+    def sources( self, val ):
+        raise RuntimeError( f"Don't use Cutouts.sources, use sources_id" )
+
+    @property
+    def provenance( self ):
+        raise RuntimeError( f"Don't use Cutouts.provenance, use provenance_id" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( f"Don't use Cutouts.provenance, use provenance_id" )
+
+    @property
+    def sub_image( self ):
+        raise RuntimeError( f"Cutouts.sub_image is deprecated, don't use it" )
+
+    @sub_image.setter
+    def sub_image( self, val ):
+        raise RuntimeError( f"Cutouts.sub_image is deprecated, don't use it" )
+
+    @property
+    def sub_image_id( self ):
+        raise RuntimeError( f"Cutouts.sub_image_id is deprecated, don't use it" )
+
+    @sub_image_id.setter
+    def sub_image_id( self, val ):
+        raise RuntimeError( f"Cutouts.sub_image_id is deprecated, don't use it" )
+
+    @property
+    def new_image( self ):
+        raise RuntimeError( f"Cutouts.new_image is deprecated, don't use it" )
+
+    @new_image.setter
+    def new_image( self, val ):
+        raise RuntimeError( f"Cutouts.new_image is deprecated, don't use it" )
+
+    @property
+    def ref_image( self ):
+        raise RuntimeError( f"Cutouts.ref_image is deprecated, don't use it" )
+
+    @ref_image.setter
+    def ref_image( self, val ):
+        raise RuntimeError( f"Cutouts.ref_image is deprecated, don't use it" )
+
+    @property
+    def get_upstreams( self ):
+        raise RuntimeError( f"Cutouts.get_upstreams is deprecated, don't use it" )
+
+    @get_upstreams.setter
+    def get_upstreams( self, val ):
+        raise RuntimeError( f"Cutouts.get_upstreams is deprecated, don't use it" )
+
+    @property
+    def get_downstreams( self ):
+        raise RuntimeError( f"Cutouts.get_downstreams is deprecated, don't use it" )
+
+    @get_downstreams.setter
+    def get_downstreams( self, val ):
+        raise RuntimeError( f"Cutouts.get_downstreams is deprecated, don't use it" )
+

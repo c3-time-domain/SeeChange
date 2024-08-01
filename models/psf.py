@@ -4,12 +4,13 @@ import numpy as np
 
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
+from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.schema import UniqueConstraint, CheckConstraint
 
 from astropy.io import fits
 
-from models.base import Base, SmartSession, SeeChangeBase, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness
+from models.base import Base, SmartSession, SeeChangeBase, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.enums_and_bitflags import PSFFormatConverter, psf_badness_inverse
 from models.image import Image
 from util.logger import SCLogger
@@ -28,13 +29,17 @@ from util.logger import SCLogger
 # for different formats.
 
 
-class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'psfs'
 
-    __table_args__ = (
-        UniqueConstraint('image_id', 'provenance_id', name='_psf_image_provenance_uc'),
-    )
-
+    @declared_attr
+    def __table_args__(cls):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               name=f'{cls.__tablename__}_md5sum_check' ),
+        )
+    
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
@@ -55,20 +60,28 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def format( self, value ):
         self._format = PSFFormatConverter.convert( value )
 
-    image_id = sa.Column(
-        sa.ForeignKey( 'images.id', ondelete='CASCADE', name='psfs_image_id_fkey' ),
+    source_id = sa.Column(
+        sa.ForeignKey( 'source_lists.id', ondelete='CASCADE', name='psfs_source_lists_id_fkey' ),
         nullable=False,
         index=True,
-        doc="ID of the image for which this is the PSF."
+        unique=True,
+        doc="id of the source_list this psf is associated with"
     )
+        
+    # image_id = sa.Column(
+    #     sa.ForeignKey( 'images.id', ondelete='CASCADE', name='psfs_image_id_fkey' ),
+    #     nullable=False,
+    #     index=True,
+    #     doc="ID of the image for which this is the PSF."
+    # )
 
-    image = orm.relationship(
-        'Image',
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        lazy='selectin',
-        doc="Image for which this is the PSF."
-    )
+    # image = orm.relationship(
+    #     'Image',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     lazy='selectin',
+    #     doc="Image for which this is the PSF."
+    # )
 
     fwhm_pixels = sa.Column(
         sa.REAL,
@@ -77,31 +90,31 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         doc="Approximate FWHM of seeing in pixels; use for a broad estimate, doesn't capture spatial variation."
     )
 
-    provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='psfs_provenance_id_fkey'),
-        nullable=False,
-        index=True,
-        doc=(
-            "ID of the provenance of this PSF. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this PSF."
-        )
-    )
+    # provenance_id = sa.Column(
+    #     sa.ForeignKey('provenances.id', ondelete="CASCADE", name='psfs_provenance_id_fkey'),
+    #     nullable=False,
+    #     index=True,
+    #     doc=(
+    #         "ID of the provenance of this PSF. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this PSF."
+    #     )
+    # )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this PSF. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this PSF."
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this PSF. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this PSF."
+    #     )
+    # )
 
-    __table_args__ = (
-        sa.Index( 'psfs_image_id_provenance_index', 'image_id', 'provenance_id', unique=True ),
-    )
+    # __table_args__ = (
+    #     sa.Index( 'psfs_image_id_provenance_index', 'image_id', 'provenance_id', unique=True ),
+    # )
 
     @property
     def data( self ):
@@ -592,3 +605,41 @@ class PSF(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return output
     
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+
+    @property
+    def provenance_id( self ):
+        raise RuntimeError( f"PSF.provenacne_id is deprecated; get provenance from sources" )
+
+    @provenance_id.setter
+    def provenance_id( self, val ):
+        raise RuntimeError( f"PSF.provenacne_id is deprecated; get provenance from sources" )
+
+    @property
+    def provenance( self ):
+        raise RuntimeError( f"PSF.provenance is deprecated; get provenance from sources" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( f"PSF.provenance is deprecated; get provenance from sources" )
+
+    @property
+    def image( self ):
+        raise RuntimeError( f"PSF.image is deprecated, don't use it" )
+
+    @image.setter
+    def image( self, val ):
+        raise RuntimeError( f"PSF.image is deprecated, don't use it" )
+
+    @property
+    def image_id( self ):
+        raise RuntimeError( f"PSF.image_id is deprecated, don't use it" )
+
+    @image_id.setter
+    def image_id( self, val ):
+        raise RuntimeError( f"PSF.image_id is deprecated, don't use it" )
+
+ 

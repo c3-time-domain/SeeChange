@@ -16,7 +16,7 @@ from astropy.io import fits
 import astropy.units as u
 from astropy.coordinates import SkyCoord, Distance
 
-from models.base import Base, SmartSession, AutoIDMixin
+from models.base import Base, SmartSession, UUIDMixin
 
 from pipeline.catalog_tools import Bandpass
 from util.util import parse_dateobs, read_fits_image, get_inheritors
@@ -123,7 +123,7 @@ def get_instrument_instance(instrument_name):
     return INSTRUMENT_INSTANCE_CACHE[instrument_name]
 
 
-class SensorSection(Base, AutoIDMixin):
+class SensorSection(Base, UUIDMixin):
     """
     A class to represent a section of a sensor.
     This is most often associated with a CCD chip, but could be any

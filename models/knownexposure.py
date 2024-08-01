@@ -1,16 +1,17 @@
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
 from astropy.coordinates import SkyCoord
 
 from models.base import (
     Base,
-    AutoIDMixin,
+    UUIDMixin,
     SpatiallyIndexed,
 )
 
-class KnownExposure(Base, AutoIDMixin):
+class KnownExposure(Base, UUIDMixin):
     """A table of exposures we know about that we need to grab and process through the pipeline.
 
     Most fields are nullable because we can't be sure a priori how much
@@ -38,7 +39,7 @@ class KnownExposure(Base, AutoIDMixin):
                       doc="If True, conductor won't release this exposure for processing" )
 
     exposure_id = sa.Column( 'exposure_id',
-                             sa.BigInteger,
+                             sqlUUID,
                              sa.ForeignKey( 'exposures.id', name='knownexposure_exposure_id_fkey' ),
                              nullable=True )
 
@@ -77,7 +78,7 @@ class KnownExposure(Base, AutoIDMixin):
         self.gallat, self.gallon, self.ecllat, self.ecllon = radec_to_gal_ecl( self.ra, self.dec )
 
 
-class PipelineWorker(Base, AutoIDMixin):
+class PipelineWorker(Base, UUIDMixin):
     """A table of currently active pipeline launchers that the conductor knows about.
 
     """

@@ -6,23 +6,27 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
-from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.ext.declarative import declared_attr
 
-from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness
+from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness
 from models.cutouts import Cutouts
 from models.enums_and_bitflags import measurements_badness_inverse
 
 from improc.photometry import get_circle
 
 
-class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
+class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     __tablename__ = 'measurements'
 
-    __table_args__ = (
-        UniqueConstraint('cutouts_id', 'index_in_sources', 'provenance_id', name='_measurements_cutouts_provenance_uc'),
-        sa.Index("ix_measurements_scores_gin", "disqualifier_scores", postgresql_using="gin"),
-    )
+    @declared_attr
+    def __table_args__( cls ):
+        return (
+            sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+            UniqueConstraint('cutouts_id', 'index_in_sources', 'provenance_id',
+                             name='_measurements_cutouts_provenance_uc'),
+            sa.Index("ix_measurements_scores_gin", "disqualifier_scores", postgresql_using="gin")
+        )
 
     cutouts_id = sa.Column(
         sa.ForeignKey('cutouts.id', ondelete="CASCADE", name='measurements_cutouts_id_fkey'),
@@ -31,13 +35,13 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         doc="ID of the cutouts object that this measurements object is associated with. "
     )
 
-    cutouts = orm.relationship(
-        Cutouts,
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        lazy='selectin',
-        doc="The cutouts object that this measurements object is associated with. "
-    )
+    # cutouts = orm.relationship(
+    #     Cutouts,
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     lazy='selectin',
+    #     doc="The cutouts object that this measurements object is associated with. "
+    # )
 
     index_in_sources = sa.Column(
         sa.Integer,
@@ -53,13 +57,13 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         doc="ID of the object that this measurement is associated with. "
     )
 
-    object = orm.relationship(
-        'Object',
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        lazy='selectin',
-        doc="The object that this measurement is associated with. "
-    )
+    # object = orm.relationship(
+    #     'Object',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     lazy='selectin',
+    #     doc="The object that this measurement is associated with. "
+    # )
 
     provenance_id = sa.Column(
         sa.ForeignKey('provenances.id', ondelete="CASCADE", name='measurements_provenance_id_fkey'),
@@ -68,12 +72,12 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         doc="ID of the provenance of this measurement. "
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc="The provenance of this measurement. "
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc="The provenance of this measurement. "
+    # )
 
     flux_psf = sa.Column(
         sa.REAL,
@@ -115,11 +119,11 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             "Set to -1 to select the PSF flux instead of one of the apertures. "
     )
 
-    mjd = association_proxy('cutouts', 'sources.image.mjd')
+    # mjd = association_proxy('cutouts', 'sources.image.mjd')
 
-    exp_time = association_proxy('cutouts', 'sources.image.exp_time')
+    # exp_time = association_proxy('cutouts', 'sources.image.exp_time')
 
-    filter = association_proxy('cutouts', 'sources.image.filter')
+    # filter = association_proxy('cutouts', 'sources.image.filter')
 
     @property
     def flux(self):
@@ -493,7 +497,7 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                 )
                 obj.is_test = self.provenance.is_testing
 
-            self.object = obj
+            self.object_id = obj.id
 
     def get_flux_at_point(self, ra, dec, aperture=None):
         """Use the given coordinates to find the flux, assuming it is inside the cutout.
@@ -581,14 +585,14 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         return flux, fluxerr, area
 
-    def get_upstreams(self, session=None):
-        """Get the image that was used to make this source list. """
-        with SmartSession(session) as session:
-            return session.scalars(sa.select(Cutouts).where(Cutouts.id == self.cutouts_id)).all()
+    # def get_upstreams(self, session=None):
+    #     """Get the image that was used to make this source list. """
+    #     with SmartSession(session) as session:
+    #         return session.scalars(sa.select(Cutouts).where(Cutouts.id == self.cutouts_id)).all()
 
-    def get_downstreams(self, session=None, siblings=False):
-        """Get the downstreams of this Measurements"""
-        return []
+    # def get_downstreams(self, session=None, siblings=False):
+    #     """Get the downstreams of this Measurements"""
+    #     return []
 
     def _get_inverse_badness(self):
         return measurements_badness_inverse
@@ -618,35 +622,106 @@ class Measurements(Base, AutoIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             if commit:
                 session.commit()
 
-# use these three functions to quickly add the "property" accessor methods
-def load_attribute(object, att):
-    """Load the data for a given attribute of the object. Load from Cutouts, but
-    if the data needs to be loaded from disk, ONLY load the subdict that contains
-    data for this object, not all objects in the Cutouts."""
-    if not hasattr(object, f'_{att}'):
-        raise AttributeError(f"The object {object} does not have the attribute {att}.")
-    if getattr(object, f'_{att}') is None:
-        if len(object.cutouts.co_dict) == 0 and object.cutouts.filepath is None:
-            return None  # objects just now created and not saved cannot lazy load data!
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+    @property
+    def provenance( self ):
+        raise RuntimeError( f"Don't use Measurements.provenance, use provenance_id" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( f"Don't use Measurements.provenance, use provenance_id" )
+
+    @property
+    def cutouts( self ):
+        raise RuntimeError( f"Don't use Measurements.cutouts, use cutouts_id" )
+
+    @cutouts.setter
+    def cutouts( self, val ):
+        raise RuntimeError( f"Don't use Measurements.cutouts, use cutouts_id" )
+
+    @property
+    def object( self ):
+        raise RuntimeError( f"Don't use Measurements.object, use object_id" )
+
+    @object.setter
+    def object( self, val ):
+        raise RuntimeError( f"Don't use Measurements.object, use object_id" )
+
+    @property
+    def mjd( self ):
+        raise RuntimeError( f"Measurements.mjd is deprecated, don't use it" )
+
+    @mjd.setter
+    def mjd( self, val ):
+        raise RuntimeError( f"Measurements.mjd is deprecated, don't use it" )
+
+    @property
+    def exp_time( self ):
+        raise RuntimeError( f"Measurements.exp_time is deprecated, don't use it" )
+
+    @exp_time.setter
+    def exp_time( self, val ):
+        raise RuntimeError( f"Measurements.exp_time is deprecated, don't use it" )
+
+    @property
+    def filter( self ):
+        raise RuntimeError( f"Measurements.filter is deprecated, don't use it" )
+
+    @filter.setter
+    def filter( self, val ):
+        raise RuntimeError( f"Measurements.filter is deprecated, don't use it" )
+
+    @property
+    def get_upstreams( self ):
+        raise RuntimeError( f"Measurements.get_upstreams is deprecated, don't use it" )
+
+    @get_upstreams.setter
+    def get_upstreams( self, val ):
+        raise RuntimeError( f"Measurements.get_upstreams is deprecated, don't use it" )
+
+    @property
+    def get_downstreams( self ):
+        raise RuntimeError( f"Measurements.get_downstreams is deprecated, don't use it" )
+
+    @get_downstreams.setter
+    def get_downstreams( self, val ):
+        raise RuntimeError( f"Measurements.get_downstreams is deprecated, don't use it" )
+
+    
+    
+    
+# # use these three functions to quickly add the "property" accessor methods
+# def load_attribute(object, att):
+#     """Load the data for a given attribute of the object. Load from Cutouts, but
+#     if the data needs to be loaded from disk, ONLY load the subdict that contains
+#     data for this object, not all objects in the Cutouts."""
+#     if not hasattr(object, f'_{att}'):
+#         raise AttributeError(f"The object {object} does not have the attribute {att}.")
+#     if getattr(object, f'_{att}') is None:
+#         if len(object.cutouts.co_dict) == 0 and object.cutouts.filepath is None:
+#             return None  # objects just now created and not saved cannot lazy load data!
         
-        groupname = f'source_index_{object.index_in_sources}'
-        if object.cutouts.co_dict[groupname] is not None:  # will check disk as Co_Dict
-            object.get_data_from_cutouts()
+#         groupname = f'source_index_{object.index_in_sources}'
+#         if object.cutouts.co_dict[groupname] is not None:  # will check disk as Co_Dict
+#             object.get_data_from_cutouts()
 
-    # after data is filled, should be able to just return it
-    return getattr(object, f'_{att}')
+#     # after data is filled, should be able to just return it
+#     return getattr(object, f'_{att}')
 
-def set_attribute(object, att, value):
-    """Set the value of the attribute on the object. """
-    setattr(object, f'_{att}', value)
+# def set_attribute(object, att, value):
+#     """Set the value of the attribute on the object. """
+#     setattr(object, f'_{att}', value)
 
-# add "@property" functions to all the data attributes
-for att in Cutouts.get_data_dict_attributes():
-    setattr(
-        Measurements,
-        att,
-        property(
-            fget=lambda self, att=att: load_attribute(self, att),
-            fset=lambda self, value, att=att: set_attribute(self, att, value),
-        )
-    )
+# # add "@property" functions to all the data attributes
+# for att in Cutouts.get_data_dict_attributes():
+#     setattr(
+#         Measurements,
+#         att,
+#         property(
+#             fget=lambda self, att=att: load_attribute(self, att),
+#             fset=lambda self, value, att=att: set_attribute(self, att, value),
+#         )
+#     )

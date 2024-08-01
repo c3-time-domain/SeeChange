@@ -7,20 +7,26 @@ import h5py
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.schema import UniqueConstraint, CheckConstraint
 
-from models.base import Base, SeeChangeBase, SmartSession, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness
+from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.image import Image
 
 from models.enums_and_bitflags import BackgroundFormatConverter, BackgroundMethodConverter, bg_badness_inverse
 
 
-class Background(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'backgrounds'
 
-    __table_args__ = (
-        UniqueConstraint('image_id', 'provenance_id', name='_bg_image_provenance_uc'),
-    )
+    @declared_attr
+    def __table_args__(cls):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               name=f'{cls.__tablename__}_md5sum_check' ),
+        )
+
 
     _format = sa.Column(
         sa.SMALLINT,
@@ -63,20 +69,21 @@ class Background(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def method(self, value):
         self._method = BackgroundMethodConverter.convert(value)
 
-    image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete='CASCADE', name='backgrounds_image_id_fkey'),
+    sources_id = sa.Column(
+        sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='backgrounds_source_lists_id_fkey'),
         nullable=False,
         index=True,
-        doc="ID of the image for which this is the background."
+        unique=True,
+        doc="ID of the source list this background is associated with"
     )
 
-    image = orm.relationship(
-        'Image',
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        lazy='selectin',
-        doc="Image for which this is the background."
-    )
+    # image = orm.relationship(
+    #     'Image',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     lazy='selectin',
+    #     doc="Image for which this is the background."
+    # )
 
     value = sa.Column(
         sa.Float,
@@ -103,29 +110,31 @@ class Background(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         )
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this Background object. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this Background object."
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this Background object. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this Background object."
+    #     )
+    # )
 
-    __table_args__ = (
-        sa.Index( 'backgrounds_image_id_provenance_index', 'image_id', 'provenance_id', unique=True ),
-    )
+    # __table_args__ = (
+    #     sa.Index( 'backgrounds_image_id_provenance_index', 'image_id', 'provenance_id', unique=True ),
+    # )
 
     @property
     def image_shape(self):
+        raise RuntimeError( "Rob think about this" )
         if self._image_shape is None and self.filepath is not None:
             self.load()
         return self._image_shape
 
     @image_shape.setter
     def image_shape(self, value):
+        raise RuntimeErrror( "Rob think about this" )
         self._image_shape = value
 
     @property
@@ -186,7 +195,7 @@ class Background(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         FileOnDiskMixin.__init__( self, **kwargs )
         HasBitFlagBadness.__init__(self)
         SeeChangeBase.__init__( self )
-        self._image_shape = None
+        # self._image_shape = None
         self._counts_data = None
         self._var_data = None
 
@@ -199,7 +208,7 @@ class Background(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def init_on_load( self ):
         Base.init_on_load( self )
         FileOnDiskMixin.init_on_load( self )
-        self._image_shape = None
+        # self._image_shape = None
         self._counts_data = None
         self._var_data = None
 
@@ -367,70 +376,123 @@ class Background(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._counts_data = None
         self._var_data = None
 
-    def get_upstreams(self, session=None):
-        """Get the image that was used to make this Background object. """
-        with SmartSession(session) as session:
-            return session.scalars(sa.select(Image).where(Image.id == self.image_id)).all()
+    # def get_upstreams(self, session=None):
+    #     """Get the image that was used to make this Background object. """
+    #     with SmartSession(session) as session:
+    #         return session.scalars(sa.select(Image).where(Image.id == self.image_id)).all()
 
-    def get_downstreams(self, session=None, siblings=False):
-        """Get the downstreams of this Background object.
+    # def get_downstreams(self, session=None, siblings=False):
+    #     """Get the downstreams of this Background object.
 
-        If siblings=True then also include the SourceList, PSF, WCS, and ZP
-        that were created at the same time as this PSF.
-        """
-        from models.source_list import SourceList
-        from models.psf import PSF
-        from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
-        from models.provenance import Provenance
+    #     If siblings=True then also include the SourceList, PSF, WCS, and ZP
+    #     that were created at the same time as this PSF.
+    #     """
+    #     from models.source_list import SourceList
+    #     from models.psf import PSF
+    #     from models.world_coordinates import WorldCoordinates
+    #     from models.zero_point import ZeroPoint
+    #     from models.provenance import Provenance
 
-        with SmartSession(session) as session:
-            output = []
-            if self.image_id is not None and self.provenance is not None:
-                subs = session.scalars(
-                    sa.select(Image).where(
-                        Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-                        Image.upstream_images.any(Image.id == self.image_id),
-                    )
-                ).all()
-                output += subs
+    #     with SmartSession(session) as session:
+    #         output = []
+    #         if self.image_id is not None and self.provenance is not None:
+    #             subs = session.scalars(
+    #                 sa.select(Image).where(
+    #                     Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
+    #                     Image.upstream_images.any(Image.id == self.image_id),
+    #                 )
+    #             ).all()
+    #             output += subs
 
-            if siblings:
-                # There should be exactly one source list, wcs, and zp per PSF, with the same provenance
-                # as they are created at the same time.
-                sources = session.scalars(
-                    sa.select(SourceList).where(
-                        SourceList.image_id == self.image_id, SourceList.provenance_id == self.provenance_id
-                    )
-                ).all()
-                if len(sources) != 1:
-                    raise ValueError(
-                        f"Expected exactly one source list for Background {self.id}, but found {len(sources)}"
-                    )
+    #         if siblings:
+    #             # There should be exactly one source list, wcs, and zp per PSF, with the same provenance
+    #             # as they are created at the same time.
+    #             sources = session.scalars(
+    #                 sa.select(SourceList).where(
+    #                     SourceList.image_id == self.image_id, SourceList.provenance_id == self.provenance_id
+    #                 )
+    #             ).all()
+    #             if len(sources) != 1:
+    #                 raise ValueError(
+    #                     f"Expected exactly one source list for Background {self.id}, but found {len(sources)}"
+    #                 )
 
-                output.append(sources[0])
+    #             output.append(sources[0])
 
-                psfs = session.scalars(
-                    sa.select(PSF).where(PSF.image_id == self.image_id, PSF.provenance_id == self.provenance_id)
-                ).all()
-                if len(psfs) != 1:
-                    raise ValueError(f"Expected exactly one PSF for Background {self.id}, but found {len(psfs)}")
+    #             psfs = session.scalars(
+    #                 sa.select(PSF).where(PSF.image_id == self.image_id, PSF.provenance_id == self.provenance_id)
+    #             ).all()
+    #             if len(psfs) != 1:
+    #                 raise ValueError(f"Expected exactly one PSF for Background {self.id}, but found {len(psfs)}")
 
-                output.append(psfs[0])
+    #             output.append(psfs[0])
 
-                wcs = session.scalars(
-                    sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id)
-                ).all()
-                if len(wcs) != 1:
-                    raise ValueError(f"Expected exactly one wcs for Background {self.id}, but found {len(wcs)}")
+    #             wcs = session.scalars(
+    #                 sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id)
+    #             ).all()
+    #             if len(wcs) != 1:
+    #                 raise ValueError(f"Expected exactly one wcs for Background {self.id}, but found {len(wcs)}")
 
-                output.append(wcs[0])
+    #             output.append(wcs[0])
 
-                zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
+    #             zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
 
-                if len(zp) != 1:
-                    raise ValueError(f"Expected exactly one zp for Background {self.id}, but found {len(zp)}")
+    #             if len(zp) != 1:
+    #                 raise ValueError(f"Expected exactly one zp for Background {self.id}, but found {len(zp)}")
 
-                output.append(zp[0])
+    #             output.append(zp[0])
 
-        return output
+    #     return output
+
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+    @property
+    def image( self ):
+        raise RuntimeError( f"Background.image is deprecated, don't use it" )
+
+    @image.setter
+    def image( self, val ):
+        raise RuntimeError( f"Background.image is deprecated, don't use it" )
+
+    @property
+    def image_id( self ):
+        raise RuntimeError( f"Background.image_id is deprecated, don't use it" )
+
+    @image_id.setter
+    def image_id( self, val ):
+        raise RuntimeError( f"Background.image_id is deprecated, don't use it" )
+
+    @property
+    def provenance( self ):
+        raise RuntimeError( f"Background.provenance is deprecated, don't use it" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( f"Background.provenance is deprecated, don't use it" )
+
+    @property
+    def _image_shape( self ):
+        raise RuntimeError( f"Background._image_shape is deprecated, don't use it" )
+
+    @_image_shape.setter
+    def _image_shape( self, val ):
+        raise RuntimeError( f"Background._image_shape is deprecated, don't use it" )
+
+    @property
+    def get_upstreams( self ):
+        raise RuntimeError( f"Background.get_upstreams is deprecated, don't use it" )
+
+    @get_upstreams.setter
+    def get_upstreams( self, val ):
+        raise RuntimeError( f"Background.get_upstreams is deprecated, don't use it" )
+
+    @property
+    def get_downstreams( self ):
+        raise RuntimeError( f"Background.get_downstreams is deprecated, don't use it" )
+
+    @get_downstreams.setter
+    def get_downstreams( self, val ):
+        raise RuntimeError( f"Background.get_downstreams is deprecated, don't use it" )
+

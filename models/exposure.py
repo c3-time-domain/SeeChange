@@ -7,6 +7,7 @@ from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.schema import CheckConstraint
 from sqlalchemy.orm.session import object_session
+from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.exc import IntegrityError
 
@@ -21,7 +22,7 @@ from util.logger import SCLogger
 from models.base import (
     Base,
     SeeChangeBase,
-    AutoIDMixin,
+    UUIDMixin,
     FileOnDiskMixin,
     SpatiallyIndexed,
     SmartSession,
@@ -157,9 +158,21 @@ class ExposureImageIterator:
             raise StopIteration
 
 
-class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBadness):
+class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     __tablename__ = "exposures"
+
+    @declared_attr
+    def __table_args__( cls ):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               name=f'{cls.__tablename__}_md5sum_check' ),
+            sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+            CheckConstraint( sqltext='NOT(filter IS NULL AND filter_array IS NULL)',
+                             name='exposures_filter_or_array_check' )
+        )
+
 
     _type = sa.Column(
         sa.SMALLINT,
@@ -205,16 +218,16 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         )
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this exposure. "
-            "The provenance will containe a record of the code version "
-            "and the parameters used to obtain this exposure."
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this exposure. "
+    #         "The provenance will containe a record of the code version "
+    #         "and the parameters used to obtain this exposure."
+    #     )
+    # )
 
     @hybrid_property
     def format(self):
@@ -266,13 +279,6 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         nullable=True,
         index=True,
         doc="Array of filter names, if multiple filters were used. "
-    )
-
-    __table_args__ = (
-        CheckConstraint(
-            sqltext='NOT(filter IS NULL AND filter_array IS NULL)',
-            name='exposures_filter_or_array_check'
-        ),
     )
 
     instrument = sa.Column(
@@ -366,8 +372,9 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
         if self.filepath is None:
             # in this case, the instrument must have been given
-            if self.provenance is None:
-                self.provenance = self.make_provenance(self.instrument)  # a default provenance for exposures
+            if self.provenance_id is None:
+                prov = self.make_provenance(self.instrument)  # a default provenance for exposures
+                self.provenance_id = prov.id
 
             if invent_filepath:
                 self.filepath = self.invent_filepath()
@@ -378,9 +385,11 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
             self.instrument = guess_instrument(self.filepath)
 
         # this can happen if the instrument is not given, but the filepath is
-        if self.provenance is None:
-            self.provenance = self.make_provenance(self.instrument)  # a default provenance for exposures
-
+        if self.provenance_id is None:
+            prov = self.make_provenance(self.instrument)  # a default provenance for exposures
+            self.provenance_id = prov.id
+            
+            
         # instrument_obj is lazy loaded when first getting it
         if current_file is None:
             current_file = pathlib.Path( FileOnDiskMixin.local_path ) / self.filepath
@@ -394,7 +403,7 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
     @classmethod
     def make_provenance(cls, instrument):
-        """Generate a Provenance for this exposure.
+        """Generate a Provenance for this exposure and save it to the database.
 
         The provenance will have only one parameter,
         which is the instrument name.
@@ -406,12 +415,13 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
         """
         codeversion = Provenance.get_code_version()
         prov = Provenance(
-            code_version=codeversion,
+            code_version_id=codeversion.id,
             process='load_exposure',
             parameters={'instrument': instrument},
             upstreams=[],
         )
-
+        prov.save_if_needed()
+        
         return prov
 
     @sa.orm.reconstructor
@@ -748,12 +758,28 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
         return images
 
+    def load_or_insert( self, verify=True ):
+        """Either load the object's uuid from the databdse, or create a new object.
+
+        Will identify the object based on the unique FileOnDisk filed filepath.
+        
+        Parameters
+        ----------
+          verify: bool, default True
+            If the object already exists in the database, verify that the
+            everything matches.  If not, trust that things are right.
+
+        """
+        raise NotImplementedError( "Rob, do." )
+        
+    
     def merge_concurrent(self, session=None):
         """Try multiple times to fetch and merge this exposure.
         This will hopefully protect us against concurrently adding the exposure from multiple processes.
         Should also be safe to use in case that the same exposure (i.e., with the same filepath)
         was added by previous runs.
         """
+        raise RuntimeError( "Don't use this, use load_or_insert" )
         exposure = None
         with SmartSession(session) as session:
 
@@ -789,7 +815,19 @@ class Exposure(Base, AutoIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagB
 
         return exposure
 
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
 
+    @property
+    def provenance( self ):
+        raise RuntimeError( "Don't use provenance, use provenance_id" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( "Don't use provenance, use provenance_id" )
+    
+    
 if __name__ == '__main__':
     import os
     ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

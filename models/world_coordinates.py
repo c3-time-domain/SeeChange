@@ -4,64 +4,69 @@ import os
 
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.schema import UniqueConstraint, CheckConstraint
+from sqlalchemy.ext.declarative import declared_attr
 
 from astropy.wcs import WCS
 from astropy.io import fits
 from astropy.wcs import utils
 
-from models.base import Base, SmartSession, AutoIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
+from models.base import Base, SmartSession, UUIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.image import Image
 from models.source_list import SourceList
 
 
-class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'world_coordinates'
 
-    __table_args__ = (
-        UniqueConstraint('sources_id', 'provenance_id', name='_wcs_sources_provenance_uc'),
-    )
-
+    @declared_attr
+    def __table_args__(cls):
+        return (
+            CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
+                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               name=f'{cls.__tablename__}_md5sum_check' ),
+        )
+    
     sources_id = sa.Column(
         sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
         nullable=False,
         index=True,
+        unique=True,
         doc="ID of the source list this world coordinate system is associated with. "
     )
 
-    sources = orm.relationship(
-        'SourceList',
-        cascade='save-update, merge, refresh-expire, expunge',
-        passive_deletes=True,
-        lazy='selectin',
-        doc="The source list this world coordinate system is associated with. "
-    )
+    # sources = orm.relationship(
+    #     'SourceList',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     passive_deletes=True,
+    #     lazy='selectin',
+    #     doc="The source list this world coordinate system is associated with. "
+    # )
 
-    image = association_proxy( "sources", "image" )
+    # image = association_proxy( "sources", "image" )
 
-    provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='world_coordinates_provenance_id_fkey'),
-        nullable=False,
-        index=True,
-        doc=(
-            "ID of the provenance of this world coordinate system. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this world coordinate system. "
-        )
-    )
+    # provenance_id = sa.Column(
+    #     sa.ForeignKey('provenances.id', ondelete="CASCADE", name='world_coordinates_provenance_id_fkey'),
+    #     nullable=False,
+    #     index=True,
+    #     doc=(
+    #         "ID of the provenance of this world coordinate system. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this world coordinate system. "
+    #     )
+    # )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=(
-            "Provenance of this world coordinate system. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this world coordinate system. "
-        )
-    )
+    # provenance = orm.relationship(
+    #     'Provenance',
+    #     cascade='save-update, merge, refresh-expire, expunge',
+    #     lazy='selectin',
+    #     doc=(
+    #         "Provenance of this world coordinate system. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this world coordinate system. "
+    #     )
+    # )
 
     @property
     def wcs( self ):
@@ -99,76 +104,76 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         pixel_scales = utils.proj_plane_pixel_scales(self.wcs)  # the scale in x and y direction
         return np.mean(pixel_scales) * 3600.0
     
-    def get_upstreams(self, session=None):
-        """Get the extraction SourceList that was used to make this WorldCoordinates"""
-        with SmartSession(session) as session:
-            return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+    # def get_upstreams(self, session=None):
+    #     """Get the extraction SourceList that was used to make this WorldCoordinates"""
+    #     with SmartSession(session) as session:
+    #         return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
         
-    def get_downstreams(self, session=None, siblings=False):
-        """Get the downstreams of this WorldCoordinates.
+    # def get_downstreams(self, session=None, siblings=False):
+    #     """Get the downstreams of this WorldCoordinates.
 
-        If siblings=True  then also include the SourceList, PSF, background object and ZP
-        that were created at the same time as this WorldCoordinates.
-        """
-        from models.source_list import SourceList
-        from models.psf import PSF
-        from models.background import Background
-        from models.zero_point import ZeroPoint
-        from models.provenance import Provenance
+    #     If siblings=True  then also include the SourceList, PSF, background object and ZP
+    #     that were created at the same time as this WorldCoordinates.
+    #     """
+    #     from models.source_list import SourceList
+    #     from models.psf import PSF
+    #     from models.background import Background
+    #     from models.zero_point import ZeroPoint
+    #     from models.provenance import Provenance
 
-        with (SmartSession(session) as session):
-            output = []
-            if self.provenance is not None:
-                subs = session.scalars(
-                    sa.select(Image).where(
-                        Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-                        Image.upstream_images.any(Image.id == self.sources.image_id),
-                    )
-                ).all()
-                output += subs
+    #     with (SmartSession(session) as session):
+    #         output = []
+    #         if self.provenance is not None:
+    #             subs = session.scalars(
+    #                 sa.select(Image).where(
+    #                     Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
+    #                     Image.upstream_images.any(Image.id == self.sources.image_id),
+    #                 )
+    #             ).all()
+    #             output += subs
 
-            if siblings:
-                sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
-                if len(sources) > 1:
-                    raise ValueError(
-                        f"Expected exactly one SourceList for WorldCoordinates {self.id}, but found {len(sources)}."
-                    )
+    #         if siblings:
+    #             sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
+    #             if len(sources) > 1:
+    #                 raise ValueError(
+    #                     f"Expected exactly one SourceList for WorldCoordinates {self.id}, but found {len(sources)}."
+    #                 )
 
-                output.append(sources[0])
+    #             output.append(sources[0])
 
-                psf = session.scalars(
-                    sa.select(PSF).where(
-                        PSF.image_id == sources.image_id, PSF.provenance_id == self.provenance_id
-                    )
-                ).all()
+    #             psf = session.scalars(
+    #                 sa.select(PSF).where(
+    #                     PSF.image_id == sources.image_id, PSF.provenance_id == self.provenance_id
+    #                 )
+    #             ).all()
 
-                if len(psf) > 1:
-                    raise ValueError(f"Expected exactly one PSF for WorldCoordinates {self.id}, but found {len(psf)}.")
+    #             if len(psf) > 1:
+    #                 raise ValueError(f"Expected exactly one PSF for WorldCoordinates {self.id}, but found {len(psf)}.")
 
-                output.append(psf[0])
+    #             output.append(psf[0])
 
-                bgs = session.scalars(
-                    sa.select(Background).where(
-                        Background.image_id == sources.image_id, Background.provenance_id == self.provenance_id
-                    )
-                ).all()
+    #             bgs = session.scalars(
+    #                 sa.select(Background).where(
+    #                     Background.image_id == sources.image_id, Background.provenance_id == self.provenance_id
+    #                 )
+    #             ).all()
 
-                if len(bgs) > 1:
-                    raise ValueError(
-                        f"Expected exactly one Background for WorldCoordinates {self.id}, but found {len(bgs)}."
-                    )
+    #             if len(bgs) > 1:
+    #                 raise ValueError(
+    #                     f"Expected exactly one Background for WorldCoordinates {self.id}, but found {len(bgs)}."
+    #                 )
 
-                output.append(bgs[0])
+    #             output.append(bgs[0])
 
-                zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
+    #             zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
 
-                if len(zp) > 1:
-                    raise ValueError(
-                        f"Expected exactly one ZeroPoint for WorldCoordinates {self.id}, but found {len(zp)}."
-                    )
-                output.append(zp[0])
+    #             if len(zp) > 1:
+    #                 raise ValueError(
+    #                     f"Expected exactly one ZeroPoint for WorldCoordinates {self.id}, but found {len(zp)}."
+    #                 )
+    #             output.append(zp[0])
 
-        return output
+    #     return output
 
     def save( self, filename=None, **kwargs ):
         """Write the WCS data to disk.
@@ -247,3 +252,56 @@ class WorldCoordinates(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         references to those objects, the memory won't actually be freed.
         """
         self._wcs = None
+
+    # ======================================================================
+    # The fields below are things that we've deprecated; these definitions
+    #   are here to catch cases in the code where they're still used
+
+    @property
+    def sources( self ):
+        raise RuntimeError( f"Don't use WorldCoordinates.sources, use sources_id" )
+
+    @sources.setter
+    def sources( self, val ):
+        raise RuntimeError( f"Don't use WorldCoordinates.sources, use sources_id" )
+
+    @property
+    def image( self ):
+        raise RuntimeError( f"WorldCoordinates.image is deprecated, don't use it" )
+
+    @image.setter
+    def image( self, val ):
+        raise RuntimeError( f"WorldCoordinates.image is deprecated, don't use it" )
+
+    @property
+    def provenance_id( self ):
+        raise RuntimeError( f"WorldCoordinates.provenance_id is deprecated; get provenance from sources" )
+
+    @provenance_id.setter
+    def provenance_id( self, val ):
+        raise RuntimeError( f"WorldCoordinates.provenance_id is deprecated; get provenance from sources" )
+
+    @property
+    def provenance( self ):
+        raise RuntimeError( f"WorldCoordinates.provenance is deprecated; get provenance from sources" )
+
+    @provenance.setter
+    def provenance( self, val ):
+        raise RuntimeError( f"WorldCoordinates.provenance is deprecated; get provenance from sources" )
+
+    @property
+    def get_upstreams( self ):
+        raise RuntimeError( f"WorldCoordinates.get_upstreams is deprecated, don't use it" )
+
+    @get_upstreams.setter
+    def get_upstreams( self, val ):
+        raise RuntimeError( f"WorldCoordinates.get_upstreams is deprecated, don't use it" )
+
+    @property
+    def get_downstreams( self ):
+        raise RuntimeError( f"WorldCoordinates.get_downstreams is deprecated, don't use it" )
+
+    @get_downstreams.setter
+    def get_downstreams( self, val ):
+        raise RuntimeError( f"WorldCoordinates.get_downstreams is deprecated, don't use it" )
+

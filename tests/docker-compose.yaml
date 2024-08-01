@@ -208,10 +208,10 @@ services:
         condition: service_completed_successfully
       archive:
         condition: service_healthy
-      conductor:
-        condition: service_healthy
-      webap:
-        condition: service_healthy
+      # conductor:
+      #   condition: service_healthy
+      # webap:
+      #   condition: service_healthy
     volumes:
       - type: bind
         source: ..
