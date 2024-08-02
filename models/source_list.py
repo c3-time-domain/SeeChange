@@ -13,6 +13,7 @@ from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 
 import astropy.table
+import matplotlib.pyplot as plt
 
 from models.base import Base, SmartSession, AutoIDMixin, FileOnDiskMixin, SeeChangeBase, HasBitFlagBadness
 from models.image import Image
@@ -505,6 +506,74 @@ class SourceList(Base, AutoIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         meanrat = ( rat / ratvar ).sum() / ( 1. / ratvar ).sum()
 
         return -2.5 * np.log10( meanrat )
+
+    def estimate_lim_mag(self, zp=None, aperture=1, savePlot=None, blockPlot=False):
+        """ Estimate the 5-sigma limiting magnitude of an image.
+
+        Limiting magnitude is estimated by linearly fitting on magnitude against
+        log(SNR) for sources in an image, and evaluating the magnitude where SNR
+        is equal to 5.
+        
+        Parameters:
+        -----------
+        zp : ZeroPoint, optional
+            The zero point of the image. Defaults to self.zp if one is not
+            specified when called. Returns None if no zero point.
+        
+        aperture : int, optional
+            The aperture size for which the limiting magnitude is to be estimated. 
+            - The default value is 1.
+
+        savePlot : str, optional
+            If given, will save the SNR vs magnitude plot as X in the plots
+            folder, where X is the passed string. Remember a file extension.
+            If not given, no plot will be made.
+
+        blockPlot : bool, optional
+            If True, will show plot and pause tests until plot window is closed.
+
+        Returns:
+        --------
+        limMagEst : float
+            Estimate of 5-sigma limiting magnitude for an image.
+            Will return None if no zero point available
+        
+        """
+        zp = self.zp if zp is None else zp
+        if zp != None:
+            aperCorr = self.calc_aper_cor(aperture)
+            zeroPoint = zp.zp
+            flux, fluxerr = self.apfluxadu(aperture)
+            mags = -2.5 * np.log10(flux) + zeroPoint + aperCorr
+            snr = flux/fluxerr
+            mask = (snr >= 3) & (snr <= 20) #only fitting for sources 3 < SNR < 20 
+            snrMasked = np.log(snr[mask])
+            magsMasked = mags[mask]
+
+            m,c = np.polyfit(snrMasked,magsMasked,1) #calculate slope and intercept of fitted line
+            limMagEst = m * np.log(5) + c #limiting magnitude estimate at SNR = 5
+
+            if savePlot != None:
+                xdata = np.linspace(np.log(3),np.log(20),1000)
+                plt.plot(snrMasked,magsMasked,linewidth=0,marker='o',c='midnightblue')
+                plt.plot(xdata, m * xdata + c, color='firebrick')
+                plt.xlabel('log SNR')
+                plt.ylabel('magnitude')
+                plt.title('Limiting magntiude = {:.2f} mag'.format(limMagEst))
+                ymin,ymax = plt.gca().get_ylim()
+                plt.vlines(x=np.log(5),ymin=ymin,ymax=ymax)
+                plt.hlines(y=limMagEst,xmin=np.log(3),xmax=np.log(20))
+                plt.xlim(np.log(3),np.log(20))
+                plt.ylim(ymin,ymax)
+                plt.savefig('plots/{}.png'.format(savePlot))
+                plt.show(block=blockPlot)
+
+            return limMagEst
+                
+        else:
+            limMagEst = None
+            return limMagEst
+
 
     def load(self, filepath=None):
 

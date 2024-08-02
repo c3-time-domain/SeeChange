@@ -1,6 +1,7 @@
 import pytest
 import uuid
 import numpy as np
+import os
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
@@ -83,8 +84,14 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     m.flux_apertures[m.best_aperture] = original_flux
     new_im.zp.dzp = original_zp_err
 
-    # TODO: add test for limiting magnitude (issue #143)
+    #test limiting magnitude estimation
+    srcList = ptf_datastore.sources
 
+    # make and save a Magnitude vs SNR (limiting mag) plot
+    limMagEst = srcList.estimate_lim_mag(aperture=1,savePlot='snr_mag_plot.png')
+
+    #check the limiting magnitude is consistent with previous runs
+    assert limMagEst == pytest.approx(20.00, abs=0.5)
 
 def test_filtering_measurements(ptf_datastore):
     measurements = ptf_datastore.measurements

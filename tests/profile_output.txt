@@ -1,0 +1,135 @@
+Fri May 24 15:15:24 2024    profile_output
+
+         91077560 function calls (91077354 primitive calls) in 63.286 seconds
+
+   Random listing order was used
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    10002    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+    20000    0.002    0.000    0.002    0.000 {method 'pop' of 'dict' objects}
+  4851206    0.267    0.000    0.267    0.000 {method 'items' of 'dict' objects}
+  1207802    0.079    0.000    0.079    0.000 {method 'append' of 'list' objects}
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.abs}
+    10000    0.003    0.000    0.006    0.000 {built-in method builtins.all}
+    30000    0.014    0.000    0.026    0.000 {built-in method builtins.any}
+    10000    0.001    0.000    0.001    0.000 {built-in method builtins.callable}
+        1    0.000    0.000   63.286   63.286 {built-in method builtins.exec}
+    10000    0.002    0.000    0.002    0.000 {built-in method builtins.getattr}
+  1207802    0.081    0.000    0.081    0.000 {built-in method builtins.hasattr}
+21900427/21900425    1.284    0.000    1.284    0.000 {built-in method builtins.isinstance}
+  7276807    0.549    0.000    0.549    0.000 {built-in method builtins.issubclass}
+    30000    0.003    0.000    0.003    0.000 {built-in method builtins.iter}
+  1257801    0.089    0.000    0.089    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.sum}
+       85    0.000    0.000    0.000    0.000 <frozen _collections_abc>:409(__subclasshook__)
+       15    0.000    0.000    0.000    0.000 <frozen _collections_abc>:315(__subclasshook__)
+        1    0.000    0.000    0.000    0.000 <frozen _collections_abc>:78(_check_methods)
+    106/4    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+        3    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+        3    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+    106/4    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+        2    0.000    0.000    0.000    0.000 {built-in method _operator.index}
+        1    0.000    0.000    0.000    0.000 {built-in method math.isinf}
+        3    0.000    0.000    0.000    0.000 {built-in method math.isnan}
+        1    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:428(__eq__)
+        1    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:527(approx)
+        1    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:472(tolerance)
+    30000    0.161    0.000    0.218    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:340(_broadcast_to)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numeric.py:1330(normalize_axis_tuple)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numeric.py:1129(roll)
+    10000    0.045    0.000    0.072    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:86(_pad_simple)
+    20000    0.050    0.000    0.247    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:458(_as_pairs)
+    10000    0.077    0.000    0.485    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:533(pad)
+  1207801    3.570    0.000    6.868    0.000 /usr/local/lib/python3.11/dist-packages/shapely/creation.py:176(polygons)
+    10000    1.934    0.000   63.147    0.006 /seechange/improc/photometry.py:65(_make_circle)
+        1    0.000    0.000    0.000    0.000 /seechange/improc/photometry.py:130(get_image)
+    10000    0.320    0.000    0.365    0.000 /usr/local/lib/python3.11/dist-packages/shapely/constructive.py:85(buffer)
+    10000    0.032    0.000    0.490    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/base.py:430(buffer)
+    10000    0.025    0.000    0.149    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/point.py:52(__new__)
+  1207801    2.343    0.000   13.980    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/polygon.py:62(__new__)
+        1    0.000    0.000   63.286   63.286 /seechange/tests/improc/test_photometry.py:15(test_circle_soft)
+        1    0.000    0.000   63.286   63.286 <string>:1(<module>)
+  1207801    0.551    0.000   26.726    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/base.py:593(intersection)
+  4831204    0.906    0.000    0.906    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/polygon.py:91(<listcomp>)
+  1207801    1.195    0.000   25.023    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/polygon.py:221(__new__)
+  1217801    0.106    0.000    0.106    0.000 /usr/local/lib/python3.11/dist-packages/shapely/creation.py:24(_xyz_to_coords)
+    10000    0.046    0.000    0.047    0.000 /usr/local/lib/python3.11/dist-packages/shapely/creation.py:34(points)
+  1207801    2.284    0.000    2.388    0.000 /usr/local/lib/python3.11/dist-packages/shapely/creation.py:124(linearrings)
+        1    0.000    0.000   63.286   63.286 /seechange/improc/photometry.py:12(get_circle)
+  1207801    3.606    0.000    3.606    0.000 /usr/local/lib/python3.11/dist-packages/shapely/measurement.py:21(area)
+  4851204    0.376    0.000    0.376    0.000 /usr/local/lib/python3.11/dist-packages/shapely/decorators.py:73(<listcomp>)
+  1207801   23.017    0.000   23.017    0.000 /usr/local/lib/python3.11/dist-packages/shapely/set_operations.py:79(intersection)
+  4851204    1.656    0.000    2.040    0.000 /usr/local/lib/python3.11/dist-packages/shapely/decorators.py:64(<listcomp>)
+  4831204    1.524    0.000    2.666    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/polygon.py:87(_coords)
+  1207801    0.634    0.000    6.806    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/base.py:327(area)
+    20000    0.013    0.000    0.027    0.000 /usr/local/lib/python3.11/dist-packages/shapely/_enum.py:12(get_value)
+  1207801    0.824    0.000    3.491    0.000 /usr/local/lib/python3.11/dist-packages/shapely/geometry/polygon.py:93(<listcomp>)
+  4851204    7.426    0.000   47.554    0.000 /usr/local/lib/python3.11/dist-packages/shapely/decorators.py:62(wrapped)
+  4851204    0.983    0.000    1.153    0.000 /usr/local/lib/python3.11/dist-packages/shapely/decorators.py:66(<listcomp>)
+        1    0.139    0.139   63.286   63.286 /seechange/improc/photometry.py:50(__init__)
+    10000    0.869    0.000   34.401    0.003 /seechange/improc/photometry.py:104(<listcomp>)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+    10000    0.043    0.000    0.374    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/function_base.py:5010(meshgrid)
+    40000    0.013    0.000    0.013    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:33(_slice_at_axis)
+    30000    0.010    0.000    0.010    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:109(<genexpr>)
+    30000    0.010    0.000    0.010    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:120(<genexpr>)
+    10000    0.001    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:525(_pad_dispatcher)
+    30000    0.010    0.000    0.014    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/function_base.py:348(iterable)
+    10000    0.006    0.000    0.009    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:538(<listcomp>)
+    10000    0.088    0.000    0.089    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:416(_broadcast_shape)
+    20000    0.054    0.000    0.067    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:129(_set_pad_area)
+    20000    0.005    0.000    0.005    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:542(<genexpr>)
+    10000    0.010    0.000    0.142    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:546(<listcomp>)
+    10000    0.006    0.000    0.022    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/function_base.py:5163(<listcomp>)
+    30000    0.007    0.000    0.007    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:25(_maybe_view_as_subclass)
+    90000    0.011    0.000    0.011    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:345(<genexpr>)
+    10000    0.006    0.000    0.092    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:367(broadcast_to)
+    20000    0.018    0.000    0.018    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/arraypad.py:58(_view_roi)
+    10000    0.028    0.000    0.276    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:480(broadcast_arrays)
+    10000    0.020    0.000    0.031    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/function_base.py:5150(<listcomp>)
+    10000    0.001    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:363(_broadcast_to_dispatcher)
+    10000    0.001    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/stride_tricks.py:476(_broadcast_arrays_dispatcher)
+    10000    0.001    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/lib/function_base.py:5005(_meshgrid_dispatcher)
+    10000    0.013    0.000    0.041    0.000 {method 'all' of 'numpy.generic' objects}
+    10000    0.005    0.000    0.005    0.000 {method 'astype' of 'numpy.ndarray' objects}
+    20000    0.016    0.000    0.016    0.000 {method 'copy' of 'numpy.ndarray' objects}
+    10000    0.005    0.000    0.050    0.000 {method 'min' of 'numpy.ndarray' objects}
+    10000    0.003    0.000    0.003    0.000 {method 'ravel' of 'numpy.ndarray' objects}
+    30000    0.018    0.000    0.018    0.000 {method 'reshape' of 'numpy.ndarray' objects}
+    10000    0.007    0.000    0.007    0.000 {method 'round' of 'numpy.ndarray' objects}
+    10000    0.001    0.000    0.001    0.000 {method 'squeeze' of 'numpy.ndarray' objects}
+    10000    0.003    0.000    0.003    0.000 {method 'tolist' of 'numpy.ndarray' objects}
+  1307801    1.277    0.000    1.277    0.000 {built-in method numpy.array}
+  1227801    1.301    0.000    1.301    0.000 {built-in method numpy.asarray}
+    20002    0.002    0.000    0.002    0.000 {built-in method numpy.asanyarray}
+   139900    0.151    0.000    0.151    0.000 {built-in method numpy.arange}
+        1    0.000    0.000    0.000    0.000 {built-in method numpy.zeros}
+  1217801    0.353    0.000    0.353    0.000 {built-in method numpy.empty}
+        2    0.000    0.000    0.000    0.000 {built-in method numpy.core._multiarray_umath.normalize_axis_index}
+    30000    0.005    0.000    0.005    0.000 {method '__exit__' of 'numpy.nditer' objects}
+    20000    0.065    0.000    0.065    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+  4851204    1.160    0.000    1.573    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numerictypes.py:283(issubclass_)
+    10000    0.004    0.000    0.028    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/_methods.py:61(_all)
+    50002    0.015    0.000    0.017    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numeric.py:1855(isscalar)
+    10000    0.007    0.000    0.023    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/fromnumeric.py:3269(round)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numeric.py:1125(_roll_dispatcher)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numeric.py:1216(<dictcomp>)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numeric.py:1380(<listcomp>)
+    10000    0.004    0.000    0.045    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/_methods.py:43(_amin)
+    10000    0.001    0.000    0.001    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/fromnumeric.py:3265(_round_dispatcher)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/multiarray.py:85(empty_like)
+    10000    0.007    0.000    0.016    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/fromnumeric.py:53(_wrapfunc)
+  2425602    1.411    0.000    3.119    0.000 /usr/local/lib/python3.11/dist-packages/numpy/core/numerictypes.py:357(issubdtype)
+        1    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:754(_is_numpy_array)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:480(set_default)
+        1    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:80(__init__)
+        2    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:762(_as_numpy_array)
+        1    0.000    0.000    0.000    0.000 /usr/local/lib/python3.11/dist-packages/_pytest/python_api.py:127(_check_type)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.11/typing.py:1284(__instancecheck__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.11/typing.py:1547(__subclasscheck__)
+    20000    0.005    0.000    0.005    0.000 /usr/lib/python3.11/enum.py:791(__getitem__)
+    20000    0.003    0.000    0.003    0.000 /usr/lib/python3.11/enum.py:1248(value)
+    20000    0.006    0.000    0.009    0.000 /usr/lib/python3.11/enum.py:192(__get__)
+
+

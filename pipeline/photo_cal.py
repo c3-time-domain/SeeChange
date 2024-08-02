@@ -303,12 +303,14 @@ class PhotCalibrator:
 
                 ds.image.zero_point_estimate = ds.zp.zp  # TODO: should we only write if the property is None?
                 # TODO: I'm putting a stupid placeholder instead of actual limiting magnitude, please fix this!
-                ds.image.lim_mag_estimate = ds.zp.zp - 2.5 * np.log10(5.0 * ds.image.bkg_rms_estimate)
+                # ds.image.lim_mag_estimate = ds.zp.zp - 2.5 * np.log10(5.0 * ds.image.bkg_rms_estimate)
+                ds.image.lim_mag_estimate = sources.estimate_lim_mag()
 
                 ds.runtimes['photo_cal'] = time.perf_counter() - t_start
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
                     ds.memory_usages['photo_cal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+                
 
             # update the bitflag with the upstreams
             ds.zp._upstream_bitflag = 0
