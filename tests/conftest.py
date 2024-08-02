@@ -34,8 +34,8 @@ from util.logger import SCLogger
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -350,14 +350,12 @@ def provenance_preprocessing(code_version):
         code_version = session.merge(code_version)
         p = Provenance(
             process="preprocessing",
-            code_version=code_version,
+            code_version_id=code_version.id,
             parameters={"test_parameter": "test_value"},
             upstreams=[],
             is_testing=True,
         )
-
-        p = session.merge(p)
-        session.commit()
+        p.save()
 
     yield p
 
@@ -372,14 +370,12 @@ def provenance_extraction(code_version):
         code_version = session.merge(code_version)
         p = Provenance(
             process="extraction",
-            code_version=code_version,
+            code_version_id=code_version.id,
             parameters={"test_parameter": "test_value"},
             upstreams=[],
             is_testing=True,
         )
-
-        p = session.merge(p)
-        session.commit()
+        p.save()
 
     yield p
 

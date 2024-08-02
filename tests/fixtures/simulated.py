@@ -46,6 +46,8 @@ def make_sim_exposure():
 
 
 def add_file_to_exposure(exposure):
+    """Creates an empty file at the exposure's filepath if one doesn't exist already."""
+    
     fullname = exposure.get_fullpath()
     open(fullname, 'a').close()
 
@@ -55,12 +57,9 @@ def add_file_to_exposure(exposure):
         os.remove(fullname)
 
 
-def commit_exposure(exposure, session=None):
-    with SmartSession(session) as session:
-        exposure = session.merge(exposure)
-        exposure.nofile = True  # avoid calls to the archive to find this file
-        session.commit()
-
+def commit_exposure(exposure):
+    exposure.load_or_insert( onlyinsert=True )
+    exposure.nofile = True  # avoid calls to the archive to find this file
     return exposure
 
 
@@ -74,20 +73,26 @@ def generate_exposure_fixture():
 
         yield e
 
+        e.delete_from_disk_and_database()
+        
         with SmartSession() as session:
-            e = session.merge(e)
-            if sa.inspect(e).persistent:
-                session.delete(e)
-                session.commit()
+            # The provenance will have been automatically created
+            session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+            session.commit()
 
     return new_exposure
-
-
-# this will inject 10 exposures named sim_exposure1, sim_exposure2, etc.
+            
+# this will inject 9 exposures named sim_exposure1, sim_exposure2, etc.
 for i in range(1, 10):
     globals()[f'sim_exposure{i}'] = generate_exposure_fixture()
 
 
+@pytest.fixture
+def unloaded_exposure():
+    e = make_sim_exposure()
+
+    return e
+    
 @pytest.fixture
 def sim_exposure_filter_array():
     e = make_sim_exposure()
@@ -104,6 +109,9 @@ def sim_exposure_filter_array():
             if sa.inspect( e ).persistent:
                 session.delete(e)
                 session.commit()
+
+            session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+            session.commit()
 
 
 # tools for making Image fixtures
@@ -160,6 +168,11 @@ class ImageCleanup:
 
     def __del__(self):
         try:
+            # TODO ROB THINK ABOUT THIS -- if the image may have been
+            #   added to the database, then we always need to call
+            #   delete_from_disk_and_database.  Is there any reason
+            #   why we don't just always call that and sometimes only
+            #   call remove_data_from_disk?
             if self.archive:
                 self.image.delete_from_disk_and_database()
             else:
@@ -179,51 +192,45 @@ def generate_image_fixture(commit=True):
 
     @pytest.fixture
     def new_image(provenance_preprocessing):
+        im = None
+        exp = None
         exp = make_sim_exposure()
         add_file_to_exposure(exp)
-        if commit:
-            exp = commit_exposure(exp)
+        # Have to commit the exposure even if commit=False
+        #  because otherwise tests that use this fixture
+        #  would get an error about unknown exposure id
+        #  when trying to commit the image.
+        exp = commit_exposure(exp)
         exp.update_instrument()
 
         im = Image.from_exposure(exp, section_id=0)
+        im.provenance_id = provenance_preprocessing.id
         im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
         im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
         im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
-
+        
         if commit:
-            with SmartSession() as session:
-                im.provenance = provenance_preprocessing
-                im.save()
-                merged_image = session.merge(im)
-                merged_image.raw_data = im.raw_data
-                merged_image.data = im.data
-                merged_image.flags = im.flags
-                merged_image.weight = im.weight
-                merged_image.header = im.header
-                im = merged_image
-                session.commit()
+            im.save()
+            im.load_or_insert( onlyinsert=True )
 
         yield im
 
+        # Clean up the exposure provenance that got created
+        if exp is not None:
+            # This will also recursively delete im from disk and database
+            exp.delete_from_disk_and_database()
+
+        # TODO WORRY : might this provenance be the same as something that
+        #   gets created in a module or session fixture?  Perhaps we should be more
+        #   careful and explicit about this?
         with SmartSession() as session:
-            im = session.merge(im)
-            exp = im.exposure
-            im.delete_from_disk_and_database(session=session, commit=True)
-            if sa.inspect( im ).persistent:
-                session.delete(im)
-                session.commit()
-
-            if im in session:
-                session.expunge(im)
-
-            if exp is not None and sa.inspect( exp ).persistent:
-                session.delete(exp)
-                session.commit()
-
+            session.execute( sa.delete( Provenance ).where( Provenance.id == exp.provenance_id ) )
+            session.commit()
+                
     return new_image
 
 
-# this will inject 10 images named sim_image1, sim_image2, etc.
+# this will inject 9 images named sim_image1, sim_image2, etc.
 for i in range(1, 10):
     globals()[f'sim_image{i}'] = generate_image_fixture()
 
@@ -307,6 +314,11 @@ def sim_reference(provenance_preprocessing, provenance_extra):
             if sa.inspect(ref).persistent:
                 session.delete(ref.provenance)  # should also delete the reference
             session.commit()
+
+    # The provenance will have been automatically created
+    with SmartSession() as session:
+        session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+        session.commit()
 
 
 @pytest.fixture
@@ -443,6 +455,10 @@ def sim_image_list(
             exp.delete_from_disk_and_database(session=session, commit=False)
         session.commit()
 
+        # The provenance will have been automatically created
+        session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+        session.commit()
+        
 
 @pytest.fixture
 def provenance_subtraction(code_version, subtractor):

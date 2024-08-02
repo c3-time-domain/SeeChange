@@ -355,84 +355,30 @@ class SeeChangeBase:
         raise RuntimeError( "safe_merge should no longer be necessary" )
         return safe_merge(session, self, db_check_att=db_check_att)
 
-    # def get_upstreams(self, session=None):
-    #     """Get all data products that were directly used to create this object (non-recursive)."""
-    #     raise NotImplementedError('get_upstreams not implemented for this class')
+    def get_upstreams(self, session=None):
+        """Get all data products that were directly used to create this object (non-recursive)."""
+        raise NotImplementedError('get_upstreams not implemented for this class')
 
-    # def get_downstreams(self, session=None, siblings=True):
-    #     """Get all data products that were created directly from this object (non-recursive).
+    def get_downstreams(self, session=None, siblings=True):
+        """Get all data products that were created directly from this object (non-recursive).
 
-    #     This optionally includes siblings: data products that are co-created in the same pipeline step
-    #     and depend on one another. E.g., a source list and psf have an image upstream and a (subtraction?) image
-    #     as a downstream, but they are each other's siblings.
-    #     """
-    #     raise NotImplementedError('get_downstreams not implemented for this class')
-
-    def _delete_from_database(self, session=None, commit=True, remove_downstreams=False):
-        """Remove the object from the database -- don't call this, call delete_from_disk_and_database.
-
-        This does not remove any associated files (if this is a FileOnDiskMixin)
-        and does not remove the object from the archive.
-
-        Parameters
-        ----------
-        session: sqlalchemy session
-            The session to use for the deletion. If None, will open a new session,
-            which will also close at the end of the call.
-        commit: bool
-            Whether to commit the deletion to the database.
-            Default is True. When session=None then commit must be True,
-            otherwise the session will exit without committing
-            (in this case the function will raise a RuntimeException).
-        remove_downstreams: bool
-            If True, will also remove all downstream data products.
-            Default is False.
+        This optionally includes siblings: data products that are co-created in the same pipeline step
+        and depend on one another. E.g., a source list and psf have an image upstream and a (subtraction?) image
+        as a downstream, but they are each other's siblings.
         """
-        if session is None and not commit:
-            raise RuntimeError("When session=None, commit must be True!")
+        raise NotImplementedError('get_downstreams not implemented for this class')
 
-        with SmartSession(session) as session, warnings.catch_warnings():
-            warnings.filterwarnings(
-                action='ignore',
-                message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
-            )
+    # Don't define this here because of all the complicated overriding semantics of python (potentially
+    # further confused by SQLAlchemy's declarative_base).  Objects weren't finding the _delete_from_database
+    # defined in UUIDMixin if this was defined here.
+    #
+    # Classes that don't derive from UUIDMixin need to implement this for themselves.
+    #
+    # def _delete_from_database(self):
+    #     raise NotImplementedError( f"_delete_from_database not implemented for {self.__class__.__name__}" )
 
-            need_commit = False
-            if remove_downstreams:
-                try:
-                    downstreams = self.get_downstreams(session=session)
-                    for d in downstreams:
-                        if hasattr(d, '_delete_from_database'):
-                            if d._delete_from_database(session=session, commit=False, remove_downstreams=True):
-                                need_commit = True
-                        if isinstance(d, list) and len(d) > 0 and hasattr(d[0], 'delete_list'):
-                            d[0].delete_list(d, remove_local=False, archive=False, commit=False, session=session)
-                            need_commit = True
-                except NotImplementedError as e:
-                    pass  # if this object does not implement get_downstreams, it is ok
 
-            info = sa.inspect(self)
-
-            if info.persistent:
-                session.delete(self)
-                need_commit = True
-            elif info.pending:
-                session.expunge(self)
-                need_commit = True
-            elif info.detached:
-                obj = session.scalars(sa.select(self.__class__).where(self.__class__.id == self.id)).first()
-                if obj is not None:
-                    session.delete(obj)
-                    need_commit = True
-
-            if commit and need_commit:
-                session.commit()
-
-        return need_commit  # to be able to recursively report back if there's a need to commit
-
-    def delete_from_disk_and_database(
-            self, session=None, commit=True, remove_folders=True, remove_downstreams=False, archive=True,
-    ):
+    def delete_from_disk_and_database( self, remove_folders=True, remove_downstreams=True, archive=True ):
         """Delete any data from disk, archive and the database.
 
         Use this to clean up an entry from all locations, as relevant
@@ -446,44 +392,44 @@ class SeeChangeBase:
         and will attempt to delete from any locations regardless
         of if it existed elsewhere or not.
 
-        TODO : this is sometimes broken if you don't pass a session.
-
         Parameters
         ----------
-        session: sqlalchemy session
-            The session to use for the deletion. If None, will open a new session,
-            which will also close at the end of the call.
-        commit: bool
-            Whether to commit the deletion to the database.
-            Default is True. When session=None then commit must be True,
-            otherwise the session will exit without committing
-            (in this case the function will raise a RuntimeException).
         remove_folders: bool
             If True, will remove any folders on the path to the files
             associated to this object, if they are empty.
+
         remove_downstreams: bool
             If True, will also remove any downstream data.
             Will recursively call get_downstreams() and find any objects
             that can have their data deleted from disk, archive and database.
-            Default is False.
+            Default is True.  Setting this to False is probably a bad idea;
+            because of the database structure, some downstream objects may
+            get deleted through a cascade, but then the files on disk and
+            in the archive will be left behind.  In any event, it violates
+            database integrity to remove something and not remove everything
+            downstream of it.
+
         archive: bool
             If True, will also delete the file from the archive.
             Default is True.
 
         """
-        if session is None and not commit:
-            raise RuntimeError("When session=None, commit must be True!")
 
+        if not remove_downstreams:
+            SCLogger.warning( "Setting remove_downstreams to False in delete_from_disk_and_database "
+                              "is probably a bad idea; see docstring." )
+        
         # Recursively remove downstreams first
 
         if remove_downstreams:
             downstreams = self.get_downstreams()
             for d in downstreams:
                 if hasattr( d, 'delete_from_disk_and_database' ):
-                    d.delete_from_disk_and_database( session=session, commit=commit,
-                                                     remove_folders=remove_folders, archive=archive,
+                    d.delete_from_disk_and_database( remove_folders=remove_folders, archive=archive,
                                                      remove_downstreams=True )
 
+        # Remove files from archive
+                    
         if archive and hasattr( self, "filepath" ):
             if self.filepath is not None:
                 if self.filepath_extensions is None:
@@ -497,6 +443,7 @@ class SeeChangeBase:
             self.md5sum = None
             self.md5sum_extensions = None
 
+        # Remove data from disk
 
         if hasattr( self, "remove_data_from_disk" ):
             self.remove_data_from_disk( remove_folders=remove_folders )
@@ -505,8 +452,9 @@ class SeeChangeBase:
             self.filepath_extensions = None
             self.filepath = None
 
-        # Don't pass remove_downstreams here because we took care of downstreams above.
-        SeeChangeBase._delete_from_database( self, session=session, commit=commit, remove_downstreams=False )
+        # Finally, after everything is cleaned up, remove the database record
+            
+        self._delete_from_database()
 
 
     def to_dict(self):
@@ -881,8 +829,8 @@ class FileOnDiskMixin:
     )
 
     def __init__(self, *args, **kwargs):
-        """
-        Initialize an object that is associated with a file on disk.
+        """Initialize an object that is associated with a file on disk.
+
         If giving a single unnamed argument, will assume that is the filepath.
         Note that the filepath should not include the global data path,
         but only a path relative to that. # TODO: remove the global path if filepath starts with it?
@@ -891,6 +839,7 @@ class FileOnDiskMixin:
         ----------
         args: list
             List of arguments, should only contain one string as the filepath.
+
         kwargs: dict
             Dictionary of keyword arguments.
             These include:
@@ -974,9 +923,8 @@ class FileOnDiskMixin:
         return filepath
 
     def get_fullpath(self, download=True, as_list=False, nofile=None, always_verify_md5=False):
-        """
-        Get the full path of the file, or list of full paths
-        of files if filepath_extensions is not None.
+        """Get the full path of the file, or list of full paths of files if filepath_extensions is not None.
+
         If the archive is defined, and download=True (default),
         the file will be downloaded from the server if missing.
         If the file is not found on server or locally, will
@@ -1108,9 +1056,85 @@ class FileOnDiskMixin:
 
         return fullname
 
+
+    def load_or_insert( self, onlyinsert=False ):
+        """Either load the object's uuid from the database, or insert the object into the database.
+
+        Will identify the object based on the unique FileOnDisk
+        filepath; make sure that field is set before calling this.
+
+        Does not do any saving to disk, only saves the database record.
+
+        In any event, if there are no exceptions, self.id will be set upon return.
+
+        DEVELOPER NOTE : any subclasses of this class that are not also
+        subclasses of UUIDMixin need to either override this method, or
+        implement at get_id() that will generate a proper self.id.
+        
+        Parameters
+        ----------
+          onlyinsert: bool, default False
+            If True, then we know we want to insert a new object; if it
+            already exists, be sad.
+
+        Returns
+        -------
+          was_inserted: bool
+            True = the object was newly inserted.  False = the object was
+            already in the database.
+
+            If the object was in the database and onlyinsert was True,
+            or if the id of the object in the database didn't match a
+            non-None id of self, an execption will be raised.
+
+        """
+
+        inserted = False
+        cls = self.__class__
+        with SmartSession() as sess:
+            current = None
+            try:
+                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ), )
+                current = sess.query( cls ).filter( cls.filepath == self.filepath ).first()
+                if current is None:
+                    self.get_id()     # Make sure we have a uuid in self.id
+                    # I really want to use add here (I am ALWAYS nervous using sqlalchemy merge, but since
+                    #   we've gotten rid of most relationships hopefully it's not as scary as it could be),
+                    #   because that's what we're doing, but we get sqlalchemy weirdness if this object was at
+                    #   some point in the past connected to another session, even if
+                    #   sqlalchemy.orm.session.object_session(self) is None.  (Inside
+                    #   test_image.py::test_image_enum_values, We were getting an error about how UPDATE was
+                    #   expecting 1 object, but it only found 0.  The real question is why sqlalchemy thought
+                    #   the thing needed to be updated when I said "add", but the history of the object must
+                    #   have done something complicated with the sqlalchemys state.)  Because sqlalchmey is
+                    #   annoying and weird, we have to do annoying and weird things doing even the simplest of
+                    #   stuff with it.
+                    # sess.add( self )
+                    obj = sess.merge( self )
+                    sess.add( obj )
+                    sess.commit()
+                    inserted = True
+                elif onlyinsert:
+                    raise RuntimeError( f"{cls.__tablename__} {self.filepath} exists in the database, "
+                                        f"but onlyinsert was True" )
+            finally:
+                # Make sure to free the lock
+                sess.rollback()
+                if ( not inserted ) and ( current is not None ):
+                    if self.id is None:
+                        self.id = current.id
+                    elif self.id != current.id:
+                        raise ValueError( f"ID mismatch {self.__class__.__name__} {self.filepath}; "
+                                          f"self.id={self.id}, database id={current.id}" )
+
+    
+        return inserted
+                    
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
         """Save a file to disk, and to the archive.
 
+        Does not write anything to the database.  (At least, it's not supposed to....)
+        
         Parameters
         ---------
         data: bytes, string, or Path
@@ -1447,8 +1471,38 @@ class UUIDMixin:
         if self.id is None:
             self.id=uuid.uuid4()
         return self.id
-    
 
+    def get_by_id( self, uuid, session=None ):
+        """Get an object of the current class that matches the given uuid.
+
+        Returns None if not found.
+        """
+        with SmartSession( session ) as sess:
+            return sess.query( cls ).filter( cls.id==uuid ).first()
+
+    def _delete_from_database( self ):
+        """Remove the object from the database.  Don't call this, call delete_from_disk_and_database.
+
+        This does not remove any associated files (if this is a
+        FileOnDiskMixin) and does not remove the object from the archive.
+
+        Note that if you call this, cascading relationships in the database
+        may well delete other objects.  This shouldn't be a problem if this is
+        called from within SeeChangeBase.delete_from_disk_and_database (the
+        only place it should be called!), because that recurses itself and
+        makes sure to clean up all files and archive files before the database
+        records get deleted.
+
+        """
+
+        with SmartSession() as session:
+            session.execute( sa.text( f"DELETE FROM {self.__tablename__} WHERE id=:id" ), { 'id': self.id } )
+            session.commit()
+
+        # Look how much easier this is when you don't have to spend a whole bunch of time
+        #  deciding if the object needs to be merged, expunged, etc. to a session
+        
+        
 class SpatiallyIndexed:
     """A mixin for tables that have ra and dec fields indexed via q3c."""
 
@@ -2059,6 +2113,7 @@ class HasBitFlagBadness:
             to avoid infinite recursion.
         """
         # make sure this object is current:
+        raise RuntimeError( "Rob, update this one" )
         with SmartSession(session) as session:
             merged_self = session.merge(self)
             new_bitflag = 0  # start from scratch, in case some upstreams have lost badness

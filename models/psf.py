@@ -60,7 +60,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def format( self, value ):
         self._format = PSFFormatConverter.convert( value )
 
-    source_id = sa.Column(
+    sources_id = sa.Column(
         sa.ForeignKey( 'source_lists.id', ondelete='CASCADE', name='psfs_source_lists_id_fkey' ),
         nullable=False,
         index=True,

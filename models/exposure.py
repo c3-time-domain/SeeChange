@@ -572,9 +572,9 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         # Much code redundancy with Image.invent_filepath; move to a mixin?
 
-        if self.provenance is None:
+        if self.provenance_id is None:
             raise ValueError("Cannot invent filepath for exposure without provenance.")
-        prov_hash = self.provenance.id
+        prov_hash = self.provenance_id
 
         t = Time(self.mjd, format='mjd', scale='utc').datetime
         date = t.strftime('%Y%m%d')
@@ -758,21 +758,6 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         return images
 
-    def load_or_insert( self, verify=True ):
-        """Either load the object's uuid from the databdse, or create a new object.
-
-        Will identify the object based on the unique FileOnDisk filed filepath.
-        
-        Parameters
-        ----------
-          verify: bool, default True
-            If the object already exists in the database, verify that the
-            everything matches.  If not, trust that things are right.
-
-        """
-        raise NotImplementedError( "Rob, do." )
-        
-    
     def merge_concurrent(self, session=None):
         """Try multiple times to fetch and merge this exposure.
         This will hopefully protect us against concurrently adding the exposure from multiple processes.

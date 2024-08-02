@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from models.base import SmartSession, FileOnDiskMixin
-from models.image import Image
+from models.image import Image, image_upstreams_association_table
 from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag
 from models.psf import PSF
 from models.source_list import SourceList
@@ -57,54 +57,95 @@ def test_image_no_null_values(provenance_base):
     added = {}
 
     # use non-capturing groups to extract the column name from the error message
-    expr = r'(?:null value in column )(".*")(?: of relation "images" violates not-null constraint)'
+    exc_re = re.compile( r'(?:null value in column )(".*")(?: of relation "images" violates not-null constraint)' )
 
     try:
         im_id = None  # make sure to delete the image if it is added to DB
 
         # md5sum is spoofed as we don't have this file saved to archive
         image = Image(f"Demo_test_{rnd_str(5)}.fits", md5sum=uuid.uuid4(), nofile=True, section_id=1)
-        with SmartSession() as session:
-            for i in range(len(required)):
-                image = session.merge(image)
-                # set the exposure to the values in "added" or None if not in "added"
-                for k in required.keys():
-                    setattr(image, k, added.get(k, None))
 
-                # without all the required columns on image, it cannot be added to DB
-                with pytest.raises(IntegrityError) as exc:
-                    session.add(image)
-                    session.commit()
-                    im_id = image.id
-                session.rollback()
+        for i in range( len(required ) ):
+            # set the exposure to the values in "added" or None if not in "added"
+            for k in required.keys():
+                setattr(image, k, added.get(k, None))
 
-                # a constraint on a column being not-null was violated
-                match_obj = re.search(expr, str(exc.value))
-                assert match_obj is not None
+            # without all the required columns on image, it cannot be added to DB
+            with pytest.raises( IntegrityError ) as exc:
+                image.load_or_insert()
 
-                # find which column raised the error
-                colname = match_obj.group(1).replace('"', '')
+            # Figure out which column screamed and yelled about being null
+            match_obj = exc_re.search( str(exc.value) )
+            assert match_obj is not None
 
-                # add missing column name:
-                added.update({colname: required[colname]})
+            # Extract the column that raised the error, and add it to things we set
+            colname = match_obj.group(1).replace( '"', '' )
+            added.update( { colname: required[colname] } )
 
+        # now set all the required keys and make sure that the loading works
         for k in required.keys():
             setattr(image, k, added.get(k, None))
-        session.add(image)
-        session.commit()
+        didinsert = image.load_or_insert()
+        assert didinsert
         im_id = image.id
         assert im_id is not None
 
     finally:
         # cleanup
         with SmartSession() as session:
-            found_image = None
-            if im_id is not None:
-                found_image = session.scalars(sa.select(Image).where(Image.id == im_id)).first()
-            if found_image is not None:
-                session.delete(found_image)
-                session.commit()
+            session.execute( sa.delete( Image ).where( Image.id == im_id ) )
+            session.commit()
 
+def test_image_load_or_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted, provenance_base ):
+    # FileOnDiskMixin.load_or_insert() is tested in test_exposure.py::test_exposure_load_or_insert
+
+    im = sim_image_uncommitted
+    im.filepath = im.invent_filepath()
+    # Spoof the md5sum as we're not actually going to save this image
+    im.md5sum = uuid.uuid4()
+
+    upstreamids = ( [ sim_image1.id, sim_image2.id ]
+                    if sim_image1.mjd < sim_image2.mjd
+                    else [ sim_image2.id, sim_image1.id ] )
+
+    # Make sure that upstreams get created if the image has them
+    im._upstream_ids = [ i for i in upstreamids ]
+    inserted = im.load_or_insert()
+    assert inserted
+    with SmartSession() as sess:
+        upstrs = ( sess.query( image_upstreams_association_table )
+                   .filter( image_upstreams_association_table.c.downstream_id == im.id ) ).all()
+        assert len( upstrs ) == 2
+        assert set( [ i.upstream_id for i in upstrs ] ) == set( upstreamids )
+
+    # Make sure that we get the upstream ids from the database if necessary
+    im._upstream_ids == None
+    assert im.upstream_image_ids == upstreamids
+    assert im._upstream_ids == upstreamids
+
+    # Make sure that we get an exception if we have inconsistent upstream ids from what's in the database
+    im._upstream_ids.append( sim_image3.id )
+    with pytest.raises( RuntimeError, match="but the list of upstream images did not match" ):
+        im.load_or_insert( verifyupstreams=True )
+
+    # Make sure that _upstream_ids isn't loaded if we don't ask to verifyupstreams and the image pre-exists
+    im._upstream_ids = None
+    inserted = im.load_or_insert()
+    assert not inserted
+    assert im._upstream_ids is None
+    assert im.upstream_image_ids == upstreamids
+    assert im._upstream_ids == upstreamids
+
+    # clean up
+    with SmartSession() as sess:
+        sess.execute( sa.delete( Image ).where( Image.id==im.id ) )
+        sess.commit()
+        # Make sure the delete cascaded to the assocation tabe
+        upstrs = ( sess.query( image_upstreams_association_table )
+                   .filter( image_upstreams_association_table.c.downstream_id == im.id ) ).all()
+        assert len(upstrs) == 0
+    
+        
 
 def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
     try:
@@ -112,105 +153,87 @@ def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
         assert im.md5sum is None
         assert im.md5sum_extensions is None
 
-        im.provenance = provenance_base
+        im.provenance_id = provenance_base.id
         _ = ImageCleanup.save_image(im, archive=False)
 
         im.md5sum = None
-        with SmartSession() as session:
 
-            with pytest.raises(IntegrityError, match='violates check constraint'):
-                im = session.merge(im)
-                session.commit()
-            session.rollback()
+        with pytest.raises(IntegrityError, match='violates check constraint'):
+            im.load_or_insert()
 
-            # adding md5sums should fix this problem
-            _2 = ImageCleanup.save_image(im, archive=True)
-            im = session.merge(im)
-            session.commit()
+        # adding md5sums should fix this problem
+        _2 = ImageCleanup.save_image(im, archive=True)
+        im.load_or_insert()
 
     finally:
-        with SmartSession() as session:
-            im = session.merge(im)
-            exp = im.exposure
-            im.delete_from_disk_and_database(session)
-
-            if sa.inspect(exp).persistent:
-                session.delete(exp)
-                session.commit()
+        im.delete_from_disk_and_database()
 
 
-def test_image_archive_singlefile(sim_image_uncommitted, provenance_base, archive, test_config):
+def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
     im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint16)
-
+    
     archive_dir = archive.test_folder_path
     single_fileness = test_config.value('storage.images.single_file')
 
     try:
+        # Do single file first
+        test_config.set_value('storage.images.single_file', True)
+
+        # Make sure that the archive is *not* written when we tell it not to.
+        im.save( no_archive=True )
+        assert im.md5sum is None
+        archive_path = os.path.join(archive_dir, im.filepath)
+        with pytest.raises(FileNotFoundError):
+            ifp = open( archive_path, 'rb' )
+            ifp.close()
+        im.remove_data_from_disk()
+
+        # Save to the archive, make sure it all worked
+        im.save()
+        localmd5 = hashlib.md5()
+        with open( im.get_fullpath( nofile=False ), 'rb' ) as ifp:
+            localmd5.update( ifp.read() )
+        assert localmd5.hexdigest() == im.md5sum.hex
+        archivemd5 = hashlib.md5()
+        with open( archive_path, 'rb' ) as ifp:
+            archivemd5.update( ifp.read() )
+        assert archivemd5.hexdigest() == im.md5sum.hex
+
+        # Make sure that we can download from the archive
+        im.remove_data_from_disk()
+        with pytest.raises(FileNotFoundError):
+            assert isinstance( im.get_fullpath( nofile=True ), str )
+            ifp = open( im.get_fullpath( nofile=True ), "rb" )
+            ifp.close()
+        p = im.get_fullpath( nofile=False )
+        localmd5 = hashlib.md5()
+        with open( im.get_fullpath( nofile=False ), 'rb' ) as ifp:
+            localmd5.update( ifp.read() )
+        assert localmd5.hexdigest() == im.md5sum.hex
+
+        # Make sure that the md5sum is properly saved to the database
+        assert im.id is None
+        im.load_or_insert()
+        assert im.id is not None
         with SmartSession() as session:
-            # Do single file first
-            test_config.set_value('storage.images.single_file', True)
-            im.provenance = session.merge(provenance_base)
-            im.exposure = session.merge(im.exposure)  # make sure the exposure and provenance/code versions merge
-            # Make sure that the archive is *not* written when we tell it not to.
-            im.save( no_archive=True )
-            assert im.md5sum is None
-            archive_path = os.path.join(archive_dir, im.filepath)
-            with pytest.raises(FileNotFoundError):
-                ifp = open( archive_path, 'rb' )
-                ifp.close()
-            im.remove_data_from_disk()
+            dbimage = session.query(Image).filter(Image.id == im.id)[0]
+            assert dbimage.md5sum.hex == im.md5sum.hex
 
-            # Save to the archive, make sure it all worked
-            im.save()
-            localmd5 = hashlib.md5()
-            with open( im.get_fullpath( nofile=False ), 'rb' ) as ifp:
-                localmd5.update( ifp.read() )
-            assert localmd5.hexdigest() == im.md5sum.hex
-            archivemd5 = hashlib.md5()
-            with open( archive_path, 'rb' ) as ifp:
-                archivemd5.update( ifp.read() )
-            assert archivemd5.hexdigest() == im.md5sum.hex
-
-            # Make sure that we can download from the archive
-            im.remove_data_from_disk()
-            with pytest.raises(FileNotFoundError):
-                assert isinstance( im.get_fullpath( nofile=True ), str )
-                ifp = open( im.get_fullpath( nofile=True ), "rb" )
-                ifp.close()
-            p = im.get_fullpath( nofile=False )
-            localmd5 = hashlib.md5()
-            with open( im.get_fullpath( nofile=False ), 'rb' ) as ifp:
-                localmd5.update( ifp.read() )
-            assert localmd5.hexdigest() == im.md5sum.hex
-
-            # Make sure that the md5sum is properly saved to the database
-            im.provenance = session.merge(im.provenance)
-            session.add( im )
-            session.commit()
-            with SmartSession() as differentsession:
-                dbimage = differentsession.query(Image).filter(Image.id == im.id)[0]
-                assert dbimage.md5sum.hex == im.md5sum.hex
-
-            # Make sure we can purge the archive
-            im.delete_from_disk_and_database(session=session, commit=True)
-            with pytest.raises(FileNotFoundError):
-                ifp = open( archive_path, 'rb' )
-                ifp.close()
-            assert im.md5sum is None
+        # Make sure we can purge the archive
+        im.delete_from_disk_and_database()
+        with pytest.raises(FileNotFoundError):
+            ifp = open( archive_path, 'rb' )
+            ifp.close()
+        assert im.md5sum is None
 
     finally:
-        with SmartSession() as session:
-            exp = session.merge(im.exposure)
-
-            if sa.inspect(exp).persistent:
-                session.delete(exp)
-                session.commit()
+        im.delete_from_disk_and_database()
         test_config.set_value('storage.images.single_file', single_fileness)
 
 
-def test_image_archive_multifile(sim_image_uncommitted, provenance_base, archive, test_config):
+def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
     im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint16)
@@ -220,79 +243,69 @@ def test_image_archive_multifile(sim_image_uncommitted, provenance_base, archive
     single_fileness = test_config.value('storage.images.single_file')
 
     try:
+        # Now do multiple images
+        test_config.set_value('storage.images.single_file', False)
+
+        # Make sure that the archive is not written when we tell it not to
+        im.save( no_archive=True )
+        localmd5s = {}
+        assert len(im.get_fullpath(nofile=True)) == 2
+        for fullpath in im.get_fullpath(nofile=True):
+            localmd5s[fullpath] = hashlib.md5()
+            with open(fullpath, "rb") as ifp:
+                localmd5s[fullpath].update(ifp.read())
+        assert im.md5sum is None
+        assert im.md5sum_extensions == [None, None]
+        im.remove_data_from_disk()
+
+        # Save to the archive
+        im.save()
+        for ext, fullpath, md5sum in zip(im.filepath_extensions,
+                                         im.get_fullpath(nofile=True),
+                                         im.md5sum_extensions):
+            assert localmd5s[fullpath].hexdigest() == md5sum.hex
+
+            with open( fullpath, "rb" ) as ifp:
+                m = hashlib.md5()
+                m.update( ifp.read() )
+                assert m.hexdigest() == localmd5s[fullpath].hexdigest()
+            with open( os.path.join(archive_dir, im.filepath) + ext, 'rb' ) as ifp:
+                m = hashlib.md5()
+                m.update( ifp.read() )
+                assert m.hexdigest() == localmd5s[fullpath].hexdigest()
+
+        # Make sure that we can download from the archive
+        im.remove_data_from_disk()
+
+        # using nofile=True will make sure the files are not downloaded from archive
+        filenames = im.get_fullpath( nofile=True )
+        for filename in filenames:
+            with pytest.raises(FileNotFoundError):
+                ifp = open( filename, "rb" )
+                ifp.close()
+
+        # this call to get_fullpath will also download the files to local storage
+        newpaths = im.get_fullpath( nofile=False )
+        assert newpaths == filenames
+        for filename in filenames:
+            with open( filename, "rb" ) as ifp:
+                m = hashlib.md5()
+                m.update( ifp.read() )
+                assert m.hexdigest() == localmd5s[filename].hexdigest()
+
+        # Make sure that the md5sum is properly saved to the database
+        assert im.id is None
+        im.load_or_insert()
+        assert im.id is not None
         with SmartSession() as session:
-            im.provenance = provenance_base
-
-            # Now do multiple images
-            test_config.set_value('storage.images.single_file', False)
-
-            # Make sure that the archive is not written when we tell it not to
-            im.save( no_archive=True )
-            localmd5s = {}
-            assert len(im.get_fullpath(nofile=True)) == 2
-            for fullpath in im.get_fullpath(nofile=True):
-                localmd5s[fullpath] = hashlib.md5()
-                with open(fullpath, "rb") as ifp:
-                    localmd5s[fullpath].update(ifp.read())
-            assert im.md5sum is None
-            assert im.md5sum_extensions == [None, None]
-            im.remove_data_from_disk()
-
-            # Save to the archive
-            im.save()
-            for ext, fullpath, md5sum in zip(im.filepath_extensions,
-                                             im.get_fullpath(nofile=True),
-                                             im.md5sum_extensions):
-                assert localmd5s[fullpath].hexdigest() == md5sum.hex
-
-                with open( fullpath, "rb" ) as ifp:
-                    m = hashlib.md5()
-                    m.update( ifp.read() )
-                    assert m.hexdigest() == localmd5s[fullpath].hexdigest()
-                with open( os.path.join(archive_dir, im.filepath) + ext, 'rb' ) as ifp:
-                    m = hashlib.md5()
-                    m.update( ifp.read() )
-                    assert m.hexdigest() == localmd5s[fullpath].hexdigest()
-
-            # Make sure that we can download from the archive
-            im.remove_data_from_disk()
-
-            # using nofile=True will make sure the files are not downloaded from archive
-            filenames = im.get_fullpath( nofile=True )
-            for filename in filenames:
-                with pytest.raises(FileNotFoundError):
-                    ifp = open( filename, "rb" )
-                    ifp.close()
-
-            # this call to get_fullpath will also download the files to local storage
-            newpaths = im.get_fullpath( nofile=False )
-            assert newpaths == filenames
-            for filename in filenames:
-                with open( filename, "rb" ) as ifp:
-                    m = hashlib.md5()
-                    m.update( ifp.read() )
-                    assert m.hexdigest() == localmd5s[filename].hexdigest()
-
-            # Make sure that the md5sum is properly saved to the database
-            im = session.merge(im)
-            session.commit()
-            with SmartSession() as differentsession:
-                dbimage = differentsession.scalars(sa.select(Image).where(Image.id == im.id)).first()
-                assert dbimage.md5sum is None
-
-                filenames = dbimage.get_fullpath( nofile=True )
-                for fullpath, md5sum in zip(filenames, dbimage.md5sum_extensions):
-                    assert localmd5s[fullpath].hexdigest() == md5sum.hex
+            dbimage = session.scalars(sa.select(Image).where(Image.id == im.id)).first()
+        assert dbimage.md5sum is None
+        filenames = dbimage.get_fullpath( nofile=True )
+        for fullpath, md5sum in zip(filenames, dbimage.md5sum_extensions):
+            assert localmd5s[fullpath].hexdigest() == md5sum.hex
 
     finally:
-        with SmartSession() as session:
-            im = im.merge_all(session)
-            exp = im.exposure
-            im.delete_from_disk_and_database(session)
-
-            if sa.inspect(exp).persistent:
-                session.delete(exp)
-                session.commit()
+        im.delete_from_disk_and_database()
         test_config.set_value('storage.images.single_file', single_fileness)
 
 
@@ -339,13 +352,9 @@ def test_image_save_justheader( sim_image1 ):
             assert ( hdul[0].data == np.full( (64, 32), 4., dtype=np.float32 ) ).all()
 
     finally:
-        with SmartSession() as session:
-            exp = session.merge(sim_image1.exposure)
-            if sa.inspect(exp).persistent:
-                session.delete(exp)
-                session.commit()
-
-
+        # The fixtures should do all the necessary deleting
+        pass
+        
 def test_image_save_onlyimage( sim_image1 ):
     sim_image1.data = np.full( (64, 32), 0.125, dtype=np.float32 )
     sim_image1.flags = np.random.randint(0, 100, size=sim_image1.data.shape, dtype=np.uint16)
@@ -372,101 +381,111 @@ def test_image_save_onlyimage( sim_image1 ):
         assert ifp.read() == "Hello, world."
 
 
-def test_image_enum_values(sim_image1):
-    data_filename = None
-    with SmartSession() as session:
-        sim_image1 = sim_image1.merge_all(session)
+def test_image_enum_values( sim_image_uncommitted ):
+    im = sim_image_uncommitted
+    im.filepath = im.invent_filepath()
+    # Spoof the md5sum since we aren't actually saving anything
+    im.md5sum = uuid.uuid4()
 
-        try:
-            with pytest.raises(ValueError, match='ImageTypeConverter must be one of .* not foo'):
-                sim_image1.type = 'foo'
-                session.add(sim_image1)
-                session.commit()
-            session.rollback()
+    try:
+        with pytest.raises(ValueError, match='ImageTypeConverter must be one of .* not foo'):
+            im.type = 'foo'
+            im.load_or_insert( onlyinsert=True )
 
-            # these should work
-            for prepend in ["", "Com"]:
-                for t in ["Sci", "Diff", "Bias", "Dark", "DomeFlat"]:
-                    sim_image1.type = prepend+t
-                    session.add(sim_image1)
-                    session.commit()
+        # these should work
+        for prepend in ["", "Com"]:
+            for t in ["Sci", "Diff", "Bias", "Dark", "DomeFlat"]:
+                im.type = prepend+t
+                im.load_or_insert( onlyinsert=True )
+                # Now remove it so the next load_or_insert can work
+                if not ( ( t == 'DomeFlat' ) and ( prepend == "Com" ) ):
+                    im._delete_from_database()
 
-            # should have an image with ComDomeFlat type
-            assert sim_image1._type == 10  # see image_type_dict
+        # should have an image with ComDomeFlat type
+        assert im._type == 10  # see image_type_dict
 
-            # make sure we can also select on this:
+        # make sure we can also select on this:
+        with SmartSession() as session:
             images = session.scalars(sa.select(Image).where(Image.type == "ComDomeFlat")).all()
-            assert sim_image1.id in [i.id for i in images]
+            assert im.id in [i.id for i in images]
 
             images = session.scalars(sa.select(Image).where(Image.type == "Sci")).all()
-            assert sim_image1.id not in [i.id for i in images]
+            assert im.id not in [i.id for i in images]
 
-            # check the image format enum works as expected:
-            with pytest.raises(ValueError, match='ImageFormatConverter must be one of .* not foo'):
-                sim_image1.format = 'foo'
-                session.add(sim_image1)
-                session.commit()
-            session.rollback()
 
-            # these should work
-            for f in ['fits', 'hdf5']:
-                sim_image1.format = f
-                session.add(sim_image1)
-                session.commit()
+        im._delete_from_database()
+            
+        # check the image format enum works as expected:
+        with pytest.raises(ValueError, match='ImageFormatConverter must be one of .* not foo'):
+            im.format = 'foo'
+            im.load_or_insert()
 
-            # should have an image with ComDomeFlat type
-            assert sim_image1._format == 2  # see image_type_dict
+        # these should work
+        for f in ['fits', 'hdf5']:
+            im.format = f
+            im.load_or_insert( onlyinsert=True )
+            if f != 'hdf5':
+                im._delete_from_database()
 
-            # make sure we can also select on this:
+        # should have an image with ComDomeFlat type
+        assert im._format == 2  # see image_type_dict
+
+        # make sure we can also select on this:
+        with SmartSession() as session:
             images = session.scalars(sa.select(Image).where(Image.format == "hdf5")).all()
-            assert sim_image1.id in [i.id for i in images]
+            assert im.id in [i.id for i in images]
 
             images = session.scalars(sa.select(Image).where(Image.format == "fits")).all()
-            assert sim_image1.id not in [i.id for i in images]
+            assert im.id not in [i.id for i in images]
 
-        finally:
-            sim_image1.remove_data_from_disk()
-            if data_filename is not None and os.path.exists(data_filename):
-                os.remove(data_filename)
-                folder = os.path.dirname(data_filename)
-                if len(os.listdir(folder)) == 0:
-                    os.rmdir(folder)
+    finally:
+        # The fixtures should do all necessary deletion
+        pass
 
 
 def test_image_preproc_bitflag( sim_image1 ):
-
+    # Reload the image from the database so the default values that get
+    # set when the image is saved to the database are filled.
     with SmartSession() as session:
-        im = session.merge(sim_image1)
+        im = session.query( Image ).filter( Image.id==sim_image1.id ).first()
+    
+    assert im.preproc_bitflag == 0
+    im.preproc_bitflag |= string_to_bitflag( 'zero', image_preprocessing_inverse )
+    assert im.preproc_bitflag == string_to_bitflag( 'zero', image_preprocessing_inverse )
+    im.preproc_bitflag |= string_to_bitflag( 'flat', image_preprocessing_inverse )
+    assert im.preproc_bitflag == string_to_bitflag( 'zero, flat', image_preprocessing_inverse )
+    im.preproc_bitflag |= string_to_bitflag( 'flat, overscan', image_preprocessing_inverse )
+    assert im.preproc_bitflag == string_to_bitflag( 'overscan, zero, flat', image_preprocessing_inverse )
 
-        assert im.preproc_bitflag == 0
-        im.preproc_bitflag |= string_to_bitflag( 'zero', image_preprocessing_inverse )
-        assert im.preproc_bitflag == string_to_bitflag( 'zero', image_preprocessing_inverse )
-        im.preproc_bitflag |= string_to_bitflag( 'flat', image_preprocessing_inverse )
-        assert im.preproc_bitflag == string_to_bitflag( 'zero, flat', image_preprocessing_inverse )
-        im.preproc_bitflag |= string_to_bitflag( 'flat, overscan', image_preprocessing_inverse )
-        assert im.preproc_bitflag == string_to_bitflag( 'overscan, zero, flat', image_preprocessing_inverse )
+    im2 = None
+    try:
+        # Save a new image with the preproc bitflag that we've set
+        im2 = im.copy()
+        im2.id = uuid.uuid4()
+        im2.filepath = "delete_this_file.fits"       # Shouldn't actually get saved
+        im2.load_or_insert( onlyinsert=True )
 
         images = session.scalars(sa.select(Image).where(
             Image.preproc_bitflag.op('&')(string_to_bitflag('zero', image_preprocessing_inverse)) != 0
         )).all()
-        assert im.id in [i.id for i in images]
+        assert im2.id in [i.id for i in images]
 
         images = session.scalars(sa.select(Image).where(
             Image.preproc_bitflag.op('&')(string_to_bitflag('zero,flat', image_preprocessing_inverse)) !=0
         )).all()
-        assert im.id in [i.id for i in images]
+        assert im2.id in [i.id for i in images]
 
         images = session.scalars(sa.select(Image).where(
             Image.preproc_bitflag.op('&')(
                 string_to_bitflag('zero, flat', image_preprocessing_inverse)
             ) == string_to_bitflag('flat, zero', image_preprocessing_inverse)
         )).all()
-        assert im.id in [i.id for i in images]
+        assert im2.id in [i.id for i in images]
 
         images = session.scalars(sa.select(Image).where(
             Image.preproc_bitflag.op('&')(string_to_bitflag('fringe', image_preprocessing_inverse) ) !=0
         )).all()
-        assert im.id not in [i.id for i in images]
+        assert im2.id not in [i.id for i in images]
 
         images = session.scalars(sa.select(Image.filepath).where(
             Image.id == im.id,  # only find the original image, if any
@@ -475,6 +494,10 @@ def test_image_preproc_bitflag( sim_image1 ):
             ) == string_to_bitflag( 'overscan, fringe', image_preprocessing_inverse )
         )).all()
         assert len(images) == 0
+
+    finally:
+        if im2 is not None:
+            im2._delete_from_database()
 
 
 def test_image_from_exposure(sim_exposure1, provenance_base):
@@ -485,6 +508,7 @@ def test_image_from_exposure(sim_exposure1, provenance_base):
         _ = Image.from_exposure(sim_exposure1, section_id=1)
 
     im = Image.from_exposure(sim_exposure1, section_id=0)
+    assert im.id is None
     assert im.section_id == 0
     assert im.mjd == sim_exposure1.mjd
     assert im.end_mjd == sim_exposure1.end_mjd
@@ -498,7 +522,7 @@ def test_image_from_exposure(sim_exposure1, provenance_base):
     assert not im.is_coadd
     assert not im.is_sub
     assert im.id is None  # need to commit to get IDs
-    assert im.upstream_images == []
+    assert im._upstream_ids is None
     assert im.filepath is None  # need to save file to generate a filename
     assert np.array_equal(im.raw_data, sim_exposure1.data[0])
     assert im.data is None
@@ -508,38 +532,34 @@ def test_image_from_exposure(sim_exposure1, provenance_base):
 
     # TODO: add check for loading the header after we make a demo header maker
     # TODO: what should the RA/Dec be for an image that cuts out from an exposure?
+    #  (It should be the RA/Dec at the center of the image; ideally, Image.from_exposure
+    #  will do that right.  We should test that, if we don't already somewhere.  It is
+    #  almost certainly instrument-specific code to do this.)
 
-    im_id = None
     try:
-        with SmartSession() as session:
-            with pytest.raises(IntegrityError, match='null value in column .* of relation "images"'):
-                session.merge(im)
-                session.commit()
-            session.rollback()
+        with pytest.raises(IntegrityError, match='null value in column .* of relation "images"'):
+            im.load_or_insert()
 
-            # must add the provenance!
-            im.provenance = provenance_base
-            with pytest.raises(IntegrityError, match='null value in column "filepath" of relation "images"'):
-                im = session.merge(im)
-                session.commit()
-            session.rollback()
+        # must add the provenance!
+        im.provenance_id = provenance_base.id
+        with pytest.raises(IntegrityError, match='null value in column "filepath" of relation "images"'):
+            im.load_or_insert()
 
-            _ = ImageCleanup.save_image(im)  # this will add the filepath and md5 sum!
+        im.data = im.raw_data
+        im.save()   # This will add the filepath and md5sum
 
-            session.add(im)
-            session.commit()
+        im.load_or_insert()
 
-            assert im.id is not None
-            assert im.provenance_id is not None
-            assert im.provenance_id == provenance_base.id
-            assert im.exposure_id is not None
-            assert im.exposure_id == sim_exposure1.id
+        assert im.id is not None
+        assert im.provenance_id is not None
+        assert im.provenance_id == provenance_base.id
+        assert im.exposure_id is not None
+        assert im.exposure_id == sim_exposure1.id
 
     finally:
-        if im_id is not None:
-            with SmartSession() as session:
-                im.delete_from_disk_and_database(commit=True, session=session)
-
+        # All necessary cleanup *should* be done in fixtures
+        # (The sim_exposure1 fixture will delete images derived from it)
+        pass
 
 def test_image_from_exposure_filter_array(sim_exposure_filter_array):
     sim_exposure_filter_array.update_instrument()
@@ -550,69 +570,83 @@ def test_image_from_exposure_filter_array(sim_exposure_filter_array):
 
 def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_base):
 
+    im = None
     try:
+        sim_exposure1.update_instrument()
+        sim_exposure2.update_instrument()
+
+        # make sure exposures are in chronological order...
+        if sim_exposure1.mjd > sim_exposure2.mjd:
+            sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
+
+        # get a couple of images from exposure objects
+        im1 = Image.from_exposure(sim_exposure1, section_id=0)
+        im1.provenance_id = provenance_base.id
+        im1.filepath = im1.invent_filepath()
+        im1.md5sum = uuid.uuid4()                # Spoof so we can save to database without writing a file
+        im1.data = im1.raw_data
+        im1.weight = np.ones_like(im1.raw_data)
+        im1.flags = np.zeros_like(im1.raw_data)
+        im2 = Image.from_exposure(sim_exposure2, section_id=0)
+        im2.provenance_id = provenance_base.id
+        im2.filepath = im2.invent_filepath()
+        im2.md5sum = uuid.uuid4()                # Spoof so we can save to database without writing a file
+        im2.data = im2.raw_data
+        im2.weight = np.ones_like(im2.raw_data)
+        im2.flags = np.zeros_like(im2.raw_data)
+        im2.filter = im1.filter
+        im2.target = im1.target
+
+        # Since these images were created fresh, not loaded from the
+        #  database, they don't have ids yet
+        assert im1.id is None
+        assert im2.id is None
+        
+        # make a "coadd" image from the two
+        im = Image.from_images([im1, im2])
+        im.provenance_id = provenance_base.id
+        # Spoof the md5sum so we can save to the database
+        im.md5sum = uuid.uuid4()
+
+        # im1, im2 provenances should have been filled in
+        # when we ran from_images
+        assert im1.id is not None
+        assert im2.id is not None
+        assert im1.upstream_image_ids == []
+        assert im2.upstream_image_ids == []
+        
+        assert im.id is None
+        assert im.exposure_id is None
+        assert im.upstream_image_ids == [im1.id, im2.id]
+        assert np.isclose(im.mid_mjd, (im1.mjd + im2.mjd) / 2)
+
+        # Make sure we can save all of this to the database
+
+        with pytest.raises( IntegrityError, match='null value in column "filepath" of relation "images" violates' ):
+            im.load_or_insert( onlyinsert=True )
+        im.filepath = im.invent_filepath()
+
+        # It should object if we haven't saved the upstreams first
+        with pytest.raises( IntegrityError, match='insert or update on table "images" violates foreign key constraint' ):
+            im.load_or_insert( onlyinsert=True )
+
+        # So try to do it right
+        im1.load_or_insert( onlyinsert=True )
+        im2.load_or_insert( onlyinsert=True )
+        im.load_or_insert( onlyinsert=True )
+        
+        assert im.id is not None
+
         with SmartSession() as session:
-            sim_exposure1.update_instrument()
-            sim_exposure2.update_instrument()
+            newim = session.query( Image ).filter( Image.id==im.id ).first()
+        assert newim.upstream_image_ids == [ im1.id, im2.id ]
+        assert newim.exposure_id is None
+        assert np.isclose( im.mid_mjd, ( im1.mjd + im2.mjd ) / 2. )
 
-            # make sure exposures are in chronological order...
-            if sim_exposure1.mjd > sim_exposure2.mjd:
-                sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
-
-            # get a couple of images from exposure objects
-            im1 = Image.from_exposure(sim_exposure1, section_id=0)
-            im1.weight = np.ones_like(im1.raw_data)
-            im1.flags = np.zeros_like(im1.raw_data)
-            im2 = Image.from_exposure(sim_exposure2, section_id=0)
-            im2.weight = np.ones_like(im2.raw_data)
-            im2.flags = np.zeros_like(im2.raw_data)
-            im2.filter = im1.filter
-            im2.target = im1.target
-
-            im1.provenance = provenance_base
-            _1 = ImageCleanup.save_image(im1)
-            im1 = im1.merge_all(session)
-
-            im2.provenance = provenance_base
-            _2 = ImageCleanup.save_image(im2)
-            im2 = im2.merge_all(session)
-
-            # make a coadd image from the two
-            im = Image.from_images([im1, im2])
-            im.provenance = provenance_base
-            _3 = ImageCleanup.save_image(im)
-            im = im.merge_all( session )
-
-            sim_exposure1 = session.merge(sim_exposure1)
-            sim_exposure2 = session.merge(sim_exposure2)
-
-            session.commit()
-
-            im_id = im.id
-            assert im_id is not None
-            assert im.exposure_id is None
-            assert im.upstream_images == [im1, im2]
-            assert np.isclose(im.mid_mjd, (im1.mjd + im2.mjd) / 2)
-
-            # make sure source images are pulled into the database too
-            im1_id = im1.id
-            assert im1_id is not None
-            assert im1.exposure_id is not None
-            assert im1.exposure_id == sim_exposure1.id
-            assert im1.upstream_images == []
-
-            im2_id = im2.id
-            assert im2_id is not None
-            assert im2.exposure_id is not None
-            assert im2.exposure_id == sim_exposure2.id
-            assert im2.upstream_images == []
-
-    finally:  # make sure to clean up all images
-        for image in [im, im1, im2]:
-            if image is not None:
-                with SmartSession() as session:
-                    image.delete_from_disk_and_database(session=session, commit=False)
-                    session.commit()
+    finally:
+        # im1, im2 will be cleaned up by the exposure fixtures
+        if im is not None:
+            im.delete_from_disk_and_database()
 
 
 def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):

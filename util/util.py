@@ -16,6 +16,14 @@ from astropy.time import Time
 from models.base import SmartSession, safe_mkdir
 from util.logger import SCLogger
 
+def asUUID( id ):
+    """Pass either a UUID or a string representation of one, get a UUID back."""
+    if isinstance( id, UUID ):
+        return id
+    if not isinstance( id, str ):
+        raise TypeError( f"asUUID requires a UUID or a str, not a {type(id)}" )
+    return uuid.UUID( id )
+    
 
 def ensure_file_does_not_exist( filepath, delete=False ):
     """Check if a file exists.  Delete it, or raise an exception, if it does.

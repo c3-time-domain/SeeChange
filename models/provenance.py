@@ -384,6 +384,13 @@ class Provenance(Base):
         else:
             super().__setattr__(key, value)
 
+    @classmethod
+    def get( cls, uuid, session=None ):
+        """Get a provenace given an id, or None if it doesn't exist."""
+        with SmartSession( session ) as sess:
+            return sess.query( Provenance ).filter( Provenance.id==uuid ).first()
+        
+            
     def update_id(self):
         """Update the id using the code_version, process, parameters and upstream_hashes.
         """

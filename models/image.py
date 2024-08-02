@@ -21,7 +21,7 @@ from astropy.io import fits
 import astropy.coordinates
 import astropy.units as u
 
-from util.util import read_fits_image, save_fits_image_file, parse_dateobs, listify
+from util.util import read_fits_image, save_fits_image_file, parse_dateobs, listify, asUUID
 from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
 from util.logger import SCLogger
 
@@ -59,7 +59,7 @@ image_upstreams_association_table = sa.Table(
     Base.metadata,
     sa.Column('upstream_id',
               sqlUUID,
-              sa.ForeignKey('images.id', ondelete="CASCADE", name='image_upstreams_association_upstream_id_fkey'),
+              sa.ForeignKey('images.id', ondelete="RESTRICT", name='image_upstreams_association_upstream_id_fkey'),
               primary_key=True),
     sa.Column('downstream_id',
               sqlUUID,
@@ -211,7 +211,25 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     #         return None
     #     return image[0]
 
-    # TODO: Perhaps replace this with a check that ref_image is not NULL?
+    @property
+    def upstream_image_ids( self ):
+        if self._upstream_ids is None:
+            with SmartSession() as session:
+                self.get_id()
+                them = list ( session.query( image_upstreams_association_table.c.upstream_id,
+                                             Image.mjd )
+                              .join( Image, Image.id == image_upstreams_association_table.c.upstream_id )
+                              .filter( image_upstreams_association_table.c.downstream_id == self.id )
+                              .all() )
+            them.sort( key=lambda x: x[1] )
+            self._upstream_ids = [ t[0] for t in them ]
+        return self._upstream_ids
+
+    @upstream_image_ids.setter
+    def upstream_image_ids( self, val ):
+        raise RuntimeError( "upstream_ids cannot be set directly.  Set it by creating the image with "
+                            "from_images() or from_ref_and_new()" )
+    
     is_sub = sa.Column(
         sa.Boolean,
         nullable=False,
@@ -512,6 +530,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nandata = None  # a copy of the image data, only with NaNs at each flagged point. Lazy calculated.
         self._nanscore = None  # a copy of the image score, only with NaNs at each flagged point. Lazy calculated.
 
+        self._upstream_ids = None
+        
         self._instrument_object = None
         self._bitflag = 0
         self.is_sub = False
@@ -554,12 +574,104 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nandata = None
         self._nanscore = None
 
+        self._upstream_ids = None
+        
         self._instrument_object = None
-        this_object_session = orm.Session.object_session(self)
-        if this_object_session is not None:  # if just loaded, should usually have a session!
-            self.load_upstream_products(this_object_session)
+
+        # this_object_session = orm.Session.object_session(self)
+        # if this_object_session is not None:  # if just loaded, should usually have a session!
+        #     self.load_upstream_products(this_object_session)
+
+    def load_or_insert( self, onlyinsert=False, verifyupstreams=False ):
+        """Either load the image's uuid from the database, or save the image's database record.
+
+        Will identify the object based on the unique filepath.
+
+        In any events, if there are no exceptions, self.id will be set upon
+        return.  (As a side effect, may also load self._upstream_ids, but
+        that's transparent to the user, and happens when the user accesses
+        upstream_image_ids anyway.)
+
+        This calls FileOnDisk.load_or_insert, but also will create assocations
+        defined in self._upstreams (which will have been set if this Image was
+        created with from_images() or from_ref_and_new()).
+
+        Parameters
+        ----------
+          onlyinsert: bool, default False
+            If True, then we know we want to insert a new image; if it
+            already exists, be sad.
+
+          verifyupstreams: bool, default False
+            If the object was not inserted into the database, verify that
+            self._upstream_ids is consistent with the image upstreams
+            in the database.  (self._upstream_ids=None is consistent, because
+            that means it will just get loaded later.)
+        
+        Returns
+        -------
+          was_inserted: bool
+            True = the image was newly inserted.  False = the object was
+            already in the database.
+
+            If the image was in the database and onlyinsert was True,
+            or if the id of the object in the database didn't match a
+            non-None id of self, an execption will be raised.
+
+        
+        Returns True if the image was newly loaded, False if the image
+        was already in the database.
+
+        """
+
+        inserted = FileOnDiskMixin.load_or_insert( self, onlyinsert=onlyinsert )
+        if ( not inserted ) and ( ( not verifyupstreams ) or ( self._upstream_ids is None ) ):
+            return inserted
+
+        with SmartSession() as sess:
+            try:
+                sess.connection().execute( sa.text( f'LOCK TABLE image_upstreams_association' ) )
+
+                existing = list( sess.query( image_upstreams_association_table.c.upstream_id,
+                                            Image.mjd )
+                                 .join( Image, Image.id == image_upstreams_association_table.c.upstream_id )
+                                 .filter( image_upstreams_association_table.c.downstream_id == self.id )
+                                 .all() )
+                existing.sort( key=lambda x: x[1] )
+                existing_upstreams = [ e[1] for e in existing ]
+
+                if inserted:
+                    # Have to create the new upstreams
+                    if len( existing_upstreams ) > 0:
+                        # This really shouldn't ever happen, so if it does, it means there's
+                        #   a logic error somewhere whose possibility didn't occur to us.
+                        raise RuntimeError( f"Database error!  Image {self.id} was newly loaded but there "
+                                            f"were already upstreams in the database!" )
+                    if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
+                        for ui in self._upstream_ids:
+                            sess.execute( sa.text( "INSERT INTO "
+                                                   "image_upstreams_association(upstream_id,downstream_id) "
+                                                   "VALUES (:them,:me)" ),
+                                          { "them": ui, "me": self.id } )
+                        sess.commit()
+                else:
+                    if not all( [ str(e) == str(i) for e, i in zip( existing_upstreams, self._upstream_ids ) ] ):
+                        # This will happen if self._upstream_ids was set somewhere other than via the
+                        #   self.upstream_image_ids attribute or during Image creation in from_images() or
+                        #   from_new_and_ref() (which are the only ways self._upstream_ids is ever
+                        #   supposed to be set), or if something went wrong in the middle of a database
+                        #   insert somewhere.
+                        raise RuntimeError( f"Image {self.id} already existing in the database, but the list of "
+                                            f"upstream images did not match what was expected!" )
+                    
+            finally:
+                # Make sure the lock on image_upstreams_association is released
+                sess.rollback()
+                
+        return inserted
 
     def merge_all(self, session):
+
         """Merge self and all its downstream products and assign them back to self.
 
         This includes: sources, psf, wcs, zp.
@@ -575,7 +687,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         pipeline/data_store.py::DataStore.save_and_commit
 
         """
-        raise RuntimeError( "merge_all should no longer be necessary" )
+        raise RuntimeError( "merge_all should no longer be necessary; use load_or_insert" )
         
         new_image = self.safe_merge(session=session)
 
@@ -926,21 +1038,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @classmethod
     def from_images(cls, images, index=0):
         """Create a new Image object from a list of other Image objects.
-        This is the first step in making a multi-image (usually a coadd).
-        Do not use this to make subtractions!  Use from_ref_and_new instead.
+
+        This is the first step in making a multi-image (usually a
+        coadd).  Do not use this to make subtractions!  Use
+        from_ref_and_new instead.  Make sure to set the is_coadd flag of
+        the returned image, as it's not set here (just in case there's
+        some eventual usage other than making coadds).
 
         The output image doesn't have any data, and is created with
-        nofile=True.  It is up to the calling application to fill in the
-        data, flags, weight, etc. using the appropriate preprocessing tools.
-
-        The Image objects used as inputs must have their own data products
-        loaded before calling this method, so their provenances will be recorded.
-        The provenance of the output object should be generated, then a call to
-        output.provenance.upstreams = output.get_upstream_provenances()
-        will make sure the provenance has the correct upstreams.
-
-        After that, the data needs to be saved to file, and only then
-        can the new Image be added to the database.
+        nofile=True.  It is up to the calling application to fill in the data,
+        flags, weight, etc. using the appropriate preprocessing tools.  It is
+        also up to the calling application to fill in the image's provenance
+        (which must include the provenances of the images that went into the
+        combination as upstreams!).
 
         Parameters
         ----------
@@ -957,20 +1067,32 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         -------
         output: Image
             The new Image object. It would not have any data variables or filepath.
+
         """
-        raise RuntimeError( "Rob, this one needs work -- see upstream images, etc." )
-        
         if len(images) < 1:
             raise ValueError("Must provide at least one image to combine.")
-
+        
         # sort images by mjd:
         images = sorted(images, key=lambda x: x.mjd)
+
+        # Make sure input images all have ids set.  If these images were
+        #   loaded from the database, then the ids will be set.  If they
+        #   were created fresh, then they don't have ids yet, so make
+        #   them with UUIDMixin.get_id().  This does mean that the exact
+        #   image objects passed need to be saved to the database when
+        #   the coadded image is saved, so the ids track properly;
+        #   otherwise, we'll end up with database integriyt errors.
+        #   This is probably not an issue; in practical usage, most of
+        #   the time we'll be coadding images from the database.  When
+        #   we won't is mostly going to be in tests where we don't want
+        #   to save, or where we can control this.
+        upstream_ids = [ i.get_id() for i in images ]
 
         output = Image(nofile=True)
 
         fail_if_not_consistent_attributes = ['filter']
         copy_if_consistent_attributes = ['section_id', 'instrument', 'telescope', 'project', 'target', 'filter']
-        copy_by_index_attributes = []  # ['ra', 'dec', 'ra_corner_00', 'ra_corner_01', ...]
+        copy_by_index_attributes = []
         for att in ['ra', 'dec']:
             copy_by_index_attributes.append(att)
             for corner in ['00', '01', '10', '11']:
@@ -1009,10 +1131,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if not base_type.startswith('Com'):
             output.type = 'Com' + base_type
 
-        output.upstream_images = images
+        output._upstream_ids = upstream_ids
 
         # mark as the reference the image used for alignment
-        output.ref_image = images[index]
         output.ref_image_id = images[index].id
 
         output._upstream_bitflag = 0
@@ -1063,6 +1184,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if new_image is None:
             raise ValueError("Must provide a new image.")
 
+        # See the comment in from_images above the line upstream_ids = [ ...
+        ref_image_id = ref_image.get_id()
+        new_image_id = new_image.get_id()
+        
         output = Image(nofile=True)
 
         # for each attribute, check the two images have the same value
@@ -1096,11 +1221,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                                  f"{getattr(ref_image, att)} and {getattr(new_image, att)}")
 
         if ref_image.mjd < new_image.mjd:
-            output.upstream_images = [ref_image, new_image]
+            output._upstream_ids = [ ref_image_id, new_image_id ]
         else:
-            output.upstream_images = [new_image, ref_image]
+            output._upstream_ids = [ new_image_id, ref_image_id ]
 
-        output.ref_image = ref_image
         output.ref_image_id = ref_image.id
 
         output._upstream_bitflag = 0
@@ -1187,7 +1311,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         If they are inconsistent, they will be removed and the _aligned_images
         attribute will be set to None to be lazy filled by _make_aligned_images().
         """
-        raise RuntimeError( "Depcrecated" )
+        raise RuntimeError( "Deprecated" )
         if self._aligned_images is None:
             return
 
@@ -1323,8 +1447,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         prov_hash = inst_name = im_type = date = time = filter = ra = dec = dec_int_pm = ''
         section_id = section_id_int = ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
 
-        if self.provenance is not None and self.provenance.id is not None:
-            prov_hash = self.provenance.id
+        if self.provenance_id is not None:
+            prov_hash = self.provenance_id
         if self.instrument_object is not None:
             inst_name = self.instrument_object.get_short_instrument_name()
         if self.type is not None:
@@ -1387,14 +1511,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # TODO: which elements of the naming convention are really necessary?
         #  and what is a good way to make sure the filename actually depends on them?
 
-        raise RuntimeError( "Rob, think about this, don't use upstream_images" )
         try:
-            if self.upstream_images is not None and len(self.upstream_images) > 0:
+            if self._upstream_ids is not None and len(self._upstream_ids) > 0:
                 utag = hashlib.sha256()
-                for image in self.upstream_images:
-                    if image.filepath is None:
-                        raise RuntimeError('Cannot invent filepath when upstream image has no filepath!')
-                    utag.update(image.filepath.encode('utf-8'))
+                for id in self._upstream_ids:
+                    utag.update( str(id).encode('utf-8') )
                 utag = base64.b32encode(utag.digest()).decode().lower()
                 utag = '_u-' + utag[:6]
                 filepath += utag
@@ -1457,7 +1578,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if self.data is None:
             raise RuntimeError("The image data is not loaded. Cannot save.")
 
-        if self.provenance is None:
+        if self.provenance_id is None:
             raise RuntimeError("The image provenance is not set. Cannot save.")
 
         if filename is not None:
@@ -1627,6 +1748,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             else:
                 setattr( self, f'_{prop}', None )
 
+        if free_derived_products:
+            raise RuntimeError( "derived products are deprecated" )
         # if free_derived_products:
         #     if self.sources is not None:
         #         self.sources.free()
@@ -1935,10 +2058,17 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     def get_upstreams(self, session=None):
         """Get the upstream images and associated products that were used to make this image.
-        This includes the reference/new image (for subtractions) or the set of images
-        used to build a coadd.  Each image will have some products that were generated
-        from it (source lists, PSFs, etc.) that also count as upstreams to this image.
 
+        This includes the reference/new image (for subtractions) or the set of
+        images used to build a coadd.  Each image will have some products that
+        were generated from it (source lists, PSFs, etc.) that also count as
+        upstreams to this image.
+
+        Not recursive.  (So, won't get the Exposure upstreams of the images
+        that went into a coadd, for instance, and if by some chance you have a
+        coadd of coadds (don't do that!), the images that went into the coadd
+        that was coadded to produce this coadd won't be loaded.  (Got that?))
+        
         Parameters
         ----------
         session: SQLAlchemy session (optional)
@@ -1948,43 +2078,56 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         Returns
         -------
-        upstreams: list of Image objects
-            The upstream images.
+        upstreams: list of objects
+            The upstream Exposure, Image, SourceList, Background, WCS,
+            ZeroPoint, PSF objects that were used to create this image.  For most
+            images, it will be (at most) a single Exposure.  For subtraction and
+            coadd images, there could be all those other things.
+
         """
-        raise RuntimeError( "Rob, think about this" )
+
+        upstreams = []
         with SmartSession(session) as session:
-            self.load_upstream_products(session)
-            upstreams = []
-            # get the exposure
-            try:
-                exposure = self.exposure
-            except sa.orm.exc.DetachedInstanceError:
-                exposure = None
-            if exposure is None and self.exposure_id is not None:
-                exposure = session.scalars(sa.select(Exposure).where(Exposure.id == self.exposure_id)).first()
+            # Load the exposure if there is one
+            if self.exposure_id is not None:
+                upstreams.append( session.query( Exposure ).filter( self.exposure_id == Exposure.id ).first() )
 
-            if exposure is not None:
-                upstreams.append(exposure)
+            if ( not self.is_coadd ) and ( not self.is_sub ):
+                # We're done!  That wasn't so bad.
+                return
 
-            # get the upstream images and associated products
-            for im in self.upstream_images:
-                upstreams.append(im)
-                if im.sources is not None:
-                    upstreams.append(im.sources)
-                if im.psf is not None:
-                    upstreams.append(im.psf)
-                if im.bg is not None:
-                    upstreams.append(im.bg)
-                if im.wcs is not None:
-                    upstreams.append(im.wcs)
-                if im.zp is not None:
-                    upstreams.append(im.zp)
+            # This *is* so bad....
+            myprov = session.query( Provenance ).filter( self.provenance_id == Provenance.id ).first()
+            upstrprov = myprov.get_upstreams()
+            upstrprovids = [ i.id for i in upstrprov ]
+
+            # Upstream images first
+            upstrimages = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
+
+            # Get all of the other falderal associated with those images
+            upstrsources = ( session.query( SourceList )
+                             .filter( SourceList.image_id ).in_( self.upstream_image_ids )
+                             .filter( SourceList.provenance_id ).in_( upstrprovids )
+                             .all() )
+            upstrsrcids = [ s.id for s in upstrsources ]
+
+            upstrbkgs = session.query( Background ).filter( Background.sources_id.in_( upstrsrcids ) ).all()
+            upstrpsfs = session.query( PSF ).filter( PSF.sources_id.in_( upstsrsrcids ) ).all()
+            upstrwcses = session.query( WorldCoordinate ).filter( WorldCoordinates.sources_id.in_( upstrsrcids ) ).all()
+            upstrzps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( upstrsrcids ) ).all()
+
+            upstreams.extend( list(upstrimages) )
+            upstreams.extend( list(upstrsources) )
+            upstreams.extend( list(upstrbkgs) )
+            upstreams.extend( list(upstrpsfs) )
+            upstreams.extend( list(upstrwcses) )
+            upstreams.extend( list(upstrzps) )
 
         return upstreams
 
     def get_downstreams(self, session=None, siblings=False):
         """Get all the objects that were created based on this image. """
-        raise RuntimeError( "Rob, think about this" )
+
         # avoids circular import
         from models.source_list import SourceList
         from models.psf import PSF
@@ -1995,55 +2138,36 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         downstreams = []
         with SmartSession(session) as session:
             # get all source lists that are related to this image (regardless of provenance)
-            sources = session.scalars(
-                sa.select(SourceList).where(SourceList.image_id == self.id)
-            ).all()
-            downstreams += sources
-            if self.sources is not None and self.sources not in sources:  # if not in the session, could be duplicate!
-                downstreams.append(self.sources)
+            sources = session.scalars( sa.select(SourceList).where(SourceList.image_id == self.id) ).all()
+            downstreams.extend( list(sources) )
+            srcids = [ s.id for s in sources ]
+            
+            # Get the bkgs, psfs, wcses, and zps assocated with all of those sources
+            bkgs = session.query( Background ).filter( Background.sources_id.in_( srcids ) ).all()
+            psfs = session.query( PSF ).filter( PSF.sources_id.in_( srcids ) ).all()
+            wcses = session.query( WorldCoordinates ).filter( WorldCoordinates.sources_id.in_( srcids ) ).all()
+            zps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( srcids ) ).all()
 
-            # get all psfs that are related to this image (regardless of provenance)
-            psfs = session.scalars(sa.select(PSF).where(PSF.image_id == self.id)).all()
-            downstreams += psfs
-            if self.psf is not None and self.psf not in psfs:  # if not in the session, could be duplicate!
-                downstreams.append(self.psf)
+            downstreams.extend( list(bkgs) )
+            downstreams.extend( list(psfs) )
+            downstreams.extend( list(wcses) )
+            downstreams.extend( list(zps) )
 
-            bgs = session.scalars(sa.select(Background).where(Background.image_id == self.id)).all()
-            downstreams += bgs
-            if self.bg is not None and self.bg not in bgs:  # if not in the session, could be duplicate!
-                downstreams.append(self.bg)
+            # Now get all images that are downstream of this image, add them, and recursively add their
+            #   downstreams
 
-            wcses = []
-            zps = []
-            for s in sources:
-                wcses += session.scalars(
-                    sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == s.id)
-                ).all()
+            dsimgs = ( session.query( Image )
+                       .join( image_upstreams_association_table,
+                              image_upstreams_association_table.c.downstream_id == Image.id )
+                       .filter( image_upstreams_association_table.c.upstream_id == self.id )
+                      ).all()
+            downstreams.extend( list(dsimgs) )
 
-                zps += session.scalars(
-                    sa.select(ZeroPoint).where(ZeroPoint.sources_id == s.id)
-                ).all()
-            if self.wcs is not None and self.wcs not in wcses:  # if not in the session, could be duplicate!
-                wcses.append(self.wcs)
-            if self.zp is not None and self.zp not in zps:  # if not in the session, could be duplicate!
-                zps.append(self.zp)
+            # NO, WAIT.  This method is supposed to be non-recursive
+            # for img in dsimages:
+            #     downstreams.extend( img.get_downstreams( session=session ) )
 
-            downstreams += wcses
-            downstreams += zps
-
-            # now look for other images that were created based on this one
-            # ref: https://docs.sqlalchemy.org/en/20/orm/join_conditions.html#self-referential-many-to-many
-            images = session.scalars(
-                sa.select(Image).join(
-                    image_upstreams_association_table, sa.and_(
-                        image_upstreams_association_table.c.upstream_id == self.id,
-                        image_upstreams_association_table.c.downstream_id == Image.id,
-                    )
-                ).order_by(Image.mjd).distinct()
-            ).all()
-            downstreams += images
-
-            return downstreams
+        return downstreams
 
     @staticmethod
     def query_images(
