@@ -2094,7 +2094,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
             if ( not self.is_coadd ) and ( not self.is_sub ):
                 # We're done!  That wasn't so bad.
-                return
+                return upstreams
 
             # This *is* so bad....
             myprov = session.query( Provenance ).filter( self.provenance_id == Provenance.id ).first()

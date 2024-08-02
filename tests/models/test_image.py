@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.image import Image, image_upstreams_association_table
-from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag
+from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag, image_badness_inverse
 from models.psf import PSF
 from models.source_list import SourceList
 from models.world_coordinates import WorldCoordinates
@@ -965,3 +965,78 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
 
     # the free_derived_products parameter is tested in test_source_list.py
     # and test_psf.py
+
+# There are other tests of badness elsewhere that do upstreams and downstreams
+def test_badness_basic( sim_image_uncommitted, provenance_base ):
+    im = sim_image_uncommitted
+    im.provenance_id = provenance_base.id
+    im.filepath = im.invent_filepath()
+    im.md5sum = uuid.uuid4()             # Spoof md5sum since we aren't really saving data
+    
+    # Make sure we can set it
+    assert im.badness == ''
+    im.set_badness( 'banding,shaking' )
+    assert im._bitflag == ( 2**image_badness_inverse['banding'] | 2**image_badness_inverse['shaking'] )
+    assert im.id is None
+
+    im.id = uuid.uuid4()
+    
+    # Make sure it's not saved to the database even if we ask to commit and it has an id
+    im.set_badness( None )
+    assert im._bitflag == ( 2**image_badness_inverse['banding'] | 2**image_badness_inverse['shaking'] )
+
+    with SmartSession() as session:
+        assert session.query( Image ).filter( Image.id==im.id ).first() is None
+
+    # Save it to the database
+    im.load_or_insert()
+
+    # Make sure it's there with the expected bitflag
+    with SmartSession() as session:
+        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        assert dbim._bitflag == im._bitflag
+
+    # Make a change to the bitflag and make sure it doesn't get committed if we don't want it to
+    im.set_badness( '', commit=False )
+    with SmartSession() as session:
+        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        assert dbim._bitflag == ( 2**image_badness_inverse['banding'] | 2**image_badness_inverse['shaking'] )
+
+    # Make sure it gets saved if we do set_badness with None
+    im.set_badness( None )
+    with SmartSession() as session:
+        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        assert dbim._bitflag == 0
+
+    # Make sure it gets saved if we set_badness without commit=False
+
+    im.set_badness( 'saturation' )
+    assert im._bitflag == 2**image_badness_inverse['saturation']
+    with SmartSession() as session:
+        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        assert dbim._bitflag == im._bitflag
+
+    # Make sure we can append without committing
+
+    im.append_badness( 'shaking', commit=False )
+    assert im._bitflag == 2**image_badness_inverse['saturation'] | 2**image_badness_inverse['shaking']
+    with SmartSession() as session:
+        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        assert dbim._bitflag == 2**image_badness_inverse['saturation']
+
+    # Make sure we can append with committing
+
+    im.append_badness( 'banding' )
+    assert im._bitflag == ( 2**image_badness_inverse['saturation'] |
+                            2**image_badness_inverse['shaking'] |
+                            2**image_badness_inverse['banding'] )
+    with SmartSession() as session:
+        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        assert dbim._bitflag == im._bitflag
+
+    # No need to clean up, the exposure from which sim_image_uncommitted was generated
+    #  will clean up all its downstreams.
+    
+    
+    
+    

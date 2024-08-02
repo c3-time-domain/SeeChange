@@ -12,81 +12,92 @@ import astropy.table
 import astropy.io.fits
 
 from models.base import SmartSession, FileOnDiskMixin
+from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
 
 
 def test_source_list_bitflag(sim_sources):
+    # all these data products should have bitflag zero
+    assert sim_sources.bitflag == 0
+    assert sim_sources.badness == ''
+
+    image = Image.get_by_id( sim_sources.image_id )
+    exposure = Exposure.get_by_id( image.exposure_id )
+    
     with SmartSession() as session:
-        sim_sources = sim_sources.merge_all( session )
-
-        # all these data products should have bitflag zero
-        assert sim_sources.bitflag == 0
-        assert sim_sources.badness == ''
-
         # try to find this using the bitflag hybrid property
         sim_sources2 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sim_sources.id in [s.id for s in sim_sources2]
         sim_sources2x = session.scalars(sa.select(SourceList).where(SourceList.bitflag > 0)).all()
         assert sim_sources.id not in [s.id for s in sim_sources2x]
+    
+    # now add a badness to the image and exposure
+    image.set_badness( 'Saturation' )
+    exposure.set_badness( 'Banding' )
+    exposure.update_downstream_badness()
 
-        # now add a badness to the image and exposure
-        sim_sources.image.badness = 'Saturation'
-        sim_sources.image.exposure.badness = 'Banding'
-        sim_sources.image.exposure.update_downstream_badness(session=session)
-        session.add(sim_sources.image)
-        session.commit()
+    # Reload from database, make sure stuff got updated
+    image = Image.get_by_id( sim_sources.image_id )
+    exposure = Exposure.get_by_id( image.exposure_id )
+    sources = SourceList.get_by_id( sim_sources.id )
 
-        assert sim_sources.image.bitflag == 2 ** 1 + 2 ** 3
-        assert sim_sources.image.badness == 'banding, saturation'
+    assert image.bitflag == 2**1 + 2**3
+    assert image.badness == 'banding, saturation'
 
-        assert sim_sources.bitflag == 2 ** 1 + 2 ** 3
-        assert sim_sources.badness == 'banding, saturation'
+    assert sources.bitflag == 2**1 + 2**3
+    assert sources.badness == 'banding, saturation'
 
-        # try to find this using the bitflag hybrid property
+    # try to find this using the bitflag hybrid property
+    with SmartSession() as session:
         sim_sources3 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 1 + 2 ** 3)).all()
         assert sim_sources.id in [s.id for s in sim_sources3]
         sim_sources3x = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sim_sources.id not in [s.id for s in sim_sources3x]
 
-        # now add some badness to the source list itself
+    # now add some badness to the source list itself
 
-        # cannot add an image badness to a source list
-        with pytest.raises(ValueError, match='Keyword "Banding" not recognized in dictionary'):
-            sim_sources.badness = 'Banding'
+    # cannot add an image badness to a source list
+    with pytest.raises(ValueError, match='Keyword "Banding" not recognized in dictionary'):
+        sources.set_badness( 'Banding' )
 
-        # add badness that works with source lists (e.g., cross-match failures)
-        sim_sources.badness = 'few sources'
-        session.add(sim_sources)
-        session.commit()
+    # add badness that works with source lists (e.g., cross-match failures)
+    sources.set_badness =( 'few sources' )
 
-        assert sim_sources.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16
-        assert sim_sources.badness == 'banding, saturation, few sources'
+    # Reload sources from database
+    sources = Sources.get_by_id( sources.id )
 
-        # try to find this using the bitflag hybrid property
+    assert sources.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16
+    assert sources.badness == 'banding, saturation, few sources'
+
+    # try to find this using the bitflag hybrid property
+    with SmartSession() as session:
         sim_sources4 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16)).all()
         assert sim_sources.id in [s.id for s in sim_sources4]
         sim_sources4x = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sim_sources.id not in [s.id for s in sim_sources4x]
 
-        # removing the badness from the exposure is updated directly to the source list
-        sim_sources.image.exposure.bitflag = 0
-        sim_sources.image.exposure.update_downstream_badness(session=session)
-        session.add(sim_sources.image)
-        session.commit()
+    # removing the badness from the exposure is updated directly to the source list
+    exposure.set_badness( '' )
+    exposure.update_downstream_badness()
 
-        assert sim_sources.image.badness == 'saturation'
-        assert sim_sources.badness == 'saturation, few sources'
+    # Reload image and sources from database
+    image = Image.get( image.id )
+    sources = Sources.get( sources.id )
+    
+    assert image.badness == 'saturation'
+    assert sim_sources.badness == 'saturation, few sources'
 
-        # check the database queries still work
+    # check the database queries still work
+    with SmartSession() as session:
         sim_sources5 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 3 + 2 ** 16)).all()
         assert sim_sources.id in [s.id for s in sim_sources5]
         sim_sources5x = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sim_sources.id not in [s.id for s in sim_sources5x]
 
-        # make sure new SourceList object gets the badness from the Image
-        new_sources = SourceList(image=sim_sources.image)
-        assert new_sources.badness == 'saturation'
+    # make sure new SourceList object gets the badness from the Image
+    new_sources = SourceList( image_id=image_id )
+    assert new_sources.badness == 'saturation'
 
 
 def test_invent_filepath( provenance_base, provenance_extra ):

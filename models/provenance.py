@@ -444,6 +444,17 @@ class Provenance(Base):
         return code_version
 
     def save( self, session=None ):
+        """Save the provenance to the database.
+
+        Will raise a constraint violation if the provenance ID already exists in the database.
+
+        Parameters
+        ----------
+          session : SQLAlchmey sesion or None
+            Usually you don't want to use this.
+
+        """
+        
         # This will raise a unique id constraint violation if the provenance id already exists
         with SmartSession( session ) as sess:
             if self._upstreams is None:
@@ -460,6 +471,14 @@ class Provenance(Base):
             sess.commit()
 
     def save_if_needed( self, session=None ):
+        """Save the provenance to the database if it's not already there.
+
+        Parameters
+        ----------
+          session : SQLAlchemy session or None
+            Usually you don't want to use this
+        
+        """
         with SmartSession( session ) as sess:
            try:
                 sess.connection().execute( sa.text( 'LOCK TABLE provenances' ) )

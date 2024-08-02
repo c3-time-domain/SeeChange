@@ -1472,7 +1472,8 @@ class UUIDMixin:
             self.id=uuid.uuid4()
         return self.id
 
-    def get_by_id( self, uuid, session=None ):
+    @classmethod
+    def get_by_id( cls, uuid, session=None ):
         """Get an object of the current class that matches the given uuid.
 
         Returns None if not found.
@@ -2042,37 +2043,116 @@ class HasBitFlagBadness:
 
     @bitflag.inplace.setter
     def bitflag(self, value):
-        allowed_bits = 0
-        for i in self._get_inverse_badness().values():
-            allowed_bits += 2 ** i
-        if value & ~allowed_bits != 0:
-            raise ValueError(f'Bitflag value {bin(value)} has bits set that are not allowed.')
-        self._bitflag = value
+        raise RuntimeError( "Don't use this, use set_badness" )
+        # allowed_bits = 0
+        # for i in self._get_inverse_badness().values():
+        #     allowed_bits += 2 ** i
+        # if value & ~allowed_bits != 0:
+        #     raise ValueError(f'Bitflag value {bin(value)} has bits set that are not allowed.')
+        # self._bitflag = value
 
     @property
+    def own_bitflag( self ):
+        return self._bitflag
+
+    @own_bitflag.setter
+    def own_bitflag( self, val ):
+        raise RuntimeError( "Don't use this ,use set_badness" )
+
+    @property
+    def own_badness( self ):
+        """A comma separated string of keywords describing why this data is bad.
+
+        Does not include badness inherited from upstream objects; use badness
+        for that.
+
+        """
+        return bitflag_to_string( self._bitflag, data_badness_dict )
+
+    @own_badness.setter
+    def own_badness( self, value ):
+        raise RuntimeError( "Don't use this, use set_badness()" )
+    
+    @property
     def badness(self):
+        """A comma separated string of keywords describing why this data is bad, including upstreams.
+
+        Based on the bitflag.  This includes all the reasons this data is bad,
+        including the parent data models that were used to create this data
+        (e.g., the Exposure underlying the Image).
+
         """
-        A comma separated string of keywords describing
-        why this data is not good, based on the bitflag.
-        This includes all the reasons this data is bad,
-        including the parent data models that were used
-        to create this data (e.g., the Exposure underlying
-        the Image).
-        """
-        return bitflag_to_string(self.bitflag, data_badness_dict)
+        return bitflag_to_string (self.bitflag, data_badness_dict )
 
     @badness.setter
-    def badness(self, value):
-        """Set the badness for this image using a comma separated string. """
-        self.bitflag = string_to_bitflag(value, self._get_inverse_badness())
+    def badness( self, value ):
+        raise RuntimeError( "Don't set badness, use set_badness." )
 
-    def append_badness(self, value):
-        """Add some keywords (in a comma separated string)
-        describing what is bad about this image.
-        The keywords will be added to the list "badness"
-        and the bitflag for this image will be updated accordingly.
+    def _set_bitflag( self, value=None, commit=True ):
+        """Set the objects own bitflag using a comma-separated string.
+
+        See set_badness
+
         """
-        self.bitflag |= string_to_bitflag(value, self._get_inverse_badness())
+        if value is not None:
+            self._bitflag = value
+        if commit and ( self.id is not None ):
+            with SmartSession() as sess:
+                sess.execute( sa.text( f"UPDATE {self.__tablename__} SET _bitflag=:bad WHERE id=:id" ),
+                              { "bad": self._bitflag, "id": self.id } )
+                sess.commit()
+    
+    def set_badness( self, value=None, commit=True ):
+        """Set the badness for this image using a comma separated string.
+
+        In general, you should *not* set the bits that are bad only because an
+        upstream is bad, but just the ones that are bade specifically from
+        this image.
+
+        DEVELOPER NOTE: any object that inherits from HasBitFlagBadness must
+        have an id property.  This will be the case for objects that inherit
+        from UUIDMixin, as most of ours do.
+        
+        Parameters
+        ----------
+          value: str or None
+            If str, a comma-separated string indicating the badnesses to set.
+            If None, it means save this object's own bitflag as is to the
+            database.  It doesn't make sense to use value=None and
+            commit=False.
+        
+          commit: bool, default True
+            If True, and the object is already in the database, will save the
+            bitflag changes to the database.  If False, then it's the
+            responsibility of the calling function to make sure they get saved
+            if necessary.  (That can be accomplished with a subsequent call to
+            obj.set_badness( None, commit=True ).)
+
+            (If the object isn't already in the database, then nothing gets
+            saved.  However, in that case, when the object is later saved, it
+            will get saved with its value of _bitflag then, so things will all
+            work out in the end.)
+
+        """
+
+        if value is not None:
+            value = string_to_bitflag( value, self._get_inverse_badness() )
+        self._set_bitflag( value, commit=commit )
+                
+
+    def append_badness( self, value, commit=True ):
+        """Add badness (comma-separated string of keywords) to the object.
+
+        Parameters
+        ----------
+          value: str
+
+          commit: bool, default True
+            If false, won't commit to the database.  (See set_badness.)
+
+        """
+
+        self._set_bitflag( self._bitflag | string_to_bitflag( value, self._get_inverse_badness() ), commit=commit )
 
     description = sa.Column(
         sa.Text,
@@ -2087,9 +2167,10 @@ class HasBitFlagBadness:
     def update_downstream_badness(self, session=None, commit=True, siblings=True):
         """Send a recursive command to update all downstream objects that have bitflags.
 
-        Since this function is called recursively, it always updates the current
-        object's _upstream_bitflag to reflect the state of this object's upstreams,
-        before calling the same function on all downstream objects.
+        Since this function is called recursively, it always updates the
+        current object's _upstream_bitflag to reflect the state of this
+        object's immediate upstreams, before calling the same function on all
+        downstream objects.
 
         Note that this function will session.merge() this object and all its
         recursive downstreams (to update the changes in bitflag) and will
@@ -2104,18 +2185,26 @@ class HasBitFlagBadness:
             The session to use for the update. If None, will open a new session,
             which will also close at the end of the call. In that case, must
             provide a commit=True to commit the changes.
+
         commit: bool (default True)
             Whether to commit the changes to the database.
+
         siblings: bool (default True)
             Whether to also update the siblings of this object.
             Default is True. This is usually what you want, but
             anytime this function calls itself, it uses siblings=False,
             to avoid infinite recursion.
+
         """
-        # make sure this object is current:
-        raise RuntimeError( "Rob, update this one" )
+
         with SmartSession(session) as session:
+            # Merge is scary, but use it here so that all the various
+            # downsterams we find are all tied to the same session,
+            # and so all of them can be committed at once.  Since
+            # we *should* have removed all relationships, merge
+            # should not have as many side effects as it used to
             merged_self = session.merge(self)
+
             new_bitflag = 0  # start from scratch, in case some upstreams have lost badness
             for upstream in merged_self.get_upstreams(session):
                 if hasattr(upstream, '_bitflag'):
@@ -2123,6 +2212,7 @@ class HasBitFlagBadness:
 
             if hasattr(merged_self, '_upstream_bitflag'):
                 merged_self._upstream_bitflag = new_bitflag
+                self._upstream_bitflag = merged_self._upstream_bitflag
 
             # recursively do this for all downstream objects
             for downstream in merged_self.get_downstreams(session=session, siblings=siblings):

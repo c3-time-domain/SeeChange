@@ -588,23 +588,38 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         else:
             raise NotImplementedError( f"Don't know how to load source lists of format {self.format}" )
 
-    def invent_filepath( self ):
-        raise RuntimeError( "Rob think about this" )
-        if self.image is None:
+    def invent_filepath( self, image=None, provenance=None ):
+        """Invent a filepath for this SourceList.
+
+        Parmaeters
+        ----------
+          image: Image or None
+            The image that this source list comes from.  (So,
+            self.imageid==image.id.)  If None, it will be loaded from
+            the database.  Pass this for efficiency, or if you know the
+            image isn't in the database yet.
+
+        """
+
+        if self.image_id is None:
             raise RuntimeError( f"Can't invent a filepath for sources without an image" )
-        if self.provenance is None:
+        if self.provenance_id is None:
             raise RuntimeError( f"Can't invent a filepath for sources without a provenance" )
 
-        filename = self.image.filepath
+        if image is None:
+            image = Image.get_by_id( self.image_id )
+        
+        filename = image.filepath
         if filename is None:
-            filename = self.image.invent_filepath()
+            filename = image.invent_filepath()
+
 
         if filename.endswith(('.fits', '.h5', '.hdf5')):
             filename = os.path.splitext(filename)[0]
 
         filename += '.sources_'
-        self.provenance.update_id()
-        filename += self.provenance.id[:6]
+        filename += self.provenance_id[:6]
+
         if self.format in ['sepnpy', 'filter']:
             filename += '.npy'
         elif self.format == 'sextrfits':
@@ -615,6 +630,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         return filename
 
     def save(self, **kwargs):
+
         """Save the data table to a file on disk.
 
         Updates self.filepath (if it is None) and self.num_sources

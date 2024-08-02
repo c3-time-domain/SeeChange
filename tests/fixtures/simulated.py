@@ -334,27 +334,26 @@ def sim_sources(sim_image1):
         [x, y, flux, flux_err, rhalf],
         dtype=([('x', 'f4'), ('y', 'f4'), ('flux', 'f4'), ('flux_err', 'f4'), ('rhalf', 'f4')])
     )
-    s = SourceList(image=sim_image1, data=data, format='sepnpy')
+    s = SourceList(image_id=sim_image1.id, data=data, format='sepnpy')
 
+    iprov = Provenance.get( sim_image1.provenance_id )
     prov = Provenance(
-        code_version=sim_image1.provenance.code_version,
+        code_version_id=iprov.code_version_id,
         process='extraction',
         parameters={'test_parameter': 'test_value'},
-        upstreams=[sim_image1.provenance],
+        upstreams=[ iprov ],
         is_testing=True,
     )
+    prov.save()
+    s.provenance_id=prov.id
 
-    with SmartSession() as session:
-        s.provenance = prov
-        s.save()
-        s = session.merge(s)
-        session.commit()
+    s.save()
+    s.load_or_insert( onlyinsert=True )
 
     yield s
-
-    with SmartSession() as session:
-        s = s.merge_all(session)
-        s.delete_from_disk_and_database(session=session, commit=True)
+    # No need to delete, it will be deleted
+    #   as a downstream of the exposure parent
+    #   of sim_image1
 
 
 @pytest.fixture
