@@ -9,10 +9,10 @@ from models.base import Base, SmartSession, UUIDMixin, HasBitFlagBadness, FileOn
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.world_coordinates import WorldCoordinates
 from models.image import Image
-from models.source_list import SourceList
+from models.source_list import SourceList, SourceListSibling
 
 
-class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
+class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
     __tablename__ = 'zero_points'
 
     sources_id = sa.Column(
@@ -135,77 +135,6 @@ class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
                           f"for apertures within 0.01 pixels of {rad}; "
                           f"available apertures are {self.aper_cor_radii}" )
 
-    # def get_upstreams(self, session=None):
-    #     """Get the extraction SourceList and WorldCoordinates used to make this ZeroPoint"""
-    #     with SmartSession(session) as session:
-    #         sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
-
-    #     return sources
-
-    # def get_downstreams(self, session=None, siblings=False):
-    #     """Get the downstreams of this ZeroPoint.
-
-    #     If siblings=True then also include the SourceList, PSF, background object and WCS
-    #     that were created at the same time as this ZeroPoint.
-    #     """
-    #     from models.source_list import SourceList
-    #     from models.psf import PSF
-    #     from models.background import Background
-    #     from models.world_coordinates import WorldCoordinates
-    #     from models.provenance import Provenance
-
-    #     with SmartSession(session) as session:
-    #         output = []
-    #         if self.provenance is not None:
-    #             subs = session.scalars(
-    #                 sa.select(Image).where(
-    #                     Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id))
-    #                 )
-    #             ).all()
-    #             output += subs
-
-    #         if siblings:
-    #             sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
-    #             if len(sources) > 1:
-    #                 raise ValueError(
-    #                     f"Expected exactly one SourceList for ZeroPoint {self.id}, but found {len(sources)}."
-    #                 )
-    #             output.append(sources[0])
-
-    #             psf = session.scalars(
-    #                 sa.select(PSF).where(
-    #                     PSF.image_id == sources.image_id, PSF.provenance_id == self.provenance_id
-    #                 )
-    #             ).all()
-    #             if len(psf) > 1:
-    #                 raise ValueError(f"Expected exactly one PSF for ZeroPoint {self.id}, but found {len(psf)}.")
-
-    #             output.append(psf[0])
-
-    #             bgs = session.scalars(
-    #                 sa.select(Background).where(
-    #                     Background.image_id == sources.image_id, Background.provenance_id == self.provenance_id
-    #                 )
-    #             ).all()
-
-    #             if len(bgs) > 1:
-    #                 raise ValueError(
-    #                     f"Expected exactly one Background for WorldCoordinates {self.id}, but found {len(bgs)}."
-    #                 )
-
-    #             output.append(bgs[0])
-
-    #             wcs = session.scalars(
-    #                 sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id)
-    #             ).all()
-
-    #             if len(wcs) > 1:
-    #                 raise ValueError(f"Expected exactly one WCS for ZeroPoint {self.id}, but found {len(wcs)}.")
-
-    #             output.append(wcs[0])
-
-    #     return output
-
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used
@@ -241,19 +170,3 @@ class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
     @provenance.setter
     def provenance( self, val ):
         raise RuntimeError( f"ZeroPoint.provenance is deprecated; get provenance from sources" )
-
-    @property
-    def get_upstreams( self ):
-        raise RuntimeError( f"ZeroPoint.get_upstreams is deprecated, don't use it" )
-
-    @get_upstreams.setter
-    def get_upstreams( self, val ):
-        raise RuntimeError( f"ZeroPoint.get_upstreams is deprecated, don't use it" )
-
-    @property
-    def get_downstreams( self ):
-        raise RuntimeError( f"ZeroPoint.get_downstreams is deprecated, don't use it" )
-
-    @get_downstreams.setter
-    def get_downstreams( self, val ):
-        raise RuntimeError( f"ZeroPoint.get_downstreams is deprecated, don't use it" )

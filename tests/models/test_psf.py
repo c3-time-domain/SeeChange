@@ -301,7 +301,7 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
         archive.delete(psfpath, okifmissing=True)
         archive.delete(psfxmlpath, okifmissing=True)
 
-
+# ROB TODO -- update this when you've updated DataStore and associated fixtures
 def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
     im = ztf_datastore_uncommitted.image
     psf = ztf_datastore_uncommitted.psf
@@ -343,7 +343,7 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
             if 'im' in locals():
                 im.delete_from_disk_and_database(session=session)
 
-
+# ROB TODO -- update this when you've updated DataStore and associated fixtures
 @pytest.mark.skip(reason="This test regularly fails, even when flaky is used. See Issue #263")
 def test_free( decam_datastore ):
     ds = decam_datastore

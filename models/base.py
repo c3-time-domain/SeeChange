@@ -357,7 +357,7 @@ class SeeChangeBase:
 
     def get_upstreams(self, session=None):
         """Get all data products that were directly used to create this object (non-recursive)."""
-        raise NotImplementedError('get_upstreams not implemented for this class')
+        raise NotImplementedError( f'get_upstreams not implemented for this {self.__class__.__name__}' )
 
     def get_downstreams(self, session=None, siblings=True):
         """Get all data products that were created directly from this object (non-recursive).
@@ -366,7 +366,7 @@ class SeeChangeBase:
         and depend on one another. E.g., a source list and psf have an image upstream and a (subtraction?) image
         as a downstream, but they are each other's siblings.
         """
-        raise NotImplementedError('get_downstreams not implemented for this class')
+        raise NotImplementedError( f'get_downstreams not implemented for {self.__class__.__name__}' )
 
     # Don't define this here because of all the complicated overriding semantics of python (potentially
     # further confused by SQLAlchemy's declarative_base).  Objects weren't finding the _delete_from_database
@@ -423,10 +423,11 @@ class SeeChangeBase:
 
         if remove_downstreams:
             downstreams = self.get_downstreams()
-            for d in downstreams:
-                if hasattr( d, 'delete_from_disk_and_database' ):
-                    d.delete_from_disk_and_database( remove_folders=remove_folders, archive=archive,
-                                                     remove_downstreams=True )
+            if downstreams is not None:
+                for d in downstreams:
+                    if hasattr( d, 'delete_from_disk_and_database' ):
+                        d.delete_from_disk_and_database( remove_folders=remove_folders, archive=archive,
+                                                         remove_downstreams=True )
 
         # Remove files from archive
                     
@@ -1057,79 +1058,6 @@ class FileOnDiskMixin:
         return fullname
 
 
-    def load_or_insert( self, onlyinsert=False ):
-        """Either load the object's uuid from the database, or insert the object into the database.
-
-        Will identify the object based on the unique FileOnDisk
-        filepath; make sure that field is set before calling this.
-
-        Does not do any saving to disk, only saves the database record.
-
-        In any event, if there are no exceptions, self.id will be set upon return.
-
-        DEVELOPER NOTE : any subclasses of this class that are not also
-        subclasses of UUIDMixin need to either override this method, or
-        implement at get_id() that will generate a proper self.id.
-        
-        Parameters
-        ----------
-          onlyinsert: bool, default False
-            If True, then we know we want to insert a new object; if it
-            already exists, be sad.
-
-        Returns
-        -------
-          was_inserted: bool
-            True = the object was newly inserted.  False = the object was
-            already in the database.
-
-            If the object was in the database and onlyinsert was True,
-            or if the id of the object in the database didn't match a
-            non-None id of self, an execption will be raised.
-
-        """
-
-        inserted = False
-        cls = self.__class__
-        with SmartSession() as sess:
-            current = None
-            try:
-                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ), )
-                current = sess.query( cls ).filter( cls.filepath == self.filepath ).first()
-                if current is None:
-                    self.get_id()     # Make sure we have a uuid in self.id
-                    # I really want to use add here (I am ALWAYS nervous using sqlalchemy merge, but since
-                    #   we've gotten rid of most relationships hopefully it's not as scary as it could be),
-                    #   because that's what we're doing, but we get sqlalchemy weirdness if this object was at
-                    #   some point in the past connected to another session, even if
-                    #   sqlalchemy.orm.session.object_session(self) is None.  (Inside
-                    #   test_image.py::test_image_enum_values, We were getting an error about how UPDATE was
-                    #   expecting 1 object, but it only found 0.  The real question is why sqlalchemy thought
-                    #   the thing needed to be updated when I said "add", but the history of the object must
-                    #   have done something complicated with the sqlalchemys state.)  Because sqlalchmey is
-                    #   annoying and weird, we have to do annoying and weird things doing even the simplest of
-                    #   stuff with it.
-                    # sess.add( self )
-                    obj = sess.merge( self )
-                    sess.add( obj )
-                    sess.commit()
-                    inserted = True
-                elif onlyinsert:
-                    raise RuntimeError( f"{cls.__tablename__} {self.filepath} exists in the database, "
-                                        f"but onlyinsert was True" )
-            finally:
-                # Make sure to free the lock
-                sess.rollback()
-                if ( not inserted ) and ( current is not None ):
-                    if self.id is None:
-                        self.id = current.id
-                    elif self.id != current.id:
-                        raise ValueError( f"ID mismatch {self.__class__.__name__} {self.filepath}; "
-                                          f"self.id={self.id}, database id={current.id}" )
-
-    
-        return inserted
-                    
     def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
         """Save a file to disk, and to the archive.
 
@@ -1474,6 +1402,7 @@ class UUIDMixin:
 
     @classmethod
     def get_by_id( cls, uuid, session=None ):
+
         """Get an object of the current class that matches the given uuid.
 
         Returns None if not found.
@@ -1481,6 +1410,77 @@ class UUIDMixin:
         with SmartSession( session ) as sess:
             return sess.query( cls ).filter( cls.id==uuid ).first()
 
+    def load_or_insert( self, onlyinsert=False ):
+        """Either load the object's uuid from the database, or insert the object into the database.
+
+        Will identify the object based on the unique FileOnDisk
+        filepath; make sure that field is set before calling this.
+
+        Does not do any saving to disk, only saves the database record.
+
+        In any event, if there are no exceptions, self.id will be set upon return.
+
+        Parameters
+        ----------
+          onlyinsert: bool, default False
+            If True, then we know we want to insert a new object; if it
+            already exists, be sad.
+
+        Returns
+        -------
+          was_inserted: bool
+            True = the object was newly inserted.  False = the object was
+            already in the database.
+
+            If the object was in the database and onlyinsert was True,
+            or if the id of the object in the database didn't match a
+            non-None id of self, an execption will be raised.
+
+        """
+
+        inserted = False
+        cls = self.__class__
+        with SmartSession() as sess:
+            current = None
+            try:
+                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ), )
+                current = sess.query( cls ).filter( cls.filepath == self.filepath ).first()
+                if current is None:
+                    self.get_id()     # Make sure we have a uuid in self.id
+                    # I really want to use add here (I am ALWAYS nervous using sqlalchemy merge, but since
+                    #   we've gotten rid of most relationships hopefully it's not as scary as it could be),
+                    #   because that's what we're doing, but we get sqlalchemy weirdness if this object was at
+                    #   some point in the past connected to another session, even if
+                    #   sqlalchemy.orm.session.object_session(self) is None.  (Inside
+                    #   test_image.py::test_image_enum_values, We were getting an error about how UPDATE was
+                    #   expecting 1 object, but it only found 0.  The real question is why sqlalchemy thought
+                    #   the thing needed to be updated when I said "add", but the history of the object must
+                    #   have done something complicated with the sqlalchemys state.)  Because sqlalchmey is
+                    #   annoying and weird, we have to do annoying and weird things doing even the simplest of
+                    #   stuff with it.
+                    # sess.add( self )
+                    obj = sess.merge( self )
+                    sess.add( obj )
+                    sess.commit()
+                    inserted = True
+                elif onlyinsert:
+                    raise RuntimeError( f"{cls.__tablename__} {self.filepath} exists in the database, "
+                                        f"but onlyinsert was True" )
+            finally:
+                # Make sure to free the lock
+                sess.rollback()
+                if ( not inserted ) and ( current is not None ):
+                    if self.id is None:
+                        self.id = current.id
+                    elif self.id != current.id:
+                        raise ValueError( f"ID mismatch {self.__class__.__name__} {self.filepath}; "
+                                          f"self.id={self.id}, database id={current.id}" )
+
+    
+        return inserted
+                    
+
+        
     def _delete_from_database( self ):
         """Remove the object from the database.  Don't call this, call delete_from_disk_and_database.
 

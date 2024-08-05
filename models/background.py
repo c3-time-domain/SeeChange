@@ -12,11 +12,15 @@ from sqlalchemy.schema import UniqueConstraint, CheckConstraint
 
 from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.image import Image
+from models.source_list import SourceList, SourceListSibling
 
 from models.enums_and_bitflags import BackgroundFormatConverter, BackgroundMethodConverter, bg_badness_inverse
 
+from util.logger import SCLogger
+import warnings
 
-class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+
+class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'backgrounds'
 
     @declared_attr
@@ -127,14 +131,12 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     @property
     def image_shape(self):
-        raise RuntimeError( "Rob think about this" )
         if self._image_shape is None and self.filepath is not None:
             self.load()
         return self._image_shape
 
     @image_shape.setter
     def image_shape(self, value):
-        raise RuntimeErrror( "Rob think about this" )
         self._image_shape = value
 
     @property
@@ -195,10 +197,36 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         FileOnDiskMixin.__init__( self, **kwargs )
         HasBitFlagBadness.__init__(self)
         SeeChangeBase.__init__( self )
-        # self._image_shape = None
+        self._image_shape = None
         self._counts_data = None
         self._var_data = None
 
+        if 'image_shape' in kwargs:
+            self._image_shape = kwargs['image_shape']
+        else:
+            if ( 'sources_id' not in kwargs ) or ( kwargs['sources_id'] is None ):
+                raise RuntimeError( "Error, can't figure out background image_shape.  Either explicitly pass "
+                                    "image_shape, or make sure that sources_id is set, and the SourceList and "
+                                    "Image are already saved to the database." )
+            with SmartSession() as session:
+                image = ( session.query( Image )
+                          .join( SourceList, Image.id==SourceList.image_id )
+                          .filter( SourceList.id==kwargs['sources_id'] )
+                         ).first()
+                if image is None:
+                    raise RuntimeError( "Error, can't figure out background image_shape.  Either explicitly pass "
+                                        "image_shape, or make sure that sources_id is set, and the SourceList and "
+                                        "Image are already saved to the database." )
+                # I don't like this; we're reading the image data just
+                # to get its shape.  Perhaps we should add with and
+                # height fields to the Image model?
+                # (Or, really, when making a background, pass an image_shape!)
+                wrnmsg = ( "Getting background shape from associated image.  This is inefficient. "
+                           "Pass image_shape when constructing a background." )
+                warnings.warn( wrnmsg )
+                # SCLogger.warning( wrnmsg )
+                self._image_shape = image.data.shape
+        
         # Manually set all properties ( columns or not )
         for key, value in kwargs.items():
             if hasattr( self, key ):
@@ -208,19 +236,19 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def init_on_load( self ):
         Base.init_on_load( self )
         FileOnDiskMixin.init_on_load( self )
-        # self._image_shape = None
+        self._image_shape = None
         self._counts_data = None
         self._var_data = None
 
-    def __setattr__(self, key, value):
-        if key == 'image':
-            if value is not None and not isinstance(value, Image):
-                raise ValueError(f'Background.image must be an Image object. Got {type(value)} instead. ')
-            self._image_shape = value.data.shape
+    # def __setattr__(self, key, value):
+    #     if key == 'image':
+    #         if value is not None and not isinstance(value, Image):
+    #             raise ValueError(f'Background.image must be an Image object. Got {type(value)} instead. ')
+    #         self._image_shape = value.data.shape
 
-        super().__setattr__(key, value)
+    #     super().__setattr__(key, value)
 
-    def save( self, filename=None, **kwargs ):
+    def save( self, filename=None, image=None, **kwargs ):
         """Write the Background to disk.
 
         May or may not upload to the archive and update the
@@ -253,6 +281,12 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
              extensions.  If None, will call image.invent_filepath() to get a
              filestore-standard filename and directory.
 
+          image: Image (optional)
+             Ignored if filename is not None.  If filename is None,
+             will use this image's filepath to generate the background's
+             filepath.  If both filename and image are None, will try
+             to load the background's image from the database, if possible.
+        
           Additional arguments are passed on to FileOnDiskMixin.save()
 
         """
@@ -272,14 +306,27 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 filename += '.h5'
             self.filepath = filename
         else:
-            if self.image.filepath is not None:
-                self.filepath = self.image.filepath
+            if image is None:
+                if self.sources_id is None:
+                    raise RuntimeError( f"Can't save a background without sources_id unless you pass "
+                                        f"a filename or an image." )
+                with SmartSession() as session:
+                    image = ( session.query( Image )
+                              .join( SourceList, Image.id==SourceList.image_id )
+                              .filter( SourceList.id==self.sources_id )
+                             ).first()
+                    if image is None:
+                        raise RuntimeError( "Couldn't find image in the database for background filename generation; "
+                                            "pass a filename or an image" )
+            
+            if image.filepath is not None:
+                self.filepath = image.filepath
             else:
-                self.filepath = self.image.invent_filepath()
+                self.filepath = image.invent_filepath()
 
-            if self.provenance is None:
-                raise RuntimeError("Can't invent a filepath for the Background without a provenance")
-            self.filepath += f'.bg_{self.provenance.id[:6]}.h5'
+            if self.provenance_id is None:
+                raise RuntimeError("Can't invent a filepath for the Background without a provenance_id")
+            self.filepath += f'.bg_{self.provenance_id[:6]}.h5'
 
         h5path = os.path.join( self.local_path, f'{self.filepath}')
 
@@ -376,74 +423,6 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._counts_data = None
         self._var_data = None
 
-    # def get_upstreams(self, session=None):
-    #     """Get the image that was used to make this Background object. """
-    #     with SmartSession(session) as session:
-    #         return session.scalars(sa.select(Image).where(Image.id == self.image_id)).all()
-
-    # def get_downstreams(self, session=None, siblings=False):
-    #     """Get the downstreams of this Background object.
-
-    #     If siblings=True then also include the SourceList, PSF, WCS, and ZP
-    #     that were created at the same time as this PSF.
-    #     """
-    #     from models.source_list import SourceList
-    #     from models.psf import PSF
-    #     from models.world_coordinates import WorldCoordinates
-    #     from models.zero_point import ZeroPoint
-    #     from models.provenance import Provenance
-
-    #     with SmartSession(session) as session:
-    #         output = []
-    #         if self.image_id is not None and self.provenance is not None:
-    #             subs = session.scalars(
-    #                 sa.select(Image).where(
-    #                     Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-    #                     Image.upstream_images.any(Image.id == self.image_id),
-    #                 )
-    #             ).all()
-    #             output += subs
-
-    #         if siblings:
-    #             # There should be exactly one source list, wcs, and zp per PSF, with the same provenance
-    #             # as they are created at the same time.
-    #             sources = session.scalars(
-    #                 sa.select(SourceList).where(
-    #                     SourceList.image_id == self.image_id, SourceList.provenance_id == self.provenance_id
-    #                 )
-    #             ).all()
-    #             if len(sources) != 1:
-    #                 raise ValueError(
-    #                     f"Expected exactly one source list for Background {self.id}, but found {len(sources)}"
-    #                 )
-
-    #             output.append(sources[0])
-
-    #             psfs = session.scalars(
-    #                 sa.select(PSF).where(PSF.image_id == self.image_id, PSF.provenance_id == self.provenance_id)
-    #             ).all()
-    #             if len(psfs) != 1:
-    #                 raise ValueError(f"Expected exactly one PSF for Background {self.id}, but found {len(psfs)}")
-
-    #             output.append(psfs[0])
-
-    #             wcs = session.scalars(
-    #                 sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id)
-    #             ).all()
-    #             if len(wcs) != 1:
-    #                 raise ValueError(f"Expected exactly one wcs for Background {self.id}, but found {len(wcs)}")
-
-    #             output.append(wcs[0])
-
-    #             zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
-
-    #             if len(zp) != 1:
-    #                 raise ValueError(f"Expected exactly one zp for Background {self.id}, but found {len(zp)}")
-
-    #             output.append(zp[0])
-
-    #     return output
-
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used
@@ -458,11 +437,11 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     @property
     def image_id( self ):
-        raise RuntimeError( f"Background.image_id is deprecated, don't use it" )
+        raise RuntimeError( f"Background.image_id is deprecated, don't use it.  (Use sources_id)" )
 
     @image_id.setter
     def image_id( self, val ):
-        raise RuntimeError( f"Background.image_id is deprecated, don't use it" )
+        raise RuntimeError( f"Background.image_id is deprecated, don't use it.  (Use sources_id)" )
 
     @property
     def provenance( self ):
@@ -471,28 +450,3 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     @provenance.setter
     def provenance( self, val ):
         raise RuntimeError( f"Background.provenance is deprecated, don't use it" )
-
-    @property
-    def _image_shape( self ):
-        raise RuntimeError( f"Background._image_shape is deprecated, don't use it" )
-
-    @_image_shape.setter
-    def _image_shape( self, val ):
-        raise RuntimeError( f"Background._image_shape is deprecated, don't use it" )
-
-    @property
-    def get_upstreams( self ):
-        raise RuntimeError( f"Background.get_upstreams is deprecated, don't use it" )
-
-    @get_upstreams.setter
-    def get_upstreams( self, val ):
-        raise RuntimeError( f"Background.get_upstreams is deprecated, don't use it" )
-
-    @property
-    def get_downstreams( self ):
-        raise RuntimeError( f"Background.get_downstreams is deprecated, don't use it" )
-
-    @get_downstreams.setter
-    def get_downstreams( self, val ):
-        raise RuntimeError( f"Background.get_downstreams is deprecated, don't use it" )
-

@@ -222,8 +222,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             f'<SourceList(id={self.id}, '
             f'format={self.format}, '
             f'image_id={self.image_id}, '
-            f'is_sub={self.is_sub}), '
-            f'num_sources= {self.num_sources}>'
+            f'num_sources= {self.num_sources}, '
+            f'filepath={self.filepath} >'
         )
 
         return output
@@ -601,13 +601,15 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         """
 
-        if self.image_id is None:
+        if ( image is None ) and ( self.image_id is None ):
             raise RuntimeError( f"Can't invent a filepath for sources without an image" )
         if self.provenance_id is None:
             raise RuntimeError( f"Can't invent a filepath for sources without a provenance" )
 
         if image is None:
             image = Image.get_by_id( self.image_id )
+        if image is None:
+            raise RuntimeError( "Could not find image for sourcelist; it is probably not committed to the database" )
         
         filename = image.filepath
         if filename is None:
@@ -775,57 +777,61 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         If siblings=True then also include the PSF, Background, WCS, and ZP
         that were created at the same time as this SourceList.
+
+        Only gets immediate downstreams; does not recurse.  (As per the
+        docstring in SeeChangeBase.get_downstreams.)
+
+        Returns a list of objects (potentially including Background,
+        PSF, WorldCoordinates, ZeroPoint, Cutouts, and Image objects).
+
         """
-        raise RunTimeError( "get_downstreams is deprecated, ROB THINK ABOUT THIS" )
-        # from models.psf import PSF
-        # from models.background import Background
-        # from models.world_coordinates import WorldCoordinates
-        # from models.zero_point import ZeroPoint
-        # from models.cutouts import Cutouts
-        # from models.provenance import Provenance
 
-        # with SmartSession(session) as session:
-        #     output = []
-        #     if self.image_id is not None and self.provenance is not None:
-        #         subs = session.scalars(
-        #             sa.select(Image).where(
-        #                 Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-        #                 Image.upstream_images.any(Image.id == self.image_id),
-        #             )
-        #         ).all()
-        #         output += subs
+        # Avoid circular imports
+        from models.background import Background
+        from models.psf import PSF
+        from models.world_coordinates import WorldCoordinates
+        from models.zero_point import ZeroPoint
+        from models.cutouts import Cutouts
+        from models.provenance import Provenance, provenance_self_association_table
+        from models.image import image_upstreams_association_table
+        
+        output = []
+        with SmartSession( session ) as sess:
 
-        #     if self.is_sub:
-        #         cutouts = session.scalars(sa.select(Cutouts).where(Cutouts.sources_id == self.id)).all()
-        #         output += cutouts
-        #     elif siblings:  # for "detections" we don't have siblings
-        #         psfs = session.scalars(
-        #             sa.select(PSF).where(PSF.image_id == self.image_id, PSF.provenance_id == self.provenance_id)
-        #         ).all()
-        #         if len(psfs) != 1:
-        #             raise ValueError(f"Expected exactly one PSF for SourceList {self.id}, but found {len(psfs)}")
+            # Siblings (Background, PSF, WorldCoordinates, ZeroPoint)
+            if siblings:
+                bkg = sess.query( Background ).filter( Background.sources_id==self.id ).first()
+                psf = sess.query( PSF ).filter( PSF.sources_id==self.id ).first()
+                wcs = sess.query( WordCoordinates ).filter( WorldCoordinates.sources_id==self.id ).first()
+                zp = sess.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
+                for thing in [ bkg, psf, wcs, zp ]:
+                    if thing is not None:
+                        output.append( thing )
 
-        #         bgs = session.scalars(
-        #             sa.select(Background).where(
-        #                 Background.image_id == self.image_id,
-        #                 Background.provenance_id == self.provenance_id
-        #             )
-        #         ).all()
-        #         if len(bgs) != 1:
-        #             raise ValueError(f"Expected exactly one Background for SourceList {self.id}, but found {len(bgs)}")
+            # Cutouts (only will hapepn if this is a subtraction)
+            co = sess.query( Cutouts ).filter( Cutouts.sources_id==self.id ).first()
+            if co is not None:
+                output.append( co )
 
-        #         wcs = session.scalars(sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == self.id)).all()
-        #         if len(wcs) != 1:
-        #             raise ValueError(
-        #                 f"Expected exactly one WorldCoordinates for SourceList {self.id}, but found {len(wcs)}"
-        #             )
-        #         zps = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == self.id)).all()
-        #         if len(zps) != 1:
-        #             raise ValueError(
-        #                 f"Expected exactly one ZeroPoint for SourceList {self.id}, but found {len(zps)}"
-        #             )
-
-        #         output += psfs + bgs + wcs + zps
+            # Coadd or subtraction images made from this SourceList's
+            #  parent image, which have this sourcelist as an upstream.
+            #  They're not explicitly tracked as downstreams of sources
+            #  (is that a mistake?), so we have to poke into the image
+            #  upstreams association table.  Also poke into the
+            #  provenance upstreams association table; this may be
+            #  redundant, but it makes sure that we're really getting
+            #  things that are downstream of self.
+            imgs = ( sess.query( Image )
+                     .join( provenance_self_association_table,
+                            provenance_self_association_table.c.downstream_id == Image.provenance_id )
+                     .join( image_upstreams_association_table,
+                            image_upstreams_association_table.c.downstream_id == Image.id )
+                     .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
+                     .filter( image_upstreams_association_table.c.upstream_id == self.image_id )
+                    ).all()
+            output.extend( list(imgs) )
+                
+        return output
 
         # return output
 
@@ -912,6 +918,56 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         raise RuntimeError( f"SourceList.measurements is deprecated, don't use it" )
 
 
+# Mixin for Background, PSF, WorldCoordinates, and ZeroPoint
+# Note that because of the Python MRO, this will have to be listed
+# as the *first* superclass, with Base later.
+
+class SourceListSibling:
+    def get_upstreams( self, session=None ):
+        """The only upstream of a SourceList sibling is the SourceList it's associated with.
+
+        If self.id or self.sources_id is None, returns None.
+        
+        (That's how we've implemented it, but one could argue the Image is the upstream,
+        since the SourceList is a sibling.)
+
+        """
+
+        if ( self.id is None ) or ( self.sources_id is None ):
+            return None
+        
+        from models.source_list import SourceList
+        with SmartSession( session ) as sess:
+            sl = sess.query( SourceList ).filter( SourceList.id==self.sources_id ).first()
+            if sl is None:
+                raise RuntimeError( f"Failed to find SourceList {self.sources_id} "
+                                    f"that goes with Background {self.id}" )
+
+    def get_downstreams(self, session=None, siblings=False):
+        """Get the downstreams of this SourceList sibling object.
+
+        If self.id or self.sources_id is None, returns None
+        
+        If siblings=True then also include the SourceList, PSF, WCS, and
+        ZP that were created at the same time as this Background.
+
+        The downstreams are identical to the downstreams of the
+        SourceList it's associated with, except the Background (i.e. the
+        thing that's the same row in the database as self) is removed.
+
+        """
+
+        sl = self.get_upstreams( session=session )
+        if sl is None:
+            return None
+
+        dses = sl.get_downstreams( session=session, siblings=siblings )
+        dses = [ d for d in dses if dses.id != self.id ]
+
+        return dses
+
+
+    
 
 
 # # TODO: replace these with association proxies?

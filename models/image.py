@@ -164,9 +164,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     # )
 
     @property
-    def new_image(self):
-        """Get the image that is NOT the reference image. This only works on subtractions (with ref+new upstreams)"""
-        image = [im for im in self.upstream_images if im.id != self.ref_image_id]
+    def new_image_id(self):
+        """Get the id of the image that is NOT the reference image. Only for subtractions (with ref+new upstreams)"""
+        image = [ i for i in self.upstream_image_ids if i != self.ref_image_id ]
         if len(image) == 0 or len(image) > 1:
             return None
         return image[0]
@@ -624,7 +624,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         """
 
-        inserted = FileOnDiskMixin.load_or_insert( self, onlyinsert=onlyinsert )
+        inserted = UUIDMixin.load_or_insert( self, onlyinsert=onlyinsert )
         if ( not inserted ) and ( ( not verifyupstreams ) or ( self._upstream_ids is None ) ):
             return inserted
 
@@ -1177,7 +1177,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         output: Image
             The new Image object. It would not have any data variables or filepath.
         """
-        raise RuntimeError( "Rob, this one needs work: see ref_image, upstream_images, etc." )
+
         
         if ref_image is None:
             raise ValueError("Must provide a reference image.")

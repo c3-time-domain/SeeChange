@@ -13,6 +13,7 @@ from astropy.io import fits
 from models.base import Base, SmartSession, SeeChangeBase, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.enums_and_bitflags import PSFFormatConverter, psf_badness_inverse
 from models.image import Image
+from models.source_list import SourceList, SourceListSibling
 from util.logger import SCLogger
 
 # NOTE.  As of this writing, the only format for PSFs we were
@@ -29,7 +30,7 @@ from util.logger import SCLogger
 # for different formats.
 
 
-class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'psfs'
 
     @declared_attr
@@ -536,75 +537,6 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                                                      )
                                               )
 
-    def get_upstreams(self, session=None):
-        """Get the image that was used to make this PSF. """
-        with SmartSession(session) as session:
-            return session.scalars(sa.select(Image).where(Image.id == self.image_id)).all()
-        
-    def get_downstreams(self, session=None, siblings=False):
-        """Get the downstreams of this PSF.
-
-        If siblings=True then also include the SourceList, WCS, ZP and background object
-        that were created at the same time as this PSF.
-        """
-        from models.source_list import SourceList
-        from models.background import Background
-        from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
-        from models.provenance import Provenance
-
-        with SmartSession(session) as session:
-            output = []
-            if self.image_id is not None and self.provenance is not None:
-                subs = session.scalars(
-                    sa.select(Image).where(
-                        Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-                        Image.upstream_images.any(Image.id == self.image_id),
-                    )
-                ).all()
-                output += subs
-
-            if siblings:
-                # There should be exactly one source list, wcs, and zp per PSF, with the same provenance
-                # as they are created at the same time.
-                sources = session.scalars(
-                    sa.select(SourceList).where(
-                        SourceList.image_id == self.image_id, SourceList.provenance_id == self.provenance_id
-                    )
-                ).all()
-                if len(sources) != 1:
-                    raise ValueError(f"Expected exactly one source list for PSF {self.id}, but found {len(sources)}")
-
-                output.append(sources[0])
-
-                bgs = session.scalars(
-                    sa.select(Background).where(
-                        Background.image_id == self.image_id,
-                        Background.provenance_id == self.provenance_id
-                    )
-                ).all()
-                if len(bgs) != 1:
-                    raise ValueError(f"Expected exactly one Background for SourceList {self.id}, but found {len(bgs)}")
-
-                output.append(bgs[0])
-
-                wcs = session.scalars(
-                    sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id)
-                ).all()
-                if len(wcs) != 1:
-                    raise ValueError(f"Expected exactly one wcs for PSF {self.id}, but found {len(wcs)}")
-
-                output.append(wcs[0])
-
-                zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
-
-                if len(zp) != 1:
-                    raise ValueError(f"Expected exactly one zp for PSF {self.id}, but found {len(zp)}")
-
-                output.append(zp[0])
-
-        return output
-    
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used

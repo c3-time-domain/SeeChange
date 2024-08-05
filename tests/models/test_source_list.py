@@ -5,6 +5,7 @@ import gc
 import pathlib
 import numpy as np
 import time
+import uuid
 
 import sqlalchemy as sa
 
@@ -62,17 +63,19 @@ def test_source_list_bitflag(sim_sources):
         sources.set_badness( 'Banding' )
 
     # add badness that works with source lists (e.g., cross-match failures)
-    sources.set_badness =( 'few sources' )
+    sources.set_badness( 'few sources' )
 
     # Reload sources from database
-    sources = Sources.get_by_id( sources.id )
+    sources = SourceList.get_by_id( sources.id )
 
     assert sources.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16
     assert sources.badness == 'banding, saturation, few sources'
 
     # try to find this using the bitflag hybrid property
     with SmartSession() as session:
-        sim_sources4 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16)).all()
+        sim_sources4 = session.scalars( sa.select(SourceList)
+                                        .where(SourceList.bitflag == 2 ** 1 + 2 ** 3 + 2 ** 16)
+                                       ).all()
         assert sim_sources.id in [s.id for s in sim_sources4]
         sim_sources4x = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sim_sources.id not in [s.id for s in sim_sources4x]
@@ -82,51 +85,101 @@ def test_source_list_bitflag(sim_sources):
     exposure.update_downstream_badness()
 
     # Reload image and sources from database
-    image = Image.get( image.id )
-    sources = Sources.get( sources.id )
+    image = Image.get_by_id( image.id )
+    sources = SourceList.get_by_id( sources.id )
     
     assert image.badness == 'saturation'
-    assert sim_sources.badness == 'saturation, few sources'
+    assert sources.badness == 'saturation, few sources'
 
     # check the database queries still work
     with SmartSession() as session:
         sim_sources5 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 2 ** 3 + 2 ** 16)).all()
-        assert sim_sources.id in [s.id for s in sim_sources5]
+        assert sources.id in [s.id for s in sim_sources5]
         sim_sources5x = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
-        assert sim_sources.id not in [s.id for s in sim_sources5x]
+        assert sources.id not in [s.id for s in sim_sources5x]
 
     # make sure new SourceList object gets the badness from the Image
-    new_sources = SourceList( image_id=image_id )
-    assert new_sources.badness == 'saturation'
+    #
+    # It won't -- this will only happen after you commit new_sources to
+    # the datbase and call image.update_downstream_badness.
+    # new_sources = SourceList( image_id=image.id )
+    # assert new_sources.badness == 'saturation'
 
 
 def test_invent_filepath( provenance_base, provenance_extra ):
+    # Most of these fields aren't really needed for this test, but have
+    #   to be there to commit to the database because of non-NULL constraints.
     imgargs = {
+        'telescope': 'DemoTelescope',
         'instrument': 'DemoInstrument',
+        'project': 'tests',
+        'target': 'nothing',
         'section_id': 0,
         'type': "Sci",
         'format': "fits",
         'ra': 12.3456,
         'dec': -0.42,
         'mjd': 61738.64,
+        'end_mjd': 61738.6407,
+        'exp_time': 60.,
         'filter': 'r',
-        'provenance': provenance_base,
+        'provenance_id': provenance_base.id,
+        'md5sum': uuid.uuid4()                # Spoof since we don't really save a file
     }
-
+    dra = 0.2
+    ddec = 0.2
+    imgargs['ra_corner_00'] = imgargs['ra'] - dra/2.
+    imgargs['ra_corner_01'] = imgargs['ra'] - dra/2.
+    imgargs['ra_corner_10'] = imgargs['ra'] + dra/2.
+    imgargs['ra_corner_11'] = imgargs['ra'] + dra/2.
+    imgargs['minra'] = imgargs['ra'] - dra/2.
+    imgargs['maxra'] = imgargs['ra'] + dra/2.
+    imgargs['dec_corner_00'] = imgargs['dec'] - ddec/2.
+    imgargs['dec_corner_01'] = imgargs['dec'] + ddec/2.
+    imgargs['dec_corner_10'] = imgargs['dec'] - ddec/2.
+    imgargs['dec_corner_11'] = imgargs['dec'] + ddec/2.
+    imgargs['mindec'] = imgargs['dec'] - ddec/2.
+    imgargs['maxdec'] = imgargs['dec'] + ddec/2.
+    
     hash1 = provenance_base.id[:6]
     hash2 = provenance_extra.id[:6]
 
+    # Make sure it screams if we have no image_id
+    sources = SourceList( format='sextrfits', provenance_id=provenance_extra.id )
+    with pytest.raises( RuntimeError, match="Can't invent a filepath for sources without an image" ):
+        sources.invent_filepath()
+
+    # Make sure it screams if we point to an image that doesn't exist
+    sources = SourceList( image_id=uuid.uuid4(), format='sextrfits', provenance_id=provenance_extra.id )
+    with pytest.raises( RuntimeError, match='Could not find image for sourcelist' ):
+        sources.invent_filepath()
+
+    # Make sure it works if we explicitly pass an image
     image = Image( filepath="testing", **imgargs )
-    sources = SourceList( image=image, format='sextrfits', provenance=provenance_extra )
-    assert sources.invent_filepath() == f'{image.filepath}.sources_{hash2}.fits'
+    assert sources.invent_filepath( image ) == f'{image.filepath}.sources_{hash2}.fits'
 
-    image = Image( **imgargs )
-    sources = SourceList( image=image, format='sextrfits', provenance=provenance_extra )
-    assert sources.invent_filepath() == f'012/Demo_20271129_152136_0_r_Sci_{hash1}.sources_{hash2}.fits'
+    # Make sure it get an image filepath from an image saved in the database with automatically generated filepath
+    try:
+        image = Image( **imgargs )
+        image.filepath = image.invent_filepath()
+        image.load_or_insert( onlyinsert=True )
+        sources = SourceList( image_id=image.id, format='sextrfits', provenance_id=provenance_extra.id )
+        assert sources.invent_filepath() == f'012/Demo_20271129_152136_0_r_Sci_{hash1}.sources_{hash2}.fits'
+    finally:
+        with SmartSession() as session:
+            session.execute( sa.text( "DELETE FROM images WHERE id=:id" ), { 'id': image.id } )
+            session.commit()
 
-    image = Image( filepath="this.is.a.test", **imgargs )
-    sources = SourceList( image=image, format='sextrfits', provenance=provenance_extra )
-    assert sources.invent_filepath() == f'this.is.a.test.sources_{hash2}.fits'
+    # Make sure it can get an image filepath from an imaged saved in the database with a manual filepath
+    try:
+        image = Image( filepath="this.is.a.test", **imgargs )
+        image.load_or_insert( onlyinsert=True )
+        sources = SourceList( image_id=image.id, format='sextrfits', provenance_id=provenance_extra.id )
+        assert sources.invent_filepath() == f'this.is.a.test.sources_{hash2}.fits'
+    finally:
+        with SmartSession() as session:
+            session.execute( sa.text( "DELETE FROM images WHERE id=:id" ), { 'id': image.id } )
+            session.commit()
 
 
 def test_read_sextractor( ztf_filepath_sources ):
@@ -248,7 +301,7 @@ def test_write_sextractor(archive):
         pathlib.Path( sources.get_fullpath() ).unlink( missing_ok=True )
         archive.delete(sources.filepath, okifmissing=True)
 
-
+# ROB TODO : check this test once you've updated DataStore and the associated fixtures
 def test_calc_apercor( decam_datastore ):
     sources = decam_datastore.get_sources()
 
@@ -280,6 +333,7 @@ def test_calc_apercor( decam_datastore ):
     # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.024, abs=0.001 )
 
 
+# ROB TODO : check this test once you've updated DataStore and the associated fixtures
 @pytest.mark.skip(reason="This test regularly fails, even when flaky is used. See Issue #263")
 def test_free( decam_datastore ):
     ds = decam_datastore

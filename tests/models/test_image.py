@@ -465,35 +465,36 @@ def test_image_preproc_bitflag( sim_image1 ):
         im2.filepath = "delete_this_file.fits"       # Shouldn't actually get saved
         im2.load_or_insert( onlyinsert=True )
 
-        images = session.scalars(sa.select(Image).where(
-            Image.preproc_bitflag.op('&')(string_to_bitflag('zero', image_preprocessing_inverse)) != 0
-        )).all()
-        assert im2.id in [i.id for i in images]
+        with SmartSession() as session:
+            images = session.scalars(sa.select(Image).where(
+                Image.preproc_bitflag.op('&')(string_to_bitflag('zero', image_preprocessing_inverse)) != 0
+            )).all()
+            assert im2.id in [i.id for i in images]
 
-        images = session.scalars(sa.select(Image).where(
-            Image.preproc_bitflag.op('&')(string_to_bitflag('zero,flat', image_preprocessing_inverse)) !=0
-        )).all()
-        assert im2.id in [i.id for i in images]
+            images = session.scalars(sa.select(Image).where(
+                Image.preproc_bitflag.op('&')(string_to_bitflag('zero,flat', image_preprocessing_inverse)) !=0
+            )).all()
+            assert im2.id in [i.id for i in images]
 
-        images = session.scalars(sa.select(Image).where(
-            Image.preproc_bitflag.op('&')(
-                string_to_bitflag('zero, flat', image_preprocessing_inverse)
-            ) == string_to_bitflag('flat, zero', image_preprocessing_inverse)
-        )).all()
-        assert im2.id in [i.id for i in images]
+            images = session.scalars(sa.select(Image).where(
+                Image.preproc_bitflag.op('&')(
+                    string_to_bitflag('zero, flat', image_preprocessing_inverse)
+                ) == string_to_bitflag('flat, zero', image_preprocessing_inverse)
+            )).all()
+            assert im2.id in [i.id for i in images]
 
-        images = session.scalars(sa.select(Image).where(
-            Image.preproc_bitflag.op('&')(string_to_bitflag('fringe', image_preprocessing_inverse) ) !=0
-        )).all()
-        assert im2.id not in [i.id for i in images]
+            images = session.scalars(sa.select(Image).where(
+                Image.preproc_bitflag.op('&')(string_to_bitflag('fringe', image_preprocessing_inverse) ) !=0
+            )).all()
+            assert im2.id not in [i.id for i in images]
 
-        images = session.scalars(sa.select(Image.filepath).where(
-            Image.id == im.id,  # only find the original image, if any
-            Image.preproc_bitflag.op('&')(
-                string_to_bitflag('fringe, overscan', image_preprocessing_inverse)
-            ) == string_to_bitflag( 'overscan, fringe', image_preprocessing_inverse )
-        )).all()
-        assert len(images) == 0
+            images = session.scalars(sa.select(Image.filepath).where(
+                Image.id == im.id,  # only find the original image, if any
+                Image.preproc_bitflag.op('&')(
+                    string_to_bitflag('fringe, overscan', image_preprocessing_inverse)
+                ) == string_to_bitflag( 'overscan, fringe', image_preprocessing_inverse )
+            )).all()
+            assert len(images) == 0
 
     finally:
         if im2 is not None:
@@ -650,75 +651,69 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
 
 
 def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):
+    im1 = None
+    im2 = None
+    im = None
     try:
-        with SmartSession() as session:
-            sim_exposure1.update_instrument()
-            sim_exposure2.update_instrument()
+        sim_exposure1.update_instrument()
+        sim_exposure2.update_instrument()
 
-            # make sure exposures are in chronological order...
-            if sim_exposure1.mjd > sim_exposure2.mjd:
-                sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
+        # make sure exposures are in chronological order...
+        if sim_exposure1.mjd > sim_exposure2.mjd:
+            sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
 
-            # get a couple of images from exposure objects
-            im1 = Image.from_exposure(sim_exposure1, section_id=0)
-            im1.weight = np.ones_like(im1.raw_data)
-            im1.flags = np.zeros_like(im1.raw_data)
-            im2 = Image.from_exposure(sim_exposure2, section_id=0)
-            im2.weight = np.ones_like(im2.raw_data)
-            im2.flags = np.zeros_like(im2.raw_data)
-            im2.filter = im1.filter
-            im2.target = im1.target
+        # get a couple of images from exposure objects
+        im1 = Image.from_exposure(sim_exposure1, section_id=0)
+        im1.weight = np.ones_like(im1.raw_data)
+        im1.flags = np.zeros_like(im1.raw_data)
+        im2 = Image.from_exposure(sim_exposure2, section_id=0)
+        im2.weight = np.ones_like(im2.raw_data)
+        im2.flags = np.zeros_like(im2.raw_data)
+        im2.filter = im1.filter
+        im2.target = im1.target
 
-            im1.provenance = provenance_base
-            _1 = ImageCleanup.save_image(im1)
-            im1 = im1.merge_all(session)
+        im1.provenance_id = provenance_base.id
+        _1 = ImageCleanup.save_image(im1)
+        im1.load_or_insert( onlyinsert=True )
 
-            im2.provenance = provenance_base
-            _2 = ImageCleanup.save_image(im2)
-            im2 = im2.merge_all(session)
+        im2.provenance_id = provenance_base.id
+        _2 = ImageCleanup.save_image(im2)
+        im2.load_or_insert( onlyinsert=True )
 
-            # make a coadd image from the two
-            im = Image.from_ref_and_new(im1, im2)
-            im.provenance = provenance_base
-            _3 = ImageCleanup.save_image(im)
+        # make a coadd image from the two
+        im = Image.from_ref_and_new(im1, im2)
 
-            im = im.merge_all( session )
-            im1 = im1.merge_all( session )
-            im2 = im2.merge_all( session )
-            sim_exposure1 = session.merge(sim_exposure1)
-            sim_exposure2 = session.merge(sim_exposure2)
+        assert im.id is None
+        assert im.exposure_id is None
+        assert im.ref_image_id == im1.id
+        assert im.new_image_id == im2.id
+        assert im.mjd == im2.mjd
+        assert im.exp_time == im2.exp_time
+        assert im.upstream_image_ids == [ im1.id, im2.id ]
+        
+        im.provenance_id = provenance_base.id
+        _3 = ImageCleanup.save_image(im)
+        im.load_or_insert( onlyinsert=True )
 
-            session.commit()
-
-            im_id = im.id
-            assert im_id is not None
-            assert im.exposure_id is None
-            assert im.ref_image == im1
-            assert im.ref_image.id == im1.id
-            assert im.new_image == im2
-            assert im.new_image.id == im2.id
-            assert im.mjd == im2.mjd
-            assert im.exp_time == im2.exp_time
-
-            # make sure source images are pulled into the database too
-            im1_id = im1.id
-            assert im1_id is not None
-            assert im1.exposure_id is not None
-            assert im1.exposure_id == sim_exposure1.id
-            assert im1.upstream_images == []
-
-            im2_id = im2.id
-            assert im2_id is not None
-            assert im2.exposure_id is not None
-            assert im2.exposure_id == sim_exposure2.id
-            assert im2.upstream_images == []
+        # Reload from database, make sure all is well
+        im = Image.get_by_id( im.id )
+        assert im.id is not None
+        assert im.exposure_id is None
+        assert im.ref_image_id == im1.id
+        assert im.new_image_id == im2.id
+        assert im.mjd == im2.mjd
+        assert im.exp_time == im2.exp_time
+        assert im.upstream_image_ids == [ im1.id, im2.id ]
 
     finally:  # make sure to clean up all images
-        for id_ in [im_id, im1_id, im2_id]:
-            if id_ is not None:
+        # Make sure images are delete from the database.  Have to do it in this order;
+        #   If im1 or im2 is deleted first, we'll get an error about the image still
+        #   existing in image_upstreams_association.  That's because the association
+        #   cascades when deleting a downstream, but *not* when deleting an upstream.
+        for i in [ im, im1, im2 ]:
+            if i is not None:
                 with SmartSession() as session:
-                    im = session.scalars(sa.select(Image).where(Image.id == id_)).first()
-                    session.delete(im)
+                    session.execute( sa.text( "DELETE FROM images WHERE id=:id" ), {'id': i.id } )
                     session.commit()
 
 
@@ -779,7 +774,7 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
     im.data = np.float32(im.raw_data)
     im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
     im.weight = None
-    im.provenance = provenance_base
+    im.provenance_id = provenance_base.id
 
     single_fileness = test_config.value('storage.images.single_file')  # store initial value
 
@@ -835,19 +830,9 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
             assert np.array_equal(hdul[0].data, im.flags)
 
     finally:
-        with SmartSession() as session:
-            im = session.merge(im)
-            exp = im.exposure
-            im.delete_from_disk_and_database(session=session, commit=False)
-
-            if exp is not None and sa.inspect(exp).persistent:
-                session.delete(exp)
-
-            session.commit()
-
         test_config.set_value('storage.images.single_file', single_fileness)
 
-
+# TODO ROB -- update this when DataStore and associated fixtures are updated
 def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     ds = ptf_datastore  # shorthand
 
@@ -967,6 +952,7 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
     # and test_psf.py
 
 # There are other tests of badness elsewhere that do upstreams and downstreams
+# See: test_sources.py::test_source_list_bitflag
 def test_badness_basic( sim_image_uncommitted, provenance_base ):
     im = sim_image_uncommitted
     im.provenance_id = provenance_base.id

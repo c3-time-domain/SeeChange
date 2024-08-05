@@ -232,23 +232,28 @@ def decam_exposure(decam_filename, data_dir):
         hdr = ifp[0].header
     exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
 
+    exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
+    exposure.save()  # save to archive and get an MD5 sum
     with SmartSession() as session:
-        exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
-        exposure.save()  # save to archive and get an MD5 sum
-
-        # ROB TODO -- fix this!!!
-        # exposure = exposure.merge_concurrent(session)  # also commits the session
-
+        exposure.load_or_insert( onlyinsert=True )
+        
     yield exposure
 
     exposure.delete_from_disk_and_database()
 
-
+@pytest.fixture
+def decam_raw_image_provenance( provenance_base ):
+    return provenance_base
+    
 @pytest.fixture
 def decam_raw_image( decam_exposure, provenance_base ):
     image = Image.from_exposure(decam_exposure, section_id='S3')
     image.data = image.raw_data.astype(np.float32)
-    image.provenance = provenance_base
+    # These next two don't mean anything, but put them there for things
+    #   that require those files to be there for reading purposes
+    image.weight = np.full_like( image.data, image.data.std() )
+    image.flags = np.zeros_like( image.data )
+    image.provenance_id = provenance_base.id
     image.save()
 
     yield image

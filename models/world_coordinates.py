@@ -14,10 +14,10 @@ from astropy.wcs import utils
 from models.base import Base, SmartSession, UUIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.image import Image
-from models.source_list import SourceList
+from models.source_list import SourceList, SourceListSibling
 
 
-class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'world_coordinates'
 
     @declared_attr
@@ -104,76 +104,6 @@ class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         pixel_scales = utils.proj_plane_pixel_scales(self.wcs)  # the scale in x and y direction
         return np.mean(pixel_scales) * 3600.0
     
-    # def get_upstreams(self, session=None):
-    #     """Get the extraction SourceList that was used to make this WorldCoordinates"""
-    #     with SmartSession(session) as session:
-    #         return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
-        
-    # def get_downstreams(self, session=None, siblings=False):
-    #     """Get the downstreams of this WorldCoordinates.
-
-    #     If siblings=True  then also include the SourceList, PSF, background object and ZP
-    #     that were created at the same time as this WorldCoordinates.
-    #     """
-    #     from models.source_list import SourceList
-    #     from models.psf import PSF
-    #     from models.background import Background
-    #     from models.zero_point import ZeroPoint
-    #     from models.provenance import Provenance
-
-    #     with (SmartSession(session) as session):
-    #         output = []
-    #         if self.provenance is not None:
-    #             subs = session.scalars(
-    #                 sa.select(Image).where(
-    #                     Image.provenance.has(Provenance.upstreams.any(Provenance.id == self.provenance.id)),
-    #                     Image.upstream_images.any(Image.id == self.sources.image_id),
-    #                 )
-    #             ).all()
-    #             output += subs
-
-    #         if siblings:
-    #             sources = session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
-    #             if len(sources) > 1:
-    #                 raise ValueError(
-    #                     f"Expected exactly one SourceList for WorldCoordinates {self.id}, but found {len(sources)}."
-    #                 )
-
-    #             output.append(sources[0])
-
-    #             psf = session.scalars(
-    #                 sa.select(PSF).where(
-    #                     PSF.image_id == sources.image_id, PSF.provenance_id == self.provenance_id
-    #                 )
-    #             ).all()
-
-    #             if len(psf) > 1:
-    #                 raise ValueError(f"Expected exactly one PSF for WorldCoordinates {self.id}, but found {len(psf)}.")
-
-    #             output.append(psf[0])
-
-    #             bgs = session.scalars(
-    #                 sa.select(Background).where(
-    #                     Background.image_id == sources.image_id, Background.provenance_id == self.provenance_id
-    #                 )
-    #             ).all()
-
-    #             if len(bgs) > 1:
-    #                 raise ValueError(
-    #                     f"Expected exactly one Background for WorldCoordinates {self.id}, but found {len(bgs)}."
-    #                 )
-
-    #             output.append(bgs[0])
-
-    #             zp = session.scalars(sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id)).all()
-
-    #             if len(zp) > 1:
-    #                 raise ValueError(
-    #                     f"Expected exactly one ZeroPoint for WorldCoordinates {self.id}, but found {len(zp)}."
-    #                 )
-    #             output.append(zp[0])
-
-    #     return output
 
     def save( self, filename=None, **kwargs ):
         """Write the WCS data to disk.
@@ -288,20 +218,3 @@ class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     @provenance.setter
     def provenance( self, val ):
         raise RuntimeError( f"WorldCoordinates.provenance is deprecated; get provenance from sources" )
-
-    @property
-    def get_upstreams( self ):
-        raise RuntimeError( f"WorldCoordinates.get_upstreams is deprecated, don't use it" )
-
-    @get_upstreams.setter
-    def get_upstreams( self, val ):
-        raise RuntimeError( f"WorldCoordinates.get_upstreams is deprecated, don't use it" )
-
-    @property
-    def get_downstreams( self ):
-        raise RuntimeError( f"WorldCoordinates.get_downstreams is deprecated, don't use it" )
-
-    @get_downstreams.setter
-    def get_downstreams( self, val ):
-        raise RuntimeError( f"WorldCoordinates.get_downstreams is deprecated, don't use it" )
-
