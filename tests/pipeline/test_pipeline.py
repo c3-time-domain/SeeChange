@@ -257,7 +257,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image.id, session, ds)
 
         # feed the pipeline the same data, but missing the upstream data.
-        attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements']
+        attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements', 'scores']
 
         for i in range(len(attributes)):
             for j in range(i + 1):
@@ -655,6 +655,7 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
             'detector': 'detection',
             'cutter': 'cutting',
             'measurer': 'measuring',
+            'scorers': 'scoring',
         }
         for process, objects in PROCESS_OBJECTS.items():
             if isinstance(objects, str):
@@ -670,12 +671,21 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
                     elif isinstance(objects2, dict):
                         objects2 = list(set(objects2.values()))  # e.g., "extractor", "astrometor", "photometor"
                     for obj2 in objects2:
-                        getattr(p, obj2).pars.inject_exceptions = False
-                        getattr(p, obj2).pars.inject_warnings = False
+                        if isinstance(getattr(p, obj2), list): # [scorer1, scorer2]
+                            for obj3 in getattr(p, obj2):
+                                obj3.pars.inject_exceptions = False
+                                obj3.pars.inject_warnings = False
+                        else:
+                            getattr(p, obj2).pars.inject_exceptions = False
+                            getattr(p, obj2).pars.inject_warnings = False
 
                 if not SKIP_WARNING_TESTS:
                     # set the warning:
-                    getattr(p, obj).pars.inject_warnings = True
+                    if isinstance(getattr(p, obj), list): # [scorer1, scorer2]
+                        for o in getattr(p, obj):
+                            o.pars.inject_warnings = True
+                    else:
+                        getattr(p, obj).pars.inject_warnings = True
 
                     # run the pipeline
                     ds = p.run(decam_datastore)
@@ -689,8 +699,13 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
                 prov_id = ds.report.provenance_id
 
                 # set the error instead
-                getattr(p, obj).pars.inject_warnings = False
-                getattr(p, obj).pars.inject_exceptions = True
+                if isinstance(getattr(p, obj), list): # [scorer1, scorer2]
+                    for o in getattr(p, obj):
+                        o.pars.inject_warnings = False
+                        o.pars.inject_exceptions = True
+                else:
+                    getattr(p, obj).pars.inject_warnings = False
+                    getattr(p, obj).pars.inject_exceptions = True
                 # run the pipeline again, this time with an exception
 
                 with pytest.raises(

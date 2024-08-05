@@ -137,14 +137,14 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
             # should contain: 'preprocessing, extraction, subtraction, detection, cutting, measuring'
             assert rep.progress_steps == ', '.join(PROCESS_OBJECTS.keys())
             assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
-                                          'sub_image, detections, cutouts, measurements')
+                                          'sub_image, detections, cutouts, measurements, scores')
             assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
             assert rep.provenance.upstreams[0].id == ds.measurements[0].provenance.id
             assert rep.num_prev_reports == 0
             ds.save_and_commit(session=session)
             rep.scan_datastore(ds, session=session)
             assert rep.products_committed == ('image, sources, psf, bg, wcs, zp, '
-                                              'sub_image, detections, cutouts, measurements')
+                                              'sub_image, detections, cutouts, measurements, scores')
     finally:
         if 'ds' in locals():
             ds.delete_everything()

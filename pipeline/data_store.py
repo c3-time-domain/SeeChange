@@ -2,6 +2,7 @@ import io
 import warnings
 import datetime
 import sqlalchemy as sa
+import numpy as np
 
 from util.util import parse_session, listify
 from util.logger import SCLogger
@@ -18,6 +19,8 @@ from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.deepscore import DeepScore
+
 
 # for each process step, list the steps that go into its upstream
 UPSTREAM_STEPS = {
@@ -28,6 +31,7 @@ UPSTREAM_STEPS = {
     'detection': ['subtraction'],
     'cutting': ['detection'],
     'measuring': ['cutting'],
+    'scoring': ['measuring'],
 }
 
 # The products that are made at each processing step.
@@ -42,6 +46,7 @@ PROCESS_PRODUCTS = {
     'detection': 'detections',
     'cutting': 'cutouts',
     'measuring': 'measurements',
+    'scoring': 'scores',
 }
 
 
@@ -63,7 +68,8 @@ class DataStore:
         'sub_image',
         'detections',
         'cutouts',
-        'measurements'
+        'measurements',
+        'scores',
     ]
 
     # these get cleared but not saved
@@ -283,6 +289,7 @@ class DataStore:
         self.cutouts = None  # cutouts around sources
         self.measurements = None  # photometry and other measurements for each source
         self.objects = None  # a list of Object associations of Measurements
+        self.scores = None # a list of r/b and ml/dl scores for Measurements
 
         # these need to be added to the products_to_clear list
         self.ref_image = None  # to be used to make subtractions
@@ -542,6 +549,9 @@ class DataStore:
         This is used to get the provenance of upstream objects.
         Looks for a matching provenance in the prov_tree attribute.
 
+        NOTE: In the case of deepscore, which has a list of provenances in the prov_tree,
+        this WILL return that list to be handled outside the function (or None).
+
         Example:
         When making a SourceList in the extraction phase, we will want to know the provenance
         of the Image object (from the preprocessing phase).
@@ -553,7 +563,16 @@ class DataStore:
         # see if it is in the prov_tree
         if self.prov_tree is not None:
             if process in self.prov_tree:
-                return self.prov_tree[process]
+
+                # handle deepscore case, which has a list in prov tree
+                # Currently behaves identically, but note that it returns
+                # a list of provs to be handled outside the func.
+                if isinstance(self.prov_tree[process], list):
+                    prov = self.prov_tree[process]
+                else:
+                    prov = self.prov_tree[process]
+
+                return prov
             else:
                 raise ValueError(f'No provenance found for process "{process}" in prov_tree!')
 
@@ -1318,6 +1337,72 @@ class DataStore:
 
         return self.measurements
 
+    def get_deepscores(self, provenance=None, session=None):
+        """Get a list of DeepScores, either from memory or from database.
+
+        Parameters
+        ----------
+        provenance: Provenance object
+            The provenance to use for the deepscores.
+            This provenance should be consistent with
+            the current code version and critical parameters.
+            If none is given, will use the latest provenance
+            for the "scoring" process.
+            Usually the provenance is not given when the subtraction is loaded
+            in order to be used as an upstream of the current process.
+        session: sqlalchemy.orm.session.Session
+            An optional session to use for the database query.
+            If not given, will use the session stored inside the
+            DataStore object; if there is none, will open a new session
+            and close it at the end of the function.
+
+        Returns
+        -------
+        deepscores: list of DeepScore objects
+            The list of deepscores, that will be empty if no matching deepscores are found.
+
+        """
+        process_name = 'scoring'
+
+        # retrieve 'acceptable' provenances for deepscores
+        ok_provenances = self._get_provenance_for_an_upstream(process_name, session)
+
+        # add the requested provenance
+        if provenance is not None:
+            if ok_provenances is not None:
+                ok_provenances.append(provenance) # this could be a duplicate, but shouldn't matter
+            else:
+                ok_provenances = [provenance]
+
+        if ok_provenances is not None:
+            # list of acceptable provenance ids
+            prov_ids = [p.id for p in ok_provenances]
+
+            # make sure the deepscores have the correct provenance
+            if self.scores is not None:
+                if any([s.provenance is None for s in self.scores]):
+                    raise ValueError('One of the deepscores has no provenance!')
+
+                # if we have any scores that do not belong, reset self.scores
+                if any([s.provenance.id not in prov_ids for s in self.scores]):
+                    self.scores = None
+
+            # not in memory, look for it on the DB
+            if self.scores is None:
+
+                with SmartSession(session, self.session) as session:
+                    measurements = self.get_measurements(session=session)
+                    m_ids = [m.id for m in measurements]
+
+                    self.scores = session.scalars(
+                        sa.select(DeepScore).filter(
+                            DeepScore.measurements_id.in_(m_ids),
+                            DeepScore.provenance_id.in_(prov_ids),
+                        )
+                    ).all()
+
+        return self.scores
+
     def get_all_data_products(self, output='dict', omit_exposure=False):
         """Get all the data products associated with this Exposure.
 
@@ -1344,7 +1429,7 @@ class DataStore:
         """
         attributes = [] if omit_exposure else [ '_exposure' ]
         attributes.extend( [ 'image', 'wcs', 'sources', 'psf', 'bg', 'zp', 'sub_image',
-                             'detections', 'cutouts', 'measurements' ] )
+                             'detections', 'cutouts', 'measurements', 'scores' ] )
         result = {att: getattr(self, att) for att in attributes}
         if output == 'dict':
             return result
@@ -1532,6 +1617,18 @@ class DataStore:
                     self.cutouts = session.merge(self.cutouts)
                     more_products += ', cutouts'
 
+                # need to keep track of which scores go to which measurements
+                # Best I could manage was to track by index_in_sources, which
+                # should be always present and independent of session status,
+                # but DOES rely on all measurements only pointing to a single
+                # cutout, which SHOULD always be true...
+                if self.scores is not None and len(self.scores) != 0:
+                    s_m_dict = {}
+                    m_idx_list = np.array([m.index_in_sources for m in self.measurements])
+                    for i, s in enumerate(self.scores):
+                        # store the index of corresponding measurement
+                        s_m_dict[i] = np.argwhere(m_idx_list == s.measurements.index_in_sources)[0][0]
+
                 if self.measurements is not None:
                     for i, m in enumerate(self.measurements):
                         # use the new, merged cutouts
@@ -1540,6 +1637,12 @@ class DataStore:
                         self.measurements[i] = session.merge(self.measurements[i])
                         self.measurements[i].object.measurements.append(self.measurements[i])
                     more_products += ', measurements'
+
+                if self.scores is not None:
+                    for i, m in enumerate(self.scores):
+                        self.scores[i].measurements = self.measurements[s_m_dict[i]]
+                        self.scores[i] = session.merge(self.scores[i])
+                    more_products += ', scores'
 
                 session.commit()
                 self.products_committed += ', ' + more_products

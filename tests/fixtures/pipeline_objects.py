@@ -15,6 +15,7 @@ from pipeline.coaddition import Coadder, CoaddPipeline
 from pipeline.subtraction import Subtractor
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
+from pipeline.scoring import Scorer
 from pipeline.top_level import Pipeline
 from pipeline.ref_maker import RefMaker
 
@@ -229,6 +230,33 @@ def measurer_factory(test_config):
 def measurer(measurer_factory):
     return measurer_factory()
 
+@pytest.fixture(scope='session')
+def scorers_factory(test_config):
+
+    def make_scorers():
+        scor1 = Scorer(**test_config.value('scoring')['method1'])
+        scor1.pars._enforce_no_new_attrs = False
+        scor1.pars.test_parameter = scor1.pars.add_par(
+            'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
+        )
+        scor1.pars._enforce_no_new_attrs = True
+
+        scor2 = Scorer(**test_config.value('scoring')['method2'])
+        scor2.pars._enforce_no_new_attrs = False
+        scor2.pars.test_parameter = scor2.pars.add_par(
+            'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
+        )
+        scor2.pars._enforce_no_new_attrs = True
+
+        return [scor1, scor2]
+
+    return make_scorers
+
+
+@pytest.fixture
+def scorers(scorers_factory):
+    return scorers_factory()
+
 
 @pytest.fixture(scope='session')
 def pipeline_factory(
@@ -241,6 +269,7 @@ def pipeline_factory(
         detector_factory,
         cutter_factory,
         measurer_factory,
+        scorers_factory,
         test_config,
 ):
     def make_pipeline( provtag=None ):
@@ -272,6 +301,7 @@ def pipeline_factory(
         p.detector = detector_factory()
         p.cutter = cutter_factory()
         p.measurer = measurer_factory()
+        p.scorers = scorers_factory()
 
         return p
 

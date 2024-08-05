@@ -181,6 +181,13 @@ measuring:
     offsets: 5.0
     filter bank: 1
 
+# how to assign r/b and ml/dl scores.
+# This should be a dictionary of subdictionaries. Each subdict describes a process.
+scoring:
+  method1:
+    algorithm: random
+  method2:
+    algorithm: allperfect
 
 # use these parameters when running the coaddition pipeline, e.g., for making weekly coadds
 # the coaddition pipeline will load the regular configuration first, then the coaddition config:

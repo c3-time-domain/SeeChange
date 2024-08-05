@@ -15,6 +15,7 @@ from pipeline.subtraction import Subtractor
 from pipeline.detection import Detector
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
+from pipeline.scoring import Scorer
 
 from models.base import SmartSession, merge_concurrent
 from models.provenance import Provenance, ProvenanceTag, ProvenanceTagExistsError
@@ -43,7 +44,7 @@ PROCESS_OBJECTS = {
     'detection': 'detector',
     'cutting': 'cutter',
     'measuring': 'measurer',
-    # TODO: add one more for R/B deep learning scores
+    'scoring': 'scorers',
 }
 
 
@@ -166,6 +167,14 @@ class Pipeline:
         measuring_config.update(kwargs.get('measuring', {}))
         self.pars.add_defaults_to_dict(measuring_config)
         self.measurer = Measurer(**measuring_config)
+
+        # assign r/b and ml/dl scores
+        scoring_configs = config.value('scoring', {})  # dict of subdicts, each represents a prov
+        scoring_configs.update(kwargs.get('scoring', {}))
+        self.scorers = []
+        for key in scoring_configs.keys():
+            self.pars.add_defaults_to_dict(scoring_configs[key])
+            self.scorers.append(Scorer(**scoring_configs[key]))
 
     def override_parameters(self, **kwargs):
         """Override some of the parameters for this object and its sub-objects, using Parameters.override(). """
@@ -355,7 +364,13 @@ class Pipeline:
                 ds.update_report('measuring', session=None)
 
                 # measure deep learning models on the cutouts/measurements
-                # TODO: add this...
+                for i, scorer in enumerate(self.scorers):
+                    # stop scoring if any errors occur (this prevents issues with reports)
+                    if ds.exception is not None:
+                        continue
+                    SCLogger.info(f"scorer {i} for image id {ds.image.id}")
+                    ds = scorer.run(ds, session)
+                ds.update_report('scoring', session=None)
 
                 if self.pars.save_at_finish:
                     t_start = time.perf_counter()
@@ -471,6 +486,33 @@ class Pipeline:
             for step in PROCESS_OBJECTS:  # produce the provenance for this step
                 if step in overrides:  # accept override from user input
                     provs[step] = overrides[step]
+                elif step == 'scoring':
+                    # note that scoring is also weird, because it can accept multiple provenances
+                    # so this code is a specialized case of the else block below, and should be 
+                    # kept up to date with that block.
+                    obj_name = PROCESS_OBJECTS[step]   # 'scorers'
+                    scorers = getattr(self, obj_name)
+
+                    scoreprovs = []
+
+                    for scorer in scorers:
+                        parameters = scorer.pars.get_critical_pars()
+
+                        up_steps = UPSTREAM_STEPS[step]
+                        upstream_provs = []
+                        for upstream in up_steps:
+                            upstream_provs.append(provs[upstream])
+
+                        scoreprovs.append( Provenance(
+                            code_version=code_version,
+                            process=step,
+                            parameters=parameters,
+                            upstreams=upstream_provs,
+                            is_testing=is_testing,
+                        ))
+
+                    provs[step] = scoreprovs  # note this is a list
+                        
                 else:  # load the parameters from the objects on the pipeline
                     obj_name = PROCESS_OBJECTS[step]  # translate the step to the object name
                     if isinstance(obj_name, dict):  # sub-objects, e.g., extraction.sources, extraction.wcs, etc.
@@ -503,7 +545,11 @@ class Pipeline:
                         is_testing=is_testing,
                     )
 
-                provs[step] = provs[step].merge_concurrent(session=sess, commit=commit)
+                if isinstance(provs[step], list):
+                    for i, p in enumerate(provs[step]):
+                        provs[step][i] = provs[step][i].merge_concurrent(session=sess, commit=commit)
+                else:
+                    provs[step] = provs[step].merge_concurrent(session=sess, commit=commit)
 
             # Make the report provenance
             prov = Provenance(
@@ -540,7 +586,10 @@ class Pipeline:
                     ptags = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag==provtag ).all()
                     ptag_pids = [ pt.provenance_id for pt in ptags ]
                 for step, prov in provs.items():
-                    if isinstance( prov, list ):
+                    # treat scoring list differently
+                    if step == 'scoring' and isinstance( prov, list):
+                        missing.extend( [p for p in provs[step] if p.id not in ptag_pids] )
+                    elif isinstance( prov, list ):
                         missing.extend( [ i.id for i in prov if i.id not in ptag_pids ] )
                     elif prov.id not in ptag_pids:
                         missing.append( prov )
