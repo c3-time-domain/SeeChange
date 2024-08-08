@@ -173,7 +173,7 @@ def pytest_sessionfinish(session, exitstatus):
         # make sure there aren't any CalibratorFileDownloadLock rows
         # left over from tests that failed or errored out
         dbsession.execute(sa.delete(CalibratorFileDownloadLock))
-        
+
         dbsession.commit()
 
         if any_objects and verify_archive_database_empty:

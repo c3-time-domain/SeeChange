@@ -236,7 +236,7 @@ def decam_exposure(decam_filename, data_dir):
     exposure.save()  # save to archive and get an MD5 sum
     with SmartSession() as session:
         exposure.insert()
-        
+
     yield exposure
 
     exposure.delete_from_disk_and_database()
@@ -244,7 +244,7 @@ def decam_exposure(decam_filename, data_dir):
 @pytest.fixture
 def decam_raw_image_provenance( provenance_base ):
     return provenance_base
-    
+
 @pytest.fixture
 def decam_raw_image( decam_exposure, provenance_base ):
     image = Image.from_exposure(decam_exposure, section_id='S3')

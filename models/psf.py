@@ -40,7 +40,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
                                '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
         )
-    
+
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
@@ -68,7 +68,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         unique=True,
         doc="id of the source_list this psf is associated with"
     )
-        
+
     # image_id = sa.Column(
     #     sa.ForeignKey( 'images.id', ondelete='CASCADE', name='psfs_image_id_fkey' ),
     #     nullable=False,
@@ -229,13 +229,13 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
              the provenance). If None, will try to load it from the
              database.  Use this for efficiency, or if you know the
              soruce list isn't yet in the databse.
-        
+
           image: Image or None
              Ignored if filename is specified.  Otherwise, the Image to
              use in inventing the filepath.  If None, will try to load
              it from the database.  Use this for efficiency, or if you
              know the image isn't yet in the database.
-        
+
           Additional arguments are passed on to FileOnDiskMixin.save
 
         """
@@ -259,7 +259,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
                 if ( sources is None ) or ( image is None ):
                     raise RuntimeError( "Can't invent PSF filepath; can't find either the corresponding "
                                         "SourceList or the corresponding Image." )
-                            
+
             self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
             self.filepath += f'.psf_{sources.provenance_id[:6]}'
 
@@ -591,4 +591,4 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
     def image_id( self, val ):
         raise RuntimeError( f"PSF.image_id is deprecated, don't use it" )
 
- 
+

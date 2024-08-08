@@ -69,7 +69,7 @@ class ParsSubtractor(Parameters):
               'save memory, but you might want to set this to False for testing purposes.' ),
             critical=False
         )
-        
+
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -354,10 +354,10 @@ class Subtractor:
                     ds.aligned_ref_psf = ds.ref_psf
                     ds.aligned_ref_zp = ds.ref_zp
                     ds.aligned_wcs = ds.ref_wcs
-                    
+
                 elif to_index == 'new':
                     SCLogger.debug( "Aligning ref to new" )
-                    
+
                     for needed in [ ds.ref_image, ds.ref_sources, ds.ref_bg, ds.ref_wcs, ds.ref_zp,
                                     ds.image, ds.sources ]:
                         if needed is None:
@@ -378,12 +378,12 @@ class Subtractor:
                     ds.aligned_ref_psf = aligned_psf
                     ds.aligned_ref_zp = ds.ref_zp
                     ds.aligned_wcs = ds.wcs
-                            
+
                 else:
                     raise ValueError( f"aligner to_index must be ref or new, not {to_index}" )
 
                 SCLogger.debug( "Alignment complete" )
-                
+
                 if self.pars.method == 'naive':
                     SCLogger.debug( "Subtracting with naive" )
                     outdict = self._subtract_naive( ds.aligned_new_image, ds.aligned_ref_image )

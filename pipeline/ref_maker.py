@@ -262,7 +262,7 @@ class RefMaker:
 
         self.im_provs = {}
         self.ex_provs = {}
-         
+
         for inst in self.pars.instruments:
             load_exposure = Exposure.make_provenance(inst)
             code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
@@ -520,7 +520,7 @@ class RefMaker:
             # make the reference (note that we are out of the session block, to release it while we coadd)
             images = sorted(images, key=lambda x: x.mjd)  # sort the images in chronological order for coaddition
             data_stores = [ DataStore( i, { 'extraction': self.ex_provs[i.instrument] } ) for i in images ]
-            
+
             # load the extraction products of these images using the ex_provs
             for im in images:
                 im.load_products(self.ex_provs, session=dbsession)

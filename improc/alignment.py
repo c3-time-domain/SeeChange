@@ -224,7 +224,7 @@ class ImageAligner:
             source_image has been warped.  Profligate; only uses this to
             get a shape, but will load the full target_image data into
             memory (if it's not there already) in so doing.
-        
+
           target_sources: SourceList
             A SourceList from the other image to which this image should
             be aligned, with "good enough" RA/Dec values.  (Scamp will
@@ -238,7 +238,7 @@ class ImageAligner:
 
           warped_sources_prov: Provenance
             The provenance to assign to the sources extracted from the warped image.
-        
+
         Returns
         -------
           Image, Sources, Background, PSF
@@ -435,7 +435,7 @@ class ImageAligner:
 
             warpedim = self.image_source_warped_to_target(image, target)
             warpedim.provenance_id = warped_prov.id
-            
+
             warpedim.data, warpedim.header = read_fits_image( outim, output="both" )
             # TODO: either make this not a hardcoded header value, or verify
             #  that we've constructed these images to have these hardcoded values
@@ -500,7 +500,7 @@ class ImageAligner:
             warpedbg.provenance_id = prov.id
             warpedpsf.sources_id = warpedsources.get_id()
             warpedbg.sources_id = warpedsources.get_id()
-            
+
             # expand bad pixel mask to allow for warping that smears the badness
             warpedim.flags = dilate_bitflag(warpedim.flags, iterations=1)  # use the default structure
 
@@ -524,7 +524,7 @@ class ImageAligner:
             source_sources.data = None
             source_bg.counts = None
             source_bg.variance = None
-            
+
             return warpedim, warpedsources, warpedbg, warpedpsf
 
         finally:
@@ -547,7 +547,7 @@ class ImageAligner:
 
     def run( self, source_image, source_sources, source_bg, source_wcs, source_zp, target_image, target_sources ):
         """Warp source image so that it is aligned with target image.
-        
+
         If the source_image and target_image are the same, will just create
         a copy of the same image data in a new Image object.
 
@@ -561,7 +561,7 @@ class ImageAligner:
 
           source_bg: Background
             corresponding to source_sources
-        
+
           source_wcs: WorldCoordinates
             correponding to source_sources
 
@@ -581,14 +581,14 @@ class ImageAligner:
 
             There are some implicit assumptions that these will never
             get saved to the database.
-        
+
         """
         SCLogger.debug( f"ImageAligner.run: aligning image {source_image.id} ({source_image.filepath}) "
                         f"to {target_image.id} ({target_image.filepath})" )
 
         upstrprovs = Provenance.get_batch( [ source_image.provenance_id, source_sources.provenance_id,
                                              target_image.provenance_id, target_sources.provenance_id ] )
-        
+
         warped_prov = Provenance(
             code_version=source_image.provenance.code_version,
             process='alignment',
@@ -612,13 +612,13 @@ class ImageAligner:
             warped_image.data = warped_bg.subtract_me( source_image.data )
             warped_image.filepath = None
             warped_image.md5sum = None         # TODO, should be setting the extensions md5sums!!!!
-            
+
             warped_sources = source_sources.copy()
             warped_sources.provenance_id = warped_sources_prov.id
             warped_sources.image_id = warped_image.get_id()
             warped_sources.filepath = None
             wapred_sources.md5sum = None
-            
+
             warped_bg = Background.copy( sourcebg )
             warped.bg.value = 0                   # Since we subtracted above
             warped_bg.provenance_id = warped_sources_prov.id
@@ -690,6 +690,6 @@ class ImageAligner:
         #   several things that motivates the note
         #   in the docstring about assuming things
         #   aren't saved to the database.)
-        
+
         return warped_image, warped_sources, warped_bg, warped_psf
 

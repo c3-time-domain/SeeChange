@@ -365,7 +365,7 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
 
     # avoid circular imports
     from models.base import safe_mkdir
-    
+
     filename = str(filename)  # handle pathlib.Path objects
     hdu = fits.ImageHDU( data, name=extname ) if single_file else fits.PrimaryHDU( data )
 

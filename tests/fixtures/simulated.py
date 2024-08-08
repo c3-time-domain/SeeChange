@@ -47,7 +47,7 @@ def make_sim_exposure():
 
 def add_file_to_exposure(exposure):
     """Creates an empty file at the exposure's filepath if one doesn't exist already."""
-    
+
     fullname = exposure.get_fullpath()
     open(fullname, 'a').close()
 
@@ -74,14 +74,14 @@ def generate_exposure_fixture():
         yield e
 
         e.delete_from_disk_and_database()
-        
+
         with SmartSession() as session:
             # The provenance will have been automatically created
             session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
             session.commit()
 
     return new_exposure
-            
+
 # this will inject 9 exposures named sim_exposure1, sim_exposure2, etc.
 for i in range(1, 10):
     globals()[f'sim_exposure{i}'] = generate_exposure_fixture()
@@ -92,7 +92,7 @@ def unloaded_exposure():
     e = make_sim_exposure()
 
     return e
-    
+
 @pytest.fixture
 def sim_exposure_filter_array():
     e = make_sim_exposure()
@@ -208,7 +208,7 @@ def generate_image_fixture(commit=True):
         im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
         im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
         im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
-        
+
         if commit:
             im.save()
             im.insert()
@@ -226,7 +226,7 @@ def generate_image_fixture(commit=True):
         with SmartSession() as session:
             session.execute( sa.delete( Provenance ).where( Provenance.id == exp.provenance_id ) )
             session.commit()
-                
+
     return new_image
 
 
@@ -457,7 +457,7 @@ def sim_image_list(
         # The provenance will have been automatically created
         session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
         session.commit()
-        
+
 
 @pytest.fixture
 def provenance_subtraction(code_version, subtractor):

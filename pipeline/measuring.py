@@ -216,7 +216,7 @@ class Measurer:
                     raise RuntimeError( "Measurer couldn't find a sub_image psf." )
                 else:
                     sub_psf = _psfs[0]
-                
+
             # try to find some measurements in memory or in the database:
             measurements_list = ds.get_measurements(prov, session=session)
 
@@ -225,7 +225,7 @@ class Measurer:
                 self.has_recalculated = True
 
                 # prepare the filter bank for this batch of cutouts
-                
+
                 if self._filter_psf_fwhm is None or self._filter_psf_fwhm != sub_psf.fwhm_pixels:
                     self.make_filter_bank( cutouts.co_dict["source_index_0"]["sub_data"].shape[0], sub_psf.fwhm_pixels )
 
@@ -454,7 +454,7 @@ class Measurer:
         self._filter_psf_fwhm = psf_fwhm
 
     def compare_measurement_to_thresholds(self, m):
-        """Compare measurement disqualifiers of a Measurements object to the thresholds set for 
+        """Compare measurement disqualifiers of a Measurements object to the thresholds set for
         this measurer object.
 
         Inputs:
@@ -462,10 +462,10 @@ class Measurer:
 
         returns one of three strings to indicate the result
           - "ok"     : All disqualifiers below both thresholds
-          - "bad"    : Some disqualifiers above mark_thresh but all 
+          - "bad"    : Some disqualifiers above mark_thresh but all
                        below deletion_thresh
           - "delete" : Some disqualifiers above deletion_thresh
-        
+
         """
         passing_status = "ok"
 

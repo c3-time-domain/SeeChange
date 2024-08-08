@@ -129,8 +129,8 @@ def test_image_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted
         upstrs = ( sess.query( image_upstreams_association_table )
                    .filter( image_upstreams_association_table.c.downstream_id == im.id ) ).all()
         assert len(upstrs) == 0
-    
-        
+
+
 
 def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
     try:
@@ -158,7 +158,7 @@ def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
     im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint16)
-    
+
     archive_dir = archive.test_folder_path
     single_fileness = test_config.value('storage.images.single_file')
 
@@ -339,7 +339,7 @@ def test_image_save_justheader( sim_image1 ):
     finally:
         # The fixtures should do all the necessary deleting
         pass
-        
+
 def test_image_save_onlyimage( sim_image1 ):
     sim_image1.data = np.full( (64, 32), 0.125, dtype=np.float32 )
     sim_image1.flags = np.random.randint(0, 100, size=sim_image1.data.shape, dtype=np.uint16)
@@ -399,7 +399,7 @@ def test_image_enum_values( sim_image_uncommitted ):
 
 
         im._delete_from_database()
-            
+
         # check the image format enum works as expected:
         with pytest.raises(ValueError, match='ImageFormatConverter must be one of .* not foo'):
             im.format = 'foo'
@@ -433,7 +433,7 @@ def test_image_preproc_bitflag( sim_image1 ):
     # set when the image is saved to the database are filled.
     with SmartSession() as session:
         im = session.query( Image ).filter( Image.id==sim_image1.id ).first()
-    
+
     assert im.preproc_bitflag == 0
     im.preproc_bitflag |= string_to_bitflag( 'zero', image_preprocessing_inverse )
     assert im.preproc_bitflag == string_to_bitflag( 'zero', image_preprocessing_inverse )
@@ -587,7 +587,7 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         #  database, they don't have ids yet
         assert im1.id is None
         assert im2.id is None
-        
+
         # make a "coadd" image from the two
         im = Image.from_images([im1, im2])
         im.provenance_id = provenance_base.id
@@ -600,7 +600,7 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         assert im2.id is not None
         assert im1.upstream_image_ids == []
         assert im2.upstream_image_ids == []
-        
+
         assert im.id is None
         assert im.exposure_id is None
         assert im.upstream_image_ids == [im1.id, im2.id]
@@ -620,7 +620,7 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         im1.insert()
         im2.insert()
         im.insert()
-        
+
         assert im.id is not None
 
         with SmartSession() as session:
@@ -675,7 +675,7 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):
         assert im.mjd == im2.mjd
         assert im.exp_time == im2.exp_time
         assert im.upstream_image_ids == [ im1.id, im2.id ]
-        
+
         im.provenance_id = provenance_base.id
         _3 = ImageCleanup.save_image(im)
         im.insert()
@@ -942,7 +942,7 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
     im.provenance_id = provenance_base.id
     im.filepath = im.invent_filepath()
     im.md5sum = uuid.uuid4()             # Spoof md5sum since we aren't really saving data
-    
+
     # Make sure we can set it
     assert im.badness == ''
     im.set_badness( 'banding,shaking' )
@@ -950,7 +950,7 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
     assert im.id is None
 
     im.id = uuid.uuid4()
-    
+
     # Make sure it's not saved to the database even if we ask to commit and it has an id
     im.set_badness( None )
     assert im._bitflag == ( 2**image_badness_inverse['banding'] | 2**image_badness_inverse['shaking'] )
@@ -1006,7 +1006,7 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
 
     # No need to clean up, the exposure from which sim_image_uncommitted was generated
     #  will clean up all its downstreams.
-    
-    
-    
-    
+
+
+
+

@@ -62,17 +62,17 @@ def test_bitmask_dilation():
     assert dilated[6, 5] == 2
     assert dilated[5, 6] == 2
     assert dilated[6, 6] == 3  # overlaps 3, but 2 is bit-wise included in 3
-    
+
     assert dilated[7, 7] == 3
     assert dilated[6, 7] == 3
     assert dilated[7, 6] == 3
     assert dilated[8, 7] == 3
     assert dilated[7, 8] == 3
     assert dilated[8, 8] == 7  # overlaps 4
-    
+
     assert dilated[9, 9] == 4
     assert dilated[8, 9] == 4
     assert dilated[9, 8] == 4
-    
+
     dilated = dilate_bitflag(array.astype('uint16'), iterations=1)
     assert dilated.dtype == array.dtype

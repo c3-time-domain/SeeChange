@@ -25,14 +25,14 @@ def test_source_list_bitflag(sim_sources):
 
     image = Image.get_by_id( sim_sources.image_id )
     exposure = Exposure.get_by_id( image.exposure_id )
-    
+
     with SmartSession() as session:
         # try to find this using the bitflag hybrid property
         sim_sources2 = session.scalars(sa.select(SourceList).where(SourceList.bitflag == 0)).all()
         assert sim_sources.id in [s.id for s in sim_sources2]
         sim_sources2x = session.scalars(sa.select(SourceList).where(SourceList.bitflag > 0)).all()
         assert sim_sources.id not in [s.id for s in sim_sources2x]
-    
+
     # now add a badness to the image and exposure
     image.set_badness( 'Saturation' )
     exposure.set_badness( 'Banding' )
@@ -87,7 +87,7 @@ def test_source_list_bitflag(sim_sources):
     # Reload image and sources from database
     image = Image.get_by_id( image.id )
     sources = SourceList.get_by_id( sources.id )
-    
+
     assert image.badness == 'saturation'
     assert sources.badness == 'saturation, few sources'
 
@@ -140,7 +140,7 @@ def test_invent_filepath( provenance_base, provenance_extra ):
     imgargs['dec_corner_11'] = imgargs['dec'] + ddec/2.
     imgargs['mindec'] = imgargs['dec'] - ddec/2.
     imgargs['maxdec'] = imgargs['dec'] + ddec/2.
-    
+
     hash1 = provenance_base.id[:6]
     hash2 = provenance_extra.id[:6]
 

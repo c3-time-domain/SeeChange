@@ -77,7 +77,7 @@ class Circle:
             im = 1 + self.radius - r
             im[r <= self.radius] = 1
             im[r > self.radius + 1] = 0
-        else: 
+        else:
             im = r
             im[r <= self.radius] = 1
             im[r > self.radius] = 0

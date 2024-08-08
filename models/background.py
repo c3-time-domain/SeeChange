@@ -226,7 +226,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
                 warnings.warn( wrnmsg )
                 # SCLogger.warning( wrnmsg )
                 self._image_shape = image.data.shape
-        
+
         # Manually set all properties ( columns or not )
         for key, value in kwargs.items():
             if hasattr( self, key ):
@@ -266,7 +266,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
             return image - self.counts
         else:
             raise RuntimeError( f"Don't know how to subtraction background of type {self.format}" )
-    
+
     def save( self, filename=None, image=None, sources=None, **kwargs ):
         """Write the Background to disk.
 
@@ -311,7 +311,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
              use this SourceList's provenacne to genernate the background's
              filepath.  If both filename and soruces are None, will try to
              load the background's SourceList from the database, if possible.
-        
+
           Additional arguments are passed on to FileOnDiskMixin.save()
 
         """
@@ -449,7 +449,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
         if bg is None:
             return None
-        
+
         newbg = Background( _format = bg._format,
                             _method = bg._method,
                             _sources_id = None,
@@ -465,8 +465,8 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
             newbg.y_degree = bg.coeffs.copy()
 
         return newbg
-        
-        
+
+
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used
@@ -501,4 +501,4 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
     @provenance_id.setter
     def provenance_id( self, val ):
-        raise RutimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )    
+        raise RutimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )

@@ -17,7 +17,7 @@ def test_code_versions( code_version ):
         cv.update()
 
     cv = code_version
-        
+
     hashes = cv.get_code_hashes()
     assert set( [ i.id for i in cv.code_hashes ] ) == set( [ i.id for i in hashes ] )
     assert hashes is not None
@@ -77,7 +77,7 @@ def test_provenances(code_version):
             assert pid1 is not None
             assert isinstance(pid1, str)
             assert len(pid1) == 20
-            
+
             p2 = Provenance(
                 code_version_id=code_version.id,
                 parameters={"test_parameter": "test_value2"},

@@ -271,7 +271,7 @@ class Coadder:
         TODO QUESTION : does this implicitly assume that all the images have a lot of
         overlap?  (It must, since it does inpainting.  What about images that don't
         have a lot of overlap?  That's a legitimate thing to want to coadd sometimes.)
-        
+
         Parameters
         ----------
         images: list of Image or list of 2D ndarrays
@@ -338,7 +338,7 @@ class Coadder:
             flux_zps = []
             bkg_means = []
             bkg_sigmas = []
-            
+
             for image, bg, psf, zp in zip( images, bg, psfs, zps ):
                 data.append(image.data)
                 flags.append(image.flags)
@@ -348,7 +348,7 @@ class Coadder:
                 flux_zps.append(10 ** (0.4 * zp.zp))
                 bkg_means.append(bg.value)
                 bkg_sigmas.append(bg.noise)
-                
+
         elif isinstance(images[0], np.ndarray):
             data = images
         else:
@@ -440,7 +440,7 @@ class Coadder:
 
         if aligned_images is not None:
             raise NotImplementedError( "aligned_images not currently supported" )
-        
+
         # Sort images/sources by mjd
         data_store_list.sort( key=lambda d: d.image.mjd )
 
@@ -452,7 +452,7 @@ class Coadder:
             upstream_provs = Provenance.get_batch( provids )
             if len( upstream_provs ) != len( provids ):
                 raise RuntimeError( "Coadder didn't find all the expected upstream provenances!" )
-                
+
         if self.pars.alignment['to_index'] == 'last':
             index = len(data_store_list) - 1
         elif self.pars.alignment['to_index'] == 'first':
@@ -504,7 +504,7 @@ class Coadder:
             #  because it could change the aperture corrections!  TODO,
             #  make an issue about this.
             aligned_zps = [ d.zp for d in data_store_list ]
-                
+
         if self.pars.method == 'naive':
             outim, outwt, outfl = self._coadd_naive( aligned_images )
         elif self.pars.method == 'zogy':
@@ -720,7 +720,7 @@ class CoaddPipeline:
         Returns
         -------
           A DataStore with the coadded image
-        
+
         """
         # session = self.parse_inputs(*args, **kwargs)
         # if self.images is None or len(self.images) == 0:
@@ -731,7 +731,7 @@ class CoaddPipeline:
             raise TypeError( "Must pass a lost of DataStore objects to CoaddPipeline.run" )
 
         if upstream_provs is None:
-            provids = set( [ d.image.provenance_id for d in data_store_list ] + 
+            provids = set( [ d.image.provenance_id for d in data_store_list ] +
                            [ d.sources.provenance_id for d in data_store_list ] )
             upstream_provs = Provenance.get_batch( provids )
             if len( upstream_provs ) != len( provids ):
@@ -744,7 +744,7 @@ class CoaddPipeline:
         #   (so 0.2.0 will properly sort before 0.10.0).
         code_version_ids.sort()
         code_version = CodeVersion.get_by_id( code_version_ids[-1] )
-        
+
         # # use the images and their source lists to get a list of provenances and code versions
         # coadd_upstreams = set()
         # code_versions = set()

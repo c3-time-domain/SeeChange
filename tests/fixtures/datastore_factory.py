@@ -71,7 +71,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                             ).first()
         if code_version is None:
             raise RuntimeError( "make_datastore failed to get code_version" )
-        
+
         ds = DataStore(*args)  # make a new datastore
         use_cache = cache_dir is not None and cache_base_name is not None and not env_as_bool( "LIMIT_CACHE_USAGE" )
 
@@ -108,7 +108,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ref_prov = refset.provenances[0]
 
         ############ preprocessing to create image ############
-        
+
         upstream_provs = []
         if ds.exposure is not None:
             upstream_provs.append( Provenance.get( ds.exposure.provenance_id ) )
@@ -121,7 +121,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         )
         preprocessing_prov.insert_if_needed()
         ds.prov_tree = { 'preprocessing':  preprocessing_prov }
-        
+
         if ds.image is None and use_cache:  # check if preprocessed image is in cache
             if os.path.isfile(image_cache_path):
                 SCLogger.debug('make_datastore loading image from cache. ')
@@ -140,7 +140,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     shutil.copy2( image_cache_path_original, ds.path_to_original_image )
 
                 ds.image.provenance_id = preprocessing_prov.id
-                
+
                 # make sure this is saved to the archive as well
                 ds.image.save(verify_md5=False)
 
@@ -246,7 +246,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.zp.sources_ids = ds.sources.id
 
         import pdb; pdb.set_trace()
-            
+
         # if any data product is missing, must redo the extraction step
         if ds.sources is None or ds.psf is None or ds.bg is None or ds.wcs is None or ds.zp is None:
             # Clear out the existing database records
@@ -254,7 +254,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 if getattr( ds, attr ) is not None:
                     getattr( ds, attr ).delete_from_disk_and_database()
                 setattr( ds, attr, None )
-            
+
             SCLogger.debug('make_datastore extracting sources. ')
             ds = p.extractor.run(ds, session)
 
@@ -428,7 +428,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             is_testing=True,
         )
         detection_prov.insert_if_needed()
-        
+
         cache_name = os.path.join(cache_dir, cache_sub_name + f'.sources_{detection_prov.id[:6]}.npy.json')
         if use_cache and os.path.isfile(cache_name):
             SCLogger.debug( "make_datastore loading detections from cache." )
@@ -453,7 +453,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         )
         cutting_prov.insert_if_needed()
         ds.prov_tree['cutting'] = cutting_prov
-        
+
         cache_name = os.path.join(cache_dir, cache_sub_name + f'.cutouts_{cutting_prov.id[:6]}.h5')
         if use_cache and ( os.path.isfile(cache_name) ):
             SCLogger.debug( 'make_datastore loading cutouts from cache.' )
@@ -479,7 +479,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         )
         measuring_prov.insert_if_needed()
         ds.prov_tree['measuring'] = measuring_prov
-        
+
         cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{meausring_prov.id[:6]}.json')
 
         if use_cache and ( os.path.isfile(cache_name) ):

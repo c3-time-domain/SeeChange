@@ -276,13 +276,13 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
                 # I think we should fix this along with issue #150
 
                 import pdb; pdb.set_trace()
-                
+
                 # this will also leave behind exposure and image data on disk only
-                SCLogger.debug(f'Error processing {url}')  
+                SCLogger.debug(f'Error processing {url}')
                 raise e
 
                 # TODO: should we be worried that some of these images can't complete their processing?
-                # SCLogger.debug(e)  
+                # SCLogger.debug(e)
                 # continue
 
             images.append(ds.image)

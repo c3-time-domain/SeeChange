@@ -610,7 +610,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             image = Image.get_by_id( self.image_id )
         if image is None:
             raise RuntimeError( "Could not find image for sourcelist; it is probably not committed to the database" )
-        
+
         filename = image.filepath
         if filename is None:
             filename = image.invent_filepath()
@@ -800,7 +800,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.cutouts import Cutouts
         from models.provenance import Provenance, provenance_self_association_table
         from models.image import image_upstreams_association_table
-        
+
         output = []
         with SmartSession( session ) as sess:
 
@@ -836,7 +836,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                      .filter( image_upstreams_association_table.c.upstream_id == self.image_id )
                     ).all()
             output.extend( list(imgs) )
-                
+
         return output
 
         # return output
@@ -851,7 +851,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         import matplotlib.pyplot as plt
 
         raise NotImplementedError( "This is broken. needs to be fixed." )
-        
+
         if self.image is None:
             raise ValueError("Can't show source list without an image")
         self.image.show(**kwargs)
@@ -935,7 +935,7 @@ class SourceListSibling:
         """The only upstream of a SourceList sibling is the SourceList it's associated with.
 
         If self.id or self.sources_id is None, returns None.
-        
+
         (That's how we've implemented it, but one could argue the Image is the upstream,
         since the SourceList is a sibling.)
 
@@ -943,7 +943,7 @@ class SourceListSibling:
 
         if ( self.id is None ) or ( self.sources_id is None ):
             return None
-        
+
         from models.source_list import SourceList
         with SmartSession( session ) as sess:
             sl = sess.query( SourceList ).filter( SourceList.id==self.sources_id ).first()
@@ -962,7 +962,7 @@ class SourceListSibling:
         """Get the downstreams of this SourceList sibling object.
 
         If self.id or self.sources_id is None, returns None
-        
+
         If siblings=True then also include the SourceList, PSF, WCS, and
         ZP that were created at the same time as this Background.
 
@@ -982,7 +982,7 @@ class SourceListSibling:
         return dses
 
 
-    
+
 
 
 # # TODO: replace these with association proxies?

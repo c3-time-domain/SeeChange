@@ -138,7 +138,7 @@ class Reference(Base, UUIDMixin):
 
         """
 
-        
+
         if parameters is None:
             parameters = {}
 
@@ -266,7 +266,7 @@ class Reference(Base, UUIDMixin):
             references of this target.  If ra/dec is not given, then
             this and section_id must be given, and that will be used to
             match the reference.
-        
+
         section_id: string, optional
             Section ID of the reference image.  If given, will only
             match images with this section.
@@ -309,7 +309,7 @@ class Reference(Base, UUIDMixin):
             stmt = ( sa.select( Reference )
                      .where( Reference.target == target )
                      .where( Reference.section_id == section_id )
-                    )        
+                    )
         else:
             # Not using FourCorners.containing here, because
             #   that doesn't actually use the q3c indices,
@@ -368,7 +368,7 @@ class Reference(Base, UUIDMixin):
                 if poly.contains( shapely.geometry.Point( ra, dec ) ):
                     refs.append( ref )
                     imgs.append( img )
-                
+
         return refs
 
     # ======================================================================

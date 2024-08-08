@@ -325,14 +325,14 @@ class Report(Base, UUIDMixin):
 
         # parse the error, if it exists, so we can get to other data products without raising
         exception = ds.read_exception()
-        
+
         # check which objects exist on the datastore, and which have been committed
         for prod in pipeline_products_dict.values():
             if getattr(ds, prod) is not None:
                 self.append_products_exist(prod)
-        
+
         self.products_committed = ds.products_committed
-        
+
         # store the runtime and memory usage statistics
         self.process_runtime.update(ds.runtimes)  # update with new dictionary
         self.process_memory.update(ds.memory_usages)  # update with new dictionary

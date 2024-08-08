@@ -229,7 +229,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def upstream_image_ids( self, val ):
         raise RuntimeError( "upstream_ids cannot be set directly.  Set it by creating the image with "
                             "from_images() or from_ref_and_new()" )
-    
+
     is_sub = sa.Column(
         sa.Boolean,
         nullable=False,
@@ -531,7 +531,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nanscore = None  # a copy of the image score, only with NaNs at each flagged point. Lazy calculated.
 
         self._upstream_ids = None
-        
+
         self._instrument_object = None
         self._bitflag = 0
         self.is_sub = False
@@ -575,7 +575,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nanscore = None
 
         self._upstream_ids = None
-        
+
         self._instrument_object = None
 
         # this_object_session = orm.Session.object_session(self)
@@ -605,7 +605,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
           session: SQLAlchemy Session, default None
             Usually you do not want to pass this; it's mostly for other
             upsert etc. methods that cascade to this.
-        
+
         Returns
         -------
           was_inserted: bool
@@ -616,7 +616,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             or if the id of the object in the database didn't match a
             non-None id of self, an execption will be raised.
 
-        
+
         Returns True if the image was newly loaded, False if the image
         was already in the database.
 
@@ -642,7 +642,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                                                    "VALUES (:them,:me)" ),
                                       { "them": ui, "me": self.id } )
                     sess.commit()
-                    
+
             finally:
                 # Make sure the table locks are released
                 sess.rollback()
@@ -665,7 +665,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         """
         raise RuntimeError( "merge_all should no longer be necessary; use upsert or insert" )
-        
+
         new_image = self.safe_merge(session=session)
 
         # Note -- this next block of code is useful for trying to debug
@@ -1048,7 +1048,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         """
         if len(images) < 1:
             raise ValueError("Must provide at least one image to combine.")
-        
+
         # sort images by mjd:
         images = sorted(images, key=lambda x: x.mjd)
 
@@ -1155,7 +1155,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             The new Image object. It would not have any data variables or filepath.
         """
 
-        
+
         if ref_image is None:
             raise ValueError("Must provide a reference image.")
         if new_image is None:
@@ -1164,7 +1164,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # See the comment in from_images above the line upstream_ids = [ ...
         ref_image_id = ref_image.get_id()
         new_image_id = new_image.get_id()
-        
+
         output = Image(nofile=True)
 
         # for each attribute, check the two images have the same value
@@ -1239,7 +1239,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         a global variable under the ImageAligner.temp_images list.
         """
         raise RunTimeError( "Deprecated" )
-    
+
         from improc.alignment import ImageAligner  # avoid circular import
         if self.provenance is None or self.provenance.parameters is None:
             raise RuntimeError('Cannot align images without a Provenance with legal parameters!')
@@ -1845,7 +1845,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             Here so that you can work with a provenance not yet loaded
             into the database.  If this is None, will load the
             provenance defined by self.provenance_id.
-        
+
         Returns
         -------
           images: list, sourceses: dict, bgs: dict, psfs: dict, wcses: dict, zps: dict
@@ -1872,7 +1872,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         with SmartSession( session ) as session:
             images = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
-        
+
             # Upstream images first
             upstrimages = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
 
@@ -1913,8 +1913,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         zps = { u.sourcers_id: u for u in upstrzps }
 
         return images, sourceses, bgs, psfs, wcses, zps
-       
-    
+
+
     def get_upstreams(self, session=None):
         """Get the upstream images and associated products that were used to make this image.
 
@@ -1927,7 +1927,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         that went into a coadd, for instance, and if by some chance you have a
         coadd of coadds (don't do that!), the images that went into the coadd
         that was coadded to produce this coadd won't be loaded.  (Got that?))
-        
+
         Parameters
         ----------
         session: SQLAlchemy session (optional)
@@ -2000,7 +2000,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             sources = session.scalars( sa.select(SourceList).where(SourceList.image_id == self.id) ).all()
             downstreams.extend( list(sources) )
             srcids = [ s.id for s in sources ]
-            
+
             # Get the bkgs, psfs, wcses, and zps assocated with all of those sources
             bkgs = session.query( Background ).filter( Background.sources_id.in_( srcids ) ).all()
             psfs = session.query( PSF ).filter( PSF.sources_id.in_( srcids ) ).all()
@@ -2489,7 +2489,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @upstream_images.setter
     def upstream_images( self, val ):
         raise RuntimeError( "Don't use upstream_images, use ROB FIX THIS" )
-    
+
     @property
     def downstream_images( self ):
         raise RuntimeError( "Don't use downstream_images, use ROB FIX THIS" )
@@ -2497,7 +2497,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @upstream_images.setter
     def downstream_images( self, val ):
         raise RuntimeError( "Don't use downstream_images, use ROB FIX THIS" )
-    
+
     @property
     def ref_image( self ):
         raise RuntimeError( "Don't use ref_image, use ref_image_id" )
@@ -2505,7 +2505,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @ref_image.setter
     def ref_image( self, val ):
         raise RuntimeError( "Don't use ref_image, use ref_image_id" )
-    
+
     @property
     def new_image( self ):
         raise RuntimeError( "Don't use new_image, use new_image_id" )
@@ -2611,7 +2611,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         raise RuntimeError( f"Image.get_wcs is deprecated, don't use it" )
 
 
-        
+
 if __name__ == '__main__':
     SCLogger.warning( "Running image.py doesn't actually do anything." )
 

@@ -162,7 +162,7 @@ def realize_column_uuids( obj ):
     for col in sa.inspect( obj ).mapper.columns:
         if ( isinstance( col.type, sa.sql.sqltypes.UUID ) ) and ( getattr( obj, col.key ) is not None ):
             setattr( obj, col.key, asUUID( getattr( obj, col.key ) ) )
-            
+
 
 def copy_from_cache( cls, cache_dir, filepath, add_to_dict=None ):
     """Copy and reconstruct an object from the cache directory.
@@ -201,7 +201,7 @@ def copy_from_cache( cls, cache_dir, filepath, add_to_dict=None ):
         cache.  Add things here that aren't saved to the cache but that
         are necessary in order to instantiate the object.  Things here will
         also override anything read from the cache.
-    
+
     Returns
     -------
     output: SeeChangeBase

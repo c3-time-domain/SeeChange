@@ -354,7 +354,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             The ID of the last object before the given date.
         """
         raise RuntimeError( "Rob think about this one and race conditions" )
-    
+
         if present_time is None:
             present_time = datetime.datetime.utcnow()
 
@@ -389,9 +389,9 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         raise RuntimeError( f"Object.measurements is deprecated, don't use it" )
 
 
-        
-        
-        
+
+
+
 # add an event listener to catch objects before insert and generate a name for them
 @sa.event.listens_for(Object, 'before_insert')
 def generate_object_name(mapper, connection, target):

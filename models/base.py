@@ -360,12 +360,12 @@ class SeeChangeBase:
         eventually some others).
 
         All reference fields (ids of other objects) of the objects must be up to date.
-        
+
         """
 
         if not all( [ isinstance( o, cls ) for o in objects ] ):
             raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
-        
+
         with SmartSession( session ) as sess:
             try:
                 sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
@@ -382,17 +382,17 @@ class SeeChangeBase:
         """Insert an object into the database, or update it if it's already there.
 
         Will assign the object an id if it doesn't alrady have one (in self.id).
-        
+
         Then looks in the databse.  If the object is not yet there,
         calls the insert method (which will handle things like
         association tables).  Otherwise, just merges the object to
         update the object's own fields.
-        
+
         If the object is already there, will NOT update any association
         tables (e.g. the image_upstreams_association table), because we
         do not define any SQLAlchemy relationships.  Those must have
         been set when the object was first loaded.
-        
+
         Be careful with this.  There are some cases where we do want to
         update database records (e.g. the images table once we know
         fwhm, depth, etc), but most of the time we don't want to update
@@ -405,7 +405,7 @@ class SeeChangeBase:
         ----------
           session: SQLAlchemy Session, default None
             Usually you don't want to pass this.
-        
+
         """
         id_ = self.get_id()
         with SmartSession( session ) as sess:
@@ -489,7 +489,7 @@ class SeeChangeBase:
         if not remove_downstreams:
             SCLogger.warning( "Setting remove_downstreams to False in delete_from_disk_and_database "
                               "is probably a bad idea; see docstring." )
-        
+
         # Recursively remove downstreams first
 
         if remove_downstreams:
@@ -501,7 +501,7 @@ class SeeChangeBase:
                                                          remove_downstreams=True )
 
         # Remove files from archive
-                    
+
         if archive and hasattr( self, "filepath" ):
             if self.filepath is not None:
                 if self.filepath_extensions is None:
@@ -525,7 +525,7 @@ class SeeChangeBase:
             self.filepath = None
 
         # Finally, after everything is cleaned up, remove the database record
-            
+
         self._delete_from_database()
 
 
@@ -809,8 +809,8 @@ class FileOnDiskMixin:
     #   CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
     #                    '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
     #                    name=f'{cls.__tablename__}_md5sum_check' )
-    
-    
+
+
     @classmethod
     def configure_paths(cls):
         cfg = config.Config.get()
@@ -1133,7 +1133,7 @@ class FileOnDiskMixin:
         """Save a file to disk, and to the archive.
 
         Does not write anything to the database.  (At least, it's not supposed to....)
-        
+
         Parameters
         ---------
         data: bytes, string, or Path
@@ -1500,8 +1500,8 @@ class UUIDMixin:
         with SmartSession( session ) as sess:
             objs = sess.query( cls ).filter( cls.id.in_( uuids ) ).all()
         return { o.id: o for o in objs } if return_dict else objs
-        
-        
+
+
     def insert( self, session=None ):
         """Insert the object into the database.
 
@@ -1550,8 +1550,8 @@ class UUIDMixin:
 
         # Look how much easier this is when you don't have to spend a whole bunch of time
         #  deciding if the object needs to be merged, expunged, etc. to a session
-        
-        
+
+
 class SpatiallyIndexed:
     """A mixin for tables that have ra and dec fields indexed via q3c."""
 
@@ -1563,8 +1563,8 @@ class SpatiallyIndexed:
 
     # Subclasses of this class must include the following in __table_args__:
     #   sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec))
-    
-    
+
+
     ra = sa.Column(sa.Double, nullable=False, doc='Right ascension in degrees')
 
     dec = sa.Column(sa.Double, nullable=False, doc='Declination in degrees')
@@ -1743,7 +1743,7 @@ class FourCorners:
 
     #     NOTE -- this query doesn't use indexes, and so will be very
     #     slow.  Avoid use.  Use find_containing() instead.
-        
+
     #     Parameters
     #     ----------
     #        ra, dec: float
@@ -1756,7 +1756,7 @@ class FourCorners:
     #     """
 
     #     rase RuntimeError( "Do not use." )
-        
+
     #     # This query will go through every row of the table it's
     #     # searching, because q3c uses the index on the first two
     #     # arguments, not on the array argument.
@@ -2125,7 +2125,7 @@ class HasBitFlagBadness:
     @own_badness.setter
     def own_badness( self, value ):
         raise RuntimeError( "Don't use this, use set_badness()" )
-    
+
     @property
     def badness(self):
         """A comma separated string of keywords describing why this data is bad, including upstreams.
@@ -2154,7 +2154,7 @@ class HasBitFlagBadness:
                 sess.execute( sa.text( f"UPDATE {self.__tablename__} SET _bitflag=:bad WHERE id=:id" ),
                               { "bad": self._bitflag, "id": self.id } )
                 sess.commit()
-    
+
     def set_badness( self, value=None, commit=True ):
         """Set the badness for this image using a comma separated string.
 
@@ -2165,7 +2165,7 @@ class HasBitFlagBadness:
         DEVELOPER NOTE: any object that inherits from HasBitFlagBadness must
         have an id property.  This will be the case for objects that inherit
         from UUIDMixin, as most of ours do.
-        
+
         Parameters
         ----------
           value: str or None
@@ -2173,7 +2173,7 @@ class HasBitFlagBadness:
             If None, it means save this object's own bitflag as is to the
             database.  It doesn't make sense to use value=None and
             commit=False.
-        
+
           commit: bool, default True
             If True, and the object is already in the database, will save the
             bitflag changes to the database.  If False, then it's the
@@ -2191,7 +2191,7 @@ class HasBitFlagBadness:
         if value is not None:
             value = string_to_bitflag( value, self._get_inverse_badness() )
         self._set_bitflag( value, commit=commit )
-                
+
 
     def append_badness( self, value, commit=True ):
         """Add badness (comma-separated string of keywords) to the object.

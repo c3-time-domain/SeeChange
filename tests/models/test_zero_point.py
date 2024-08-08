@@ -95,7 +95,7 @@ def test_zeropoint_committing(ztf_datastore_uncommitted, provenance_base, proven
 
             session.commit()
 
-    
-                    
-    
-    
+
+
+
+

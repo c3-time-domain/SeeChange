@@ -15,7 +15,7 @@ from astropy.time import Time
 from astropy.io import fits
 
 from util.config import Config
-from util.util import read_fits_image 
+from util.util import read_fits_image
 from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
 from util.logger import SCLogger
 
@@ -388,8 +388,8 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         if self.provenance_id is None:
             prov = self.make_provenance(self.instrument)  # a default provenance for exposures
             self.provenance_id = prov.id
-            
-            
+
+
         # instrument_obj is lazy loaded when first getting it
         if current_file is None:
             current_file = pathlib.Path( FileOnDiskMixin.local_path ) / self.filepath
@@ -421,7 +421,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             upstreams=[],
         )
         prov.insert_if_needed()
-        
+
         return prov
 
     @sa.orm.reconstructor
@@ -811,8 +811,8 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     @provenance.setter
     def provenance( self, val ):
         raise RuntimeError( "Don't use provenance, use provenance_id" )
-    
-    
+
+
 if __name__ == '__main__':
     import os
     ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

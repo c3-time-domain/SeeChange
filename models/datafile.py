@@ -17,9 +17,9 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                              '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
                              name=f'{cls.__tablename__}_md5sum_check' ),
-            
+
         )
-            
+
 
     provenance_id = sa.Column(
         sa.ForeignKey( 'provenances.id', ondelete='CASCADE', name='data_files_provenance_id_fkey' ),

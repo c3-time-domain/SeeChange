@@ -27,7 +27,7 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
                                '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
         )
-    
+
     sources_id = sa.Column(
         sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
         nullable=False,
@@ -103,7 +103,7 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
             return None
         pixel_scales = utils.proj_plane_pixel_scales(self.wcs)  # the scale in x and y direction
         return np.mean(pixel_scales) * 3600.0
-    
+
 
     def save( self, filename=None, image=None, sources=None, **kwargs ):
         """Write the WCS data to disk.
@@ -125,15 +125,15 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
              the provenance). If None, will try to load it from the
              database.  Use this for efficiency, or if you know the
              soruce list isn't yet in the databse.
-        
+
           image: Image or None
              Ignored if filename is specified.  Otherwise, the Image to
              use in inventing the filepath.  If None, will try to load
              it from the database.  Use this for efficiency, or if you
              know the image isn't yet in the database.
-        
+
         Additional arguments are passed on to FileOnDiskMixin.save
-        """ 
+        """
 
         # ----- Make sure we have a path ----- #
         # if filename already exists, check it is correct and use
@@ -154,7 +154,7 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
                 if ( sources is None ) or ( image is None ):
                     raise RuntimeError( "Can't invent WorldCoordinates filepath; can't find either the corresponding "
                                         "SourceList or the corresponding Image." )
-                            
+
 
             self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
             self.filepath += f'.wcs_{sources.provenance_id[:6]}.txt'

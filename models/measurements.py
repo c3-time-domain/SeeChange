@@ -344,7 +344,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
         HasBitFlagBadness.__init__(self)
-        
+
         self.index_in_sources = None
 
         self._sub_data = None
@@ -468,12 +468,12 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         If no Object is found, a new one is created, and its coordinates will be identical
         to those of this Measurements object.
 
-        This should only be done for measurements that have passed deletion_threshold 
+        This should only be done for measurements that have passed deletion_threshold
         preliminary cuts, which mostly rules out obvious artefacts. However, measurements
         which passed the deletion_threshold cuts but failed the threshold cuts should still
         be allowed to use this method - in this case, they will create an object with
         attribute is_bad set to True so they are available to review in the db.
-        
+
         """
         from models.object import Object  # avoid circular import
 
@@ -690,9 +690,9 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def get_downstreams( self, val ):
         raise RuntimeError( f"Measurements.get_downstreams is deprecated, don't use it" )
 
-    
-    
-    
+
+
+
 # # use these three functions to quickly add the "property" accessor methods
 # def load_attribute(object, att):
 #     """Load the data for a given attribute of the object. Load from Cutouts, but
@@ -703,7 +703,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 #     if getattr(object, f'_{att}') is None:
 #         if len(object.cutouts.co_dict) == 0 and object.cutouts.filepath is None:
 #             return None  # objects just now created and not saved cannot lazy load data!
-        
+
 #         groupname = f'source_index_{object.index_in_sources}'
 #         if object.cutouts.co_dict[groupname] is not None:  # will check disk as Co_Dict
 #             object.get_data_from_cutouts()

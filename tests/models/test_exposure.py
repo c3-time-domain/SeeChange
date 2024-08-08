@@ -61,8 +61,8 @@ def test_exposure_insert( unloaded_exposure ):
                 session.execute( sa.delete( Exposure ).where( Exposure.id==idtodelete ) )
                 session.execute( sa.delete( Provenance ).where( Provenance.id==unloaded_exposure.provenance_id ) )
                 session.commit()
-    
-        
+
+
 def test_exposure_no_null_values():
     # cannot create an exposure without a filepath!
     with pytest.raises(ValueError, match='Exposure.__init__: must give at least a filepath or an instrument'):

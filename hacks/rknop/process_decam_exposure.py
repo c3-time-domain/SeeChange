@@ -115,7 +115,7 @@ def main():
     # the hackaround is going to be to run a single chip first, to
     # "prime the pump" and get stuff loaded into the database, and only
     # the run all the chips.
-    
+
     # # Before I even begin, I know that I'm going to have problems with
     # # the decam linearity file.  There's only one... but all processes
     # # are going to try to import it into the database at once.  This

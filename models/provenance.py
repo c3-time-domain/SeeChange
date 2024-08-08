@@ -39,7 +39,7 @@ class CodeHash(Base):
         raise RuntimeError( f"CodeHash.code_version is deprecated, don't use it" )
 
 
-    
+
 
 class CodeVersion(Base):
     __tablename__ = 'code_versions'
@@ -68,10 +68,10 @@ class CodeVersion(Base):
         if self._code_hashes is None:
             self._code_hashes = self.get_code_hashes()
         return self._code_hashes
-    
+
     def update(self, commit=True, session=None):
         """Create a new CodeHash object associated with this CodeVersion using the current git hash."""
-        
+
         git_hash = get_git_hash()
 
         if git_hash is None:
@@ -107,7 +107,7 @@ class CodeVersion(Base):
         with SmartSession( session ) as sess:
             cv = sess.query( CodeVersion ).filter( CodeVersion.id == cvid ).first()
         return cv
-    
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self._code_hashes = None
@@ -115,10 +115,10 @@ class CodeVersion(Base):
     @orm.reconstructor
     def init_on_load( self ):
         self._code_hashes = None
-        
+
     def __repr__( self ):
         return f"<CodeVersion {self.id}>"
-        
+
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used
@@ -138,7 +138,7 @@ class CodeVersion(Base):
     @provenances.setter
     def provenances( self, val ):
         raise RuntimeError( f"CodeVersion.provenances is deprecated, don't use it" )
-        
+
 
 provenance_self_association_table = sa.Table(
     'provenance_upstreams',
@@ -229,7 +229,7 @@ class Provenance(Base):
         if self._upstreams is None:
             self._upstreams = self.get_upstreams()
         return self._upstreams
-    
+
 
     def __init__(self, **kwargs):
         """Create a provenance object.
@@ -360,7 +360,7 @@ class Provenance(Base):
         """Get a list of provenances given a list of ids."""
         with Smartsession( session ) as sess:
             return sess.query( Provenance ).filter( Provenance.id.in_( provids ) ).all()
-            
+
     def update_id(self):
         """Update the id using the code_version, process, parameters and upstream_hashes.
         """
@@ -426,14 +426,14 @@ class Provenance(Base):
             Usually you don't want to use this.
 
         """
-        
+
         # This will raise a unique id constraint violation if the provenance id already exists
         with SmartSession( session ) as sess:
             if self._upstreams is None:
                 raise RuntimeError( "Can't save provenance, don't know upstreams.  This usually happens "
                                     "if you try to save one that you loaded from the database.  Use "
                                     "insert_if_needed() instead of insert()." )
-            
+
             sess.add( self )
             sess.commit()
             for upstream in self._upstreams:
@@ -449,7 +449,7 @@ class Provenance(Base):
         ----------
           session : SQLAlchemy session or None
             Usually you don't want to use this
-        
+
         """
         with SmartSession( session ) as sess:
            try:
@@ -470,7 +470,7 @@ class Provenance(Base):
                           .join( provenance_self_association_table,
                                  provenance_self_association_table.c.upstream_id==Provenance.id )
                           .where( provenance_self_association_table.c.downstream_id==self.id ) ).all()
-                
+
     def get_downstreams( self, session=None ):
         with SmartSession( session ) as sess:
             downstreams = ( sess.query( Provenance )
@@ -478,7 +478,7 @@ class Provenance(Base):
                                    provenance_self_association_table.c.downstream_id==Provenance.id )
                             .where( provenance_self_association_table.c.upstream_id==self.id ) ).all()
         return downstreams
-                
+
     # def merge_concurrent(self, session=None, commit=True):
     #     """Merge the provenance but make sure it doesn't exist before adding it to the database.
 
@@ -551,7 +551,7 @@ class Provenance(Base):
 
 
 
-    
+
 # Removing this -- upstreams isn't always set, only if _upstreams is loaded
 # @event.listens_for(Provenance, "before_insert")
 # def insert_new_dataset(mapper, connection, target):

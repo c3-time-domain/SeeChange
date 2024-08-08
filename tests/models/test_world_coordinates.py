@@ -140,7 +140,7 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
             os.remove(txtpath)
             with pytest.raises( OSError, match="file is missing" ):
                 wcobj.load()
-            
+
             # ensure you can create an identical wcs from a saved one
             wcobj.save()
             wcobj2 = WorldCoordinates()

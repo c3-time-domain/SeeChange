@@ -215,7 +215,7 @@ def main():
         with fits.open( args.mask ) as hdu:
             bpmdata = hdu[args.hdunum].data
 
-    if args.boxwid == 0:        
+    if args.boxwid == 0:
         sky, sig = single_sextrsky( imagedata, bpmdata, sigcut=args.sigcut, logger=logger )
         skyim = np.full_like( imagedata, sky )
     else:
