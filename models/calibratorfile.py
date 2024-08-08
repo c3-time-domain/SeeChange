@@ -97,11 +97,11 @@ class CalibratorFile(Base, UUIDMixin):
         doc='ID of the image (if any) that is this calibrator'
     )
 
-    image = orm.relationship(
-        'Image',
-        cascade='save-update, merge, refresh-expire, expunge',  # ROB REVIEW THIS
-        doc='Image for this CalibratorImage (if any)'
-    )
+    # image = orm.relationship(
+    #     'Image',
+    #     cascade='save-update, merge, refresh-expire, expunge',  # ROB REVIEW THIS
+    #     doc='Image for this CalibratorImage (if any)'
+    # )
 
     datafile_id = sa.Column(
         sa.ForeignKey( 'data_files.id', ondelete='CASCADE', name='calibrator_files_data_file_id_fkey' ),
@@ -110,11 +110,11 @@ class CalibratorFile(Base, UUIDMixin):
         doc='ID of the miscellaneous data file (if any) that is this calibrator'
     )
 
-    datafile = orm.relationship(
-        'DataFile',
-        cascade='save-update, merge, refresh-expire, expunge', # ROB REVIEW THIS
-        doc='DataFile for this CalibratorFile (if any)'
-    )
+    # datafile = orm.relationship(
+    #     'DataFile',
+    #     cascade='save-update, merge, refresh-expire, expunge', # ROB REVIEW THIS
+    #     doc='DataFile for this CalibratorFile (if any)'
+    # )
 
     validity_start = sa.Column(
         sa.DateTime,

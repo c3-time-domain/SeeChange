@@ -105,18 +105,34 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
         return np.mean(pixel_scales) * 3600.0
     
 
-    def save( self, filename=None, **kwargs ):
+    def save( self, filename=None, image=None, sources=None, **kwargs ):
         """Write the WCS data to disk.
+
         Updates self.filepath
+
         Parameters
         ----------
-          filename: str or path
+          filename: str or Path, or None
              The path to the file to write, relative to the local store
              root.  Do not include the extension (e.g. '.psf') at the
              end of the name; that will be added automatically.
              If None, will call image.invent_filepath() to get a
              filestore-standard filename and directory.
-          Additional arguments are passed on to FileOnDiskMixin.save
+
+          sources: SourceList or None
+             Ignored if filename is specified.  Otherwise, the
+             SourceList to use in inventing the filepath (needed to get
+             the provenance). If None, will try to load it from the
+             database.  Use this for efficiency, or if you know the
+             soruce list isn't yet in the databse.
+        
+          image: Image or None
+             Ignored if filename is specified.  Otherwise, the Image to
+             use in inventing the filepath.  If None, will try to load
+             it from the database.  Use this for efficiency, or if you
+             know the image isn't yet in the database.
+        
+        Additional arguments are passed on to FileOnDiskMixin.save
         """ 
 
         # ----- Make sure we have a path ----- #
@@ -129,15 +145,19 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
 
         # if not, generate one
         else:
-            if self.provenance is None:
-                raise RuntimeError("Can't invent a filepath for the WCS without a provenance")
-            
-            if self.image.filepath is not None:
-                self.filepath = self.image.filepath
-            else:
-                self.filepath = self.image.invent_filepath()
+            if ( sources is None ) or ( image is None ):
+                with SmartSession() as session:
+                    if sources is None:
+                        sources = SourceList.get_by_id( self.sources_id, session=session )
+                    if ( sources is not None ) and ( image is None ):
+                        image = Image.get_by_id( sources.image_id, session=session )
+                if ( sources is None ) or ( image is None ):
+                    raise RuntimeError( "Can't invent WorldCoordinates filepath; can't find either the corresponding "
+                                        "SourceList or the corresponding Image." )
+                            
 
-            self.filepath += f'.wcs_{self.provenance.id[:6]}.txt'
+            self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
+            self.filepath += f'.wcs_{sources.provenance_id[:6]}.txt'
 
         txtpath = pathlib.Path( self.local_path ) / self.filepath
 

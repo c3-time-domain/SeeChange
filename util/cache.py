@@ -14,10 +14,14 @@
 import os
 import shutil
 import json
+import uuid
 import datetime
+
+import sqlalchemy as sa
 
 from models.base import FileOnDiskMixin
 from util.logger import SCLogger
+from util.util import UUIDJsonEncoder, asUUID
 
 # ======================================================================
 # Functions for copying FileOnDisk objects to/from cache
@@ -149,12 +153,18 @@ def copy_list_to_cache(obj_list, cache_dir, filepath=None):
 
     # overwrite the JSON file with the list of dictionaries
     with open(json_filepath, 'w') as fp:
-        json.dump([obj.to_dict() for obj in obj_list], fp, indent=2)
+        json.dump([obj.to_dict() for obj in obj_list], fp, indent=2, cls=UUIDJsonEncoder)
 
     return json_filepath
 
 
-def copy_from_cache(cls, cache_dir, filepath):
+def realize_column_uuids( obj ):
+    for col in sa.inspect( obj ).mapper.columns:
+        if ( isinstance( col.type, sa.sql.sqltypes.UUID ) ) and ( getattr( obj, col.key ) is not None ):
+            setattr( obj, col.key, asUUID( getattr( obj, col.key ) ) )
+            
+
+def copy_from_cache( cls, cache_dir, filepath, add_to_dict=None ):
     """Copy and reconstruct an object from the cache directory.
 
     Will need the JSON file that contains all the column attributes of the file.
@@ -179,15 +189,24 @@ def copy_from_cache(cls, cache_dir, filepath):
     ----------
     cls : Class that derives from FileOnDiskMixin, or that implements from_dict(dict)
         The class of the object that's being copied
+
     cache_dir: str or path
         The path to the cache directory.
+
     filepath: str or path
         The name of the JSON file that holds the column attributes.
 
+    add_to_dict: dict (optional)
+        Additional parameters to add to the dictionary pulled from the
+        cache.  Add things here that aren't saved to the cache but that
+        are necessary in order to instantiate the object.  Things here will
+        also override anything read from the cache.
+    
     Returns
     -------
     output: SeeChangeBase
         The reconstructed object, of the same type as the class.
+
     """
     # allow user to give an absolute path, so long as it is in the cache dir
     if filepath.startswith(cache_dir):
@@ -201,21 +220,11 @@ def copy_from_cache(cls, cache_dir, filepath):
     with open(full_path + '.json', 'r') as fp:
         json_dict = json.load(fp)
 
-    output = cls.from_dict(json_dict)
+    if add_to_dict is not None:
+        json_dict.update( add_to_dict )
 
-    # COMMENTED THE NEXT OUT.
-    # It's the right thing to do -- automatically assigned
-    #  database attributes should *not* be restored
-    #  from whatever they happened to be when the cache
-    #  was written -- but it was leading to mysterious
-    #  sqlalchemy errors elsewhere.
-    # if hasattr( output, 'id' ):
-    #     output.id = None
-    # now = datetime.datetime.now( tz=datetime.timezone.utc )
-    # if hasattr( output, 'created_at' ):
-    #     output.created_at = now
-    # if hasattr( output, 'modified' ):
-    #     output.modified = now
+    output = cls.from_dict(json_dict)
+    realize_column_uuids( output )
 
     # copy any associated files
     if isinstance(output, FileOnDiskMixin):

@@ -22,7 +22,7 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
     bg_var = 6.28
 
     try:  # cleanup at the end
-        image.load_or_insert( onlyinsert=True )
+        image.insert()
 
         prov = Provenance(
             code_version_id=code_version.id,
@@ -31,7 +31,7 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             upstreams=[ decam_raw_image_provenance ],
             is_testing=True,
         )
-        prov.save()
+        prov.insert()
 
         # Spoof sources with no actual file so we can point the
         #  background to the image.
@@ -130,7 +130,7 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
 
         # Check that we can get the right image_shape from a SourceList and Image saved in the
         #   database
-        sources.load_or_insert( onlyinsert=True )
+        sources.insert()
         b3 = Background(
             format='scalar',
             method='sep',

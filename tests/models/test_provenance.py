@@ -53,10 +53,6 @@ def test_provenances(code_version):
     with pytest.raises( ValueError, match="must have a process name" ):
         Provenance()
 
-    # cannot create a provenance without a code version
-    with pytest.raises( ValueError, match="must have a code_version_id" ):
-        Provenance(process='foo')
-
     # cannot create a provenance with a code_version of wrong type
     with pytest.raises( ValueError, match="Code version must be a str" ):
         Provenance(process='foo', code_version_id=123)
@@ -95,6 +91,17 @@ def test_provenances(code_version):
             assert isinstance(p2.id, str)
             assert len(p2.id) == 20
             assert pid2 != pid1
+
+            # Check automatic code version getting
+            p3 = Provenance(
+                parameters={ "test_parameter": "test_value2" },
+                process="test_process",
+                upstreams=[],
+                is_testing=True
+            )
+
+            assert p3.id == p2.id
+            assert p3.code_version_id == code_version.id
     finally:
         with SmartSession() as session:
             session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2])))
@@ -163,7 +170,7 @@ def test_upstream_relationship( provenance_base, provenance_extra ):
                 upstreams=[provenance_base],
                 is_testing=True,
             )
-            p1.save()
+            p1.insert()
 
             pid1 = p1.id
             new_ids.append(pid1)
@@ -179,7 +186,7 @@ def test_upstream_relationship( provenance_base, provenance_extra ):
                 upstreams=[provenance_base, provenance_extra],
                 is_testing=True,
             )
-            p2.save()
+            p2.insert()
 
             pid2 = p2.id
             assert pid2 is not None

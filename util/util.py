@@ -7,23 +7,30 @@ import numpy as np
 from datetime import datetime
 import dateutil.parser
 import uuid
+import json
 
 import sqlalchemy as sa
 
 from astropy.io import fits
 from astropy.time import Time
 
-from models.base import SmartSession, safe_mkdir
 from util.logger import SCLogger
 
 def asUUID( id ):
     """Pass either a UUID or a string representation of one, get a UUID back."""
-    if isinstance( id, UUID ):
+    if isinstance( id, uuid.UUID ):
         return id
     if not isinstance( id, str ):
         raise TypeError( f"asUUID requires a UUID or a str, not a {type(id)}" )
     return uuid.UUID( id )
-    
+
+
+class UUIDJsonEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        return json.JSONEncoder.default(self, obj)
+
 
 def ensure_file_does_not_exist( filepath, delete=False ):
     """Check if a file exists.  Delete it, or raise an exception, if it does.
@@ -355,6 +362,10 @@ def save_fits_image_file(filename, data, header, extname=None, overwrite=True, s
     The path to the file saved (or written to)
 
     """
+
+    # avoid circular imports
+    from models.base import safe_mkdir
+    
     filename = str(filename)  # handle pathlib.Path objects
     hdu = fits.ImageHDU( data, name=extname ) if single_file else fits.PrimaryHDU( data )
 

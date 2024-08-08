@@ -150,7 +150,9 @@ class Measurer:
         self._filter_psf_fwhm = None  # recall the FWHM used to produce this filter bank, recalculate if it changes
 
     def run(self, *args, **kwargs):
-        """Go over the cutouts from an image and measure all sorts of things
+        """Measure all sorts of things on the cutous from an image.
+
+        Go over the cutouts from an image and measure all sorts of things
         for each cutout: photometry (flux, centroids), etc.
 
         Returns a DataStore object with the products of the processing.
@@ -158,12 +160,13 @@ class Measurer:
         self.has_recalculated = False
         try:  # first make sure we get back a datastore, even an empty one
             if isinstance(args[0], Cutouts):
-                args, kwargs, session = parse_session(*args, **kwargs)
-                ds = DataStore()
-                ds.cutouts = args[0]
-                ds.detections = ds.cutouts.sources
-                ds.sub_image = ds.detections.image
-                ds.image = ds.sub_image.new_image
+                raise RuntimeError( "Need to update the code for creating a Measurer given a Cutouts" )
+                # args, kwargs, session = parse_session(*args, **kwargs)
+                # ds = DataStore()
+                # ds.cutouts = args[0]
+                # ds.detections = ds.cutouts.sources
+                # ds.sub_image = ds.detections.image
+                # ds.image = ds.sub_image.new_image
             else:
                 ds, session = DataStore.from_args(*args, **kwargs)
         except Exception as e:
@@ -180,6 +183,17 @@ class Measurer:
             # get the provenance for this step:
             prov = ds.get_provenance('measuring', self.pars.get_critical_pars(), session=session)
 
+            # sub_image = ds.get_subtraction( session=session )
+            # if sub_image is None:
+            #     raise ValueError(f"Can't find a subtraction image corresponding to datastore inputs: {ds.get_inputs()}" )
+            new_zp = ds.get_zp( session=sesion )
+            if new_zp is None:
+                raise ValueError(f"Can't find a zp corresponding to the datastore inputs: {ds.get_inputs()}")
+
+            new_wcs = ds.get_wcs( session=session )
+            if new_wcs is None:
+                raise ValueError(f"Can't find a wcs corresponding to the datastore inputs: {ds.get_inputs()}")
+
             detections = ds.get_detections(session=session)
             if detections is None:
                 raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
@@ -190,6 +204,19 @@ class Measurer:
             else:
                 cutouts.load_all_co_data()
 
+            sub_psf = None
+            with SmartSession( session ) as sess:
+                _psfs = ( sess.query( PSF )
+                          .filter( PSF.sources_id == detections.id )
+                          .filter( PSF.provenance_id.in_( [ p.id for p in prov.upstreams ] ) )
+                         ).all()
+                if len( _psfs ) > 1:
+                    raise RuntimeError( "Measurer found more than one sub_image psf; this shouldn't happen." )
+                elif len( _psfs ) == 0:
+                    raise RuntimeError( "Measurer couldn't find a sub_image psf." )
+                else:
+                    sub_psf = _psfs[0]
+                
             # try to find some measurements in memory or in the database:
             measurements_list = ds.get_measurements(prov, session=session)
 
@@ -198,21 +225,24 @@ class Measurer:
                 self.has_recalculated = True
 
                 # prepare the filter bank for this batch of cutouts
-                if self._filter_psf_fwhm is None or self._filter_psf_fwhm != cutouts.sources.image.get_psf().fwhm_pixels:
-                    self.make_filter_bank(cutouts.co_dict["source_index_0"]["sub_data"].shape[0], cutouts.sources.image.get_psf().fwhm_pixels)
+                
+                if self._filter_psf_fwhm is None or self._filter_psf_fwhm != sub_psf.fwhm_pixels:
+                    self.make_filter_bank( cutouts.co_dict["source_index_0"]["sub_data"].shape[0], sub_psf.fwhm_pixels )
 
                 # go over each cutouts object and produce a measurements object
                 measurements_list = []
                 for key, co_subdict in cutouts.co_dict.items():
-                    m = Measurements(cutouts=cutouts)
+                    m = Measurements( cutouts_id=cutouts.id )
                     m.index_in_sources = int(key[13:]) # grab just the number from "source_index_xxx"
 
-                    m.best_aperture = cutouts.sources.best_aper_num
+                    m.best_aperture = detections.best_aper_num
 
-                    m.center_x_pixel = cutouts.sources.x[m.index_in_sources]  # These will be rounded by Measurements.__setattr__
-                    m.center_y_pixel = cutouts.sources.y[m.index_in_sources]
+                    # These will be rounded by Measurements.__setattr__
+                    m.center_x_pixel = detections.x[m.index_in_sources]
+                    m.center_y_pixel = detections.y[m.index_in_sources]
 
-                    m.aper_radii = cutouts.sources.image.new_image.zp.aper_cor_radii  # zero point corrected aperture radii
+                    # zero point corrected aperture radii
+                    m.aper_radii = new_zp.aper_cor_radii
 
                     ignore_bits = 0
                     for badness in self.pars.bad_pixel_exclude:
@@ -223,7 +253,7 @@ class Measurer:
 
                     annulus_radii_pixels = self.pars.annulus_radii
                     if self.pars.annulus_units == 'fwhm':
-                        fwhm = cutouts.source.image.get_psf().fwhm_pixels
+                        fwhm = sub_psf.fwhm_pixels
                         annulus_radii_pixels = [rad * fwhm for rad in annulus_radii_pixels]
 
                     # TODO: consider if there are any additional parameters that photometry needs
@@ -252,7 +282,7 @@ class Measurer:
                     # update the coordinates using the centroid offsets
                     x = m.center_x_pixel + m.offset_x
                     y = m.center_y_pixel + m.offset_y
-                    ra, dec = m.cutouts.sources.image.new_image.wcs.wcs.pixel_to_world_values(x, y)
+                    ra, dec = new_wcs.pixel_to_world_values(x, y)
                     m.ra = float(ra)
                     m.dec = float(dec)
                     m.calculate_coordinates()
@@ -286,7 +316,6 @@ class Measurer:
                     m.area_psf = area
 
                     # update the provenance
-                    m.provenance = prov
                     m.provenance_id = prov.id
 
                     # Apply analytic cuts to each stamp image, to rule out artefacts.
@@ -341,14 +370,19 @@ class Measurer:
 
                     measurements_list.append(m)
             else:
-                [setattr(m, 'cutouts', cutouts) for m in measurements_list]  # update with newest cutouts
+                # update with newest cutouts
+                # rknop 20240807:  I don't understand this.  If measurements already
+                #  exist, then corresponding cutouts already exist, and we don't
+                #  want to be changing the cutouts_id of measurements!
+                raise RuntimeError( "What is this for?" )
+                [setattr(m, 'cutouts_id', cutouts.id) for m in measurements_list]
 
             saved_measurements = []
             for m in measurements_list:
                 # regardless of wether we created these now, or loaded from DB,
                 # the bitflag should be updated based on the most recent data
                 m._upstream_bitflag = 0
-                m._upstream_bitflag |= m.cutouts.bitflag
+                m._upstream_bitflag |= cutouts.bitflag
 
                 ignore_bits = 0
                 for badness in self.pars.bad_flag_exclude:
@@ -368,7 +402,6 @@ class Measurer:
                 ds.all_measurements = measurements_list  # debugging only
                 ds.failed_measurements = [m for m in measurements_list if m not in saved_measurements]  # debugging only
                 ds.measurements = saved_measurements  # only keep measurements that passed the disqualifiers cuts.
-                ds.sub_image.measurements = saved_measurements
 
             ds.runtimes['measuring'] = time.perf_counter() - t_start
             if env_as_bool('SEECHANGE_TRACEMALLOC'):

@@ -235,7 +235,7 @@ def decam_exposure(decam_filename, data_dir):
     exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
     exposure.save()  # save to archive and get an MD5 sum
     with SmartSession() as session:
-        exposure.load_or_insert( onlyinsert=True )
+        exposure.insert()
         
     yield exposure
 

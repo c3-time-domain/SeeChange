@@ -24,6 +24,7 @@ from models.provenance import CodeVersion, CodeHash, Provenance
 from models.catalog_excerpt import CatalogExcerpt
 from models.exposure import Exposure
 from models.object import Object
+from models.calibratorfile import CalibratorFileDownloadLock
 
 from util.archive import Archive
 from util.util import remove_empty_folders, env_as_bool
@@ -169,6 +170,10 @@ def pytest_sessionfinish(session, exitstatus):
         # remove any Object objects from tests, as these are not automatically cleaned up:
         dbsession.execute(sa.delete(Object).where(Object.is_test.is_(True)))
 
+        # make sure there aren't any CalibratorFileDownloadLock rows
+        # left over from tests that failed or errored out
+        dbsession.execute(sa.delete(CalibratorFileDownloadLock))
+        
         dbsession.commit()
 
         if any_objects and verify_archive_database_empty:
@@ -316,7 +321,7 @@ def provenance_base(code_version):
         upstreams=[],
         is_testing=True,
     )
-    p.save()
+    p.insert()
 
     yield p
 
@@ -334,7 +339,7 @@ def provenance_extra( provenance_base ):
         upstreams=[provenance_base],
         is_testing=True,
     )
-    p.save()
+    p.insert()
 
     yield p
 
@@ -355,7 +360,7 @@ def provenance_preprocessing(code_version):
             upstreams=[],
             is_testing=True,
         )
-        p.save()
+        p.insert()
 
     yield p
 
@@ -375,7 +380,7 @@ def provenance_extraction(code_version):
             upstreams=[],
             is_testing=True,
         )
-        p.save()
+        p.insert()
 
     yield p
 

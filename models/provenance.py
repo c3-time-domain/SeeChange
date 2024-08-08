@@ -102,6 +102,12 @@ class CodeVersion(Base):
             hashes = sess.query( CodeHash ).filter( CodeHash.code_version_id==self.id ).all()
         return hashes
 
+    @classmethod
+    def get_by_id( cls, cvid, session=None ):
+        with SmartSession( session ) as sess:
+            cv = sess.query( CodeVersion ).filter( CodeVersion.id == cvid ).first()
+        return cv
+    
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self._code_hashes = None
@@ -176,41 +182,12 @@ class Provenance(Base):
         doc="ID of the code version the provenance is associated with. ",
     )
 
-    # code_version = relationship(
-    #     "CodeVersion",
-    #     back_populates="provenances",
-    #     cascade="save-update, merge, expunge, refresh-expire",
-    #     passive_deletes=True,
-    #     lazy='selectin',
-    # )
-
     parameters = sa.Column(
         JSONB,
         nullable=False,
         default={},
         doc="Critical parameters used to generate the underlying data. ",
     )
-
-    # upstreams = relationship(
-    #     "Provenance",
-    #     secondary=provenance_self_association_table,
-    #     primaryjoin='provenances.c.id == provenance_upstreams.c.downstream_id',
-    #     secondaryjoin='provenances.c.id == provenance_upstreams.c.upstream_id',
-    #     passive_deletes=True,
-    #     cascade="save-update, merge, expunge, refresh-expire",
-    #     lazy='selectin',  # should be able to get upstream_hashes without a session!
-    #     join_depth=3,  # how many generations up the upstream chain to load
-    # )
-
-    # downstreams = relationship(
-    #     "Provenance",
-    #     secondary=provenance_self_association_table,
-    #     primaryjoin='provenances.c.id == provenance_upstreams.c.upstream_id',
-    #     secondaryjoin='provenances.c.id == provenance_upstreams.c.downstream_id',
-    #     passive_deletes=True,
-    #     cascade="delete",
-    #     overlaps="upstreams",
-    # )
 
     is_bad = sa.Column(
         sa.Boolean,
@@ -253,60 +230,47 @@ class Provenance(Base):
             self._upstreams = self.get_upstreams()
         return self._upstreams
     
-    # @property
-    # def upstream_ids(self):
-    #     if self.upstreams is None:
-    #         return []
-    #     else:
-    #         ids = set([u.id for u in self.upstreams])
-    #         ids = list(ids)
-    #         ids.sort()
-    #         return ids
-
-    # @property
-    # def upstream_hashes(self):
-    #     return self.upstream_ids  # hash and ID are the same now
-
-    # @property
-    # def downstream_ids(self):
-    #     if self.downstreams is None:
-    #         return []
-    #     else:
-    #         ids = set([u.id for u in self.downstreams])
-    #         ids = list(ids)
-    #         ids.sort()
-    #         return ids
-
-    # @property
-    # def downstream_hashes(self):
-    #     return self.downstream_ids  # hash and ID are the same now
 
     def __init__(self, **kwargs):
-        """
-        Create a provenance object.
+        """Create a provenance object.
 
         Parameters
         ----------
         process: str
             Name of the process that created this provenance object.
-            Examples can include: "calibration", "subtraction", "source extraction" or just "level1".
-        code_version: CodeVersion
+            Examples can include: "calibration", "subtraction", "source
+            extraction" or just "level1".
+
+        code_version_id: str
             Version of the code used to create this provenance object.
+            If None, will use Provenacne.get_code_version()
+
         parameters: dict
-            Dictionary of parameters used in the process.
-            Include only the critical parameters that affect the final products.
+            Dictionary of parameters used in the process.  Include only
+            the critical parameters that affect the final products.
+
         upstreams: list of Provenance
-            List of provenance objects that this provenance object is dependent on.
+            List of provenance objects that this provenance object is
+            dependent on.
+
         is_bad: bool
-            Flag to indicate if the provenance is bad and should not be used.
+            Flag to indicate if the provenance is bad and should not be
+            used.
+
         bad_comment: str
             Comment on why the provenance is bad.
+
         is_testing: bool
-            Flag to indicate if the provenance is for testing purposes only.
+            Flag to indicate if the provenance is for testing purposes
+            only.
+
         is_outdated: bool
-            Flag to indicate if the provenance is outdated and should not be used.
+            Flag to indicate if the provenance is outdated and should
+            not be used.
+
         replaced_by: int
             ID of the Provenance object that replaces this one.
+
         """
         SeeChangeBase.__init__(self)
 
@@ -315,14 +279,15 @@ class Provenance(Base):
         else:
             self.process = kwargs.get('process')
 
-        if 'code_version_id' not in kwargs:
-            raise ValueError('Provenance must have a code_version_id. ')
-
-        code_version_id = kwargs.get('code_version_id')
-        if not isinstance(code_version_id, str ):
-            raise ValueError(f'Code version must be a str. Got {type(code_version_id)}.')
+        if 'code_version_id' in kwargs:
+            code_version_id = kwargs.get('code_version_id')
+            if not isinstance(code_version_id, str ):
+                raise ValueError(f'Code version must be a str. Got {type(code_version_id)}.')
+            else:
+                self.code_version_id = code_version_id
         else:
-            self.code_version_id = code_version_id
+            cv = Provenance.get_code_version()
+            self.code_version_id = cv.id
 
         self.parameters = kwargs.get('parameters', {})
         upstreams = kwargs.get('upstreams', [])
@@ -385,11 +350,16 @@ class Provenance(Base):
             super().__setattr__(key, value)
 
     @classmethod
-    def get( cls, uuid, session=None ):
+    def get( cls, provid, session=None ):
         """Get a provenace given an id, or None if it doesn't exist."""
         with SmartSession( session ) as sess:
-            return sess.query( Provenance ).filter( Provenance.id==uuid ).first()
-        
+            return sess.query( Provenance ).filter( Provenance.id==provid ).first()
+
+    @classmethod
+    def get_batch( cls, provids, session=None ):
+        """Get a list of provenances given a list of ids."""
+        with Smartsession( session ) as sess:
+            return sess.query( Provenance ).filter( Provenance.id.in_( provids ) ).all()
             
     def update_id(self):
         """Update the id using the code_version, process, parameters and upstream_hashes.
@@ -411,13 +381,15 @@ class Provenance(Base):
         """Make a single hash from the hashes of the upstreams.
         This is useful for identifying RefSets.
         """
-        json_string = json.dumps(self.upstream_hashes, sort_keys=True)
+        if self._upstreams is None:
+            raise RuntimeError( "Can't run get_combined_upstream_hash, don't know my upstreams!" )
+        json_string = json.dumps( [ u.id for u in self._upstreams ], sort_keys=True)
         return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
     @classmethod
     def get_code_version(cls, session=None):
-        """
-        Get the most relevant or latest code version.
+        """Get the most relevant or latest code version.
+
         Tries to match the current git hash with a CodeHash
         instance, but if that doesn't work (e.g., if the
         code is running on a machine without git) then
@@ -443,8 +415,8 @@ class Provenance(Base):
                 code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion.id.desc())).first()
         return code_version
 
-    def save( self, session=None ):
-        """Save the provenance to the database.
+    def insert( self, session=None ):
+        """Insert the provenance into the database.
 
         Will raise a constraint violation if the provenance ID already exists in the database.
 
@@ -460,7 +432,7 @@ class Provenance(Base):
             if self._upstreams is None:
                 raise RuntimeError( "Can't save provenance, don't know upstreams.  This usually happens "
                                     "if you try to save one that you loaded from the database.  Use "
-                                    "save_if_needed() instead of save()." )
+                                    "insert_if_needed() instead of insert()." )
             
             sess.add( self )
             sess.commit()
@@ -470,8 +442,8 @@ class Provenance(Base):
                               { 'me': self.id, 'upstream': upstream.id } )
             sess.commit()
 
-    def save_if_needed( self, session=None ):
-        """Save the provenance to the database if it's not already there.
+    def insert_if_needed( self, session=None ):
+        """Insert the provenance into the database if it's not already there.
 
         Parameters
         ----------
@@ -483,8 +455,11 @@ class Provenance(Base):
            try:
                 sess.connection().execute( sa.text( 'LOCK TABLE provenances' ) )
                 provobj = sess.scalars( sa.select( Provenance ).where( Provenance.id == self.id ) ).first()
+                # There's no need to verify that the provenance is consistent, since Provenance.id is
+                #   a hash of the contents of the provenance.  Insofar as the hashing is unique,
+                #   it *will* be consistent.
                 if provobj is None:
-                    self.save( session=sess )
+                    self.insert( session=sess )
            finally:
                # Make sure lock is released
                sess.rollback()

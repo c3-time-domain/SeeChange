@@ -213,10 +213,6 @@ class AstroCalibrator:
 
         image = ds.get_image( session=session )
 
-        # use the latest source list in the data store,
-        # or load using the provenance given in the
-        # data store's upstream_provs, or just use
-        # the most recent provenance for "extraction"
         sources = ds.get_sources( session=session )
         if sources is None:
             raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
@@ -268,7 +264,7 @@ class AstroCalibrator:
         self.crossid_radius = radius
         self.catexp = catexp
 
-        ds.wcs = WorldCoordinates( sources=sources, provenance=prov )
+        ds.wcs = WorldCoordinates( sources_id=sources.get_id() )
         ds.wcs.wcs = wcs
 
     # ----------------------------------------------------------------------
@@ -297,7 +293,7 @@ class AstroCalibrator:
             prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
 
             # try to find the world coordinates in memory or in the database:
-            wcs = ds.get_wcs(prov, session=session)
+            wcs = ds.get_wcs( provenance=prov, session=session )
 
             if wcs is None:  # must create a new WorldCoordinate object
                 self.has_recalculated = True
@@ -305,7 +301,8 @@ class AstroCalibrator:
                 if image.astro_cal_done:
                     SCLogger.warning(
                         f"Failed to find a wcs for image {pathlib.Path( image.filepath ).name}, "
-                        f"but it has astro_cal_done=True"
+                        f"but it has astro_cal_done=True.  (This may just be because you're doing "
+                        f"a new provenance, so may not be a big deal.)"
                     )
 
                 if self.pars.solution_method == 'scamp':

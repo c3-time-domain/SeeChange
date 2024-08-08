@@ -595,7 +595,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         ----------
           image: Image or None
             The image that this source list comes from.  (So,
-            self.imageid==image.id.)  If None, it will be loaded from
+            self.image_id==image.id.)  If None, it will be loaded from
             the database.  Pass this for efficiency, or if you know the
             image isn't in the database yet.
 
@@ -615,7 +615,6 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         if filename is None:
             filename = image.invent_filepath()
 
-
         if filename.endswith(('.fits', '.h5', '.hdf5')):
             filename = os.path.splitext(filename)[0]
 
@@ -631,18 +630,25 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return filename
 
-    def save(self, **kwargs):
-
+    def save(self, image=None, **kwargs):
         """Save the data table to a file on disk.
 
         Updates self.filepath (if it is None) and self.num_sources
+
+        Parameters
+        ----------
+           image: Image or None
+             Image to pass to invent_filepath.  If None, invent_filepath
+             will try to load the image from the database when inventing
+             the filename.
+
         """
 
         if self.data is None:
             raise ValueError("Cannot save source list without data")
 
         if self.filepath is None:
-            self.filepath = self.invent_filepath()
+            self.filepath = self.invent_filepath( image=image )
 
         fullname = os.path.join(self.local_path, self.filepath)
         self.safe_mkdir(os.path.dirname(fullname))
@@ -844,6 +850,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
         import matplotlib.pyplot as plt
 
+        raise NotImplementedError( "This is broken. needs to be fixed." )
+        
         if self.image is None:
             raise ValueError("Can't show source list without an image")
         self.image.show(**kwargs)
@@ -939,9 +947,16 @@ class SourceListSibling:
         from models.source_list import SourceList
         with SmartSession( session ) as sess:
             sl = sess.query( SourceList ).filter( SourceList.id==self.sources_id ).first()
-            if sl is None:
-                raise RuntimeError( f"Failed to find SourceList {self.sources_id} "
-                                    f"that goes with Background {self.id}" )
+            # Not clear what the right thing to do here is.
+            # Going to return None, because probably what happened is that nothing is actually
+            #   in the database.  However, if there is a sibling in the database but not the
+            #   SourceList, that's an error.  Going to just feel vaguely unsettled about that
+            #   for now and not actually raise an exception.
+            # if sl is None:
+            #     raise RuntimeError( f"Failed to find SourceList {self.sources_id} "
+            #                         f"that goes with Background {self.id}" )
+
+        return sl
 
     def get_downstreams(self, session=None, siblings=False):
         """Get the downstreams of this SourceList sibling object.

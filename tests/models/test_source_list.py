@@ -162,7 +162,7 @@ def test_invent_filepath( provenance_base, provenance_extra ):
     try:
         image = Image( **imgargs )
         image.filepath = image.invent_filepath()
-        image.load_or_insert( onlyinsert=True )
+        image.insert()
         sources = SourceList( image_id=image.id, format='sextrfits', provenance_id=provenance_extra.id )
         assert sources.invent_filepath() == f'012/Demo_20271129_152136_0_r_Sci_{hash1}.sources_{hash2}.fits'
     finally:
@@ -173,7 +173,7 @@ def test_invent_filepath( provenance_base, provenance_extra ):
     # Make sure it can get an image filepath from an imaged saved in the database with a manual filepath
     try:
         image = Image( filepath="this.is.a.test", **imgargs )
-        image.load_or_insert( onlyinsert=True )
+        image.insert()
         sources = SourceList( image_id=image.id, format='sextrfits', provenance_id=provenance_extra.id )
         assert sources.invent_filepath() == f'this.is.a.test.sources_{hash2}.fits'
     finally:

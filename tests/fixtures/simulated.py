@@ -58,7 +58,7 @@ def add_file_to_exposure(exposure):
 
 
 def commit_exposure(exposure):
-    exposure.load_or_insert( onlyinsert=True )
+    exposure.insert()
     exposure.nofile = True  # avoid calls to the archive to find this file
     return exposure
 
@@ -211,7 +211,7 @@ def generate_image_fixture(commit=True):
         
         if commit:
             im.save()
-            im.load_or_insert( onlyinsert=True )
+            im.insert()
 
         yield im
 
@@ -344,11 +344,11 @@ def sim_sources(sim_image1):
         upstreams=[ iprov ],
         is_testing=True,
     )
-    prov.save()
+    prov.insert()
     s.provenance_id=prov.id
 
     s.save()
-    s.load_or_insert( onlyinsert=True )
+    s.insert()
 
     yield s
     # No need to delete, it will be deleted

@@ -101,17 +101,21 @@ class Backgrounder:
             prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
 
             # try to find the background object in memory or in the database:
-            bg = ds.get_background(prov, session=session)
+            bg = ds.get_background( provenance=prov, session=session)
 
             if bg is None:  # need to produce a background object
                 self.has_recalculated = True
                 image = ds.get_image(session=session)
+                sources = ds.get_sources(session=session)
+                if ( image is None ) or ( sources is None ):
+                    raise RuntimeError( "Backgrounding can't proceed unless the DataStore "
+                                        "already has image and sources" )
 
                 if self.pars.method == 'sep':
                     # Estimate the background mean and RMS with sep
                     boxsize = self.pars.sep_box_size
                     filtsize = self.pars.sep_filt_size
-                    SCLogger.debug("Subtracting sky and estimating sky RMS")
+                    SCLogger.debug("Backgrounder estimating sky level and RMS")
                     # Dysfunctionality alert: sep requires a *float* image for the mask
                     # IEEE 32-bit floats have 23 bits in the mantissa, so they should
                     # be able to precisely represent a 16-bit integer mask image
@@ -126,34 +130,26 @@ class Backgrounder:
                         counts=sep_bg_obj.back(),
                         rms=sep_bg_obj.rms(),
                         format='map',
-                        method='sep'
+                        method='sep',
+                        image_shape=image.data.shape
                     )
                 elif self.pars.method == 'zero':  # don't measure the b/g
                     bg = Background(value=0, noise=0, format='scalar', method='zero')
                 else:
                     raise ValueError(f'Unknown background method "{self.pars.method}"')
 
-                bg.image_id = image.id
-                bg.image = image
-
-            if bg.provenance is None:
-                bg.provenance = prov
-            else:
-                if bg.provenance.id != prov.id:
-                    raise ValueError('Provenance mismatch for background and extraction provenance!')
+                bg.sources_id = sources.id
 
             # since these are "first look estimates" we don't update them if they are already set
             if ds.image.bkg_mean_estimate is None and ds.image.bkg_rms_estimate is None:
                 ds.image.bkg_mean_estimate = float( bg.value )
                 ds.image.bkg_rms_estimate = float( bg.noise )
 
-            sources = ds.get_sources(session=session)
-            if sources is None:
-                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
             psf = ds.get_psf(session=session)
             if psf is None:
                 raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.get_inputs()}')
 
+            # TODO ROB : think about upstreams of sources siblings
             bg._upstream_bitflag = 0
             bg._upstream_bitflag |= ds.image.bitflag
             bg._upstream_bitflag |= sources.bitflag

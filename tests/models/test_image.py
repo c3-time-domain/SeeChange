@@ -72,7 +72,7 @@ def test_image_no_null_values(provenance_base):
 
             # without all the required columns on image, it cannot be added to DB
             with pytest.raises( IntegrityError ) as exc:
-                image.load_or_insert()
+                image.insert()
 
             # Figure out which column screamed and yelled about being null
             match_obj = exc_re.search( str(exc.value) )
@@ -85,8 +85,7 @@ def test_image_no_null_values(provenance_base):
         # now set all the required keys and make sure that the loading works
         for k in required.keys():
             setattr(image, k, added.get(k, None))
-        didinsert = image.load_or_insert()
-        assert didinsert
+        image.insert()
         im_id = image.id
         assert im_id is not None
 
@@ -96,8 +95,8 @@ def test_image_no_null_values(provenance_base):
             session.execute( sa.delete( Image ).where( Image.id == im_id ) )
             session.commit()
 
-def test_image_load_or_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted, provenance_base ):
-    # FileOnDiskMixin.load_or_insert() is tested in test_exposure.py::test_exposure_load_or_insert
+def test_image_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted, provenance_base ):
+    # FileOnDiskMixin.test_insert() is tested in test_exposure.py::test_insert
 
     im = sim_image_uncommitted
     im.filepath = im.invent_filepath()
@@ -110,8 +109,7 @@ def test_image_load_or_insert( sim_image1, sim_image2, sim_image3, sim_image_unc
 
     # Make sure that upstreams get created if the image has them
     im._upstream_ids = [ i for i in upstreamids ]
-    inserted = im.load_or_insert()
-    assert inserted
+    im.insert()
     with SmartSession() as sess:
         upstrs = ( sess.query( image_upstreams_association_table )
                    .filter( image_upstreams_association_table.c.downstream_id == im.id ) ).all()
@@ -120,19 +118,6 @@ def test_image_load_or_insert( sim_image1, sim_image2, sim_image3, sim_image_unc
 
     # Make sure that we get the upstream ids from the database if necessary
     im._upstream_ids == None
-    assert im.upstream_image_ids == upstreamids
-    assert im._upstream_ids == upstreamids
-
-    # Make sure that we get an exception if we have inconsistent upstream ids from what's in the database
-    im._upstream_ids.append( sim_image3.id )
-    with pytest.raises( RuntimeError, match="but the list of upstream images did not match" ):
-        im.load_or_insert( verifyupstreams=True )
-
-    # Make sure that _upstream_ids isn't loaded if we don't ask to verifyupstreams and the image pre-exists
-    im._upstream_ids = None
-    inserted = im.load_or_insert()
-    assert not inserted
-    assert im._upstream_ids is None
     assert im.upstream_image_ids == upstreamids
     assert im._upstream_ids == upstreamids
 
@@ -159,11 +144,11 @@ def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
         im.md5sum = None
 
         with pytest.raises(IntegrityError, match='violates check constraint'):
-            im.load_or_insert()
+            im.insert()
 
         # adding md5sums should fix this problem
         _2 = ImageCleanup.save_image(im, archive=True)
-        im.load_or_insert()
+        im.insert()
 
     finally:
         im.delete_from_disk_and_database()
@@ -215,7 +200,7 @@ def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
 
         # Make sure that the md5sum is properly saved to the database
         assert im.id is None
-        im.load_or_insert()
+        im.insert()
         assert im.id is not None
         with SmartSession() as session:
             dbimage = session.query(Image).filter(Image.id == im.id)[0]
@@ -295,7 +280,7 @@ def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
 
         # Make sure that the md5sum is properly saved to the database
         assert im.id is None
-        im.load_or_insert()
+        im.insert()
         assert im.id is not None
         with SmartSession() as session:
             dbimage = session.scalars(sa.select(Image).where(Image.id == im.id)).first()
@@ -390,14 +375,14 @@ def test_image_enum_values( sim_image_uncommitted ):
     try:
         with pytest.raises(ValueError, match='ImageTypeConverter must be one of .* not foo'):
             im.type = 'foo'
-            im.load_or_insert( onlyinsert=True )
+            im.insert()
 
         # these should work
         for prepend in ["", "Com"]:
             for t in ["Sci", "Diff", "Bias", "Dark", "DomeFlat"]:
                 im.type = prepend+t
-                im.load_or_insert( onlyinsert=True )
-                # Now remove it so the next load_or_insert can work
+                im.insert()
+                # Now remove it so the next insert can work
                 if not ( ( t == 'DomeFlat' ) and ( prepend == "Com" ) ):
                     im._delete_from_database()
 
@@ -418,12 +403,12 @@ def test_image_enum_values( sim_image_uncommitted ):
         # check the image format enum works as expected:
         with pytest.raises(ValueError, match='ImageFormatConverter must be one of .* not foo'):
             im.format = 'foo'
-            im.load_or_insert()
+            im.insert()
 
         # these should work
         for f in ['fits', 'hdf5']:
             im.format = f
-            im.load_or_insert( onlyinsert=True )
+            im.insert()
             if f != 'hdf5':
                 im._delete_from_database()
 
@@ -463,7 +448,7 @@ def test_image_preproc_bitflag( sim_image1 ):
         im2 = im.copy()
         im2.id = uuid.uuid4()
         im2.filepath = "delete_this_file.fits"       # Shouldn't actually get saved
-        im2.load_or_insert( onlyinsert=True )
+        im2.insert()
 
         with SmartSession() as session:
             images = session.scalars(sa.select(Image).where(
@@ -539,17 +524,17 @@ def test_image_from_exposure(sim_exposure1, provenance_base):
 
     try:
         with pytest.raises(IntegrityError, match='null value in column .* of relation "images"'):
-            im.load_or_insert()
+            im.insert()
 
         # must add the provenance!
         im.provenance_id = provenance_base.id
         with pytest.raises(IntegrityError, match='null value in column "filepath" of relation "images"'):
-            im.load_or_insert()
+            im.insert()
 
         im.data = im.raw_data
         im.save()   # This will add the filepath and md5sum
 
-        im.load_or_insert()
+        im.insert()
 
         assert im.id is not None
         assert im.provenance_id is not None
@@ -624,17 +609,17 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         # Make sure we can save all of this to the database
 
         with pytest.raises( IntegrityError, match='null value in column "filepath" of relation "images" violates' ):
-            im.load_or_insert( onlyinsert=True )
+            im.insert()
         im.filepath = im.invent_filepath()
 
         # It should object if we haven't saved the upstreams first
         with pytest.raises( IntegrityError, match='insert or update on table "images" violates foreign key constraint' ):
-            im.load_or_insert( onlyinsert=True )
+            im.insert()
 
         # So try to do it right
-        im1.load_or_insert( onlyinsert=True )
-        im2.load_or_insert( onlyinsert=True )
-        im.load_or_insert( onlyinsert=True )
+        im1.insert()
+        im2.insert()
+        im.insert()
         
         assert im.id is not None
 
@@ -674,11 +659,11 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):
 
         im1.provenance_id = provenance_base.id
         _1 = ImageCleanup.save_image(im1)
-        im1.load_or_insert( onlyinsert=True )
+        im1.insert()
 
         im2.provenance_id = provenance_base.id
         _2 = ImageCleanup.save_image(im2)
-        im2.load_or_insert( onlyinsert=True )
+        im2.insert()
 
         # make a coadd image from the two
         im = Image.from_ref_and_new(im1, im2)
@@ -693,7 +678,7 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):
         
         im.provenance_id = provenance_base.id
         _3 = ImageCleanup.save_image(im)
-        im.load_or_insert( onlyinsert=True )
+        im.insert()
 
         # Reload from database, make sure all is well
         im = Image.get_by_id( im.id )
@@ -832,7 +817,6 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
     finally:
         test_config.set_value('storage.images.single_file', single_fileness)
 
-# TODO ROB -- update this when DataStore and associated fixtures are updated
 def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     ds = ptf_datastore  # shorthand
 
@@ -975,7 +959,7 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
         assert session.query( Image ).filter( Image.id==im.id ).first() is None
 
     # Save it to the database
-    im.load_or_insert()
+    im.insert()
 
     # Make sure it's there with the expected bitflag
     with SmartSession() as session:

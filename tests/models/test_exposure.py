@@ -31,11 +31,11 @@ def test_exposure_instrument_provenance(sim_exposure1):
         assert prov.parameters == {'instrument': 'DemoInstrument'}
 
 
-def test_exposure_load_or_insert( unloaded_exposure ):
+def test_exposure_insert( unloaded_exposure ):
     try:
         assert unloaded_exposure.id is None
 
-        unloaded_exposure.load_or_insert()
+        unloaded_exposure.insert()
 
         assert unloaded_exposure.id is not None
         idtodelete = unloaded_exposure.id
@@ -44,22 +44,16 @@ def test_exposure_load_or_insert( unloaded_exposure ):
         with SmartSession() as session:
             assert session.query( Exposure ).filter( Exposure.filepath==unloaded_exposure.filepath ).first() is not None
 
-        # Verify that the exposure in the database has the id that we got back here
-        unloaded_exposure.load_or_insert()
+        # Verify that it yells at us if we try to insert something already there
+        with pytest.raises( IntegrityError, match="duplicate key value violates unique constraint" ):
+            unloaded_exposure.insert()
 
-        # Verify that it yells at us if we try to onlyinsert
-
-        with pytest.raises( RuntimeError, match="exists in the database, but onlyinsert was True" ):
-            unloaded_exposure.load_or_insert( onlyinsert=True )
-
-        # Verify that we get an exception if the id doesn't match
-
-        idtodelete = unloaded_exposure.id
+        # Verfiy that it yells at us if we try to insert it under a different uuid but with
+        #   the same filepath
         unloaded_exposure.id = uuid.uuid4()
+        with pytest.raises( IntegrityError, match='unique constraint "ix_exposures_filepath"' ):
+            unloaded_exposure.insert()
 
-        with pytest.raises( ValueError, match="ID mismatch" ):
-            unloaded_exposure.load_or_insert()
-            
     finally:
         # Clean up the mess we made
         if unloaded_exposure is not None:

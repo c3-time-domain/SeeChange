@@ -1494,7 +1494,8 @@ class Instrument:
                     if calibtype == 'flat':
                         calibquery = calibquery.filter( CalibratorFile.flat_type == flattype )
                     if ( calibtype in [ 'flat', 'fringe', 'illumination' ] ) and ( filter is not None ):
-                        calibquery = calibquery.join( Image ).filter( Image.filter == filter )
+                        calibquery = ( calibquery.join( Image, CalibratorFile.image_id==Image.id )
+                                       .filter( Image.filter == filter ) )
 
                     if calibquery.count() > 1:
                         SCLogger.warning( f"Found {calibquery.count()} valid {calibtype}s for "

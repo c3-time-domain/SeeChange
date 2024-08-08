@@ -420,7 +420,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             parameters={'instrument': instrument},
             upstreams=[],
         )
-        prov.save_if_needed()
+        prov.insert_if_needed()
         
         return prov
 
@@ -764,7 +764,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         Should also be safe to use in case that the same exposure (i.e., with the same filepath)
         was added by previous runs.
         """
-        raise RuntimeError( "Don't use this, use load_or_insert" )
+        raise RuntimeError( "Don't use this, use upsert or insert" )
         exposure = None
         with SmartSession(session) as session:
 

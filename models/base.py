@@ -42,6 +42,7 @@ import util.config as config
 from util.archive import Archive
 from util.logger import SCLogger
 from util.radec import radec_to_gal_ecl
+from util.util import UUIDJsonEncoder
 
 utcnow = func.timezone("UTC", func.current_timestamp())
 
@@ -350,7 +351,77 @@ class SeeChangeBase:
                 if type( getattr( self, key ) ) != types.MethodType:
                     setattr(self, key, value)
 
+    @classmethod
+    def upsert_list( self, objects, session=None ):
+        """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
+
+        Do *not* use this with classes that have things like association
+        tables that need to get updated (i.e. with Image, maybe
+        eventually some others).
+
+        All reference fields (ids of other objects) of the objects must be up to date.
+        
+        """
+
+        if not all( [ isinstance( o, cls ) for o in objects ] ):
+            raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
+        
+        with SmartSession( session ) as sess:
+            try:
+                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
+                for obj in objects:
+                    if obj.id is None:
+                        obj.get_id()
+                    sess.merge( obj )
+                sess.commit()
+            finally:
+                # Make sure the lock is released if something goes wrong
+                sess.rollback()
+
+    def upsert( self, session=None ):
+        """Insert an object into the database, or update it if it's already there.
+
+        Will assign the object an id if it doesn't alrady have one (in self.id).
+        
+        Then looks in the databse.  If the object is not yet there,
+        calls the insert method (which will handle things like
+        association tables).  Otherwise, just merges the object to
+        update the object's own fields.
+        
+        If the object is already there, will NOT update any association
+        tables (e.g. the image_upstreams_association table), because we
+        do not define any SQLAlchemy relationships.  Those must have
+        been set when the object was first loaded.
+        
+        Be careful with this.  There are some cases where we do want to
+        update database records (e.g. the images table once we know
+        fwhm, depth, etc), but most of the time we don't want to update
+        the database after the first save.
+
+        Any object calling this must implement "get_id()" and
+        "get_by_id()" (as UUIDMixin does).
+
+        Parameters
+        ----------
+          session: SQLAlchemy Session, default None
+            Usually you don't want to pass this.
+        
+        """
+        id_ = self.get_id()
+        with SmartSession( session ) as sess:
+            try:
+                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
+                if self.__class__.get_by_id( id_, session=sess ) is None:
+                    self.insert( session=sess, onlyinsert=True )
+                else:
+                    session.merge( self )
+                    session.commit()
+            finally:
+                # Make sure to release the lock if anything goes wrong
+                sess.rollback()
+
     def safe_merge(self, session, db_check_att='filepath'):
+
         """Safely merge this object into the session. See safe_merge()."""
         raise RuntimeError( "safe_merge should no longer be necessary" )
         return safe_merge(session, self, db_check_att=db_check_att)
@@ -570,7 +641,7 @@ class SeeChangeBase:
         """
         with open(filename, 'w') as fp:
             try:
-                json.dump(self.to_dict(), fp, indent=2)
+                json.dump(self.to_dict(), fp, indent=2, cls=UUIDJsonEncoder)
             except:
                 raise
 
@@ -1402,7 +1473,6 @@ class UUIDMixin:
 
     @classmethod
     def get_by_id( cls, uuid, session=None ):
-
         """Get an object of the current class that matches the given uuid.
 
         Returns None if not found.
@@ -1410,11 +1480,30 @@ class UUIDMixin:
         with SmartSession( session ) as sess:
             return sess.query( cls ).filter( cls.id==uuid ).first()
 
-    def load_or_insert( self, onlyinsert=False ):
-        """Either load the object's uuid from the database, or insert the object into the database.
+    @classmethod
+    def get_batch_by_ids( cls, uuids, session=None, return_dict=False ):
+        """Get objects whose ids are in the list uuids.
 
-        Will identify the object based on the unique FileOnDisk
-        filepath; make sure that field is set before calling this.
+        Parameters
+        ----------
+          uuids: list of UUID
+            The object IDs whose corresponding objects you want.
+
+          session: SQLAlchmey session or None
+
+          return_dict: bool, default False
+            If False, just return a list of objects.  If True, return a
+            dict of { id: object }.
+
+        """
+
+        with SmartSession( session ) as sess:
+            objs = sess.query( cls ).filter( cls.id.in_( uuids ) ).all()
+        return { o.id: o for o in objs } if return_dict else objs
+        
+        
+    def insert( self, session=None ):
+        """Insert the object into the database.
 
         Does not do any saving to disk, only saves the database record.
 
@@ -1422,65 +1511,24 @@ class UUIDMixin:
 
         Parameters
         ----------
-          onlyinsert: bool, default False
-            If True, then we know we want to insert a new object; if it
-            already exists, be sad.
-
-        Returns
-        -------
-          was_inserted: bool
-            True = the object was newly inserted.  False = the object was
-            already in the database.
-
-            If the object was in the database and onlyinsert was True,
-            or if the id of the object in the database didn't match a
-            non-None id of self, an execption will be raised.
+          session: SQLALchemy Session, or None
+            Usually you do not want to pass this; it's mostly for other
+            upsert etc. methods that cascade to this.
 
         """
 
-        inserted = False
-        cls = self.__class__
-        with SmartSession() as sess:
-            current = None
-            try:
-                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ), )
-                current = sess.query( cls ).filter( cls.filepath == self.filepath ).first()
-                if current is None:
-                    self.get_id()     # Make sure we have a uuid in self.id
-                    # I really want to use add here (I am ALWAYS nervous using sqlalchemy merge, but since
-                    #   we've gotten rid of most relationships hopefully it's not as scary as it could be),
-                    #   because that's what we're doing, but we get sqlalchemy weirdness if this object was at
-                    #   some point in the past connected to another session, even if
-                    #   sqlalchemy.orm.session.object_session(self) is None.  (Inside
-                    #   test_image.py::test_image_enum_values, We were getting an error about how UPDATE was
-                    #   expecting 1 object, but it only found 0.  The real question is why sqlalchemy thought
-                    #   the thing needed to be updated when I said "add", but the history of the object must
-                    #   have done something complicated with the sqlalchemys state.)  Because sqlalchmey is
-                    #   annoying and weird, we have to do annoying and weird things doing even the simplest of
-                    #   stuff with it.
-                    # sess.add( self )
-                    obj = sess.merge( self )
-                    sess.add( obj )
-                    sess.commit()
-                    inserted = True
-                elif onlyinsert:
-                    raise RuntimeError( f"{cls.__tablename__} {self.filepath} exists in the database, "
-                                        f"but onlyinsert was True" )
-            finally:
-                # Make sure to free the lock
-                sess.rollback()
-                if ( not inserted ) and ( current is not None ):
-                    if self.id is None:
-                        self.id = current.id
-                    elif self.id != current.id:
-                        raise ValueError( f"ID mismatch {self.__class__.__name__} {self.filepath}; "
-                                          f"self.id={self.id}, database id={current.id}" )
+        with SmartSession( session ) as sess:
+            # Have to make sure to insert a "transient" object so that SQLAlchemy will *really* do an insert.
+            # If the object is detached, it does something else (I'm not sure what, but it seems to be a
+            # "insert if doesn't exist", which probably means it's a heavier weight database communication).
+            #
+            # Looking at https://docs.sqlalchemy.org/en/20/orm/session_api.html#sqlalchemy.orm.make_transient
+            # it sounds like make_transient is scary if you have relationships... but we're getting rid of those.
+            orm.make_transient( self )
+            sess.add( self )
+            sess.commit()
 
-    
-        return inserted
-                    
 
-        
     def _delete_from_database( self ):
         """Remove the object from the database.  Don't call this, call delete_from_disk_and_database.
 
@@ -1682,46 +1730,51 @@ class FourCorners:
         return ( [  ras[dex00],  ras[dex01],  ras[dex10],  ras[dex11] ],
                  [ decs[dex00], decs[dex01], decs[dex10], decs[dex11] ] )
 
-    @hybrid_method
-    def containing( self, ra, dec ):
-        """An SQLAlchemy filter for objects that might contain a given ra/dec.
+    # @hybrid_method
+    # def containing( self, ra, dec ):
+    #     """An SQLAlchemy filter for objects that might contain a given ra/dec.
 
-        This will be reliable for objects (i.e. images, or whatever else
-        has four corners) that are square to the sky (assuming that the
-        ra* and dec* fields are correct).  However, if the object is at
-        an angle, it will return objects that have the given ra, dec in
-        the rectangle on the sky oriented along ra/dec lines that fully
-        contains the four corners of the image.
+    #     This will be reliable for objects (i.e. images, or whatever else
+    #     has four corners) that are square to the sky (assuming that the
+    #     ra* and dec* fields are correct).  However, if the object is at
+    #     an angle, it will return objects that have the given ra, dec in
+    #     the rectangle on the sky oriented along ra/dec lines that fully
+    #     contains the four corners of the image.
 
-        Parameters
-        ----------
-           ra, dec: float
-              Position to search (decimal degrees).
+    #     NOTE -- this query doesn't use indexes, and so will be very
+    #     slow.  Avoid use.  Use find_containing() instead.
+        
+    #     Parameters
+    #     ----------
+    #        ra, dec: float
+    #           Position to search (decimal degrees).
 
-        Returns
-        -------
-           An expression usable in a sqlalchemy filter
+    #     Returns
+    #     -------
+    #        An expression usable in a sqlalchemy filter
 
-        """
+    #     """
 
-        # This query will go through every row of the table it's
-        # searching, because q3c uses the index on the first two
-        # arguments, not on the array argument.
+    #     rase RuntimeError( "Do not use." )
+        
+    #     # This query will go through every row of the table it's
+    #     # searching, because q3c uses the index on the first two
+    #     # arguments, not on the array argument.
 
-        # It could probably be made faster by making a first pass doing:
-        #   greatest( ra** ) >= ra AND least( ra** ) <= ra AND
-        #   greatest( dec** ) >= dec AND least( dec** ) <= dec
-        # with indexes in ra** and dec**.  Put the results of that into
-        # a temp table, and then do the polygon search on that temp table.
-        #
-        # I have no clue how to implement that simply here as as an
-        # SQLAlchemy filter.  So, there is the find_containing() class
-        # method below.
+    #     # It could probably be made faster by making a first pass doing:
+    #     #   greatest( ra** ) >= ra AND least( ra** ) <= ra AND
+    #     #   greatest( dec** ) >= dec AND least( dec** ) <= dec
+    #     # with indexes in ra** and dec**.  Put the results of that into
+    #     # a temp table, and then do the polygon search on that temp table.
+    #     #
+    #     # I have no clue how to implement that simply here as as an
+    #     # SQLAlchemy filter.  So, there is the find_containing() class
+    #     # method below.
 
-        return func.q3c_poly_query( ra, dec, sqlarray( [ self.ra_corner_00, self.dec_corner_00,
-                                                         self.ra_corner_01, self.dec_corner_01,
-                                                         self.ra_corner_11, self.dec_corner_11,
-                                                         self.ra_corner_10, self.dec_corner_10 ] ) )
+    #     return func.q3c_poly_query( ra, dec, sqlarray( [ self.ra_corner_00, self.dec_corner_00,
+    #                                                      self.ra_corner_01, self.dec_corner_01,
+    #                                                      self.ra_corner_11, self.dec_corner_11,
+    #                                                      self.ra_corner_10, self.dec_corner_10 ] ) )
 
     @classmethod
     def find_containing_siobj( cls, siobj, session=None ):

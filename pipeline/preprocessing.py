@@ -283,10 +283,10 @@ class Preprocessor:
                     image._flags[ wsat ] |= string_to_bitflag( "saturated", flag_image_bits_inverse )
                     image._weight[ wsat ] = 0.
 
-            if image.provenance is None:
-                image.provenance = prov
+            if image.provenance_id is None:
+                image.provenance_id = prov.id
             else:
-                if image.provenance.id != prov.id:
+                if image.provenance_id != prov.id:
                     # Logically, this should never happen
                     raise ValueError('Provenance mismatch for image and provenance!')
 

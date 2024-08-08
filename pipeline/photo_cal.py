@@ -266,7 +266,7 @@ class PhotCalibrator:
                 raise ValueError(f'Cannot find a wcs for image {image.filepath}')
 
             # try to find the world coordinates in memory or in the database:
-            zp = ds.get_zp(prov, session=session)
+            zp = ds.get_zp( provenance=prov, session=session)
 
             if zp is None:  # must create a new ZeroPoint object
                 self.has_recalculated = True
@@ -298,12 +298,21 @@ class PhotCalibrator:
                         apercors.append( sources.calc_aper_cor( aper_num=i ) )
 
                 # Make the ZeroPoint object
-                ds.zp = ZeroPoint( sources=ds.sources, provenance=prov, zp=zpval, dzp=dzpval,
+                ds.zp = ZeroPoint( sources_id=ds.sources.id, zp=zpval, dzp=dzpval,
                                    aper_cor_radii=sources.aper_rads, aper_cors=apercors )
 
-                ds.image.zero_point_estimate = ds.zp.zp  # TODO: should we only write if the property is None?
-                # TODO: I'm putting a stupid placeholder instead of actual limiting magnitude, please fix this!
-                ds.image.lim_mag_estimate = ds.zp.zp - 2.5 * np.log10(5.0 * ds.image.bkg_rms_estimate)
+                if ( ds.image.zero_point_estimate is None ) and ( ds.image.lim_mag_estimate is None ):
+                    ds.image.zero_point_estimate = ds.zp.zp
+                    fhwm_pix = ds.image.fwhm_estimate / ds.image.instrument_object.pixel_scale
+                    if fwhm_pix is None:
+                        warnings.warn( "image.fwhm_estimate is None in photo_cal, this shouldn't happen" )
+                        # Make it so we can proceed, but this will be a bad estimate
+                        fwhm_pix = 1.
+                    ds.image.lim_mag_estimate = ( ds.zp.zp
+                                                  - 2.5 * np.log10( 5.0 *
+                                                                    ds.image.bkg_rms_estimate *
+                                                                    np.sqrt(np.pi) * fwhm_pix )
+                                                 )
 
                 ds.runtimes['photo_cal'] = time.perf_counter() - t_start
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):

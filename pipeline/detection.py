@@ -222,7 +222,6 @@ class Detector:
         except Exception as e:
             return DataStore.catch_failure_to_parse(e, *args)
 
-        # try to find the sources/detections in memory or in the database:
         if self.pars.subtraction:
             try:
                 t_start = time.perf_counter()
@@ -232,12 +231,17 @@ class Detector:
 
                 self.pars.do_warning_exception_hangup_injection_here()
 
+                # ...I think this should be an exception, it's an ill-constructed DataStore
                 if ds.sub_image is None and ds.image is not None and ds.image.is_sub:
                     ds.sub_image = ds.image
-                    ds.image = ds.sub_image.new_image  # back-fill the image from the sub_image
+                    # back-fill the image from the sub image
+                    ds.image = None
+                    ds.image_id = ds.sub_image.new_image_id
+                    ds.get_image( session=session )
 
                 prov = ds.get_provenance('detection', self.pars.get_critical_pars(), session=session)
 
+                # try to find the sources/detections in memory or in the database:
                 detections = ds.get_detections(prov, session=session)
 
                 if detections is None:
@@ -260,16 +264,15 @@ class Detector:
                     #  Related to issue #50
                     detections, _, _, _ = self.extract_sources( image )
 
-                    detections.image = image
+                    detections.image_id = image.get_id()
 
-                    if detections.provenance is None:
-                        detections.provenance = prov
+                    if detections.provenance_id is None:
+                        detections.provenance_id = prov.id
                     else:
-                        if detections.provenance.id != prov.id:
+                        if detections.provenance_id != prov.id:
                             raise ValueError('Provenance mismatch for detections and provenance!')
 
                 detections._upstream_bitflag |= ds.sub_image.bitflag
-                ds.sub_image.sources = detections
                 ds.detections = detections
 
                 ds.runtimes['detection'] = time.perf_counter() - t_start
@@ -292,8 +295,8 @@ class Detector:
 
                 self.pars.do_warning_exception_hangup_injection_here()
 
-                sources = ds.get_sources(prov, session=session)
-                psf = ds.get_psf(prov, session=session)
+                sources = ds.get_sources(provenance=prov, session=session)
+                psf = ds.get_psf(provenance=prov, session=session)
 
                 if sources is None or psf is None:
                     # TODO: when only one of these is not found (which is a strange situation)
@@ -309,27 +312,25 @@ class Detector:
                     image = ds.get_image(session=session)
 
                     if image is None:
-                        raise ValueError(f'Cannot find an image corresponding to the datastore inputs: {ds.get_inputs()}')
+                        raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '
+                                         f'{ds.get_inputs()}')
 
                     sources, psf, bkg, bkgsig = self.extract_sources( image )
 
-                    sources.image = image
-                    if sources.provenance is None:
-                        sources.provenance = prov
+                    sources.image_id = image.get_id()
+                    psf.sources_id = sources.get_id()
+                    if sources.provenance_id is None:
+                        sources.provenance_id = prov.id
                     else:
-                        if sources.provenance.id != prov.id:
+                        if sources.provenance_id != prov.id:
                             raise ValueError('Provenance mismatch for sources and provenance!')
 
-                    psf.image_id = image.id
-                    if psf.provenance is None:
-                        psf.provenance = prov
-                    else:
-                        if psf.provenance.id != prov.id:
-                            raise ValueError('Provenance mismatch for PSF and extraction provenance!')
+                    psf.sources_id = sources.get_id()
 
                 ds.sources = sources
                 ds.psf = psf
-                ds.image.fwhm_estimate = psf.fwhm_pixels  # TODO: should we only write if the property is None?
+                if ds.image.fwhm_estimate is None:
+                    ds.image.fwhm_estimate = psf.fwhm_pixels * ds.image.instrument_object.pixel_scale
 
                 ds.runtimes['extraction'] = time.perf_counter() - t_start
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
@@ -382,8 +383,9 @@ class Detector:
 
         if sources is not None:
             sources._upstream_bitflag |= image.bitflag
-        if psf is not None:
-            psf._upstream_bitflag |= image.bitflag
+        # ROB TODO : figure out sources siblings bitflag handling
+        # if psf is not None:
+        #     psf._upstream_bitflag |= image.bitflag
 
         return sources, psf, bkg, bkgsig
 
@@ -680,7 +682,7 @@ class Detector:
             bkg = sextrstat.array['Background_Mean'][0][0]
             bkgsig = sextrstat.array['Background_StDev'][0][0]
 
-            sourcelist = SourceList( image=image, format="sextrfits", aper_rads=apers )
+            sourcelist = SourceList( image_id=image.id, format="sextrfits", aper_rads=apers )
             # Since we don't set the filepath to the temp file, manually load
             # the _data and _info fields
             sourcelist.load( tmpsources )
@@ -804,10 +806,7 @@ class Detector:
                     if usepsfsize % 2 == 0:
                         usepsfsize += 1
 
-            psf = PSF(
-                format="psfex", image=image, image_id=image.id,
-                fwhm_pixels=float(psfstats.array['FWHM_FromFluxRadius_Mean'][0])
-            )
+            psf = PSF( format="psfex", fwhm_pixels=float(psfstats.array['FWHM_FromFluxRadius_Mean'][0]) )
             psf.load( psfpath=psffile, psfxmlpath=psfxmlfile )
             psf.header['IMAXIS1'] = image.data.shape[1]
             psf.header['IMAXIS2'] = image.data.shape[0]
@@ -987,9 +986,9 @@ class Detector:
         return sources
 
 
-if __name__ == '__main__':
-    from models.base import Session
-    from models.provenance import Provenance
-    session = Session()
-    source_lists = session.scalars(sa.select(SourceList)).all()
-    prov = session.scalars(sa.select(Provenance)).all()
+# if __name__ == '__main__':
+#     from models.base import Session
+#     from models.provenance import Provenance
+#     session = Session()
+#     source_lists = session.scalars(sa.select(SourceList)).all()
+#     prov = session.scalars(sa.select(Provenance)).all()

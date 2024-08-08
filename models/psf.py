@@ -203,7 +203,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         self._table = None
         self._info = None
 
-    def save( self, filename=None, **kwargs ):
+    def save( self, filename=None, image=None, sources=None, **kwargs ):
         """Write the PSF to disk.
 
         May or may not upload to the archive and update the
@@ -216,13 +216,26 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 
         Parameters
         ----------
-          filename: str or path
+          filename: str or Path, or None
              The path to the file to write, relative to the local store
              root.  Do not include the extension (e.g. '.psf') at the
              end of the name; that will be added automatically for all
              extensions.  If None, will call image.invent_filepath() to get a
              filestore-standard filename and directory.
 
+          sources: SourceList or None
+             Ignored if filename is specified.  Otherwise, the
+             SourceList to use in inventing the filepath (needed to get
+             the provenance). If None, will try to load it from the
+             database.  Use this for efficiency, or if you know the
+             soruce list isn't yet in the databse.
+        
+          image: Image or None
+             Ignored if filename is specified.  Otherwise, the Image to
+             use in inventing the filepath.  If None, will try to load
+             it from the database.  Use this for efficiency, or if you
+             know the image isn't yet in the database.
+        
           Additional arguments are passed on to FileOnDiskMixin.save
 
         """
@@ -237,14 +250,18 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
                 filename += '.psf'
             self.filepath = filename
         else:
-            if self.image.filepath is not None:
-                self.filepath = self.image.filepath
-            else:
-                self.filepath = self.image.invent_filepath()
-
-            if self.provenance is None:
-                raise RuntimeError("Can't invent a filepath for the PSF without a provenance")
-            self.filepath += f'.psf_{self.provenance.id[:6]}'
+            if ( sources is None ) or ( image is None ):
+                with SmartSession() as session:
+                    if sources is None:
+                        sources = SourceList.get_by_id( self.sources_id, session=session )
+                    if ( sources is not None ) and ( image is None ):
+                        image = Image.get_by_id( sources.image_id, session=session )
+                if ( sources is None ) or ( image is None ):
+                    raise RuntimeError( "Can't invent PSF filepath; can't find either the corresponding "
+                                        "SourceList or the corresponding Image." )
+                            
+            self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
+            self.filepath += f'.psf_{sources.provenance_id[:6]}'
 
         psfpath = pathlib.Path( self.local_path ) / f'{self.filepath}.fits'
         psfxmlpath = pathlib.Path( self.local_path ) / f'{self.filepath}.xml'

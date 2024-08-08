@@ -274,9 +274,15 @@ def ptf_images_factory(ptf_urls, ptf_downloader, datastore_factory, ptf_cache_di
 
             except Exception as e:
                 # I think we should fix this along with issue #150
-                SCLogger.debug(f'Error processing {url}')  # this will also leave behind exposure and image data on disk only
+
+                import pdb; pdb.set_trace()
+                
+                # this will also leave behind exposure and image data on disk only
+                SCLogger.debug(f'Error processing {url}')  
                 raise e
-                # SCLogger.debug(e)  # TODO: should we be worried that some of these images can't complete their processing?
+
+                # TODO: should we be worried that some of these images can't complete their processing?
+                # SCLogger.debug(e)  
                 # continue
 
             images.append(ds.image)
@@ -554,19 +560,19 @@ def ptf_ref(
         coadd_image._aligned_images = ptf_aligned_images
 
     else:  # make a new reference image
-        coadd_image = pipe.run(ptf_reference_images, ptf_aligned_images)
-        coadd_image.provenance.is_testing = True
-        pipe.datastore.save_and_commit()
-        coadd_image = pipe.datastore.image
+        coadd_datastore = pipe.run(ptf_reference_images, ptf_aligned_images)
+        # coadd_image.provenance.is_testing = True
+        coadd_datastore.save_and_commit()
+        coadd_image = coadd_datastore.image
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             # save all products into cache:
-            copy_to_cache(pipe.datastore.image, ptf_cache_dir)
-            copy_to_cache(pipe.datastore.sources, ptf_cache_dir)
-            copy_to_cache(pipe.datastore.psf, ptf_cache_dir)
-            copy_to_cache(pipe.datastore.bg, ptf_cache_dir)
-            copy_to_cache(pipe.datastore.wcs, ptf_cache_dir)
-            copy_to_cache(pipe.datastore.zp, ptf_cache_dir, cache_base_name + '.zp.json')
+            copy_to_cache(coadd_datastore.image, ptf_cache_dir)
+            copy_to_cache(coadd_datastore.sources, ptf_cache_dir)
+            copy_to_cache(coadd_datastore.psf, ptf_cache_dir)
+            copy_to_cache(coadd_datastore.bg, ptf_cache_dir)
+            copy_to_cache(coadd_datastore.wcs, ptf_cache_dir)
+            copy_to_cache(coadd_datastore.zp, ptf_cache_dir, cache_base_name + '.zp.json')
 
     with SmartSession() as session:
         coadd_image = coadd_image.merge_all(session)

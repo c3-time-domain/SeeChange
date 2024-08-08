@@ -103,16 +103,16 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         doc="Noise RMS of the background (in units of counts), as a best representative value for the entire image."
     )
 
-    provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='backgrounds_provenance_id_fkey'),
-        nullable=False,
-        index=True,
-        doc=(
-            "ID of the provenance of this Background object. "
-            "The provenance will contain a record of the code version"
-            "and the parameters used to produce this Background object."
-        )
-    )
+    # provenance_id = sa.Column(
+    #     sa.ForeignKey('provenances.id', ondelete="CASCADE", name='backgrounds_provenance_id_fkey'),
+    #     nullable=False,
+    #     index=True,
+    #     doc=(
+    #         "ID of the provenance of this Background object. "
+    #         "The provenance will contain a record of the code version"
+    #         "and the parameters used to produce this Background object."
+    #     )
+    # )
 
     # provenance = orm.relationship(
     #     'Provenance',
@@ -248,7 +248,26 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
     #     super().__setattr__(key, value)
 
-    def save( self, filename=None, image=None, **kwargs ):
+    def subtract_me( self, image ):
+        """Subtract this background from an image.
+
+        Parameters
+        ----------
+          image: numpy array
+            shape must match self.image_shape (not checked)
+
+        Returns
+        -------
+           numpy array : background-subtracted image
+        """
+        if self.format == 'scalar':
+            return image - self.value
+        elif self.format == 'map':
+            return image - self.counts
+        else:
+            raise RuntimeError( f"Don't know how to subtraction background of type {self.format}" )
+    
+    def save( self, filename=None, image=None, sources=None, **kwargs ):
         """Write the Background to disk.
 
         May or may not upload to the archive and update the
@@ -286,6 +305,12 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
              will use this image's filepath to generate the background's
              filepath.  If both filename and image are None, will try
              to load the background's image from the database, if possible.
+
+          sources: SourceList (optional)
+             Ignored if filename is not None.  If filename is None,
+             use this SourceList's provenacne to genernate the background's
+             filepath.  If both filename and soruces are None, will try to
+             load the background's SourceList from the database, if possible.
         
           Additional arguments are passed on to FileOnDiskMixin.save()
 
@@ -306,27 +331,18 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
                 filename += '.h5'
             self.filepath = filename
         else:
-            if image is None:
-                if self.sources_id is None:
-                    raise RuntimeError( f"Can't save a background without sources_id unless you pass "
-                                        f"a filename or an image." )
+            if ( sources is None ) or ( image is None ):
                 with SmartSession() as session:
-                    image = ( session.query( Image )
-                              .join( SourceList, Image.id==SourceList.image_id )
-                              .filter( SourceList.id==self.sources_id )
-                             ).first()
-                    if image is None:
-                        raise RuntimeError( "Couldn't find image in the database for background filename generation; "
-                                            "pass a filename or an image" )
-            
-            if image.filepath is not None:
-                self.filepath = image.filepath
-            else:
-                self.filepath = image.invent_filepath()
+                    if sources is None:
+                        sources = SourceList.get_by_id( self.sources_id, session=session )
+                    if ( sources is not None ) and ( image is None ):
+                        image = Image.get_by_id( sources.image_id, session=session )
+                if ( sources is None ) or ( image is None ):
+                    raise RuntimeError( "Can't invent Background filepath; can't find either the corresponding "
+                                        "SourceList or the corresponding Image." )
 
-            if self.provenance_id is None:
-                raise RuntimeError("Can't invent a filepath for the Background without a provenance_id")
-            self.filepath += f'.bg_{self.provenance_id[:6]}.h5'
+            self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
+            self.filepath += f'.bg_{sources.provenance_id[:6]}.h5'
 
         h5path = os.path.join( self.local_path, f'{self.filepath}')
 
@@ -423,6 +439,34 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         self._counts_data = None
         self._var_data = None
 
+    @classmethod
+    def copy_bg( cls, bg ):
+        """Make a new Bcakground with the same data as an existing Background object.
+
+        Does *not* set the sources_id field.
+
+        """
+
+        if bg is None:
+            return None
+        
+        newbg = Background( _format = bg._format,
+                            _method = bg._method,
+                            _sources_id = None,
+                            value = bg.value,
+                            noisg = bg.noise,
+                           )
+        if bg.format == 'map':
+            newbg.counts = bg.counts.copy()
+            newbg.variance = bg.counts.copy()
+        elif bg.format == 'polynomnial':
+            newbg.coeffs = bg.coeffs.copy()
+            newbg.x_degree = bg.coeffs.copy()
+            newbg.y_degree = bg.coeffs.copy()
+
+        return newbg
+        
+        
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used
@@ -450,3 +494,11 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
     @provenance.setter
     def provenance( self, val ):
         raise RuntimeError( f"Background.provenance is deprecated, don't use it" )
+
+    @property
+    def provenance_id( self ):
+        raise RutimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )
+
+    @provenance_id.setter
+    def provenance_id( self, val ):
+        raise RutimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )    

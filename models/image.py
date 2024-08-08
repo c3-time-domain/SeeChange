@@ -582,31 +582,29 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # if this_object_session is not None:  # if just loaded, should usually have a session!
         #     self.load_upstream_products(this_object_session)
 
-    def load_or_insert( self, onlyinsert=False, verifyupstreams=False ):
-        """Either load the image's uuid from the database, or save the image's database record.
-
-        Will identify the object based on the unique filepath.
+    def insert( self, verifyupstreams=False, session=None ):
+        """Add the Image object to the database.
 
         In any events, if there are no exceptions, self.id will be set upon
         return.  (As a side effect, may also load self._upstream_ids, but
         that's transparent to the user, and happens when the user accesses
         upstream_image_ids anyway.)
 
-        This calls FileOnDisk.load_or_insert, but also will create assocations
-        defined in self._upstreams (which will have been set if this Image was
-        created with from_images() or from_ref_and_new()).
+        This calls UUIDMixin.insert, but also will create assocations
+        defined in self._upstreams (which will have been set if this
+        Image was created with from_images() or from_ref_and_new()).
 
         Parameters
         ----------
-          onlyinsert: bool, default False
-            If True, then we know we want to insert a new image; if it
-            already exists, be sad.
-
           verifyupstreams: bool, default False
             If the object was not inserted into the database, verify that
             self._upstream_ids is consistent with the image upstreams
             in the database.  (self._upstream_ids=None is consistent, because
             that means it will just get loaded later.)
+
+          session: SQLAlchemy Session, default None
+            Usually you do not want to pass this; it's mostly for other
+            upsert etc. methods that cascade to this.
         
         Returns
         -------
@@ -624,51 +622,30 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         """
 
-        inserted = UUIDMixin.load_or_insert( self, onlyinsert=onlyinsert )
-        if ( not inserted ) and ( ( not verifyupstreams ) or ( self._upstream_ids is None ) ):
-            return inserted
-
-        with SmartSession() as sess:
+        with SmartSession( session ) as sess:
             try:
-                sess.connection().execute( sa.text( f'LOCK TABLE image_upstreams_association' ) )
+                # Lock both the images and image_upstreams_association tables to avoid race
+                #   conditions with another process trying to insert the same image.
+                sess.connection().execute( sa.text( f'LOCK TABLE images' ) )
+                if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
+                    sess.connection().execute( sa.text( f'LOCK TABLE image_upstreams_association' ) )
 
-                existing = list( sess.query( image_upstreams_association_table.c.upstream_id,
-                                            Image.mjd )
-                                 .join( Image, Image.id == image_upstreams_association_table.c.upstream_id )
-                                 .filter( image_upstreams_association_table.c.downstream_id == self.id )
-                                 .all() )
-                existing.sort( key=lambda x: x[1] )
-                existing_upstreams = [ e[1] for e in existing ]
+                # This will raise an exception if the image is already present; in that case,
+                #   the upstream associations should also already be present (loaded by whoever
+                #   loaded the image), so it's fine to just error out.
+                UUIDMixin.insert( self, session=sess )
 
-                if inserted:
-                    # Have to create the new upstreams
-                    if len( existing_upstreams ) > 0:
-                        # This really shouldn't ever happen, so if it does, it means there's
-                        #   a logic error somewhere whose possibility didn't occur to us.
-                        raise RuntimeError( f"Database error!  Image {self.id} was newly loaded but there "
-                                            f"were already upstreams in the database!" )
-                    if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
-                        for ui in self._upstream_ids:
-                            sess.execute( sa.text( "INSERT INTO "
-                                                   "image_upstreams_association(upstream_id,downstream_id) "
+                if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
+                    for ui in self._upstream_ids:
+                        sess.execute( sa.text( "INSERT INTO "
+                                               "image_upstreams_association(upstream_id,downstream_id) "
                                                    "VALUES (:them,:me)" ),
-                                          { "them": ui, "me": self.id } )
-                        sess.commit()
-                else:
-                    if not all( [ str(e) == str(i) for e, i in zip( existing_upstreams, self._upstream_ids ) ] ):
-                        # This will happen if self._upstream_ids was set somewhere other than via the
-                        #   self.upstream_image_ids attribute or during Image creation in from_images() or
-                        #   from_new_and_ref() (which are the only ways self._upstream_ids is ever
-                        #   supposed to be set), or if something went wrong in the middle of a database
-                        #   insert somewhere.
-                        raise RuntimeError( f"Image {self.id} already existing in the database, but the list of "
-                                            f"upstream images did not match what was expected!" )
+                                      { "them": ui, "me": self.id } )
+                    sess.commit()
                     
             finally:
-                # Make sure the lock on image_upstreams_association is released
+                # Make sure the table locks are released
                 sess.rollback()
-                
-        return inserted
 
     def merge_all(self, session):
 
@@ -687,7 +664,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         pipeline/data_store.py::DataStore.save_and_commit
 
         """
-        raise RuntimeError( "merge_all should no longer be necessary; use load_or_insert" )
+        raise RuntimeError( "merge_all should no longer be necessary; use upsert or insert" )
         
         new_image = self.safe_merge(session=session)
 
@@ -739,7 +716,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
             new_image.cutouts = new_image.sources.cutouts
             new_image.measurements = new_image.sources.measurements
-            new_image._aligned_images = self._aligned_images
+            # new_image._aligned_images = self._aligned_images
 
             # if self.wcs is not None:
             #     self.wcs.sources = new_image.sources
@@ -1849,213 +1826,95 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         This is what would generally be put into a new provenance's upstreams list.
 
-        Note that upstream_images must each have the other related products
-        like sources, psf, wcs, etc. already loaded.
-        This happens when the objects are used to produce, e.g., a coadd or
-        a subtraction image, but they would not necessarily be loaded automatically from the DB.
-        To load those products (assuming all were previously committed with their own provenances)
-        use the load_upstream_products() method on each of the upstream images.
-
-        IMPORTANT RESTRICTION:
-        When putting images in the upstream of a combined image (coadded or subtracted),
-        if there are multiple images with the same provenance, they must also have
-        loaded downstream products (e.g., SourceList) that have the same provenance.
-        This is used to maintain the ability of a downstream to recover its upstreams
-        using the provenance (which is the definition of why we need a provenance).
-        The images could still be associated with multiple different products with
-        different provenances, but not have them loaded into the relevant in-memory
-        attributes of the Image objects when creating the coadd.
-        Images from different instruments, or a coadded reference vs. a new image,
-        would naturally have different provenances, so their products could (and indeed must)
-        have different provenances. But images from the same instrument with the same provenance
-        should all be produced using the same code and parameters, otherwise it will be impossible
-        to know which product was processed in which way.
-
         Returns
         -------
         list of Provenance objects:
             A list of all the provenances for the upstream objects.
         """
-        raise RuntimeError( "Don't use this, ROB FIGURE THIS OUT" )
-    
-        # output = []
-        # # split the images into groups based on their provenance hash
-        # im_prov_hashes = list(set([im.provenance.id for im in self.upstream_images]))
-        # for im_prov_hash in im_prov_hashes:
+        upstream_objs = self.get_upstreams()
+        provids = [ i.provenance_id for i in upstream_objs ]
+        provs = Provenance.get_batch( provids )
+        return provs
 
-        #     im_group = [im for im in self.upstream_images if im.provenance.id == im_prov_hash]
-        #     sources_provs = {}
-        #     psf_provs = {}
-        #     wcs_provs = {}
-        #     zp_provs = {}
+    def get_upstream_products_for_alignment( self, myprov=None, session=None ):
+        """Return everything needed from upstream images in order to perform alignment.
 
-        #     for im in im_group:
-        #         if im.sources is not None:
-        #             sources_provs[im.sources.provenance.id] = im.sources.provenance
-        #         if im.psf is not None:
-        #             psf_provs[im.psf.provenance.id] = im.psf.provenance
-        #         if im.wcs is not None:
-        #             wcs_provs[im.wcs.provenance.id] = im.wcs.provenance
-        #         if im.zp is not None:
-        #             zp_provs[im.zp.provenance.id] = im.zp.provenance
+        Parameters
+        ----------
+          myprov: Provenance, or None
+            Here so that you can work with a provenance not yet loaded
+            into the database.  If this is None, will load the
+            provenance defined by self.provenance_id.
+        
+        Returns
+        -------
+          images: list, sourceses: dict, bgs: dict, psfs: dict, wcses: dict, zps: dict
+            image is a list of Image objects
+            sourceses is a list of SourceImage objects, keyed by image_id
+            bgs is a list of Background objects, keyed by sources_id
+            psfs is a list of PSF objects, keyed by sources_id
+            wcses is a list of WorldCorodinates objects, keyed by sources_id
+            zps is a list of ZeroPoint objects, keyed by sources_id
 
-        #     if len(sources_provs) > 1:
-        #         raise ValueError(
-        #             f"Image group with provenance {im_prov_hash} "
-        #             "has SourceList objects with different provenances."
-        #         )
-        #     if len(psf_provs) > 1:
-        #         raise ValueError(
-        #             f"Image group with provenance {im_prov_hash} "
-        #             "has PSF objects with different provenances."
-        #         )
-        #     if len(wcs_provs) > 1:
-        #         raise ValueError(
-        #             f"Image group with provenance {im_prov_hash} "
-        #             "has WCS objects with different provenances."
-        #         )
-        #     if len(zp_provs) > 1:
-        #         raise ValueError(
-        #             f"Image group with provenance {im_prov_hash} "
-        #             "has ZeroPoint objects with different provenances."
-        #         )
-        #     output += [im_group[0].provenance]
-        #     output += list(sources_provs.values())
-        #     output += list(psf_provs.values())
-        #     output += list(wcs_provs.values())
-        #     output += list(zp_provs.values())
-
-        # # because each Image group has a different prov-hash, no products from different groups
-        # # could ever have the same provenance (it is hashed using the upstreams) so we don't need
-        # # to also check for repeated provenances between groups
-        # return output
-
-    def load_upstream_products(self, session=None):
-        """Make sure each upstream image has its related products loaded.
-
-        This only works after all the images and products are committed to the database,
-        with provenances consistent with what is saved in this Image's provenance
-        and its own upstreams.
         """
-        raise RuntimeError( "Don't use this, data products are in DataStore" )
-        # if self.provenance is None:
-        #     return
-        # prov_ids = self.provenance.upstream_ids
-        # # check to make sure there is any need to load
-        # need_to_load = False
-        # for im in self.upstream_images:
-        #     if im.sources is None or im.sources.provenance_id not in prov_ids:
-        #         need_to_load = True
-        #         break
-        #     if im.psf is None or im.psf.provenance_id not in prov_ids:
-        #         need_to_load = True
-        #         break
-        #     if im.bg is None or im.bg.provenance_id not in prov_ids:
-        #         need_to_load = True
-        #         break
-        #     if im.wcs is None or im.wcs.provenance_id not in prov_ids:
-        #         need_to_load = True
-        #         break
-        #     if im.zp is None or im.zp.provenance_id not in prov_ids:
-        #         need_to_load = True
-        #         break
+        raise RuntimeError( "I don't think this actually used." )
+        images = []
+        sourceses = []
+        bgs = []
+        psfs = []
+        wcses = []
+        zps = []
 
-        # if not need_to_load:
-        #     return
+        if myprov is None:
+            myprov = Provenance.get( self.provenance_id )
+        upstrprov = myprov.get_upstreams()
+        upstrprovids = [ i.id for i in upstrprov ]
 
-        # from models.source_list import SourceList
-        # from models.psf import PSF
-        # from models.background import Background
-        # from models.world_coordinates import WorldCoordinates
-        # from models.zero_point import ZeroPoint
+        with SmartSession( session ) as session:
+            images = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
+        
+            # Upstream images first
+            upstrimages = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
 
-        # # split the images into groups based on their provenance hash
-        # im_prov_hashes = list(set([im.provenance.id for im in self.upstream_images]))
+            # Get all of the other falderal associated with those images
+            upstrsources = ( session.query( SourceList )
+                             .filter( SourceList.image_id ).in_( self.upstream_image_ids )
+                             .filter( SourceList.provenance_id ).in_( upstrprovids )
+                             .all() )
+            upstrsrcids = [ s.id for s in upstrsources ]
 
-        # with SmartSession(session) as session:
-        #     for im_prov_hash in im_prov_hashes:
-        #         im_group = [im for im in self.upstream_images if im.provenance.id == im_prov_hash]
-        #         im_ids = [im.id for im in im_group]
+            upstrbkgs = session.query( Background ).filter( Background.sources_id.in_( upstrsrcids ) ).all()
+            upstrpsfs = session.query( PSF ).filter( PSF.sources_id.in_( upstsrsrcids ) ).all()
+            upstrwcses = session.query( WorldCoordinate ).filter( WorldCoordinates.sources_id.in_( upstrsrcids ) ).all()
+            upstrzps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( upstrsrcids ) ).all()
 
-        #         # get all the products for all images in this group
-        #         sources_result = session.scalars(
-        #             sa.select(SourceList).where(
-        #                 SourceList.image_id.in_(im_ids),
-        #                 SourceList.provenance_id.in_(prov_ids),
-        #             )
-        #         ).all()
-        #         sources_ids = [s.id for s in sources_result]
+        # Verify cleanliness
+        upstrsrc_imageids = [ s.image_id for s in upstrsrcids ]
+        if len( set( upstrsrc_imageids ) ) != len( upstrsrc_imageids ):
+            raise RuntimeError( "Image.get_upstream_products_for_alignment found multiple matching "
+                                "SourceLists for at least some upstream images." )
+        if len( upstrsrc_imageids ) != len( upstrimages ):
+            raise RuntimeError( "Image.get_upstream_products_for_alignment didn't find a SourceList "
+                                "for every upstream image." )
 
-        #         psf_results = session.scalars(
-        #             sa.select(PSF).where(
-        #                 PSF.image_id.in_(im_ids),
-        #                 PSF.provenance_id.in_(prov_ids),
-        #             )
-        #         ).all()
+        for other in [ upstrbkgs, upstrpsfs, upstrwcses, upstrzps ]:
+            other_srcids = [ o.sources_id for o in other ]
+            if len( set( other_srcids ) ) != len( other_srcids ):
+                raise RuntimeError( "Image.get_upstream_products_for_alignment found multiple matching "
+                                    "data products." )
+            if len( other_srcids ) != len( upstrimages ):
+                raise RuntimeError( "Image.get_upstream_products_for_alignment didn't find all "
+                                    "data products for all images." )
 
-        #         bg_results = session.scalars(
-        #             sa.select(Background).where(
-        #                 Background.image_id.in_(im_ids),
-        #                 Background.provenance_id.in_(prov_ids),
-        #             )
-        #         ).all()
+        sourceses = { u.image_id: u for u in upstrsources }
+        bgs = { u.sources_id: u for u in upstrbkgs }
+        psfs = { u.sources_id: u for u in upstrpsfs }
+        wcses = { u.sources_id: u for u in upstrscses }
+        zps = { u.sourcers_id: u for u in upstrzps }
 
-        #         wcs_results = session.scalars(
-        #             sa.select(WorldCoordinates).where(
-        #                 WorldCoordinates.sources_id.in_(sources_ids),
-        #                 WorldCoordinates.provenance_id.in_(prov_ids),
-        #             )
-        #         ).all()
-
-        #         zp_results = session.scalars(
-        #             sa.select(ZeroPoint).where(
-        #                 ZeroPoint.sources_id.in_(sources_ids),
-        #                 ZeroPoint.provenance_id.in_(prov_ids),
-        #             )
-        #         ).all()
-
-        #         for im in im_group:
-        #             sources = [s for s in sources_result if s.image_id == im.id]  # only get the sources for this image
-        #             if len(sources) > 1:
-        #                 raise ValueError(
-        #                     f"Image {im.id} has more than one SourceList matching upstream provenance."
-        #                 )
-        #             elif len(sources) == 1:
-        #                 im.sources = sources[0]
-
-        #             psfs = [p for p in psf_results if p.image_id == im.id]  # only get the psfs for this image
-        #             if len(psfs) > 1:
-        #                 raise ValueError(
-        #                     f"Image {im.id} has more than one PSF matching upstream provenance."
-        #                 )
-        #             elif len(psfs) == 1:
-        #                 im.psf = psfs[0]
-
-        #             bgs = [b for b in bg_results if b.image_id == im.id]  # only get the bgs for this image
-        #             if len(bgs) > 1:
-        #                 raise ValueError(
-        #                     f"Image {im.id} has more than one Background matching upstream provenance."
-        #                 )
-        #             elif len(bgs) == 1:
-        #                 im.bg = bgs[0]
-
-        #             if im.sources is not None:
-        #                 wcses = [w for w in wcs_results if w.sources_id == im.sources.id]  # the wcses for this image
-        #                 if len(wcses) > 1:
-        #                     raise ValueError(
-        #                         f"SourceList {im.sources.id} has more than one WCS matching upstream provenance."
-        #                     )
-        #                 elif len(wcses) == 1:
-        #                     im.wcs = wcses[0]
-
-        #                 zps = [z for z in zp_results if z.sources_id == im.sources.id]  # the zps for this image
-        #                 if len(zps) > 1:
-        #                     raise ValueError(
-        #                         f"SourceList {im.sources.id} has more than one ZeroPoint matching upstream provenance."
-        #                     )
-        #                 elif len(zps) == 1:
-        #                     im.zp = zps[0]
-
+        return images, sourceses, bgs, psfs, wcses, zps
+       
+    
     def get_upstreams(self, session=None):
         """Get the upstream images and associated products that were used to make this image.
 
@@ -2405,15 +2264,14 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @staticmethod
     def get_image_from_upstreams(images, prov_id=None, session=None):
         """Finds the combined image that was made from exactly the list of images (with a given provenance). """
-        raise RuntimeError( "Rob, think about this" )
+
         with SmartSession(session) as session:
             association = image_upstreams_association_table
 
-            stmt = sa.select(Image).join(
-                association, Image.id == association.c.downstream_id
-            ).group_by(Image.id).having(
-                sa.func.count(association.c.upstream_id) == len(images)
-            )
+            stmt = ( sa.select(Image)
+                     .join( association, Image.id == association.c.downstream_id )
+                     .where( association.c.upstream_id.in_( [ i.id for i in images ] ) )
+                    ).group_by( Image.id )
 
             if prov_id is not None:  # pick only those with the right provenance id
                 if isinstance(prov_id, Provenance):
@@ -2576,13 +2434,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @property
     def nandata_bgsub(self):
         """The image data, after subtracting the background and masking with NaNs wherever the flag is not zero. """
-        raise RuntimeError( "Rob, think about this" )
-        if self.bg is None:
-            raise ValueError("No background is loaded for this image.")
-        if self.bg.format == 'scalar':
-            return self.nandata - self.bg.value
-        else:
-            return self.nandata - self.bg.counts
+        raise RuntimeError( "Deprecated" )
+        # if self.bg is None:
+        #     raise ValueError("No background is loaded for this image.")
+        # if self.bg.format == 'scalar':
+        #     return self.nandata - self.bg.value
+        # else:
+        #     return self.nandata - self.bg.counts
 
     def show(self, **kwargs):
         """

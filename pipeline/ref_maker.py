@@ -8,9 +8,10 @@ from sqlalchemy.exc import IntegrityError
 from pipeline.parameters import Parameters
 from pipeline.coaddition import CoaddPipeline
 from pipeline.top_level import Pipeline
+from pipeline.data_store import DataStore
 
 from models.base import SmartSession
-from models.provenance import Provenance
+from models.provenance import Provenance, CodeVersion
 from models.reference import Reference
 from models.exposure import Exposure
 from models.image import Image
@@ -259,42 +260,50 @@ class RefMaker:
         if self.pars.instruments is None or len(self.pars.instruments) == 0:
             raise ValueError('No instruments given to RefMaker!')
 
-        self.im_provs = []
-        self.ex_provs = []
-
+        self.im_provs = {}
+        self.ex_provs = {}
+         
         for inst in self.pars.instruments:
             load_exposure = Exposure.make_provenance(inst)
+            code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
             pars = self.pipeline.preprocessor.pars.get_critical_pars()
             preprocessing = Provenance(
                 process='preprocessing',
-                code_version=load_exposure.code_version,  # TODO: allow loading versions for each process
+                code_version_id=code_version.id,  # TODO: allow loading versions for each process
                 parameters=pars,
                 upstreams=[load_exposure],
                 is_testing='test_parameter' in pars,
             )
+            # This provenance needs to be in the database so we can insert the
+            #   coadd provenance later, as this provenance is an upstream of that.
+            # Ideally, it's already there, but if not, we need to be ready.
+            preprocessing.insert_if_needed( session=session )
             pars = self.pipeline.extractor.pars.get_critical_pars()  # includes parameters of siblings
             extraction = Provenance(
                 process='extraction',
-                code_version=preprocessing.code_version,  # TODO: allow loading versions for each process
+                code_version_id=code_version.id,  # TODO: allow loading versions for each process
                 parameters=pars,
                 upstreams=[preprocessing],
                 is_testing='test_parameter' in pars,
             )
+            # Same comment as for the Provenance preprocessing above.
+            extraction.insert_if_needed( session=session )
 
             # the exposure provenance is not included in the reference provenance's upstreams
-            self.im_provs.append(preprocessing)
-            self.ex_provs.append(extraction)
+            self.im_provs[ inst ] = preprocessing
+            self.ex_provs[ inst ] = extraction
 
-        upstreams = self.im_provs + self.ex_provs  # all the provenances that go into the coadd
-        # TODO: we are using preprocess.code_version but should really load the right code_version for this process.
-        coadd_provs = self.coadd_pipeline.make_provenance_tree(upstreams, preprocessing.code_version, session=session)
+        # all the provenances that go into the coadd
+        upstreams = list( self.im_provs.values() ) + list( self.ex_provs.values() )
+        # TODO: allow different code_versions for each process
+        coadd_provs = self.coadd_pipeline.make_provenance_tree(upstreams, code_version, session=session)
         self.coadd_im_prov = coadd_provs['coaddition']
         self.coadd_ex_prov = coadd_provs['extraction']
 
         pars = self.pars.get_critical_pars()
         self.ref_prov = Provenance(
             process=self.pars.get_process_name(),
-            code_version=self.coadd_im_prov.code_version,  # TODO: allow loading versions for each process
+            code_version_id=code_version.id,  # TODO: allow loading versions for each process
             parameters=pars,
             upstreams=[self.coadd_im_prov, self.coadd_ex_prov],
             is_testing='test_parameter' in pars,
@@ -302,11 +311,6 @@ class RefMaker:
 
         # this hash uniquely identifies all the preprocessing and extraction hashes in this provenance's upstreams
         self.ref_upstream_hash = self.ref_prov.get_combined_upstream_hash()
-        # NOTE: we could have just used the coadd_ex_prov hash, because that uniquely identifies the coadd_im_prov
-        #  (it is an upstream) and through that the preprocessing and extraction provenances of the regular images.
-        #  but I am not sure how the provenance tree will look like in the future, I am leaving this additional hash
-        #  here to be safe. The important part is that this hash must be singular for each RefSet, so that the
-        #  downstreams of the subtractions will have a well-defined provenance, one for each RefSet.
 
     def parse_arguments(self, *args, **kwargs):
         """Figure out if the input parameters are given as coordinates or as target + section ID pairs.
@@ -391,33 +395,24 @@ class RefMaker:
         with SmartSession(session) as dbsession:
             self.setup_provenances(session=dbsession)
 
-            # first merge the reference provenance
-            self.ref_prov = self.ref_prov.merge_concurrent(session=dbsession, commit=True)
+            # first make sure the ref_prov is in the database
+            self.ref_prov.insert_if_needed( session=dbsession )
 
             # now load or create a RefSet
-            for i in range(5):  # a concurrent merge sort of loop
+            try:
+                dbsession.connection().execute( sa.text( f'LOCK TABLE refsets' ) )
                 self.refset = dbsession.scalars(sa.select(RefSet).where(RefSet.name == self.pars.name)).first()
-
-                if self.refset is not None:
-                    break
-                else:  # not found any RefSet with this name
-                    try:
-                        self.refset = RefSet(
-                            name=self.pars.name,
-                            description=self.pars.description,
-                            upstream_hash=self.ref_upstream_hash,
-                        )
-                        dbsession.add(self.refset)
-                        dbsession.commit()
-                    except IntegrityError as e:
-                        # there was a violation on unique constraint on the "name" column:
-                        if 'duplicate key value violates unique constraint "ix_refsets_name' in str(e):
-                            session.rollback()
-                            time.sleep(0.1 * 2 ** i)  # exponential sleep
-                        else:
-                            raise e
-            else:  # if we didn't break out of the loop, there must have been some integrity error
-                raise e
+                if self.refset is None:
+                    # not found any RefSet with this name
+                    self.refset = RefSet(
+                        name=self.pars.name,
+                        description=self.pars.description,
+                        upstream_hash=self.ref_upstream_hash,
+                    )
+                    self.refset.insert( session=dbsession )
+            finally:
+                # Make sure to release the lock in case we didn't commit a new refset
+                dbsession.rollback()
 
             if self.refset is None:
                 raise RuntimeError(f'Failed to find or create a RefSet with the name "{self.pars.name}"!')
@@ -428,16 +423,14 @@ class RefMaker:
                 )
 
             # If the provenance is not already on the RefSet, add it (or raise, if allow_append=False)
-            if self.ref_prov.id not in [p.id for p in self.refset.provenances]:
+            if self.ref_prov.id not in [ p.id for p in self.refset.provenances ]:
                 if self.pars.allow_append:
-                    prov_list = self.refset.provenances
-                    prov_list.append(self.ref_prov)
-                    self.refset.provenances = prov_list  # not sure if appending directly will trigger an update to DB
-                    dbsession.commit()
+                    self.refset.append_provenance( self.ref_prov, session=dbsession )
                 else:
                     raise RuntimeError(
-                        f'Found a RefSet with the name "{self.pars.name}", but it has a different provenance! '
-                        f'Use "allow_append" parameter to add new provenances to this RefSet. '
+                        f"Found a RefSet with the name \"{self.pars.name}\", but it doesn't include the "
+                        f"right reference provenance!  Use \"allow_append\" parameter to add new provenances "
+                        f"to this RefSet. "
                     )
 
     def run(self, *args, **kwargs):
@@ -487,13 +480,6 @@ class RefMaker:
             # first get all the images that could be used to build the reference
             images = []  # can get images from different instruments
             for inst in self.pars.instrument:
-                prov = [p for p in self.im_provs if p.upstreams[0].parameters['instrument'] == inst]
-                if len(prov) == 0:
-                    raise RuntimeError(f'Cannot find a provenance for instrument "{inst}" in im_provs!')
-                if len(prov) > 1:
-                    raise RuntimeError(f'Found multiple provenances for instrument "{inst}" in im_provs!')
-                prov = prov[0]
-
                 query_pars = dict(
                     instrument=inst,
                     ra=self.ra,  # can be None!
@@ -505,7 +491,8 @@ class RefMaker:
                     min_dateobs=self.pars.start_time,
                     max_dateobs=self.pars.end_time,
                     seeing_quality_factor=self.pars.seeing_quality_factor,
-                    provenance_ids=prov.id,
+                    order_by='quality',
+                    provenance_ids=self.ref_prov[inst].id,
                 )
 
                 for key in self.pars.__image_query_pars__:
@@ -513,7 +500,6 @@ class RefMaker:
                         query_pars[f'{min_max}_{key}'] = getattr(self.pars, f'{min_max}_{key}')  # can be None!
 
                 # get the actual images that match the query
-
                 images += dbsession.scalars(Image.query_images(**query_pars).limit(self.pars.max_number)).all()
 
             if len(images) < self.pars.min_number:
@@ -533,7 +519,8 @@ class RefMaker:
 
             # make the reference (note that we are out of the session block, to release it while we coadd)
             images = sorted(images, key=lambda x: x.mjd)  # sort the images in chronological order for coaddition
-
+            data_stores = [ DataStore( i, { 'extraction': self.ex_provs[i.instrument] } ) for i in images ]
+            
             # load the extraction products of these images using the ex_provs
             for im in images:
                 im.load_products(self.ex_provs, session=dbsession)
@@ -545,22 +532,19 @@ class RefMaker:
                         f'{self.ex_provs}'
                     )
 
-        # release the session when making the coadd image
+        coadd_ds = self.coadd_pipeline.run(images)
 
-        coadd_image = self.coadd_pipeline.run(images)
-
-        ref = Reference(image=coadd_image, provenance=self.ref_prov)
+        ref = Reference(
+            image_id = coadd_ds.image.id,
+            target = coadd_ds.image.target,
+            instrument = coadd_ds.image.instrument,
+            filter = coadd_ds.image.filter,
+            section_id = coadd_ds.image.section_id,
+            provenance_id = self.ref_prov.id
+        )
 
         if self.pars.save_new_refs:
-            with SmartSession(session) as dbsession:
-                ref.image.save(overwrite=True)
-                ref.image.sources.save(overwrite=True)
-                ref.image.psf.save(overwrite=True)
-                ref.image.bg.save(overwrite=True)
-                ref.image.wcs.save(overwrite=True)
-                # zp is not a FileOnDiskMixin!
-
-                ref = ref.merge_all(dbsession)
-                dbsession.commit()
+            coadd_ds.save_and_commit()
+            ref.insert()
 
         return ref
