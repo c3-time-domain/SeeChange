@@ -21,9 +21,17 @@ from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession, safe_merge
 class CodeHash(Base):
     __tablename__ = "code_hashes"
 
-    id = sa.Column(sa.String, primary_key=True)
+    _id = sa.Column(sa.String, primary_key=True)
 
-    code_version_id = sa.Column(sa.String, sa.ForeignKey("code_versions.id",
+    @property
+    def id( self ):
+        return self._id
+
+    @id.setter
+    def id( self, val ):
+        self._id = val
+
+    code_version_id = sa.Column(sa.String, sa.ForeignKey("code_versions._id",
                                                          ondelete="CASCADE",
                                                          name='code_hashes_code_version_id_fkey'),
                                 index=True )
@@ -44,20 +52,21 @@ class CodeHash(Base):
 class CodeVersion(Base):
     __tablename__ = 'code_versions'
 
-    id = sa.Column(
+    _id = sa.Column(
         sa.String,
         primary_key=True,
         nullable=False,
         doc='Version of the code. Can use semantic versioning or date/time, etc. '
     )
 
-    # code_hashes = sa.orm.relationship(
-    #     CodeHash,
-    #     back_populates='code_version',
-    #     cascade='all, delete-orphan',
-    #     passive_deletes=True,
-    #     doc='List of commit hashes for this version of the code',
-    # )
+    @property
+    def id( self ):
+        return self._id
+
+    @id.setter
+    def id( self, val ):
+        self._id = val
+    
 
     # There is a kind of race condition in making this property the way we do, that in practice
     # is not going to matter.  Somebody else could add a new hash to this code version, and we
@@ -81,12 +90,12 @@ class CodeVersion(Base):
                 # Lock the code_hashes table to avoid a race condition
                 sess.connection().execute( sa.text( 'LOCK TABLE code_hashes' ) )
                 hash_obj = sess.scalars( sa.select(CodeHash)
-                                         .where( CodeHash.id == git_hash )
+                                         .where( CodeHash._id == git_hash )
                                          .where( CodeHash.code_version_id == self.id )
                                         ).first()
                 if hash_obj is None:
                     if commit:
-                        cv = sess.scalars( sa.select(CodeVersion).where( CodeVersion.id==self.id ) ).first()
+                        cv = sess.scalars( sa.select(CodeVersion).where( CodeVersion._id==self.id ) ).first()
                         if cv is None:
                             raise RuntimeError( 'CodeVersion must be in the database before running update' )
                         hash_obj = CodeHash( id=git_hash, code_version_id=self.id )
@@ -105,7 +114,7 @@ class CodeVersion(Base):
     @classmethod
     def get_by_id( cls, cvid, session=None ):
         with SmartSession( session ) as sess:
-            cv = sess.query( CodeVersion ).filter( CodeVersion.id == cvid ).first()
+            cv = sess.query( CodeVersion ).filter( CodeVersion._id == cvid ).first()
         return cv
 
     def __init__( self, *args, **kwargs ):
@@ -145,11 +154,11 @@ provenance_self_association_table = sa.Table(
     Base.metadata,
     sa.Column('upstream_id',
               sa.String,
-              sa.ForeignKey('provenances.id', ondelete="CASCADE", name='provenance_upstreams_upstream_id_fkey'),
+              sa.ForeignKey('provenances._id', ondelete="CASCADE", name='provenance_upstreams_upstream_id_fkey'),
               primary_key=True),
     sa.Column('downstream_id',
               sa.String,
-              sa.ForeignKey('provenances.id', ondelete="CASCADE", name='provenance_upstreams_downstream_id_fkey'),
+              sa.ForeignKey('provenances._id', ondelete="CASCADE", name='provenance_upstreams_downstream_id_fkey'),
               primary_key=True),
 )
 
@@ -161,13 +170,23 @@ class Provenance(Base):
         "confirm_deleted_rows": False,
     }
 
-    id = sa.Column(
+    _id = sa.Column(
         sa.String,
         primary_key=True,
         nullable=False,
         doc="Unique hash of the code version, parameters and upstream provenances used to generate this dataset. ",
     )
 
+    @property
+    def id( self ):
+        if self._id is None:
+            self.update_id()
+        return self._id
+
+    @id.setter
+    def id( self, val ):
+        raise RuntimeError( "Don't set Provenance.id directly, use update_id()" )
+    
     process = sa.Column(
         sa.String,
         nullable=False,
@@ -176,7 +195,7 @@ class Provenance(Base):
     )
 
     code_version_id = sa.Column(
-        sa.ForeignKey("code_versions.id", ondelete="CASCADE", name='provenances_code_version_id_fkey'),
+        sa.ForeignKey("code_versions._id", ondelete="CASCADE", name='provenances_code_version_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the code version the provenance is associated with. ",
@@ -211,7 +230,7 @@ class Provenance(Base):
 
     replaced_by = sa.Column(
         sa.String,
-        sa.ForeignKey("provenances.id", ondelete="SET NULL", name='provenances_replaced_by_fkey'),
+        sa.ForeignKey("provenances._id", ondelete="SET NULL", name='provenances_replaced_by_fkey'),
         nullable=True,
         index=True,
         doc="ID of the provenance that replaces this one. ",
@@ -243,7 +262,7 @@ class Provenance(Base):
 
         code_version_id: str
             Version of the code used to create this provenance object.
-            If None, will use Provenacne.get_code_version()
+            If None, will use Provenance.get_code_version()
 
         parameters: dict
             Dictionary of parameters used in the process.  Include only
@@ -353,13 +372,13 @@ class Provenance(Base):
     def get( cls, provid, session=None ):
         """Get a provenace given an id, or None if it doesn't exist."""
         with SmartSession( session ) as sess:
-            return sess.query( Provenance ).filter( Provenance.id==provid ).first()
+            return sess.query( Provenance ).filter( Provenance._id==provid ).first()
 
     @classmethod
     def get_batch( cls, provids, session=None ):
         """Get a list of provenances given a list of ids."""
-        with Smartsession( session ) as sess:
-            return sess.query( Provenance ).filter( Provenance.id.in_( provids ) ).all()
+        with SmartSession( session ) as sess:
+            return sess.query( Provenance ).filter( Provenance._id.in_( provids ) ).all()
 
     def update_id(self):
         """Update the id using the code_version, process, parameters and upstream_hashes.
@@ -375,7 +394,7 @@ class Provenance(Base):
         )
         json_string = json.dumps(superdict, sort_keys=True)
 
-        self.id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
+        self._id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
     def get_combined_upstream_hash(self):
         """Make a single hash from the hashes of the upstreams.
@@ -386,6 +405,12 @@ class Provenance(Base):
         json_string = json.dumps( [ u.id for u in self._upstreams ], sort_keys=True)
         return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
+
+    # This is a cache.  It won't change in one run, so we can save
+    #  querying the database repeatedly in get_code_version by saving
+    #  the result.
+    _current_code_version = None
+    
     @classmethod
     def get_code_version(cls, session=None):
         """Get the most relevant or latest code version.
@@ -406,14 +431,19 @@ class Provenance(Base):
         code_version: CodeVersion
             CodeVersion object
         """
-        with SmartSession( session ) as session:
-            code_hash = session.scalars(sa.select(CodeHash).where(CodeHash.id == get_git_hash())).first()
-            if code_hash is not None:
-                code_version = session.scalars( sa.select(CodeVersion)
-                                                .where( CodeVersion.id == code_hash.code_version_id ) ).first()
-            else:
-                code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion.id.desc())).first()
-        return code_version
+
+        if Provenance._current_code_version is None:
+            with SmartSession( session ) as session:
+                code_hash = session.scalars(sa.select(CodeHash).where(CodeHash._id == get_git_hash())).first()
+                if code_hash is not None:
+                    code_version = session.scalars( sa.select(CodeVersion)
+                                                    .where( CodeVersion._id == code_hash.code_version_id ) ).first()
+                else:
+                    code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion._id.desc())).first()
+            Provenance._current_code_version = code_version
+
+        return Provenance._current_code_version
+
 
     def insert( self, session=None ):
         """Insert the provenance into the database.
@@ -454,7 +484,7 @@ class Provenance(Base):
         with SmartSession( session ) as sess:
            try:
                 sess.connection().execute( sa.text( 'LOCK TABLE provenances' ) )
-                provobj = sess.scalars( sa.select( Provenance ).where( Provenance.id == self.id ) ).first()
+                provobj = sess.scalars( sa.select( Provenance ).where( Provenance._id == self.id ) ).first()
                 # There's no need to verify that the provenance is consistent, since Provenance.id is
                 #   a hash of the contents of the provenance.  Insofar as the hashing is unique,
                 #   it *will* be consistent.
@@ -468,14 +498,14 @@ class Provenance(Base):
         with SmartSession( session ) as sess:
             upstreams = ( sess.query( Provenance )
                           .join( provenance_self_association_table,
-                                 provenance_self_association_table.c.upstream_id==Provenance.id )
+                                 provenance_self_association_table.c.upstream_id==Provenance._id )
                           .where( provenance_self_association_table.c.downstream_id==self.id ) ).all()
 
     def get_downstreams( self, session=None ):
         with SmartSession( session ) as sess:
             downstreams = ( sess.query( Provenance )
                             .join( provenance_self_association_table,
-                                   provenance_self_association_table.c.downstream_id==Provenance.id )
+                                   provenance_self_association_table.c.downstream_id==Provenance._id )
                             .where( provenance_self_association_table.c.upstream_id==self.id ) ).all()
         return downstreams
 
@@ -550,27 +580,6 @@ class Provenance(Base):
         raise RuntimeError( f"Provenance.downstream_hashes is deprecated, ROB write replacement" )
 
 
-
-
-# Removing this -- upstreams isn't always set, only if _upstreams is loaded
-# @event.listens_for(Provenance, "before_insert")
-# def insert_new_dataset(mapper, connection, target):
-#     """
-#     This function is called before a new provenance is inserted into the database.
-#     It will check all the required fields are populated and update the id.
-#     """
-#     target.update_id()
-
-
-# CodeVersion.provenances = relationship(
-#     "Provenance",
-#     back_populates="code_version",
-#     cascade="save-update, merge, expunge, refresh-expire, delete, delete-orphan",
-#     foreign_keys="Provenance.code_version_id",
-#     passive_deletes=True,
-# )
-
-
 class ProvenanceTagExistsError(Exception):
     pass
 
@@ -597,7 +606,7 @@ class ProvenanceTag(Base, UUIDMixin):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey( 'provenances.id', ondelete="CASCADE", name='provenance_tags_provenance_id_fkey' ),
+        sa.ForeignKey( 'provenances._id', ondelete="CASCADE", name='provenance_tags_provenance_id_fkey' ),
         index=True,
         doc='Provenance ID.  Each tag/process should only have one provenance.'
     )
@@ -694,8 +703,8 @@ class ProvenanceTag(Base, UUIDMixin):
         repeatok = { 'referencing' }
 
         with SmartSession( session ) as sess:
-            ptags = ( sess.query( (ProvenanceTag.id,Provenance.process) )
-                      .filter( ProvenanceTag.provenance_id==Provenance.id )
+            ptags = ( sess.query( (ProvenanceTag._id,Provenance.process) )
+                      .filter( ProvenanceTag.provenance_id==Provenance._id )
                       .filter( ProvenanceTag.tag==tag )
                      ).all()
 

@@ -33,7 +33,7 @@ def test_exposure_instrument_provenance(sim_exposure1):
 
 def test_exposure_insert( unloaded_exposure ):
     try:
-        assert unloaded_exposure.id is None
+        assert unloaded_exposure._id is None
 
         unloaded_exposure.insert()
 
@@ -58,8 +58,8 @@ def test_exposure_insert( unloaded_exposure ):
         # Clean up the mess we made
         if unloaded_exposure is not None:
             with SmartSession() as session:
-                session.execute( sa.delete( Exposure ).where( Exposure.id==idtodelete ) )
-                session.execute( sa.delete( Provenance ).where( Provenance.id==unloaded_exposure.provenance_id ) )
+                session.execute( sa.delete( Exposure ).where( Exposure._id==idtodelete ) )
+                session.execute( sa.delete( Provenance ).where( Provenance._id==unloaded_exposure.provenance_id ) )
                 session.commit()
 
 
@@ -136,7 +136,7 @@ def test_exposure_no_null_values():
         with SmartSession() as session:
             exposure = None
             if exposure_id is not None:
-                exposure = session.scalars(sa.select(Exposure).where(Exposure.id == exposure_id)).first()
+                exposure = session.scalars(sa.select(Exposure).where(Exposure._id == exposure_id)).first()
             if exposure is not None:
                 session.delete(exposure)
                 session.commit()
@@ -222,7 +222,7 @@ def test_exposure_comes_loaded_with_instrument_from_db(sim_exposure1):
 
     # now reload this exposure from the DB:
     with SmartSession() as session:
-        e2 = session.scalars(sa.select(Exposure).where(Exposure.id == eid)).first()
+        e2 = session.scalars(sa.select(Exposure).where(Exposure._id == eid)).first()
         assert e2 is not None
         assert e2.instrument_object is not None
         assert isinstance(e2.instrument_object, DemoInstrument)

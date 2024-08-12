@@ -466,7 +466,7 @@ class DECam(Instrument):
                              .filter( CalibratorFile.flat_type==None )
                              .filter( CalibratorFile.instrument=='DECam' )
                              .filter( CalibratorFile.sensor_section==ssec )
-                             .filter( CalibratorFile.datafile==datafile ) ).count() == 0:
+                             .filter( CalibratorFile.datafile_id==datafile.id ) ).count() == 0:
                             calfile = CalibratorFile( type='linearity',
                                                       calibrator_set="externally_supplied",
                                                       flat_type=None,
@@ -483,7 +483,7 @@ class DECam(Instrument):
                                 .filter( CalibratorFile.flat_type==None )
                                 .filter( CalibratorFile.instrument=='DECam' )
                                 .filter( CalibratorFile.sensor_section==section )
-                                .filter( CalibratorFile.datafile_id==datafile.id )
+                                .filter( CalibratorFile.datafile_id==datafile._id )
                                ).first()
                     if calfile is None:
                         raise RuntimeError( f"Failed to get default calibrator file for DECam linearity; "
@@ -500,7 +500,7 @@ class DECam(Instrument):
             elif calibtype == 'illumination':
                 dbtype = 'ComSkyFlat'
             mjd = float( cfg.value( "DECam.calibfiles.mjd" ) )
-            image = Image( format='fits', type=dbtype, provenance=prov, instrument='DECam',
+            image = Image( format='fits', type=dbtype, provenance_id=prov.id, instrument='DECam',
                            telescope='CTIO4m', filter=filter, section_id=section, filepath=str(filepath),
                            mjd=mjd, end_mjd=mjd,
                            info={}, exp_time=0, ra=0., dec=0.,
@@ -520,7 +520,7 @@ class DECam(Instrument):
                                       flat_type='externally_supplied' if calibtype == 'flat' else None,
                                       instrument='DECam',
                                       sensor_section=section,
-                                      image_id=image.get_id() )
+                                      image_id=image.id )
             image.insert( session=session )
             calfile.insert( session=session )
 
@@ -629,26 +629,35 @@ class DECam(Instrument):
                        'zero': 'Bias'
                       }
 
-        with SmartSession(session) as dbsess:
-            provenance = Provenance(
-                process='download',
-                parameters={ 'proc_type': proc_type, 'Instrument': 'DECam' },
-                code_version=Provenance.get_code_version(session=dbsess)
-            )
-            provenance = provenance.merge_concurrent( dbsess, commit=True )
+        provenance = Provenance(
+            process='download',
+            parameters={ 'proc_type': proc_type, 'Instrument': 'DECam' },
+            code_version=Provenance.get_code_version( session=session )
+        )
+        provenance.insert_if_needed( session=session )
 
-            with fits.open( expfile ) as ifp:
-                hdr = { k: v for k, v in ifp[0].header.items()
-                        if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
-                                  'OBS-LONG', 'OBS-LAT', 'EXPTIME', 'DARKTIME', 'OBSID',
-                                  'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
-                                  'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
-                                  'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
-            exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
-                                                                'project', 'target' ] )
-            ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
-            dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
+        with fits.open( expfile ) as ifp:
+            hdr = { k: v for k, v in ifp[0].header.items()
+                    if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
+                              'OBS-LONG', 'OBS-LAT', 'EXPTIME', 'DARKTIME', 'OBSID',
+                              'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
+                              'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
+                              'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
+        exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
+                                                            'project', 'target' ] )
+        ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
+        dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
 
+        # NOTE -- there's a possible sort-of race condition here.  (Only
+        # sort-of because we'll get an error that we want to get.)  If
+        # multiple processes are working on images from the same
+        # exposure, then they could all be trying to save the same
+        # exposure at the same time, and most of them will become sad.
+        # In practice, however, e.g. in
+        # pipeline/pipeline_exposure_launcher.py, we'll have a single
+        # process dealing with a given exposure, so this shouldn't come
+        # up much.
+        with SmartSession( session ) as dbsess:
             q = ( dbsess.query( Exposure )
                   .filter( Exposure.instrument == 'DECam' )
                   .filter( Exposure.origin_identifier == origin_identifier )
@@ -671,8 +680,7 @@ class DECam(Instrument):
                                **exphdrinfo )
             dbpath = outdir / expobj.filepath
             expobj.save( expfile )
-            expobj = dbsess.merge( expobj )
-            dbsess.commit()
+            expobj.insert( session=dbsess )
 
         return expobj
 
@@ -925,8 +933,7 @@ class DECamOriginExposures:
                                     gallat=gallat,
                                     gallon=gallon
                                    )
-                dbsess.merge( ke )
-            dbsess.commit()
+                ke.insert( session=dbsess )
 
 
     def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,

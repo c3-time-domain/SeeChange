@@ -42,7 +42,7 @@ import util.config as config
 from util.archive import Archive
 from util.logger import SCLogger
 from util.radec import radec_to_gal_ecl
-from util.util import UUIDJsonEncoder
+from util.util import asUUID, UUIDJsonEncoder
 
 utcnow = func.timezone("UTC", func.current_timestamp())
 
@@ -144,13 +144,12 @@ def Session():
 
 @contextmanager
 def SmartSession(*args):
-    """
-    Return a Session() instance that may or may not
-    be inside a context manager.
+    """Return a Session() instance that may or may not be inside a context manager.
 
     If a given input is already a session, just return that.
     If all inputs are None, create a session that would
     close at the end of the life of the calling scope.
+
     """
     global _Session, _engine
 
@@ -226,7 +225,12 @@ def get_all_database_objects(display=False, session=None):
     output = {}
     with SmartSession(session) as session:
         for model in models:
-            object_ids = session.scalars(sa.select(model.id)).all()
+            # Note: AuthUser and PasswordLink have id instead of id_, because
+            #  they need to be compatible with rkwebutil rkauth
+            if ( model == AuthUser ) or ( model == PasswordLink ):
+                object_ids = session.scalars(sa.select(model.id)).all()
+            else:
+                object_ids = session.scalars(sa.select(model._id)).all()
             output[model] = object_ids
 
             if display:
@@ -363,6 +367,7 @@ class SeeChangeBase:
 
         """
 
+        cls = self.__class__
         if not all( [ isinstance( o, cls ) for o in objects ] ):
             raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
 
@@ -370,8 +375,8 @@ class SeeChangeBase:
             try:
                 sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
                 for obj in objects:
-                    if obj.id is None:
-                        obj.get_id()
+                    if obj._id is None:
+                        _ = obj.id     # Force it to generate an id
                     sess.merge( obj )
                 sess.commit()
             finally:
@@ -398,24 +403,22 @@ class SeeChangeBase:
         fwhm, depth, etc), but most of the time we don't want to update
         the database after the first save.
 
-        Any object calling this must implement "get_id()" and
-        "get_by_id()" (as UUIDMixin does).
-
         Parameters
         ----------
           session: SQLAlchemy Session, default None
             Usually you don't want to pass this.
 
         """
-        id_ = self.get_id()
+        id_ = self.id
+        cls = self.__class__
         with SmartSession( session ) as sess:
             try:
                 sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
                 if self.__class__.get_by_id( id_, session=sess ) is None:
-                    self.insert( session=sess, onlyinsert=True )
+                    self.insert( session=sess )
                 else:
-                    session.merge( self )
-                    session.commit()
+                    sess.merge( self )
+                    sess.commit()
             finally:
                 # Make sure to release the lock if anything goes wrong
                 sess.rollback()
@@ -649,23 +652,25 @@ class SeeChangeBase:
         """Make a new instance of this object, with all column-based attributed (shallow) copied. """
         new = self.__class__()
         for key in sa.inspect(self).mapper.columns.keys():
-            # HACK ALERT
-            # I was getting a sqlalchemy.orm.exc.DetachedInstanceError
-            #   trying to copy a zeropoint deep inside alignment, and it
-            #   was on the line value = getattr(self, key) trying to load
-            #   the "modified" colum.  Rather than trying to figure out WTF
-            #   is going on with SQLAlchmey *this* time, I just decided that
-            #   when we copy an object, we don't copy the modified field,
-            #   so that I could move on with life.
-            # (This isn't necessarily terrible; one could make the argument
-            #   that the modified field of the new object *should* be now(),
-            #   which is the default.  The real worry is that it's yet another
-            #   mysterious SQLAlchemy thing, which just happened to be this field
-            #   this time around.  As long as we're tied to the albatross that is
-            #   SQLAlchemy, these kinds of things are going to keep happening.)
-            if key != 'modified':
-                value = getattr(self, key)
-                setattr(new, key, value)
+            value = getattr( self, key )
+            setattr( new, key, value )
+            # # HACK ALERT
+            # # I was getting a sqlalchemy.orm.exc.DetachedInstanceError
+            # #   trying to copy a zeropoint deep inside alignment, and it
+            # #   was on the line value = getattr(self, key) trying to load
+            # #   the "modified" colum.  Rather than trying to figure out WTF
+            # #   is going on with SQLAlchmey *this* time, I just decided that
+            # #   when we copy an object, we don't copy the modified field,
+            # #   so that I could move on with life.
+            # # (This isn't necessarily terrible; one could make the argument
+            # #   that the modified field of the new object *should* be now(),
+            # #   which is the default.  The real worry is that it's yet another
+            # #   mysterious SQLAlchemy thing, which just happened to be this field
+            # #   this time around.  As long as we're tied to the albatross that is
+            # #   SQLAlchemy, these kinds of things are going to keep happening.)
+            # if key != 'modified':
+            #     value = getattr(self, key)
+            #     setattr(new, key, value)
 
         return new
 
@@ -1448,10 +1453,27 @@ def safe_mkdir(path):
 
 
 class UUIDMixin:
+    # We use UUIDs rather than auto-incrementing SQL sequences for
+    # unique object primary keys so that we can generate unique ids
+    # without having to contact the database.  This allows us, for
+    # example, to build up a collection of objects including foreign
+    # keys to each other, and save them to the database at the end.
+    # With auto-generating primary keys, we wouldn't be able to set the
+    # foreign keys until we'd saved the referenced object to the
+    # databse, so that its id was generated.  (SQLAlchemy gets around
+    # this with object relationships, but object relationships in SA
+    # caused us so many headaches that we stopped using them.)  It also
+    # allows us to do things like cache objects that we later load into
+    # the database, without worrying that the cached object's id (and
+    # references amongst multiple cached objects) will be inconsistent
+    # with the state of the database counters.
+
     # Note that even though the default is uuid.uuid4(), this is set by SQLAlchemy
     #   when the object is saved to the database, not when the object is created.
     #   It will be None when a new object is created if not explicitly set.
-    id = sa.Column(
+    #   (In practice, often this id will get set by our code when we access the
+    #   id property of a created object before it's saved to the datbase.)
+    _id = sa.Column(
         sqlUUID,
         primary_key=True,
         index=True,
@@ -1459,18 +1481,18 @@ class UUIDMixin:
         doc="Unique identifier for this row",
     )
 
-    def get_id( self ):
-        """Return the id, or generate one if it's currently none.
+    @property
+    def id( self ):
+        """If the id is None, make one."""
 
-        The id will already exist if this object was loaded from the
-        databse.  If it wasn't, it means the object is probably not yet
-        in the databse, so one needs to be generated.
+        if self._id is None:
+            self._id=uuid.uuid4()
+        return self._id
 
-        """
-        if self.id is None:
-            self.id=uuid.uuid4()
-        return self.id
-
+    @id.setter
+    def id( self, val ):
+        self._id = asUUID( val )
+    
     @classmethod
     def get_by_id( cls, uuid, session=None ):
         """Get an object of the current class that matches the given uuid.
@@ -1478,7 +1500,7 @@ class UUIDMixin:
         Returns None if not found.
         """
         with SmartSession( session ) as sess:
-            return sess.query( cls ).filter( cls.id==uuid ).first()
+            return sess.query( cls ).filter( cls._id==uuid ).first()
 
     @classmethod
     def get_batch_by_ids( cls, uuids, session=None, return_dict=False ):
@@ -1498,7 +1520,7 @@ class UUIDMixin:
         """
 
         with SmartSession( session ) as sess:
-            objs = sess.query( cls ).filter( cls.id.in_( uuids ) ).all()
+            objs = sess.query( cls ).filter( cls._id.in_( uuids ) ).all()
         return { o.id: o for o in objs } if return_dict else objs
 
 
@@ -1517,6 +1539,7 @@ class UUIDMixin:
 
         """
 
+        _ = self.id    # Make sure id is generated
         with SmartSession( session ) as sess:
             # Have to make sure to insert a "transient" object so that SQLAlchemy will *really* do an insert.
             # If the object is detached, it does something else (I'm not sure what, but it seems to be a
@@ -1545,7 +1568,7 @@ class UUIDMixin:
         """
 
         with SmartSession() as session:
-            session.execute( sa.text( f"DELETE FROM {self.__tablename__} WHERE id=:id" ), { 'id': self.id } )
+            session.execute( sa.text( f"DELETE FROM {self.__tablename__} WHERE _id=:id" ), { 'id': self.id } )
             session.commit()
 
         # Look how much easier this is when you don't have to spend a whole bunch of time
@@ -1555,15 +1578,19 @@ class UUIDMixin:
 class SpatiallyIndexed:
     """A mixin for tables that have ra and dec fields indexed via q3c."""
 
+    # Subclasses of this class must include the following in __table_args__:
+    #   sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec))
+
+    # ...this doesn't seem to work the way I want.  What I want is for subclasses to
+    # inherit and run all the __table_args__ from all of their superclasses, but
+    # in practice it doesn't seem to really work that way.  So, we fall back to
+    # the manual solution in the comment above.
+    #
     # @declared_attr
     # def __table_args__( cls ):
     #     return (
     #         sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
     #     )
-
-    # Subclasses of this class must include the following in __table_args__:
-    #   sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec))
-
 
     ra = sa.Column(sa.Double, nullable=False, doc='Right ascension in degrees')
 
@@ -1828,7 +1855,7 @@ class FourCorners:
         while ( ra < 0 ): ra += 360.
         while ( ra >= 360.): ra -= 360.
 
-        query = ( "SELECT i.id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+        query = ( "SELECT i._id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
                   "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
                   "INTO TEMP TABLE temp_find_containing "
                   f"FROM {cls.__tablename__} i "
@@ -1873,7 +1900,7 @@ class FourCorners:
 
         with SmartSession( session ) as sess:
             cls._find_possibly_containing_temptable( ra, dec, session, prov_id=prov_id )
-            query = sa.text( f"SELECT i.id FROM temp_find_containing i "
+            query = sa.text( f"SELECT i._id FROM temp_find_containing i "
                              f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ i.ra_corner_00, i.dec_corner_00, "
                              f"                                          i.ra_corner_01, i.dec_corner_01, "
                              f"                                          i.ra_corner_11, i.dec_corner_11, "
@@ -1915,7 +1942,7 @@ class FourCorners:
         # TODO : speed tests once we have a big enough database for that
         # to matter to see how much this hurts us.
 
-        query = ( "SELECT i.id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+        query = ( "SELECT i._id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
                   "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
                   "INTO TEMP TABLE temp_find_overlapping "
                   f"FROM {cls.__tablename__} i "
@@ -2142,7 +2169,7 @@ class HasBitFlagBadness:
         raise RuntimeError( "Don't set badness, use set_badness." )
 
     def _set_bitflag( self, value=None, commit=True ):
-        """Set the objects own bitflag using a comma-separated string.
+        """Set the objects bitflag to the integer value.
 
         See set_badness
 
@@ -2151,7 +2178,7 @@ class HasBitFlagBadness:
             self._bitflag = value
         if commit and ( self.id is not None ):
             with SmartSession() as sess:
-                sess.execute( sa.text( f"UPDATE {self.__tablename__} SET _bitflag=:bad WHERE id=:id" ),
+                sess.execute( sa.text( f"UPDATE {self.__tablename__} SET _bitflag=:bad WHERE _id=:id" ),
                               { "bad": self._bitflag, "id": self.id } )
                 sess.commit()
 

@@ -1474,7 +1474,7 @@ class Instrument:
             if calibtype in self.preprocessing_nofile_steps:
                 continue
 
-            # SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
+            SCLogger.debug( f'Looking for calibrators for {section} type {calibtype}' )
 
             calib = None
             with CalibratorFileDownloadLock.acquire_lock(
@@ -1494,7 +1494,7 @@ class Instrument:
                     if calibtype == 'flat':
                         calibquery = calibquery.filter( CalibratorFile.flat_type == flattype )
                     if ( calibtype in [ 'flat', 'fringe', 'illumination' ] ) and ( filter is not None ):
-                        calibquery = ( calibquery.join( Image, CalibratorFile.image_id==Image.id )
+                        calibquery = ( calibquery.join( Image, CalibratorFile.image_id==Image._id )
                                        .filter( Image.filter == filter ) )
 
                     if calibquery.count() > 1:

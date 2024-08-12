@@ -341,7 +341,7 @@ class Subtractor:
                             raise RuntimeError( "Not all data products needed for alignment to ref "
                                                 "are present in the DataStore" )
                     ( aligned_image, aligned_sources,
-                      aligned_bg, aligned_psf ) = self.aligner.run( ds.image, ds.sources, ds.bg, ds.wcs, ds.zp,
+                      aligned_bg, aligned_psf ) = self.aligner.run( ds.image, ds.sources, ds.bg, ds.psf, ds.wcs, ds.zp,
                                                                     ds.ref_image, ds.ref_sources )
                     ds.aligned_new_image = aligned_image
                     ds.aligned_new_sources = aligned_sources
@@ -365,7 +365,7 @@ class Subtractor:
                                                 "are present in the DataStore" )
                     ( aligned_image, aligned_sources,
                       aligned_bg, aligned_psf ) = self.aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg,
-                                                                    ds.ref_wcs, ds.ref_zp,
+                                                                    ds.ref_psf, ds.ref_wcs, ds.ref_zp,
                                                                     ds.image, ds.sources )
                     ds.aligned_new_image = ds.image
                     ds.aligned_new_sources = ds.sources
@@ -382,6 +382,8 @@ class Subtractor:
                 else:
                     raise ValueError( f"aligner to_index must be ref or new, not {to_index}" )
 
+                ImageAligner.cleanup_temp_images()
+                
                 SCLogger.debug( "Alignment complete" )
 
                 if self.pars.method == 'naive':

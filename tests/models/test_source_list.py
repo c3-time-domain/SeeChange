@@ -167,7 +167,7 @@ def test_invent_filepath( provenance_base, provenance_extra ):
         assert sources.invent_filepath() == f'012/Demo_20271129_152136_0_r_Sci_{hash1}.sources_{hash2}.fits'
     finally:
         with SmartSession() as session:
-            session.execute( sa.text( "DELETE FROM images WHERE id=:id" ), { 'id': image.id } )
+            session.execute( sa.text( "DELETE FROM images WHERE _id=:id" ), { 'id': image.id } )
             session.commit()
 
     # Make sure it can get an image filepath from an imaged saved in the database with a manual filepath
@@ -178,7 +178,7 @@ def test_invent_filepath( provenance_base, provenance_extra ):
         assert sources.invent_filepath() == f'this.is.a.test.sources_{hash2}.fits'
     finally:
         with SmartSession() as session:
-            session.execute( sa.text( "DELETE FROM images WHERE id=:id" ), { 'id': image.id } )
+            session.execute( sa.text( "DELETE FROM images WHERE _id=:id" ), { 'id': image.id } )
             session.commit()
 
 

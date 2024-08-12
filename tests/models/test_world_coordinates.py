@@ -102,15 +102,15 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
         finally:
 
             if 'wcobj' in locals():
-                wcobj.delete_from_disk_and_database(session=session)
+                wcobj.delete_from_disk_and_database()
 
             if 'wcobj2' in locals():
-                wcobj2.delete_from_disk_and_database(session=session)
+                wcobj2.delete_from_disk_and_database()
 
             session.commit()
 
             if 'image' in locals():
-                image.delete_from_disk_and_database(session=session, commit=True)
+                image.delete_from_disk_and_database()
 
 
 def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenance_extra):
@@ -152,6 +152,6 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
 
         finally:
             if "wcobj" in locals():
-                wcobj.delete_from_disk_and_database(session=session)
+                wcobj.delete_from_disk_and_database()
             if "wcobj2" in locals():
-                wcobj2.delete_from_disk_and_database(session=session)
+                wcobj2.delete_from_disk_and_database()

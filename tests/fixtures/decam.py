@@ -3,6 +3,7 @@ import os
 import wget
 import yaml
 import shutil
+import pathlib
 
 import sqlalchemy as sa
 import numpy as np
@@ -13,7 +14,7 @@ from astropy.time import Time
 from models.base import SmartSession
 from models.instrument import Instrument, get_instrument_instance
 from models.decam import DECam  # need this import to make sure DECam is added to the Instrument list
-from models.provenance import Provenance
+from models.provenance import Provenance, ProvenanceTag
 from models.exposure import Exposure
 from models.image import Image
 from models.datafile import DataFile
@@ -93,16 +94,15 @@ def decam_default_calibrators(cache_dir, data_dir):
                             else:
                                 datafilestonuke.add( info[ f'{filetype}_fileid' ] )
 
-            for imid in imagestonuke:
-                im = session.scalars( sa.select(Image).where(Image.id == imid )).first()
-                im.delete_from_disk_and_database( session=session, commit=False )
+        for imid in imagestonuke:
+            im = Image.get_by_id( imid )
+            im.delete_from_disk_and_database()
 
-            for dfid in datafilestonuke:
-                df = session.scalars( sa.select(DataFile).where(DataFile.id == dfid )).first()
-                df.delete_from_disk_and_database( session=session, commit=False )
+        for dfid in datafilestonuke:
+            df = DataFile.get_by_id( dfid )
+            df.delete_from_disk_and_database()
 
-            session.commit()
-
+        with SmartSession() as session:
             provs = session.scalars(
                 sa.select(Provenance).where(Provenance.process == 'DECam Default Calibrator')
             ).all()
@@ -116,30 +116,26 @@ def decam_default_calibrators(cache_dir, data_dir):
 
 @pytest.fixture(scope='session')
 def provenance_decam_prep(code_version):
-    with SmartSession() as session:
-        code_version = session.merge(code_version)
-        p = Provenance(
-            process="preprocessing",
-            code_version=code_version,
-            parameters={
-                'steps': None,
-                'calibset': None,
-                'flattype': None,
-                'test_parameter': 'test_value',
-                'preprocessing_steps': ['overscan', 'linearity', 'flat', 'fringe'],
-                'use_sky_subtraction': False,
-            },
-            upstreams=[],
-            is_testing=True,
-        )
-        p.update_id()
-        p = session.merge(p)
-        session.commit()
+    p = Provenance(
+        process="preprocessing",
+        code_version_id=code_version.id,
+        parameters={
+            'steps': None,
+            'calibset': None,
+            'flattype': None,
+            'test_parameter': 'test_value',
+            'preprocessing_steps': ['overscan', 'linearity', 'flat', 'fringe'],
+            'use_sky_subtraction': False,
+        },
+        upstreams=[],
+        is_testing=True,
+    )
+    p.insert()
 
     yield p
 
     with SmartSession() as session:
-        session.delete(p)
+        session.execute( sa.delete( Provenance ).where( Provenance.id==p.id ) )
         session.commit()
 
 
@@ -385,90 +381,79 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
     filebase = 'ELAIS-E1-r-templ'
     maker = refmaker_factory( 'test_refset_decam', 'DECam', 'decam_elais_e1_two_refs_datastore' )
 
-    with SmartSession() as session:
-        maker.make_refset(session=session)
-        code_version = session.merge(code_version)
-        # prov = Provenance(
-        #     process='preprocessing',
-        #     code_version=code_version,
-        #     parameters={},
-        #     upstreams=[],
-        #     is_testing=True,
-        # )
-        prov = maker.coadd_im_prov
+    prov = Provenance(
+        code_version_id=code_version.id,
+        process='import_external_reference',
+        parameters={},
+    )
+    prov.insert_if_needed()
 
-        dses = []
-        delete_list = []
-        for dsindex, chip in enumerate( [ 27, 47 ] ):
-            for ext in [ 'image.fits', 'weight.fits', 'flags.fits', 'image.yaml' ]:
-                cache_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.{ext}' )
-                if os.path.isfile( cache_path ):
-                    SCLogger.info( f"{cache_path} exists, not redownloading" )
+    dses = []
+    delete_list = []
+    for dsindex, chip in enumerate( [ 27, 47 ] ):
+        for ext in [ 'image.fits', 'weight.fits', 'flags.fits', 'image.yaml' ]:
+            cache_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.{ext}' )
+            if os.path.isfile( cache_path ):
+                SCLogger.info( f"{cache_path} exists, not redownloading" )
+            else:
+                url = os.path.join( download_url, 'DECAM', f'{filebase}.{chip:02d}.{ext}' )
+                SCLogger.info( f"Downloading {cache_path}" )
+                retry_download( url, cache_path )
+                if not os.path.isfile( cache_path ):
+                    raise FileNotFoundError( f"Can't find downloaded file {cache_path}" )
+
+            if not ext.endswith('.yaml'):
+                destination = os.path.join(data_dir, f'007/{filebase}.{chip:02d}.{ext}')
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                if os.getenv( "LIMIT_CACHE_USAGE" ):
+                    shutil.move( cache_path, destination )
                 else:
-                    url = os.path.join( download_url, 'DECAM', f'{filebase}.{chip:02d}.{ext}' )
-                    SCLogger.info( f"Downloading {cache_path}" )
-                    retry_download( url, cache_path )
-                    if not os.path.isfile( cache_path ):
-                        raise FileNotFoundError( f"Can't find downloaded file {cache_path}" )
-
-                if not ext.endswith('.yaml'):
-                    destination = os.path.join(data_dir, f'007/{filebase}.{chip:02d}.{ext}')
-                    os.makedirs(os.path.dirname(destination), exist_ok=True)
-                    if os.getenv( "LIMIT_CACHE_USAGE" ):
-                        shutil.move( cache_path, destination )
-                    else:
-                        shutil.copy2( cache_path, destination )
+                    shutil.copy2( cache_path, destination )
 
 
-            # the JSON file is generated by our cache system, not downloaded from the NERSC archive
-            json_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.image.fits.json' )
-            if not env_as_bool( "LIMIT_CACHE_USAGE" ) and os.path.isfile( json_path ):
-                image = copy_from_cache(Image, decam_cache_dir, json_path)
-                image.provenance = prov
-                image.save(verify_md5=False)  # make sure to upload to archive as well
-            else:  # no cache, must create a new image object
-                yaml_path = os.path.join(decam_cache_dir, f'007/{filebase}.{chip:02d}.image.yaml')
+        # the JSON file is generated by our cache system, not downloaded from the NERSC archive
+        json_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.image.fits.json' )
+        if not env_as_bool( "LIMIT_CACHE_USAGE" ) and os.path.isfile( json_path ):
+            image = copy_from_cache(Image, decam_cache_dir, json_path)
+            image.provenance_id = prov.id
+            image.save(verify_md5=False)  # make sure to upload to archive as well
+        else:  # no cache, must create a new image object
+            yaml_path = os.path.join(decam_cache_dir, f'007/{filebase}.{chip:02d}.image.yaml')
 
-                with open( yaml_path ) as ifp:
-                    refyaml = yaml.safe_load( ifp )
+            with open( yaml_path ) as ifp:
+                refyaml = yaml.safe_load( ifp )
 
-                image = Image(**refyaml)
-                image.provenance = prov
-                image.filepath = f'007/{filebase}.{chip:02d}'
-                image.is_coadd = True
-                image.save()  # make sure to upload to archive as well
+            image = Image(**refyaml)
+            image.provenance_id = prov.id
+            image.filepath = f'007/{filebase}.{chip:02d}'
+            image.is_coadd = True
+            image.save()  # make sure to upload to archive as well
 
-                if not env_as_bool( "LIMIT_CACHE_USAGE" ):  # save a copy of the image in the cache
-                    copy_to_cache( image, decam_cache_dir )
+            if not env_as_bool( "LIMIT_CACHE_USAGE" ):  # save a copy of the image in the cache
+                copy_to_cache( image, decam_cache_dir )
 
-            # the datastore factory will load from cache or recreate all the other products
-            # Use skip_sub because we don't want to try to find a reference for or subtract
-            #   from this reference!
-            ds = datastore_factory( image,
-                                    cache_dir=decam_cache_dir,
-                                    cache_base_name=f'007/{filebase}.{chip:02d}',
-                                    skip_sub=True,
-                                    provtag='decam_elais_e1_two_refs_datastore_datastore_factory')
+        # the datastore factory will load from cache or recreate all the other products
+        # Use skip_sub because we don't want to try to find a reference for or subtract
+        #   from this reference!
+        ds = datastore_factory( image,
+                                cache_dir=decam_cache_dir,
+                                cache_base_name=f'007/{filebase}.{chip:02d}',
+                                skip_sub=True,
+                                provtag='decam_elais_e1_two_refs_datastore_datastore_factory')
 
-            for filename in image.get_fullpath(as_list=True):
-                assert os.path.isfile(filename)
+        for filename in image.get_fullpath(as_list=True):
+            assert os.path.isfile(filename)
 
-            ds.save_and_commit(session)
+        ds.save_and_commit()
 
-            dses.append( ds )
-            delete_list.extend( [ ds.image, ds.sources, ds.psf, ds.wcs, ds.zp,
-                                  ds.sub_image, ds.detections, ds.cutouts, ds.measurements ] )
+        dses.append( ds )
+        delete_list.extend( [ ds.image, ds.sources, ds.psf, ds.wcs, ds.zp,
+                              ds.sub_image, ds.detections, ds.cutouts, ds.measurements ] )
 
     yield dses
 
     for ds in dses:
         ds.delete_everything()
-
-    # make sure that these individual objects have their files cleaned up,
-    # even if the datastore is cleared and all database rows are deleted.
-    for obj in delete_list:
-        if obj is not None and hasattr(obj, 'delete_from_disk_and_database'):
-            obj.delete_from_disk_and_database(archive=True)
 
     # Clean out the provenance tag that may have been created by the refmaker_factory and datastore_factory
     with SmartSession() as session:
@@ -486,48 +471,27 @@ def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
 @pytest.fixture
 def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_factory ):
     refs = []
-    with SmartSession() as session:
-        maker = refmaker_factory('test_refset_decam', 'DECam', 'decam_elais_e1_two_references' )
-        maker.make_refset(session=session)
-        prov = maker.refset.provenances[0]
-        prov = session.merge(prov)
-        for ds in decam_elais_e1_two_refs_datastore:
-            ref = Reference()
-            ref.image = ds.image
-            ref.provenance = prov
-            ref.validity_start = Time(55000, format='mjd', scale='tai').isot
-            ref.validity_end = Time(65000, format='mjd', scale='tai').isot
-            ref.section_id = ds.image.section_id
-            ref.filter = ds.image.filter
-            ref.target = ds.image.target
-            ref.project = ds.image.project
-
-            ref = ref.merge_all(session=session)
-            # These next two lines shouldn't do anything,
-            #  but they were there, so I'm leaving them
-            #  commented in case it turns out that
-            #  somebody understood something about
-            #  sqlalchemty that I didn't and put
-            #  them here for a reason.
-            # if not sa.inspect(ref).persistent:
-            #     ref = session.merge( ref )
-            refs.append( ref )
-
-        session.commit()
+    maker = refmaker_factory('test_refset_decam', 'DECam', 'decam_elais_e1_two_references' )
+    maker.make_refset()
+    prov = maker.refset.provenances[0]
+    for ds in decam_elais_e1_two_refs_datastore:
+        ref = Reference(
+            image_id = ds.image.id,
+            provenance_id = prov.id,
+            instrument = ds.image.instrument,
+            section_id = ds.image.section_id,
+            filter = ds.image.filter,
+            target = ds.image.target,
+        )
+        ref.insert()
+        refs.append( ref )
 
     yield refs
 
-    for ref in refs:
-        with SmartSession() as session:
-            ref = session.merge( ref )
-            if sa.inspect(ref).persistent:
-                session.delete( ref )
-            session.commit()
-
-    # clean out the provenance tag that may have been created by the refmaker_factory
     with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ),
-                         {'tag': 'decam_elais_e1_two_references' } )
+        session.execute( sa.delete( Reference ).where( Reference._id.in_( [ r.id for r in refs ] ) ) )
+        # clean out the provenance tag that may have been created by the refmaker_factory
+        session.execute( sa.delete( ProvenanceTag ).where( ProvenanceTag.tag=='dcam_elais_e1_two_references' ) )
         session.commit()
 
 

@@ -120,6 +120,4 @@ def ztf_gaia_dr3_excerpt( ztf_datastore_uncommitted ):
 
     yield catexp
 
-    with SmartSession() as session:
-        catexp = session.merge(catexp)
-        catexp.delete_from_disk_and_database( session=session )
+    catexp.delete_from_disk_and_database()

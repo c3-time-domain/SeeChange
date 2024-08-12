@@ -79,25 +79,14 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._format = CutoutsFormatConverter.convert(value)
 
     sources_id = sa.Column(
-        sa.ForeignKey('source_lists.id', name='cutouts_source_list_id_fkey', ondelete="CASCADE"),
+        sa.ForeignKey('source_lists._id', name='cutouts_source_list_id_fkey', ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="ID of the source list (of detections in the difference image) this cutouts object is associated with. "
     )
 
-    # sources = orm.relationship(
-    #     SourceList,
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     passive_deletes=True,
-    #     lazy='selectin',
-    #     doc="The source list (of detections in the difference image) this cutouts object is associated with. "
-    # )
-
-    # sub_image_id = association_proxy('sources', 'image_id')
-    # sub_image = association_proxy('sources', 'image')
-
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='cutouts_provenance_id_fkey'),
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='cutouts_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(
@@ -106,27 +95,6 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             "and the parameters used to produce this cutout. "
         )
     )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this cutout. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this cutout. "
-    #     )
-    # )
-
-    # @property
-    # def new_image(self):
-    #     """Get the aligned new image using the sub_image. """
-    #     return self.sub_image.new_aligned_image
-
-    # @property
-    # def ref_image(self):
-    #     """Get the aligned reference image using the sub_image. """
-    #     return self.sub_image.ref_aligned_image
 
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
@@ -253,22 +221,28 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return cutout
 
-    def invent_filepath(self):
-        if self.sources is None:
-            raise RuntimeError( f"Can't invent a filepath for cutouts without a source list" )
-        if self.provenance is None:
+    def invent_filepath( self, image=None, detections=None ):
+        if image is None:
+            if detections is None:
+                detections = SourceList.get_by_id( self.sources_id )
+            if detections is None:
+                raise RuntimeError( f"Can't invent a filepath for cutouts without a image or detections source list" )
+            image = Image.get_by_id( detections.image_id )
+        if image is None:
+            raise RuntimeError( f"Can't invent a filepath for cutouts without an image" )
+        if self.provenance_id is None:
             raise RuntimeError( f"Can't invent a filepath for cutouts without a provenance" )
 
         # base the filename on the image filename, not on the sources filename.
-        filename = self.sub_image.filepath
+        filename = image.filepath
         if filename is None:
-            filename = self.sub_image.invent_filepath()
+            filename = image.invent_filepath()
 
         if filename.endswith(('.fits', '.h5', '.hdf5')):
             filename = os.path.splitext(filename)[0]
 
         filename += '.cutouts_'
-        filename += self.provenance.id[:6]
+        filename += self.provenance_id[:6]
         if self.format == 'hdf5':
             filename += '.h5'
         elif self.format == ['fits', 'jpg', 'png']:
@@ -306,7 +280,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     compression='gzip'
                 )
 
-    def save(self, filename=None, overwrite=True, **kwargs):
+    def save(self, filename=None, image=None, sources=None, overwrite=True, **kwargs):
         """Save the data of this Cutouts object into a file.
 
         Parameters
@@ -329,7 +303,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 raise TypeError("Each entry of co_dict must be a dictionary")
 
         if filename is None:
-            filename = self.invent_filepath()
+            filename = self.invent_filepath( image=image, sources=sources )
 
         self.filepath = filename
 
@@ -413,18 +387,6 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     # quirk: the resulting dict is sorted alphabetically... likely harmless
                     for groupname in file:
                         self.co_dict[groupname] = self._load_dataset_dict_from_hdf5(file, groupname)
-
-    # def get_upstreams(self, session=None):
-    #     """Get the detections SourceList that was used to make this cutout. """
-    #     with SmartSession(session) as session:
-    #         return session.scalars(sa.select(SourceList).where(SourceList.id == self.sources_id)).all()
-
-    # def get_downstreams(self, session=None, siblings=False):
-    #     """Get the downstream Measurements that were made from this Cutouts object. """
-    #     from models.measurements import Measurements
-
-    #     with SmartSession(session) as session:
-    #         return session.scalars(sa.select(Measurements).where(Measurements.cutouts_id == self.id)).all()
 
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions

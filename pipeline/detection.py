@@ -264,7 +264,7 @@ class Detector:
                     #  Related to issue #50
                     detections, _, _, _ = self.extract_sources( image )
 
-                    detections.image_id = image.get_id()
+                    detections.image_id = image.id
 
                     if detections.provenance_id is None:
                         detections.provenance_id = prov.id
@@ -317,15 +317,15 @@ class Detector:
 
                     sources, psf, bkg, bkgsig = self.extract_sources( image )
 
-                    sources.image_id = image.get_id()
-                    psf.sources_id = sources.get_id()
+                    sources.image_id = image.id
+                    psf.sources_id = sources.id
                     if sources.provenance_id is None:
                         sources.provenance_id = prov.id
                     else:
                         if sources.provenance_id != prov.id:
                             raise ValueError('Provenance mismatch for sources and provenance!')
 
-                    psf.sources_id = sources.get_id()
+                    psf.sources_id = sources.id
 
                 ds.sources = sources
                 ds.psf = psf

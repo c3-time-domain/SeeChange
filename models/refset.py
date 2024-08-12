@@ -14,12 +14,12 @@ refset_provenance_association_table = sa.Table(
     sa.Column('provenance_id',
               sa.Text,
               sa.ForeignKey(
-                  'provenances.id', ondelete="CASCADE", name='refset_provenances_association_provenance_id_fkey'
+                  'provenances._id', ondelete="CASCADE", name='refset_provenances_association_provenance_id_fkey'
               ),
               primary_key=True),
     sa.Column('refset_id',
               sqlUUID,
-              sa.ForeignKey('refsets.id', ondelete="CASCADE", name='refsets_provenances_association_refset_id_fkey'),
+              sa.ForeignKey('refsets._id', ondelete="CASCADE", name='refsets_provenances_association_refset_id_fkey'),
               primary_key=True),
 )
 
@@ -77,7 +77,7 @@ class RefSet(Base, UUIDMixin):
         with SmartSession( session ) as sess:
             provs = ( sess.query( Provenance )
                       .join( refset_provenance_association_table,
-                             refset_provenance_association_table.c.provenance_id == Provenance.id )
+                             refset_provenance_association_table.c.provenance_id == Provenance._id )
                       .filter( refset_provenance_association_table.c.refset_id == self.id )
                      ).all()
             self._provenances = provs
@@ -99,21 +99,3 @@ class RefSet(Base, UUIDMixin):
             except IntegrityError as ex:
                 # It was already there, so we're good
                 pass
-            # try:
-            #     # I should probably replace this lock/search/insert thingy with
-            #     # a straight-up insert that just catches an IntegrityError
-            #     # and does nothing if it's already there.
-            #     sess.connection().execute( sa.text( 'LOCK TABLE refset_provenance_association' ) )
-            #     existing = ( sess.query( refset_provenance_association_table )
-            #                  .filter( refset_provenance_association_table.c.provenance_id == prov.id )
-            #                  .filter( refset_provenance_association_table.c.refset_id == self.id )
-            #                 ).all()
-            #     if len( existing ) == 0:
-            #         sess.connection().execute(
-            #             sa.text( 'INSERT INTO refset_provenance_association(provenance_id,refset_id) '
-            #                      'VALUES(:provid,:refsetid) ' )
-            #             { 'provid': prov.id, 'refsetid': self.id } )
-            #         sess.commit()
-            # finally:
-            #     # Make sure to release the lock
-            #     sess.rollback()

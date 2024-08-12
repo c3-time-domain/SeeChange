@@ -43,7 +43,6 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             provenance_id=prov.id,
         )
         sources.filepath = sources.invent_filepath( image=image )
-        sources.get_id()
 
         # Create a background object with a scalar model:
         b1 = Background(
@@ -143,8 +142,8 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
     finally:
         if ( sources is not None ) or ( prov is not None ):
             with SmartSession() as session:
-                session.execute( sa.text( "DELETE FROM source_lists WHERE id=:id" ), { 'id': sources.id } )
-                session.execute( sa.text( "DELETE FROM provenances WHERE id=:id" ), { 'id': prov.id } )
+                session.execute( sa.text( "DELETE FROM source_lists WHERE _id=:id" ), { 'id': sources.id } )
+                session.execute( sa.text( "DELETE FROM provenances WHERE _id=:id" ), { 'id': prov.id } )
                 session.commit()
 
         if 'b1' in locals():

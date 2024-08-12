@@ -31,21 +31,14 @@ class Reference(Base, UUIDMixin):
     __tablename__ = 'refs'   # 'references' is a reserved postgres word
 
     image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete='CASCADE', name='references_image_id_fkey'),
+        sa.ForeignKey('images._id', ondelete='CASCADE', name='references_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the reference image that this object is referring to. "
     )
 
-    # image = orm.relationship(
-    #     'Image',
-    #     lazy='selectin',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     foreign_keys=[image_id],
-    #     doc="The reference image that this entry is referring to. "
-    # )
-
-    # the following can't be association products (as far as I can tell) because they need to be indexed
+    # TODO: some of the targets below are redundant with image, and searches should probably
+    #   be replaced with joins to image.
     target = sa.Column(
         sa.Text,
         nullable=False,
@@ -103,7 +96,7 @@ class Reference(Base, UUIDMixin):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='references_provenance_id_fkey'),
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='references_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(
@@ -112,54 +105,6 @@ class Reference(Base, UUIDMixin):
             "and the parameters used to produce this reference. "
         )
     )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this reference. "
-    #         "The provenance will contain a record of the code version "
-    #         "and the parameters used to produce this reference. "
-    #     )
-    # )
-
-
-    def make_provenance(self, image_provs, sources_provs, parameters=None):
-        """Make a provenance for this reference image.
-
-        Parameters
-        ----------
-          image_prov: Provenance or list of Provenance
-            The provenance of the images that were coadded to make this reference.
-
-          sources_prov: Provenance or list of Provenance
-            The provenances of the source lists that were used in coadding to make this reference.
-
-        """
-
-
-        if parameters is None:
-            parameters = {}
-
-        upstreams = []
-
-        for paramname, param in zip( [ "image_prov", "sources_prov" ] , [ image_prov, sources_prov ] ):
-            if isinstance( param, list ):
-                if not all( [ isinstance( i, Provenance ) for i in param ] ):
-                    raise RuntimeError( f"Not all items in {paramname} list are Provenance objects" )
-                upstreams.extend( param )
-            elif isinstance( param, Provenance ):
-                upstreams.append( param )
-            else:
-                raise TypeError( f"{paramname} must be a Provenance or a list of same" )
-
-        self.provenance = Provenance(
-            code_version=self.image.provenance.code_version,
-            process='referencing',
-            parameters=parameters,
-            upstreams=upstreams,
-        )
 
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.
@@ -172,23 +117,7 @@ class Reference(Base, UUIDMixin):
             a list of unique provenances, one for each data type.
         """
         raise RuntimeError( "Deprecated" )
-        # prov = []
-        # if self.image is None or self.image.provenance is None or self.image.provenance.id is None:
-        #     raise ValueError('Reference must have a valid image with a valid provenance ID.')
-        # prov.append(self.image.provenance)
 
-        # # TODO: it seems like we should require that Reference always has all of these when saved
-        # if self.sources is not None and self.sources.provenance is not None and self.sources.provenance.id is not None:
-        #     prov.append(self.sources.provenance)
-        # if self.psf is not None and self.psf.provenance is not None and self.psf.provenance.id is not None:
-        #     prov.append(self.psf.provenance)
-        # if self.bg is not None and self.bg.provenance is not None and self.bg.provenance.id is not None:
-        #     prov.append(self.bg.provenance)
-        # if self.wcs is not None and self.wcs.provenance is not None and self.wcs.provenance.id is not None:
-        #     prov.append(self.wcs.provenance)
-        # if self.zp is not None and self.zp.provenance is not None and self.zp.provenance.id is not None:
-        #     prov.append(self.zp.provenance)
-        # return prov
 
     def get_ref_data_products(self, session=None):
         """Get the (SourceList, Background, PSF, WorldCoordiantes, Zeropoint) assocated with self.image_id
@@ -317,7 +246,7 @@ class Reference(Base, UUIDMixin):
             #   have classic indices, so this is a good first pass.
             #   Below, we'll crop the list down.
             stmt = ( sa.select( Reference, Image )
-                     .where( Image.id==Reference.image_id )
+                     .where( Image._id==Reference.image_id )
                      .where( Image.minra<=ra )
                      .where( Image.maxra>=ra )
                      .where( Image.mindec<=dec )
@@ -335,7 +264,7 @@ class Reference(Base, UUIDMixin):
             stmt = stmt.where( Reference.filter==filter )
 
         if skip_bad:
-            stmt = stmt.where( Refernce.is_bad.is_( False ) )
+            stmt = stmt.where( Reference.is_bad.is_( False ) )
 
         provenance_ids = listify(provenance_ids)
         if provenance_ids is not None:

@@ -277,7 +277,7 @@ def test_multiple_images_badness(
             assert sim_image8.id in [i.id for i in bad_coadd]
 
             # get rid of this coadd to make a new one
-            sim_image8.delete_from_disk_and_database(session=session)
+            sim_image8.delete_from_disk_and_database()
             cleanups.pop()
             images.pop()
 
@@ -314,7 +314,7 @@ def test_multiple_images_badness(
             for im in images:
                 im = im.merge_all(session)
                 exp = im.exposure
-                im.delete_from_disk_and_database(session=session, commit=False)
+                im.delete_from_disk_and_database()
 
                 if exp is not None and sa.inspect(exp).persistent:
                     session.delete(exp)

@@ -208,7 +208,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete='CASCADE'),
+        sa.ForeignKey('provenances._id', ondelete='CASCADE'),
         nullable=False,
         index=True,
         doc=(
@@ -217,17 +217,6 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             "and the parameters used to obtain this exposure."
         )
     )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this exposure. "
-    #         "The provenance will containe a record of the code version "
-    #         "and the parameters used to obtain this exposure."
-    #     )
-    # )
 
     @hybrid_property
     def format(self):

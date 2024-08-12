@@ -29,44 +29,12 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
         )
 
     sources_id = sa.Column(
-        sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
+        sa.ForeignKey('source_lists._id', ondelete='CASCADE', name='world_coordinates_source_list_id_fkey'),
         nullable=False,
         index=True,
         unique=True,
         doc="ID of the source list this world coordinate system is associated with. "
     )
-
-    # sources = orm.relationship(
-    #     'SourceList',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     passive_deletes=True,
-    #     lazy='selectin',
-    #     doc="The source list this world coordinate system is associated with. "
-    # )
-
-    # image = association_proxy( "sources", "image" )
-
-    # provenance_id = sa.Column(
-    #     sa.ForeignKey('provenances.id', ondelete="CASCADE", name='world_coordinates_provenance_id_fkey'),
-    #     nullable=False,
-    #     index=True,
-    #     doc=(
-    #         "ID of the provenance of this world coordinate system. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this world coordinate system. "
-    #     )
-    # )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this world coordinate system. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this world coordinate system. "
-    #     )
-    # )
 
     @property
     def wcs( self ):

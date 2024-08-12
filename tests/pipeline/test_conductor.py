@@ -172,7 +172,7 @@ def test_request_knownexposure( conductor_connector, conductor_config_for_decam_
         previous.add( data['knownexposure_id'] )
 
         with SmartSession() as session:
-            kes = session.query( KnownExposure ).filter( KnownExposure.id==data['knownexposure_id'] ).all()
+            kes = session.query( KnownExposure ).filter( KnownExposure._id==data['knownexposure_id'] ).all()
             assert len(kes) == 1
             assert kes[0].cluster_id == 'test_cluster'
 
@@ -196,7 +196,7 @@ def test_register_worker( conductor_connector ):
         assert data['nexps'] == 10
 
         with SmartSession() as session:
-            pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).first()
+            pw = session.query( PipelineWorker ).filter( PipelineWorker._id==data['id'] ).first()
             assert pw.cluster_id == 'test'
             assert pw.node_id == 'testnode'
             assert pw.nexps == 10
@@ -206,7 +206,7 @@ def test_register_worker( conductor_connector ):
         assert hb['status'] == 'updated'
 
         with SmartSession() as session:
-            pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).first()
+            pw = session.query( PipelineWorker ).filter( PipelineWorker._id==data['id'] ).first()
             assert pw.cluster_id == 'test'
             assert pw.node_id == 'testnode'
             assert pw.nexps == 10
@@ -216,7 +216,7 @@ def test_register_worker( conductor_connector ):
         assert done['status'] == 'worker deleted'
 
         with SmartSession() as session:
-            pw = session.query( PipelineWorker ).filter( PipelineWorker.id==data['id'] ).all()
+            pw = session.query( PipelineWorker ).filter( PipelineWorker._id==data['id'] ).all()
             assert len(pw) == 0
 
     finally:

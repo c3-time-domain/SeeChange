@@ -778,11 +778,7 @@ class Parameters:
                 upstreams=upstreams
             )
             prov.update_hash()  # need a new object to calculate the hash, then check if it exists on the DB:
-            existing_p = session.scalars(
-                sa.select(Provenance).where(
-                    Provenance.id == prov.id
-                )
-            ).first()
+            existing_p = session.scalars( sa.select(Provenance).where( Provenance._id == prov.id ) ).first()
 
             if existing_p is not None:
                 prov = existing_p

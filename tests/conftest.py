@@ -120,7 +120,7 @@ def any_objects_in_database( dbsession ):
             strio.write( f'There are {len(ids)} {Class.__name__} objects in the database. '
                          f'Please make sure to cleanup!')
             for id in ids:
-                obj = dbsession.scalars(sa.select(Class).where(Class.id == id)).first()
+                obj = dbsession.scalars(sa.select(Class).where(Class._id == id)).first()
                 strio.write( f'\n    {obj}' )
             SCLogger.error( strio.getvalue() )
     return any_objects
@@ -165,7 +165,7 @@ def pytest_sessionfinish(session, exitstatus):
         any_objects = any_objects_in_database( dbsession )
 
         # delete the CodeVersion object (this should remove all provenances as well)
-        dbsession.execute(sa.delete(CodeVersion).where(CodeVersion.id == 'test_v1.0.0'))
+        dbsession.execute(sa.delete(CodeVersion).where(CodeVersion._id == 'test_v1.0.0'))
 
         # remove any Object objects from tests, as these are not automatically cleaned up:
         dbsession.execute(sa.delete(Object).where(Object.is_test.is_(True)))
@@ -229,14 +229,17 @@ def cache_dir():
 @pytest.fixture(scope="session")
 def data_dir():
     temp_data_folder = FileOnDiskMixin.local_path
-    os.makedirs(temp_data_folder, exist_ok=True)
-    with open(os.path.join(temp_data_folder, 'placeholder'), 'w'):
+    tdf = pathlib.Path( temp_data_folder )
+    tdf.mkdir( exist_ok=True, parents=True )
+    with open( tdf / 'placeholder', 'w' ):
         pass  # make an empty file inside this folder to make sure it doesn't get deleted on "remove_data_from_disk"
 
     # SCLogger.debug(f'temp_data_folder: {temp_data_folder}')
 
     yield temp_data_folder
 
+    ( tdf / 'placeholder' ).unlink( missing_ok=True )
+    
     # remove all the files created during tests
     # make sure the test config is pointing the data_dir
     # to a different location than the rest of the data
@@ -297,17 +300,17 @@ def test_config():
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
     with SmartSession() as session:
-        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
+        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
         if cv is None:
             cv = CodeVersion(id="test_v1.0.0")
             session.add( cv )
             cv.update( session=session, commit=True )
-        # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
+        # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
 
     yield cv
 
     with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM code_versions WHERE id='test_v1.0.0'" ) )
+        session.execute( sa.text( "DELETE FROM code_versions WHERE _id='test_v1.0.0'" ) )
         # Verify that the code hashes got cleaned out too
         them = session.query( CodeHash ).filter( CodeHash.code_version_id == 'test_v1.0.0' ).all()
         assert len(them) == 0

@@ -290,14 +290,6 @@ def copy_list_from_cache(cls, cache_dir, filepath):
     now = datetime.datetime.now( tz=datetime.timezone.utc )
     for obj_dict in json_list:
         newobj = cls.from_dict( obj_dict )
-        # COMMENTED THE NEXT OUT.
-        # Search above for "COMMENTED THE NEXT OUT" for reason.
-        # if hasattr( newobj, 'id' ):
-        #     newobj.id = None
-        # if hasattr( newobj, 'created_at' ):
-        #     newobj.created_at = now
-        # if hasattr( newobj, 'modified' ):
-        #     newobj.modified = now
         output.append( newobj )
 
     if len(output) == 0:

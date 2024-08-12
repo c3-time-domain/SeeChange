@@ -22,7 +22,7 @@ def test_object_creation():
         assert re.match(r'\w+\d{4}\w+', obj.name)
 
     with SmartSession() as session:
-        obj2 = session.scalars(sa.select(Object).where(Object.id == obj.id)).first()
+        obj2 = session.scalars(sa.select(Object).where(Object._id == obj.id)).first()
         assert obj2.ra == 1.0
         assert obj2.dec == 2.0
         assert obj2.name is not None

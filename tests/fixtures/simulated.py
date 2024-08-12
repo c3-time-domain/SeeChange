@@ -77,7 +77,7 @@ def generate_exposure_fixture():
 
         with SmartSession() as session:
             # The provenance will have been automatically created
-            session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+            session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
             session.commit()
 
     return new_exposure
@@ -110,7 +110,7 @@ def sim_exposure_filter_array():
                 session.delete(e)
                 session.commit()
 
-            session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+            session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
             session.commit()
 
 
@@ -224,7 +224,7 @@ def generate_image_fixture(commit=True):
         #   gets created in a module or session fixture?  Perhaps we should be more
         #   careful and explicit about this?
         with SmartSession() as session:
-            session.execute( sa.delete( Provenance ).where( Provenance.id == exp.provenance_id ) )
+            session.execute( sa.delete( Provenance ).where( Provenance._id == exp.provenance_id ) )
             session.commit()
 
     return new_image
@@ -308,16 +308,16 @@ def sim_reference(provenance_preprocessing, provenance_extra):
         with SmartSession() as session:
             ref = ref.merge_all(session)
             for im in ref.image.upstream_images:
-                im.exposure.delete_from_disk_and_database(session=session, commit=False)
-                im.delete_from_disk_and_database(session=session, commit=False)
-            ref.image.delete_from_disk_and_database(session=session, commit=False)
+                im.exposure.delete_from_disk_and_database()
+                im.delete_from_disk_and_database()
+            ref.image.delete_from_disk_and_database()
             if sa.inspect(ref).persistent:
                 session.delete(ref.provenance)  # should also delete the reference
             session.commit()
 
     # The provenance will have been automatically created
     with SmartSession() as session:
-        session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+        session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
         session.commit()
 
 
@@ -450,12 +450,12 @@ def sim_image_list(
         for im in images:
             im = im.merge_all(session)
             exp = im.exposure
-            im.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
-            exp.delete_from_disk_and_database(session=session, commit=False)
+            im.delete_from_disk_and_database(remove_downstreams=True)
+            exp.delete_from_disk_and_database()
         session.commit()
 
         # The provenance will have been automatically created
-        session.execute( sa.delete( Provenance ).where( Provenance.id==e.provenance_id ) )
+        session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
         session.commit()
 
 
@@ -633,10 +633,8 @@ def sim_sub_image_list(
 
     yield sub_images
 
-    with SmartSession() as session:
-        for sub in sub_images:
-            sub.delete_from_disk_and_database(session=session, commit=False, remove_downstreams=True)
-        session.commit()
+    for sub in sub_images:
+        sub.delete_from_disk_and_database()
 
 
 @pytest.fixture

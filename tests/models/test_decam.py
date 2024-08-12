@@ -322,14 +322,14 @@ def test_decam_download_and_commit_exposure(
 
         # Make sure they're really in the database
         with SmartSession() as session:
-            foundexps = session.query( Exposure ).filter( Exposure.id.in_( eids ) ).all()
+            foundexps = session.query( Exposure ).filter( Exposure._id.in_( eids ) ).all()
             assert len(foundexps) == len(exposures)
             assert set( [ f.id for f in foundexps ] ) == set( [ e.id for e in exposures ] )
             assert set( [ f.filepath for f in foundexps ]) == set( [ e.filepath for e in exposures ] )
     finally:
         # Clean up
         with SmartSession() as session:
-            exposures = session.query( Exposure ).filter( Exposure.id.in_( eids ) )
+            exposures = session.query( Exposure ).filter( Exposure._id.in_( eids ) )
             for exposure in exposures:
                 exposure.delete_from_disk_and_database( session=session, commit=False )
             session.commit()

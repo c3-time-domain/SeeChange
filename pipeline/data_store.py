@@ -80,6 +80,7 @@ class DataStore:
 
     # these get cleared but not saved
     products_to_clear = [
+        'reference',
         '_ref_image',
         '_ref_sources'
         '_ref_bg',
@@ -107,9 +108,7 @@ class DataStore:
 
     # These are the various data products that the DataStore can hold
     # These getters and setters make sure that the relationship IDs
-    # between them are all set.  As part of this, whenever setting
-    # anything, it calls get_id() to make sure that that object
-    # has an id.
+    # between them are all set.
 
     @property
     def exposure_id( self ):
@@ -156,7 +155,7 @@ class DataStore:
     def exposure( self, value ):
         self._exposure = value
         if self._exposure is not None:
-            self._exposure.get_id()
+            self._exposure.id
             self.exposure_id = self._exposure.id
 
     @property
@@ -184,7 +183,6 @@ class DataStore:
         else:
             if not isinstance( val, Image ):
                 raise TypeError( f"DataStore.image must be an Image, not a {type(val)}" )
-            val.get_id()
             if ( self._sources is not None ) and ( self._sources.image_id != val.id ):
                 raise ValueError( "Can't set a DataStore image inconsistent with sources" )
             if self._exposure is not None:
@@ -221,14 +219,12 @@ class DataStore:
                 raise RuntimeError( "Can't set DataStoure sources until it has an image." )
             if not isinstance( val, SourceList ):
                 raise TypeError( f"DatatStore.sources must be a SourceList, not a {type(val)}" )
-            val.get_id()
             if ( ( ( self._bg is not None ) and ( self._bg.sources_id != val.id ) ) or
                  ( ( self._psf is not None ) and ( self._psf.sources_id != val.id ) ) or
                  ( ( self._wcs is not None ) and ( self._wcs.sources_id != val.id ) ) or
                  ( ( self._zp is not None ) and ( self._zp.sources_id != val.id ) ) ):
                 raise ValueError( "Can't set a DataStore sources inconsistent with other data products" )
             self._sources = val
-            self._sources.get_id()
             self._sources.image_id = self._image.id
 
     @property
@@ -246,7 +242,6 @@ class DataStore:
             if not isinstance( val, Background ):
                 raise TypeError( f"DataStore.bg must be a Background, not a {type(val)}" )
             self._bg = val
-            self._bg.get_id()
             self._bg.sources_id = self._sources.id
 
     @property
@@ -264,7 +259,6 @@ class DataStore:
             if not isinstance( val, PSF ):
                 raise TypeError( f"DataStore.psf must be a PSF, not a {type(val)}" )
             self._psf = val
-            self._psf.get_id()
             self._psf.sources_id = self._sources.id
 
     @property
@@ -282,7 +276,6 @@ class DataStore:
             if not isinstance( val, WorldCoordinates ):
                 raise TypeError( f"DataStore.wcs must be a WorldCoordinates, not a {type(val)}" )
             self._wcs = val
-            self._wcs.get_id()
             self._wcs.sources_id = self._sources.id
 
     @property
@@ -300,7 +293,6 @@ class DataStore:
             if not isinstance( val, ZeroPoint ):
                 raise TypeError( f"DataStore.zp must be a ZeroPoint, not a {type(val)}" )
             self._zp = val
-            self._zp.get_id()
             self._zp.sources_id = self._sources.id
 
     @property
@@ -390,7 +382,6 @@ class DataStore:
                 raise TypeError( f"DataStore.sub_image must be an Image, not a {type(val)}" )
             if not val.is_sub:
                 raise ValueError( f"DataStore.sub_image must have is_sub set" )
-            val.get_id()
             if ( ( self._detections is not None ) and ( self._detections.image_id != val.id ) ):
                 raise ValueError( "Can't set a sub_image inconsistent with detections" )
             self._sub_image = val
@@ -410,7 +401,6 @@ class DataStore:
                 raise RuntimeError( "Can't set DataStore detections until it has a sub_image" )
             if not isinstance( val, SourceList ):
                 raise TypeError( f"DataStore.detections must be a SourceList, not a {type(val)}" )
-            val.get_id()
             if ( ( self._cutouts is not None ) and ( self._cutouts.sources_id != val.id ) ):
                 raise ValueError( "Can't set a cutouts inconsistent with detections" )
             self._detections = val
@@ -430,7 +420,6 @@ class DataStore:
                 raise RuntimeError( "Can't set DataStore cutouts until it has a detections" )
             if not isinstance( val, Cutouts ):
                 raise TypeError( f"DataStore.cutouts must be a Cutouts, not a {type(val)}" )
-            val.get_id()
             if ( ( self._measurements is not None ) and ( any( [ m.id != val.id for m in self.measurements ] ) ) ):
                  raise ValueError( "Can't set a cutouts inconsistent with measurements" )
             self._cutouts = val
@@ -455,7 +444,6 @@ class DataStore:
                                  f"included {wrongtypes}" )
             self._measurements = val
             for m in self._measurements:
-                m.get_id()
                 m.cutouts_id = self._cutouts.id
 
 
@@ -483,6 +471,8 @@ class DataStore:
         else:
             ds = DataStore()
             session = ds.parse_args(*args, **kwargs)
+            if session is not None:
+                SCLogger.error( "You passed a session to a DataStore constructor.  This is usually a bad idea." )
             return ds, session
 
 
@@ -660,7 +650,8 @@ class DataStore:
         self._objects = None  # a list of Object associations of Measurements
 
         # these need to be added to the products_to_clear list
-        self._ref_image = None  # to be used to make subtractions
+        self.reference = None
+        self._ref_image = None
         self._ref_sources = None
         self._ref_bg = None
         self._ref_psf = None
@@ -694,17 +685,6 @@ class DataStore:
         self.session = None
         self.parse_args(*args, **kwargs)
 
-    # @property
-    # def ref_image( self ):
-    #     if self.reference is not None:
-    #         return self.reference.image
-    #     return None
-
-    # @ref_image.setter
-    # def ref_image( self, value ):
-    #     if self.reference is None:
-    #         self.reference = Reference()
-    #     self.reference.image = value
 
     def __getattribute__(self, key):
         # if this datastore has a pending error, will raise it as soon as any other data is used
@@ -919,7 +899,7 @@ class DataStore:
                 raise ValueError('Cannot get raw exposure without an exposure_id!')
 
             with SmartSession(session, self.session) as session:
-                self.exposure = session.scalars(sa.select(Exposure).where(Exposure.id == self.exposure_id)).first()
+                self.exposure = session.scalars(sa.select(Exposure).where(Exposure._id == self.exposure_id)).first()
 
         return self._exposure
 
@@ -989,7 +969,7 @@ class DataStore:
             self.image = ( sess.query( Image )
                            .filter( Image.exposure_id == self.exposure_id )
                            .filter( Image.section_id == str(self.section_id) )
-                           .filter( Image.provenance_id == provenance.id )
+                           .filter( Image.provenance_id == provenance._id )
                           ).first()
 
         # Will return None if no image was found in the search
@@ -1095,10 +1075,11 @@ class DataStore:
             setattr( self, att, None )
             return None
 
-        obj = session.query( cls ).filter( upstreamobj.id == upstream_cls.id )
-        if ( match_prov ):
-            obj = obj.filter( cls.provenance_id == provenance.id )
-        obj = obj.all()
+        with SmartSession( session ) as sess:
+            obj = sess.query( cls ).filter( upstreamobj._id == upstream_cls._id )
+            if ( match_prov ):
+                obj = obj.filter( cls.provenance_id == provenance._id )
+            obj = obj.all()
 
         if is_list:
             setattr( self, att, list(obj.all()) )
@@ -1116,7 +1097,6 @@ class DataStore:
 
 
     def get_sources(self, provenance=None, session=None):
-
         """Get the source list, either from memory or from database.
 
         If there is already a sources will return that one, or raise an
@@ -1157,123 +1137,6 @@ class DataStore:
 
         return self._get_data_product( "sources", SourceList, "image", Image, "extraction",
                                        provenance=provenance, session=session )
-
-        # # First see if we've already been given one
-        # if self.sources is not None:
-        #     if provenance is not None:
-        #         if self.sources.provenance_id != provenance.id:
-        #             raise ValueError( f"DataStore sources provenance didn't matched passed provenacne" )
-        #     elif "extraction" in self.prov_tree:
-        #         if self.sources.provenance_id != self.prov_tree['extraction'].id:
-        #             raise ValueError( f"DataStore sources provenance didn't match prov_tree extraction provenacne" )
-        #     else:
-        #         image = self.get_image()
-        #         if image.provenance_id not in [ p.id for p in self.sources.provenance.ustreams ]:
-        #             raise ValueError( f"DataStore sources provenance doesn't have image provenance as an upstream" )
-        #     return self.sources
-
-        # # If not, look for it in the database
-
-
-        #     if self.sources_id is None:
-        #         self.sources_id = self.sources.id
-        #     return self.sources
-        # elif self.sources_id is not None:
-        #     self.sources = Sources.get_by_id( self.sources_id, session=session )
-        #     if self.sources is None:
-        #         raise RuntimeError( f"DataStore failed to find sources with id {self.sources_id}" )
-        #     return self.sources
-
-        # # If not, look for it in the database
-
-        # if provenance is None:
-        #     if 'extraction' not in self.prov_tree:
-        #         raise RuntimeError( "Can't get a sources without a provenance; there is no extraction "
-        #                             "provenance in the DatStore's provenance tree." )
-        #     provenance = self.prov_tree[ 'extraction' ]
-
-        # with SmartSession( session ) as sess:
-        #     if self.image_id is None:
-        #         self.get_image( session=sess )
-        #     if self.image_id is None:
-        #         raise RuntimeError( f"Can't get sources, don't have an image_id" )
-
-        #     self.sources = ( sess.query( SourceList )
-        #                      .filter( SourceList.image_id == self.image_id )
-        #                      .filter( SourceList.provenance_id == provenance.id )
-        #                     ).first()
-        #     if self.sources is not None:
-        #         self.sources_id = self.sources.id
-
-        # return self.sources
-
-
-    # def _get_sources_sibling( self, attribute, session=None ):
-    #     """Get a Background, PSF, WorldCoordinates, or ZeroPoint.
-
-    #     If the appropriate object exists, return it.  If not, if the _id
-    #     field is set, try to load te object from the database and return
-    #     that; raise an exception if it's not found.
-
-    #     Otherwise, use get_sources() to load the sources, and search the
-    #     database for the associated SourceListSibling.
-
-    #     Updates self.{attribute} and self.{attribute}_id as appropriate.
-
-    #     Parameters
-    #     ----------
-    #       attribute: str
-    #         The attribute of self to look at: one of psf, bg, wcs, or zp
-
-    #     """
-
-    #     if not hasattr( self, attribute ):
-    #         raise RuntimeError( f"Unknown attribute {attribute}" )
-
-    #     # If we have the object, return it
-
-    #     obj = getattr( self, attribute ):
-    #     if obj is not None:
-    #         if getattr( self, f'{attribute}_id' ) is None:
-    #             setattr( self, f'{attribute}_id', obj.id )
-    #         return obj
-
-    #     cls = None
-    #     if attribute == "bg":
-    #         cls = Background
-    #     elif attribute == "psf":
-    #         cls = PSF
-    #     elif attribute == "wcs":
-    #         cls = WorldCoordinates
-    #     elif attribute == "zp":
-    #         cls = ZeroPoint
-    #     else:
-    #         raise ValueError( f"Unknown sources sibling {attribute}" )
-
-    #     # If not, see if we have the object id; if so, load the object based on that
-
-    #     id_ = getattr( self, f'{attribute}_id' )
-    #     if id_ is not None:
-    #         obj = cls.get_by_id( id_, session=session )
-    #         if obj is None:
-    #             raise RuntimeError( f"Datastore failed to find {attribute} with id {id_}" )
-    #         setattr( self, attribute, obj )
-    #         return obj
-
-    #     # If we had neither the object nor the object id, try to find the object in the database
-
-    #     if self.sources_id is None:
-    #         with SmartSession( session ) as sess:
-    #             sources = self.get_sources( session=sess )
-    #             if self.sources_id is None:
-    #                 raise RuntimeError( f"Datastore can't get a {attribute}, not able to get sources." )
-
-    #             obj = sess.query( cls ).filter( cls.sources_id==self.sources_id ).first()
-    #             if obj is not None:
-    #                 setattr( self, attribute, obj )
-    #                 setattr( self, f'{attribute}_id', obj.id )
-
-    #     return obj
 
     def get_psf(self, session=None, provenance=None):
         """Get a PSF, either from memory or from the database."""
@@ -1547,7 +1410,7 @@ class DataStore:
 
             imgs = ( sess.query( Image )
                      .join( image_upstreams_association_table,
-                            image_upstreams_association_table.c.downstream_id==Image.id )
+                            image_upstreams_association_table.c.downstream_id==Image._id )
                      .filter( image_upstreams_association_table.c.upstream_id==self.image.id )
                      .filter( Image.provenance_id==provenance.id )
                      .filter( Image.ref_image_id==self.reference.image_id )
@@ -1749,7 +1612,18 @@ class DataStore:
 
                 elif mustsave:
                     try:
-                        obj.save( overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive )
+                        basicargs = { 'overwrite': overwrite, 'exists_ok': exists_ok, 'no_archive': no_archive }
+                        # Various things need other things to invent their filepath
+                        if att == "sources":
+                            obj.save( image=self.image, **basicargs )
+                        elif att in [ "psf", "bg", "wcs" ]:
+                            obj.save( image=self.image, sources=self.sources, **basicargs )
+                        elif att == "detections":
+                            obj.save( image=self.sub_image, **basicargs )
+                        elif att == "cutouts":
+                            obj.save( image=self.sub_image, detections=self.detections, **basicargs )
+                        else:
+                            obj.save( overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive )
                     except Exception as ex:
                         SCLogger.error( f"Failed to save a {obj.__class__.__name__}: {ex}" )
                         raise ex
@@ -1762,11 +1636,14 @@ class DataStore:
         #   set upstream ids as necessary.  (Many of these will already have been
         #   set/saved before.)
 
-        # EXPOSURE
-        raise NotImplementedError( "Rob do this" )
+        # Exposure
+        if self.exposure is not None:
+            self.exposure.upsert()
 
         # Image
         if self.image is not None:
+            if self.exposure is not None:
+                self.image.exposure_id = self.exposure.id
             self.image.upsert()
 
         # SourceList
@@ -1780,7 +1657,7 @@ class DataStore:
             if getattr( self, att ) is not None:
                 if self.sources is not None:
                     setattr( getattr( self, att ), 'sources_id', self.sources.id )
-                getatter( self, att ).upsert()
+                getattr( self, att ).upsert()
 
         # subtraction Image
         if self.sub_image is not None:
@@ -1825,15 +1702,18 @@ class DataStore:
         Clears out all data product fields in the datastore.
 
         """
-        # if session is None and not commit:
-        #     raise ValueError('If session is None, commit must be True')
-        if not commit:
-            raise NotImplementedError( "commit=False not supported" )
 
-        del_list = [ i for i in self.products_to_save if i != 'exposure' ]
+        # Not just deleting the image and allowing it to recurse through its
+        #   downstreams because it's possible that the data products weren't
+        #   all added to the databse, so the downstreams wouldn't be found.
+        # Go in reverse order so that things that reference other things will
+        #   be deleted before the things they reference.
+        
+        del_list = [ getattr( self, i ) for i in self.products_to_save if i != 'exposure' ]
         del_list.reverse()
         for obj in del_list:
-            obj.delete_from_disk_and_database()
+            if obj is not None:
+                obj.delete_from_disk_and_database()
 
         self.clear_products()
 

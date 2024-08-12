@@ -26,21 +26,13 @@ class Report(Base, UUIDMixin):
     __tablename__ = 'reports'
 
     exposure_id = sa.Column(
-        sa.ForeignKey('exposures.id', ondelete='CASCADE', name='reports_exposure_id_fkey'),
+        sa.ForeignKey('exposures._id', ondelete='CASCADE', name='reports_exposure_id_fkey'),
         nullable=False,
         index=True,
         doc=(
             "ID of the exposure for which the report was made. "
         )
     )
-
-    # exposure = orm.relationship(
-    #     'Exposure',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     doc=(
-    #         "Exposure for which the report was made. "
-    #     )
-    # )
 
     section_id = sa.Column(
         sa.Text,
@@ -248,7 +240,7 @@ class Report(Base, UUIDMixin):
         self.products_committed_bitflag |= string_to_bitflag(value, pipeline_products_inverse)
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='images_provenance_id_fkey'),
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='images_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(

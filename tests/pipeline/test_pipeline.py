@@ -94,7 +94,7 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session
             image_upstreams_association_table,
             sa.and_(
                 image_upstreams_association_table.c.upstream_id == ref_id,
-                image_upstreams_association_table.c.downstream_id == Image.id,
+                image_upstreams_association_table.c.downstream_id == Image._id,
             )
         ).join(
             aliased_table,
@@ -204,9 +204,9 @@ def test_running_without_reference(decam_exposure, decam_refset, decam_default_c
 
     # make sure the data is saved, but then clean it up
     with SmartSession() as session:
-        im = session.scalars(sa.select(Image).where(Image.id == ds.image.id)).first()
+        im = session.scalars(sa.select(Image).where(Image._id == ds.image.id)).first()
         assert im is not None
-        im.delete_from_disk_and_database( remove_downstreams=True, session=session )
+        im.delete_from_disk_and_database( remove_downstreams=True )
 
         # The N1 decam calibrator files will have been automatically added
         # in the pipeline run above; need to clean them up.  However,
@@ -220,9 +220,9 @@ def test_running_without_reference(decam_exposure, decam_refset, decam_default_c
                 .filter( CalibratorFile.sensor_section == 'N1' )
                 .filter( CalibratorFile.image_id != None ) )
         imdel = [ c.image_id for c in cfs ]
-        imgtodel = session.query( Image ).filter( Image.id.in_( imdel ) )
+        imgtodel = session.query( Image ).filter( Image._id.in_( imdel ) )
         for i in imgtodel:
-            i.delete_from_disk_and_database( session=session )
+            i.delete_from_disk_and_database()
 
         session.commit()
 
@@ -278,7 +278,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             for j in range(i):
                 obj = getattr(ds, attributes[-j-1])
                 if isinstance(obj, FileOnDiskMixin):
-                    obj.delete_from_disk_and_database(session=session, commit=True)
+                    obj.delete_from_disk_and_database()
 
                 setattr(ds, attributes[-j-1], None)
 
@@ -552,15 +552,15 @@ def test_datastore_delete_everything(decam_datastore):
 
     # check these don't exist on the DB:
     with SmartSession() as session:
-        assert session.scalars(sa.select(Image).where(Image.id == im.id)).first() is None
-        assert session.scalars(sa.select(SourceList).where(SourceList.id == sources.id)).first() is None
-        assert session.scalars(sa.select(PSF).where(PSF.id == psf.id)).first() is None
-        assert session.scalars(sa.select(Image).where(Image.id == sub.id)).first() is None
-        assert session.scalars(sa.select(SourceList).where(SourceList.id == det.id)).first() is None
-        assert session.scalars(sa.select(Cutouts).where(Cutouts.id == cutouts.id)).first() is None
+        assert session.scalars(sa.select(Image).where(Image._id == im.id)).first() is None
+        assert session.scalars(sa.select(SourceList).where(SourceList._id == sources.id)).first() is None
+        assert session.scalars(sa.select(PSF).where(PSF._id == psf.id)).first() is None
+        assert session.scalars(sa.select(Image).where(Image._id == sub.id)).first() is None
+        assert session.scalars(sa.select(SourceList).where(SourceList._id == det.id)).first() is None
+        assert session.scalars(sa.select(Cutouts).where(Cutouts._id == cutouts.id)).first() is None
         if len(measurements_list) > 0:
             assert session.scalars(
-                sa.select(Measurements).where(Measurements.id == measurements_list[0].id)
+                sa.select(Measurements).where(Measurements._id == measurements_list[0].id)
             ).first() is None
 
 

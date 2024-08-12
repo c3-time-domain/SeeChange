@@ -277,7 +277,7 @@ class ExposureLauncher:
 
                 with SmartSession() as session:
                     knownexp = ( session.query( KnownExposure )
-                                 .filter( KnownExposure.id==data['knownexposure_id'] ) ).all()
+                                 .filter( KnownExposure._id==data['knownexposure_id'] ) ).all()
                     if len( knownexp ) == 0:
                         raise RuntimeError( f"The conductor gave me KnownExposure id {data['knownexposure_id']}, "
                                             f"but I can't find it in the knownexposures table" )
@@ -298,7 +298,7 @@ class ExposureLauncher:
 
                 with SmartSession() as session:
                     knownexp = ( session.query( KnownExposure )
-                                 .filter( KnownExposure.id==data['knownexposure_id'] ) ).first()
+                                 .filter( KnownExposure._id==data['knownexposure_id'] ) ).first()
                     knownexp.exposure_id = exposure_processor.exposure.id
                     session.commit()
 

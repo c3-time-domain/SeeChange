@@ -40,7 +40,7 @@ class KnownExposure(Base, UUIDMixin):
 
     exposure_id = sa.Column( 'exposure_id',
                              sqlUUID,
-                             sa.ForeignKey( 'exposures.id', name='knownexposure_exposure_id_fkey' ),
+                             sa.ForeignKey( 'exposures._id', name='knownexposure_exposure_id_fkey' ),
                              nullable=True )
 
     mjd = sa.Column( sa.Double, nullable=True, index=True,

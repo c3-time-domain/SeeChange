@@ -128,7 +128,7 @@ def test_alignment_in_image( ptf_reference_images, code_version ):
 
         # should be able to recreate aligned images from scratch
         with SmartSession() as session:
-            loaded_image = session.scalars(sa.select(Image).where(Image.id == new_image.id)).first()
+            loaded_image = session.scalars(sa.select(Image).where(Image._id == new_image.id)).first()
             assert loaded_image is not None
             assert len(loaded_image.aligned_images) == len(ptf_reference_images)
             assert np.array_equal(loaded_image.aligned_images[-1].data, ptf_reference_images[-1].data_bgsub)

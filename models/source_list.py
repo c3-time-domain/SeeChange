@@ -71,22 +71,11 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._format = SourceListFormatConverter.convert(value)
 
     image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete='CASCADE', name='source_lists_image_id_fkey'),
+        sa.ForeignKey('images._id', ondelete='CASCADE', name='source_lists_image_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the image this source list was generated from. "
     )
-
-    # image = orm.relationship(
-    #     Image,
-    #     lazy='selectin',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     passive_deletes=True,
-    #     doc="The image this source list was generated from. "
-    # )
-
-    # is_sub = association_proxy('image', 'is_sub')
-    # is_coadd = association_proxy('image', 'is_coadd')
 
     aper_rads = sa.Column(
         ARRAY( sa.REAL, zero_indexes=True ),
@@ -120,7 +109,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     )
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='source_lists_provenance_id_fkey'),
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='source_lists_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(
@@ -129,17 +118,6 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             "and the parameters used to produce this source list. "
         )
     )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this source list. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this source list. "
-    #     )
-    # )
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
@@ -238,14 +216,15 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     @data.setter
     def data(self, value):
 
-        if isinstance(value, pd.DataFrame):
-            value = value.to_records(index=False)
+        if value is not None:
+            if isinstance(value, pd.DataFrame):
+                value = value.to_records(index=False)
 
-        if not isinstance(value, (np.ndarray, astropy.table.Table)) or value.dtype.names is None:
-            raise TypeError("data must be a pandas.DataFrame, astropy.table.Table or numpy.recarray")
+            if not isinstance(value, (np.ndarray, astropy.table.Table)) or value.dtype.names is None:
+                raise TypeError("data must be a pandas.DataFrame, astropy.table.Table or numpy.recarray")
 
         self._data = value
-        self.num_sources = len(value)
+        self.num_sources = 0 if value is None else len(value)
 
     @property
     def info(self):
@@ -776,7 +755,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def get_upstreams(self, session=None):
         """Get the image that was used to make this source list. """
         with SmartSession(session) as session:
-            return session.scalars(sa.select(Image).where(Image.id == self.image_id)).all()
+            return session.scalars(sa.select(Image).where(Image._id == self.image_id)).all()
 
     def get_downstreams(self, session=None, siblings=False):
         """Get all the data products that are made using this source list.
@@ -831,7 +810,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                      .join( provenance_self_association_table,
                             provenance_self_association_table.c.downstream_id == Image.provenance_id )
                      .join( image_upstreams_association_table,
-                            image_upstreams_association_table.c.downstream_id == Image.id )
+                            image_upstreams_association_table.c.downstream_id == Image._id )
                      .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
                      .filter( image_upstreams_association_table.c.upstream_id == self.image_id )
                     ).all()
@@ -946,7 +925,7 @@ class SourceListSibling:
 
         from models.source_list import SourceList
         with SmartSession( session ) as sess:
-            sl = sess.query( SourceList ).filter( SourceList.id==self.sources_id ).first()
+            sl = sess.query( SourceList ).filter( SourceList._id==self.sources_id ).first()
             # Not clear what the right thing to do here is.
             # Going to return None, because probably what happened is that nothing is actually
             #   in the database.  However, if there is a sibling in the database but not the
@@ -977,7 +956,12 @@ class SourceListSibling:
             return None
 
         dses = sl.get_downstreams( session=session, siblings=siblings )
-        dses = [ d for d in dses if dses.id != self.id ]
+        try:
+            dses = [ d for d in dses if d.id != self.id  ]
+        except Exception as ex:
+            # ROB TODO : take this out when you're convinced you're done debugging
+            import pdb; pdb.set_trace()
+            pass
 
         return dses
 

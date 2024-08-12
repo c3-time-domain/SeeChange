@@ -62,27 +62,12 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         self._format = PSFFormatConverter.convert( value )
 
     sources_id = sa.Column(
-        sa.ForeignKey( 'source_lists.id', ondelete='CASCADE', name='psfs_source_lists_id_fkey' ),
+        sa.ForeignKey( 'source_lists._id', ondelete='CASCADE', name='psfs_source_lists_id_fkey' ),
         nullable=False,
         index=True,
         unique=True,
         doc="id of the source_list this psf is associated with"
     )
-
-    # image_id = sa.Column(
-    #     sa.ForeignKey( 'images.id', ondelete='CASCADE', name='psfs_image_id_fkey' ),
-    #     nullable=False,
-    #     index=True,
-    #     doc="ID of the image for which this is the PSF."
-    # )
-
-    # image = orm.relationship(
-    #     'Image',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     passive_deletes=True,
-    #     lazy='selectin',
-    #     doc="Image for which this is the PSF."
-    # )
 
     fwhm_pixels = sa.Column(
         sa.REAL,
@@ -91,31 +76,6 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         doc="Approximate FWHM of seeing in pixels; use for a broad estimate, doesn't capture spatial variation."
     )
 
-    # provenance_id = sa.Column(
-    #     sa.ForeignKey('provenances.id', ondelete="CASCADE", name='psfs_provenance_id_fkey'),
-    #     nullable=False,
-    #     index=True,
-    #     doc=(
-    #         "ID of the provenance of this PSF. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this PSF."
-    #     )
-    # )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this PSF. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this PSF."
-    #     )
-    # )
-
-    # __table_args__ = (
-    #     sa.Index( 'psfs_image_id_provenance_index', 'image_id', 'provenance_id', unique=True ),
-    # )
 
     @property
     def data( self ):

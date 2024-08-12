@@ -337,11 +337,11 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
 
         finally:
             if 'psf' in locals():
-                psf.delete_from_disk_and_database(session=session)
+                psf.delete_from_disk_and_database()
             if 'psf2' in locals():
-                psf2.delete_from_disk_and_database(session=session)
+                psf2.delete_from_disk_and_database()
             if 'im' in locals():
-                im.delete_from_disk_and_database(session=session)
+                im.delete_from_disk_and_database()
 
 # ROB TODO -- update this when you've updated DataStore and associated fixtures
 @pytest.mark.skip(reason="This test regularly fails, even when flaky is used. See Issue #263")

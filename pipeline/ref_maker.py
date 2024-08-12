@@ -277,7 +277,7 @@ class RefMaker:
             # This provenance needs to be in the database so we can insert the
             #   coadd provenance later, as this provenance is an upstream of that.
             # Ideally, it's already there, but if not, we need to be ready.
-            preprocessing.insert_if_needed( session=session )
+            preprocessing.insert_if_needed()
             pars = self.pipeline.extractor.pars.get_critical_pars()  # includes parameters of siblings
             extraction = Provenance(
                 process='extraction',
@@ -287,7 +287,7 @@ class RefMaker:
                 is_testing='test_parameter' in pars,
             )
             # Same comment as for the Provenance preprocessing above.
-            extraction.insert_if_needed( session=session )
+            extraction.insert_if_needed()
 
             # the exposure provenance is not included in the reference provenance's upstreams
             self.im_provs[ inst ] = preprocessing
@@ -296,7 +296,7 @@ class RefMaker:
         # all the provenances that go into the coadd
         upstreams = list( self.im_provs.values() ) + list( self.ex_provs.values() )
         # TODO: allow different code_versions for each process
-        coadd_provs = self.coadd_pipeline.make_provenance_tree(upstreams, code_version, session=session)
+        coadd_provs = self.coadd_pipeline.make_provenance_tree( None, upstream_provs=upstreams )
         self.coadd_im_prov = coadd_provs['coaddition']
         self.coadd_ex_prov = coadd_provs['extraction']
 

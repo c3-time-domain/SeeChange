@@ -63,11 +63,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
     ):
         SCLogger.debug( f"make_datastore called with args {args}, overrides={overrides}, augments={augments}" )
 
+        if session is not None:
+            raise RuntimeError( "Don't pass a session to make_datastore.  You're just asking for deadlocks." )
+        
         code_version = None
         with SmartSession( session ) as sess:
             code_version = ( sess.query( CodeVersion )
-                             .join( Provenance, Provenance.code_version_id == CodeVersion .id )
-                             .filter( Provenance.id == args[0].provenance_id )
+                             .join( Provenance, Provenance.code_version_id == CodeVersion._id )
+                             .filter( Provenance._id == args[0].provenance_id )
                             ).first()
         if code_version is None:
             raise RuntimeError( "make_datastore failed to get code_version" )
@@ -99,8 +102,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if inst_name == 'decam':  # request the decam_refset fixture dynamically:
             request.getfixturevalue('decam_refset')
 
-        with SmartSession() as session:
-            refset = session.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
+        with SmartSession() as sess:
+            refset = sess.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
 
         if refset is None:
             raise ValueError(f'make_datastore found no reference with name {refset_name}')
@@ -125,13 +128,13 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if ds.image is None and use_cache:  # check if preprocessed image is in cache
             if os.path.isfile(image_cache_path):
                 SCLogger.debug('make_datastore loading image from cache. ')
-                ds.image = copy_from_cache(Image, cache_dir, cache_name)
+                img = copy_from_cache(Image, cache_dir, cache_name)
                 # assign the correct exposure to the object loaded from cache
                 if ds.exposure_id is not None:
-                    ds.image.exposure_id = ds.exposure_id
+                    img.exposure_id = ds.exposure_id
                 if ds.exposure is not None:
-                    ds.image.exposure = ds.exposure
-                    ds.image.exposure_id = ds.exposure.id
+                    img.exposure_id = ds.exposure.id
+                ds.image = img
 
                 # Copy the original image from the cache if requested
                 if save_original_image:
@@ -156,7 +159,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
             mask = make_saturated_flag(ds.image.data, ds.image.instrument_object.saturation_limit, iterations=2)
             ds.image.flags |= (mask * 2 ** BitFlagConverter.convert('saturated')).astype(np.uint16)
 
-            ds.image.get_id()
             ds.image.save()
             # even if cache_base_name is None, we still need to make the manifest file, so we will get it next time!
             if not env_as_bool( "LIMIT_CACHE_USAGE" ) and os.path.isdir(cache_dir):
@@ -244,8 +246,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug('make_datastore loading zero point from cache. ')
                 ds.zp = copy_from_cache(ZeroPoint, cache_dir, cache_name)
                 ds.zp.sources_ids = ds.sources.id
-
-        import pdb; pdb.set_trace()
 
         # if any data product is missing, must redo the extraction step
         if ds.sources is None or ds.psf is None or ds.bg is None or ds.wcs is None or ds.zp is None:

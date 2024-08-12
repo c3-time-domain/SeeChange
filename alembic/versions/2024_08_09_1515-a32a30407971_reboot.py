@@ -1,8 +1,8 @@
 """reboot
 
-Revision ID: a2d0167cd287
-Revises:
-Create Date: 2024-08-01 20:27:40.765768
+Revision ID: a32a30407971
+Revises: 
+Create Date: 2024-08-09 15:15:32.250991
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'a2d0167cd287'
+revision = 'a32a30407971'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -40,14 +40,14 @@ def upgrade() -> None:
     sa.Column('sensor_section', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_calibfile_downloadlock__calibrator_set'), 'calibfile_downloadlock', ['_calibrator_set'], unique=False)
     op.create_index(op.f('ix_calibfile_downloadlock__flat_type'), 'calibfile_downloadlock', ['_flat_type'], unique=False)
+    op.create_index(op.f('ix_calibfile_downloadlock__id'), 'calibfile_downloadlock', ['_id'], unique=False)
     op.create_index(op.f('ix_calibfile_downloadlock__type'), 'calibfile_downloadlock', ['_type'], unique=False)
     op.create_index(op.f('ix_calibfile_downloadlock_created_at'), 'calibfile_downloadlock', ['created_at'], unique=False)
-    op.create_index(op.f('ix_calibfile_downloadlock_id'), 'calibfile_downloadlock', ['id'], unique=False)
     op.create_index(op.f('ix_calibfile_downloadlock_instrument'), 'calibfile_downloadlock', ['instrument'], unique=False)
     op.create_index(op.f('ix_calibfile_downloadlock_sensor_section'), 'calibfile_downloadlock', ['sensor_section'], unique=False)
     op.create_table('catalog_excerpts',
@@ -59,7 +59,7 @@ def upgrade() -> None:
     sa.Column('filters', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -83,9 +83,10 @@ def upgrade() -> None:
     sa.Column('mindec', sa.REAL(), nullable=False),
     sa.Column('maxdec', sa.REAL(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='catalog_excerpts_md5sum_check'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index('catalog_excerpts_q3c_ang2ipix_idx', 'catalog_excerpts', [sa.text('q3c_ang2ipix(ra, dec)')], unique=False)
+    op.create_index(op.f('ix_catalog_excerpts__id'), 'catalog_excerpts', ['_id'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts__origin'), 'catalog_excerpts', ['_origin'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts_created_at'), 'catalog_excerpts', ['created_at'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts_dec_corner_00'), 'catalog_excerpts', ['dec_corner_00'], unique=False)
@@ -95,7 +96,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_catalog_excerpts_ecllat'), 'catalog_excerpts', ['ecllat'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts_filepath'), 'catalog_excerpts', ['filepath'], unique=True)
     op.create_index(op.f('ix_catalog_excerpts_gallat'), 'catalog_excerpts', ['gallat'], unique=False)
-    op.create_index(op.f('ix_catalog_excerpts_id'), 'catalog_excerpts', ['id'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts_maxdec'), 'catalog_excerpts', ['maxdec'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts_maxmag'), 'catalog_excerpts', ['maxmag'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts_maxra'), 'catalog_excerpts', ['maxra'], unique=False)
@@ -108,10 +108,10 @@ def upgrade() -> None:
     op.create_index(op.f('ix_catalog_excerpts_ra_corner_10'), 'catalog_excerpts', ['ra_corner_10'], unique=False)
     op.create_index(op.f('ix_catalog_excerpts_ra_corner_11'), 'catalog_excerpts', ['ra_corner_11'], unique=False)
     op.create_table('code_versions',
-    sa.Column('id', sa.String(), nullable=False),
+    sa.Column('_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_code_versions_created_at'), 'code_versions', ['created_at'], unique=False)
     op.create_table('objects',
@@ -121,19 +121,19 @@ def upgrade() -> None:
     sa.Column('is_bad', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('ra', sa.Double(), nullable=False),
     sa.Column('dec', sa.Double(), nullable=False),
     sa.Column('gallat', sa.Double(), nullable=True),
     sa.Column('gallon', sa.Double(), nullable=True),
     sa.Column('ecllat', sa.Double(), nullable=True),
     sa.Column('ecllon', sa.Double(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_objects__id'), 'objects', ['_id'], unique=False)
     op.create_index(op.f('ix_objects_created_at'), 'objects', ['created_at'], unique=False)
     op.create_index(op.f('ix_objects_ecllat'), 'objects', ['ecllat'], unique=False)
     op.create_index(op.f('ix_objects_gallat'), 'objects', ['gallat'], unique=False)
-    op.create_index(op.f('ix_objects_id'), 'objects', ['id'], unique=False)
     op.create_index(op.f('ix_objects_is_bad'), 'objects', ['is_bad'], unique=False)
     op.create_index(op.f('ix_objects_name'), 'objects', ['name'], unique=True)
     op.create_index('objects_q3c_ang2ipix_idx', 'objects', [sa.text('q3c_ang2ipix(ra, dec)')], unique=False)
@@ -144,22 +144,22 @@ def upgrade() -> None:
     sa.Column('lastheartbeat', sa.DateTime(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_pipelineworkers__id'), 'pipelineworkers', ['_id'], unique=False)
     op.create_index(op.f('ix_pipelineworkers_created_at'), 'pipelineworkers', ['created_at'], unique=False)
-    op.create_index(op.f('ix_pipelineworkers_id'), 'pipelineworkers', ['id'], unique=False)
     op.create_table('refsets',
     sa.Column('name', sa.Text(), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('upstream_hash', sa.Text(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_refsets__id'), 'refsets', ['_id'], unique=False)
     op.create_index(op.f('ix_refsets_created_at'), 'refsets', ['created_at'], unique=False)
-    op.create_index(op.f('ix_refsets_id'), 'refsets', ['id'], unique=False)
     op.create_index(op.f('ix_refsets_name'), 'refsets', ['name'], unique=True)
     op.create_index(op.f('ix_refsets_upstream_hash'), 'refsets', ['upstream_hash'], unique=False)
     op.create_table('sensor_sections',
@@ -180,23 +180,23 @@ def upgrade() -> None:
     sa.Column('defective', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_sensor_sections__id'), 'sensor_sections', ['_id'], unique=False)
     op.create_index(op.f('ix_sensor_sections_created_at'), 'sensor_sections', ['created_at'], unique=False)
     op.create_index(op.f('ix_sensor_sections_defective'), 'sensor_sections', ['defective'], unique=False)
-    op.create_index(op.f('ix_sensor_sections_id'), 'sensor_sections', ['id'], unique=False)
     op.create_index(op.f('ix_sensor_sections_identifier'), 'sensor_sections', ['identifier'], unique=False)
     op.create_index(op.f('ix_sensor_sections_instrument'), 'sensor_sections', ['instrument'], unique=False)
     op.create_index(op.f('ix_sensor_sections_validity_end'), 'sensor_sections', ['validity_end'], unique=False)
     op.create_index(op.f('ix_sensor_sections_validity_start'), 'sensor_sections', ['validity_start'], unique=False)
     op.create_table('code_hashes',
-    sa.Column('id', sa.String(), nullable=False),
+    sa.Column('_id', sa.String(), nullable=False),
     sa.Column('code_version_id', sa.String(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['code_version_id'], ['code_versions.id'], name='code_hashes_code_version_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['code_version_id'], ['code_versions._id'], name='code_hashes_code_version_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_code_hashes_code_version_id'), 'code_hashes', ['code_version_id'], unique=False)
     op.create_index(op.f('ix_code_hashes_created_at'), 'code_hashes', ['created_at'], unique=False)
@@ -212,7 +212,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_passwordlink_created_at'), 'passwordlink', ['created_at'], unique=False)
     op.create_index(op.f('ix_passwordlink_userid'), 'passwordlink', ['userid'], unique=False)
     op.create_table('provenances',
-    sa.Column('id', sa.String(), nullable=False),
+    sa.Column('_id', sa.String(), nullable=False),
     sa.Column('process', sa.String(), nullable=False),
     sa.Column('code_version_id', sa.String(), nullable=False),
     sa.Column('parameters', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -223,9 +223,9 @@ def upgrade() -> None:
     sa.Column('is_testing', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['code_version_id'], ['code_versions.id'], name='provenances_code_version_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['replaced_by'], ['provenances.id'], name='provenances_replaced_by_fkey', ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['code_version_id'], ['code_versions._id'], name='provenances_code_version_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['replaced_by'], ['provenances._id'], name='provenances_replaced_by_fkey', ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_provenances_code_version_id'), 'provenances', ['code_version_id'], unique=False)
     op.create_index(op.f('ix_provenances_created_at'), 'provenances', ['created_at'], unique=False)
@@ -235,18 +235,18 @@ def upgrade() -> None:
     sa.Column('provenance_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
     sa.Column('filepath', sa.Text(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='data_files_md5sum_check'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='data_files_provenance_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='data_files_provenance_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_data_files__id'), 'data_files', ['_id'], unique=False)
     op.create_index(op.f('ix_data_files_created_at'), 'data_files', ['created_at'], unique=False)
     op.create_index(op.f('ix_data_files_filepath'), 'data_files', ['filepath'], unique=True)
-    op.create_index(op.f('ix_data_files_id'), 'data_files', ['id'], unique=False)
     op.create_index(op.f('ix_data_files_provenance_id'), 'data_files', ['provenance_id'], unique=False)
     op.create_table('exposures',
     sa.Column('_type', sa.SMALLINT(), nullable=False),
@@ -265,7 +265,7 @@ def upgrade() -> None:
     sa.Column('origin_identifier', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -279,11 +279,12 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.CheckConstraint('NOT(filter IS NULL AND filter_array IS NULL)', name='exposures_filter_or_array_check'),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='exposures_md5sum_check'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index('exposures_q3c_ang2ipix_idx', 'exposures', [sa.text('q3c_ang2ipix(ra, dec)')], unique=False)
     op.create_index(op.f('ix_exposures__bitflag'), 'exposures', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_exposures__id'), 'exposures', ['_id'], unique=False)
     op.create_index(op.f('ix_exposures__type'), 'exposures', ['_type'], unique=False)
     op.create_index(op.f('ix_exposures_airmass'), 'exposures', ['airmass'], unique=False)
     op.create_index(op.f('ix_exposures_created_at'), 'exposures', ['created_at'], unique=False)
@@ -293,7 +294,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_exposures_filter'), 'exposures', ['filter'], unique=False)
     op.create_index(op.f('ix_exposures_filter_array'), 'exposures', ['filter_array'], unique=False)
     op.create_index(op.f('ix_exposures_gallat'), 'exposures', ['gallat'], unique=False)
-    op.create_index(op.f('ix_exposures_id'), 'exposures', ['id'], unique=False)
     op.create_index(op.f('ix_exposures_instrument'), 'exposures', ['instrument'], unique=False)
     op.create_index(op.f('ix_exposures_mjd'), 'exposures', ['mjd'], unique=False)
     op.create_index(op.f('ix_exposures_origin_identifier'), 'exposures', ['origin_identifier'], unique=False)
@@ -305,27 +305,27 @@ def upgrade() -> None:
     sa.Column('provenance_id', sa.String(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='provenance_tags_provenance_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='provenance_tags_provenance_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id'),
     sa.UniqueConstraint('tag', 'provenance_id', name='_provenancetag_prov_tag_uc')
     )
+    op.create_index(op.f('ix_provenance_tags__id'), 'provenance_tags', ['_id'], unique=False)
     op.create_index(op.f('ix_provenance_tags_created_at'), 'provenance_tags', ['created_at'], unique=False)
-    op.create_index(op.f('ix_provenance_tags_id'), 'provenance_tags', ['id'], unique=False)
     op.create_index(op.f('ix_provenance_tags_provenance_id'), 'provenance_tags', ['provenance_id'], unique=False)
     op.create_index(op.f('ix_provenance_tags_tag'), 'provenance_tags', ['tag'], unique=False)
     op.create_table('provenance_upstreams',
     sa.Column('upstream_id', sa.String(), nullable=False),
     sa.Column('downstream_id', sa.String(), nullable=False),
-    sa.ForeignKeyConstraint(['downstream_id'], ['provenances.id'], name='provenance_upstreams_downstream_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['upstream_id'], ['provenances.id'], name='provenance_upstreams_upstream_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['downstream_id'], ['provenances._id'], name='provenance_upstreams_downstream_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['upstream_id'], ['provenances._id'], name='provenance_upstreams_upstream_id_fkey', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('upstream_id', 'downstream_id')
     )
     op.create_table('refset_provenance_association',
     sa.Column('provenance_id', sa.Text(), nullable=False),
     sa.Column('refset_id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='refset_provenances_association_provenance_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['refset_id'], ['refsets.id'], name='refsets_provenances_association_refset_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='refset_provenances_association_provenance_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['refset_id'], ['refsets._id'], name='refsets_provenances_association_refset_id_fkey', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('provenance_id', 'refset_id')
     )
     op.create_table('images',
@@ -357,7 +357,7 @@ def upgrade() -> None:
     sa.Column('bkg_rms_estimate', sa.REAL(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -384,13 +384,14 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='images_md5sum_check'),
-    sa.ForeignKeyConstraint(['exposure_id'], ['exposures.id'], name='images_exposure_id_fkey', ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='images_provenance_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['ref_image_id'], ['images.id'], name='images_ref_image_id_fkey', ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['exposure_id'], ['exposures._id'], name='images_exposure_id_fkey', ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='images_provenance_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['ref_image_id'], ['images._id'], name='images_ref_image_id_fkey', ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index('images_q3c_ang2ipix_idx', 'images', [sa.text('q3c_ang2ipix(ra, dec)')], unique=False)
     op.create_index(op.f('ix_images__bitflag'), 'images', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_images__id'), 'images', ['_id'], unique=False)
     op.create_index(op.f('ix_images__type'), 'images', ['_type'], unique=False)
     op.create_index(op.f('ix_images__upstream_bitflag'), 'images', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_images_airmass'), 'images', ['airmass'], unique=False)
@@ -409,7 +410,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_images_filter'), 'images', ['filter'], unique=False)
     op.create_index(op.f('ix_images_fwhm_estimate'), 'images', ['fwhm_estimate'], unique=False)
     op.create_index(op.f('ix_images_gallat'), 'images', ['gallat'], unique=False)
-    op.create_index(op.f('ix_images_id'), 'images', ['id'], unique=False)
     op.create_index(op.f('ix_images_instrument'), 'images', ['instrument'], unique=False)
     op.create_index(op.f('ix_images_is_coadd'), 'images', ['is_coadd'], unique=False)
     op.create_index(op.f('ix_images_is_sub'), 'images', ['is_sub'], unique=False)
@@ -451,14 +451,14 @@ def upgrade() -> None:
     sa.Column('ecllon', sa.Double(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['exposure_id'], ['exposures.id'], name='knownexposure_exposure_id_fkey'),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.ForeignKeyConstraint(['exposure_id'], ['exposures._id'], name='knownexposure_exposure_id_fkey'),
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_knownexposures__id'), 'knownexposures', ['_id'], unique=False)
     op.create_index(op.f('ix_knownexposures_created_at'), 'knownexposures', ['created_at'], unique=False)
     op.create_index(op.f('ix_knownexposures_ecllat'), 'knownexposures', ['ecllat'], unique=False)
     op.create_index(op.f('ix_knownexposures_gallat'), 'knownexposures', ['gallat'], unique=False)
-    op.create_index(op.f('ix_knownexposures_id'), 'knownexposures', ['id'], unique=False)
     op.create_index(op.f('ix_knownexposures_identifier'), 'knownexposures', ['identifier'], unique=False)
     op.create_index(op.f('ix_knownexposures_instrument'), 'knownexposures', ['instrument'], unique=False)
     op.create_index(op.f('ix_knownexposures_mjd'), 'knownexposures', ['mjd'], unique=False)
@@ -485,15 +485,15 @@ def upgrade() -> None:
     sa.Column('provenance_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['exposure_id'], ['exposures.id'], name='reports_exposure_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='images_provenance_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.ForeignKeyConstraint(['exposure_id'], ['exposures._id'], name='reports_exposure_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='images_provenance_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_reports__id'), 'reports', ['_id'], unique=False)
     op.create_index(op.f('ix_reports_created_at'), 'reports', ['created_at'], unique=False)
     op.create_index(op.f('ix_reports_exposure_id'), 'reports', ['exposure_id'], unique=False)
     op.create_index(op.f('ix_reports_finish_time'), 'reports', ['finish_time'], unique=False)
-    op.create_index(op.f('ix_reports_id'), 'reports', ['id'], unique=False)
     op.create_index(op.f('ix_reports_products_committed_bitflag'), 'reports', ['products_committed_bitflag'], unique=False)
     op.create_index(op.f('ix_reports_products_exist_bitflag'), 'reports', ['products_exist_bitflag'], unique=False)
     op.create_index(op.f('ix_reports_progress_steps_bitflag'), 'reports', ['progress_steps_bitflag'], unique=False)
@@ -513,17 +513,17 @@ def upgrade() -> None:
     sa.Column('validity_end', sa.DateTime(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['datafile_id'], ['data_files.id'], name='calibrator_files_data_file_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['image_id'], ['images.id'], name='calibrator_files_image_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.ForeignKeyConstraint(['datafile_id'], ['data_files._id'], name='calibrator_files_data_file_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['image_id'], ['images._id'], name='calibrator_files_image_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_calibrator_files__calibrator_set'), 'calibrator_files', ['_calibrator_set'], unique=False)
     op.create_index(op.f('ix_calibrator_files__flat_type'), 'calibrator_files', ['_flat_type'], unique=False)
+    op.create_index(op.f('ix_calibrator_files__id'), 'calibrator_files', ['_id'], unique=False)
     op.create_index(op.f('ix_calibrator_files__type'), 'calibrator_files', ['_type'], unique=False)
     op.create_index(op.f('ix_calibrator_files_created_at'), 'calibrator_files', ['created_at'], unique=False)
     op.create_index(op.f('ix_calibrator_files_datafile_id'), 'calibrator_files', ['datafile_id'], unique=False)
-    op.create_index(op.f('ix_calibrator_files_id'), 'calibrator_files', ['id'], unique=False)
     op.create_index(op.f('ix_calibrator_files_image_id'), 'calibrator_files', ['image_id'], unique=False)
     op.create_index(op.f('ix_calibrator_files_instrument'), 'calibrator_files', ['instrument'], unique=False)
     op.create_index(op.f('ix_calibrator_files_sensor_section'), 'calibrator_files', ['sensor_section'], unique=False)
@@ -532,8 +532,8 @@ def upgrade() -> None:
     op.create_table('image_upstreams_association',
     sa.Column('upstream_id', sa.UUID(), nullable=False),
     sa.Column('downstream_id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['downstream_id'], ['images.id'], name='image_upstreams_association_downstream_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['upstream_id'], ['images.id'], name='image_upstreams_association_upstream_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['downstream_id'], ['images._id'], name='image_upstreams_association_downstream_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['upstream_id'], ['images._id'], name='image_upstreams_association_upstream_id_fkey', ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('upstream_id', 'downstream_id')
     )
     op.create_table('refs',
@@ -548,14 +548,14 @@ def upgrade() -> None:
     sa.Column('provenance_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['image_id'], ['images.id'], name='references_image_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='references_provenance_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('_id', sa.UUID(), nullable=False),
+    sa.ForeignKeyConstraint(['image_id'], ['images._id'], name='references_image_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='references_provenance_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
+    op.create_index(op.f('ix_refs__id'), 'refs', ['_id'], unique=False)
     op.create_index(op.f('ix_refs_created_at'), 'refs', ['created_at'], unique=False)
     op.create_index(op.f('ix_refs_filter'), 'refs', ['filter'], unique=False)
-    op.create_index(op.f('ix_refs_id'), 'refs', ['id'], unique=False)
     op.create_index(op.f('ix_refs_image_id'), 'refs', ['image_id'], unique=False)
     op.create_index(op.f('ix_refs_instrument'), 'refs', ['instrument'], unique=False)
     op.create_index(op.f('ix_refs_provenance_id'), 'refs', ['provenance_id'], unique=False)
@@ -571,7 +571,7 @@ def upgrade() -> None:
     sa.Column('provenance_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -580,16 +580,16 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='source_lists_md5sum_check'),
-    sa.ForeignKeyConstraint(['image_id'], ['images.id'], name='source_lists_image_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='source_lists_provenance_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
+    sa.ForeignKeyConstraint(['image_id'], ['images._id'], name='source_lists_image_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='source_lists_provenance_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id'),
     sa.UniqueConstraint('image_id', 'provenance_id', name='_source_list_image_provenance_uc')
     )
     op.create_index(op.f('ix_source_lists__bitflag'), 'source_lists', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_source_lists__id'), 'source_lists', ['_id'], unique=False)
     op.create_index(op.f('ix_source_lists__upstream_bitflag'), 'source_lists', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_source_lists_created_at'), 'source_lists', ['created_at'], unique=False)
     op.create_index(op.f('ix_source_lists_filepath'), 'source_lists', ['filepath'], unique=True)
-    op.create_index(op.f('ix_source_lists_id'), 'source_lists', ['id'], unique=False)
     op.create_index(op.f('ix_source_lists_image_id'), 'source_lists', ['image_id'], unique=False)
     op.create_index(op.f('ix_source_lists_num_sources'), 'source_lists', ['num_sources'], unique=False)
     op.create_index(op.f('ix_source_lists_provenance_id'), 'source_lists', ['provenance_id'], unique=False)
@@ -599,10 +599,9 @@ def upgrade() -> None:
     sa.Column('sources_id', sa.UUID(), nullable=False),
     sa.Column('value', sa.Float(), nullable=False),
     sa.Column('noise', sa.Float(), nullable=False),
-    sa.Column('provenance_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -611,17 +610,15 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='backgrounds_md5sum_check'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='backgrounds_provenance_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['sources_id'], ['source_lists.id'], name='backgrounds_source_lists_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['sources_id'], ['source_lists._id'], name='backgrounds_source_lists_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_backgrounds__bitflag'), 'backgrounds', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_backgrounds__id'), 'backgrounds', ['_id'], unique=False)
     op.create_index(op.f('ix_backgrounds__upstream_bitflag'), 'backgrounds', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_backgrounds_created_at'), 'backgrounds', ['created_at'], unique=False)
     op.create_index(op.f('ix_backgrounds_filepath'), 'backgrounds', ['filepath'], unique=True)
-    op.create_index(op.f('ix_backgrounds_id'), 'backgrounds', ['id'], unique=False)
     op.create_index(op.f('ix_backgrounds_noise'), 'backgrounds', ['noise'], unique=False)
-    op.create_index(op.f('ix_backgrounds_provenance_id'), 'backgrounds', ['provenance_id'], unique=False)
     op.create_index(op.f('ix_backgrounds_sources_id'), 'backgrounds', ['sources_id'], unique=True)
     op.create_index(op.f('ix_backgrounds_value'), 'backgrounds', ['value'], unique=False)
     op.create_table('cutouts',
@@ -630,7 +627,7 @@ def upgrade() -> None:
     sa.Column('provenance_id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -639,25 +636,25 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='cutouts_md5sum_check'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='cutouts_provenance_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['sources_id'], ['source_lists.id'], name='cutouts_source_list_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='cutouts_provenance_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['sources_id'], ['source_lists._id'], name='cutouts_source_list_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id'),
     sa.UniqueConstraint('sources_id', 'provenance_id', name='_cutouts_sources_provenance_uc')
     )
     op.create_index(op.f('ix_cutouts__bitflag'), 'cutouts', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_cutouts__id'), 'cutouts', ['_id'], unique=False)
     op.create_index(op.f('ix_cutouts__upstream_bitflag'), 'cutouts', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_cutouts_created_at'), 'cutouts', ['created_at'], unique=False)
     op.create_index(op.f('ix_cutouts_filepath'), 'cutouts', ['filepath'], unique=True)
-    op.create_index(op.f('ix_cutouts_id'), 'cutouts', ['id'], unique=False)
     op.create_index(op.f('ix_cutouts_provenance_id'), 'cutouts', ['provenance_id'], unique=False)
     op.create_index(op.f('ix_cutouts_sources_id'), 'cutouts', ['sources_id'], unique=False)
     op.create_table('psfs',
     sa.Column('_format', sa.SMALLINT(), nullable=False),
-    sa.Column('source_id', sa.UUID(), nullable=False),
+    sa.Column('sources_id', sa.UUID(), nullable=False),
     sa.Column('fwhm_pixels', sa.REAL(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -666,20 +663,20 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='psfs_md5sum_check'),
-    sa.ForeignKeyConstraint(['source_id'], ['source_lists.id'], name='psfs_source_lists_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['sources_id'], ['source_lists._id'], name='psfs_source_lists_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_psfs__bitflag'), 'psfs', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_psfs__id'), 'psfs', ['_id'], unique=False)
     op.create_index(op.f('ix_psfs__upstream_bitflag'), 'psfs', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_psfs_created_at'), 'psfs', ['created_at'], unique=False)
     op.create_index(op.f('ix_psfs_filepath'), 'psfs', ['filepath'], unique=True)
-    op.create_index(op.f('ix_psfs_id'), 'psfs', ['id'], unique=False)
-    op.create_index(op.f('ix_psfs_source_id'), 'psfs', ['source_id'], unique=True)
+    op.create_index(op.f('ix_psfs_sources_id'), 'psfs', ['sources_id'], unique=True)
     op.create_table('world_coordinates',
     sa.Column('sources_id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('filepath_extensions', postgresql.ARRAY(sa.Text(), zero_indexes=True), nullable=True),
     sa.Column('md5sum', sa.UUID(), nullable=True),
     sa.Column('md5sum_extensions', postgresql.ARRAY(sa.UUID(), zero_indexes=True), nullable=True),
@@ -688,14 +685,14 @@ def upgrade() -> None:
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
     sa.CheckConstraint('NOT(md5sum IS NULL AND (md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))', name='world_coordinates_md5sum_check'),
-    sa.ForeignKeyConstraint(['sources_id'], ['source_lists.id'], name='world_coordinates_source_list_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['sources_id'], ['source_lists._id'], name='world_coordinates_source_list_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_world_coordinates__bitflag'), 'world_coordinates', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_world_coordinates__id'), 'world_coordinates', ['_id'], unique=False)
     op.create_index(op.f('ix_world_coordinates__upstream_bitflag'), 'world_coordinates', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_world_coordinates_created_at'), 'world_coordinates', ['created_at'], unique=False)
     op.create_index(op.f('ix_world_coordinates_filepath'), 'world_coordinates', ['filepath'], unique=True)
-    op.create_index(op.f('ix_world_coordinates_id'), 'world_coordinates', ['id'], unique=False)
     op.create_index(op.f('ix_world_coordinates_sources_id'), 'world_coordinates', ['sources_id'], unique=True)
     op.create_table('zero_points',
     sa.Column('sources_id', sa.UUID(), nullable=False),
@@ -705,17 +702,17 @@ def upgrade() -> None:
     sa.Column('aper_cors', postgresql.ARRAY(sa.REAL(), zero_indexes=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('_bitflag', sa.BIGINT(), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
-    sa.ForeignKeyConstraint(['sources_id'], ['source_lists.id'], name='zero_points_source_list_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['sources_id'], ['source_lists._id'], name='zero_points_source_list_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_zero_points__bitflag'), 'zero_points', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_zero_points__id'), 'zero_points', ['_id'], unique=False)
     op.create_index(op.f('ix_zero_points__upstream_bitflag'), 'zero_points', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_zero_points_created_at'), 'zero_points', ['created_at'], unique=False)
-    op.create_index(op.f('ix_zero_points_id'), 'zero_points', ['id'], unique=False)
     op.create_index(op.f('ix_zero_points_sources_id'), 'zero_points', ['sources_id'], unique=True)
     op.create_table('measurements',
     sa.Column('cutouts_id', sa.UUID(), nullable=False),
@@ -744,7 +741,7 @@ def upgrade() -> None:
     sa.Column('disqualifier_scores', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('modified', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('_id', sa.UUID(), nullable=False),
     sa.Column('ra', sa.Double(), nullable=False),
     sa.Column('dec', sa.Double(), nullable=False),
     sa.Column('gallat', sa.Double(), nullable=True),
@@ -754,20 +751,20 @@ def upgrade() -> None:
     sa.Column('_bitflag', sa.BIGINT(), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('_upstream_bitflag', sa.BIGINT(), nullable=False),
-    sa.ForeignKeyConstraint(['cutouts_id'], ['cutouts.id'], name='measurements_cutouts_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['object_id'], ['objects.id'], name='measurements_object_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances.id'], name='measurements_provenance_id_fkey', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
+    sa.ForeignKeyConstraint(['cutouts_id'], ['cutouts._id'], name='measurements_cutouts_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['object_id'], ['objects._id'], name='measurements_object_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='measurements_provenance_id_fkey', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('_id'),
     sa.UniqueConstraint('cutouts_id', 'index_in_sources', 'provenance_id', name='_measurements_cutouts_provenance_uc')
     )
     op.create_index(op.f('ix_measurements__bitflag'), 'measurements', ['_bitflag'], unique=False)
+    op.create_index(op.f('ix_measurements__id'), 'measurements', ['_id'], unique=False)
     op.create_index(op.f('ix_measurements__upstream_bitflag'), 'measurements', ['_upstream_bitflag'], unique=False)
     op.create_index(op.f('ix_measurements_created_at'), 'measurements', ['created_at'], unique=False)
     op.create_index(op.f('ix_measurements_cutouts_id'), 'measurements', ['cutouts_id'], unique=False)
     op.create_index(op.f('ix_measurements_disqualifier_scores'), 'measurements', ['disqualifier_scores'], unique=False)
     op.create_index(op.f('ix_measurements_ecllat'), 'measurements', ['ecllat'], unique=False)
     op.create_index(op.f('ix_measurements_gallat'), 'measurements', ['gallat'], unique=False)
-    op.create_index(op.f('ix_measurements_id'), 'measurements', ['id'], unique=False)
     op.create_index(op.f('ix_measurements_is_bad'), 'measurements', ['is_bad'], unique=False)
     op.create_index(op.f('ix_measurements_object_id'), 'measurements', ['object_id'], unique=False)
     op.create_index(op.f('ix_measurements_provenance_id'), 'measurements', ['provenance_id'], unique=False)
@@ -785,60 +782,59 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_measurements_provenance_id'), table_name='measurements')
     op.drop_index(op.f('ix_measurements_object_id'), table_name='measurements')
     op.drop_index(op.f('ix_measurements_is_bad'), table_name='measurements')
-    op.drop_index(op.f('ix_measurements_id'), table_name='measurements')
     op.drop_index(op.f('ix_measurements_gallat'), table_name='measurements')
     op.drop_index(op.f('ix_measurements_ecllat'), table_name='measurements')
     op.drop_index(op.f('ix_measurements_disqualifier_scores'), table_name='measurements')
     op.drop_index(op.f('ix_measurements_cutouts_id'), table_name='measurements')
     op.drop_index(op.f('ix_measurements_created_at'), table_name='measurements')
     op.drop_index(op.f('ix_measurements__upstream_bitflag'), table_name='measurements')
+    op.drop_index(op.f('ix_measurements__id'), table_name='measurements')
     op.drop_index(op.f('ix_measurements__bitflag'), table_name='measurements')
     op.drop_table('measurements')
     op.drop_index(op.f('ix_zero_points_sources_id'), table_name='zero_points')
-    op.drop_index(op.f('ix_zero_points_id'), table_name='zero_points')
     op.drop_index(op.f('ix_zero_points_created_at'), table_name='zero_points')
     op.drop_index(op.f('ix_zero_points__upstream_bitflag'), table_name='zero_points')
+    op.drop_index(op.f('ix_zero_points__id'), table_name='zero_points')
     op.drop_index(op.f('ix_zero_points__bitflag'), table_name='zero_points')
     op.drop_table('zero_points')
     op.drop_index(op.f('ix_world_coordinates_sources_id'), table_name='world_coordinates')
-    op.drop_index(op.f('ix_world_coordinates_id'), table_name='world_coordinates')
     op.drop_index(op.f('ix_world_coordinates_filepath'), table_name='world_coordinates')
     op.drop_index(op.f('ix_world_coordinates_created_at'), table_name='world_coordinates')
     op.drop_index(op.f('ix_world_coordinates__upstream_bitflag'), table_name='world_coordinates')
+    op.drop_index(op.f('ix_world_coordinates__id'), table_name='world_coordinates')
     op.drop_index(op.f('ix_world_coordinates__bitflag'), table_name='world_coordinates')
     op.drop_table('world_coordinates')
-    op.drop_index(op.f('ix_psfs_source_id'), table_name='psfs')
-    op.drop_index(op.f('ix_psfs_id'), table_name='psfs')
+    op.drop_index(op.f('ix_psfs_sources_id'), table_name='psfs')
     op.drop_index(op.f('ix_psfs_filepath'), table_name='psfs')
     op.drop_index(op.f('ix_psfs_created_at'), table_name='psfs')
     op.drop_index(op.f('ix_psfs__upstream_bitflag'), table_name='psfs')
+    op.drop_index(op.f('ix_psfs__id'), table_name='psfs')
     op.drop_index(op.f('ix_psfs__bitflag'), table_name='psfs')
     op.drop_table('psfs')
     op.drop_index(op.f('ix_cutouts_sources_id'), table_name='cutouts')
     op.drop_index(op.f('ix_cutouts_provenance_id'), table_name='cutouts')
-    op.drop_index(op.f('ix_cutouts_id'), table_name='cutouts')
     op.drop_index(op.f('ix_cutouts_filepath'), table_name='cutouts')
     op.drop_index(op.f('ix_cutouts_created_at'), table_name='cutouts')
     op.drop_index(op.f('ix_cutouts__upstream_bitflag'), table_name='cutouts')
+    op.drop_index(op.f('ix_cutouts__id'), table_name='cutouts')
     op.drop_index(op.f('ix_cutouts__bitflag'), table_name='cutouts')
     op.drop_table('cutouts')
     op.drop_index(op.f('ix_backgrounds_value'), table_name='backgrounds')
     op.drop_index(op.f('ix_backgrounds_sources_id'), table_name='backgrounds')
-    op.drop_index(op.f('ix_backgrounds_provenance_id'), table_name='backgrounds')
     op.drop_index(op.f('ix_backgrounds_noise'), table_name='backgrounds')
-    op.drop_index(op.f('ix_backgrounds_id'), table_name='backgrounds')
     op.drop_index(op.f('ix_backgrounds_filepath'), table_name='backgrounds')
     op.drop_index(op.f('ix_backgrounds_created_at'), table_name='backgrounds')
     op.drop_index(op.f('ix_backgrounds__upstream_bitflag'), table_name='backgrounds')
+    op.drop_index(op.f('ix_backgrounds__id'), table_name='backgrounds')
     op.drop_index(op.f('ix_backgrounds__bitflag'), table_name='backgrounds')
     op.drop_table('backgrounds')
     op.drop_index(op.f('ix_source_lists_provenance_id'), table_name='source_lists')
     op.drop_index(op.f('ix_source_lists_num_sources'), table_name='source_lists')
     op.drop_index(op.f('ix_source_lists_image_id'), table_name='source_lists')
-    op.drop_index(op.f('ix_source_lists_id'), table_name='source_lists')
     op.drop_index(op.f('ix_source_lists_filepath'), table_name='source_lists')
     op.drop_index(op.f('ix_source_lists_created_at'), table_name='source_lists')
     op.drop_index(op.f('ix_source_lists__upstream_bitflag'), table_name='source_lists')
+    op.drop_index(op.f('ix_source_lists__id'), table_name='source_lists')
     op.drop_index(op.f('ix_source_lists__bitflag'), table_name='source_lists')
     op.drop_table('source_lists')
     op.drop_index(op.f('ix_refs_target'), table_name='refs')
@@ -846,9 +842,9 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_refs_provenance_id'), table_name='refs')
     op.drop_index(op.f('ix_refs_instrument'), table_name='refs')
     op.drop_index(op.f('ix_refs_image_id'), table_name='refs')
-    op.drop_index(op.f('ix_refs_id'), table_name='refs')
     op.drop_index(op.f('ix_refs_filter'), table_name='refs')
     op.drop_index(op.f('ix_refs_created_at'), table_name='refs')
+    op.drop_index(op.f('ix_refs__id'), table_name='refs')
     op.drop_table('refs')
     op.drop_table('image_upstreams_association')
     op.drop_index(op.f('ix_calibrator_files_validity_start'), table_name='calibrator_files')
@@ -856,10 +852,10 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_calibrator_files_sensor_section'), table_name='calibrator_files')
     op.drop_index(op.f('ix_calibrator_files_instrument'), table_name='calibrator_files')
     op.drop_index(op.f('ix_calibrator_files_image_id'), table_name='calibrator_files')
-    op.drop_index(op.f('ix_calibrator_files_id'), table_name='calibrator_files')
     op.drop_index(op.f('ix_calibrator_files_datafile_id'), table_name='calibrator_files')
     op.drop_index(op.f('ix_calibrator_files_created_at'), table_name='calibrator_files')
     op.drop_index(op.f('ix_calibrator_files__type'), table_name='calibrator_files')
+    op.drop_index(op.f('ix_calibrator_files__id'), table_name='calibrator_files')
     op.drop_index(op.f('ix_calibrator_files__flat_type'), table_name='calibrator_files')
     op.drop_index(op.f('ix_calibrator_files__calibrator_set'), table_name='calibrator_files')
     op.drop_table('calibrator_files')
@@ -870,19 +866,19 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_reports_progress_steps_bitflag'), table_name='reports')
     op.drop_index(op.f('ix_reports_products_exist_bitflag'), table_name='reports')
     op.drop_index(op.f('ix_reports_products_committed_bitflag'), table_name='reports')
-    op.drop_index(op.f('ix_reports_id'), table_name='reports')
     op.drop_index(op.f('ix_reports_finish_time'), table_name='reports')
     op.drop_index(op.f('ix_reports_exposure_id'), table_name='reports')
     op.drop_index(op.f('ix_reports_created_at'), table_name='reports')
+    op.drop_index(op.f('ix_reports__id'), table_name='reports')
     op.drop_table('reports')
     op.drop_index('knownexposures_q3c_ang2ipix_idx', table_name='knownexposures')
     op.drop_index(op.f('ix_knownexposures_mjd'), table_name='knownexposures')
     op.drop_index(op.f('ix_knownexposures_instrument'), table_name='knownexposures')
     op.drop_index(op.f('ix_knownexposures_identifier'), table_name='knownexposures')
-    op.drop_index(op.f('ix_knownexposures_id'), table_name='knownexposures')
     op.drop_index(op.f('ix_knownexposures_gallat'), table_name='knownexposures')
     op.drop_index(op.f('ix_knownexposures_ecllat'), table_name='knownexposures')
     op.drop_index(op.f('ix_knownexposures_created_at'), table_name='knownexposures')
+    op.drop_index(op.f('ix_knownexposures__id'), table_name='knownexposures')
     op.drop_table('knownexposures')
     op.drop_index(op.f('ix_images_zero_point_estimate'), table_name='images')
     op.drop_index(op.f('ix_images_telescope'), table_name='images')
@@ -904,7 +900,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_images_is_sub'), table_name='images')
     op.drop_index(op.f('ix_images_is_coadd'), table_name='images')
     op.drop_index(op.f('ix_images_instrument'), table_name='images')
-    op.drop_index(op.f('ix_images_id'), table_name='images')
     op.drop_index(op.f('ix_images_gallat'), table_name='images')
     op.drop_index(op.f('ix_images_fwhm_estimate'), table_name='images')
     op.drop_index(op.f('ix_images_filter'), table_name='images')
@@ -923,6 +918,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_images_airmass'), table_name='images')
     op.drop_index(op.f('ix_images__upstream_bitflag'), table_name='images')
     op.drop_index(op.f('ix_images__type'), table_name='images')
+    op.drop_index(op.f('ix_images__id'), table_name='images')
     op.drop_index(op.f('ix_images__bitflag'), table_name='images')
     op.drop_index('images_q3c_ang2ipix_idx', table_name='images')
     op.drop_table('images')
@@ -930,8 +926,8 @@ def downgrade() -> None:
     op.drop_table('provenance_upstreams')
     op.drop_index(op.f('ix_provenance_tags_tag'), table_name='provenance_tags')
     op.drop_index(op.f('ix_provenance_tags_provenance_id'), table_name='provenance_tags')
-    op.drop_index(op.f('ix_provenance_tags_id'), table_name='provenance_tags')
     op.drop_index(op.f('ix_provenance_tags_created_at'), table_name='provenance_tags')
+    op.drop_index(op.f('ix_provenance_tags__id'), table_name='provenance_tags')
     op.drop_table('provenance_tags')
     op.drop_index(op.f('ix_exposures_target'), table_name='exposures')
     op.drop_index(op.f('ix_exposures_provenance_id'), table_name='exposures')
@@ -939,7 +935,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_exposures_origin_identifier'), table_name='exposures')
     op.drop_index(op.f('ix_exposures_mjd'), table_name='exposures')
     op.drop_index(op.f('ix_exposures_instrument'), table_name='exposures')
-    op.drop_index(op.f('ix_exposures_id'), table_name='exposures')
     op.drop_index(op.f('ix_exposures_gallat'), table_name='exposures')
     op.drop_index(op.f('ix_exposures_filter_array'), table_name='exposures')
     op.drop_index(op.f('ix_exposures_filter'), table_name='exposures')
@@ -949,13 +944,14 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_exposures_created_at'), table_name='exposures')
     op.drop_index(op.f('ix_exposures_airmass'), table_name='exposures')
     op.drop_index(op.f('ix_exposures__type'), table_name='exposures')
+    op.drop_index(op.f('ix_exposures__id'), table_name='exposures')
     op.drop_index(op.f('ix_exposures__bitflag'), table_name='exposures')
     op.drop_index('exposures_q3c_ang2ipix_idx', table_name='exposures')
     op.drop_table('exposures')
     op.drop_index(op.f('ix_data_files_provenance_id'), table_name='data_files')
-    op.drop_index(op.f('ix_data_files_id'), table_name='data_files')
     op.drop_index(op.f('ix_data_files_filepath'), table_name='data_files')
     op.drop_index(op.f('ix_data_files_created_at'), table_name='data_files')
+    op.drop_index(op.f('ix_data_files__id'), table_name='data_files')
     op.drop_table('data_files')
     op.drop_index(op.f('ix_provenances_replaced_by'), table_name='provenances')
     op.drop_index(op.f('ix_provenances_process'), table_name='provenances')
@@ -972,25 +968,25 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_sensor_sections_validity_end'), table_name='sensor_sections')
     op.drop_index(op.f('ix_sensor_sections_instrument'), table_name='sensor_sections')
     op.drop_index(op.f('ix_sensor_sections_identifier'), table_name='sensor_sections')
-    op.drop_index(op.f('ix_sensor_sections_id'), table_name='sensor_sections')
     op.drop_index(op.f('ix_sensor_sections_defective'), table_name='sensor_sections')
     op.drop_index(op.f('ix_sensor_sections_created_at'), table_name='sensor_sections')
+    op.drop_index(op.f('ix_sensor_sections__id'), table_name='sensor_sections')
     op.drop_table('sensor_sections')
     op.drop_index(op.f('ix_refsets_upstream_hash'), table_name='refsets')
     op.drop_index(op.f('ix_refsets_name'), table_name='refsets')
-    op.drop_index(op.f('ix_refsets_id'), table_name='refsets')
     op.drop_index(op.f('ix_refsets_created_at'), table_name='refsets')
+    op.drop_index(op.f('ix_refsets__id'), table_name='refsets')
     op.drop_table('refsets')
-    op.drop_index(op.f('ix_pipelineworkers_id'), table_name='pipelineworkers')
     op.drop_index(op.f('ix_pipelineworkers_created_at'), table_name='pipelineworkers')
+    op.drop_index(op.f('ix_pipelineworkers__id'), table_name='pipelineworkers')
     op.drop_table('pipelineworkers')
     op.drop_index('objects_q3c_ang2ipix_idx', table_name='objects')
     op.drop_index(op.f('ix_objects_name'), table_name='objects')
     op.drop_index(op.f('ix_objects_is_bad'), table_name='objects')
-    op.drop_index(op.f('ix_objects_id'), table_name='objects')
     op.drop_index(op.f('ix_objects_gallat'), table_name='objects')
     op.drop_index(op.f('ix_objects_ecllat'), table_name='objects')
     op.drop_index(op.f('ix_objects_created_at'), table_name='objects')
+    op.drop_index(op.f('ix_objects__id'), table_name='objects')
     op.drop_table('objects')
     op.drop_index(op.f('ix_code_versions_created_at'), table_name='code_versions')
     op.drop_table('code_versions')
@@ -1005,7 +1001,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_catalog_excerpts_maxra'), table_name='catalog_excerpts')
     op.drop_index(op.f('ix_catalog_excerpts_maxmag'), table_name='catalog_excerpts')
     op.drop_index(op.f('ix_catalog_excerpts_maxdec'), table_name='catalog_excerpts')
-    op.drop_index(op.f('ix_catalog_excerpts_id'), table_name='catalog_excerpts')
     op.drop_index(op.f('ix_catalog_excerpts_gallat'), table_name='catalog_excerpts')
     op.drop_index(op.f('ix_catalog_excerpts_filepath'), table_name='catalog_excerpts')
     op.drop_index(op.f('ix_catalog_excerpts_ecllat'), table_name='catalog_excerpts')
@@ -1015,13 +1010,14 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_catalog_excerpts_dec_corner_00'), table_name='catalog_excerpts')
     op.drop_index(op.f('ix_catalog_excerpts_created_at'), table_name='catalog_excerpts')
     op.drop_index(op.f('ix_catalog_excerpts__origin'), table_name='catalog_excerpts')
+    op.drop_index(op.f('ix_catalog_excerpts__id'), table_name='catalog_excerpts')
     op.drop_index('catalog_excerpts_q3c_ang2ipix_idx', table_name='catalog_excerpts')
     op.drop_table('catalog_excerpts')
     op.drop_index(op.f('ix_calibfile_downloadlock_sensor_section'), table_name='calibfile_downloadlock')
     op.drop_index(op.f('ix_calibfile_downloadlock_instrument'), table_name='calibfile_downloadlock')
-    op.drop_index(op.f('ix_calibfile_downloadlock_id'), table_name='calibfile_downloadlock')
     op.drop_index(op.f('ix_calibfile_downloadlock_created_at'), table_name='calibfile_downloadlock')
     op.drop_index(op.f('ix_calibfile_downloadlock__type'), table_name='calibfile_downloadlock')
+    op.drop_index(op.f('ix_calibfile_downloadlock__id'), table_name='calibfile_downloadlock')
     op.drop_index(op.f('ix_calibfile_downloadlock__flat_type'), table_name='calibfile_downloadlock')
     op.drop_index(op.f('ix_calibfile_downloadlock__calibrator_set'), table_name='calibfile_downloadlock')
     op.drop_table('calibfile_downloadlock')

@@ -31,13 +31,13 @@ def test_code_versions( code_version ):
     try:
         with SmartSession() as session:
             git_hash = get_git_hash()
-            ch = session.scalars(sa.select(CodeHash).where(CodeHash.id == git_hash)).first()
-            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.id == 'test_v1.0.0')).first()
+            ch = session.scalars(sa.select(CodeHash).where(CodeHash._id == git_hash)).first()
+            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
             assert cv is not None
             assert cv.id == code_version.id
             assert cv.code_hashes[0].id == ch.id
 
-            ch2 = session.scalars(sa.select(CodeHash).where(CodeHash.id == old_hash)).first()
+            ch2 = session.scalars(sa.select(CodeHash).where(CodeHash._id == old_hash)).first()
             assert ch2 is None
             ch2 = CodeHash( id=old_hash, code_version_id=code_version.id )
             session.add( ch2 )
@@ -45,7 +45,7 @@ def test_code_versions( code_version ):
     finally:
         # Remove the code hash we added
         with SmartSession() as session:
-            session.execute( sa.text( "DELETE FROM code_hashes WHERE id=:hash" ), { 'hash': old_hash } )
+            session.execute( sa.text( "DELETE FROM code_hashes WHERE _id=:hash" ), { 'hash': old_hash } )
 
 
 def test_provenances(code_version):
@@ -104,7 +104,7 @@ def test_provenances(code_version):
             assert p3.code_version_id == code_version.id
     finally:
         with SmartSession() as session:
-            session.execute(sa.delete(Provenance).where(Provenance.id.in_([pid1, pid2])))
+            session.execute(sa.delete(Provenance).where(Provenance._id.in_([pid1, pid2])))
             session.commit()
 
 
@@ -147,7 +147,7 @@ def test_unique_provenance_hash(code_version):
     finally:
         if 'pid' in locals():
             with SmartSession() as session:
-                session.execute(sa.delete(Provenance).where(Provenance.id == pid))
+                session.execute(sa.delete(Provenance).where(Provenance._id == pid))
                 session.commit()
 
 
@@ -202,13 +202,13 @@ def test_upstream_relationship( provenance_base, provenance_extra ):
             assert pid2 in [ p.id for p in provenance_extra.get_downstreams() ]
 
         finally:
-            session.execute(sa.delete(Provenance).where(Provenance.id.in_(new_ids)))
+            session.execute(sa.delete(Provenance).where(Provenance._id.in_(new_ids)))
             session.commit()
 
-            fixture_provenances = session.scalars(sa.select(Provenance).where(Provenance.id.in_(fixture_ids))).all()
+            fixture_provenances = session.scalars(sa.select(Provenance).where(Provenance._id.in_(fixture_ids))).all()
             assert len(fixture_provenances) == 2
             cv = session.scalars(sa.select(CodeVersion)
-                                 .where(CodeVersion.id == provenance_base.code_version_id)).first()
+                                 .where(CodeVersion._id == provenance_base.code_version_id)).first()
             assert cv is not None
 
 

@@ -74,20 +74,12 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         self._method = BackgroundMethodConverter.convert(value)
 
     sources_id = sa.Column(
-        sa.ForeignKey('source_lists.id', ondelete='CASCADE', name='backgrounds_source_lists_id_fkey'),
+        sa.ForeignKey('source_lists._id', ondelete='CASCADE', name='backgrounds_source_lists_id_fkey'),
         nullable=False,
         index=True,
         unique=True,
         doc="ID of the source list this background is associated with"
     )
-
-    # image = orm.relationship(
-    #     'Image',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     passive_deletes=True,
-    #     lazy='selectin',
-    #     doc="Image for which this is the background."
-    # )
 
     value = sa.Column(
         sa.Float,
@@ -102,32 +94,6 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         nullable=False,
         doc="Noise RMS of the background (in units of counts), as a best representative value for the entire image."
     )
-
-    # provenance_id = sa.Column(
-    #     sa.ForeignKey('provenances.id', ondelete="CASCADE", name='backgrounds_provenance_id_fkey'),
-    #     nullable=False,
-    #     index=True,
-    #     doc=(
-    #         "ID of the provenance of this Background object. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this Background object."
-    #     )
-    # )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this Background object. "
-    #         "The provenance will contain a record of the code version"
-    #         "and the parameters used to produce this Background object."
-    #     )
-    # )
-
-    # __table_args__ = (
-    #     sa.Index( 'backgrounds_image_id_provenance_index', 'image_id', 'provenance_id', unique=True ),
-    # )
 
     @property
     def image_shape(self):
@@ -210,8 +176,8 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
                                     "Image are already saved to the database." )
             with SmartSession() as session:
                 image = ( session.query( Image )
-                          .join( SourceList, Image.id==SourceList.image_id )
-                          .filter( SourceList.id==kwargs['sources_id'] )
+                          .join( SourceList, Image._id==SourceList.image_id )
+                          .filter( SourceList._id==kwargs['sources_id'] )
                          ).first()
                 if image is None:
                     raise RuntimeError( "Error, can't figure out background image_shape.  Either explicitly pass "
@@ -265,7 +231,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         elif self.format == 'map':
             return image - self.counts
         else:
-            raise RuntimeError( f"Don't know how to subtraction background of type {self.format}" )
+            raise RuntimeError( f"Don't know how to subtract background of type {self.format}" )
 
     def save( self, filename=None, image=None, sources=None, **kwargs ):
         """Write the Background to disk.
@@ -497,8 +463,8 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
     @property
     def provenance_id( self ):
-        raise RutimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )
+        raise RuntimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )
 
     @provenance_id.setter
     def provenance_id( self, val ):
-        raise RutimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )
+        raise RuntimeError( f"Background.provenance_id is deprecated; use corresponding SourceList.provenance_id" )

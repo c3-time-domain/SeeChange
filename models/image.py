@@ -59,11 +59,11 @@ image_upstreams_association_table = sa.Table(
     Base.metadata,
     sa.Column('upstream_id',
               sqlUUID,
-              sa.ForeignKey('images.id', ondelete="RESTRICT", name='image_upstreams_association_upstream_id_fkey'),
+              sa.ForeignKey('images._id', ondelete="RESTRICT", name='image_upstreams_association_upstream_id_fkey'),
               primary_key=True),
     sa.Column('downstream_id',
               sqlUUID,
-              sa.ForeignKey('images.id', ondelete="CASCADE", name='image_upstreams_association_downstream_id_fkey'),
+              sa.ForeignKey('images._id', ondelete="CASCADE", name='image_upstreams_association_downstream_id_fkey'),
               primary_key=True),
 )
 
@@ -103,7 +103,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._format = ImageFormatConverter.convert(value)
 
     exposure_id = sa.Column(
-        sa.ForeignKey('exposures.id', ondelete='SET NULL', name='images_exposure_id_fkey'),
+        sa.ForeignKey('exposures._id', ondelete='SET NULL', name='images_exposure_id_fkey'),
         nullable=True,
         index=True,
         doc=(
@@ -112,56 +112,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         )
     )
 
-    # exposure = orm.relationship(
-    #     'Exposure',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     doc=(
-    #         "Exposure from which this image was derived. "
-    #         "Only set for single-image objects."
-    #     )
-    # )
-
-    # upstream_images = orm.relationship(
-    #     'Image',
-    #     secondary=image_upstreams_association_table,
-    #     primaryjoin='images.c.id == image_upstreams_association.c.downstream_id',
-    #     secondaryjoin='images.c.id == image_upstreams_association.c.upstream_id',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     passive_deletes=True,
-    #     lazy='selectin',
-    #     join_depth=1,  # this enables the eager load of one generation of upstreams
-    #     order_by='images.c.mjd',  # in chronological order of exposure start time
-    #     doc='Images used to produce a multi-image object, like a coadd or a subtraction. '
-    # )
-
-    # downstream_images = orm.relationship(
-    #     'Image',
-    #     secondary=image_upstreams_association_table,
-    #     primaryjoin='images.c.id == image_upstreams_association.c.upstream_id',
-    #     secondaryjoin='images.c.id == image_upstreams_association.c.downstream_id',
-    #     overlaps="upstream_images",
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     passive_deletes=True,
-    #     order_by='images.c.mjd',  # in chronological order of exposure start time
-    #     doc='Combined Images (like coadds or a subtractions) that use this image in their production. '
-    # )
-
     ref_image_id = sa.Column(
-        sa.ForeignKey('images.id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
+        sa.ForeignKey('images._id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
         nullable=True,
         index=True,
         doc="ID of the reference image used to produce this image, in the upstream_images list. "
     )
-
-    # ref_image = orm.relationship(
-    #     'Image',
-    #     primaryjoin='Image.ref_image_id == Image.id',
-    #     remote_side='Image.id',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     uselist=False,
-    #     lazy='selectin',
-    #     doc="Reference image used to produce this image, in the upstream_images list. "
-    # )
 
     @property
     def new_image_id(self):
@@ -171,54 +127,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             return None
         return image[0]
 
-    # @new_image.setter
-    # def new_image(self, value):
-    #     if value is None:
-    #         raise ValueError('Do not assign None to new_image. Simply clear the upstream_images list.')
-    #     if not isinstance(value, Image):
-    #         raise ValueError("The new_image must be an Image object.")
-    #     if len(self.upstream_images) not in [1, 2]:
-    #         raise ValueError("This only works for subtractions that have one or two upstream images.")
-
-    #     if self.upstream_images[0].id == self.ref_image_id:
-    #         if len(self.upstream_images) == 1:
-    #             self.upstream_images.append(value)
-    #         elif len(self.upstream_images) == 2:
-    #             self.upstream_images[1] = value
-    #         else:
-    #             raise ValueError('This should not happen!')
-    #     elif self.upstream_images[1].id == self.ref_image_id:
-    #         self.upstream_images[0] = value
-    #     else:
-    #         raise ValueError(f"The ref_image_id ({self.ref_image_id}) is not in the upstream_images list.")
-
-    # @property
-    # def new_aligned_image(self):
-    #     """Get the aligned image that is NOT the reference image.
-    #     This only works on subtractions (with ref+new upstreams).
-    #     Will lazy-calculate the aligned images, if they are missing.
-    #     """
-    #     image = [im for im in self.aligned_images if im.info['original_image_id'] != self.ref_image_id]
-    #     if len(image) == 0 or len(image) > 1:
-    #         return None
-    #     return image[0]
-
-    # @property
-    # def ref_aligned_image(self):
-    #     """Get the aligned reference image. Will lazy-calculate the aligned images, if they are missing. """
-    #     image = [im for im in self.aligned_images if im.info['original_image_id'] == self.ref_image_id]
-    #     if len(image) == 0:
-    #         return None
-    #     return image[0]
-
     @property
     def upstream_image_ids( self ):
         if self._upstream_ids is None:
             with SmartSession() as session:
-                self.get_id()
                 them = list ( session.query( image_upstreams_association_table.c.upstream_id,
                                              Image.mjd )
-                              .join( Image, Image.id == image_upstreams_association_table.c.upstream_id )
+                              .join( Image, Image._id == image_upstreams_association_table.c.upstream_id )
                               .filter( image_upstreams_association_table.c.downstream_id == self.id )
                               .all() )
             them.sort( key=lambda x: x[1] )
@@ -273,7 +188,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._type = ImageTypeConverter.convert(value)
 
     provenance_id = sa.Column(
-        sa.ForeignKey('provenances.id', ondelete="CASCADE", name='images_provenance_id_fkey'),
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='images_provenance_id_fkey'),
         nullable=False,
         index=True,
         doc=(
@@ -282,17 +197,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             "and the parameters used to produce this image. "
         )
     )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this image. "
-    #         "The provenance will contain a record of the code version "
-    #         "and the parameters used to produce this image. "
-    #     )
-    # )
 
     info = sa.Column(
         JSONB,
@@ -518,15 +422,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._psfflux = None  # the PSF-fitted equivalent flux of the image (2D float array)
         self._psffluxerr = None  # the error in the PSF-fitted equivalent flux of the image (2D float array)
 
-        # additional data products that could go with the Image
-        # self.sources = None  # the sources extracted from this Image (optionally loaded)
-        # self.psf = None  # the point-spread-function object (optionally loaded)
-        # self.bg = None  # the background object (optionally loaded)
-        # self.wcs = None  # the WorldCoordinates object (optionally loaded)
-        # self.zp = None  # the zero-point object (optionally loaded)
-
-        # self._aligner = None  # an ImageAligner object (lazy loaded using the provenance parameters)
-        # self._aligned_images = None  # a list of Images that are aligned to one image (lazy calculated, not committed)
         self._nandata = None  # a copy of the image data, only with NaNs at each flagged point. Lazy calculated.
         self._nanscore = None  # a copy of the image score, only with NaNs at each flagged point. Lazy calculated.
 
@@ -563,14 +458,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         for att in self.saved_extensions:
             setattr(self, f'_{att}', None)
 
-        # self.sources = None
-        # self.psf = None
-        # self.bg = None
-        # self.wcs = None
-        # self.zp = None
-
-        # self._aligner = None
-        # self._aligned_images = None
         self._nandata = None
         self._nanscore = None
 
@@ -666,97 +553,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         """
         raise RuntimeError( "merge_all should no longer be necessary; use upsert or insert" )
 
-        new_image = self.safe_merge(session=session)
-
-        # Note -- this next block of code is useful for trying to debug
-        #  sqlalchemy weirdness.  However, because it calls the __repr__
-        #  method of various objects, it actually causes tests to fail.
-        #  In particular, there are tests that use 'ZTF' as the instrument,
-        #  but the code has no ZTF instrument defined, so calling
-        #  Image.__repr__ throws an error.  As such, comment the
-        #  code out below, but leave it here in case somebody wants
-        #  to temporarily re-enable it for debugging purposes.
-        #
-        # import io
-        # strio = io.StringIO()
-        # strio.write( "In image.merge_all; objects in session:\n" )
-        # if len( session.new ) > 0 :
-        #     strio.write( "    NEW:\n" )
-        #     for obj in session.new:
-        #         strio.write( f"        {obj}\n" )
-        # if len( session.dirty ) > 0:
-        #     strio.write( "    DIRTY:\n" )
-        #     for obj in session.dirty:
-        #         strio.write( f"        {obj}\n" )
-        # if len( session.deleted ) > 0:
-        #     strio.write( "    DELETED:\n" )
-        #     for obj in session.deleted:
-        #         strio.write( f"        {obj}\n" )
-        # SCLogger.debug( strio.getvalue() )
-
-        session.flush()  # make sure new_image gets an ID
-
-        if self.sources is not None:
-            self.sources.image = new_image
-            self.sources.provenance_id = self.sources.provenance.id if self.sources.provenance is not None else None
-            new_sources = self.sources.merge_all(session=session)
-            new_image.sources = new_sources
-
-            if new_image.sources.wcs is not None:
-                new_image.wcs = new_image.sources.wcs
-                new_image.wcs.sources = new_image.sources
-                new_image.wcs.sources_id = new_image.sources.id
-                new_image.wcs.provenance_id = new_image.wcs.provenance.id if new_image.wcs.provenance is not None else None
-
-            if new_image.sources.zp is not None:
-                new_image.zp = new_image.sources.zp
-                new_image.zp.sources = new_image.sources
-                new_image.zp.sources_id = new_image.sources.id
-                new_image.zp.provenance_id = new_image.zp.provenance.id if new_image.zp.provenance is not None else None
-
-            new_image.cutouts = new_image.sources.cutouts
-            new_image.measurements = new_image.sources.measurements
-            # new_image._aligned_images = self._aligned_images
-
-            # if self.wcs is not None:
-            #     self.wcs.sources = new_image.sources
-            #     self.wcs.sources_id = new_image.sources.id
-            #     self.wcs.provenance_id = self.wcs.provenance.id if self.wcs.provenance is not None else None
-            #     # new_image.wcs = self.wcs.safe_merge(session=session)
-            #     new_image.wcs = session.merge(self.wcs)
-            #
-            # if self.zp is not None:
-            #     self.zp.sources = new_image.sources
-            #     self.zp.sources_id = new_image.sources.id
-            #     self.zp.provenance_id = self.zp.provenance.id if self.zp.provenance is not None else None
-            #     # new_image.zp = self.zp.safe_merge(session=session)
-            #     new_image.zp = session.merge(self.zp)
-
-        if self.psf is not None:
-            self.psf.image = new_image
-            self.psf.image_id = new_image.id
-            self.psf.provenance_id = self.psf.provenance.id if self.psf.provenance is not None else None
-            new_image.psf = self.psf.safe_merge(session=session)
-
-        if self.bg is not None:
-            self.bg.image = new_image
-            self.bg.image_id = new_image.id
-            self.bg.provenance_id = self.bg.provenance.id if self.bg.provenance is not None else None
-            new_image.bg = self.bg.safe_merge(session=session)
-
-        # take care of the upstream images and their products
-        try:
-            upstream_list = self.upstream_images  # can use the original images, before merging into new_image
-        except DetachedInstanceError as e:
-            if "lazy load operation of attribute 'upstream_images' cannot proceed" in str(e):
-                upstream_list = []  # can't access the upstream images, so just we have no use calling merge_all
-            else:  # other errors should be treated normally
-                raise e
-
-        for i, im in enumerate(upstream_list):
-            new_image.upstream_images[i] = im.merge_all(session)
-
-        return new_image
 
     def set_corners_from_header_wcs( self, wcs=None, setradec=False ):
         """Update the image's four corners (and, optionally, RA/Dec) from a WCS.
@@ -1054,16 +850,16 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         # Make sure input images all have ids set.  If these images were
         #   loaded from the database, then the ids will be set.  If they
-        #   were created fresh, then they don't have ids yet, so make
-        #   them with UUIDMixin.get_id().  This does mean that the exact
-        #   image objects passed need to be saved to the database when
-        #   the coadded image is saved, so the ids track properly;
-        #   otherwise, we'll end up with database integriyt errors.
-        #   This is probably not an issue; in practical usage, most of
-        #   the time we'll be coadding images from the database.  When
-        #   we won't is mostly going to be in tests where we don't want
-        #   to save, or where we can control this.
-        upstream_ids = [ i.get_id() for i in images ]
+        #   were created fresh, then they don't have ids yet, but
+        #   accessing the id property will set them.  This does mean
+        #   that the exact image objects passed need to be saved to the
+        #   database when the coadded image is saved, so the ids track
+        #   properly; otherwise, we'll end up with database integrity
+        #   errors.  This is probably not an issue; in practical usage,
+        #   most of the time we'll be coadding images from the database.
+        #   When we won't is mostly going to be in tests where we don't
+        #   want to save, or where we can control this.
+        upstream_ids = [ i.id for i in images ]
 
         output = Image(nofile=True)
 
@@ -1161,9 +957,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if new_image is None:
             raise ValueError("Must provide a new image.")
 
-        # See the comment in from_images above the line upstream_ids = [ ...
-        ref_image_id = ref_image.get_id()
-        new_image_id = new_image.get_id()
+        ref_image_id = ref_image.id
+        new_image_id = new_image.id
 
         output = Image(nofile=True)
 
@@ -1727,20 +1522,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         if free_derived_products:
             raise RuntimeError( "derived products are deprecated" )
-        # if free_derived_products:
-        #     if self.sources is not None:
-        #         self.sources.free()
-        #     if self.psf is not None:
-        #         self.psf.free()
-        #     if self.bg is not None:
-        #         self.bg.free()
-        #     if self.wcs is not None:
-        #         self.wcs.free()
 
-        # if free_aligned:
-        #     if self._aligned_images is not None:
-        #         for alim in self._aligned_images:
-        #             alim.free( free_derived_products=free_derived_products, only_free=only_free )
 
     def load_products(self, provenances, session=None, must_find_all=True):
         """Load the products associated with this image, using a list of provenances.
@@ -1762,59 +1544,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         """
         raise RuntimeError( "Don't use this, data products are in DataStore" )
-        # from models.source_list import SourceList
-        # from models.psf import PSF
-        # from models.background import Background
-        # from models.world_coordinates import WorldCoordinates
-        # from models.zero_point import ZeroPoint
 
-        # if self.id is None:
-        #     raise ValueError('Cannot load products for an image without an ID!')
-
-        # provenances = listify(provenances)
-        # if not provenances:
-        #     raise ValueError('Need at least one provenance to load products! ')
-
-        # sources = psf = bg = wcs = zp = None
-        # with SmartSession(session) as session:
-        #     for p in provenances:
-        #         if sources is None:
-        #             sources = session.scalars(
-        #                 sa.select(SourceList).where(SourceList.image_id == self.id, SourceList.provenance_id == p.id)
-        #             ).first()
-        #         if psf is None:
-        #             psf = session.scalars(
-        #                 sa.select(PSF).where(PSF.image_id == self.id, PSF.provenance_id == p.id)
-        #             ).first()
-        #         if bg is None:
-        #             bg = session.scalars(
-        #                 sa.select(Background).where(Background.image_id == self.id, Background.provenance_id == p.id)
-        #             ).first()
-
-        #         if sources is not None:
-        #             if wcs is None:
-        #                 wcs = session.scalars(
-        #                     sa.select(WorldCoordinates).where(
-        #                         WorldCoordinates.sources_id == sources.id, WorldCoordinates.provenance_id == p.id
-        #                     )
-        #                 ).first()
-        #             if zp is None:
-        #                 zp = session.scalars(
-        #                     sa.select(ZeroPoint).where(
-        #                         ZeroPoint.sources_id == sources.id, ZeroPoint.provenance_id == p.id
-        #                     )
-        #                 ).first()
-
-        #     if sources is not None:
-        #         self.sources = sources
-        #     if psf is not None:
-        #         self.psf = psf
-        #     if bg is not None:
-        #         self.bg = bg
-        #     if wcs is not None:
-        #         self.wcs = wcs
-        #     if zp is not None:
-        #         self.zp = zp
 
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.
@@ -1871,10 +1601,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         upstrprovids = [ i.id for i in upstrprov ]
 
         with SmartSession( session ) as session:
-            images = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
+            images = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
 
             # Upstream images first
-            upstrimages = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
+            upstrimages = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
 
             # Get all of the other falderal associated with those images
             upstrsources = ( session.query( SourceList )
@@ -1949,19 +1679,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         with SmartSession(session) as session:
             # Load the exposure if there is one
             if self.exposure_id is not None:
-                upstreams.append( session.query( Exposure ).filter( self.exposure_id == Exposure.id ).first() )
+                upstreams.append( session.query( Exposure ).filter( self.exposure_id == Exposure._id ).first() )
 
             if ( not self.is_coadd ) and ( not self.is_sub ):
                 # We're done!  That wasn't so bad.
                 return upstreams
 
             # This *is* so bad....
-            myprov = session.query( Provenance ).filter( self.provenance_id == Provenance.id ).first()
+            myprov = session.query( Provenance ).filter( self.provenance_id == Provenance._id ).first()
             upstrprov = myprov.get_upstreams()
             upstrprovids = [ i.id for i in upstrprov ]
 
             # Upstream images first
-            upstrimages = session.query( Image ).filter( Image.id.in_( self.upstream_image_ids ) ).all()
+            upstrimages = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
 
             # Get all of the other falderal associated with those images
             upstrsources = ( session.query( SourceList )
@@ -2017,7 +1747,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
             dsimgs = ( session.query( Image )
                        .join( image_upstreams_association_table,
-                              image_upstreams_association_table.c.downstream_id == Image.id )
+                              image_upstreams_association_table.c.downstream_id == Image._id )
                        .filter( image_upstreams_association_table.c.upstream_id == self.id )
                       ).all()
             downstreams.extend( list(dsimgs) )
@@ -2269,9 +1999,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             association = image_upstreams_association_table
 
             stmt = ( sa.select(Image)
-                     .join( association, Image.id == association.c.downstream_id )
+                     .join( association, Image._id == association.c.downstream_id )
                      .where( association.c.upstream_id.in_( [ i.id for i in images ] ) )
-                    ).group_by( Image.id )
+                    ).group_by( Image._id )
 
             if prov_id is not None:  # pick only those with the right provenance id
                 if isinstance(prov_id, Provenance):
@@ -2287,28 +2017,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 return None
 
             return output[0]  # should usually return one Image or None
-
-    # def get_psf(self):
-    #     """Load the PSF object for this image.
-
-    #     If it is a sub image, it will load the PSF from the new image.
-    #     """
-    #     if self.psf is not None:
-    #         return self.psf
-    #     if self.new_image is not None:
-    #         return self.new_image.psf
-    #     return None
-
-    # def get_wcs(self):
-    #     """Load the WCS object for this image.
-
-    #     If it is a sub image, it will load the WCS from the new image.
-    #     """
-    #     if self.wcs is not None:
-    #         return self.wcs
-    #     if self.new_image is not None:
-    #         return self.new_image.wcs
-    #     return None
 
     @property
     def data(self):

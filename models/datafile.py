@@ -22,22 +22,11 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
 
 
     provenance_id = sa.Column(
-        sa.ForeignKey( 'provenances.id', ondelete='CASCADE', name='data_files_provenance_id_fkey' ),
+        sa.ForeignKey( 'provenances._id', ondelete='CASCADE', name='data_files_provenance_id_fkey' ),
         nullable=False,
         index=True,
         doc="ID of the provenance of this miscellaneous data file"
     )
-
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "Provenance of this data file. "
-    #         "The provenance will contain a record of the code version "
-    #         "and the parameters used to produce this file. "
-    #     )
-    # )
 
     def __init__( self, *args, **kwargs ):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
@@ -53,6 +42,10 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
         Base.init_on_load( self )
         FileOnDiskMixin.init_on_load( self )
 
+    def get_downstreams( self, session=None ):
+        # DataFile has no downstreams
+        return []
+        
     def __repr__(self):
         return (
             f'<DataFile('

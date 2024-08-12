@@ -92,7 +92,7 @@ def test_image_no_null_values(provenance_base):
     finally:
         # cleanup
         with SmartSession() as session:
-            session.execute( sa.delete( Image ).where( Image.id == im_id ) )
+            session.execute( sa.delete( Image ).where( Image._id == im_id ) )
             session.commit()
 
 def test_image_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted, provenance_base ):
@@ -123,7 +123,7 @@ def test_image_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted
 
     # clean up
     with SmartSession() as sess:
-        sess.execute( sa.delete( Image ).where( Image.id==im.id ) )
+        sess.execute( sa.delete( Image ).where( Image._id==im.id ) )
         sess.commit()
         # Make sure the delete cascaded to the assocation tabe
         upstrs = ( sess.query( image_upstreams_association_table )
@@ -199,11 +199,11 @@ def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
         assert localmd5.hexdigest() == im.md5sum.hex
 
         # Make sure that the md5sum is properly saved to the database
-        assert im.id is None
+        assert im._id is None
         im.insert()
         assert im.id is not None
         with SmartSession() as session:
-            dbimage = session.query(Image).filter(Image.id == im.id)[0]
+            dbimage = session.query(Image).filter(Image._id == im.id)[0]
             assert dbimage.md5sum.hex == im.md5sum.hex
 
         # Make sure we can purge the archive
@@ -279,11 +279,11 @@ def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
                 assert m.hexdigest() == localmd5s[filename].hexdigest()
 
         # Make sure that the md5sum is properly saved to the database
-        assert im.id is None
+        assert im._id is None
         im.insert()
         assert im.id is not None
         with SmartSession() as session:
-            dbimage = session.scalars(sa.select(Image).where(Image.id == im.id)).first()
+            dbimage = session.scalars(sa.select(Image).where(Image._id == im.id)).first()
         assert dbimage.md5sum is None
         filenames = dbimage.get_fullpath( nofile=True )
         for fullpath, md5sum in zip(filenames, dbimage.md5sum_extensions):
@@ -432,7 +432,7 @@ def test_image_preproc_bitflag( sim_image1 ):
     # Reload the image from the database so the default values that get
     # set when the image is saved to the database are filled.
     with SmartSession() as session:
-        im = session.query( Image ).filter( Image.id==sim_image1.id ).first()
+        im = session.query( Image ).filter( Image._id==sim_image1.id ).first()
 
     assert im.preproc_bitflag == 0
     im.preproc_bitflag |= string_to_bitflag( 'zero', image_preprocessing_inverse )
@@ -494,7 +494,7 @@ def test_image_from_exposure(sim_exposure1, provenance_base):
         _ = Image.from_exposure(sim_exposure1, section_id=1)
 
     im = Image.from_exposure(sim_exposure1, section_id=0)
-    assert im.id is None
+    assert im._id is None
     assert im.section_id == 0
     assert im.mjd == sim_exposure1.mjd
     assert im.end_mjd == sim_exposure1.end_mjd
@@ -507,7 +507,7 @@ def test_image_from_exposure(sim_exposure1, provenance_base):
     assert im.target == sim_exposure1.target
     assert not im.is_coadd
     assert not im.is_sub
-    assert im.id is None  # need to commit to get IDs
+    assert im._id is None  # need to commit to get IDs
     assert im._upstream_ids is None
     assert im.filepath is None  # need to save file to generate a filename
     assert np.array_equal(im.raw_data, sim_exposure1.data[0])
@@ -585,8 +585,8 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
 
         # Since these images were created fresh, not loaded from the
         #  database, they don't have ids yet
-        assert im1.id is None
-        assert im2.id is None
+        assert im1._id is None
+        assert im2._id is None
 
         # make a "coadd" image from the two
         im = Image.from_images([im1, im2])
@@ -601,7 +601,7 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         assert im1.upstream_image_ids == []
         assert im2.upstream_image_ids == []
 
-        assert im.id is None
+        assert im._id is None
         assert im.exposure_id is None
         assert im.upstream_image_ids == [im1.id, im2.id]
         assert np.isclose(im.mid_mjd, (im1.mjd + im2.mjd) / 2)
@@ -624,7 +624,7 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         assert im.id is not None
 
         with SmartSession() as session:
-            newim = session.query( Image ).filter( Image.id==im.id ).first()
+            newim = session.query( Image ).filter( Image._id==im.id ).first()
         assert newim.upstream_image_ids == [ im1.id, im2.id ]
         assert newim.exposure_id is None
         assert np.isclose( im.mid_mjd, ( im1.mjd + im2.mjd ) / 2. )
@@ -668,7 +668,7 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):
         # make a coadd image from the two
         im = Image.from_ref_and_new(im1, im2)
 
-        assert im.id is None
+        assert im._id is None
         assert im.exposure_id is None
         assert im.ref_image_id == im1.id
         assert im.new_image_id == im2.id
@@ -698,7 +698,7 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base):
         for i in [ im, im1, im2 ]:
             if i is not None:
                 with SmartSession() as session:
-                    session.execute( sa.text( "DELETE FROM images WHERE id=:id" ), {'id': i.id } )
+                    session.execute( sa.text( "DELETE FROM images WHERE _id=:id" ), {'id': i.id } )
                     session.commit()
 
 
@@ -817,6 +817,12 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
     finally:
         test_config.set_value('storage.images.single_file', single_fileness)
 
+# Note: ptf_datastore is a pretty heavyweight fixture, since it has to
+#   build the ptf reference.  Perhaps this isn't a big deal, because
+#   it'll get cached so later tests that run it will not be so slow.
+#   (Still not instant, because there is all the disk writing and
+#   archive uploading.)  But, we might want to think about using a
+#   lighter weight fixture for this particular test.
 def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     ds = ptf_datastore  # shorthand
 
@@ -828,17 +834,10 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
     assert isinstance(ds.zp, ZeroPoint)
     # TODO: add more data types?
 
-    # make sure the image has the same objects
-    im = ds.image
-    assert im.psf == ds.psf
-    assert im.sources == ds.sources
-    assert im.wcs == ds.wcs
-    assert im.zp == ds.zp
-
     # make sure the files are there
     local_files = []
     archive_files = []
-    for obj in [im, im.psf, im.sources, im.wcs]:
+    for obj in [ds.image, ds.psf, ds.sources, ds.wcs]:
         for file in obj.get_fullpath(as_list=True):
             archive_file = file[len(obj.local_path)+1:]  # grap the end of the path only
             archive_file = os.path.join(archive.test_folder_path, archive_file)  # prepend the archive path
@@ -848,9 +847,9 @@ def test_image_products_are_deleted(ptf_datastore, data_dir, archive):
             archive_files.append(archive_file)
 
     # delete the image and all its downstreams
-    im.delete_from_disk_and_database(remove_folders=True, remove_downstreams=True)
+    ds.image.delete_from_disk_and_database(remove_folders=True, remove_downstreams=True)
 
-    # make sure the files are gone
+    # make sure the files are gone (including cascading down to things dependent on the image)
     for file in local_files:
         assert not os.path.isfile(file)
 
@@ -947,35 +946,32 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
     assert im.badness == ''
     im.set_badness( 'banding,shaking' )
     assert im._bitflag == ( 2**image_badness_inverse['banding'] | 2**image_badness_inverse['shaking'] )
-    assert im.id is None
-
-    im.id = uuid.uuid4()
 
     # Make sure it's not saved to the database even if we ask to commit and it has an id
     im.set_badness( None )
     assert im._bitflag == ( 2**image_badness_inverse['banding'] | 2**image_badness_inverse['shaking'] )
 
     with SmartSession() as session:
-        assert session.query( Image ).filter( Image.id==im.id ).first() is None
+        assert session.query( Image ).filter( Image._id==im.id ).first() is None
 
     # Save it to the database
     im.insert()
 
     # Make sure it's there with the expected bitflag
     with SmartSession() as session:
-        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        dbim = session.query( Image ).filter( Image._id==im.id ).first()
         assert dbim._bitflag == im._bitflag
 
     # Make a change to the bitflag and make sure it doesn't get committed if we don't want it to
     im.set_badness( '', commit=False )
     with SmartSession() as session:
-        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        dbim = session.query( Image ).filter( Image._id==im.id ).first()
         assert dbim._bitflag == ( 2**image_badness_inverse['banding'] | 2**image_badness_inverse['shaking'] )
 
     # Make sure it gets saved if we do set_badness with None
     im.set_badness( None )
     with SmartSession() as session:
-        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        dbim = session.query( Image ).filter( Image._id==im.id ).first()
         assert dbim._bitflag == 0
 
     # Make sure it gets saved if we set_badness without commit=False
@@ -983,7 +979,7 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
     im.set_badness( 'saturation' )
     assert im._bitflag == 2**image_badness_inverse['saturation']
     with SmartSession() as session:
-        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        dbim = session.query( Image ).filter( Image._id==im.id ).first()
         assert dbim._bitflag == im._bitflag
 
     # Make sure we can append without committing
@@ -991,7 +987,7 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
     im.append_badness( 'shaking', commit=False )
     assert im._bitflag == 2**image_badness_inverse['saturation'] | 2**image_badness_inverse['shaking']
     with SmartSession() as session:
-        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        dbim = session.query( Image ).filter( Image._id==im.id ).first()
         assert dbim._bitflag == 2**image_badness_inverse['saturation']
 
     # Make sure we can append with committing
@@ -1001,7 +997,7 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
                             2**image_badness_inverse['shaking'] |
                             2**image_badness_inverse['banding'] )
     with SmartSession() as session:
-        dbim = session.query( Image ).filter( Image.id==im.id ).first()
+        dbim = session.query( Image ).filter( Image._id==im.id ).first()
         assert dbim._bitflag == im._bitflag
 
     # No need to clean up, the exposure from which sim_image_uncommitted was generated

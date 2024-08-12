@@ -183,7 +183,7 @@ class AstroCalibrator:
                                        f"{catexp.origin}; only gaia_dr3 is implemented." )
 
         if sources.filepath is None:
-            sources.save()
+            sources.save( image=image )
 
         sourcefile = pathlib.Path( sources.get_fullpath() )
         catfile = pathlib.Path( catexp.get_fullpath() )
@@ -264,7 +264,7 @@ class AstroCalibrator:
         self.crossid_radius = radius
         self.catexp = catexp
 
-        ds.wcs = WorldCoordinates( sources_id=sources.get_id() )
+        ds.wcs = WorldCoordinates( sources_id=sources.id )
         ds.wcs.wcs = wcs
 
     # ----------------------------------------------------------------------
