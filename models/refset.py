@@ -41,13 +41,12 @@ class RefSet(Base, UUIDMixin):
         doc="Description of the reference set. "
     )
 
-    upstream_hash = sa.Column(
-        sa.Text,
-        nullable=False,
-        index=True,
-        doc="Hash of the upstreams used to make the reference provenance. "
-    )
-
+    @classmethod
+    def get_by_name( cls, name, session=None ):
+        with SmartSession( session ) as sess:
+            refset = sess.query( RefSet ).filter( RefSet.name==name ).first()
+            return refset
+    
     @property
     def provenances( self ):
         if self._provenances is None:
@@ -56,7 +55,7 @@ class RefSet(Base, UUIDMixin):
 
     @provenances.setter
     def provenances( self, val ):
-        raise RuntimeError( "Don't set provenances directly, append_provenance" )
+        raise RuntimeError( "Don't set provenances directly, use append_provenance()" )
 
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values

@@ -19,6 +19,7 @@ from models.exposure import Exposure
 from models.image import Image
 from models.datafile import DataFile
 from models.reference import Reference
+from models.refset import RefSet
 
 from improc.alignment import ImageAligner
 
@@ -265,6 +266,18 @@ def decam_small_image(decam_raw_image):
     yield image
 
 
+@pytest.fixture(scope='session')
+def decam_refset():
+    refset = RefSet( name='test_refset_decam' )
+    refset.insert()
+
+    yield refset
+
+    with SmartSession() as session:
+        session.execute( sa.delete( RefSet ).where( RefSet.name=='test_refset_decam' ) )
+        session.commit()
+        
+
 @pytest.fixture
 def decam_datastore(
         datastore_factory,
@@ -290,7 +303,7 @@ def decam_datastore(
         'S3',
         cache_dir=decam_cache_dir,
         cache_base_name='007/c4d_20230702_080904_S3_r_Sci_NBXRIO',
-        overrides={'subtraction': {'refset': 'test_refset_decam'}},
+        overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
         save_original_image=True,
         provtag='decam_datastore'
     )
@@ -377,9 +390,8 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 
 @pytest.fixture
 def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir,
-                                       datastore_factory, refmaker_factory ):
+                                       datastore_factory, decam_refset ):
     filebase = 'ELAIS-E1-r-templ'
-    maker = refmaker_factory( 'test_refset_decam', 'DECam', 'decam_elais_e1_two_refs_datastore' )
 
     prov = Provenance(
         code_version_id=code_version.id,
@@ -455,7 +467,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
     for ds in dses:
         ds.delete_everything()
 
-    # Clean out the provenance tag that may have been created by the refmaker_factory and datastore_factory
+    # Clean out the provenance tag that may have been created by the datastore_factory
     with SmartSession() as session:
         for tag in [ 'decam_elais_e1_two_refs_datastore',
                      'decam_elais_e1_two_refs_datastore_datastore_factory' ]:
@@ -469,15 +481,30 @@ def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
 
 @pytest.fixture
-def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_factory ):
+def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
     refs = []
-    maker = refmaker_factory('test_refset_decam', 'DECam', 'decam_elais_e1_two_references' )
-    maker.make_refset()
-    prov = maker.refset.provenances[0]
+
+    # This doesn't work right, because the refmaker makes assumptions
+    #    about the provenance of References that are wrong.
+    # prov = maker.refset.provenances[0]
+    # maker = refmaker_factory('test_refset_decam', 'DECam', 'decam_elais_e1_two_references' )
+    # maker.make_refset()
+    
+    ds = decam_elais_e1_two_refs_datastore[0]
+    upstrs = Provenance.get_batch( [ ds.image.provenance_id, ds.sources.provenance_id ] )
+    refprov = Provenance(
+        process='referencing',
+        upstreams=upstrs,
+        parameters={},
+    )
+    refprov.insert_if_needed()
+    refset = RefSet.get_by_name( 'test_refset_decam' )
+    refset.append_provenance( refprov )
+    
     for ds in decam_elais_e1_two_refs_datastore:
         ref = Reference(
             image_id = ds.image.id,
-            provenance_id = prov.id,
+            provenance_id = refprov.id,
             instrument = ds.image.instrument,
             section_id = ds.image.section_id,
             filter = ds.image.filter,
@@ -490,8 +517,7 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore, refmaker_f
 
     with SmartSession() as session:
         session.execute( sa.delete( Reference ).where( Reference._id.in_( [ r.id for r in refs ] ) ) )
-        # clean out the provenance tag that may have been created by the refmaker_factory
-        session.execute( sa.delete( ProvenanceTag ).where( ProvenanceTag.tag=='dcam_elais_e1_two_references' ) )
+        session.execute( sa.delete( Provenance ).where( Provenance._id==refprov.id ) )
         session.commit()
 
 
@@ -503,48 +529,49 @@ def decam_reference( decam_elais_e1_two_references ):
 def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
 
-@pytest.fixture(scope='session')
-def decam_refset(refmaker_factory):
-    refmaker = refmaker_factory('test_refset_decam', 'DECam', 'decam_refset' )
-    refmaker.pars.save_new_refs = True
+# @pytest.fixture(scope='session')
+# def decam_refset(refmaker_factory):
+#     refmaker = refmaker_factory('test_refset_decam', 'DECam', 'decam_refset' )
+#     refmaker.pars.save_new_refs = True
 
-    refmaker.make_refset()
+#     refmaker.make_refset()
 
-    yield refmaker.refset
+#     yield refmaker.refset
 
-    # delete all the references and the refset
-    with SmartSession() as session:
-        refmaker.refset = session.merge(refmaker.refset)
-        for prov in refmaker.refset.provenances:
-            refs = session.scalars(sa.select(Reference).where(Reference.provenance_id == prov.id)).all()
-            for ref in refs:
-                session.delete(ref)
+#     # delete all the references and the refset
+#     with SmartSession() as session:
+#         session.execute( sa.text( "DELETE FROM refs WHERE provenance_id IN "
+#                                   "( SELECT a.provenance_id FROM refset_provenance_association a "
+#                                   "  WHERE a.refset_id=:id )" ),
+#                          { 'id': refmaker.refset.id } )
+#         session.execute( sa.delete( RefSet ).where( RefSet.id==refmaker.refset.id ) )
+#         session.commit()
 
-        session.delete(refmaker.refset)
-
-        session.commit()
-
-    # Clean out the provenance tag that may have been created by the refmaker_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_refset' } )
-        session.commit()
+#     # Clean out the provenance tag that may have been created by the refmaker_factory
+#     with SmartSession() as session:
+#         session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_refset' } )
+#         session.commit()
 
 @pytest.fixture
 def decam_subtraction(decam_datastore):
+    raise RuntimeError( "Don't use this, use decam_datastore" )
     return decam_datastore.sub_image
 
 
 @pytest.fixture
 def decam_detection_list(decam_datastore):
+    raise RuntimeError( "Don't use this, use decam_datastore" )
     return decam_datastore.detections
 
 
 @pytest.fixture
 def decam_cutouts(decam_datastore):
+    raise RuntimeError( "Don't use this, use decam_datastore" )
     return decam_datastore.cutouts
 
 
 @pytest.fixture
 def decam_measurements(decam_datastore):
+    raise RuntimeError( "Don't use this, use decam_datastore" )
     return decam_datastore.measurements
 

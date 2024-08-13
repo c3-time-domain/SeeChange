@@ -353,7 +353,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         int
             The ID of the last object before the given date.
         """
-        raise RuntimeError( "Rob think about this one and race conditions" )
+        raise RuntimeError( "This no longer works now that we're not using numeric ids." )
 
         if present_time is None:
             present_time = datetime.datetime.utcnow()
@@ -392,29 +392,29 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
 
 
-# add an event listener to catch objects before insert and generate a name for them
-@sa.event.listens_for(Object, 'before_insert')
-def generate_object_name(mapper, connection, target):
-    if target.name is None:
-        target.name = 'placeholder'
+# # add an event listener to catch objects before insert and generate a name for them
+# @sa.event.listens_for(Object, 'before_insert')
+# def generate_object_name(mapper, connection, target):
+#     if target.name is None:
+#         target.name = 'placeholder'
 
 
-@sa.event.listens_for(sa.orm.session.Session, 'after_flush_postexec')
-def receive_after_flush_postexec(session, flush_context):
-    cfg = config.Config.get()
-    convention = cfg.value('object_naming_function', '<instrument><yyyy><alpha>')
-    naming_func = Object.make_naming_function(convention)
-    # ROB TODO, fix this!
-    # last_id = Object.get_last_id_for_naming(convention, session=session)
-    last_id = 666
+# @sa.event.listens_for(sa.orm.session.Session, 'after_flush_postexec')
+# def receive_after_flush_postexec(session, flush_context):
+#     cfg = config.Config.get()
+#     convention = cfg.value('object_naming_function', '<instrument><yyyy><alpha>')
+#     naming_func = Object.make_naming_function(convention)
+#     # ROB TODO, fix this!
+#     # last_id = Object.get_last_id_for_naming(convention, session=session)
+#     last_id = 666
 
-    for obj in session.identity_map.values():
-        if isinstance(obj, Object) and (obj.name is None or obj.name == 'placeholder'):
-            obj.name = naming_func(obj, last_id)
-            # print(f'Object ID: {obj.id} Name: {obj.name}')
+#     for obj in session.identity_map.values():
+#         if isinstance(obj, Object) and (obj.name is None or obj.name == 'placeholder'):
+#             obj.name = naming_func(obj, last_id)
+#             # print(f'Object ID: {obj.id} Name: {obj.name}')
 
 
-# if __name__ == '__main__':
+# If __name__ == '__main__':
 #     import datetime
 
 #     obj = Object()

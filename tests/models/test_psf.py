@@ -8,6 +8,7 @@ import math
 import pathlib
 import subprocess
 
+import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 import numpy as np
@@ -19,6 +20,7 @@ from astropy.io import fits
 from util.config import Config
 from util.logger import SCLogger
 from models.base import SmartSession, FileOnDiskMixin, CODE_ROOT, get_archive_object
+from models.provenance import Provenance
 from models.psf import PSF
 
 from util.util import env_as_bool
@@ -301,49 +303,52 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
         archive.delete(psfpath, okifmissing=True)
         archive.delete(psfxmlpath, okifmissing=True)
 
-# ROB TODO -- update this when you've updated DataStore and associated fixtures
 def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
-    im = ztf_datastore_uncommitted.image
-    psf = ztf_datastore_uncommitted.psf
+    try:
+        im = ztf_datastore_uncommitted.image
+        src = ztf_datastore_uncommitted.sources
+        psf = ztf_datastore_uncommitted.psf
 
-    with SmartSession() as session:
-        try:
-            im.provenance = session.merge(provenance_base)
-            im.save()
+        improv = Provenance( process='gratuitous image' )
+        srcprov = Provenance( process='gratuitous sources' )
+        improv.insert()
+        srcprov.insert()
 
-            prov = session.merge(provenance_base)
-            psf.provenance = prov
-            psf.save()
-            session.add(psf)
-            session.commit()
+        im.provenance_id = improv.id
+        im.save()
+        src.provenance_id = srcprov.id
+        src.save()
+        psf.save( image=im, sources=src )
+        im.insert()
+        src.insert()
+        psf.insert()
 
-            # make a copy of the PSF (we will not be able to save it, with the same image_id and provenance)
-            psf2 = PSF(format='psfex')
-            psf2._data = psf.data
-            psf2._header = psf.header
-            psf2._info = psf.info
-            psf2.image = psf.image
-            psf2.provenance = psf.provenance
-            psf2.fwhm_pixels = psf.fwhm_pixels * 2  # make it a little different
-            psf2.save(uuid.uuid4().hex[:10])
+        # TODO : make sure we can load the one we just saved
+        
+        # make a copy of the PSF (we will not be able to save it, with the same image_id and provenance)
+        psf2 = PSF(format='psfex')
+        psf2._data = psf.data
+        psf2._header = psf.header
+        psf2._info = psf.info
+        psf2.sources_id = psf.sources_id
+        psf2.fwhm_pixels = psf.fwhm_pixels * 2  # make it a little different
+        psf2.save( filename=uuid.uuid4().hex[:10], image=im, sources=src )
 
-            with pytest.raises(
-                    IntegrityError,
-                    match='duplicate key value violates unique constraint "psfs_image_id_provenance_index"'
-            ) as exp:
-                session.add(psf2)
-                session.commit()
-            session.rollback()
+        with pytest.raises( IntegrityError,
+                            match='duplicate key value violates unique constraint "ix_psfs_sources_id"' ):
+            psf2.insert()
 
-        finally:
-            if 'psf' in locals():
-                psf.delete_from_disk_and_database()
-            if 'psf2' in locals():
-                psf2.delete_from_disk_and_database()
-            if 'im' in locals():
-                im.delete_from_disk_and_database()
 
-# ROB TODO -- update this when you've updated DataStore and associated fixtures
+    finally:
+        if 'psf2' in locals():
+            psf2.delete_from_disk_and_database()
+        if 'im' in locals():
+            im.delete_from_disk_and_database()
+        # Should cascade down to delelete sources and psf
+
+        with SmartSession() as session:
+            session.execute( sa.delete( Provenance ).filter( Provenance._id.in_( [ improv.id, srcprov.id ] ) ) )
+
 @pytest.mark.skip(reason="This test regularly fails, even when flaky is used. See Issue #263")
 def test_free( decam_datastore ):
     ds = decam_datastore
@@ -375,13 +380,17 @@ def test_free( decam_datastore ):
     #  that statement.)  Empirically, origmem.rss and freemem.rss are
     #  the same right now.
 
+    # Make sure it reloads
     _ = ds.psf.data
     assert ds.psf._data is not None
     assert ds.psf._info is not None
     assert ds.psf._header is not None
-
+    ds.psf.free()
+    
     origmem = proc.memory_info()
-    ds.image.free( free_derived_products=True )
+    ds.psf.free()
+    ds.sources.free()
+    ds.image.free()
     time.sleep(sleeptime)
     assert ds.psf._data is None
     assert ds.psf._info is None
@@ -391,7 +400,7 @@ def test_free( decam_datastore ):
     assert origmem.rss - freemem.rss > 60 * 1024 * 1024
 
 
-@pytest.mark.skipif( env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
+@pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
 def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # psf_palette = round_psf_palette
     psf = psf_palette.psf

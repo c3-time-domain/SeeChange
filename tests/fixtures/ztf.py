@@ -92,14 +92,14 @@ def ztf_datastore_uncommitted( ztf_filepaths_image_sources_psf ):
     ds.sources = SourceList( filepath=str( sources.relative_to( FileOnDiskMixin.local_path ) ), format='sextrfits' )
     ds.sources.load( sources )
     ds.sources.num_sources = len( ds.sources.data )
-    ds.sources.image = ds.image
+    ds.sources.image_id = ds.image.id
 
     ds.psf = PSF( filepath=str( psf.relative_to( FileOnDiskMixin.local_path ) ), format='psfex' )
     ds.psf.load( download=False, psfpath=psf, psfxmlpath=psfxml )
     bio = io.BytesIO( ds.psf.info.encode( 'utf-8' ) )
     tab = votable.parse( bio ).get_table_by_index( 1 )
     ds.psf.fwhm_pixels = float( tab.array['FWHM_FromFluxRadius_Mean'][0] )
-    ds.psf.image = ds.image
+    ds.psf.sources_id = ds.sources.id
 
     yield ds
 

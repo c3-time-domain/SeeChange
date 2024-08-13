@@ -149,10 +149,11 @@ class Reference(Base, UUIDMixin):
 
             # For the rest, we're just going to assume that there aren't multiples in the database.
             # By construction, there shouldn't be....
-            bg = sess.query( Background ).filter( Background.sources_id == sources.id )
-            psf = sess.query( PSF ).filter( PSF.sources_id == sources.id )
-            wcs = sess.query( WorldCoordinates ).filter( WordCoordinates.sources_id == sources.id )
-            zp = sess.query( ZeroPoint ).filter( ZeroPoint.sources_id == sources.id )
+            bg = sess.query( Background ).filter( Background.sources_id == sources.id ).first()
+            psf = sess.query( PSF ).filter( PSF.sources_id == sources.id ).first()
+            wcs = ( sess.query( WorldCoordinates )
+                    .filter( WorldCoordinates.sources_id == sources.id ) ).first()
+            zp = sess.query( ZeroPoint ).filter( ZeroPoint.sources_id == sources.id ).first()
 
         return sources, bg, psf, wcs, zp
 
@@ -220,6 +221,10 @@ class Reference(Base, UUIDMixin):
             The database session to use.
             If not given, will open a session and close it at end of function.
 
+        Returns
+        -------
+          list of Reference, list of Image
+        
         """
         if ( ( ( ra is None ) or ( dec is None ) ) and
              ( ( target is None ) or ( section_id is None ) )
@@ -235,7 +240,7 @@ class Reference(Base, UUIDMixin):
         #   I want to do
 
         if ra is None:
-            stmt = ( sa.select( Reference )
+           stmt = ( sa.select( Reference, Image )
                      .where( Reference.target == target )
                      .where( Reference.section_id == section_id )
                     )
@@ -255,7 +260,7 @@ class Reference(Base, UUIDMixin):
             if target is not None:
                 stmt = stmt.where( Reference.target==target )
             if section_id is not None:
-                stmt = stmt.where( Reference.section_id==target )
+                stmt = stmt.where( Reference.section_id==str(section_id) )
 
         if instrument is not None:
             stmt = stmt.where( Reference.instrument==instrument )
@@ -277,7 +282,7 @@ class Reference(Base, UUIDMixin):
             stmt = stmt.where( Reference.provenance_id.in_(provenance_ids) )
 
         with SmartSession( session ) as sess:
-            refs = sess.scalars( stmt ).all()
+            refs = sess.execute( stmt ).all()
 
         if ra is not None:
             # Have to crop down the things found to things that actually include
@@ -287,18 +292,16 @@ class Reference(Base, UUIDMixin):
             imgs = []
             for refandimg in refsandimgs:
                 ref, img = refandimg
-                poly = shapely.geometry.Polygon(
-                    ( img.ra_corner_00, img.dec_corner_00 ),
-                    ( img.ra_corner_01, img.dec_corner_01 ),
-                    ( img.ra_corner_11, img.dec_corner_11 ),
-                    ( img.ra_corner_10, img.dec_corner_10 ),
-                    ( img.ra_corner_00, img.dec_corner_00 )
-                )
+                poly = shapely.geometry.Polygon( [ ( img.ra_corner_00, img.dec_corner_00 ),
+                                                   ( img.ra_corner_01, img.dec_corner_01 ),
+                                                   ( img.ra_corner_11, img.dec_corner_11 ),
+                                                   ( img.ra_corner_10, img.dec_corner_10 ),
+                                                   ( img.ra_corner_00, img.dec_corner_00 ) ] )
                 if poly.contains( shapely.geometry.Point( ra, dec ) ):
                     refs.append( ref )
                     imgs.append( img )
 
-        return refs
+        return refs, imgs
 
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions

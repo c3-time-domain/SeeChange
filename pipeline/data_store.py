@@ -21,16 +21,6 @@ from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 
-# Setting this to True is useful for testing
-# (Otherwise, DataStore catches and stores exceptions, only
-# raising them later when you try to access an attribute,
-# which makes it at least annoying to track down exactly
-# where the original exception occurred.)
-# (Aside: this doesn't seem to be working as I want;
-# exceptions are still getting swallowed when run
-# from within pytest. :( .)
-_IMMEDIATELY_RERAISE_DATASTORE_EXCEPTIONS = True
-
 # for each process step, list the steps that go into its upstream
 UPSTREAM_STEPS = {
     'exposure': [],  # no upstreams
@@ -104,11 +94,17 @@ class DataStore:
         'section_id',
         'image_id',
         'session',
+        # Things specific to the zogy subtraction method
+        'zogy_score',
+        'zogy_alpha',
+        'zogy_alpha_err',
+        'zogy_psf'
     ]
 
     # These are the various data products that the DataStore can hold
     # These getters and setters make sure that the relationship IDs
-    # between them are all set.
+    # between them are all set, and that if something is set to None,
+    # everything downstream is also set to None.
 
     @property
     def exposure_id( self ):
@@ -310,7 +306,7 @@ class DataStore:
     def ref_sources( self ):
         if self._ref_sources is None:
             if self.reference is not None:
-                ( self._ref_sources, self.ref_bg, self._ref_psf,
+                ( self._ref_sources, self._ref_bg, self._ref_psf,
                   self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
         return self._ref_sources
 
@@ -322,7 +318,7 @@ class DataStore:
     def ref_bg( self ):
         if self._ref_bg is None:
             if self.reference is not None:
-                ( self._ref_sources, self.ref_bg, self._ref_psf,
+                ( self._ref_sources, self._ref_bg, self._ref_psf,
                   self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
         return self._ref_bg
 
@@ -334,7 +330,7 @@ class DataStore:
     def ref_psf( self ):
         if self._ref_psf is None:
             if self.reference is not None:
-                ( self._ref_sources, self.ref_bg, self._ref_psf,
+                ( self._ref_sources, self._ref_bg, self._ref_psf,
                   self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
         return self._ref_psf
 
@@ -346,7 +342,7 @@ class DataStore:
     def ref_wcs( self ):
         if self._ref_wcs is None:
             if self.reference is not None:
-                ( self._ref_sources, self.ref_bg, self._ref_psf,
+                ( self._ref_sources, self._ref_bg, self._ref_psf,
                   self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
         return self._ref_wcs
 
@@ -358,7 +354,7 @@ class DataStore:
     def ref_zp( self ):
         if self._ref_zp is None:
             if self.reference is not None:
-                ( self._ref_sources, self.ref_bg, self._ref_psf,
+                ( self._ref_sources, self._ref_bg, self._ref_psf,
                   self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
         return self._ref_zp
 
@@ -384,8 +380,13 @@ class DataStore:
                 raise ValueError( f"DataStore.sub_image must have is_sub set" )
             if ( ( self._detections is not None ) and ( self._detections.image_id != val.id ) ):
                 raise ValueError( "Can't set a sub_image inconsistent with detections" )
+            if val.ref_image_id != self.ref_image.id:
+                raise ValueError( "Can't set a sub_image inconsistent with ref image" )
+            if val.new_image_id != self.image.id:
+                raise ValueError( "Can't set a sub image inconsistent with image" )
+            # TODO : check provenance upstream of sub_image to make sure it's consistent
+            #   with ds.sources?
             self._sub_image = val
-            raise NotImplementedError( "Rob, figre out what references/upstreams need to be set!" )
 
     @property
     def detections( self ):
@@ -585,9 +586,6 @@ class DataStore:
         and will set the error attribute to the exception message.
         """
 
-        if _IMMEDIATELY_RERAISE_DATASTORE_EXCEPTIONS:
-            raise exception
-
         datastores = [a for a in args if isinstance(a, DataStore)]
         if len(datastores) > 0:
             ds = datastores[0]
@@ -604,9 +602,6 @@ class DataStore:
         strio = io.STringIO( "DataStore catching exception:\n ")
         traceback.print_exception( exception, file=strio )
         SCLogger.error( strio.getvalue() )
-
-        if _IMMEDIATELY_RERAISE_DATASTORE_EXCEPTIONS:
-            raise exception
 
         self.exception = exception
         # This is a trivial function now, but we may want to do more complicated stuff down the road
@@ -1082,17 +1077,16 @@ class DataStore:
             obj = obj.all()
 
         if is_list:
-            setattr( self, att, list(obj.all()) )
-            return getattr( self, att )
+            setattr( self, att, None if len(obj)==0 else list(obj) )
         else:
             if len( obj ) > 1:
                 raise RuntimeError( f"DataStore found multiple matching {cls.__name__} and shouldn't have" )
             elif len( obj ) == 0:
                 setattr( self, att, None )
-                return None
             else:
                 setattr( self, att, obj[0] )
-                return getattr( self, att )
+
+        return getattr( self, att )
 
 
 
@@ -1102,7 +1096,7 @@ class DataStore:
         If there is already a sources will return that one, or raise an
         error if its provenance doesn't match what's expected.
         (Expected provenance is defined by the provenance parameter if
-        its passed, otherwise the 'extraction' provenacne in
+        its passed, otherwise the 'extraction' provenance in
         self.prov_tree, otherwise anything with the image provenance in
         its upstreams.)
 
@@ -1243,7 +1237,7 @@ class DataStore:
 
         if provenances is None:  # try to get it from the prov_tree
             if ( self.prov_tree is not None ) and ( 'referencing' in self.prov_tree ):
-                proevenances = self.prov_tree[ 'referencing' ]
+                provenances = self.prov_tree[ 'referencing' ]
 
         provenances = listify(provenances)
 
@@ -1259,7 +1253,8 @@ class DataStore:
                 self.reference = None
 
             if ( min_overlap is not None ) and ( min_overlap > 0 ):
-                ovfrac = FourCorners.get_overlap_frac(image, self.reference.image)
+                refimg = Image.get_by_id( self.reference.image_id )
+                ovfrac = FourCorners.get_overlap_frac(image, refimg)
                 if ovfrac < min_overlap:
                     self.reference = None
 
@@ -1319,16 +1314,15 @@ class DataStore:
 
         arguments['provenance_ids'] = provenance_ids
 
-        refs = Reference.get_references( **arguments, session=session )
+        refs, imgs = Reference.get_references( **arguments, session=session )
         if len(refs) == 0:
             self.reference = None
             return None
 
         if ( min_overlap is not None ) and ( min_overlap > 0 ):
             okrefs = []
-            imgs = Image.get_batch_by_ids( [ i for i in ref.image_ids ], session=session, return_dict=True )
-            for ref in references:
-                ovfrac = FourCorners.get_overlap_frac( image, imgs[ref.image_id] )
+            for ref, img in zip( refs, imgs ):
+                ovfrac = FourCorners.get_overlap_frac( image, img )
                 if ovfrac >= min_overlap:
                     okrefs.append( ref )
             refs = okrefs
@@ -1340,7 +1334,7 @@ class DataStore:
             SCLogger.warning( "DataStore.get_reference: more than one reference matched the criteria! "
                               "This is scary.  Randomly picking one.  Which is also scary." )
 
-        self.refernce = None if len(refs)==0 else refs[0]
+        self.reference = None if len(refs)==0 else refs[0]
 
         return self.reference
 
@@ -1437,7 +1431,7 @@ class DataStore:
 
     def get_measurements(self, provenance=None, session=None):
         """Get a list of Measurements, either from memory or from database."""
-        return self._get_data_product( "measurements", Measurement, "cutouts", Cutouts, "measuring",
+        return self._get_data_product( "measurements", Measurements, "cutouts", Cutouts, "measuring",
                                        is_list=True, provenance=provenance, session=session )
 
 
@@ -1684,7 +1678,7 @@ class DataStore:
             if self.cutouts is not None:
                 for m in self.measurements:
                     m.cutouts_id = self.cutouts.id
-            Measurement.upsert_list( self.measurements )
+            Measurements.upsert_list( self.measurements )
 
 
     def delete_everything(self):
@@ -1713,7 +1707,11 @@ class DataStore:
         del_list.reverse()
         for obj in del_list:
             if obj is not None:
-                obj.delete_from_disk_and_database()
+                if isinstance( obj, list ):
+                    for o in obj:
+                        o.delete_from_disk_and_database()
+                else:
+                    obj.delete_from_disk_and_database()
 
         self.clear_products()
 

@@ -793,7 +793,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     if thing is not None:
                         output.append( thing )
 
-            # Cutouts (only will hapepn if this is a subtraction)
+            # Cutouts (will only happen if this is a subtraction)
             co = sess.query( Cutouts ).filter( Cutouts.sources_id==self.id ).first()
             if co is not None:
                 output.append( co )

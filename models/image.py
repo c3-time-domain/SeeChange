@@ -1084,64 +1084,62 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         attribute will be set to None to be lazy filled by _make_aligned_images().
         """
         raise RuntimeError( "Deprecated" )
-        if self._aligned_images is None:
-            return
+        # if self._aligned_images is None:
+        #     return
 
-        if self.provenance is None or self.provenance.parameters is None:
-            raise RuntimeError('Cannot check aligned images without a Provenance with legal parameters!')
-        if 'alignment' not in self.provenance.parameters:
-            raise RuntimeError(
-                'Cannot check aligned images without an "alignment" dictionary in the Provenance parameters!'
-            )
+        # if self.provenance is None or self.provenance.parameters is None:
+        #     raise RuntimeError('Cannot check aligned images without a Provenance with legal parameters!')
+        # if 'alignment' not in self.provenance.parameters:
+        #     raise RuntimeError(
+        #         'Cannot check aligned images without an "alignment" dictionary in the Provenance parameters!'
+        #     )
 
-        upstream_images_filepaths = [image.filepath for image in self.upstream_images]
+        # upstream_images_filepaths = [image.filepath for image in self.upstream_images]
 
-        for image in self._aligned_images:
-            # im_pars will contain all the default keys and any overrides from self.provenance
-            im_pars = image.info.get('alignment_parameters', {})
+        # for image in self._aligned_images:
+        #     # im_pars will contain all the default keys and any overrides from self.provenance
+        #     im_pars = image.info.get('alignment_parameters', {})
 
-            # if self.provenance has non-default values, or if im_pars are missing any keys, remake all of them
-            for key, value in self.provenance.parameters['alignment'].items():
-                if key not in im_pars or im_pars[key] != value:
-                    self._aligned_images = None
-                    return
+        #     # if self.provenance has non-default values, or if im_pars are missing any keys, remake all of them
+        #     for key, value in self.provenance.parameters['alignment'].items():
+        #         if key not in im_pars or im_pars[key] != value:
+        #             self._aligned_images = None
+        #             return
 
-            if image.info['original_image_filepath'] not in upstream_images_filepaths:
-                self._aligned_images = None
-                return
+        #     if image.info['original_image_filepath'] not in upstream_images_filepaths:
+        #         self._aligned_images = None
+        #         return
 
     def _get_alignment_target_image(self):
         """Get the image in upstream_images that is the target to which we align all other images. """
-        raise RuntimeError( "Rob, think about this one" )
+        raise RuntimeError( "Deprecated" )
 
-        if self.provenance is None or self.provenance.parameters is None:
-            raise RuntimeError('Cannot get alignment target without a Provenance with legal parameters!')
-        if 'alignment' not in self.provenance.parameters:
-            raise RuntimeError(
-                'Cannot get alignment target without an "alignment" dictionary in the Provenance parameters!'
-            )
+        # if self.provenance is None or self.provenance.parameters is None:
+        #     raise RuntimeError('Cannot get alignment target without a Provenance with legal parameters!')
+        # if 'alignment' not in self.provenance.parameters:
+        #     raise RuntimeError(
+        #         'Cannot get alignment target without an "alignment" dictionary in the Provenance parameters!'
+        #     )
 
-        to_index = self.provenance.parameters['alignment'].get('to_index')
-        if to_index == 'first':
-            alignment_target = self.upstream_images[0]
-        elif to_index == 'last':
-            alignment_target = self.upstream_images[-1]
-        elif to_index == 'new':
-            alignment_target = self.new_image
-        elif to_index == 'ref':
-            alignment_target = self.ref_image
-        else:
-            raise RuntimeError(
-                f'Got illegal value for "to_index" ({to_index}) in the Provenance parameters!'
-            )
+        # to_index = self.provenance.parameters['alignment'].get('to_index')
+        # if to_index == 'first':
+        #     alignment_target = self.upstream_images[0]
+        # elif to_index == 'last':
+        #     alignment_target = self.upstream_images[-1]
+        # elif to_index == 'new':
+        #     alignment_target = self.new_image
+        # elif to_index == 'ref':
+        #     alignment_target = self.ref_image
+        # else:
+        #     raise RuntimeError(
+        #         f'Got illegal value for "to_index" ({to_index}) in the Provenance parameters!'
+        #     )
 
-        return alignment_target
+        # return alignment_target
 
-    def coordinates_to_alignment_target(self):
+    def set_coordinates_to_match_target( self, target ):
         """Make sure the coordinates (RA,dec, corners and WCS) all match the alignment target image. """
-        raise RuntimeError( "Rob, think about this one" )
 
-        target = self._get_alignment_target_image()
         for att in ['ra', 'dec',
                     'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
                     'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11',
@@ -1485,7 +1483,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 if not ( gotim and gotweight and gotflags ):
                     raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )
 
-    def free( self, free_derived_products=True, free_aligned=True, only_free=None ):
+    def free( self, only_free=None ):
         """Free loaded image memory.  Does not delete anything from disk.
 
         Will wipe out any loaded image, weight, flags, background,
@@ -1519,9 +1517,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 self.raw_data = None
             else:
                 setattr( self, f'_{prop}', None )
-
-        if free_derived_products:
-            raise RuntimeError( "derived products are deprecated" )
 
 
     def load_products(self, provenances, session=None, must_find_all=True):

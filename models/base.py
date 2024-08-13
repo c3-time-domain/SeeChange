@@ -212,14 +212,15 @@ def get_all_database_objects(display=False, session=None):
     from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
     from models.catalog_excerpt import CatalogExcerpt
     from models.reference import Reference
+    from models.refset import RefSet
     from models.instrument import SensorSection
     from models.user import AuthUser, PasswordLink
 
     models = [
         CodeHash, CodeVersion, Provenance, ProvenanceTag, DataFile, Exposure, Image,
         SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, Object,
-        CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference, SensorSection,
-        AuthUser, PasswordLink, KnownExposure, PipelineWorker
+        CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference, RefSet,
+        SensorSection, AuthUser, PasswordLink, KnownExposure, PipelineWorker
     ]
 
     output = {}
@@ -356,7 +357,7 @@ class SeeChangeBase:
                     setattr(self, key, value)
 
     @classmethod
-    def upsert_list( self, objects, session=None ):
+    def upsert_list( cls, objects, session=None ):
         """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
 
         Do *not* use this with classes that have things like association
@@ -367,7 +368,6 @@ class SeeChangeBase:
 
         """
 
-        cls = self.__class__
         if not all( [ isinstance( o, cls ) for o in objects ] ):
             raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
 

@@ -30,37 +30,37 @@ def add_test_parameters(maker):
 
 def test_finding_references(ptf_ref):
     with pytest.raises(ValueError, match='Must provide both'):
-        ref = Reference.get_references(ra=188)
+        ref, img = Reference.get_references(ra=188)
     with pytest.raises(ValueError, match='Must provide both'):
-        ref = Reference.get_references(dec=4.5)
+        ref, img = Reference.get_references(dec=4.5)
     with pytest.raises(ValueError, match='Must provide both'):
-        ref = Reference.get_references(target='foo')
+        ref, img = Reference.get_references(target='foo')
     with pytest.raises(ValueError, match='Must provide both'):
-        ref = Reference.get_references(section_id='bar')
+        ref, img = Reference.get_references(section_id='bar')
     with pytest.raises(ValueError, match='Must provide both'):
-        ref = Reference.get_references(ra=188, section_id='bar')
+        ref,img  = Reference.get_references(ra=188, section_id='bar')
     with pytest.raises(ValueError, match='Must provide both'):
-        ref = Reference.get_references(dec=4.5, target='foo')
+        ref, img = Reference.get_references(dec=4.5, target='foo')
     with pytest.raises(ValueError, match='Must provide either ra and dec, or target and section_id'):
-        ref = Reference.get_references()
+        ref, img = Reference.get_references()
     with pytest.raises(ValueError, match='Cannot provide target/section_id and also ra/dec! '):
-        ref = Reference.get_references(ra=188, dec=4.5, target='foo', section_id='bar')
+        ref, img = Reference.get_references(ra=188, dec=4.5, target='foo', section_id='bar')
 
-    ref = Reference.get_references(ra=188, dec=4.5)
+    ref, img = Reference.get_references(ra=188, dec=4.5)
     assert len(ref) == 1
     assert ref[0].id == ptf_ref.id
 
-    ref = Reference.get_references(ra=188, dec=4.5, provenance_ids=ptf_ref.provenance_id)
+    ref, img = Reference.get_references(ra=188, dec=4.5, provenance_ids=ptf_ref.provenance_id)
     assert len(ref) == 1
     assert ref[0].id == ptf_ref.id
 
-    ref = Reference.get_references(ra=0, dec=0)
+    ref, img = Reference.get_references(ra=0, dec=0)
     assert len(ref) == 0
 
-    ref = Reference.get_references(target='foo', section_id='bar')
+    ref, img = Reference.get_references(target='foo', section_id='bar')
     assert len(ref) == 0
 
-    ref = Reference.get_references(ra=180, dec=4.5, provenance_ids=['foo', 'bar'])
+    ref, img = Reference.get_references(ra=180, dec=4.5, provenance_ids=['foo', 'bar'])
     assert len(ref) == 0
 
 
@@ -76,7 +76,6 @@ def test_making_refsets():
     assert maker.ex_provs is None
     assert maker.coadd_im_prov is None
     assert maker.coadd_ex_prov is None
-    assert maker.ref_upstream_hash is None
 
     new_ref = maker.run(ra=0, dec=0, filter='R')
     assert new_ref is None  # cannot find a specific reference here
@@ -88,11 +87,6 @@ def test_making_refsets():
     assert isinstance(maker.coadd_im_prov, Provenance)
     assert isinstance(maker.coadd_ex_prov, Provenance)
 
-    up_hash1 = refset.upstream_hash
-    assert maker.ref_upstream_hash == up_hash1
-    assert isinstance(up_hash1, str)
-    assert len(up_hash1) == 20
-    assert len(refset.provenances) == 1
     assert refset.provenances[0].parameters['min_number'] == min_number
     assert refset.provenances[0].parameters['max_number'] == max_number
     assert 'name' not in refset.provenances[0].parameters  # not a critical parameter!
@@ -111,10 +105,6 @@ def test_making_refsets():
     new_ref = maker.run(ra=0, dec=0, filter='R')
     assert new_ref is None  # still can't find images there
 
-    refset = maker.refset
-    up_hash2 = refset.upstream_hash
-    assert up_hash1 == up_hash2  # the underlying data MUST be the same
-    assert len(refset.provenances) == 2
     assert refset.provenances[0].parameters['min_number'] == min_number
     assert refset.provenances[1].parameters['min_number'] == min_number + 5
     assert refset.provenances[0].parameters['max_number'] == max_number

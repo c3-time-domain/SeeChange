@@ -238,7 +238,6 @@ class RefMaker:
         self.ex_provs = None  # the provenances used to make other products like SourceLists, that go into the reference
         self.coadd_im_prov = None  # the provenance used to make the coadd image
         self.coadd_ex_prov = None  # the provenance used to make the products of the coadd image
-        self.ref_upstream_hash = None  # a hash identifying all upstreams of the reference provenance
         self.ref_prov = None  # the provenance of the reference itself
         self.refset = None  # the RefSet object that was found / created
 
@@ -309,8 +308,6 @@ class RefMaker:
             is_testing='test_parameter' in pars,
         )
 
-        # this hash uniquely identifies all the preprocessing and extraction hashes in this provenance's upstreams
-        self.ref_upstream_hash = self.ref_prov.get_combined_upstream_hash()
 
     def parse_arguments(self, *args, **kwargs):
         """Figure out if the input parameters are given as coordinates or as target + section ID pairs.
@@ -407,7 +404,6 @@ class RefMaker:
                     self.refset = RefSet(
                         name=self.pars.name,
                         description=self.pars.description,
-                        upstream_hash=self.ref_upstream_hash,
                     )
                     self.refset.insert( session=dbsession )
             finally:
@@ -416,11 +412,6 @@ class RefMaker:
 
             if self.refset is None:
                 raise RuntimeError(f'Failed to find or create a RefSet with the name "{self.pars.name}"!')
-
-            if self.refset.upstream_hash != self.ref_upstream_hash:
-                raise RuntimeError(
-                    f'Found a RefSet with the name "{self.pars.name}", but it has a different upstream_hash!'
-                )
 
             # If the provenance is not already on the RefSet, add it (or raise, if allow_append=False)
             if self.ref_prov.id not in [ p.id for p in self.refset.provenances ]:

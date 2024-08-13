@@ -61,15 +61,6 @@ class ParsSubtractor(Parameters):
             critical=True
         )
 
-        self.cleanup_alignment = self.add_par(
-            'cleanup_alignment',
-            True,
-            bool,
-            ( 'Try to clean up aligned images from the DataStore after running the subtraction.  This should '
-              'save memory, but you might want to set this to False for testing purposes.' ),
-            critical=False
-        )
-
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -316,24 +307,18 @@ class Subtractor:
                                          f'{ds.get_inputs()}')
 
                     SCLogger.debug( f"Making new subtraction from image {image.id} path {image.filepath} , "
-                                    f"reference {ref.image.id} path {ref.image.filepath}" )
-                    sub_image = Image.from_ref_and_new(ref.image, image)
+                                    f"reference {ds.ref_image.id} path {ds.ref_image.filepath}" )
+                    sub_image = Image.from_ref_and_new(ds.ref_image, image)
                     sub_image.is_sub = True
-                    sub_image.provenance = prov
                     sub_image.provenance_id = prov.id
-                    sub_image.coordinates_to_alignment_target()  # make sure the WCS is aligned to the correct image
-
-                    # Need to make sure the upstream images are loaded into this session before
-                    # we disconnect it from the database.  (We don't want to hold the database
-                    # connection open through all the slow processes below.)
-                    upstream_images = sub_image.upstream_images
+                    sub_image.set_coordinates_to_match_target( image )
 
             if self.has_recalculated:
 
                 # Align the images
                 to_index = self.aligner.pars.to_index
                 if to_index == 'ref':
-                    SCLogger.error( "Aligning new to ref will violate assumptions in meausring.py" )
+                    SCLogger.error( "Aligning new to ref will violate assumptions in detection.py and measuring.py" )
                     raise RuntimeError( "Aligning new to ref not supported; align ref to new instead" )
 
                     for needed in [ ds.image, ds.sources, ds.bg, ds.wcs, ds.zp, ds.ref_image, ds.ref_sources ]:
@@ -403,43 +388,30 @@ class Subtractor:
 
                 SCLogger.debug( "Subtraction complete" )
 
-                if self.pars.cleanup_alignment:
-                    ds.aligned_new_image = None
-                    ds.aligned_new_sources = None
-                    ds.aligned_new_bg = None
-                    ds.aligned_new_psf = None
-                    ds.aligned_new_zp = None
-                    ds.aligned_ref_image = None
-                    ds.aligned_ref_sources = None
-                    ds.aligned_ref_bg = None
-                    ds.aligned_ref_zp = None
-                    ds.aligned_wcs = None
-
                 sub_image.data = outdict['outim']
                 sub_image.weight = outdict['outwt']
                 sub_image.flags = outdict['outfl']
                 if 'score' in outdict:
-                    sub_image.score = outdict['score']
+                    ds.zogy_score = outdict['score']
+                    # sub_image.score = outdict['score']
                 if 'alpha' in outdict:
-                    sub_image.psfflux = outdict['alpha']
+                    # sub_image.psfflux = outdict['alpha']
+                    ds.zogy_alpha = outdict['alpha']
                 if 'alpha_err' in outdict:
-                    sub_image.psffluxerr = outdict['alpha_err']
+                    # sub_image.psffluxerr = outdict['alpha_err']
+                    ds.zogy_alpha_err = outdict['alpha_err']
                 if 'psf' in outdict:
-                    # TODO: clip the array to be a cutout around the PSF, right now it is same shape as image!
-                    sub_image.zogy_psf = outdict['psf']  # not saved, can be useful for testing / source detection
-                    if 'alpha' in outdict and 'alpha_err' in outdict:
-                        sub_image.psfflux = outdict['alpha']
-                        sub_image.psffluxerr = outdict['alpha_err']
+                    ds.zogy_psf = outdict['psf']
 
-                sub_image.subtraction_output = outdict  # save the full output for debugging
+                ds.subtraction_output = outdict  # save the full output for debugging
 
                 # TODO: can we get better estimates from our subtraction outdict? Issue #312
-                sub_image.fwhm_estimate = new_image.fwhm_estimate
+                sub_image.fwhm_estimate = ds.image.fwhm_estimate
                 # if the subtraction does not provide an estimate of the ZP, use the one from the new image
-                sub_image.zero_point_estimate = outdict.get('zero_point', new_image.zp.zp)
+                sub_image.zero_point_estimate = outdict.get('zero_point', ds.zp)
                 # TODO: this implicitly assumes that the ref is much deeper than the new.
                 #  If it's not, this is going to be too generous.
-                sub_image.lim_mag_estimate = new_image.lim_mag_estimate
+                sub_image.lim_mag_estimate = ds.image.lim_mag_estimate
 
                 # if the subtraction does not provide an estimate of the background, use sigma clipping
                 if 'bkg_mean' not in outdict or 'bkg_rms' not in outdict:

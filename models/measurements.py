@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.ext.declarative import declared_attr
 
 from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness
+from models.world_coordinates import WorldCoordinates
 from models.cutouts import Cutouts
 from models.enums_and_bitflags import measurements_badness_inverse
 
@@ -381,23 +382,43 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         super().__setattr__(key, value)
 
-    def get_data_from_cutouts(self):
+    def get_data_from_cutouts( self, cutouts=None, detections=None ):
         """Populates this object with the cutout data arrays used in
         calculations. This allows us to use, for example, self.sub_data
         without having to look constantly back into the related Cutouts.
 
-        Importantly, the data for this measurements should have already
-        been loaded by the Co_Dict class
+        Parameters
+        ----------
+        cutouts: Cutouts or None
+            The Cutouts to load the data from.  load_all_co_data will be
+            called on this to make sure the cutouts dictionary is
+            loaded.  (That function checks to see if it's there already,
+            and doesn't reload it it looks right.)  If None, will try to
+            find the cutouts in the database.
+
+        detections: SourceList or None
+            The detections associated with cutouts.  Needed because
+            laod_all_co_data needs sources.  If you leave this at None,
+            it will try to load the SourceList from the database.  Pass
+            this for efficiency, or if the cutouts or detections aren't
+            already in the database.
+
         """
+        if cutouts is None:
+            cutouts = Cutouts.get_by_id( self.cutouts_id )
+            if cutouts is None:
+                raise RuntimeError( "Can't find cutouts associated with Measurements, can't load cutouts data." )
+        cutouts.load_all_co_data( sources=detections )
+        
         groupname = f'source_index_{self.index_in_sources}'
 
-        if not self.cutouts.co_dict.get(groupname):
+        if not cutouts.co_dict.get(groupname):
             raise ValueError(f"No subdict found for {groupname}")
 
-        co_data_dict = self.cutouts.co_dict[groupname] # get just the subdict with data for this
+        co_data_dict = cutouts.co_dict[groupname] # get just the subdict with data for this
 
         for att in Cutouts.get_data_dict_attributes():
-            setattr(self, att, co_data_dict.get(att))
+            setattr( self, att, co_data_dict.get(att) )
 
 
     def get_filter_description(self, number=None):
@@ -436,14 +457,12 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         raise ValueError('Filter number too high for the filter bank. ')
 
-    def associate_object(self, session=None):
+    def associate_object(self, radius, is_testing=False, session=None):
         """Find or create a new object and associate it with this measurement.
 
-        Objects must have sufficiently close coordinates to be associated with this
-        measurement (set by the provenance.parameters['association_radius'], in arcsec).
-
-        If no Object is found, a new one is created, and its coordinates will be identical
-        to those of this Measurements object.
+        If no Object is found, a new one is created and saved to the
+        database. Its coordinates will be identical to those of this
+        Measurements object.
 
         This should only be done for measurements that have passed deletion_threshold
         preliminary cuts, which mostly rules out obvious artefacts. However, measurements
@@ -451,46 +470,80 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         be allowed to use this method - in this case, they will create an object with
         attribute is_bad set to True so they are available to review in the db.
 
+        TODO -- this is not the right behavior.  See Issue #345.
+
+        Parameters
+        ----------
+          radius: float
+            Distance in arcseconds an existing Object must be within
+            compared to (self.ra, self.dec) to be considered the same
+            object.
+
+          is_testing: bool, default False
+            Set to True if the provenance of the measurement is a
+            testing provenance.
+
         """
         from models.object import Object  # avoid circular import
 
-        with SmartSession(session) as session:
-            obj = session.scalars(sa.select(Object).where(
-                Object.cone_search(
-                    self.ra,
-                    self.dec,
-                    self.provenance.parameters['association_radius'],
-                    radunit='arcsec',
-                ),
-                Object.is_test.is_(self.provenance.is_testing),  # keep testing sources separate
-                Object.is_bad.is_(self.is_bad),    # keep good objects with good measurements
-            )).first()
+        with SmartSession(session) as sess:
+            try:
+                # Avoid race condition of two processes saving a measurement of
+                # the same new object at once.
+                sess.connection().execute( sa.text( 'LOCK TABLE objects' ) )
 
-            if obj is None:  # no object exists, make one based on these measurements
-                obj = Object(
-                    ra=self.ra,
-                    dec=self.dec,
-                    is_bad=self.is_bad
-                )
-                obj.is_test = self.provenance.is_testing
+                obj = sess.scalars(sa.select(Object).where(
+                    Object.cone_search( self.ra, self.dec, radius, radunit='arcsec' ),
+                    Object.is_test.is_(is_testing),  # keep testing sources separate
+                    Object.is_bad.is_(self.is_bad),    # keep good objects with good measurements
+                )).first()
 
-            self.object_id = obj.id
+                if obj is None:  # no object exists, make one based on these measurements
+                    obj = Object(
+                        ra=self.ra,
+                        dec=self.dec,
+                        is_bad=self.is_bad
+                    )
+                    obj.is_test = is_testing
 
-    def get_flux_at_point(self, ra, dec, aperture=None):
+                    # ROB TODO -- need a way to generate object names.  The way we were
+                    #   doing it before no longer works since it depended on numeric IDs.
+                    obj.name = str( obj.id )[-12:]
+                    
+                    obj.insert( session=sess )
+
+                self.object_id = obj.id
+            finally:
+                # Assure that lock is released
+                sess.rollback()
+
+    def get_flux_at_point( self, ra, dec, aperture=None, wcs=None, psf=None ):
         """Use the given coordinates to find the flux, assuming it is inside the cutout.
 
         Parameters
         ----------
         ra: float
             The right ascension of the point in degrees.
+
         dec: float
             The declination of the point in degrees.
+
         aperture: int, optional
             Use this aperture index in the list of aperture radii to choose
             which aperture to use. Set -1 to get PSF photometry.
             Leave None to use the best_aperture.
             Can also specify "best" or "psf".
 
+        wcs: WorldCoordinates, optional
+            The WCS to use to go from ra/dec to x/y.  If not given, will
+            try to find it in the database.
+
+        psf: PSF, optional
+            The PSF from the sub_image this measurement came from.  If
+            not given, will try to find it in the database.  (Actually,
+            it won't, because that's complicated.  Just pass a PSF if
+            aperture is -1.)
+        
         Returns
         -------
         flux: float
@@ -499,6 +552,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             The error on the flux.
         area: float
             The area of the aperture.
+
         """
         if aperture is None:
             aperture = self.best_aperture
@@ -507,9 +561,20 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         if aperture == 'psf':
             aperture = -1
 
+        if self.sub_data is None:
+            raise RuntimeError( "Run get_data_from_cutouts before running get_flux_at_point" )
+            
         im = self.sub_nandata  # the cutouts image we are working with (includes NaNs for bad pixels)
 
-        wcs = self.sources.image.new_image.wcs.wcs
+        if wcs is None:
+            with SmartSession() as session:
+                wcs = ( session.query( WorldCoordinates )
+                        .join( Cutouts, WorldCoordinates.sources_id==Cutouts.sources_id )
+                        .filter( Cutouts.id==self.cutouts_id ) ).first()
+            if wcs is None:
+                raise RuntimeError( "Failed to get WorldCoordinates for measurements" )
+        wcs = wcs.wcs
+            
         # these are the coordinates relative to the center of the cutouts
         image_pixel_x = wcs.world_to_pixel_values(ra, dec)[0]
         image_pixel_y = wcs.world_to_pixel_values(ra, dec)[1]
@@ -525,7 +590,11 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         if aperture == -1:
             # get the subtraction PSF or (if unavailable) the new image PSF
-            psf = self.sources.image.get_psf()
+            # NOTE -- right now we're just getting the new image PSF, as we don't
+            # currently have code that saves the subtraction PSF
+            if psf is None:
+                raise ValueError( "Must pass PSF if you want to do PSF photometry." )
+
             psf_clip = psf.get_clip(x=image_pixel_x, y=image_pixel_y)
             offset_ix = int(np.round(offset_x))
             offset_iy = int(np.round(offset_y))
@@ -566,6 +635,13 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def _get_inverse_badness(self):
         return measurements_badness_inverse
 
+    def get_downstreams( self, session=None ):
+        """Get downstream data products of this Measurements."""
+
+        # Measurements doesn't currently have downstreams; this will
+        #  change with the R/B score object.
+        return []
+        
     @classmethod
     def delete_list(cls, measurements_list):
         """
@@ -635,14 +711,3 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def get_upstreams( self ):
         raise RuntimeError( f"Measurements.get_upstreams is deprecated, don't use it" )
 
-    @get_upstreams.setter
-    def get_upstreams( self, val ):
-        raise RuntimeError( f"Measurements.get_upstreams is deprecated, don't use it" )
-
-    @property
-    def get_downstreams( self ):
-        raise RuntimeError( f"Measurements.get_downstreams is deprecated, don't use it" )
-
-    @get_downstreams.setter
-    def get_downstreams( self, val ):
-        raise RuntimeError( f"Measurements.get_downstreams is deprecated, don't use it" )

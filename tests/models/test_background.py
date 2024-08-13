@@ -53,10 +53,7 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             noise=np.sqrt(bg_var),
             image_shape=image.data.shape
         )
-
-        b1.provenance_id = prov.id
-
-        b1.save( image=image )
+        b1.save( image=image, sources=sources )
 
         # check the filename contains the provenance hash
         assert prov.id[:6] in b1.get_fullpath()
@@ -85,18 +82,8 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             image_shape=image.data.shape
         )
 
-        prov = Provenance(
-            code_version_id=code_version.id,
-            process='extraction',
-            parameters={'method': 'sep', 'format': 'map'},
-            upstreams=[ decam_raw_image_provenance ],
-            is_testing=True,
-        )
-
-        b2.provenance_id = prov.id
-
         with pytest.raises(RuntimeError, match='Counts shape .* does not match image shape .*'):
-            b2.save( image=image )
+            b2.save( image=image, sources=sources )
 
         # use actual background measurements so we can get a realistic estimate of the compression
         back = sep.Background(image.data)
@@ -104,7 +91,7 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
         b2.variance = back.rms() ** 2
 
         t0 = time.perf_counter()
-        b2.save( image=image )
+        b2.save( image=image, sources=sources )
         # print(f'Background save time: {time.perf_counter() - t0:.3f} s')
         # print(f'Background file size: {os.path.getsize(b2.get_fullpath()) / 1024 ** 2:.3f} MB')
 

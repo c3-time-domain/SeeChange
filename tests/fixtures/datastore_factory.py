@@ -42,6 +42,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
     this path will be in ds.path_to_original_image.  In this case, the
     thing that calls this factory must delete that file when done.
 
+    (...this whole thing is a sort of more verbose implementation of
+    pipeline/top_level.py...)
+
     EXAMPLE
     -------
     extractor.pars.test_parameter = uuid.uuid().hex
@@ -92,23 +95,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
         # allow calling scope to override/augment parameters for any of the processing steps
         p.override_parameters(**overrides)
         p.augment_parameters(**augments)
-
-        ############ load the reference set as refset, keep the first provenance as ref_prov ############
-
-        inst_name = ds.image.instrument.lower() if ds.image else ds.exposure.instrument.lower()
-        refset_name = f'test_refset_{inst_name}'
-        if inst_name == 'ptf':  # request the ptf_refset fixture dynamically:
-            request.getfixturevalue('ptf_refset')
-        if inst_name == 'decam':  # request the decam_refset fixture dynamically:
-            request.getfixturevalue('decam_refset')
-
-        with SmartSession() as sess:
-            refset = sess.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
-
-        if refset is None:
-            raise ValueError(f'make_datastore found no reference with name {refset_name}')
-
-        ref_prov = refset.provenances[0]
 
         ############ preprocessing to create image ############
 
@@ -295,6 +281,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 if output_path != zp_cache_path:
                     warnings.warn(f'cache path {zp_cache_path} does not match output path {output_path}')
 
+        ########### Done with image and image data products; save and commit #############
+                    
         SCLogger.debug( "make_datastore running ds.save_and_commit on image (before subtraction)" )
         ds.save_and_commit( session=session )
 
@@ -302,19 +290,41 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if not env_as_bool("LIMIT_CACHE_USAGE"):
             output_path = copy_to_cache(ds.image, cache_dir)
 
+        ############ Now do subtraction / detection / measurement / etc. ##############
+            
         # If we were told not to try to do a subtraction, then we're done
         if skip_sub:
             SCLogger.debug( "make_datastore : skip_sub is True, returning" )
             return ds
 
+        ############ get the reference #############
+
+        inst_name = ds.image.instrument.lower() if ds.image else ds.exposure.instrument.lower()
+        refset_name = f'test_refset_{inst_name}'
+        if inst_name == 'ptf':  # request the ptf_refset fixture dynamically:
+            request.getfixturevalue('ptf_refset')
+        if inst_name == 'decam':  # request the decam_refset fixture dynamically:
+            request.getfixturevalue('decam_refset')
+
+        with SmartSession() as sess:
+            refset = sess.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
+
+        if refset is None:
+            raise ValueError(f'make_datastore found no reference with name {refset_name}')
+
+        if len( refset.provenances ) == 0:
+            SCLogger.debug( f"No reference provenances defined for refset {refset.name}, returning." )
+            return ds
+
         # must provide the reference provenance explicitly since we didn't build a prov_tree
-        ref = ds.get_reference(ref_prov, session=session)
+        ref = ds.get_reference(refset.provenances[0], session=session)
         if ref is None:
             SCLogger.debug( "make_datastore : could not find a reference, returning" )
             return ds  # if no reference is found, simply return the datastore without the rest of the products
-
+        refimg = Image.get_by_id( ref.image_id )
+        
         improvs = Provenance.get_batch( [ ds.image.provenance_id, ds.sources.provenance_id ] )
-        refprofs = Provenance.get_batch( [ ds.ref_image.provenance_id, ds.ref_sources.provenance_id ] )
+        refprovs = Provenance.get_batch( [ ds.ref_image.provenance_id, ds.ref_sources.provenance_id ] )
         bothprovs = improvs + refprovs
 
         sub_prov = Provenance(
@@ -327,97 +337,96 @@ def datastore_factory(data_dir, pipeline_factory, request):
         sub_prov.insert_if_needed()
         ds.prov_tree['subtraction'] = sub_prov
 
+        ########### find or run the subtraction ##########
+
         if use_cache:  # try to find the subtraction image in the cache
             SCLogger.debug( "make_datstore looking for subtraction image in cache..." )
 
-            sub_im = Image.from_new_and_ref(ds.image, ref.image)
+            sub_im = Image.from_new_and_ref(ds.image, refimg)
             sub_im.provenance_id = sub_prov.id
             cache_sub_name = sub_im.invent_filepath()
             cache_name = cache_sub_name + '.image.fits.json'
             sub_cache_path = os.path.join(cache_dir, cache_name)
-            if os.path.isfile(sub_cache_path):
+            zogy_score_cache_path = sub_cache_path.replace( ".image.fits.json", ".zogy_score.npy" )
+            zogy_alpha_cache_path = sub_cache_path.replace( ".image.fits.json", ".zogy_alpha.npy" )
+
+            prov_aligned_ref = Provenance(
+                code_version=code_version,
+                parameters=sub_prov.parameters['alignment'],
+                upstreams=bothprovs,
+                process='alignment',
+                is_testing=True,
+            )
+            f = refimg.invent_filepath()
+            f = f.replace('ComSci', 'Warped')  # not sure if this or 'Sci' will be in the filename
+            f = f.replace('Sci', 'Warped')     # in any case, replace it with 'Warped'
+            f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
+            filename_aligned_ref = f
+            cache_name_aligned_ref = filename_aligned_ref + '.image.fits.json'
+            aligned_ref_cache_path = os.path.join( cache_dir, cache_name_aligned_ref )
+
+            # Commenting this out -- we know that we're aligning to new,
+            #   do don't waste cache on aligned_new
+            # prov_aligned_new = Provenance(
+            #     code_version=code_version,
+            #     parameters=sub_prov.parameters['alignment'],
+            #     upstreams=bothprovs,
+            #     process='alignment',
+            #     is_testing=True,
+            # )
+            # f = ds.image.invent_filepath()
+            # f = f.replace('ComSci', 'Warped')
+            # f = f.replace('Sci', 'Warped')
+            # f = f[:-6] + prov_aligned_new.id[:6]
+            # filename_aligned_new = f
+
+            if ( ( os.path.isfile(sub_cache_path) ) and
+                 ( os.path.isfile(zogy_score_cache_path) ) and
+                 ( os.path.isfile(zogy_alpha_cache_path) ) and
+                 ( os.path.isfile(aligned_ref_cache_path) ) ):
                 SCLogger.debug('make_datastore loading subtraction image from cache: {sub_cache_path}" ')
-                ds.sub_image = copy_from_cache(Image, cache_dir, cache_name)
+                tmpsubim =  copy_from_cache(Image, cache_dir, cache_name)
+                tmpsubim.provenance_id = sub_prov.id
+                tmpsubim._upstream_ids = sub_im._upstream_ids
+                tmpsubim.ref_image_id = ref.image_id
+                tmpsubim.save(verify_md5=False)  # make sure it is also saved to archive
+                ds.sub_image = tmpsubim
+                ds.zogy_score = np.load( zogy_score_cache_path )
+                ds.zogy_alpha = np.load( zogy_alpha_cache_path )
 
-                ds.sub_image.provenance_id = sub_prov.id
-                ds.sub_image._upstream_ids = sub_im._upstream_ids
-                ds.sub_image.ref_image_id = ref.image_id
-                ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
+                ds.aligned_new_image = ds.image
 
-                # try to load the aligned images from cache
-                prov_aligned_ref = Provenance(
-                    code_version=code_version,
-                    parameters=prov.parameters['alignment'],
-                    upstreams=bothprovs,
-                    process='alignment',
-                    is_testing=True,
-                )
-                # TODO: can we find a less "hacky" way to do this?
-                # (rknop 2024-08-07: perhaps no need.  This isn't something we'd
-                # ever want to do outside of tests, since we currently aren't saving
-                # any warped images to the database)
-                f = ref.image.invent_filepath()
-                f = f.replace('ComSci', 'Warped')  # not sure if this or 'Sci' will be in the filename
-                f = f.replace('Sci', 'Warped')     # in any case, replace it with 'Warped'
-                f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
-                filename_aligned_ref = f
+                SCLogger.debug('loading aligned reference image from cache. ')
+                image_aligned_ref = copy_from_cache( Image, cache_dir, cache_name_aligned_ref )
+                image_aligned_ref.provenance_id = prov_aligned_ref.id
+                image_aligned_ref.info['original_image_id'] = ds.ref_image.id
+                image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
+                image_aligned_ref.info['alignment_parameters'] = sub_prov.parameters['alignment']
+                # TODO FIGURE OUT WHAT'S GOING ON HERE
+                # Not sure why the md5sum_extensions was [], but it was
+                image_aligned_ref.md5sum_extensions = [ None, None, None ]
+                image_aligned_ref.save(verify_md5=False, no_archive=True)
+                # TODO: should we also load the aligned image's sources, PSF, and ZP?
+                ds.aligned_ref_image = image_aligned_ref
 
-                prov_aligned_new = Provenance(
-                    code_version=code_version,
-                    parameters=prov.parameters['alignment'],
-                    upstreams=bothprovs,
-                    process='alignment',
-                    is_testing=True,
-                )
-                f = ds.sub_image.new_image.invent_filepath()
-                f = f.replace('ComSci', 'Warped')
-                f = f.replace('Sci', 'Warped')
-                f = f[:-6] + prov_aligned_new.id[:6]
-                filename_aligned_new = f
-
-                cache_name_ref = filename_aligned_ref + '.image.fits.json'
-                cache_name_new = filename_aligned_new + '.image.fits.json'
-                if (
-                        os.path.isfile(os.path.join(cache_dir, cache_name_ref)) and
-                        os.path.isfile(os.path.join(cache_dir, cache_name_new))
-                ):
-                    SCLogger.debug('loading aligned reference image from cache. ')
-                    image_aligned_ref = copy_from_cache(Image, cache_dir, cache_name)
-                    image_aligned_ref.provenance_id = prov_aligned_ref.id
-                    image_aligned_ref.info['original_image_id'] = ds.ref_image.id
-                    image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
-                    image_aligned_ref.info['alignment_parameters'] = sub_prov.parameters['alignment']
-                    image_aligned_ref.save(verify_md5=False, no_archive=True)
-                    # TODO: should we also load the aligned image's sources, PSF, and ZP?
-
-                    SCLogger.debug('loading aligned new image from cache. ')
-                    image_aligned_new = copy_from_cache(Image, cache_dir, cache_name)
-                    image_aligned_new.provenance_id = prov_aligned_new.id
-                    image_aligned_new.info['original_image_id'] = ds.image_id
-                    image_aligned_new.info['original_image_filepath'] = ds.image.filepath
-                    image_aligned_new.info['alignment_parameters'] = sub_prov.parameters['alignment']
-                    image_aligned_new.save(verify_md5=False, no_archive=True)
-                    # TODO: should we also load the aligned image's sources, PSF, and ZP?
-
-                    ds.aligned_ref_image = image_aligned_ref
-                    ds.aligned_new_image = image_aligned_new
             else:
                 SCLogger.debug( "make_datastore didn't find subtraction image in cache" )
 
         if ds.sub_image is None:  # no hit in the cache
             SCLogger.debug( "make_datastore running subtractor to create subtraction image" )
-            ds = p.subtractor.run(ds, session, cleanup_alignment=False)
+            ds = p.subtractor.run( ds, session )
             ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
             if use_cache:
                 output_path = copy_to_cache(ds.sub_image, cache_dir)
                 if output_path != sub_cache_path:
-                    warnings.warn(f'cache path {sub_cache_path} does not match output path {output_path}')
+                    raise ValueError( f'cache path {sub_cache_path} does not match output path {output_path}' )
+                    # warnings.warn(f'cache path {sub_cache_path} does not match output path {output_path}')
+                np.save( zogy_score_cache_path, ds.zogy_score, allow_pickle=False )
+                np.save( zogy_alpha_cache_path, ds.zogy_alpha, allow_pickle=False )
 
-        if use_cache:  # save the aligned images to cache
-            SCLogger.debug( "make_datastore saving aligned images to cache" )
-            for im in [ ds.aligned_ref_image, ds.aligned_new_image ]:
-                im.save(no_archive=True)
-                copy_to_cache(im, cache_dir)
+                SCLogger.debug( "make_datastore saving aligned ref image to cache" )
+                ds.aligned_ref_image.save( no_archive=True )
+                copy_to_cache( ds.aligned_ref_image, cache_dir )
 
         ############ detecting to create a source list ############
         detection_prov =  Provenance(
@@ -439,9 +448,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
         else:  # cannot find detections on cache
             SCLogger.debug( "make_datastore running detector to find detections" )
             ds = p.detector.run(ds, session)
-            ds.detections.save(verify_md5=False)
+            ds.detections.save( image=ds.sub_image, verify_md5=False )
             if use_cache:
-                copy_to_cache(ds.detections, cache_dir, cache_name)
+                copy_to_cache( ds.detections, cache_dir, cache_name )
 
         ############ cutting to create cutouts ############
         cutting_prov = Provenance(
@@ -460,12 +469,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
             ds.cutouts = copy_from_cache(Cutouts, cache_dir, cache_name)
             ds.cutouts.provenance_id = cutting_prov.id
             ds.cutouts.sources_id = ds.detections.id
-            ds.cutouts.load_all_co_data()  # sources must be set first
-            ds.cutouts.save()  # make sure to save to archive as well
+            ds.cutouts.load_all_co_data( sources=ds.detections )
+            ds.cutouts.save( image=ds.sub_image, sources=ds.detections )  # make sure to save to archive as well
         else:  # cannot find cutouts on cache
             SCLogger.debug( "make_datastore running cutter to create cutouts" )
             ds = p.cutter.run(ds, session)
-            ds.cutouts.save()
+            ds.cutouts.save( image=ds.sub_image, sources=ds.detections )
             if use_cache:
                 copy_to_cache(ds.cutouts, cache_dir)
 
@@ -480,30 +489,47 @@ def datastore_factory(data_dir, pipeline_factory, request):
         measuring_prov.insert_if_needed()
         ds.prov_tree['measuring'] = measuring_prov
 
-        cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{meausring_prov.id[:6]}.json')
+        all_measurements_cache_name = os.path.join( cache_dir,
+                                                    cache_sub_name + f'.all_measurements_{measuring_prov.id[:6]}.json')
+        measurements_cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{measuring_prov.id[:6]}.json')
 
-        if use_cache and ( os.path.isfile(cache_name) ):
-            # note that the cache contains ALL the measurements, not only the good ones
+        import pdb ; pdb.set_trace()
+        
+        if use_cache and ( os.path.isfile(measurements_cache_name) ) and ( os.path.isfile(all_measurements_cache_name) ):
             SCLogger.debug( 'make_datastore loading measurements from cache.' )
-            ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, cache_name)
+            ds.measurements = copy_list_from_cache(Measurements, cache_dir, measurements_cache_name)
+            [ setattr(m, 'provenance_id', measuring_prov.id) for m in ds.measurements ]
+            [ setattr(m, 'cutouts_id', ds.cutouts.id) for m in ds.measurements ]
+
+            # Note that the actual measurement objects in the two lists
+            # won't be the same objects (they will be equivalent
+            # objects), whereas when they are created in the first place
+            # I think they're the same objects.  As long as we're
+            # treating measurements as read-only, except for a bit of
+            # memory usage this shouldn't matter.
+            ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, all_measurements_cache_name)
             [ setattr(m, 'provenance_id', measuring_prov.id) for m in ds.all_measurements ]
             [ setattr(m, 'cutouts_id', ds.cutouts.id) for m in ds.all_measurements ]
 
-            ds.measurements = []
-            for m in ds.all_measurements:
-                threshold_comparison = p.measurer.compare_measurement_to_thresholds(m)
-                if threshold_comparison != "delete":  # all disqualifiers are below threshold
-                    m.is_bad = threshold_comparison == "bad"
-                    ds.measurements.append(m)
-
-            [m.associate_object(session) for m in ds.measurements]  # create or find an object for each measurement
-            # no need to save list because Measurements is not a FileOnDiskMixin!
+            # Because the Object association wasn't run, we have to do that manually
+            with SmartSession( session ) as sess:
+                for m in ds.measurements:
+                    m.associate_object( p.measurer.pars.association_radius,
+                                        is_testing=measuring_prov.is_testing,
+                                        session=sess )
+                                        
         else:  # cannot find measurements on cache
             SCLogger.debug( "make_datastore running measurer to create measurements" )
             ds = p.measurer.run(ds, session)
             if use_cache:
-                copy_list_to_cache(ds.all_measurements, cache_dir, cache_name)  # must provide filepath!
+                copy_list_to_cache(ds.all_measurements, cache_dir, all_measurements_cache_name)
+                copy_list_to_cache(ds.measurements, cache_dir, measurements_cache_name)
 
+            
+
+        # Make sure there are no residual exceptions caught in the datastore
+        assert ds.exception is None
+                
         SCLogger.debug( "make_datastore running ds.save_and_commit after subtraction/etc" )
         ds.save_and_commit(session=session)
 

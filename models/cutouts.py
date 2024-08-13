@@ -156,8 +156,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def __repr__(self):
         return (
             f"<Cutouts {self.id} "
-            f"from SourceList {self.sources_id} "
-            f"from Image {self.sub_image_id} "
+            f"from SourceList {self.sources_id}>"
         )
 
     @staticmethod
@@ -172,7 +171,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return names
 
-    def load_all_co_data(self):
+    def load_all_co_data( self, sources=None ):
         """Intended method for a Cutouts object to ensure that the data for all
         sources is loaded into its co_dict attribute. Will only actually load
         from disk if any subdictionaries (one per source in SourceList) are missing.
@@ -181,10 +180,20 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         the creation of Measurements objects. Not necessary for accessing
         individual subdictionaries however, because the Co_Dict class can lazy
         load those as they are requested (eg. co_dict["source_index_0"]).
+
+        Parameters
+        ----------
+          sources: SourceList
+            The detections associated with these cutouts.  Here for
+            efficiency, or if the cutouts and sources aren't yet in the
+            database.  If not given, will load them from the database.
+
         """
-        if self.sources.num_sources is None:
+        if sources is None:
+            sources = SourceList.get_by_id( self.sources_id )
+        if sources.num_sources is None:
             raise ValueError("The detections of this cutouts has no num_sources attr")
-        proper_length = self.sources.num_sources
+        proper_length = sources.num_sources
         if len(self.co_dict) != proper_length and self.filepath is not None:
             self.load()
 
@@ -213,8 +222,8 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             The cutout object.
         """
         cutout = Cutouts()
-        cutout.sources = detections
-        cutout.provenance = provenance
+        cutout.sources_id = detections.id
+        cutout.provenance_id = None if provenance is None else provenance.id
 
         # update the bitflag
         cutout._upstream_bitflag = detections.bitflag
@@ -287,13 +296,20 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         ----------
         filename: str, optional
             The (relative/full path) filename to save to. If not given, will use the default filename.
+
+        image: Image
+            The sub image that these cutouts are associated with.  (Needed to determine filepath.)
+
+        sources: SourceList
+            The SourceList (detections on sub image) that these cutouts are associated with.
+        
         kwargs: dict
             Any additional keyword arguments to pass to the FileOnDiskMixin.save method.
         """
         if len(self.co_dict) == 0:
             return None  # do nothing
 
-        proper_length = self.sources.num_sources
+        proper_length = sources.num_sources
         if len(self.co_dict) != proper_length:
             raise ValueError(f"Trying to save cutouts dict with {len(self.co_dict)}"
                              f" subdicts, but SourceList has {proper_length} sources")
@@ -303,7 +319,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 raise TypeError("Each entry of co_dict must be a dictionary")
 
         if filename is None:
-            filename = self.invent_filepath( image=image, sources=sources )
+            filename = self.invent_filepath( image=image )
 
         self.filepath = filename
 
@@ -388,6 +404,26 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     for groupname in file:
                         self.co_dict[groupname] = self._load_dataset_dict_from_hdf5(file, groupname)
 
+
+    def get_downstreams( self, session=None ):
+        """Return downstreams of this cutouts object.
+
+        Only gets immediate downstreams; does not recurse.  (As per the
+        docstring in SeeChangeBase.get_downstreams.)
+
+        Returns a list of Measurements objects.
+
+        """
+
+        # Avoid circular imports
+        from models.measurements import Measurements
+
+        with SmartSession( session ) as sess:
+            measurements = sess.query( Measurements ).filter( Measurements.cutouts_id==self.id )
+
+        return list( measurements )
+
+
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used
@@ -443,16 +479,4 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     @property
     def get_upstreams( self ):
         raise RuntimeError( f"Cutouts.get_upstreams is deprecated, don't use it" )
-
-    @get_upstreams.setter
-    def get_upstreams( self, val ):
-        raise RuntimeError( f"Cutouts.get_upstreams is deprecated, don't use it" )
-
-    @property
-    def get_downstreams( self ):
-        raise RuntimeError( f"Cutouts.get_downstreams is deprecated, don't use it" )
-
-    @get_downstreams.setter
-    def get_downstreams( self, val ):
-        raise RuntimeError( f"Cutouts.get_downstreams is deprecated, don't use it" )
 

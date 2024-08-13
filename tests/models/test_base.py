@@ -11,7 +11,7 @@ import pytest
 
 import util.config as config
 import models.base
-from models.base import Base, SmartSession, AutoIDMixin, FileOnDiskMixin, FourCorners
+from models.base import Base, SmartSession, UUIDMixin, FileOnDiskMixin, FourCorners
 from models.image import Image
 
 
@@ -61,7 +61,7 @@ def test_to_dict(data_dir):
 # test_image.py
 
 
-class DiskFile(Base, AutoIDMixin, FileOnDiskMixin):
+class DiskFile(Base, UUIDMixin, FileOnDiskMixin):
     """A temporary database table for testing FileOnDiskMixin
 
     """
@@ -69,6 +69,8 @@ class DiskFile(Base, AutoIDMixin, FileOnDiskMixin):
     __tablename__ = f"test_diskfiles_{hexbarf}"
     nofile = True
 
+    def get_downstreams( self, session=None ):
+        return []
 
 @pytest.fixture(scope='session')
 def diskfiletable():

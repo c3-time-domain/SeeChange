@@ -500,6 +500,7 @@ class Provenance(Base):
                           .join( provenance_self_association_table,
                                  provenance_self_association_table.c.upstream_id==Provenance._id )
                           .where( provenance_self_association_table.c.downstream_id==self.id ) ).all()
+            return upstreams
 
     def get_downstreams( self, session=None ):
         with SmartSession( session ) as sess:

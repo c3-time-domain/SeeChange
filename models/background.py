@@ -274,7 +274,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
           sources: SourceList (optional)
              Ignored if filename is not None.  If filename is None,
-             use this SourceList's provenacne to genernate the background's
+             use this SourceList's provenance to genernate the background's
              filepath.  If both filename and soruces are None, will try to
              load the background's SourceList from the database, if possible.
 

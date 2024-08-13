@@ -521,11 +521,11 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 
     @property
     def provenance_id( self ):
-        raise RuntimeError( f"PSF.provenacne_id is deprecated; get provenance from sources" )
+        raise RuntimeError( f"PSF.provenance_id is deprecated; get provenance from sources" )
 
     @provenance_id.setter
     def provenance_id( self, val ):
-        raise RuntimeError( f"PSF.provenacne_id is deprecated; get provenance from sources" )
+        raise RuntimeError( f"PSF.provenance_id is deprecated; get provenance from sources" )
 
     @property
     def provenance( self ):

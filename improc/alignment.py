@@ -452,6 +452,10 @@ class ImageAligner:
             warpedim.flags = read_fits_image(outfl)
             warpedim.flags = np.rint(warpedim.flags).astype(np.uint16)  # convert back to integers
 
+            warpedim.md5sum = None
+            # warpedim.md5sum_extensions = [ None, None, None ]
+            warpedim.md5sum_extensions = None
+            
             # warp the background noise image:
             warpedbg = Background(
                 value=0,

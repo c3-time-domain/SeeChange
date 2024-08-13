@@ -10,19 +10,28 @@ import sqlalchemy as sa
 from models.base import SmartSession
 from models.cutouts import Cutouts
 
+from pipeline.data_store import DataStore
 
-def test_make_save_load_cutouts(decam_detection_list, cutter):
+def test_make_save_load_cutouts( decam_datastore, cutter ):
     try:
         cutter.pars.test_parameter = uuid.uuid4().hex
-        ds = cutter.run(decam_detection_list)
+        ds = DataStore( decam_datastore )
+        # ... this is weird, because I've already run the cutouts
+        # in the fixture, but now I'm going to rerun them...
+        ds.cutouts.delete.from_database_and_disk()
+        ds.cutouts = None
+        ds = cutter.run( ds )
 
         assert cutter.has_recalculated
         assert isinstance(ds.cutouts, Cutouts)
-        assert len(ds.cutouts.co_dict) == ds.cutouts.sources.num_sources
+        assert len(ds.cutouts.co_dict) == ds.sources.num_sources
 
         subdict_key = "source_index_0"
         co_subdict = ds.cutouts.co_dict[subdict_key]
 
+        import pdb; pdb.set_trace()
+        pass
+        
         assert ds.cutouts.sub_image == decam_detection_list.image
         assert ds.cutouts.ref_image == decam_detection_list.image.ref_aligned_image
         assert ds.cutouts.new_image == decam_detection_list.image.new_aligned_image

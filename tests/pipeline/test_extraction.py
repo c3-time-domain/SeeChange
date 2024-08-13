@@ -1,3 +1,6 @@
+# TODO -- write a test to make sure that passing a wcs to extract_sources_sextractor
+#   really uses the updated wcs!!!
+
 import pytest
 import io
 import os

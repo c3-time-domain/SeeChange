@@ -104,13 +104,13 @@ class Cutter:
                 #     sub_stamps_psfflux = None
                 #     sub_stamps_psffluxerr = None
 
-                ref_stamps_data = make_cutouts(ds.sub_image.ref_aligned_image.data, x, y, sz)
-                ref_stamps_weight = make_cutouts(ds.sub_image.ref_aligned_image.weight, x, y, sz, fillvalue=0)
-                ref_stamps_flags = make_cutouts(ds.sub_image.ref_aligned_image.flags, x, y, sz, fillvalue=0)
+                ref_stamps_data = make_cutouts(ds.aligned_ref_image.data, x, y, sz)
+                ref_stamps_weight = make_cutouts(ds.aligned_ref_image.weight, x, y, sz, fillvalue=0)
+                ref_stamps_flags = make_cutouts(ds.aligned_ref_image.flags, x, y, sz, fillvalue=0)
 
-                new_stamps_data = make_cutouts(ds.sub_image.new_aligned_image.data, x, y, sz)
-                new_stamps_weight = make_cutouts(ds.sub_image.new_aligned_image.weight, x, y, sz, fillvalue=0)
-                new_stamps_flags = make_cutouts(ds.sub_image.new_aligned_image.flags, x, y, sz, fillvalue=0)
+                new_stamps_data = make_cutouts(ds.aligned_new_image.data, x, y, sz)
+                new_stamps_weight = make_cutouts(ds.aligned_new_image.weight, x, y, sz, fillvalue=0)
+                new_stamps_flags = make_cutouts(ds.aligned_new_image.flags, x, y, sz, fillvalue=0)
 
                 cutouts = Cutouts.from_detections(detections, provenance=prov)
 

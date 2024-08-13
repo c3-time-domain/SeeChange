@@ -3,10 +3,6 @@
 # (The cache has some scariness to it, and we don't want
 # it built into the mainstream pipeline.)
 #
-# What's more, because of how it functions, tests will probably fail if
-# you don't empty the cache every time you reinitialize the database.
-# See Issue #339/
-
 # (The cache is still not useless, because if you run multiple tests,
 # the cache will be used internally to avoid recalculating stuff for
 # different tests.)

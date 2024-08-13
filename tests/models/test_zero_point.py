@@ -25,73 +25,34 @@ def test_zeropoint_get_aper_cor():
 
 
 def test_zeropoint_committing(ztf_datastore_uncommitted, provenance_base, provenance_extra):
-    # save the WCS to file and DB
-    with SmartSession() as session:
-        try:
-            provenance_base = session.merge(provenance_base)
-            provenance_extra = session.merge(provenance_extra)
-            image = ztf_datastore_uncommitted.image
-            image.sources = ztf_datastore_uncommitted.sources
-            image.sources.provenance = provenance_extra
-            image.sources.save()
-            image.psf.provenance = provenance_extra
-            image.psf.save()
-            image.provenance = provenance_base
-            image.save()
-            image = image.merge_all(session)
+    try:
+        ds = ztf_datastore_uncommitted
+        ds.image.provenance_id = provenance_base.id
+        ds.image.save()
+        ds.image.insert()
+        ds.sources.provenance_id = provenance_extra.id
+        ds.sources.save()
+        ds.sources.insert()
 
-            zp = ZeroPoint(zp=20.1, dzp=0.1)
-            zp.sources = image.sources
-            zp.provenance = Provenance(
-                process='test_zero_point',
-                code_version=provenance_base.code_version,
-                parameters={'test_parameter': 'test_value'},
-                upstreams=[provenance_extra],
-                is_testing=True,
-            )
+        zp = ZeroPoint(zp=20.1, dzp=0.1)
+        zp.sources_id = ds.sources.id
+        zp.insert()
 
-            session.add(zp)
+        # add a second ZeroPoint object and make sure we cannot accidentally commit it, too
+        zp2 = ZeroPoint(zp=20.1, dzp=0.1)
+        zp2.sources_id = ds.sources.id
+
+        with pytest.raises( IntegrityError,
+                            match='duplicate key value violates unique constraint "ix_zero_points_sources_id"' ):
+            zp2.insert()
+
+    finally:
+
+        with SmartSession() as session:
+            session.execute( sa.delete( ZeroPoint ).where( ZeroPoint._id.in_( [ zp.id, zp2.id ] ) ) )
             session.commit()
 
-            # add a second WCS object and make sure we cannot accidentally commit it, too
-            zp2 = ZeroPoint(zp=20.1, dzp=0.1)
-            zp2.sources = image.sources
-            zp2.provenance = zp.provenance
-
-            with pytest.raises(
-                    IntegrityError,
-                    match='duplicate key value violates unique constraint "_zp_sources_provenance_uc"'
-            ):
-                session.add(zp2)
-                session.commit()
-            session.rollback()
-
-            # if we change any of the provenance parameters we should be able to save it
-            zp2.provenance = Provenance(
-                process='test_zero_point',
-                code_version=provenance_base.code_version,
-                parameters={'test_parameter': 'new_test_value'},  # notice we've put another value here
-                upstreams=[provenance_extra],
-                is_testing=True,
-            )
-            session.add(zp2)
-            session.commit()
-
-        finally:
-
-            if 'zp' in locals():
-                if sa.inspect(zp).persistent:
-                    session.delete(zp)
-                    image.zp = None
-                    image.sources.zp = None
-            if 'zp2' in locals():
-                if sa.inspect(zp2).persistent:
-                    session.delete(zp2)
-                    image.zp = None
-                    image.sources.zp = None
-
-            if 'image' in locals():
-                image.delete_from_disk_and_database(remove_downstreams=True)
+        ds.image.delete_from_disk_and_database( remove_downstreams=True )
 
 
 
