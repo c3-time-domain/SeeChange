@@ -14,27 +14,25 @@ from pipeline.data_store import DataStore
 
 def test_make_save_load_cutouts( decam_datastore, cutter ):
     try:
-        cutter.pars.test_parameter = uuid.uuid4().hex
         ds = DataStore( decam_datastore )
-        # ... this is weird, because I've already run the cutouts
-        # in the fixture, but now I'm going to rerun them...
-        ds.cutouts.delete.from_database_and_disk()
+        # ...this is a little weird; we already made cutouts
+        # in the fixture, and now we're going to rerun them.
+        # Perhaps we could just look at the ones that
+        # were in the fixture?  (Of course, this does let us
+        # test has_recalculated.)
+        ds.cutouts.delete_from_disk_and_database()
         ds.cutouts = None
         ds = cutter.run( ds )
 
         assert cutter.has_recalculated
         assert isinstance(ds.cutouts, Cutouts)
-        assert len(ds.cutouts.co_dict) == ds.sources.num_sources
+        # all_measurements is a test property that isn't really properly
+        #   supported in DataStore, so it wasn't set to None when
+        #   cutouts was set to None above
+        assert len(ds.cutouts.co_dict) == len(ds.all_measurements)
 
         subdict_key = "source_index_0"
         co_subdict = ds.cutouts.co_dict[subdict_key]
-
-        import pdb; pdb.set_trace()
-        pass
-
-        assert ds.cutouts.sub_image == decam_detection_list.image
-        assert ds.cutouts.ref_image == decam_detection_list.image.ref_aligned_image
-        assert ds.cutouts.new_image == decam_detection_list.image.new_aligned_image
 
         assert isinstance(co_subdict["sub_data"], np.ndarray)
         assert isinstance(co_subdict["sub_weight"], np.ndarray)
@@ -48,10 +46,10 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
         assert ds.cutouts.bitflag is not None
 
         # set the bitflag just to see if it is loaded or not
-        ds.cutouts.bitflag = 2 ** 41  # should be Cosmic Ray
+        ds.cutouts.set_badness( 'cosmic ray' )
 
         # save the Cutouts
-        ds.cutouts.save()
+        ds.cutouts.save( image=ds.sub_image, sources=ds.detections )
 
         # open the file manually and compare
         with h5py.File(ds.cutouts.get_fullpath(), 'r') as file:
@@ -64,8 +62,8 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
         # load a cutouts from file and compare
         c2 = Cutouts()
         c2.filepath = ds.cutouts.filepath
-        c2.sources = ds.cutouts.sources  # necessary for co_dict
-        c2.load_all_co_data()  # explicitly load co_dict
+        c2.sources_id = ds.cutouts.sources_id
+        c2.load_all_co_data()
 
         co_subdict2 = c2.co_dict[subdict_key]
 
@@ -81,7 +79,7 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
         co_subdict2['sub_data'][0, 0] = 100  # for comparison later
 
         # make sure we can re-save
-        ds.cutouts.save()
+        ds.cutouts.save( image=ds.sub_image, sources=ds.detections )
 
         with h5py.File(ds.cutouts.get_fullpath(), 'r') as file:
             assert np.array_equal(ds.cutouts.co_dict[subdict_key]['sub_data'],
@@ -89,20 +87,24 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
             assert file[subdict_key]['sub_data'][0, 0] == 100  # change has propagated
 
         # check that we can add the cutouts to the database
+        # (First make sure it's not there already, because we deleted it above,
+        # and haven't inserted it since re-making it.)
         with SmartSession() as session:
-            ds.cutouts = session.merge(ds.cutouts)
-            session.commit()
+            loaded_cutouts = session.scalars( sa.select(Cutouts)
+                                              .where( Cutouts.provenance_id == ds.prov_tree['cutting'].id )
+                                             ).all()
+            assert len(loaded_cutouts) == 0
 
-        ds.cutouts.load_all_co_data()  # need to re-load after merge
-        assert ds.cutouts is not None
-        assert len(ds.cutouts.co_dict) > 0
+        ds.cutouts.insert()
 
         with SmartSession() as session:
-            loaded_cutouts = session.scalars(
-                sa.select(Cutouts).where(Cutouts.provenance_id == ds.cutouts.provenance.id)
-            ).all()
+            loaded_cutouts = session.scalars( sa.select(Cutouts)
+                                              .where( Cutouts.provenance_id == ds.prov_tree['cutting'].id )
+                                             ).all()
             assert len(loaded_cutouts) == 1
             loaded_cutouts = loaded_cutouts[0]
+
+            assert loaded_cutouts.badness == 'cosmic ray'
 
             # make sure data is correct
             loaded_cutouts.load_all_co_data()
@@ -113,5 +115,8 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
                                             co_subdict2.get(f'{im}_{att}'))
 
     finally:
-        if 'ds' in locals() and ds.cutouts is not None:
-            ds.cutouts.delete_from_disk_and_database()
+        # (This probably shouldn't be necessary, as the fixture cleanup
+        # will clean up everything.)
+        # if 'ds' in locals() and ds.cutouts is not None:
+        #     ds.cutouts.delete_from_disk_and_database()
+        pass

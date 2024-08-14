@@ -447,7 +447,7 @@ class SeeChangeBase:
 
         Will assign the object an id if it doesn't alrady have one (in self.id).
 
-        Then looks in the databse.  If the object is not yet there,
+        Then looks in the database.  If the object is not yet there,
         calls the insert method (which will handle things like
         association tables).  Otherwise, just merges the object to
         update the object's own fields.
@@ -2303,7 +2303,7 @@ class HasBitFlagBadness:
         self._bitflag = 0
         self._upstream_bitflag = 0
 
-    def update_downstream_badness(self, session=None, commit=True, siblings=True):
+    def update_downstream_badness(self, session=None, commit=True, siblings=True, objbank=None):
         """Send a recursive command to update all downstream objects that have bitflags.
 
         Since this function is called recursively, it always updates the
@@ -2334,18 +2334,46 @@ class HasBitFlagBadness:
             anytime this function calls itself, it uses siblings=False,
             to avoid infinite recursion.
 
+        objbank: dict
+            Don't pass this, it's only used internally.
+
         """
 
+        if objbank is None:
+            objbank = {}
+
         with SmartSession(session) as session:
-            # Merge is scary, but use it here so that all the various
-            # downsterams we find are all tied to the same session,
-            # and so all of them can be committed at once.  Since
-            # we *should* have removed all relationships, merge
-            # should not have as many side effects as it used to
-            merged_self = session.merge(self)
+            # Before the database refactor, this was done with
+            # SQLAlchemy, and worked.  Afterwards, even though in this
+            # one place I tried to keep them all in one session, it
+            # didn't work.  What was happening was that when an object,
+            # merged into the session, was changed here, that same
+            # object (i.e. same memory location) was *not* being pulled
+            # out from the queries in image.get_upstreams(), even though
+            # session was passed on to get_upstreams().  So, things
+            # weren't propagating right.  Something about session
+            # querying and merging wasn't working right.  (WHAT?
+            # Confusion with SQLAlchemy merging?  Never!)
+            #
+            # So, rather than fully trusting the mysteriousness of
+            # sqlalchemy sessions, use an object bank that we pass
+            # recursively, to make sure that every time we want to refer
+            # an object of a given id, we refer to the same object in
+            # memory.  That way, we can be sure that changes we make
+            # during the recursion will stick.  (We're still trusting SA
+            # that when we commit, because we merged all of those
+            # objects, the changes to them will get sent in to the
+            # databse.  Fingers crossed.  merge is always scary.)
+
+            if self.id not in objbank.keys():
+                merged_self = session.merge(self)
+                objbank[ merged_self.id ] = merged_self
+            merged_self = objbank[ self.id ]
 
             new_bitflag = 0  # start from scratch, in case some upstreams have lost badness
             for upstream in merged_self.get_upstreams(session):
+                if upstream.id in objbank.keys():
+                    upstream = objbank[ upstream.id ]
                 if hasattr(upstream, '_bitflag'):
                     new_bitflag |= upstream.bitflag
 
@@ -2356,7 +2384,7 @@ class HasBitFlagBadness:
             # recursively do this for all downstream objects
             for downstream in merged_self.get_downstreams(session=session, siblings=siblings):
                 if hasattr(downstream, 'update_downstream_badness') and callable(downstream.update_downstream_badness):
-                    downstream.update_downstream_badness(session=session, siblings=False, commit=False)
+                    downstream.update_downstream_badness(session=session, siblings=False, commit=False, objbank=objbank)
 
             if commit:
                 session.commit()

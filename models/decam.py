@@ -675,7 +675,7 @@ class DECam(Instrument):
             else:
                 obs_type = obstypemap[ obs_type ]
             expobj = Exposure( current_file=expfile, invent_filepath=True,
-                               type=obs_type, format='fits', provenance=provenance, ra=ra, dec=dec,
+                               type=obs_type, format='fits', provenance_id=provenance.id, ra=ra, dec=dec,
                                instrument='DECam', origin_identifier=origin_identifier, header=hdr,
                                **exphdrinfo )
             dbpath = outdir / expobj.filepath

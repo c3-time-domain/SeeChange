@@ -41,7 +41,7 @@ def test_decam_exposure(decam_filename):
     assert e.filter == 'r DECam SDSS c0002 6415.0 1480.0'
     assert not e.from_db
     assert e.info == {}
-    assert e.id is None
+    assert e._id is None
     assert e.target == 'ELAIS-E1'
     assert e.project == '2023A-716082'
 
@@ -92,8 +92,8 @@ def test_image_from_decam_exposure(decam_filename, provenance_base, data_dir):
     assert im.project == '2023A-716082'
     assert im.section_id == sec_id
 
-    assert im.id is None  # not yet on the DB
-    assert im.filepath is None  # no file yet!
+    assert im._id is None
+    assert im.filepath is None
 
     assert len(im.header) == 98
     assert im.header['NAXIS'] == 2
@@ -306,7 +306,7 @@ def test_decam_download_and_commit_exposure(
                 assert match is not None
                 # Todo : add the subdirectory to dbfname once that is implemented
                 dbfname = ( f'c4d_20{match.group("yymmdd")}_{match.group("hhmmss")}_{exposure.filter[0]}_'
-                            f'{exposure.provenance.id[0:6]}.fits' )
+                            f'{exposure.provenance_id[0:6]}.fits' )
                 assert exposure.filepath == dbfname
                 assert ( pathlib.Path( exposure.get_fullpath( download=False ) ) ==
                          pathlib.Path( FileOnDiskMixin.local_path ) / exposure.filepath )
@@ -330,19 +330,18 @@ def test_decam_download_and_commit_exposure(
         # Clean up
         with SmartSession() as session:
             exposures = session.query( Exposure ).filter( Exposure._id.in_( eids ) )
-            for exposure in exposures:
-                exposure.delete_from_disk_and_database( session=session, commit=False )
-            session.commit()
-            if 'downloaded' in locals():
-                for d in downloaded:
-                    path = os.path.join(data_dir, d['exposure'].name)
-                    if os.path.isfile(path):
-                        os.unlink(path)
-                    if os.path.isfile(d['exposure']):
-                        os.unlink(d['exposure'])
+        for exposure in exposures:
+            exposure.delete_from_disk_and_database()
+        if 'downloaded' in locals():
+            for d in downloaded:
+                path = os.path.join(data_dir, d['exposure'].name)
+                if os.path.isfile(path):
+                    os.unlink(path)
+                if os.path.isfile(d['exposure']):
+                    os.unlink(d['exposure'])
 
-
-@pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
+# This test really isn't *that* slow.  Not compared to so many others nowadays.
+# @pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
 def test_get_default_calibrators( decam_default_calibrators ):
     sections, filters = decam_default_calibrators
     decam = get_instrument_instance( 'DECam' )
@@ -372,12 +371,14 @@ def test_get_default_calibrators( decam_default_calibrators ):
                         if ftype == 'linearity':
                             assert cf.image_id is None
                             assert cf.datafile_id is not None
-                            p = ( pathlib.Path( FileOnDiskMixin.local_path ) / cf.datafile.filepath )
+                            df = DataFile.get_by_id( cf.datafile_id, session=session )
+                            p = ( pathlib.Path( FileOnDiskMixin.local_path ) / df.filepath )
                             assert p.is_file()
                         else:
                             assert cf.image_id is not None
                             assert cf.datafile_id is None
-                            p = ( pathlib.Path( FileOnDiskMixin.local_path ) / cf.image.filepath )
+                            i = Image.get_by_id( cf.image_id, session=session )
+                            p = ( pathlib.Path( FileOnDiskMixin.local_path ) / i.filepath )
                             assert p.is_file()
 
 

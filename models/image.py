@@ -441,12 +441,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         self.calculate_coordinates()  # galactic and ecliptic coordinates
 
-    def __setattr__(self, key, value):
-        if key == 'upstream_images':
-            # make sure the upstream_images list is sorted by mjd:
-            value.sort(key=lambda x: x.mjd)
+    # def __setattr__(self, key, value):
+    #     if key == 'upstream_images':
+    #         # make sure the upstream_images list is sorted by mjd:
+    #         value.sort(key=lambda x: x.mjd)
 
-        super().__setattr__(key, value)
+    #     super().__setattr__(key, value)
 
     @orm.reconstructor
     def init_on_load(self):
@@ -1015,6 +1015,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         output.type = 'Diff'
         if new_image.type.startswith('Com'):
             output.type = 'ComDiff'
+
+        output.is_sub = True
 
         # Note that "data" is not filled by this method, also the provenance is empty!
         return output
@@ -1640,7 +1642,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return images, sourceses, bgs, psfs, wcses, zps
 
 
-    def get_upstreams(self, session=None):
+    def get_upstreams(self, only_images=False, session=None):
         """Get the upstream images and associated products that were used to make this image.
 
         This includes the reference/new image (for subtractions) or the set of
@@ -1655,6 +1657,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         Parameters
         ----------
+        only_images: bool, default False
+             If True, only get upstream images, not the other assorted data products.
+
         session: SQLAlchemy session (optional)
             The session to use to query the database.  If not provided,
             will open a new session that automatically closes at
@@ -1669,6 +1674,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             coadd images, there could be all those other things.
 
         """
+
+        # Avoid circular imports
+        from models.source_list import SourceList
+        from models.background import Background
+        from models.psf import PSF
+        from models.world_coordinates import WorldCoordinates
+        from models.zero_point import ZeroPoint
 
         upstreams = []
         with SmartSession(session) as session:
@@ -1687,29 +1699,31 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
             # Upstream images first
             upstrimages = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
-
-            # Get all of the other falderal associated with those images
-            upstrsources = ( session.query( SourceList )
-                             .filter( SourceList.image_id ).in_( self.upstream_image_ids )
-                             .filter( SourceList.provenance_id ).in_( upstrprovids )
-                             .all() )
-            upstrsrcids = [ s.id for s in upstrsources ]
-
-            upstrbkgs = session.query( Background ).filter( Background.sources_id.in_( upstrsrcids ) ).all()
-            upstrpsfs = session.query( PSF ).filter( PSF.sources_id.in_( upstsrsrcids ) ).all()
-            upstrwcses = session.query( WorldCoordinate ).filter( WorldCoordinates.sources_id.in_( upstrsrcids ) ).all()
-            upstrzps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( upstrsrcids ) ).all()
-
             upstreams.extend( list(upstrimages) )
-            upstreams.extend( list(upstrsources) )
-            upstreams.extend( list(upstrbkgs) )
-            upstreams.extend( list(upstrpsfs) )
-            upstreams.extend( list(upstrwcses) )
-            upstreams.extend( list(upstrzps) )
+
+            if not only_images:
+                # Get all of the other falderal associated with those images
+                upstrsources = ( session.query( SourceList )
+                                 .filter( SourceList.image_id.in_( self.upstream_image_ids ) )
+                                 .filter( SourceList.provenance_id.in_( upstrprovids ) )
+                                 .all() )
+                upstrsrcids = [ s.id for s in upstrsources ]
+
+                upstrbkgs = session.query( Background ).filter( Background.sources_id.in_( upstrsrcids ) ).all()
+                upstrpsfs = session.query( PSF ).filter( PSF.sources_id.in_( upstrsrcids ) ).all()
+                upstrwcses = ( session.query( WorldCoordinates )
+                               .filter( WorldCoordinates.sources_id.in_( upstrsrcids ) ) ).all()
+                upstrzps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( upstrsrcids ) ).all()
+
+                upstreams.extend( list(upstrsources) )
+                upstreams.extend( list(upstrbkgs) )
+                upstreams.extend( list(upstrpsfs) )
+                upstreams.extend( list(upstrwcses) )
+                upstreams.extend( list(upstrzps) )
 
         return upstreams
 
-    def get_downstreams(self, session=None, siblings=False):
+    def get_downstreams(self, session=None, only_images=False, siblings=False):
         """Get all the objects that were created based on this image. """
 
         # avoids circular import
@@ -1721,24 +1735,24 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         downstreams = []
         with SmartSession(session) as session:
-            # get all source lists that are related to this image (regardless of provenance)
-            sources = session.scalars( sa.select(SourceList).where(SourceList.image_id == self.id) ).all()
-            downstreams.extend( list(sources) )
-            srcids = [ s.id for s in sources ]
+            if not only_images:
+                # get all source lists that are related to this image (regardless of provenance)
+                sources = session.scalars( sa.select(SourceList).where(SourceList.image_id == self.id) ).all()
+                downstreams.extend( list(sources) )
+                srcids = [ s.id for s in sources ]
 
-            # Get the bkgs, psfs, wcses, and zps assocated with all of those sources
-            bkgs = session.query( Background ).filter( Background.sources_id.in_( srcids ) ).all()
-            psfs = session.query( PSF ).filter( PSF.sources_id.in_( srcids ) ).all()
-            wcses = session.query( WorldCoordinates ).filter( WorldCoordinates.sources_id.in_( srcids ) ).all()
-            zps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( srcids ) ).all()
+                # Get the bkgs, psfs, wcses, and zps assocated with all of those sources
+                bkgs = session.query( Background ).filter( Background.sources_id.in_( srcids ) ).all()
+                psfs = session.query( PSF ).filter( PSF.sources_id.in_( srcids ) ).all()
+                wcses = session.query( WorldCoordinates ).filter( WorldCoordinates.sources_id.in_( srcids ) ).all()
+                zps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( srcids ) ).all()
 
-            downstreams.extend( list(bkgs) )
-            downstreams.extend( list(psfs) )
-            downstreams.extend( list(wcses) )
-            downstreams.extend( list(zps) )
+                downstreams.extend( list(bkgs) )
+                downstreams.extend( list(psfs) )
+                downstreams.extend( list(wcses) )
+                downstreams.extend( list(zps) )
 
-            # Now get all images that are downstream of this image, add them, and recursively add their
-            #   downstreams
+            # Now get all images that are downstream of this image.
 
             dsimgs = ( session.query( Image )
                        .join( image_upstreams_association_table,
@@ -1746,10 +1760,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                        .filter( image_upstreams_association_table.c.upstream_id == self.id )
                       ).all()
             downstreams.extend( list(dsimgs) )
-
-            # NO, WAIT.  This method is supposed to be non-recursive
-            # for img in dsimages:
-            #     downstreams.extend( img.get_downstreams( session=session ) )
 
         return downstreams
 
@@ -2187,19 +2197,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     @property
     def upstream_images( self ):
-        raise RuntimeError( "Don't use upstream_images, use ROB FIX THIS" )
+        raise RuntimeError( "Don't use upstream_images, use get_upstreams" )
 
     @upstream_images.setter
     def upstream_images( self, val ):
-        raise RuntimeError( "Don't use upstream_images, use ROB FIX THIS" )
+        raise RuntimeError( "Don't use upstream_images, create image with from_images or from_ref_and_new" )
 
     @property
     def downstream_images( self ):
-        raise RuntimeError( "Don't use downstream_images, use ROB FIX THIS" )
+        raise RuntimeError( "Don't use downstream_images, use get_downstreams()" )
 
-    @upstream_images.setter
+    @downstream_images.setter
     def downstream_images( self, val ):
-        raise RuntimeError( "Don't use downstream_images, use ROB FIX THIS" )
+        raise RuntimeError( "Can't set downstream images." )
 
     @property
     def ref_image( self ):
@@ -2219,19 +2229,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     @property
     def new_aligned_image( self ):
-        raise RuntimeError( "Don't use new_aligned_image, use ROB FIX THIS" )
+        raise RuntimeError( "aligned images as Image properties are deprecated" )
 
     @new_aligned_image.setter
     def new_aligned_image( self ):
-        raise RuntimeError( "Don't use new_aligned_image, use ROB FIX THIS" )
+        raise RuntimeError( "aligned images as Image properties are deprecated" )
 
     @property
     def ref_aligned_image( self ):
-        raise RuntimeError( "Don't use ref_aligned_image, use ROB FIX THIS" )
+        raise RuntimeError( "aligned images as Image properties are deprecated" )
 
     @ref_aligned_image.setter
     def ref_aligned_image( self, val ):
-        raise RuntimeError( "Don't use ref_aligned_image, use ROB FIX THIS" )
+        raise RuntimeError( "aligned images as Image properties are deprecated" )
 
     @property
     def sources( self ):

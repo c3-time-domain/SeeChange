@@ -129,8 +129,7 @@ class ImageCleanup:
 
     @classmethod
     def save_image(cls, image, archive=True):
-        """
-        Save the image to disk, and return an ImageCleanup object.
+        """Save the image to disk, and return an ImageCleanup object.
 
         Parameters
         ----------
@@ -168,23 +167,26 @@ class ImageCleanup:
 
     def __del__(self):
         try:
-            # TODO ROB THINK ABOUT THIS -- if the image may have been
-            #   added to the database, then we always need to call
-            #   delete_from_disk_and_database.  Is there any reason
-            #   why we don't just always call that and sometimes only
-            #   call remove_data_from_disk?
-            if self.archive:
-                self.image.delete_from_disk_and_database()
-            else:
-                self.image.remove_data_from_disk()
-        except Exception as e:
-            if (
-                    "Can't emit change event for attribute 'Image.md5sum' "
-                    "- parent object of type <Image> has been garbage collected"
-            ) in str(e):
-                # no need to worry about md5sum if the underlying Image is already gone
-                pass
-            warnings.warn(str(e))
+            # Just in case this image was used in a test and became an upstream, we
+            #   need to clean out those entries.  (They won't automatically clean out
+            #   because ondelete is RESTRICT for upstream_id in image_upstreams_associaton.)
+            # We're trusting that whoever made the downstream will clean themselves up.
+            with SmartSession() as sess:
+                sess.execute( sa.text( "DELETE FROM image_upstreams_association "
+                                       "WHERE upstream_id=:id" ),
+                              { "id": self.image.id } )
+                sess.commit()
+            self.image.delete_from_disk_and_database()
+        # except Exception as e:
+        #     if (
+        #             "Can't emit change event for attribute 'Image.md5sum' "
+        #             "- parent object of type <Image> has been garbage collected"
+        #     ) in str(e):
+        #         # no need to worry about md5sum if the underlying Image is already gone
+        #         pass
+        #     warnings.warn(str(e))
+        finally:
+            pass
 
 
 # idea taken from: https://github.com/pytest-dev/pytest/issues/2424#issuecomment-333387206
@@ -215,17 +217,20 @@ def generate_image_fixture(commit=True):
 
         yield im
 
-        # Clean up the exposure provenance that got created
+        # Just in case this image got added as an upstream to anything,
+        #   need to clean out the association table.  (See comment in
+        #   ImageCleanup.__del__.)
+        with SmartSession() as sess:
+            sess.execute( sa.text( "DELETE FROM image_upstreams_association "
+                                   "WHERE upstream_id=:id" ),
+                          { "id": im.id } )
+            sess.commit()
+
+        # Clean up the exposure that got created; this will recusrively delete im as well
         if exp is not None:
-            # This will also recursively delete im from disk and database
             exp.delete_from_disk_and_database()
 
-        # TODO WORRY : might this provenance be the same as something that
-        #   gets created in a module or session fixture?  Perhaps we should be more
-        #   careful and explicit about this?
-        with SmartSession() as session:
-            session.execute( sa.delete( Provenance ).where( Provenance._id == exp.provenance_id ) )
-            session.commit()
+        # Cleanup provenances?  We seem to be OK with those lingering in the database at the end of tests.
 
     return new_image
 
@@ -246,78 +251,76 @@ def sim_reference(provenance_preprocessing, provenance_extra):
     ra = np.random.uniform(0, 360)
     dec = np.random.uniform(-90, 90)
     images = []
-    with SmartSession() as session:
-        provenance_extra = session.merge(provenance_extra)
+    exposures = []
 
-        for i in range(5):
-            exp = make_sim_exposure()
-            add_file_to_exposure(exp)
-            exp = commit_exposure(exp, session)
-            exp.filter = filter
-            exp.target = target
-            exp.project = "coadd_test"
-            exp.ra = ra
-            exp.dec = dec
+    for i in range(5):
+        exp = make_sim_exposure()
+        add_file_to_exposure(exp)
+        exp = commit_exposure( exp )
+        exp.filter = filter
+        exp.target = target
+        exp.project = "coadd_test"
+        exp.ra = ra
+        exp.dec = dec
+        exposures.append( exp )
 
-            exp.update_instrument()
-            im = Image.from_exposure(exp, section_id=0)
-            im.data = im.raw_data - np.median(im.raw_data)
-            im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
-            im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
-            im.provenance = provenance_preprocessing
-            im.ra = ra
-            im.dec = dec
-            im.save()
-            im.provenance = session.merge(im.provenance)
-            session.add(im)
-            images.append(im)
+        exp.update_instrument()
+        im = Image.from_exposure(exp, section_id=0)
+        im.data = im.raw_data - np.median(im.raw_data)
+        im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
+        im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
+        im.provenance_id = provenance_preprocessing.id
+        im.ra = ra
+        im.dec = dec
+        im.save()
+        im.insert()
+        images.append(im)
 
-        ref_image = Image.from_images(images)
-        ref_image.is_coadd = True
-        ref_image.data = np.mean(np.array([im.data for im in images]), axis=0)
-        ref_image.flags = np.max(np.array([im.flags for im in images]), axis=0)
-        ref_image.weight = np.mean(np.array([im.weight for im in images]), axis=0)
+    ref_image = Image.from_images(images)
+    ref_image.is_coadd = True
+    ref_image.data = np.mean(np.array([im.data for im in images]), axis=0)
+    ref_image.flags = np.max(np.array([im.flags for im in images]), axis=0)
+    ref_image.weight = np.mean(np.array([im.weight for im in images]), axis=0)
 
-        provenance_extra.process = 'coaddition'
-        ref_image.provenance = provenance_extra
-        ref_image.save()
-        session.add(ref_image)
+    coaddprov = Provenance( process='coaddition',
+                            code_version_id=provenance_extra.code_version_id,
+                            parameters={},
+                            upstreams=[provenance_extra],
+                            is_testing=True )
+    coaddprov.insert_if_needed()
+    ref_image.provenance_id = coaddprov.id
+    ref_image.save()
+    ref_image.insert()
 
-        ref = Reference()
-        ref.image = ref_image
-        ref.provenance = Provenance(
-            code_version=provenance_extra.code_version,
-            process='referencing',
-            parameters={'test_parameter': 'test_value'},
-            upstreams=[provenance_extra],
-            is_testing=True,
-        )
-        ref.validity_start = Time(50000, format='mjd', scale='utc').isot
-        ref.validity_end = Time(58500, format='mjd', scale='utc').isot
-        ref.section_id = 0
-        ref.filter = filter
-        ref.target = target
-        ref.project = "coadd_test"
-
-        session.add(ref)
-        session.commit()
+    ref = Reference()
+    ref.image_id = ref_image.id
+    refprov = Provenance(
+        code_version_id=provenance_extra.code_version_id,
+        process='referencing',
+        parameters={'test_parameter': 'test_value'},
+        upstreams=[provenance_extra],
+        is_testing=True,
+    )
+    refprov.insert_if_needed()
+    ref.provenance_id = refprov.id
+    ref.instrument = 'Simulated'
+    ref.section_id = 0
+    ref.filter = filter
+    ref.target = target
+    ref.project = "coadd_test"
+    ref.insert()
 
     yield ref
 
-    if 'ref' in locals():
-        with SmartSession() as session:
-            ref = ref.merge_all(session)
-            for im in ref.image.upstream_images:
-                im.exposure.delete_from_disk_and_database()
-                im.delete_from_disk_and_database()
-            ref.image.delete_from_disk_and_database()
-            if sa.inspect(ref).persistent:
-                session.delete(ref.provenance)  # should also delete the reference
-            session.commit()
+    if 'ref_image' in locals():
+        ref_image.delete_from_disk_and_database()   # Should also delete the Reference
 
-    # The provenance will have been automatically created
+    # Deleting exposure should cascade to images
+    for exp in exposures:
+        exp.delete_from_disk_and_database()
+
     with SmartSession() as session:
-        session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
+        session.execute( sa.delete( Provenance ).where( Provenance._id.in_([coaddprov.id, refprov.id]) ) )
         session.commit()
 
 

@@ -1,6 +1,8 @@
 import pytest
 import uuid
 
+from models.instrument import SensorSection
+from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
 from models.background import Background
@@ -10,6 +12,7 @@ from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.provenance import Provenance
 
 # The fixture gets us a datastore with everything saved and committed
 # The fixture takes some time to build (even from cache), so glom
@@ -52,14 +55,17 @@ def test_data_store( decam_datastore ):
         import pdb; pdb.set_trace()
         pass
 
+    ds.image_id = origimg
+
     exp = ds.exposure
-    import pdb; pdb.set_trace()
-    # ROB, write tests
+    assert isinstance( exp, Exposure )
+    assert exp.instrument == 'DECam'
+    assert exp.format == 'fits'
 
     assert ds._section is None
     sec = ds.section
-    import pdb; pdb.set_trace()
-    # ROB, write tests
+    assert isinstance( sec, SensorSection )
+    assert sec.identifier == ds.section_id
 
     assert isinstance( ds.image, Image )
     assert isinstance( ds.sources, SourceList )
@@ -82,14 +88,26 @@ def test_data_store( decam_datastore ):
     origprops = { prop: getattr( ds, prop ) for prop in props }
     origprops.update( { prop: getattr( ds, prop ) for prop in sourcesiblings } )
 
+    refprov = Provenance.get( ds.reference.provenance_id )
+
     def resetprops():
-        for k, v in origprops.items():
-            setattr( ds, k, v )
+        for prop in props:
+            if prop == 'ref_image':
+                # The way the DataStore was built, it doesn't have a 'referencing'
+                #   provenance in its provenance_tree, so we have to
+                #   provide one.
+                ds.get_reference( provenances=[ refprov ] )
+                assert ds.ref_image.id == origprops['ref_image'].id
+            else:
+                setattr( ds, prop, origprops[ prop ] )
+                if prop == 'sources':
+                    for sib in sourcesiblings:
+                        setattr( ds, sib, origprops[ sib ] )
 
     for i, prop in enumerate( props ):
         setattr( ds, prop, None )
         for subprop in props[i+1:]:
-            assert getattr( ds, prop ) is None
+            assert getattr( ds, subprop ) is None
             if subprop == 'sources':
                 assert all( [ getattr( ds, p ) is None for p in sourcesiblings ] )
         resetprops()
@@ -97,8 +115,29 @@ def test_data_store( decam_datastore ):
             for sibling in sourcesiblings:
                 setattr( ds, sibling, None )
                 for subprop in props[ props.index('sources')+1: ]:
-                    assert getattr( ds, prop ) is None
+                    assert getattr( ds, subprop ) is None
                 resetprops()
 
+
+    # Test that we can't set a dependent property if the parent property isn't set
+
+    ds.image = None
+    for i, prop in enumerate( props ):
+        if i == 0:
+            continue
+        with pytest.raises( RuntimeError, match=f"Can't set DataStore {prop} until it has" ):
+            setattr( ds, prop, origprops[ prop ] )
+        if props[i-1] == 'sources':
+            for subprop in sourcesiblings:
+                with pytest.raises( RuntimeError, match=f"Can't set DataStore {subprop} until it has a sources." ):
+                    setattr( ds, subprop, origprops[ subprop ] )
+        setattr( ds, props[i-1], origprops[ props[i-1] ] )
+        if props[i-1] == 'sources':
+            for subprop in sourcesiblings:
+                setattr( ds, subprop, origprops[ subprop ] )
+    setattr( ds, props[-1], origprops[ props[-1] ] )
+
+
     # MORE
+
 

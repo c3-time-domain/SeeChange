@@ -212,7 +212,7 @@ class DataStore:
             self.sub_image = None
         else:
             if self._image is None:
-                raise RuntimeError( "Can't set DataStoure sources until it has an image." )
+                raise RuntimeError( "Can't set DataStore sources until it has an image." )
             if not isinstance( val, SourceList ):
                 raise TypeError( f"DatatStore.sources must be a SourceList, not a {type(val)}" )
             if ( ( ( self._bg is not None ) and ( self._bg.sources_id != val.id ) ) or
@@ -599,7 +599,7 @@ class DataStore:
     def catch_exception(self, exception):
         """Store the exception into the datastore for later use. """
 
-        strio = io.STringIO( "DataStore catching exception:\n ")
+        strio = io.StringIO( "DataStore catching exception:\n ")
         traceback.print_exception( exception, file=strio )
         SCLogger.error( strio.getvalue() )
 

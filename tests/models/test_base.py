@@ -177,7 +177,6 @@ def test_upsert_list( code_version, provenance_base, provenance_extra ):
         df2.filepath = "mongoose"
         df2.md5sum = uuid.uuid4()
         SCLogger.debug( "Upserting df1, df2, df4, df5" )
-        import pdb; pdb.set_trace()
         DataFile.upsert_list( [ df1, df2, df4, df5 ] )
 
         SCLogger.debug( "Getting df1 through df5 in a batch" )
