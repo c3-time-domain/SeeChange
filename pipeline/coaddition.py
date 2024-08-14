@@ -79,8 +79,8 @@ class ParsCoadd(Parameters):
               'This should save memory, but you might want to set this to False for testing purposes.' ),
             critical=False
         )
-            
-        
+
+
         self._enforce_no_new_attrs = True
         self.override( kwargs )
 
@@ -431,7 +431,7 @@ class Coadder:
             Index into data_store_list that is the alignment
             target. TODO: we need a way to specify an alignment image
             that may not be one of the images being summed!
-        
+
         """
 
         aligner = ImageAligner( **self.pars.alignment )
@@ -456,17 +456,17 @@ class Coadder:
             alds.wcs = parentwcs.copy()
             alds.wcs.wcs = parentwcs.wcs           # reference not copy... should not be changed in practice, so OK
             alds.wcs.sources_id = alds.sources.id
-            
+
             # Alignment doesn't change the zeropoint -- BUT WAIT, it could,
             #  because it could change the aperture corrections!  TODO,
             #  make an issue about this.
             alds.zp = ds.zp.copy()
             alds.sources_id = alds.sources.id
-            
+
             self.aligned_datastores.append( alds )
 
         ImageAligner.cleanup_temp_images()
-            
+
     def get_coadd_prov( self, data_store_list, upstream_provs=None, code_version=None ):
         """Figure out the Provenance and CodeVersion of the coadded image.
 
@@ -507,7 +507,7 @@ class Coadder:
         )
 
         return coadd_provenance, code_version
-            
+
 
     def run( self, data_store_list, aligned_datastores=None, coadd_provenance=None ):
         """Run coaddition on the given list of images, and return the coadded image.
@@ -537,7 +537,7 @@ class Coadder:
 
         coadd_provenance: Provenance (optional)
             (for efficiency)
-        
+
         Returns
         -------
         output: Image object
@@ -606,7 +606,7 @@ class Coadder:
 
         if self.pars.cleanup_alignment:
             self.aligned_datastores = None
-            
+
         return output
 
 
@@ -736,7 +736,7 @@ class CoaddPipeline:
 
 
         # Get sources, background, wcs, and zp of the coadded image
-        
+
         # TODO: add the warnings/exception capturing, runtime/memory tracking (and Report making) as in top_level.py
 
         self.datastore = self.extractor.run(self.datastore)
@@ -751,7 +751,7 @@ class CoaddPipeline:
         self.datastore = self.photometor.run(self.datastore)
         if self.datastore.zp is None:
             raise RuntimeError( "CoaddPipeline failed to solve for zeropoint of coadded image." )
-            
+
 
         return self.datastore
 

@@ -31,7 +31,7 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
 
         import pdb; pdb.set_trace()
         pass
-        
+
         assert ds.cutouts.sub_image == decam_detection_list.image
         assert ds.cutouts.ref_image == decam_detection_list.image.ref_aligned_image
         assert ds.cutouts.new_image == decam_detection_list.image.new_aligned_image

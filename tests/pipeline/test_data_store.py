@@ -21,17 +21,17 @@ from models.measurements import Measurements
 
 def test_data_store( decam_datastore ):
     ds = decam_datastore
-    
+
     # ********** Test basic attributes **********
 
     origexp = ds._exposure_id
     assert ds.exposure_id == origexp
-    
+
     tmpuuid = uuid.uuid4()
     ds.exposure_id = tmpuuid
     assert ds._exposure_id == tmpuuid
     assert ds.exposure_id == tmpuuid
-    
+
     with pytest.raises( Exception ) as ex:
         ds.exposure_id = 'this is not a valid uuid'
         import pdb; pdb.set_trace()
@@ -85,7 +85,7 @@ def test_data_store( decam_datastore ):
     def resetprops():
         for k, v in origprops.items():
             setattr( ds, k, v )
-    
+
     for i, prop in enumerate( props ):
         setattr( ds, prop, None )
         for subprop in props[i+1:]:
@@ -101,4 +101,4 @@ def test_data_store( decam_datastore ):
                 resetprops()
 
     # MORE
-                
+

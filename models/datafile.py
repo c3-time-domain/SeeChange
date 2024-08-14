@@ -45,7 +45,7 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
     def get_downstreams( self, session=None ):
         # DataFile has no downstreams
         return []
-        
+
     def __repr__(self):
         return (
             f'<DataFile('

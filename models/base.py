@@ -1551,7 +1551,7 @@ class UUIDMixin:
     @id.setter
     def id( self, val ):
         self._id = asUUID( val )
-    
+
     @classmethod
     def get_by_id( cls, uuid, session=None ):
         """Get an object of the current class that matches the given uuid.

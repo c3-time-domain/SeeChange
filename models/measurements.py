@@ -409,7 +409,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             if cutouts is None:
                 raise RuntimeError( "Can't find cutouts associated with Measurements, can't load cutouts data." )
         cutouts.load_all_co_data( sources=detections )
-        
+
         groupname = f'source_index_{self.index_in_sources}'
 
         if not cutouts.co_dict.get(groupname):
@@ -509,7 +509,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                     # ROB TODO -- need a way to generate object names.  The way we were
                     #   doing it before no longer works since it depended on numeric IDs.
                     obj.name = str( obj.id )[-12:]
-                    
+
                     obj.insert( session=sess )
 
                 self.object_id = obj.id
@@ -543,7 +543,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             not given, will try to find it in the database.  (Actually,
             it won't, because that's complicated.  Just pass a PSF if
             aperture is -1.)
-        
+
         Returns
         -------
         flux: float
@@ -563,7 +563,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         if self.sub_data is None:
             raise RuntimeError( "Run get_data_from_cutouts before running get_flux_at_point" )
-            
+
         im = self.sub_nandata  # the cutouts image we are working with (includes NaNs for bad pixels)
 
         if wcs is None:
@@ -574,7 +574,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             if wcs is None:
                 raise RuntimeError( "Failed to get WorldCoordinates for measurements" )
         wcs = wcs.wcs
-            
+
         # these are the coordinates relative to the center of the cutouts
         image_pixel_x = wcs.world_to_pixel_values(ra, dec)[0]
         image_pixel_y = wcs.world_to_pixel_values(ra, dec)[1]
@@ -641,7 +641,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         # Measurements doesn't currently have downstreams; this will
         #  change with the R/B score object.
         return []
-        
+
     @classmethod
     def delete_list(cls, measurements_list):
         """

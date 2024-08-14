@@ -224,7 +224,7 @@ class Reference(Base, UUIDMixin):
         Returns
         -------
           list of Reference, list of Image
-        
+
         """
         if ( ( ( ra is None ) or ( dec is None ) ) and
              ( ( target is None ) or ( section_id is None ) )

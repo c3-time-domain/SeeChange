@@ -1,7 +1,7 @@
 """reboot
 
 Revision ID: 23a5388bafd9
-Revises: 
+Revises:
 Create Date: 2024-08-14 13:48:16.784689
 
 """

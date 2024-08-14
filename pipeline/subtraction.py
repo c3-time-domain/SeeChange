@@ -368,7 +368,7 @@ class Subtractor:
                     raise ValueError( f"aligner to_index must be ref or new, not {to_index}" )
 
                 ImageAligner.cleanup_temp_images()
-                
+
                 SCLogger.debug( "Alignment complete" )
 
                 if self.pars.method == 'naive':

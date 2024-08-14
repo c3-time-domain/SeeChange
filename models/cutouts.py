@@ -302,7 +302,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         sources: SourceList
             The SourceList (detections on sub image) that these cutouts are associated with.
-        
+
         kwargs: dict
             Any additional keyword arguments to pass to the FileOnDiskMixin.save method.
         """

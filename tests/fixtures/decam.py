@@ -276,7 +276,7 @@ def decam_refset():
     with SmartSession() as session:
         session.execute( sa.delete( RefSet ).where( RefSet.name=='test_refset_decam' ) )
         session.commit()
-        
+
 
 @pytest.fixture
 def decam_datastore(
@@ -489,7 +489,7 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
     # prov = maker.refset.provenances[0]
     # maker = refmaker_factory('test_refset_decam', 'DECam', 'decam_elais_e1_two_references' )
     # maker.make_refset()
-    
+
     ds = decam_elais_e1_two_refs_datastore[0]
     upstrs = Provenance.get_batch( [ ds.image.provenance_id, ds.sources.provenance_id ] )
     refprov = Provenance(
@@ -500,7 +500,7 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
     refprov.insert_if_needed()
     refset = RefSet.get_by_name( 'test_refset_decam' )
     refset.append_provenance( refprov )
-    
+
     for ds in decam_elais_e1_two_refs_datastore:
         ref = Reference(
             image_id = ds.image.id,

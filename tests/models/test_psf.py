@@ -324,7 +324,7 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
         psf.insert()
 
         # TODO : make sure we can load the one we just saved
-        
+
         # make a copy of the PSF (we will not be able to save it, with the same image_id and provenance)
         psf2 = PSF(format='psfex')
         psf2._data = psf.data
@@ -386,7 +386,7 @@ def test_free( decam_datastore ):
     assert ds.psf._info is not None
     assert ds.psf._header is not None
     ds.psf.free()
-    
+
     origmem = proc.memory_info()
     ds.psf.free()
     ds.sources.free()

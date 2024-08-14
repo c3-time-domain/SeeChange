@@ -66,7 +66,7 @@ class CodeVersion(Base):
     @id.setter
     def id( self, val ):
         self._id = val
-    
+
 
     # There is a kind of race condition in making this property the way we do, that in practice
     # is not going to matter.  Somebody else could add a new hash to this code version, and we
@@ -186,7 +186,7 @@ class Provenance(Base):
     @id.setter
     def id( self, val ):
         raise RuntimeError( "Don't set Provenance.id directly, use update_id()" )
-    
+
     process = sa.Column(
         sa.String,
         nullable=False,
@@ -410,7 +410,7 @@ class Provenance(Base):
     #  querying the database repeatedly in get_code_version by saving
     #  the result.
     _current_code_version = None
-    
+
     @classmethod
     def get_code_version(cls, session=None):
         """Get the most relevant or latest code version.

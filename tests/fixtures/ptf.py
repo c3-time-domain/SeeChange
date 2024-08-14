@@ -290,7 +290,7 @@ def ptf_reference_image_datastores(ptf_images_datastore_factory):
 
     # Sort them by mjd
     dses.sort( key=lambda d: d.image.mjd )
-    
+
     yield dses
 
     with SmartSession() as session:
@@ -346,7 +346,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         improv = Provenance.get( ds.image.provenance_id )
         srcprov = Provenance.get( ds.sources.provenance_id )
         warped_prov, warped_sources_prov = aligner.get_provenances( [improv, srcprov], srcprov )
-        
+
         with open(os.path.join(cache_dir, 'manifest.txt')) as f:
             filenames = f.read().splitlines()
         output_dses = []
@@ -363,7 +363,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
             ds.zp = copy_from_cache( ZeroPoint, cache_dir, imfile + '.zp' )
 
             output_dses.append( ds )
-            
+
             # imfile, psffile, bgfile = filename.split()
             # output_images.append(copy_from_cache(Image, cache_dir, imfile + '.image.fits'))
             # output_images[-1].provenance = prov
@@ -398,7 +398,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
             ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
             ds.psf.save( image=ds.image, sources=ds.sources, overwrite=True )
             ds.wcs.save( image=ds.image, sources=ds.sources, overwrite=True )
-            
+
             if not env_as_bool( "LIMIT_CACHE_USAGE" ):
                 copy_to_cache( ds.image, cache_dir )
                 copy_to_cache( ds.sources, cache_dir )
@@ -415,7 +415,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
                              f'{ds.psf.filepath} {ds.wcs.filepath}\n' )
 
         output_dses = coadder.aligned_datastores
-                    
+
     yield output_dses
 
     for ds in output_dses:
@@ -498,7 +498,7 @@ def ptf_ref(
         coadd_image.ref_image_id = ptf_reference_image_datastores[-1].image.id
 
         coadd_datastore = DataStore( coadd_image )
-        
+
         # get the source list:
         coadd_datastore.sources = copy_from_cache(
             SourceList, ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
@@ -528,7 +528,7 @@ def ptf_ref(
 
         # Make sure it's all in the database
         coadd_datastore.save_and_commit()
-        
+
     else:  # make a new reference image
 
         coadd_datastore = pipe.run( ptf_reference_image_datastores, aligned_datastores=ptf_aligned_image_datastores )
@@ -538,7 +538,7 @@ def ptf_ref(
         mtch = re.search( r'_([a-zA-Z0-9\-]+)$', coadd_datastore.image.filepath )
         if mtch.group(1) != cache_barf:
             raise ValueError( "fixture cache error: filepaths end with {match.group(1)}, expected {cache_barf}" )
-        
+
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             # save all products into cache:
             copy_to_cache(coadd_datastore.image, ptf_cache_dir)

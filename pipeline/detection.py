@@ -356,7 +356,7 @@ class Detector:
 
         zogy_alpha: numpy array
           ZOGY alpha.  Needed if self.pars.method is 'filter'
-        
+
         Returns
         -------
         sources: SourceList object
@@ -506,7 +506,7 @@ class Detector:
           wcs: WorldCoordinates or None
             If passed, will replace the WCS in the image header with the
             WCS from this object before passing it to SExtractor.
-        
+
           tempname: str
             If not None, a filename base for where the catalog will be
             written.  The source file will be written to
@@ -625,7 +625,7 @@ class Detector:
             hdr = image.header.copy()
             if wcs is not None:
                 hdr.update( wcs.wcs.to_header() )
-                                                                
+
             fits.writeto( tmpimage, image.data, header=hdr )
             fits.writeto( tmpweight, image.weight )
             fits.writeto( tmpflags, image.flags )
@@ -900,12 +900,12 @@ class Detector:
             The score image from zogy
 
         zogy_alpha: SOMETHING
-        
+
         wcs: WorldCoordiantes
 
         fwhm: float or None
             FWHM of the image in arcseconds; if None, will be read from image.fwhm_estimate
-        
+
         Returns
         -------
         sources: SourceList
@@ -917,7 +917,7 @@ class Detector:
         if score is None:
             raise NotImplementedError('Still need to add the matched-filter cross correlation! ')
         score = score.copy()
-        
+
         # psf_image = None
         # if image.psf is not None:
         #     psf_image = image.psf.get_clip()

@@ -68,7 +68,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         if session is not None:
             raise RuntimeError( "Don't pass a session to make_datastore.  You're just asking for deadlocks." )
-        
+
         code_version = None
         with SmartSession( session ) as sess:
             code_version = ( sess.query( CodeVersion )
@@ -282,7 +282,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     warnings.warn(f'cache path {zp_cache_path} does not match output path {output_path}')
 
         ########### Done with image and image data products; save and commit #############
-                    
+
         SCLogger.debug( "make_datastore running ds.save_and_commit on image (before subtraction)" )
         ds.save_and_commit( session=session )
 
@@ -291,7 +291,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             output_path = copy_to_cache(ds.image, cache_dir)
 
         ############ Now do subtraction / detection / measurement / etc. ##############
-            
+
         # If we were told not to try to do a subtraction, then we're done
         if skip_sub:
             SCLogger.debug( "make_datastore : skip_sub is True, returning" )
@@ -322,7 +322,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             SCLogger.debug( "make_datastore : could not find a reference, returning" )
             return ds  # if no reference is found, simply return the datastore without the rest of the products
         refimg = Image.get_by_id( ref.image_id )
-        
+
         improvs = Provenance.get_batch( [ ds.image.provenance_id, ds.sources.provenance_id ] )
         refprovs = Provenance.get_batch( [ ds.ref_image.provenance_id, ds.ref_sources.provenance_id ] )
         bothprovs = improvs + refprovs
@@ -515,7 +515,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     m.associate_object( p.measurer.pars.association_radius,
                                         is_testing=measuring_prov.is_testing,
                                         session=sess )
-                                        
+
         else:  # cannot find measurements on cache
             SCLogger.debug( "make_datastore running measurer to create measurements" )
             ds = p.measurer.run(ds, session)
@@ -523,11 +523,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 copy_list_to_cache(ds.all_measurements, cache_dir, all_measurements_cache_name)
                 copy_list_to_cache(ds.measurements, cache_dir, measurements_cache_name)
 
-            
+
 
         # Make sure there are no residual exceptions caught in the datastore
         assert ds.exception is None
-                
+
         SCLogger.debug( "make_datastore running ds.save_and_commit after subtraction/etc" )
         ds.save_and_commit(session=session)
 

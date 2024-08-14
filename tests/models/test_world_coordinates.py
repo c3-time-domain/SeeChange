@@ -84,7 +84,7 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
     ds.image.instrument = 'DECam' # otherwise invent_filepath will not work as 'ZTF' is not an Instrument
     ds.image.provenance_id = provenance_base.id
     ds.sources.provenance_id = provenance_extra.id
-    
+
     origwcs = WCS( ds.image.header )
     wcobj = WorldCoordinates()
     wcobj.wcs = origwcs

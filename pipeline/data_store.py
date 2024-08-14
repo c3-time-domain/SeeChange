@@ -1704,7 +1704,7 @@ class DataStore:
         #   all added to the databse, so the downstreams wouldn't be found.
         # Go in reverse order so that things that reference other things will
         #   be deleted before the things they reference.
-        
+
         del_list = [ getattr( self, i ) for i in self.products_to_save if i != 'exposure' ]
         del_list.reverse()
         for obj in del_list:

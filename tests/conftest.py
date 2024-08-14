@@ -239,7 +239,7 @@ def data_dir():
     yield temp_data_folder
 
     ( tdf / 'placeholder' ).unlink( missing_ok=True )
-    
+
     # remove all the files created during tests
     # make sure the test config is pointing the data_dir
     # to a different location than the rest of the data

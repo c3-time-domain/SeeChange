@@ -138,7 +138,7 @@ class ParsMeasurer(Parameters):
             'By default, associate_object is called for each measurement, which will commit new '
             'Object rowss to the database.  Set this flag to skip this step.'
         )
-        
+
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -422,7 +422,7 @@ class Measurer:
                                                 session=sess )
                 else:
                     SCLogger.debug( "Skipping association of measurements with objects." )
-                
+
             else:
                 ds.measurements = measurements_list
 

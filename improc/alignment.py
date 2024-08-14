@@ -214,7 +214,7 @@ class ImageAligner:
 
           source_psf: PSF
             PSF for source_image.
-        
+
           source_wcs: WorldCoordinates
             wcs for source_image.  This WCS must correspond to the x/y
             and ra/dec values in source_sources.
@@ -455,7 +455,7 @@ class ImageAligner:
             warpedim.md5sum = None
             # warpedim.md5sum_extensions = [ None, None, None ]
             warpedim.md5sum_extensions = None
-            
+
             # warp the background noise image:
             warpedbg = Background(
                 value=0,
@@ -590,7 +590,7 @@ class ImageAligner:
 
           source_psf: PSF
             corresponding to source_sources
-        
+
           source_wcs: WorldCoordinates
             correponding to source_sources
 
@@ -631,7 +631,7 @@ class ImageAligner:
             warped_image.md5sum = None
             warped_image.md5sum_extensions = None             # Which is the right thing to do with extensions???
             # warped_image.md5sum_extensions = [ None, None, None ]
-            
+
             warped_sources = source_sources.copy()
             warped_sources.provenance_id = warped_sources_prov.id
             warped_sources.image_id = warped_image.id

@@ -46,7 +46,7 @@ class RefSet(Base, UUIDMixin):
         with SmartSession( session ) as sess:
             refset = sess.query( RefSet ).filter( RefSet.name==name ).first()
             return refset
-    
+
     @property
     def provenances( self ):
         if self._provenances is None:
