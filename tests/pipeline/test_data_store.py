@@ -80,7 +80,7 @@ def test_data_store( decam_datastore ):
     props = [ 'image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements' ]
     sourcesiblings = [ 'bg', 'psf', 'wcs', 'zp' ]
     origprops = { prop: getattr( ds, prop ) for prop in props }
-    origprops.extend( { prop: getattr( ds, prop ) for prop in sourcesiblings } )
+    origprops.update( { prop: getattr( ds, prop ) for prop in sourcesiblings } )
 
     def resetprops():
         for k, v in origprops.items():

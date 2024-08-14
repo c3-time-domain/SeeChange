@@ -989,7 +989,7 @@ class DataStore:
                            att,
                            cls,
                            upstream_att,
-                           upstream_cls,
+                           cls_upstream_id_att,
                            process,
                            is_list=False,
                            match_prov=True,
@@ -1017,10 +1017,12 @@ class DataStore:
             The class associated with att (Sources, PSF, WorldCoordinates, etc.)
 
           upstream_att: str
-            The attribute of the DataStore that represents the upstream product.
+            The name of the attribute of the DataStore that represents the upstream product.
 
-          upstream_cls: class
-            The class associated with upstream_att.
+          cls_upstream_id_att: THING The actual attribute from the
+            class that holds the id of the upstream. E.g., if
+            att="sources" and cls=SourceList, then
+            upstream_att="image_id" and att=SourceList.image_id
 
           process: str
             The name of the process that produces this data product ('extraction', 'detection', ';measuring', etc.)
@@ -1071,7 +1073,7 @@ class DataStore:
             return None
 
         with SmartSession( session ) as sess:
-            obj = sess.query( cls ).filter( upstreamobj._id == upstream_cls._id )
+            obj = sess.query( cls ).filter( cls_upstream_id_att == upstreamobj._id )
             if ( match_prov ):
                 obj = obj.filter( cls.provenance_id == provenance._id )
             obj = obj.all()
@@ -1129,27 +1131,27 @@ class DataStore:
 
         """
 
-        return self._get_data_product( "sources", SourceList, "image", Image, "extraction",
+        return self._get_data_product( "sources", SourceList, "image", SourceList.image_id, "extraction",
                                        provenance=provenance, session=session )
 
     def get_psf(self, session=None, provenance=None):
         """Get a PSF, either from memory or from the database."""
-        return self._get_data_product( 'psf', PSF, 'sources', SourceList, 'extraction',
+        return self._get_data_product( 'psf', PSF, 'sources', PSF.sources_id, 'extraction',
                                        match_prov=False, provenance=provenance, session=session )
 
     def get_background(self, session=None, provenance=None):
         """Get a Background object, either from memory or from the database."""
-        return self._get_data_product( 'bg', Background, 'sources', SourceList, 'extraction',
+        return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'extraction',
                                        match_prov=False, provenance=provenance, session=session )
 
     def get_wcs(self, session=None, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""
-        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', SourceList, 'extraction',
+        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'extraction',
                                        match_prov=False, provenance=provenance, session=session )
 
     def get_zp(self, session=None, provenance=None):
         """Get a zeropoint as a ZeroPoint object, from memory or from the database."""
-        return self._get_data_product( 'zp', ZeroPoint, 'sources', SourceList, 'extraction',
+        return self._get_data_product( 'zp', ZeroPoint, 'sources', ZeroPoint.sources_id, 'extraction',
                                        match_prov=False, provenance=provenance, session=session )
 
 
@@ -1420,18 +1422,18 @@ class DataStore:
 
     def get_detections(self, provenance=None, session=None):
         """Get a SourceList for sources from the subtraction image, from memory or from database."""
-        return self._get_data_product( "detections", SourceList, "sub_image", Image, "detection",
+        return self._get_data_product( "detections", SourceList, "sub_image", SourceList.image_id, "detection",
                                        provenance=provenance, session=session )
 
     def get_cutouts(self, provenance=None, session=None):
         """Get a list of Cutouts, either from memory or from database."""
-        return self._get_data_product( "cutouts", Cutouts, "detections", SourceList, "cutting",
+        return self._get_data_product( "cutouts", Cutouts, "detections", Cutouts.sources_id, "cutting",
                                        provenance=provenance, session=session )
 
 
     def get_measurements(self, provenance=None, session=None):
         """Get a list of Measurements, either from memory or from database."""
-        return self._get_data_product( "measurements", Measurements, "cutouts", Cutouts, "measuring",
+        return self._get_data_product( "measurements", Measurements, "cutouts", Measurements.cutouts_id, "measuring",
                                        is_list=True, provenance=provenance, session=session )
 
 
@@ -1575,7 +1577,7 @@ class DataStore:
             if isinstance( obj, FileOnDiskMixin ):
                 strio.write( f" with filepath {obj.filepath}" )
             elif isinstance( obj, list ):
-                strio.write( f" of types {[type(i) for i in obj]}" )
+                strio.write( f" including types {set([type(i) for i in obj])}" )
             SCLogger.debug( strio.getvalue() )
 
             if isinstance(obj, FileOnDiskMixin):

@@ -2,6 +2,7 @@ import pytest
 import warnings
 import uuid
 import os
+import re
 import shutil
 import hashlib
 import requests
@@ -460,7 +461,10 @@ def ptf_ref(
     )
     im_prov.insert_if_needed()
 
-    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_u-ux2cce'
+    # I'm unhappy with this hardcoded thing at the end... TODO: figure out
+    #   where it comes from!
+    cache_barf = 'u-3qpni6'
+    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_{cache_barf}'
 
     # this provenance is used for sources, psf, wcs, zp
     sources_prov = Provenance(
@@ -529,6 +533,11 @@ def ptf_ref(
 
         coadd_datastore = pipe.run( ptf_reference_image_datastores, aligned_datastores=ptf_aligned_image_datastores )
         coadd_datastore.save_and_commit()
+
+        # Check that the filename came out what we expected above
+        mtch = re.search( r'_([a-zA-Z0-9\-]+)$', coadd_datastore.image.filepath )
+        if mtch.group(1) != cache_barf:
+            raise ValueError( "fixture cache error: filepaths end with {match.group(1)}, expected {cache_barf}" )
         
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             # save all products into cache:
@@ -563,7 +572,6 @@ def ptf_ref(
     yield ref
 
     coadd_datastore.delete_everything()
-    coadd_image.delete_from_disk_and_database(remove_downstreams=True)
     with SmartSession() as session:
         ref_in_db = session.scalars(sa.select(Reference).where(Reference._id == ref.id)).first()
         assert ref_in_db is None  # should have been deleted by cascade when image is deleted

@@ -293,15 +293,15 @@ class SeeChangeBase:
     created_at = sa.Column(
         sa.DateTime(timezone=True),
         nullable=False,
-        default=utcnow,
+        server_default=func.now(),
         index=True,
         doc="UTC time of insertion of object's row into the database.",
     )
 
     modified = sa.Column(
         sa.DateTime(timezone=True),
-        default=utcnow,
-        onupdate=utcnow,
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
         doc="UTC time the object's row was last modified in the database.",
     )
@@ -364,7 +364,9 @@ class SeeChangeBase:
         tables that need to get updated (i.e. with Image, maybe
         eventually some others).
 
-        All reference fields (ids of other objects) of the objects must be up to date.
+        All reference fields (ids of other objects) of the objects must
+        be up to date.  If the referenced objects don't exist in the
+        database already, you'll get integrity errors.
 
         """
 
@@ -374,11 +376,68 @@ class SeeChangeBase:
         with SmartSession( session ) as sess:
             try:
                 sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
-                for obj in objects:
-                    if obj._id is None:
-                        _ = obj.id     # Force it to generate an id
-                    sess.merge( obj )
-                sess.commit()
+                # Not doing this just with sqlalchemy merge for two reasons.
+                # (1) That generates mysterious errors that induce rage
+                #     against sqlalchemy (e.g. was getting an error about
+                #     created_at being blank, even though it's got a
+                #     default).
+                # (2) A for loop of sqlalchemy merge will, I think, go to the database
+                #     repeatedly, pulling down a copy of each object one at a time
+                #     for merge purposes.  More efficient to pull them all at once.
+                #
+                # I'm hoping that by modifying columns of things pulled
+                # from sqlalchemy and just committing the session will
+                # generate single transaction of a bunch of update
+                # statements, without the need to do selects before the
+                # updates.
+                #
+                # I think this is the case; see
+                # tests/test_base.py::test_upsert_list.  If you want to
+                # see what sql actually gets generated, uncomment the
+                # debug outputs below and run that tests with pytest
+                # --capture=tee-sys.  (For production, leave the
+                # SCLogger.debug statements commented.  Even though
+                # they're debug and won't show up if you haven't set the
+                # log level that high, it's more efficient not to have
+                # gratuitous function calls, and this could be an inner
+                # loop somewhere, plus it holds a database lock.)
+
+                # Figure out which objects are existing, which are new.
+                # Use .id here once to force generation if necessary,
+                # then use _id to bypass one python function call.
+                objids = [ o.id for o in objects ]
+                existing = sess.query( cls ).filter( cls._id.in_( objids ) ).all()
+                existing = { o._id: o for o in existing }
+                updates = [ o for o in objects if o._id in existing.keys() ]
+                news = [ o for o in objects if o._id not in existing.keys() ]
+
+                # Update the existing ones
+                if len(updates) > 0:
+                    for obj in updates:
+                        # SCLogger.debug( "UPDATING AN OBJECT" )
+                        for col in sa.inspect(obj).mapper.columns.keys():
+                            existingval = getattr( existing[obj._id], col )
+                            objval = getattr( obj, col )
+                            mustreplace = False
+                            if isinstance( existingval, list ):
+                                mustreplace = not all( [ i == j for i, j in zip( existingval, objval ) ] )
+                            else:
+                                mustreplace = ( existingval != objval )
+                            if mustreplace:
+                                setattr( existing[obj._id], col, objval )
+                    # SCLogger.debug( "COMMITING UPDATES" )
+                    sess.commit()
+
+                # Insert the new ones.  (We may no longer have the lock at this point,
+                # but it shouldn't matter because uuids will be unique, and if there's
+                # another conflict on another column that is supposed to be unique,
+                # we'd get that conflict in any event.)
+                if len(news) > 0:
+                    for obj in news:
+                        # SCLogger.debug( "ADDING AN OBJECT" )
+                        sess.add( obj )
+                    # SCLogger.debug( "COMMITING INSERTS" )
+                    sess.commit()
             finally:
                 # Make sure the lock is released if something goes wrong
                 sess.rollback()

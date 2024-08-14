@@ -493,8 +493,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                                                     cache_sub_name + f'.all_measurements_{measuring_prov.id[:6]}.json')
         measurements_cache_name = os.path.join(cache_dir, cache_sub_name + f'.measurements_{measuring_prov.id[:6]}.json')
 
-        import pdb ; pdb.set_trace()
-        
         if use_cache and ( os.path.isfile(measurements_cache_name) ) and ( os.path.isfile(all_measurements_cache_name) ):
             SCLogger.debug( 'make_datastore loading measurements from cache.' )
             ds.measurements = copy_list_from_cache(Measurements, cache_dir, measurements_cache_name)

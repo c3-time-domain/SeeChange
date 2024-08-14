@@ -1,19 +1,26 @@
+import pytest
+
+import sys
 import os
 import hashlib
 import pathlib
 import random
 import uuid
 import json
+import logging
 
 import numpy as np
 
-import pytest
+import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 import util.config as config
+from util.logger import SCLogger
 import models.base
 from models.base import Base, SmartSession, UUIDMixin, FileOnDiskMixin, FourCorners
 from models.image import Image
-
+from models.datafile import DataFile
+from models.object import Object
 
 def test_to_dict(data_dir):
     target = uuid.uuid4().hex
@@ -51,6 +58,151 @@ def test_to_dict(data_dir):
 
     finally:
         os.remove(filename)
+
+# ====================
+# Test basic database operations
+#
+# Using the DataFile model here because it's a relatively lightweight
+#   model with a minimum of relationships.  Will spoof md5sum so
+#   we don't have to actually save any data to disk.
+
+def test_insert( provenance_base ):
+
+    uuidstodel = [ uuid.uuid4() ]
+    try:
+        # Make sure we can insert
+        df = DataFile( _id=uuidstodel[0], filepath="foo", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        df.insert()
+
+        founddf = DataFile.get_by_id( df.id )
+        assert founddf is not None
+        assert founddf.filepath == df.filepath
+        assert founddf.md5sum == df.md5sum
+        # We could check that these times are less than datetime.datetime.now(tz=datetime.timezone.utc),
+        # but they might fail of the database server and host server clocks aren't exactly in sync.
+        assert founddf.created_at is not None
+        assert founddf.modified is not None
+
+        # Make sure we get an error if we try to insert something that already exists
+        newdf = DataFile( _id=df.id, filepath='bar', md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        with pytest.raises( IntegrityError, match='duplicate key value violates unique constraint "data_files_pkey"' ):
+            df.insert()
+
+    finally:
+        # Clean up
+        with SmartSession() as sess:
+            sess.execute( sa.delete( DataFile ).where( DataFile._id.in_( uuidstodel ) ) )
+            sess.commit()
+
+def test_upsert( provenance_base ):
+
+    uuidstodel = [ uuid.uuid4() ]
+    try:
+        # Make sure we can insert something new
+        with SmartSession() as sess:
+            assert sess.query( DataFile ).filter( DataFile._id==uuidstodel[0] ).first() is None
+        df = DataFile( _id=uuidstodel[0], filepath="foo", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        df.upsert()
+        founddf = DataFile.get_by_id( df.id )
+        assert founddf is not None
+        assert founddf.filepath == df.filepath
+        assert founddf.md5sum == df.md5sum
+
+        # Make sure we can update it
+        origmd5sum = df.md5sum
+        df.md5sum = uuid.uuid4()
+        df.upsert()
+        founddf = DataFile.get_by_id( df.id )
+        assert founddf is not None
+        assert founddf.md5sum == df.md5sum
+        assert founddf.md5sum != origmd5sum
+        assert founddf.modified > founddf.created_at
+
+    finally:
+        # Clean up
+        with SmartSession() as sess:
+            sess.execute( sa.delete( DataFile ).where( DataFile._id.in_( uuidstodel ) ) )
+            sess.commit()
+
+# TODO : test test_upsert_list when one of the object properties is a SQL array.
+
+# This test also implicitly tests UUIDMixin.get_by_id and UUIDMixin.get_back_by_ids
+def test_upsert_list( code_version, provenance_base, provenance_extra ):
+    # Set the logger to show the SQL emitted by SQLAlchemy for this test.
+    # (See comments in models/base.py UUIDMixin.upsert_list.)
+    # See this with pytest --capture=tee-sys
+    curloglevel = logging.getLogger( 'sqlalchemy.engine' ).level
+    logging.getLogger( 'sqlalchemy.engine' ).setLevel( logging.INFO )
+    loghandler = logging.StreamHandler( sys.stderr )
+    logging.getLogger( 'sqlalchemy.engine' ).addHandler( loghandler )
+
+    uuidstodel = []
+    try:
+        df1 = DataFile( filepath="foo", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        df2 = DataFile( filepath="bar", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        df3 = DataFile( filepath="cat", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        df4 = DataFile( filepath="dog", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        df5 = DataFile( filepath="mouse", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        uuidstodel.extend( [ df1.id, df2.id, df3.id, df4.id, df5.id ] )
+
+        # Make sure it yells at us if all the objects aren't the right thing,
+        #   and that it doesn't actually insert anything
+        SCLogger.debug( "Trying to fail" )
+        gratuitous = Object( name='nothing', ra=0., dec=0. )
+        with pytest.raises( TypeError, match="passed objects weren't all of this class!" ):
+            DataFile.upsert_list( [ df1, df2, gratuitous ] )
+
+        SCLogger.debug( "Making sure nothing got inserted" )
+        them = DataFile.get_batch_by_ids( [ df1.id, df2.id ] )
+        assert len(them) == 0
+
+        # Make sure we can insert
+        SCLogger.debug( "Upserting df1, df2" )
+        DataFile.upsert_list( [ df1, df2 ] )
+        SCLogger.debug( "Getting df1, df2, df3 by id one at a time" )
+        founddf1 = DataFile.get_by_id( df1.id )
+        founddf2 = DataFile.get_by_id( df2.id )
+        founddf3 = DataFile.get_by_id( df3.id )
+        assert founddf1 is not None
+        assert founddf2 is not None
+        assert founddf3 is None
+
+        df3.insert()
+
+        # Test updating and inserting at the same time (Doing extra
+        # files here so that we can see the generated SQL when lots of
+        # things happen in upsert_list.)
+        df1.filepath = "wombat"
+        df1.md5sum = uuid.uuid4()
+        df2.filepath = "mongoose"
+        df2.md5sum = uuid.uuid4()
+        SCLogger.debug( "Upserting df1, df2, df4, df5" )
+        import pdb; pdb.set_trace()
+        DataFile.upsert_list( [ df1, df2, df4, df5 ] )
+
+        SCLogger.debug( "Getting df1 through df5 in a batch" )
+        objs = DataFile.get_batch_by_ids( [ df1.id, df2.id, df3.id, df4.id, df5.id ], return_dict=True )
+        assert objs[df1.id].filepath == "wombat"
+        assert objs[df1.id].md5sum == df1.md5sum
+        assert objs[df2.id].filepath == "mongoose"
+        assert objs[df2.id].md5sum == df2.md5sum
+        assert objs[df3.id].filepath == "cat"
+        assert objs[df4.id].filepath == df4.filepath
+        assert objs[df5.id].filepath == df5.filepath
+        assert objs[df1.id].modified > objs[df1.id].created_at
+        assert objs[df2.id].modified > objs[df2.id].created_at
+        assert objs[df3.id].modified == objs[df3.id].created_at
+        assert objs[df4.id].modified == objs[df4.id].created_at
+        assert objs[df5.id].modified == objs[df5.id].created_at
+
+    finally:
+        # Clean up
+        SCLogger.debug( "Cleaning up" )
+        with SmartSession() as sess:
+            sess.execute( sa.delete( DataFile ).where( DataFile._id.in_( uuidstodel ) ) )
+            sess.commit()
+        logging.getLogger( 'sqlalchemy.engine' ).setLevel( curloglevel )
+        logging.getLogger( 'sqlalchemy.engine' ).removeHandler( loghandler )
 
 
 # ======================================================================
