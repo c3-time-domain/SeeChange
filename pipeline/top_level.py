@@ -17,9 +17,10 @@ from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
 
 from models.base import SmartSession, merge_concurrent
-from models.provenance import Provenance, ProvenanceTag, ProvenanceTagExistsError
+from models.provenance import CodeVersion, Provenance, ProvenanceTag, ProvenanceTagExistsError
 from models.refset import RefSet
 from models.exposure import Exposure
+from models.image import Image
 from models.report import Report
 
 from util.config import Config
@@ -389,18 +390,39 @@ class Pipeline:
         with SmartSession() as session:
             self.run(session=session)
 
-    def make_provenance_tree( self, exposure, overrides=None, session=None, no_provtag=False, commit=True ):
-        """Use the current configuration of the pipeline and all the objects it has
-        to generate the provenances for all the processing steps.
-        This will conclude with the reporting step, which simply has an upstreams
-        list of provenances to the measuring provenance and to the machine learning score
-        provenances. From those, a user can recreate the entire tree of provenances.
+    def make_provenance_tree( self, exposure, overrides=None, no_provtag=False, ok_no_ref_provs=False ):
+        """Create provenances for all steps in the pipeline.
+
+        Use the current configuration of the pipeline and all the
+        objects it has to generate the provenances for all the
+        processing steps.
+
+        This will conclude with the reporting step, which simply has an
+        upstreams list of provenances to the measuring provenance and to
+        the machine learning score provenances. From those, a user can
+        recreate the entire tree of provenances.  (Note: if
+        ok_no_ref_provs is True, and no referencing provenances are
+        found, then the report provenance will have the extraction
+        provenance as its upstream, as there will be no measuring
+        provenance.)
+
+        Start from either an Exposure or an Image; the provenance for
+        the starting object must already be in the database.
+
+        (Note that if starting from an Image, we just use that Image's
+        provenance without verifying that it's consistent with the
+        parameters of the preprocessing step of the pipeline.  Most of
+        the time, you want to start with an exposure (hence the name of
+        the parameter), as that's how the pipeline is designed.
+        However, at least in some tests we use this starting with an
+        Image.)
 
         Parameters
         ----------
-        exposure : Exposure
+        exposure : Exposure or Image
             The exposure to use to get the initial provenance.
-            This provenance should be automatically created by the exposure.
+            Alternatively, can be a preprocessed Image.  In either case,
+            the object's provenance must already be in the database.
 
         overrides: dict, optional
             A dictionary of provenances to override any of the steps in
@@ -408,25 +430,21 @@ class Pipeline:
             prov} to use a specific provenance for the basic Image
             provenance.
 
-        session : SmartSession, optional
-            The function needs to work with the database to merge
-            existing provenances.  If a session is given, it will use
-            that, otherwise it will open a new session, which will also
-            close automatically at the end of the function.
-
         no_provtag: bool, default False
             If True, won't create a provenance tag, and won't ensure
             that the provenances created match the provenance_tag
             parameter to the pipeline.  If False, will create the
             provenance tag if it doesn't exist.  If it does exist, will
             verify that all the provenances in the created provenance
-            tree are what's tagged
+            tree are what's tagged.
 
-        commit: bool, optional, default True
-            By default, the provenances are merged and committed inside
-            this function.  To disable this, set commit=False. This may
-            leave the provenances in a transient state, and is most
-            likely not what you want.
+        ok_no_ref_provs: bool, default False
+            Normally, if a refeset can't be found, or no image
+            provenances associated with that refset can be found, an
+            execption will be raised.  Set this to True to indicate that
+            that's OK; in that case, the returned prov_tree will not
+            have any provenances for steps other than preprocessing and
+            extraction.
 
         Returns
         -------
@@ -439,41 +457,72 @@ class Pipeline:
         if overrides is None:
             overrides = {}
 
-        if ( not no_provtag ) and ( not commit ):
-            raise RuntimeError( "Commit required when no_provtag is not set" )
+        provs = {}
 
-        with SmartSession(session) as sess:
-            # start by getting the exposure and reference
-            exp_prov = sess.merge(exposure.provenance)  # also merges the code_version
-            provs = {'exposure': exp_prov}
-            code_version = exp_prov.code_version
-            is_testing = exp_prov.is_testing
+        code_version = None
+        is_testing = None
 
-            ref_provs = None  # allow multiple reference provenances for each refset
-            refset_name = self.subtractor.pars.refset
-            # If refset is None, we will just fail to produce a subtraction, but everything else works...
-            # Note that the upstreams for the subtraction provenance will be wrong, because we don't have
-            # any reference provenances to link to. But this is what you get when putting refset=None.
-            # Just know that the "output provenance" (e.g., of the Measurements) will never actually exist,
-            # even though you can use it to make the Report provenance (just so you have something to refer to).
-            if refset_name is not None:
+        # Get started with the passed Exposure (usual case) or Image
+        if isinstance( exposure, Exposure ):
+            with SmartSession() as session:
+                exp_prov = Provenance.get( exposure.provenance_id, session=session )
+                code_version = CodeVersion.get_by_id( exp_prov.code_version_id, session=session )
+            provs['exposure'] = exp_prov
+            is_testing  = exp_prov.is_testing
+        elif isinstance( exposure, Image ):
+            exp_prov = None
+            with SmartSession() as session:
+                passed_image_provenance = Provenance.get( exposure.provenance_id, session=session )
+                code_version = CodeVersion.get_by_id( passed_image_provenance.code_version_id, session=session )
+            is_testing = passed_image_provenance.is_testing
+        else:
+            raise TypeError( f"The first parameter to make_provenance_tree msut be an Exposure or Image, "
+                             f"not a {exposure.__class__.__name__}" )
 
-                refset = sess.scalars(sa.select(RefSet).where(RefSet.name == refset_name)).first()
-                if refset is None:
+        # Get the reference
+        ref_provs = None  # allow multiple reference provenances for each refset
+        refset_name = self.subtractor.pars.refset
+        # If refset is None, we will just fail to produce a subtraction, but everything else works...
+        # Note that the upstreams for the subtraction provenance will be wrong, because we don't have
+        # any reference provenances to link to. But this is what you get when putting refset=None.
+        # Just know that the "output provenance" (e.g., of the Measurements) will never actually exist,
+        # even though you can use it to make the Report provenance (just so you have something to refer to).
+        if refset_name is not None:
+            refset = RefSet.get_by_name( refset_name )
+            if refset is None:
+                if not ok_no_ref_provs:
                     raise ValueError(f'No reference set with name {refset_name} found in the database!')
-
+                else:
+                    ref_provs = None
+            else:
                 ref_provs = refset.provenances
                 if ref_provs is None or len(ref_provs) == 0:
-                    raise ValueError(f'No provenances found for reference set {refset_name}!')
+                    if not ok_no_ref_provs:
+                        raise ValueError(f'No provenances found for reference set {refset_name}!')
+                    ref_provs = None
 
+        if ref_provs is not None:
             provs['referencing'] = ref_provs  # notice that this is a list, not a single provenance!
 
-            for step in PROCESS_OBJECTS:  # produce the provenance for this step
-                if step in overrides:  # accept override from user input
-                    provs[step] = overrides[step]
-                else:  # load the parameters from the objects on the pipeline
+        for step in PROCESS_OBJECTS:
+            if ( ref_provs is None ) and ( step == 'subtraction' ):
+                # If we don't have reference provenances, we can't build the rest
+                break
+
+            if step in overrides:
+                # accept explicit provenances specified by the user as overrides
+                # TODO: worry if step is preprocessing and an Image was passed;
+                #   there could be an inconsistency!
+                provs[step] = overrides[step]
+            else:
+                # special case handling for 'preprocessing' if we don't have an exposure
+                if ( step == 'preprocessing' ) and exp_prov is None:
+                    provs[step] = passed_image_provenance
+                else:
+                    # load the parameters from the objects on the pipeline
                     obj_name = PROCESS_OBJECTS[step]  # translate the step to the object name
-                    if isinstance(obj_name, dict):  # sub-objects, e.g., extraction.sources, extraction.wcs, etc.
+                    if isinstance(obj_name, dict):
+                        # sub-objects, e.g., extraction.sources, extraction.wcs, etc.
                         # get the first item of the dictionary and hope its pars object has siblings defined correctly:
                         obj_name = obj_name.get(list(obj_name.keys())[0])
                     parameters = getattr(self, obj_name).pars.get_critical_pars()
@@ -486,72 +535,72 @@ class Pipeline:
                     for upstream in up_steps:
                         if upstream == 'referencing':  # this is an externally supplied provenance upstream
                             if ref_provs is not None:
-                                # we never put the Reference object's provenance into the upstreams of the subtraction
+                                # We never put the Reference object's provenance into the upstreams of the subtraction
                                 # instead, put the provenances of the coadd image and its extraction products
                                 # this is so the subtraction provenance has the (preprocessing+extraction) provenance
                                 # for each one of its upstream_images (in this case, ref+new).
-                                # by construction all references on the refset SHOULD have the same upstreams
+                                # By construction all references on the refset SHOULD have the same upstreams.
                                 upstream_provs += ref_provs[0].upstreams
                         else:  # just grab the provenance of what is upstream of this step from the existing tree
                             upstream_provs.append(provs[upstream])
 
                     provs[step] = Provenance(
-                        code_version=code_version,
+                        code_version_id=code_version.id,
                         process=step,
                         parameters=parameters,
                         upstreams=upstream_provs,
                         is_testing=is_testing,
                     )
+                    provs[step].insert_if_needed()
 
-                provs[step] = provs[step].merge_concurrent(session=sess, commit=commit)
+        # Make the report provenance
+        if ( 'measuring' not in provs ) and ( not ok_no_ref_provs ):
+            raise RuntimeError( "Something has gone wrong; we didn't create a measuring provenance, but "
+                                "ok_no_ref_provs is False.  We should have errored out before this message." )
+        rptupstr = provs['measuring'] if 'measuring' in provs else provs['extraction']
+        provs['report'] = Provenance(
+            process='report',
+            code_version_id=code_version.id,
+            parameters={},
+            upstreams=[rptupstr],
+            is_testing=is_testing
+        )
+        provs['report'].insert_if_needed()
 
-            # Make the report provenance
-            prov = Provenance(
-                process='report',
-                code_version=exposure.provenance.code_version,
-                parameters={},
-                upstreams=[provs['measuring']],
-                is_testing=exposure.provenance.is_testing,
-            )
-            provs['report'] = prov.merge_concurrent( session=sess, commit=commit )
-
-            if commit:
-                sess.commit()
-
-            # Ensure that the provenance tag is right, creating it if it doesn't exist
-            if not no_provtag:
-                provtag = self.pars.provenance_tag
-                try:
-                    provids = []
-                    for prov in provs.values():
-                        if isinstance( prov, list ):
-                            provids.extend( [ i.id for i in prov ] )
-                        else:
-                            provids.append( prov.id )
-                    ProvenanceTag.newtag( provtag, provids, session=session )
-                except ProvenanceTagExistsError as ex:
-                    pass
-
-                # The rest of this could be inside the except block,
-                #   but leaving it outside verifies that the
-                #   ProvenanceTag.newtag worked properly.
-                missing = []
-                with SmartSession( session ) as sess:
-                    ptags = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag==provtag ).all()
-                    ptag_pids = [ pt.provenance_id for pt in ptags ]
-                for step, prov in provs.items():
+        # Ensure that the provenance tag is right, creating it if it doesn't exist
+        if not no_provtag:
+            provtag = self.pars.provenance_tag
+            try:
+                provids = []
+                for prov in provs.values():
                     if isinstance( prov, list ):
-                        missing.extend( [ i.id for i in prov if i.id not in ptag_pids ] )
-                    elif prov.id not in ptag_pids:
-                        missing.append( prov )
-                if len( missing ) != 0:
-                    strio = io.StringIO()
-                    strio.write( f"The following provenances are not associated with provenance tag {provtag}:\n " )
-                    for prov in missing:
-                        strio.write( f"   {prov.process}: {prov.id}\n" )
-                    SCLogger.error( strio.getvalue() )
-                    raise RuntimeError( strio.getvalue() )
+                        provids.extend( [ i.id for i in prov ] )
+                    else:
+                        provids.append( prov.id )
+                ProvenanceTag.newtag( provtag, provids )
+            except ProvenanceTagExistsError as ex:
+                pass
 
-            return provs
+            # The rest of this could be inside the except block,
+            #   but leaving it outside verifies that the
+            #   ProvenanceTag.newtag worked properly.
+            missing = []
+            with SmartSession() as sess:
+                ptags = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag==provtag ).all()
+                ptag_pids = [ pt.provenance_id for pt in ptags ]
+            for step, prov in provs.items():
+                if isinstance( prov, list ):
+                    missing.extend( [ i.id for i in prov if i.id not in ptag_pids ] )
+                elif prov.id not in ptag_pids:
+                    missing.append( prov )
+            if len( missing ) != 0:
+                strio = io.StringIO()
+                strio.write( f"The following provenances are not associated with provenance tag {provtag}:\n " )
+                for prov in missing:
+                    strio.write( f"   {prov.process}: {prov.id}\n" )
+                SCLogger.error( strio.getvalue() )
+                raise RuntimeError( strio.getvalue() )
+
+        return provs
 
 

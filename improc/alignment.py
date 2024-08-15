@@ -497,7 +497,7 @@ class ImageAligner:
             warpedsources, warpedpsf, _, _ = extractor.extract_sources(warpedim)
 
             prov = Provenance(
-                code_version=Provenance.get_code_version(),
+                code_version_id=Provenance.get_code_version().id,
                 process='extraction',
                 parameters=extractor.pars.get_critical_pars(),
                 upstreams=[ warped_prov ],

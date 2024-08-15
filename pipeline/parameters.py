@@ -737,6 +737,9 @@ class Parameters:
             If not given, will open a new session and close it at
             the end of the function.
         """
+
+        raise RuntimeError( f"Use DataStore.get_provenance()" )
+
         if prov_cache is None:
             prov_cache = {}
 
@@ -773,7 +776,7 @@ class Parameters:
             # now that we have a code version object we can make a provenance
             prov = Provenance(
                 process=process,
-                code_version=cv,
+                code_version_id=cv.id,
                 parameters=self.get_critical_pars(),
                 upstreams=upstreams
             )

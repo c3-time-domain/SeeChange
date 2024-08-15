@@ -80,7 +80,7 @@ def test_alignment_in_image( ptf_reference_images, code_version ):
     try:  # cleanup at the end
         # ptf_reference_images = ptf_reference_images[:4]  # speed things up using fewer images
         prov = Provenance(
-            code_version=code_version,
+            code_version_id=code_version.id,
             parameters={'alignment': {'method': 'swarp', 'to_index': 'last'}, 'test_parameter': 'test_value'},
             upstreams=[],
             process='coaddition',

@@ -466,7 +466,7 @@ def sim_image_list(
 def provenance_subtraction(code_version, subtractor):
     with SmartSession() as session:
         prov = Provenance(
-            code_version=code_version,
+            code_version_id=code_version.id,
             process='subtraction',
             parameters=subtractor.pars.get_critical_pars(),
             upstreams=[],
@@ -488,7 +488,7 @@ def provenance_subtraction(code_version, subtractor):
 def provenance_detection(code_version, detector):
     with SmartSession() as session:
         prov = Provenance(
-            code_version=code_version,
+            code_version_id=code_version.id,
             process='detection',
             parameters=detector.pars.get_critical_pars(),
             upstreams=[],
@@ -510,7 +510,7 @@ def provenance_detection(code_version, detector):
 def provenance_cutting(code_version, cutter):
     with SmartSession() as session:
         prov = Provenance(
-            code_version=code_version,
+            code_version_id=code_version.id,
             process='cutting',
             parameters=cutter.pars.get_critical_pars(),
             upstreams=[],
@@ -532,7 +532,7 @@ def provenance_cutting(code_version, cutter):
 def provenance_measuring(code_version, measurer):
     with SmartSession() as session:
         prov = Provenance(
-            code_version=code_version,
+            code_version_id=code_version.id,
             process='measuring',
             parameters=measurer.pars.get_critical_pars(),
             upstreams=[],

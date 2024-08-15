@@ -398,7 +398,7 @@ class DECam(Instrument):
 
         cfg = Config.get()
         cv = Provenance.get_code_version( session=session )
-        prov = Provenance( process='DECam Default Calibrator', code_version=cv )
+        prov = Provenance( process='DECam Default Calibrator', code_version_id=cv.id )
         prov.insert_if_needed( session=session )
 
         reldatadir = pathlib.Path( "DECam_default_calibrators" )

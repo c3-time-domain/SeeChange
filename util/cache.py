@@ -1,11 +1,8 @@
 # DO NOT USE THESE OUTSIDE OF TESTS IN tests/
 #
-# (The cache has some scariness to it, and we don't want
-# it built into the mainstream pipeline.)
-#
-# (The cache is still not useless, because if you run multiple tests,
-# the cache will be used internally to avoid recalculating stuff for
-# different tests.)
+# (The cache has some scariness to it, and we don't want it built into
+# the mainstream pipeline.  It's used in test fixtures, and should only
+# be used there.)
 
 import os
 import shutil
@@ -23,7 +20,7 @@ from util.util import UUIDJsonEncoder, asUUID
 # Functions for copying FileOnDisk objects to/from cache
 
 
-def copy_to_cache(FoD, cache_dir, filepath=None):
+def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_json_filepath=False ):
     """Save a copy of the object (and, potentially, associated files) into a cache directory.
 
     If the object is a FileOnDiskMixin, then the file(s) pointed by get_fullpath()
@@ -60,6 +57,9 @@ def copy_to_cache(FoD, cache_dir, filepath=None):
         filepath = filepath[:-5]
 
     json_filepath = filepath
+    if dont_actually_copy_just_return_json_filepath:
+        return json_filepath
+
     if not isinstance(FoD, FileOnDiskMixin):
         if filepath is None:
             raise ValueError("filepath must be given when caching a non FileOnDiskMixin object")

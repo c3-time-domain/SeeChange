@@ -163,7 +163,7 @@ def test_measurements_cannot_be_saved_twice(ptf_datastore):
 
             # now change the provenance
             prov = Provenance(
-                code_version=m.provenance.code_version,
+                code_version_id=m.provenance.code_version_id,
                 process=m.provenance.process,
                 parameters=m.provenance.parameters,
                 upstreams=m.provenance.upstreams,

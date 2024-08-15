@@ -391,6 +391,8 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 @pytest.fixture
 def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir,
                                        datastore_factory, decam_refset ):
+    SCLogger.debug( "Starting decam_elais_e1_two_refs_datastore fixture" )
+
     filebase = 'ELAIS-E1-r-templ'
 
     prov = Provenance(

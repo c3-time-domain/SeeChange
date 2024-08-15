@@ -1891,14 +1891,18 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         stmt = sa.select(Image)
 
         # filter by coordinates being contained in the image
-        if ra is not None and dec is not None:
-            if isinstance(ra, str):
-                ra = parse_ra_hms_to_deg(ra)
-            if isinstance(dec, str):
-                dec = parse_dec_dms_to_deg(dec)
-            stmt = stmt.where(Image.containing(ra, dec))
-        elif ra is not None or dec is not None:
-            raise ValueError("Both ra and dec must be provided to search by position.")
+        if ( ra is not None ) or ( dec is not None ):
+            raise RuntimeError( "Image.query_images using ra and dec is not efficient.  Don't use it for now. "
+                                "TODO: write Image.find_images that does the same thing, but just returns a "
+                                "list of images rather than an SQLA query, and that can handle everything." )
+        # if ra is not None and dec is not None:
+        #     if isinstance(ra, str):
+        #         ra = parse_ra_hms_to_deg(ra)
+        #     if isinstance(dec, str):
+        #         dec = parse_dec_dms_to_deg(dec)
+        #     stmt = stmt.where(Image.containing(ra, dec))
+        # elif ra is not None or dec is not None:
+        #     raise ValueError("Both ra and dec must be provided to search by position.")
 
         # filter by target (e.g., field ID, object name) and possibly section ID and/or project
         targets = listify(target)

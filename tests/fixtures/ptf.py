@@ -456,7 +456,7 @@ def ptf_ref(
         process='coaddition',
         parameters=pipe.coadder.pars.get_critical_pars(),
         upstreams=upstream_provs,
-        code_version=code_version,
+        code_version_id=code_version.id,
         is_testing=True,
     )
     im_prov.insert_if_needed()
@@ -471,7 +471,7 @@ def ptf_ref(
         process='extraction',
         parameters=pipe.extractor.pars.get_critical_pars(),
         upstreams=[ im_prov ],
-        code_version=code_version,
+        code_version_id=code_version.id,
         is_testing=True,
     )
     sources_prov.insert_if_needed()
@@ -601,7 +601,7 @@ def ptf_ref_offset(ptf_ref):
         process='referencing',
         parameters=pars,
         upstreams=ptf_ref.provenance.upstreams,
-        code_version=ptf_ref.provenance.code_version,
+        code_version_id=ptf_ref.provenance.code_version_id,
         is_testing=True,
     )
     prov.insert_if_needed()
@@ -655,7 +655,7 @@ def ptf_subtraction1(ptf_ref, ptf_supernova_image_datastores, subtractor, ptf_ca
         process='subtraction',
         parameters=subtractor.pars.get_critical_pars(),
         upstreams=upstreams,
-        code_version=code_version,
+        code_version_id=code_version.id,
         is_testing=True,
     )
     prov.save_if_needed()

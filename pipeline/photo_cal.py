@@ -303,7 +303,7 @@ class PhotCalibrator:
 
                 if ( ds.image.zero_point_estimate is None ) and ( ds.image.lim_mag_estimate is None ):
                     ds.image.zero_point_estimate = ds.zp.zp
-                    fhwm_pix = ds.image.fwhm_estimate / ds.image.instrument_object.pixel_scale
+                    fwhm_pix = ds.image.fwhm_estimate / ds.image.instrument_object.pixel_scale
                     if fwhm_pix is None:
                         warnings.warn( "image.fwhm_estimate is None in photo_cal, this shouldn't happen" )
                         # Make it so we can proceed, but this will be a bad estimate

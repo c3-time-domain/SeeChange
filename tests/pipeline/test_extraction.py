@@ -80,7 +80,7 @@ def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
     sources, _, _, _ = extractor.extract_sources(decam_small_image)
     prov = Provenance(
         process='extraction',
-        code_version=provenance_base.code_version,
+        code_version_id=provenance_base.code_version_id,
         parameters=extractor.pars.get_critical_pars(),
         upstreams=[decam_small_image.provenance],
         is_testing=True,

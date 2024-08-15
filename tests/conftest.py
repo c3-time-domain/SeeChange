@@ -354,41 +354,38 @@ def provenance_extra( provenance_base ):
 # use this to make all the pre-committed Image fixtures
 @pytest.fixture(scope="session")
 def provenance_preprocessing(code_version):
-    with SmartSession() as session:
-        code_version = session.merge(code_version)
-        p = Provenance(
-            process="preprocessing",
-            code_version_id=code_version.id,
-            parameters={"test_parameter": "test_value"},
-            upstreams=[],
-            is_testing=True,
-        )
-        p.insert()
+    code_version = session.merge(code_version)
+    p = Provenance(
+        process="preprocessing",
+        code_version_id=code_version.id,
+        parameters={"test_parameter": "test_value"},
+        upstreams=[],
+        is_testing=True,
+    )
+    p.insert()
 
     yield p
 
     with SmartSession() as session:
-        session.delete(p)
+        session.execute( sa.delete( Provenance ).where( Provenance._id==p.id ) )
         session.commit()
 
 
 @pytest.fixture(scope="session")
 def provenance_extraction(code_version):
-    with SmartSession() as session:
-        code_version = session.merge(code_version)
-        p = Provenance(
-            process="extraction",
-            code_version_id=code_version.id,
-            parameters={"test_parameter": "test_value"},
-            upstreams=[],
-            is_testing=True,
-        )
-        p.insert()
+    p = Provenance(
+        process="extraction",
+        code_version_id=code_version.id,
+        parameters={"test_parameter": "test_value"},
+        upstreams=[],
+        is_testing=True,
+    )
+    p.insert()
 
     yield p
 
     with SmartSession() as session:
-        session.delete(p)
+        session.execute( sa.delete( Provenance ).where( Provenance._id==p.id ) )
         session.commit()
 
 

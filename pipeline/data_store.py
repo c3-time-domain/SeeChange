@@ -853,7 +853,7 @@ class DataStore:
         # we have a code version object and upstreams, we can make a provenance
         prov = Provenance(
             process=process,
-            code_version=code_version,
+            code_version_id=code_version.id,
             parameters=pars_dict,
             upstreams=upstreams,
             is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes

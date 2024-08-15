@@ -60,7 +60,7 @@ def test_filtering_measurements_on_object(sim_lightcurves):
         prov = Provenance(
             process=sim_lightcurves[idx][0].provenance.process,
             upstreams=sim_lightcurves[idx][0].provenance.upstreams,
-            code_version=sim_lightcurves[idx][0].provenance.code_version,
+            code_version_id=sim_lightcurves[idx][0].provenance.code_version_id,
             parameters=sim_lightcurves[idx][0].provenance.parameters.copy(),
             is_testing=True,
         )
@@ -225,7 +225,7 @@ def test_separate_good_and_bad_objects(measurer, ptf_datastore):
         prov=Provenance(
             process=m.provenance.process,
             upstreams=m.provenance.upstreams,
-            code_version=m.provenance.code_version,
+            code_version_id=m.provenance.code_version_id,
             parameters=m.provenance.parameters.copy(),
             is_testing=True,
         )

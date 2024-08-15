@@ -2,6 +2,7 @@ import time
 import json
 import base64
 import hashlib
+import uuid
 from collections import defaultdict
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
@@ -297,6 +298,12 @@ class Provenance(Base):
             raise ValueError('Provenance must have a process name. ')
         else:
             self.process = kwargs.get('process')
+
+        # The dark side of **kwargs when refactoring code...
+        #   have to catch problems like this manually.
+        if 'code_version' in kwargs:
+            raise RuntimeError( 'code_version is not a valid argument to Provenance.__init__; '
+                                'use code_version_id' )
 
         if 'code_version_id' in kwargs:
             code_version_id = kwargs.get('code_version_id')
@@ -637,7 +644,7 @@ class ProvenanceTag(Base, UUIDMixin):
           tag: str
             The human-readable provenance tag.  For cleanliness, should be ASCII, no spaces.
 
-          provs: list of str or Provenance
+          provs: list of str, UUID, or Provenance
             The provenances to include in this tag.  Usually, you want to make sure to include
             a provenance for every process in the pipeline: exposure, referencing, preprocessing,
             extraction, subtraction, detection, cutting, measuring, [TODO MORE: deepscore, alert]
@@ -652,7 +659,7 @@ class ProvenanceTag(Base, UUIDMixin):
             for prov in provs:
                 if isinstance( prov, Provenance ):
                     provids.add( prov.id )
-                elif isinstance( prov, str ):
+                elif isinstance( prov, str ) or isinstance( prov, uuid.UUID ):
                     provobj = sess.get( Provenance, prov )
                     if provobj is None:
                         raise ValueError( f"Unknown Provenance ID {prov}" )

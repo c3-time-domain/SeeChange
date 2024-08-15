@@ -1950,12 +1950,23 @@ class FourCorners:
 
         Returns
         -------
-          An sql query result thingy
+          A list of objects of cls.
 
         """
         # This should protect against SQL injection
+        ra = float(ra) if isinstance(ra, int) else ra
+        dec = float(dec) if isinstance(dec, int) else dec
         if ( not isinstance( ra, float ) ) or ( not isinstance( dec, float ) ):
-            return TypeError( f"(ra,dec) must be floats, got ({type(ra)},{type(dec)})" )
+            raise TypeError( f"(ra,dec) must be floats, got ({type(ra)},{type(dec)})" )
+
+        # Becaue q3c_poly_query uses an index on ra, dec, just using
+        # that directly wouldn't use any index here, meaning every row
+        # of the table would have to be scanned and passed through the
+        # polygon check.  To make the query faster, we first call
+        # _find_possibly_containing_temptable that does a
+        # square-to-the-sky search using minra, maxra, mindec, maxdec
+        # (which *are* indexed) to greatly reduce the number of things
+        # we'll q3c_poly_query.
 
         with SmartSession( session ) as sess:
             cls._find_possibly_containing_temptable( ra, dec, session, prov_id=prov_id )
@@ -2072,7 +2083,7 @@ class FourCorners:
         with SmartSession( session ) as sess:
             cls._find_potential_overlapping_temptable( fcobj, sess, prov_id=prov_id )
             objs = sess.scalars( sa.select( cls )
-                                 .from_statement( sa.text( "SELECT id FROM temp_find_overlapping" ) )
+                                 .from_statement( sa.text( "SELECT _id FROM temp_find_overlapping" ) )
                                 ).all()
             sess.execute( sa.text( "DROP TABLE temp_find_overlapping" ) )
             return objs

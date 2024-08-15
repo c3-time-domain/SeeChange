@@ -467,7 +467,7 @@ class Coadder:
 
         ImageAligner.cleanup_temp_images()
 
-    def get_coadd_prov( self, data_store_list, upstream_provs=None, code_version=None ):
+    def get_coadd_prov( self, data_store_list, upstream_provs=None, code_version_id=None ):
         """Figure out the Provenance and CodeVersion of the coadded image.
 
         Parameters
@@ -500,7 +500,7 @@ class Coadder:
             code_version = Provenance.get_code_version()
 
         coadd_provenance = Provenance(
-            code_version=code_version,
+            code_version_id=code_version.id,
             parameters=self.pars.get_critical_pars(),
             upstreams=upstream_provs,
             process='coaddition',
@@ -755,12 +755,12 @@ class CoaddPipeline:
 
         return self.datastore
 
-    def make_provenance_tree( self, data_store_list, upstream_provs=None, code_version=None ):
+    def make_provenance_tree( self, data_store_list, upstream_provs=None, code_version_id=None ):
         """Make a (short) provenance tree to use when fetching the provenances of upstreams. """
 
         # NOTE I'm not handling the "test_parameter" thing here, may need to.
         coadd_prov, code_version = self.coadder.get_coadd_prov( data_store_list, upstream_provs=upstream_provs,
-                                                                code_version=code_version )
+                                                                code_version_id=code_version.id )
         coadd_prov.insert_if_needed()
 
         # the extraction pipeline
