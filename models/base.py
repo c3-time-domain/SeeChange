@@ -375,6 +375,7 @@ class SeeChangeBase:
 
         with SmartSession( session ) as sess:
             try:
+                SCLogger.debug( f"SeeChangeBase.upsert_list LOCK TABLE on {cls.__tablename__}" )
                 sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
                 # Not doing this just with sqlalchemy merge for two reasons.
                 # (1) That generates mysterious errors that induce rage
@@ -414,7 +415,6 @@ class SeeChangeBase:
                 # Update the existing ones
                 if len(updates) > 0:
                     for obj in updates:
-                        # SCLogger.debug( "UPDATING AN OBJECT" )
                         for col in sa.inspect(obj).mapper.columns.keys():
                             existingval = getattr( existing[obj._id], col )
                             objval = getattr( obj, col )
@@ -425,7 +425,7 @@ class SeeChangeBase:
                                 mustreplace = ( existingval != objval )
                             if mustreplace:
                                 setattr( existing[obj._id], col, objval )
-                    # SCLogger.debug( "COMMITING UPDATES" )
+                    SCLogger.debug( "SeeChangeBase.upsert_list committing" )
                     sess.commit()
 
                 # Insert the new ones.  (We may no longer have the lock at this point,
@@ -434,12 +434,12 @@ class SeeChangeBase:
                 # we'd get that conflict in any event.)
                 if len(news) > 0:
                     for obj in news:
-                        # SCLogger.debug( "ADDING AN OBJECT" )
                         sess.add( obj )
-                    # SCLogger.debug( "COMMITING INSERTS" )
+                    SCLogger.debug( "SeeChangeBase.upsert_list committing" )
                     sess.commit()
             finally:
                 # Make sure the lock is released if something goes wrong
+                SCLogger.debug( "SeeChangeBase.upsert_list rolling back" )
                 sess.rollback()
 
     def upsert( self, session=None ):
@@ -472,19 +472,22 @@ class SeeChangeBase:
         cls = self.__class__
         with SmartSession( session ) as sess:
             try:
+                SCLogger.debug( f"SeeChangeBase.upsert LOCK TABLE on {cls.__tablename__}" )
                 sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
                 if self.__class__.get_by_id( id_, session=sess ) is None:
                     self.insert( session=sess )
                 else:
                     sess.merge( self )
+                    SCLogger.debug( "SeeChangeBase.upsert committing" )
                     sess.commit()
             finally:
                 # Make sure to release the lock if anything goes wrong
+                SCLogger.debug( "SeeChangeBase.upsert rolling back" )
                 sess.rollback()
 
     def safe_merge(self, session, db_check_att='filepath'):
-
         """Safely merge this object into the session. See safe_merge()."""
+
         raise RuntimeError( "safe_merge should no longer be necessary" )
         return safe_merge(session, self, db_check_att=db_check_att)
 

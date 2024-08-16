@@ -481,7 +481,7 @@ class Coadder:
             upstream provenances for the coadd provenance.  Can specify
             this instead of data_store_list.
 
-          code_version: CodeVersion or None
+          code_version_id: str or None
             If None, the code version will be dtermined automatically
             using Provenance.get_code_version()
 
@@ -496,8 +496,10 @@ class Coadder:
             if len( upstream_provs ) != len( provids ):
                 raise RuntimeError( "Coadder didn't find all the expected upstream provenances!" )
 
-        if code_version is None:
+        if code_version_id is None:
             code_version = Provenance.get_code_version()
+        else:
+            code_version = CodeVersion.get_by_id( code_version_id )
 
         coadd_provenance = Provenance(
             code_version_id=code_version.id,
@@ -760,7 +762,7 @@ class CoaddPipeline:
 
         # NOTE I'm not handling the "test_parameter" thing here, may need to.
         coadd_prov, code_version = self.coadder.get_coadd_prov( data_store_list, upstream_provs=upstream_provs,
-                                                                code_version_id=code_version.id )
+                                                                code_version_id=code_version_id )
         coadd_prov.insert_if_needed()
 
         # the extraction pipeline

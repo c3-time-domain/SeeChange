@@ -18,29 +18,39 @@ The tests have a lot of infrastructure necessary to run, however.  If you really
 
 ### Testing tips
 
+#### Database deadlocks
+
+(This will only work when testing on your local machine; you won't be able to use this procedure if you see a deadlock on github actions.)  If your tests seem to just freeze up, it's possible you've hit a database deadlock, where two processes are waiting for the same table lock.  To see if this is the case, use `psql` to connect to your database server; if you're using either the devshell or the test docker environments, from a machine inside that environment run
+
+```psql -h postgres -U postgres seechange````
+
+and enter the database password (`fragile`).  Then run:
+
+```  SELECT pid,usename,pg_blocking_pids(pid) as blocked_by,query as blocked_query
+     FROM pg_stat_activity WHERE cardinality(pg_blocking_pids(pid))>0;
+```
+
+If you get any results, it means there's a database lock.  To be able to go on with your life, look at the number in the `blocked_by` column and run
+
+```SELECT pg_terminate_backend(<number>)```
+
+That will allow things to continue, though of course tests will fail.
+
+The next task is figuring out where the database deadlock came from and fixing it....
+
 #### Files left over in database / archive / disk at end of tests
 
 The tests are supposed to clean up after themselves, so at the end of a test run there should be nothing left in the database or on the archive.  (There are some exceptions of things allowed to linger.)  If things are found at the end of the tests, this will raise errors.  Unfortunately, these errors can hide the real errors you had in your test (which may also be the reasons things were left behind!)  When debugging, you often want to turn off the check that things are left over at the end, so you can see the real errors you're getting.  Edit `tests/fixtures/conftest.py` and set the variable `verify_archive_database_empty` to `False`.  (Remember to set it back to `True` before pushing your final commit for a PR, to re-enable the leftover file tests!)
 
 #### Test caching and data folders
 
-Some of our tests require large datasets (mostly images). 
-We include a few example images in the repo itself, 
-but most of the required data is lazy downloaded from 
-the appropriate servers (e.g., from Noirlab). 
+Some of our tests require large datasets (mostly images).  We include a few example images in the repo itself, but most of the required data is lazy downloaded from the appropriate servers (e.g., from Noirlab).
 
 To avoid downloading the same data over and over again, we cache the data in the `data/cache` folder.  To make sure the downloading process works as expected, users can choose to delete this folder.  Sometimes, also, tests may fail because things have changed, but there are older versions left behind in the cache; in this case, clearing out the cache directory will also solve the problem.  (One may also need to delete the `tests/temp_data` folder, if tests were interrupted.  Ideally, the tests don't depend on anything specific in there, but there may be things left behind.)  In the tests, the path to this folder is given by the `cache_dir` fixture.
 
-Note that the persistent data, that comes with the 
-repo, is anything else in the `data` folder, 
-which is pointed to by the `persistent_dir` fixture. 
+Note that the persistent data, that comes with the repo, is anything else in the `data` folder, which is pointed to by the `persistent_dir` fixture.
 
-Finally, the working directory for local storage, 
-which is referenced by the `FileOnDiskMixin.local_path` 
-class variable, is defined in the test config YAML file, 
-and can be accessed using the `data_dir` fixture. 
-This folder is systematically wiped when the tests
-are completed. 
+Finally, the working directory for local storage, which is referenced by the `FileOnDiskMixin.local_path` class variable, is defined in the test config YAML file, and can be accessed using the `data_dir` fixture.  This folder is systematically wiped when the tests are completed.
 
 ### Running tests on github actions
 

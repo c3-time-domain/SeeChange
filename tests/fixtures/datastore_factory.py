@@ -63,16 +63,16 @@ def datastore_factory(data_dir, pipeline_factory, request):
             bad_pixel_map=None,
             save_original_image=False,
             skip_sub=False,
-            throughstep=None,
+            through_step=None,
             provtag='datastore_factory'
     ):
         """Create a DataStore for testing purposes.
 
         The datastore you get back will at least have the .image field
         loaded; whether or not further fields are loaded depend on the
-        setting of throughstep and whether or not there's a reference
+        setting of through_step and whether or not there's a reference
         available.  If there is a reference available (regardless of the
-        setting of throughstep), the .reference field will also be
+        setting of through_step), the .reference field will also be
         loaded.  prov_tree will be loaded with preprocessing and
         extraction, and if there's a reference available, with
         everything else as well.
@@ -102,9 +102,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
             in some tests).
 
           skip_sub: bool, default False
-            Equvialent throughstep='zp'; ignored if throughstep is not None
+            Equvialent through_step='zp'; ignored if through_step is not None
 
-          throughstep: str, default None
+          through_step: str, default None
             If passed, will only run processing through this step.  One
             of preprocessing, extraction, bg, wcs, zp, subtraction,
             detection, cutting, measuring.  (Can't do extraction without
@@ -122,12 +122,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         stepstodo = [ 'preprocessing', 'extraction', 'bg', 'wcs', 'zp',
                       'subtraction', 'detection', 'cutting', 'measuring' ]
-        if throughstep is None:
+        if through_step is None:
             if skip_sub:
-                throughstep = 'zp'
+                through_step = 'zp'
             else:
-                throughstep = 'measuring'
-        dex = stepstodo.index( throughstep )
+                through_step = 'measuring'
+        dex = stepstodo.index( through_step )
         stepstodo = stepstodo[:dex+1]
 
         # Make the datastore

@@ -354,7 +354,6 @@ def provenance_extra( provenance_base ):
 # use this to make all the pre-committed Image fixtures
 @pytest.fixture(scope="session")
 def provenance_preprocessing(code_version):
-    code_version = session.merge(code_version)
     p = Provenance(
         process="preprocessing",
         code_version_id=code_version.id,

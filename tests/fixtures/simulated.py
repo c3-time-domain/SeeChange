@@ -360,7 +360,7 @@ def sim_sources(sim_image1):
 
 
 @pytest.fixture
-def sim_image_list(
+def sim_image_list_datastores(
         provenance_preprocessing,
         provenance_extraction,
         provenance_extra,
@@ -376,90 +376,81 @@ def sim_image_list(
     _, _, _, _, psf, psfxml = ztf_filepaths_image_sources_psf
 
     # make images with all associated data products
-    images = []
-    with SmartSession() as session:
-        for i in range(num):
-            exp = make_sim_exposure()
-            add_file_to_exposure(exp)
-            exp.update_instrument()
-            im = Image.from_exposure(exp, section_id=0)
-            im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
-            im.flags = np.random.uniform(0, 1.01, size=im.raw_data.shape)  # 1% bad pixels
-            im.flags = np.floor(im.flags).astype(np.uint16)
-            im.weight = np.full(im.raw_data.shape, 4., dtype=np.float32)
-            # TODO: remove ZTF depenedence and make a simpler PSF model (issue #242)
+    dses = []
 
-            # save the images to disk and database
-            im.provenance = session.merge(provenance_preprocessing)
+    for i in range(num):
+        ds = DataStore()
+        exp = make_sim_exposure()
+        ds.exposure = exp
+        ds.exposure_id = exp.id
+        add_file_to_exposure(exp)
+        exp.update_instrument()
 
-            # add some additional products we may need down the line
-            im.sources = SourceList(format='filter', data=fake_sources_data)
-            # must randomize the sources data to get different MD5sum
-            im.sources.data['x'] += np.random.normal(0, .1, len(fake_sources_data))
-            im.sources.data['y'] += np.random.normal(0, .1, len(fake_sources_data))
+        im = Image.from_exposure(exp, section_id=0)
+        im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
+        im.flags = np.random.uniform(0, 1.01, size=im.raw_data.shape)  # 1% bad pixels
+        im.flags = np.floor(im.flags).astype(np.uint16)
+        im.weight = np.full(im.raw_data.shape, 4., dtype=np.float32)
+        # TODO: remove ZTF depenedence and make a simpler PSF model (issue #242)
 
-            for j in range(len(im.sources.data)):
-                dx = im.sources.data['x'][j] - im.raw_data.shape[1] / 2
-                dy = im.sources.data['y'][j] - im.raw_data.shape[0] / 2
-                gaussian = make_gaussian(imsize=im.raw_data.shape, offset_x=dx, offset_y=dy, norm=1, sigma_x=width)
-                gaussian *= np.random.normal(im.sources.data['flux'][j], im.sources.data['flux_err'][j])
-                im.data += gaussian
+        # save the images to disk and database
+        im.provenance_id = provenance_preprocessing.id
 
-            im.save()
+        # add some additional products we may need down the line
+        ds.sources = SourceList(format='filter', data=fake_sources_data)
+        # must randomize the sources data to get different MD5sum
+        ds.sources.data['x'] += np.random.normal(0, .1, len(fake_sources_data))
+        ds.sources.data['y'] += np.random.normal(0, .1, len(fake_sources_data))
 
-            im.sources.provenance = provenance_extraction
-            im.sources.image = im
-            im.sources.save()
-            im.psf = PSF(filepath=str(psf.relative_to(im.local_path)), format='psfex')
-            im.psf.load(download=False, psfpath=psf, psfxmlpath=psfxml)
-            # must randomize to get different MD5sum
-            im.psf.data += np.random.normal(0, 0.001, im.psf.data.shape)
-            im.psf.info = im.psf.info.replace('Emmanuel Bertin', uuid.uuid4().hex)
+        for j in range(len(ds.sources.data)):
+            dx = ds.sources.data['x'][j] - ds.raw_data.shape[1] / 2
+            dy = ds.sources.data['y'][j] - ds.raw_data.shape[0] / 2
+            gaussian = make_gaussian(imsize=im.raw_data.shape, offset_x=dx, offset_y=dy, norm=1, sigma_x=width)
+            gaussian *= np.random.normal(ds.sources.data['flux'][j], ds.sources.data['flux_err'][j])
+            im.data += gaussian
 
-            im.psf.fwhm_pixels = width * 2.3  # this is a fake value, but we need it to be there
-            im.psf.provenance = provenance_extraction
-            im.psf.image = im
-            im.psf.save()
-            im.zp = ZeroPoint()
-            im.zp.zp = np.random.uniform(25, 30)
-            im.zp.dzp = np.random.uniform(0.01, 0.1)
-            im.zp.aper_cor_radii = [1.0, 2.0, 3.0, 5.0]
-            im.zp.aper_cors = np.random.normal(0, 0.1, len(im.zp.aper_cor_radii))
-            im.zp.provenance = provenance_extra
-            im.wcs = WorldCoordinates()
-            im.wcs.wcs = WCS()
-            # hack the pixel scale to reasonable values (0.3" per pixel)
-            im.wcs.wcs.wcs.pc = np.array([[0.0001, 0.0], [0.0, 0.0001]])
-            im.wcs.wcs.wcs.crval = np.array([ra, dec])
-            im.wcs.provenance = provenance_extra
-            im.wcs.provenance_id = im.wcs.provenance.id
-            im.wcs.sources = im.sources
-            im.wcs.sources_id = im.sources.id
-            im.wcs.save()
-            im.sources.zp = im.zp
-            im.sources.wcs = im.wcs
-            im = im.merge_all(session)
-            images.append(im)
+        im.save()
+        ds.image = im
 
-        session.commit()
+        ds.sources.provenance = provenance_extraction.id
+        im.sources.image_id = im.id
+        im.sources.save()
+        ds.psf = PSF(filepath=str(psf.relative_to(im.local_path)), format='psfex')
+        im.psf.load(download=False, psfpath=psf, psfxmlpath=psfxml)
+        # must randomize to get different MD5sum
+        ds.psf.data += np.random.normal(0, 0.001, im.psf.data.shape)
+        ds.psf.info = im.psf.info.replace('Emmanuel Bertin', uuid.uuid4().hex)
 
-    yield images
+        ds.psf.fwhm_pixels = width * 2.3  # this is a fake value, but we need it to be there
+        ds.psf.provenance_id = provenance_extraction.id
+        ds.psf.sources_id = ds.sources.id
+        im.psf.save()
+        ds.zp = ZeroPoint()
+        ds.zp.zp = np.random.uniform(25, 30)
+        ds.zp.dzp = np.random.uniform(0.01, 0.1)
+        ds.zp.aper_cor_radii = [1.0, 2.0, 3.0, 5.0]
+        ds.zp.aper_cors = np.random.normal(0, 0.1, len(im.zp.aper_cor_radii))
+        ds.zp.provenance_id = provenance_extra.id
+        ds.zp.sources_id = provenance_extra.id
+        ds.wcs = WorldCoordinates()
+        ds.wcs.wcs = WCS()
+        # hack the pixel scale to reasonable values (0.3" per pixel)
+        ds.wcs.wcs.wcs.pc = np.array([[0.0001, 0.0], [0.0, 0.0001]])
+        ds.wcs.wcs.wcs.crval = np.array([ra, dec])
+        ds.wcs.provenance_id = im.wcs.provenance.id
+        ds.wcs.sources_id = ds.sources.id
+        ds.wcs.save()
 
-    with SmartSession() as session, warnings.catch_warnings():
-        warnings.filterwarnings(
-            action='ignore',
-            message=r'.*DELETE statement on table .* expected to delete \d* row\(s\).*',
-        )
-        for im in images:
-            im = im.merge_all(session)
-            exp = im.exposure
-            im.delete_from_disk_and_database(remove_downstreams=True)
-            exp.delete_from_disk_and_database()
-        session.commit()
+        ds.image.insert()
+        ds.sources.insert()
+        ds.psf.insert()
+        ds.zp.insert()
+        ds.wcs.insert()
 
-        # The provenance will have been automatically created
-        session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
-        session.commit()
+    yield dses
+
+    for ds in dses:
+        ds.delete_everything()
 
 
 @pytest.fixture
@@ -580,9 +571,13 @@ def fake_sources_data():
     yield data
 
 
+# You will have trouble if you try to use this fixture
+#   at the same time as sim_image_list_datastores,
+#   because this one just adds things to the former's
+#   elements.
 @pytest.fixture
-def sim_sub_image_list(
-        sim_image_list,
+def sim_sub_image_list_datastores(
+        sim_image_list_datastores,
         sim_reference,
         fake_sources_data,
         cutter,
@@ -590,58 +585,54 @@ def sim_sub_image_list(
         provenance_detection,
         provenance_measuring,
 ):
-    sub_images = []
-    with SmartSession() as session:
-        for im in sim_image_list:
-            im.filter = sim_reference.image.filter
-            im.target = sim_reference.image.target
-            sub = Image.from_ref_and_new(sim_reference.image, im)
-            sub.is_sub = True
-            # we are not actually doing any subtraction here, just copying the data
-            # TODO: if we ever make the simulations more realistic we may want to actually do subtraction here
-            sub.data = im.data.copy()
-            sub.flags = im.flags.copy()
-            sub.weight = im.weight.copy()
-            sub.provenance = session.merge(provenance_subtraction)
-            sub.save()
-            sub.sources = SourceList(format='filter', num_sources=len(fake_sources_data))
-            sub.sources.provenance = session.merge(provenance_detection)
-            sub.sources.image = sub
-            # must randomize the sources data to get different MD5sum
-            fake_sources_data['x'] += np.random.normal(0, 1, len(fake_sources_data))
-            fake_sources_data['y'] += np.random.normal(0, 1, len(fake_sources_data))
-            sub.sources.data = fake_sources_data
-            sub.sources.save()
+    sub_dses = []
+    for ds in sub_image_list_datastores:
+        ds.reference = sim_reference
+        ds.image.filter = ds.ref_image.filter
+        ds.image.target = ds.ref_image.target
+        ds.image.upsert()
+        ds.sub_image = Image.from_ref_and_new( ds.ref_image, ds.image)
+        assert sub.is_sub == True
+        # we are not actually doing any subtraction here, just copying the data
+        # TODO: if we ever make the simulations more realistic we may want to actually do subtraction here
+        ds.sub_image.data = im.data.copy()
+        ds.sub_image.flags = im.flags.copy()
+        ds.sub_image.weight = im.weight.copy()
+        ds.sub_image.insert()
 
-            # hack the images as though they are aligned
-            sim_reference.image.info['alignment_parameters'] = sub.provenance.parameters['alignment']
-            sim_reference.image.info['original_image_filepath'] = sim_reference.image.filepath
-            sim_reference.image.info['original_image_id'] = sim_reference.image.id
-            im.info['alignment_parameters'] = sub.provenance.parameters['alignment']
-            im.info['original_image_filepath'] = im.filepath
-            im.info['original_image_id'] = im.id
+        ds.detections = SourceList(format='filter', num_sources=len(fake_sources_data))
+        ds.detections.provenance_id = provenance_detection.id
+        ds.detections.image_id = ds.sub_image.id
+        # must randomize the sources data to get different MD5sum
+        fake_sources_data['x'] += np.random.normal(0, 1, len(fake_sources_data))
+        fake_sources_data['y'] += np.random.normal(0, 1, len(fake_sources_data))
+        ds.detections.data = fake_sources_data
+        ds.detections.save()
+        ds.detections.insert()
 
-            sub.aligned_images = [sim_reference.image, im]
+        # hack the images as though they are aligned
+        # sim_reference.image.info['alignment_parameters'] = sub.provenance.parameters['alignment']
+        # sim_reference.image.info['original_image_filepath'] = sim_reference.image.filepath
+        # sim_reference.image.info['original_image_id'] = sim_reference.image.id
+        # im.info['alignment_parameters'] = sub.provenance.parameters['alignment']
+        # im.info['original_image_filepath'] = im.filepath
+        # im.info['original_image_id'] = im.id
 
-            ds = cutter.run(sub.sources)
-            sub.sources.cutouts = ds.cutouts
-            ds.cutouts.save()
+        # sub.aligned_images = [sim_reference.image, im]
 
-            sub = sub.merge_all(session)
-            ds.detections = sub.sources
+        ds = cutter.run( ds )
+        ds.cutouts.save()
+        ds.cutouts.insert()
 
-            sub_images.append(sub)
+        sub_dses.append( ds )
 
-        session.commit()
-
-    yield sub_images
-
-    for sub in sub_images:
-        sub.delete_from_disk_and_database()
+    # The sim_image_list_datastores cleanup will clean our new mess up
+    return sub_dses
 
 
+# This fixture is broken until we do Issue #346
 @pytest.fixture
-def sim_lightcurves(sim_sub_image_list, measurer):
+def sim_lightcurves(sim_sub_image_list_datastores, measurer):
     # a nested list of measurements, each one for a different part of the images,
     # for each image contains a list of measurements for the same source
     measurer.pars.thresholds['bad pixels'] = 100  # avoid losing measurements to random bad pixels
@@ -651,16 +642,15 @@ def sim_lightcurves(sim_sub_image_list, measurer):
     measurer.pars.association_radius = 5.0  # make it harder for random offsets to dis-associate the measurements
     lightcurves = []
 
-    with SmartSession() as session:
-        for im in sim_sub_image_list:
-            ds = measurer.run(im.sources.cutouts)
-            ds.save_and_commit(session=session)
+    for ds in sim_sub_image_list_datastores:
+        ds = measurer.run( ds )
+        ds.save_and_commit()
 
         # grab all the measurements associated with each Object
         for m in ds.measurements:
             m = session.merge(m)
-            lightcurves.append(m.object.measurements)
+            lightcurves.append(m.object.measurements)  # <--- need to update with obejct measurement list
 
-    yield lightcurves
+    # sim_sub_image_list_datastores cleanup will clean up our mess too
+    return lightcurves
 
-    # no cleanup for this one

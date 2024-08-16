@@ -153,6 +153,35 @@ def ptf_exposure(ptf_downloader):
 
     exposure.delete_from_disk_and_database()
 
+@pytest.fixture
+def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map ):
+    ptf_exposure.instrument_object.fetch_sections()
+    ds = datastore_factory(
+        ptf_exposure,
+        11,
+        cache_dir=ptf_cache_dir,
+        cache_base_name='187/PTF_20110429_040004_11_R_Sci_BNKEKA',
+        overrides={'extraction': {'threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
+        bad_pixel_map=ptf_bad_pixel_map,
+        provtag='ptf_datastore',
+        through_step='cutting'
+    )
+
+    # Just make sure through_step did what it was supposed to
+    assert ds.cutouts is not None
+    assert ds.measurements is None
+
+    yield ds
+
+    ds.delete_everything()
+
+    ImageAligner.cleanup_temp_images()
+
+    # Clean out the provenance tag that may have been created by the datastore_factory
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
+        session.commit()
+
 
 @pytest.fixture
 def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map):
@@ -463,7 +492,7 @@ def ptf_ref(
 
     # I'm unhappy with this hardcoded thing at the end... TODO: figure out
     #   where it comes from!
-    cache_barf = 'u-3qpni6'
+    cache_barf = 'u-i5g5zw'
     cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_{cache_barf}'
 
     # this provenance is used for sources, psf, wcs, zp
@@ -537,7 +566,7 @@ def ptf_ref(
         # Check that the filename came out what we expected above
         mtch = re.search( r'_([a-zA-Z0-9\-]+)$', coadd_datastore.image.filepath )
         if mtch.group(1) != cache_barf:
-            raise ValueError( "fixture cache error: filepaths end with {match.group(1)}, expected {cache_barf}" )
+            raise ValueError( f"fixture cache error: filepaths end with {mtch.group(1)}, expected {cache_barf}" )
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             # save all products into cache:

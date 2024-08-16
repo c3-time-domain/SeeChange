@@ -73,7 +73,8 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         The noise RMS of the background in the new image (given as a map or a single average value).
         Does not include source noise!
     flux_ref : float
-        The flux-based zero point of the reference (the flux at which S/N=1).
+        The flux-based zero point of the reference (the flux at which S/N=1).  [WUT?  The flux at
+        which S/N=1 has nothing to do with the zeropoint!]
     flux_new : float
         The flux-based zero point of the new image (the flux at which S/N=1).
     dx : float

@@ -113,9 +113,10 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         or an interpolated map based on the polynomial or scalar value
         mapped onto the image shape.
 
-        This is a best-estimate of the sky counts, ignoring as best as
-        possible the sources in the sky, and looking only at the smoothed
-        background level.
+        This is a best-estimate (or, best-estimate-we-have-done, anyway)
+        of the sky counts, ignoring as best as possible the sources in
+        the sky, and looking only at the smoothed background level.
+
         """
         if self._counts_data is None and self.filepath is not None:
             self.load()

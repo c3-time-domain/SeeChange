@@ -397,6 +397,7 @@ class RefMaker:
 
             # now load or create a RefSet
             try:
+                SCLogger.debug( "make_refset LOCK TABLE refsets" )
                 dbsession.connection().execute( sa.text( f'LOCK TABLE refsets' ) )
                 self.refset = dbsession.scalars(sa.select(RefSet).where(RefSet.name == self.pars.name)).first()
                 if self.refset is None:
@@ -408,6 +409,7 @@ class RefMaker:
                     self.refset.insert( session=dbsession )
             finally:
                 # Make sure to release the lock in case we didn't commit a new refset
+                SCLogger.debug( "make_refset rolling back" )
                 dbsession.rollback()
 
             if self.refset is None:

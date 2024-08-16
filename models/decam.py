@@ -632,7 +632,7 @@ class DECam(Instrument):
         provenance = Provenance(
             process='download',
             parameters={ 'proc_type': proc_type, 'Instrument': 'DECam' },
-            code_version=Provenance.get_code_version( session=session )
+            code_version_id=Provenance.get_code_version( session=session ).id
         )
         provenance.insert_if_needed( session=session )
 

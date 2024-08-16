@@ -513,8 +513,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             try:
                 # Lock both the images and image_upstreams_association tables to avoid race
                 #   conditions with another process trying to insert the same image.
+                SCLogger.debug( "Image.insert LOCK TABLE on images" )
                 sess.connection().execute( sa.text( f'LOCK TABLE images' ) )
                 if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
+                    SCLogger.debug( "Image.insert LOCK TABLE on image_upstreams_association" )
                     sess.connection().execute( sa.text( f'LOCK TABLE image_upstreams_association' ) )
 
                 # This will raise an exception if the image is already present; in that case,
@@ -528,10 +530,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                                                "image_upstreams_association(upstream_id,downstream_id) "
                                                    "VALUES (:them,:me)" ),
                                       { "them": ui, "me": self.id } )
+                    SCLogger.debug( "Image.insert comitting" )
                     sess.commit()
 
             finally:
                 # Make sure the table locks are released
+                SCLogger.debug( "Image.insert rolling back" )
                 sess.rollback()
 
     def merge_all(self, session):

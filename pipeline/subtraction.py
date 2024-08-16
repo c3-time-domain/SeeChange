@@ -128,8 +128,8 @@ class Subtractor:
         return dict(outim=outim, outwt=outwt, outfl=outfl)
 
     def _subtract_zogy(self,
-                       new_image, new_psf, new_zp,
-                       ref_image, ref_psf, ref_zp ):
+                       new_image, new_bg, new_psf, new_zp,
+                       ref_image, ref_bg, ref_psf, ref_zp ):
         """Use ZOGY to subtract the two images.
 
         This applies PSF matching and uses the ZOGY algorithm to subtract the two images.
@@ -140,6 +140,9 @@ class Subtractor:
         new_image : Image
             The Image containing the new data, including the data array, weight, and flags.
 
+        new_bg : Background
+            Sky background for new_image
+
         new_psf : PSF
             PSF for new_image
 
@@ -149,6 +152,9 @@ class Subtractor:
         ref_image : Image
             The Image containing the reference data, including the data array, weight, and flags
             The reference image must already be aligned to the new image!
+
+        ref_bg : Background
+            Sky background for ref_image
 
         ref_psf: PSF
             PSF for the aligned ref image
@@ -184,8 +190,8 @@ class Subtractor:
             translient_corr_sigma: numpy.ndarray
                 The corrected translient score, converted to S/N units assuming a chi2 distribution.
         """
-        new_image_data = new_image.data
-        ref_image_data = ref_image.data
+        new_image_data = new_image.data - new_bg.counts
+        ref_image_data = ref_image.data - ref_bg.counts
         new_image_psf = new_psf.get_clip()
         ref_image_psf = ref_psf.get_clip()
         new_image_noise = new_image.bkg_rms_estimate
@@ -381,8 +387,26 @@ class Subtractor:
 
                 elif self.pars.method == 'zogy':
                     SCLogger.debug( "Subtracting with zogy" )
-                    outdict = self._subtract_zogy( ds.aligned_new_image, ds.aligned_new_psf, ds.aligned_new_zp,
-                                                   ds.aligned_ref_image, ds.aligned_ref_psf, ds.aligned_ref_zp )
+                    outdict = self._subtract_zogy( ds.aligned_new_image, ds.aligned_new_bg,
+                                                   ds.aligned_new_psf, ds.aligned_new_zp,
+                                                   ds.aligned_ref_image, ds.aligned_ref_bg,
+                                                   ds.aligned_ref_psf, ds.aligned_ref_zp )
+
+                    # Renormalize the difference image back to the zeropoint of the new image.
+                    # Not going to renormalize score; I'd have to think harder
+                    #   about whether that's the right thing to do, and it
+                    #   gets renormalized to its σ in detection.py anyway.
+
+                    normfac = 10 ** ( 0.4 * ( ds.aligned_new_zp.zp - outdict['zero_point'] ) )
+                    outdict['outim'] *= normfac
+                    outdict['outwt'] /= normfac*normfac
+                    outdict['alpha'] *= normfac
+                    outdict['alpha_err'] *= normfac
+                    if 'bkg_mean' in outdict:
+                        outdict['bkg_mean'] *= normfac
+                    if 'bkg_rms' in outdict:
+                        outdict['bkg_rms'] *= normfac
+
                 else:
                     raise ValueError(f'Unknown subtraction method {self.pars.method}')
 
@@ -407,8 +431,8 @@ class Subtractor:
 
                 # TODO: can we get better estimates from our subtraction outdict? Issue #312
                 sub_image.fwhm_estimate = ds.image.fwhm_estimate
-                # if the subtraction does not provide an estimate of the ZP, use the one from the new image
-                sub_image.zero_point_estimate = outdict.get('zero_point', ds.zp)
+                # We (I THINK) renormalized the sub_image to new_image above, so its zeropoint is the new's zeropoint
+                sub_image.zero_point_estimate = ds.zp.zp
                 # TODO: this implicitly assumes that the ref is much deeper than the new.
                 #  If it's not, this is going to be too generous.
                 sub_image.lim_mag_estimate = ds.image.lim_mag_estimate

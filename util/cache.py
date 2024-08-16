@@ -57,15 +57,14 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
         filepath = filepath[:-5]
 
     json_filepath = filepath
-    if dont_actually_copy_just_return_json_filepath:
-        return json_filepath
 
     if not isinstance(FoD, FileOnDiskMixin):
         if filepath is None:
-            raise ValueError("filepath must be given when caching a non FileOnDiskMixin object")
+            raise ValueError("filepath must be given when caching a non-FileOnDiskMixin object")
 
-    else:  # it is a FileOnDiskMixin
-        if filepath is None:  # use the FileOnDiskMixin filepath as default
+    else:
+        # it is a FileOnDiskMixin; figure out the JSON filepath of one wasn't given
+        if filepath is None:
             filepath = FoD.filepath  # use this filepath for the data files
             json_filepath = FoD.filepath  # use the same filepath for the json file too
         if (
@@ -75,6 +74,16 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
         ):
                 json_filepath += FoD.filepath_extensions[0]  # only append this extension to the json filename
 
+    # attach the cache_dir and the .json extension if needed
+    json_filepath = os.path.join(cache_dir, json_filepath)
+    if not json_filepath.endswith('.json'):
+        json_filepath += '.json'
+
+    if dont_actually_copy_just_return_json_filepath:
+        return json_filepath
+
+    # Now actually do the saving
+    if isinstance(FoD, FileOnDiskMixin):
         for i, source_f in enumerate(FoD.get_fullpath(as_list=True)):
             if source_f is None:
                 continue
@@ -85,11 +94,7 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
             os.makedirs(os.path.dirname(target_f), exist_ok=True)
             shutil.copy2(source_f, target_f)
 
-    # attach the cache_dir and the .json extension if needed
-    json_filepath = os.path.join(cache_dir, json_filepath)
     os.makedirs( os.path.dirname( json_filepath ), exist_ok=True )
-    if not json_filepath.endswith('.json'):
-        json_filepath += '.json'
     FoD.to_json(json_filepath)
 
     return json_filepath

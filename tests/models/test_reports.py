@@ -15,7 +15,7 @@ from util.util import env_as_bool
 
 
 def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrators):
-    report = Report(exposure=decam_exposure, section_id='S3')
+    report = Report(exposure_id=decam_exposure.id, section_id='S3')
 
     # test that the progress steps flag is working
     assert report.progress_steps_bitflag == 0
@@ -87,11 +87,11 @@ def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrat
 
 
 def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_tests, decam_default_calibrators):
-    # make sure we get a random new provenance, not reuse any of the existing data
     p = pipeline_for_tests
     p.subtractor.pars.refset = 'test_refset_decam'
     p.pars.save_before_subtraction = True
     p.pars.save_at_finish = False
+    # make sure we get a random new provenance, not reuse any of the existing data
     p.preprocessor.pars.test_parameter = uuid.uuid4().hex
 
     try:
@@ -139,7 +139,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
             assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
                                           'sub_image, detections, cutouts, measurements')
             assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
-            assert rep.provenance.upstreams[0].id == ds.measurements[0].provenance.id
+            assert rep.provenance.upstreams[0].id == ds.measurements[0].provenance_id
             assert rep.num_prev_reports == 0
             ds.save_and_commit(session=session)
             rep.scan_datastore(ds, session=session)
@@ -150,11 +150,15 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
             ds.delete_everything()
 
 
-def test_inject_warnings(decam_datastore, decam_reference, pipeline_for_tests, decam_default_calibrators):
+# Commented out the fixtures because they take a noticable amount of time to run....
+# (Leaving the test here, though, because it's aspirational.)
+# def test_inject_warnings(decam_datastore, decam_reference, pipeline_for_tests, decam_default_calibrators):
+def test_inject_warnings():
     pass
 
 
-def test_inject_exceptions(decam_datastore, decam_reference, pipeline_for_tests):
+# def test_inject_exceptions(decam_datastore, decam_reference, pipeline_for_tests):
+def test_inject_exceptions():
     pass
 
 

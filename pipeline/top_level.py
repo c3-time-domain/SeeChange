@@ -219,21 +219,21 @@ class Pipeline:
         if ds.exposure is None:
             raise RuntimeError('Cannot run this pipeline method without an exposure!')
 
-        try:  # must make sure the exposure is on the DB
-            ds.exposure = ds.exposure.merge_concurrent(session=session)
-        except Exception as e:
-            raise RuntimeError('Failed to merge the exposure into the session!') from e
+        # Make sure exposure is in DB
+        if Exposure.get_by_id( ds.exposure.id ) is None:
+            raise RuntimeError( "Exposure must be loaded into the database." )
 
         try:  # create (and commit, if not existing) all provenances for the products
-            with SmartSession(session) as dbsession:
-                provs = self.make_provenance_tree(ds.exposure, session=dbsession, commit=True)
+            provs = self.make_provenance_tree( ds.exposure )
+            ds.prov_tree = provs
         except Exception as e:
             raise RuntimeError('Failed to create the provenance tree!') from e
 
+
         try:  # must make sure the report is on the DB
-            report = Report(exposure=ds.exposure, section_id=ds.section_id)
-            report.start_time = datetime.datetime.utcnow()
-            report.provenance = provs['report']
+            report = Report( exposure_id=ds.exposure.id, section_id=ds.section_id )
+            report.start_time = datetime.datetime.now( tz=datetime.timezone.utc )
+            report.provenance_id = provs['report'].id
             with SmartSession(session) as dbsession:
                 # check how many times this report was generated before
                 prev_rep = dbsession.scalars(
@@ -244,7 +244,7 @@ class Pipeline:
                     )
                 ).all()
                 report.num_prev_reports = len(prev_rep)
-                report = merge_concurrent( report, dbsession, True )
+                report.insert( session=dbsession )
 
             if report.exposure_id is None:
                 raise RuntimeError('Report did not get a valid exposure_id!')

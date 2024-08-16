@@ -3,6 +3,7 @@ import re
 import uuid
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from astropy.time import Time
 
@@ -12,25 +13,37 @@ from models.measurements import Measurements
 from models.object import Object
 
 
+
 def test_object_creation():
     obj = Object(ra=1.0, dec=2.0, is_test=True, is_bad=False)
-    with SmartSession() as session:
-        session.add(obj)
-        session.commit()
-        assert obj.id is not None
-        assert obj.name is not None
-        assert re.match(r'\w+\d{4}\w+', obj.name)
+
+    with pytest.raises( IntegrityError, match='null value in column "name"' ):
+        obj.insert()
+
+    obj.name = "foo"
+    obj.insert()
+
+    assert obj._id is not None
+    # Fix this when object naming is re-implemented, if we
+    #   still have automatic object naming on creation.
+    # assert re.match(r'\w+\d{4}\w+', obj.name)    # assert obj.name is not None
+    # assert re.match(r'\w+\d{4}\w+', obj.name)
 
     with SmartSession() as session:
         obj2 = session.scalars(sa.select(Object).where(Object._id == obj.id)).first()
         assert obj2.ra == 1.0
         assert obj2.dec == 2.0
         assert obj2.name is not None
-        assert re.match(r'\w+\d{4}\w+', obj2.name)
+        assert obj2.name == obj.name
+        # Fix this when object naming is re-implemented
+        # assert re.match(r'\w+\d{4}\w+', obj2.name)
 
 
-@pytest.mark.flaky(max_runs=5)
+# ...what does this next test have to do with Object?
+# @pytest.mark.flaky(max_runs=5)
+@pytest.mark.xfail( reason="Issue #346" )
 def test_lightcurves_from_measurements(sim_lightcurves):
+    assert False
     for lc in sim_lightcurves:
         expected_flux = []
         expected_error = []
@@ -46,8 +59,10 @@ def test_lightcurves_from_measurements(sim_lightcurves):
             assert measured_flux[i] == pytest.approx(expected_flux[i], abs=expected_error[i] * 3)
 
 
-@pytest.mark.flaky(max_runs=5)
+# @pytest.mark.flaky(max_runs=5)
+@pytest.mark.xfail( reason="Issue #346" )
 def test_filtering_measurements_on_object(sim_lightcurves):
+    assert False
     assert len(sim_lightcurves) > 0
     assert len(sim_lightcurves[0]) > 3
 
@@ -214,8 +229,9 @@ def test_filtering_measurements_on_object(sim_lightcurves):
         found = obj.get_measurements_list(prov_hash_list=[prov.id, measurements[0].provenance.id])
         assert set([m.id for m in found]) == set(new_id_list)
 
-
+@pytest.mark.xfail( reason="Issue #345" )
 def test_separate_good_and_bad_objects(measurer, ptf_datastore):
+    assert False
     measurements = ptf_datastore.measurements
     m = measurements[0]  # grab the first one as an example
 

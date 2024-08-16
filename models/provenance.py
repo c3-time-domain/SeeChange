@@ -14,6 +14,7 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import UniqueConstraint
 
 from util.util import get_git_hash
+from util.logger import SCLogger
 
 import models.base
 from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession, safe_merge
@@ -89,6 +90,7 @@ class CodeVersion(Base):
         with SmartSession(session) as sess:
             try:
                 # Lock the code_hashes table to avoid a race condition
+                SCLogger.debug( "CodeVersion.update LOCK TABLE on code_hashes" )
                 sess.connection().execute( sa.text( 'LOCK TABLE code_hashes' ) )
                 hash_obj = sess.scalars( sa.select(CodeHash)
                                          .where( CodeHash._id == git_hash )
@@ -101,9 +103,11 @@ class CodeVersion(Base):
                             raise RuntimeError( 'CodeVersion must be in the database before running update' )
                         hash_obj = CodeHash( id=git_hash, code_version_id=self.id )
                         sess.add( hash_obj )
+                        SCLogger.debug( "CodeVersion.update committing" )
                         sess.commit()
             finally:
                 # If something went wrong, make sure the lock goes away
+                SCLogger.debug( "CodeVersion.update rolling back" )
                 sess.rollback()
 
     def get_code_hashes( self, session=None ):
@@ -490,15 +494,17 @@ class Provenance(Base):
         """
         with SmartSession( session ) as sess:
            try:
-                sess.connection().execute( sa.text( 'LOCK TABLE provenances' ) )
-                provobj = sess.scalars( sa.select( Provenance ).where( Provenance._id == self.id ) ).first()
-                # There's no need to verify that the provenance is consistent, since Provenance.id is
-                #   a hash of the contents of the provenance.  Insofar as the hashing is unique,
-                #   it *will* be consistent.
-                if provobj is None:
-                    self.insert( session=sess )
+               SCLogger.debug( "Provenance.insert_if_needed LOCK TABLE on provenances" )
+               sess.connection().execute( sa.text( 'LOCK TABLE provenances' ) )
+               provobj = sess.scalars( sa.select( Provenance ).where( Provenance._id == self.id ) ).first()
+               # There's no need to verify that the provenance is consistent, since Provenance.id is
+               #   a hash of the contents of the provenance.  Insofar as the hashing is unique,
+               #   it *will* be consistent.
+               if provobj is None:
+                   self.insert( session=sess )
            finally:
                # Make sure lock is released
+               SCLogger.debug( "Provenance.insert_if_needed rolling back" )
                sess.rollback()
 
     def get_upstreams( self, session=None ):
@@ -673,19 +679,23 @@ class ProvenanceTag(Base, UUIDMixin):
                 #  given how we expect the code to be used, should probably
                 #  not happen in practice), lock the table before searching
                 #  and only unlock after inserting.
+                SCLogger.debug( "ProvenanceTag.newtag LOCK TABLE on provenance_tags" )
                 sess.connection().execute( sa.text( "LOCK TABLE provenance_tags" ) )
                 current = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag == tag )
                 if current.count() != 0:
+                    SCLogger.debug( "ProvenanceTag rolling back" )
                     sess.rollback()
                     raise ProvenanceTagExistsError( f"ProvenanceTag {tag} already exists." )
 
                 for provid in provids:
                     sess.add( ProvenanceTag( tag=tag, provenance_id=provid ) )
 
+                SCLogger.debug( "ProvenanceTag comitting" )
                 sess.commit()
             finally:
                 # Make sure no lock is left behind; exiting the with block
                 #   ought to do this, but be paranoid.
+                SCLogger.debug( "ProvenanceTag rolling back" )
                 sess.rollback()
 
     @classmethod

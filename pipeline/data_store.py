@@ -803,7 +803,7 @@ class DataStore:
         """
 
         # First, check the provenance tree:
-        if process in self.prov_tree:
+        if ( self.prov_tree is not None ) and ( process in self.prov_tree ):
             if self.prov_tree[ process ].parameters != pars_dict:
                 if not pars_not_match_prov_tree_pars:
                     raise ValueError( "DataStore getting provenance for {process} whose parameters "
@@ -1056,7 +1056,7 @@ class DataStore:
         # If not, find it in the database
 
         if match_prov and ( provenance is None ):
-            if process not in self.prov_tree:
+            if ( self.prov_tree is None ) or ( process not in self.prov_tree ):
                 raise RuntimeError( f"DataStore: can't get {att}, no provenance, and provenance not in prov_tree" )
             provenance = self.prov_tree[ process ]
 
@@ -1617,7 +1617,7 @@ class DataStore:
                         elif att == "detections":
                             obj.save( image=self.sub_image, **basicargs )
                         elif att == "cutouts":
-                            obj.save( image=self.sub_image, detections=self.detections, **basicargs )
+                            obj.save( image=self.sub_image, sources=self.detections, **basicargs )
                         else:
                             obj.save( overwrite=overwrite, exists_ok=exists_ok, no_archive=no_archive )
                     except Exception as ex:
@@ -1632,21 +1632,31 @@ class DataStore:
         #   set upstream ids as necessary.  (Many of these will already have been
         #   set/saved before.)
 
+        commits = []
+
         # Exposure
+        # THINK.  Should we actually upsert this?
+        # Almost certainly it hasn't changed, and
+        # it was probably already in the database
+        # anyway.
         if self.exposure is not None:
             self.exposure.upsert()
+            # commits.append( 'exposure' )
+            # exposure isn't in the commit bitflag
 
         # Image
         if self.image is not None:
             if self.exposure is not None:
                 self.image.exposure_id = self.exposure.id
             self.image.upsert()
+            commits.append( 'image' )
 
         # SourceList
         if self.sources is not None:
             if self.image is not None:
                 self.sources.image_id = self.image.id
             self.sources.upsert()
+            commits.append( 'sources' )
 
         # SourceList siblings
         for att in [ 'psf', 'bg', 'wcs', 'zp' ]:
@@ -1654,26 +1664,26 @@ class DataStore:
                 if self.sources is not None:
                     setattr( getattr( self, att ), 'sources_id', self.sources.id )
                 getattr( self, att ).upsert()
+                commits.append( att )
 
         # subtraction Image
         if self.sub_image is not None:
-            # The upstream image ids should already have been set when
-            #   the sub_image was loaded, or made with
-            #   from_ref_and_new()
-            # So, no need to worry about them now.
             self.sub_image.upsert()
+            commits.append( 'sub_image' )
 
         # detections
         if self.detections is not None:
             if self.sub_image is not None:
                 self.detections.sources_id = self.sub_image.id
             self.detections.upsert()
+            commits.append( 'detections' )
 
         # cutouts
         if self.cutouts is not None:
             if self.detections is not None:
                 self.cutouts.detections_id = self.detections.id
             self.cutouts.upsert()
+            commits.append( 'cutouts' )
 
         # measurements
         if ( self.measurements is not None ) and ( len(self.measurements) > 0 ):
@@ -1681,6 +1691,9 @@ class DataStore:
                 for m in self.measurements:
                     m.cutouts_id = self.cutouts.id
             Measurements.upsert_list( self.measurements )
+            commits.append( 'measurements' )
+
+        self.products_committed = ",".join( commits )
 
 
     def delete_everything(self):

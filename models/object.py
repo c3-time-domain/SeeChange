@@ -121,7 +121,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         -------
         list of Measurements
         """
-        raise RuntimeError( "Rob think about this one" )
+        raise RuntimeError( "Issue #346" )
         # this includes all measurements that are close to the discovery measurement
         # measurements = session.scalars(
         #     sa.select(Measurements).where(Measurements.cone_search(self.ra, self.dec, radius))
@@ -137,6 +137,38 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
         if time_end is not None:
             mjd_end = Time(time_end).mjd
+
+
+        # IN PROGRESS.... MORE THOUGHT REQUIRED
+        # THIS WILL BE DONE IN A FUTURE PR
+
+        with SmartSession() as session:
+            q = session.query( Measurements, Image.mjd ).filter( Measurements.object_id==self._id )
+
+            if ( mjd_start is not None ) or ( mjd_end is not None ):
+                q = ( q.join( Cutouts, Measurements.cutouts_id==Cutouts._id )
+                      .join( SourceList, Cutouts.sources_id==Sources._id )
+                      .join( Image, SourceList.image_id==Image.id ) )
+                if mjd_start is not None:
+                    q = q.filter( Image.mjd >= mjd_start )
+                if mjd_end is not None:
+                    q = q.filter( Image.mjd <= mjd_end )
+
+            if radius is not None:
+                q = q.filter( sa.func.q3c_radial_query( Measurements.ra, Measurements.dec,
+                                                        self.ra, self.dec,
+                                                        radius/3600. ) )
+
+            if prov_hash_list is not None:
+                q = q.filter( Measurements.provenance_id.in_( prov_hash_list ) )
+
+            bigbank = measurements.all()
+
+        # Further filtering based on thresholds
+
+        # if thresholds is not None:
+        # ....stopped here, more thought required
+
 
         measurements = []
         if radius is not None:
@@ -222,6 +254,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         float, float
             The mean RA and Dec of the object.
         """
+
+        raise RuntimeError( "This is broken until we fix get_measurements_list" )
         measurements = self.get_measurements_list(**(measurement_list_kwargs or {}))
 
         ra = np.array([m.ra for m in measurements])
@@ -353,7 +387,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         int
             The ID of the last object before the given date.
         """
-        raise RuntimeError( "This no longer works now that we're not using numeric ids." )
+        raise RuntimeError( "This no longer works now that we're not using numeric ids. (Issue #347.)" )
 
         if present_time is None:
             present_time = datetime.datetime.utcnow()
