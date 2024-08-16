@@ -590,6 +590,7 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
 
         # make a "coadd" image from the two
         im = Image.from_images([im1, im2])
+        assert im.is_coadd
         im.provenance_id = provenance_base.id
         # Spoof the md5sum so we can save to the database
         im.md5sum = uuid.uuid4()
@@ -622,6 +623,9 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         im.insert()
 
         assert im.id is not None
+
+        upstrimgs = im.get_upstreams( only_images=True )
+        assert [ i.id for i in upstrimgs ] == [ im1.id, im2.id ]
 
         with SmartSession() as session:
             newim = session.query( Image ).filter( Image._id==im.id ).first()

@@ -16,7 +16,7 @@ imsize = 256
 
 low_threshold = 4.31  # this is the maximum value we expect to get from a 256x256 image with unit noise
 assert abs(scipy.special.erfc(low_threshold / np.sqrt(2)) * imsize ** 2 - 1) < 0.1
-threshold = 6.0  # this should be high enough to avoid false positives at the 1/1000 level
+threshold = 6.01  # this should be high enough to avoid false positives at the 1/1000 level
 assert scipy.special.erfc(threshold / np.sqrt(2)) * imsize ** 2 < 1e-3
 
 

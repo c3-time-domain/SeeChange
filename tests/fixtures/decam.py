@@ -277,7 +277,7 @@ def decam_refset():
         session.execute( sa.delete( RefSet ).where( RefSet.name=='test_refset_decam' ) )
         session.commit()
 
-
+# Don't use the decam_datastore and decam_datastore_through_* fixtures in the same test.
 @pytest.fixture
 def decam_datastore(
         datastore_factory,
@@ -322,18 +322,52 @@ def decam_datastore(
     if 'ds' in locals():
         ds.delete_everything()
 
-    # make sure that these individual objects have their files cleaned up,
-    # even if the datastore is cleared and all database rows are deleted.
-    for obj in deletion_list:
-        if isinstance(obj, list) and len(obj) > 0 and hasattr(obj[0], 'delete_list'):
-            obj[0].delete_list(obj)
-        if obj is not None and hasattr(obj, 'delete_from_disk_and_database'):
-            obj.delete_from_disk_and_database(archive=True)
+    # # make sure that these individual objects have their files cleaned up,
+    # # even if the datastore is cleared and all database rows are deleted.
+    # for obj in deletion_list:
+    #     if isinstance(obj, list) and len(obj) > 0 and hasattr(obj[0], 'delete_list'):
+    #         obj[0].delete_list(obj)
+    #     if obj is not None and hasattr(obj, 'delete_from_disk_and_database'):
+    #         obj.delete_from_disk_and_database(archive=True)
 
     # Because save_original_image was True in the call to datastore_factory above
     os.unlink( ds.path_to_original_image )
 
     ImageAligner.cleanup_temp_images()
+
+    # Clean up the provenance tag potentially created by the pipeline
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_datastore' } )
+        session.commit()
+
+
+@pytest.fixture
+def decam_datastore_through_zp(
+        datastore_factory,
+        decam_cache_dir,
+        decam_exposure,
+        decam_reference,                  # Needed so that the right provenances get loaded into the prov_tree
+        decam_default_calibrators
+):
+    ds = datastore_factory(
+        decam_exposure,
+        'S3',
+        cache_dir=decam_cache_dir,
+        cache_base_name='007/c4d_20230702_080904_S3_r_Sci_NBXRIO',
+        overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
+        save_original_image=True,
+        provtag='decam_datastore',
+        through_step='zp'
+    )
+    ds.save_and_commit()
+
+    yield ds
+
+    if 'ds' in locals():
+        ds.delete_everything()
+
+    # Because save_original_image as True in the call to datastore_factory
+    os.unlink( ds.path_to_original_image )
 
     # Clean up the provenance tag potentially created by the pipeline
     with SmartSession() as session:

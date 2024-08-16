@@ -813,7 +813,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return new
 
     @classmethod
-    def from_images(cls, images, index=0):
+    def from_images(cls, images, index=0, set_is_coadd=True):
         """Create a new Image object from a list of other Image objects.
 
         This is the first step in making a multi-image (usually a
@@ -833,12 +833,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         ----------
         images: list of Image objects
             The images to combine into a new Image object.
+
         index: int
             The image index in the (mjd sorted) list of upstream images
             that is used to set several attributes of the output image.
             Notably this includes the RA/Dec (and corners) of the output image,
             which implies that the indexed source image should be the one that
             all other images are aligned to (when running alignment).
+
+        set_is_coadd: bool, default True
+            Set the is_coadd field of the new image.  This is usually
+            what you want, so that's the default.  Make this parameter
+            False if for some reason you don't want the created image to
+            flagged as a coadd.
 
         Returns
         -------
@@ -865,7 +872,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         #   want to save, or where we can control this.
         upstream_ids = [ i.id for i in images ]
 
-        output = Image(nofile=True)
+        output = Image( nofile=True, is_coadd=set_is_coadd )
 
         fail_if_not_consistent_attributes = ['filter']
         copy_if_consistent_attributes = ['section_id', 'instrument', 'telescope', 'project', 'target', 'filter']
@@ -1703,7 +1710,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
             # Upstream images first
             upstrimages = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
-            upstreams.extend( list(upstrimages) )
+            # Sort by mjd
+            upstrimages.sort( key=lambda i: i.mjd )
+            upstreams.extend( upstrimages )
 
             if not only_images:
                 # Get all of the other falderal associated with those images
@@ -2144,7 +2153,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @property
     def data_bgsub(self):
         """The image data, after subtracting the background. If no Background object is loaded, will raise. """
-        raise RuntimeError( "Rob, think about this" )
+        raise RuntimeError( "Deprecated" )
         if self.bg is None:
             raise ValueError("No background is loaded for this image.")
         if self.bg.format == 'scalar':

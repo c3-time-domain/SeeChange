@@ -83,11 +83,11 @@ def test_trivial_inpaint():
     assert np.all(im[:, :, 2] == 100)  # was not fixed!
 
 
-def test_inpaint_aligned_images(ptf_aligned_images, blocking_plots):
+def test_inpaint_aligned_images(ptf_aligned_image_datastores, blocking_plots):
 
-    imcube = np.array([im.data for im in ptf_aligned_images])
-    flagcube = np.array([im.flags for im in ptf_aligned_images])
-    weightcube = np.array([im.weight for im in ptf_aligned_images])
+    imcube = np.array([ d.image.data for d in ptf_aligned_image_datastores ])
+    flagcube = np.array([ d.image.flags for d in ptf_aligned_image_datastores ])
+    weightcube = np.array([ d.image.weight for d in ptf_aligned_image_datastores ])
 
     inp = Inpainter(single_image_method='biharmonic', multi_image_method='mean', rescale_method='median')
     im2 = inp.run(imcube, flagcube, weightcube)

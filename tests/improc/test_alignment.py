@@ -12,21 +12,45 @@ import sqlalchemy as sa
 from models.base import SmartSession
 from models.provenance import Provenance
 from models.image import Image
-
+from models.background import Background
+from models.source_list import SourceList
+from models.psf import PSF
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
+
 from improc.alignment import ImageAligner
+from pipeline.coaddition import Coadder
 
 
-def test_warp_decam( decam_datastore, decam_reference ):
-    ds = decam_datastore
+def test_warp_decam( decam_datastore_through_zp, decam_reference ):
+    ds = decam_datastore_through_zp
 
     try:
         ds.get_reference()
         aligner = ImageAligner()
-        warped = aligner.run( ds.reference.image, ds.image )
+        ( warped, warpedsrc,
+          warpedbg, warpedpsf ) = aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg, ds.ref_psf,
+                                               ds.ref_wcs, ds.ref_zp, ds.image, ds.sources )
+        assert isinstance( warped, Image )
+        assert isinstance( warpedsrc, SourceList )
+        assert isinstance( warpedbg, Background )
+        assert isinstance( warpedpsf, PSF )
+        assert warped.data.shape == ds.image.data.shape
+
         warped.filepath = f'warp_test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
 
-        assert warped.data.shape == ds.image.data.shape
+        # The warped image should have a WCS in the header thanks to swarp (and the scamp stuff we did)
+        warpedwcs = astropy.wcs.WCS( warped.header )
+
+        # Remember numpy arrays are indexed [y, x]
+        def ref_to_warped( y, x ):
+            sc = ds.ref_wcs.wcs.pixel_to_world( x, y )
+            rval = warpedwcs.world_to_pixel( sc )
+            return float( rval[1] ), float( rval[0] )
+
+        def warped_to_ref( y, x ):
+            sc = warpedwcs.pixel_to_world( x, y )
+            rval = ds.ref_wcs.wcs.world_to_pixel( sc )
+            return float( rval[1] ), float( rval[0] )
 
         oob_bitflag = string_to_bitflag( 'out of bounds', flag_image_bits_inverse)
         badpixel_bitflag = string_to_bitflag( 'bad pixel', flag_image_bits_inverse)
@@ -36,25 +60,56 @@ def test_warp_decam( decam_datastore, decam_reference ):
         # assert (warped.flags == oob_bitflag).sum() > (warped.flags == badpixel_bitflag).sum()
 
         # Check a couple of spots on the image
-        # First, around a star:
-        assert ds.image.data[ 2601:2612, 355:367 ].sum() == pytest.approx( 637299.1, rel=0.001 )
-        assert warped.data[ 2601:2612, 355:367 ].sum() == pytest.approx( 389884.78, rel=0.001 )
+        # First, around a star (which I visually inspected and saw was lined up):
+        stararea = ( slice( 2601, 2612, 1 ), slice( 355, 367, 1 ) )
+        origll = warped_to_ref( stararea[0].start, stararea[1].start )
+        origur = warped_to_ref( stararea[0].stop, stararea[1].stop )
+        # I know in this case that the ll and ur are swapped,
+        #   hence the switch below
+        origrefstararea = ( slice( round(origur[0]), round(origll[0]), 1 ),
+                            slice( round(origur[1]), round(origll[1]), 1 ) )
+        assert ds.image.data[ stararea ].sum() == pytest.approx( 637299.1, rel=0.001 )
+        assert warped.data[ stararea ].sum() == pytest.approx( 389884.78, rel=0.001 )
+        # I'm a little sad that this next one is only good to 0.007
+        # swarp has failed me
+        assert ( warped.data[ stararea ].sum() ==
+                 pytest.approx( ds.ref_image.data[ origrefstararea ].sum(), rel=0.007 ) )
 
         # And a blank spot (here we can do some statistics instead of hard coded values)
-        num_pix = ds.image.data[2008:2028, 851:871].size
-        bg_mean = num_pix * ds.image.bg.value
-        bg_noise = np.sqrt(num_pix) * ds.image.bg.noise
-        assert abs(ds.image.data[ 2008:2028, 851:871 ].sum() - bg_mean) < bg_noise
+        blankarea = ( slice( 2008, 2028, 1 ), slice( 851, 871, 1 ) )
+        origll = warped_to_ref( blankarea[0].start, blankarea[1].start )
+        origur = warped_to_ref( blankarea[0].stop, blankarea[1].stop )
+        origrefblankarea = ( slice( round(origur[0]), round(origll[0]), 1 ),
+                             slice( round(origur[1]), round(origll[1]), 1 ) )
+        num_pix = ds.image.data[ blankarea ].size
+        newmean = ( ds.image.data[ blankarea ] - ds.bg.counts[ blankarea ] ).mean()
+        newstd = ( ds.image.data[ blankarea ] - ds.bg.counts[ blankarea ] ).std()
+        # I know the refernce is nominally background subtracted
+        origrefmean = ( ds.ref_image.data[ origrefblankarea ] ).mean()
+        origrefstd = ( ds.ref_image.data[ origrefblankarea ] ).std()
+        warpedmean = ( warped.data[ blankarea ] ).mean()
+        warpedstd = ( warped.data[ blankarea ] ).std()
 
-        bg_mean = 0  # assume the warped image is background subtracted
-        bg_noise = np.sqrt(num_pix) * ds.ref_image.bg.noise
-        assert abs(warped.data[ 2008:2028, 851:871 ].sum() - bg_mean) < bg_noise
+        # Check that the reference is actually background subtracted
+        # (fudged the 3σ based on empiricism...)
+        assert origrefmean == pytest.approx( 0., abs=3.1/np.sqrt(num_pix) )
+        assert warpedmean == pytest.approx( 0., abs=3/np.sqrt(num_pix) )
+
+        # The rel values below are really regression tests, since I tuned them to
+        #   what matched.  Correlated schmorrelated.  (In summed images, which had
+        #   resampling, and warped images.)
+        assert origrefmean == pytest.approx( ds.ref_bg.value, abs=3./np.sqrt(num_pix) )
+        assert origrefstd == pytest.approx( ds.ref_bg.noise, rel=0.07 )
+        assert warpedmean == pytest.approx( warpedbg.value, abs=3./np.sqrt(num_pix) )
+        assert warpedstd == pytest.approx( warpedbg.noise, rel=0.15 )
+        assert newmean == pytest.approx( 0., abs=3./np.sqrt(num_pix) )
+        assert newstd == pytest.approx( ds.bg.noise, rel=0.02 )
+
 
         # Make sure the warped image WCS is about right.  We don't
         # expect it to be exactly identical, but it should be very
         # close.
-        imwcs = ds.wcs.wcs
-        warpwcs = astropy.wcs.WCS( warped.header )
+
         # For the elais-e1 image, the upper left WCS
         # was off by ~1/2".  Looking at the image, it is
         # probably due to a dearth of stars in that corner
@@ -66,8 +121,8 @@ def test_warp_decam( decam_datastore, decam_reference ):
         # y = [ 256, 256, 3839, 3839, 2048 ]
         x = [ 256, 1791, 1791, 1024 ]
         y = [ 256, 256, 3839, 2048 ]
-        imsc = imwcs.pixel_to_world( x, y )
-        warpsc = warpwcs.pixel_to_world( x, y )
+        imsc = ds.wcs.wcs.pixel_to_world( x, y )
+        warpsc = warpedwcs.pixel_to_world( x, y )
         assert all( [ i.ra.deg == pytest.approx(w.ra.deg, abs=0.1/3600.) for i, w in zip( imsc, warpsc ) ] )
         assert all( [ i.dec.deg == pytest.approx(w.dec.deg, abs=0.1/3600.) for i, w in zip( imsc, warpsc ) ] )
 
@@ -76,16 +131,14 @@ def test_warp_decam( decam_datastore, decam_reference ):
             warped.delete_from_disk_and_database()
 
 
-def test_alignment_in_image( ptf_reference_images, code_version ):
+def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
     try:  # cleanup at the end
         # ptf_reference_images = ptf_reference_images[:4]  # speed things up using fewer images
-        prov = Provenance(
-            code_version_id=code_version.id,
-            parameters={'alignment': {'method': 'swarp', 'to_index': 'last'}, 'test_parameter': 'test_value'},
-            upstreams=[],
-            process='coaddition',
-            is_testing=True,
-        )
+        coaddparams = { 'alignment': { 'method': 'swarp', 'to_index': 'last' } }
+
+        coadder = Coadder( **coaddparams )
+        prov, _ = coadder.get_coadd_prov( ptf_reference_image_datastores, code_version_id=code_version.id )
+        prov.insert_if_needed()
         if prov.parameters['alignment']['to_index'] == 'last':
             index = -1
         elif prov.parameters['alignment']['to_index'] == 'first':
@@ -93,30 +146,37 @@ def test_alignment_in_image( ptf_reference_images, code_version ):
         else:
             raise ValueError(f"Unknown alignment reference index: {prov.parameters['alignment']['to_index']}")
 
-        new_image = Image.from_images(ptf_reference_images, index=index)
-        new_image.provenance = prov
-        new_image.provenance.upstreams = new_image.get_upstream_provenances()
-        new_image.data = np.sum([image.data for image in new_image.aligned_images], axis=0)
+        new_image = Image.from_images( [ d.image for d in ptf_reference_image_datastores ], index=index )
+        new_image.provenance_id = prov.id
+
+        coadder.run_alignment( ptf_reference_image_datastores, index )
+
+        # We're manually doing a naive sum here
+        new_image.data = np.sum( [ d.image.data for d in coadder.aligned_datastores ], axis=0 )
         new_image.save()
+        new_image.insert()
 
         # check that the filename is correct
         # e.g.: /path/to/data/PTF_<YYYYMMDD>_<HHMMSS>_<sec_ID>_<filt>_ComSci_<prov hash>_u-<coadd hash>.image.fits
         match = re.match(r'/.*/.*_\d{8}_\d{6}_.*_.*_ComSci_.{6}_u-.{6}\.image\.fits', new_image.get_fullpath()[0])
         assert match is not None
 
-        aligned = new_image.aligned_images
-        assert new_image.upstream_images == ptf_reference_images
-        assert len(aligned) == len(ptf_reference_images)
-        assert np.array_equal(aligned[index].data, ptf_reference_images[index].data_bgsub)
-        ref = ptf_reference_images[index]
+        upstream_imgs = new_image.get_upstreams( only_images=True )
+        assert [ i.id for i in upstream_imgs ] == [ d.image.id for d in ptf_reference_image_datastores ]
+        assert len( coadder.aligned_datastores ) == len( ptf_reference_image_datastores )
+        dsindex = ptf_reference_image_datastores[index]
+        assert np.array_equal( coadder.aligned_datastores[index].image.data,
+                               dsindex.image.data - dsindex.bg.counts )
+
+        ref = ptf_reference_image_datastores[index].image
 
         # check that images are aligned properly
-        for image in new_image.aligned_images:
-            check_aligned(image, ref)
+        for ds in coadder.aligned_datastores:
+            check_aligned( ds.image, ref )
 
         # check that unaligned images do not pass the check
-        for image in new_image.upstream_images:
-            if image == ref:
+        for image in upstream_imgs:
+            if image.id == ref.id:
                 continue
             with pytest.raises(AssertionError):
                 check_aligned(image, ref)
@@ -127,21 +187,25 @@ def test_alignment_in_image( ptf_reference_images, code_version ):
             session.commit()
 
         # should be able to recreate aligned images from scratch
-        with SmartSession() as session:
-            loaded_image = session.scalars(sa.select(Image).where(Image._id == new_image.id)).first()
-            assert loaded_image is not None
-            assert len(loaded_image.aligned_images) == len(ptf_reference_images)
-            assert np.array_equal(loaded_image.aligned_images[-1].data, ptf_reference_images[-1].data_bgsub)
+        # (Can't do this any more since image.aligned_images isn't a
+        # property.  The equivalent would be making a new coadder
+        # with parameters from new_image's provenance and running
+        # it again, which seems a little gratuitous.)
+        # with SmartSession() as session:
+        #     loaded_image = session.scalars(sa.select(Image).where(Image._id == new_image.id)).first()
+        #     assert loaded_image is not None
+        #     assert len(loaded_image.aligned_images) == len(ptf_reference_images)
+        #     assert np.array_equal(loaded_image.aligned_images[-1].data, ptf_reference_images[-1].data_bgsub)
 
-            # check that images are aligned properly
-            for image in loaded_image.aligned_images:
-                check_aligned(image, ref)
+        #     # check that images are aligned properly
+        #     for image in loaded_image.aligned_images:
+        #         check_aligned(image, ref)
 
     finally:
         ImageAligner.cleanup_temp_images()
-        for im in new_image.aligned_images:
-            im.delete_from_disk_and_database()
-        new_image.delete_from_disk_and_database(remove_downstreams=True)
+        # (The aligned datastores should not have been saved to disk or database.)
+        if 'new_image' in locals():
+            new_image.delete_from_disk_and_database(remove_downstreams=True)
 
 
 def check_aligned(image1, image2):

@@ -419,6 +419,8 @@ class Coadder:
     def run_alignment( self, data_store_list, index ):
         """Run the alignment.
 
+        Creates self.aligned_datastores with the aligned images, sources, bgs, wcses, and zps.
+
         Parameters
         ----------
         data_store_list: list of DataStore
