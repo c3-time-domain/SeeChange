@@ -261,9 +261,9 @@ class Coadder:
     def _coadd_zogy(
             self,
             images,
-            bgs,
-            psfs,
-            zps,
+            bgs=None,
+            impsfs=None,
+            zps=None,
             weights=None,
             flags=None,
             psf_clips=None,
@@ -278,6 +278,20 @@ class Coadder:
         given to each frequency in Fourier space, such that it preserves information
         even when using images with different PSFs.
 
+        There are two different calling semantics:
+
+        (1) images is a list of Image objects
+
+        In this case, you must also pass bgs, impsfs, and zps, but you
+        do not pass weights, flags, psf_clips, psf_fwhms, flux_zps,
+        bkg_means, or bkg_sigmas.
+
+        (2) iamges is a list of 2D ndnarrays
+
+        In this case, you do not pass bgs, impsfs or zps, but you must
+        pass weights, flags, psfs_clips, psf_fwhms, flux_zps, bkg_means,
+        and bkg_sigmas.
+
         TODO QUESTION : does this implicitly assume that all the images have a lot of
         overlap?  (It must, since it does inpainting.  What about images that don't
         have a lot of overlap?  That's a legitimate thing to want to coadd sometimes.)
@@ -286,42 +300,34 @@ class Coadder:
         ----------
         images: list of Image or list of 2D ndarrays
             Images that have been aligned to each other.
-            Each image must also have a PSF and a background object attached.
 
-        bgs: list of Background objects, or none if bg_means and bg_sigmas below are given
+        bgs: list of Background objects, or None
 
-        psfs: list of PSF objects, or none if psf_clips below is given
+        impsfs: list of PSF objects, or None
 
-        zps: list of ZeroPoint objects, or none if flux_zps below are given
+        zps: list of ZeroPoint objects, or None
 
-        weights: list of 2D ndarrays
+        weights: list of 2D ndarrays, or None
             The weights to use for each image.
-            If images is given as Image objects, can be left as None.
 
-        flags: list of 2D ndarrays
+        flags: list of 2D ndarrays, or None
             The bit flags to use for each image.
-            If images is given as Image objects, can be left as None.
 
-        psf_clips: list of 2D ndarrays
+        psf_clips: list of 2D ndarrays or None
             The PSF images to use for each image.
-            If images is given as Image objects, can be left as None.
 
-        psf_fwhms: list of floats
+        psf_fwhms: list of floats, or None
             The FWHM of the PSF for each image.
-            If images is given as Image objects, can be left as None.
 
-        flux_zps: list of floats
+        flux_zps: list of floats, or NOne
             The flux zero points for each image.
-            If images is given as Image objects, can be left as None.
 
-        bkg_means: list of floats
+        bkg_means: list of floats, or None
             The mean background for each image.
-            If images is given as Image objects, can be left as None.
             If images are already background subtracted, set these to zeros.
 
         bkg_sigmas: list of floats
             The RMS of the background for each image.
-            If images is given as Image objects, can be left as None.
 
         Returns
         -------
@@ -335,6 +341,7 @@ class Coadder:
             An array with the PSF of the output image.
         score: ndarray
             A matched-filtered score image of the coadded image.
+
         """
         if not all(type(image) == type(images[0]) for image in images):
             raise ValueError('Not all images are of the same type. ')
@@ -349,7 +356,7 @@ class Coadder:
             bkg_means = []
             bkg_sigmas = []
 
-            for image, bg, psf, zp in zip( images, bgs, psfs, zps ):
+            for image, bg, psf, zp in zip( images, bgs, impsfs, zps ):
                 data.append(image.data)
                 flags.append(image.flags)
                 weights.append(image.weight)
@@ -472,6 +479,8 @@ class Coadder:
     def get_coadd_prov( self, data_store_list, upstream_provs=None, code_version_id=None ):
         """Figure out the Provenance and CodeVersion of the coadded image.
 
+        Also adds the coadd provenance to the database if necessary.
+
         Parameters
         ----------
           data_store_list: list of DataStore or None
@@ -509,6 +518,7 @@ class Coadder:
             upstreams=upstream_provs,
             process='coaddition',
         )
+        coadd_provenance.insert_if_needed()
 
         return coadd_provenance, code_version
 
@@ -573,7 +583,7 @@ class Coadder:
             self.run_alignment( data_store_list, index )
 
         if coadd_provenance is None:
-            coadd_provenance, _ = self.get_coadd_provenance( data_store_list )
+            coadd_provenance, _ = self.get_coadd_prov( data_store_list )
 
         output = Image.from_images( [ d.image for d in data_store_list ], index=index )
         output.provenance_id = coadd_provenance.id
@@ -603,6 +613,7 @@ class Coadder:
         output.flags = outfl
 
         # ROB TODO -- where to put these?  Look at how subtraction or other things use them!!!
+        # (See also comment in test_coaddition.py::test_coaddition_pipeline_outputs)
         if 'outpsf' in locals():
             output.zogy_psf = outpsf  # TODO: do we have a better place to put this?
         if 'outscore' in locals():
@@ -732,11 +743,13 @@ class CoaddPipeline:
 
         if coadd_image is not None:
             self.datastore.image = coadd_image
+            self.aligned_datastores = aligned_datastores
         else:
-            # the self.aligned_images is None unless you explicitly pass in the pre-aligned images to save time
+            # the self.aligned_datastores is None unless you explicitly pass in the pre-aligned images to save time
             self.datastore.image = self.coadder.run( data_store_list,
                                                      aligned_datastores=aligned_datastores,
                                                      coadd_provenance=self.datastore.prov_tree['coaddition'] )
+            self.aligned_datastores = self.coadder.aligned_datastores
 
 
         # Get sources, background, wcs, and zp of the coadded image

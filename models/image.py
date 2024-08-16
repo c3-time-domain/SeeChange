@@ -122,6 +122,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @property
     def new_image_id(self):
         """Get the id of the image that is NOT the reference image. Only for subtractions (with ref+new upstreams)"""
+        # TODO : this will return something if it's a coadd of two images.
+        # Perhaps we should check self.is_sub, and return None if that's false?
         image = [ i for i in self.upstream_image_ids if i != self.ref_image_id ]
         if len(image) == 0 or len(image) > 1:
             return None

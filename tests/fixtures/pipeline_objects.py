@@ -77,9 +77,9 @@ def backgrounder_factory(test_config):
     return make_backgrounder
 
 
-@pytest.fixture
-def backgrounder(backgrounder_factory):
-    return backgrounder_factory()
+# @pytest.fixture
+# def backgrounder(backgrounder_factory):
+#     return backgrounder_factory()
 
 
 @pytest.fixture(scope='session')

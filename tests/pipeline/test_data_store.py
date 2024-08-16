@@ -14,6 +14,75 @@ from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.provenance import Provenance
 
+from pipeline.data_store import DataStore
+
+def test_make_provenance():
+    procparams = { 'exposure': {},
+                   'preprocessing': { 'a': 1 },
+                   'extraction': { 'b': 2 },
+                   'referencing': { 'z': 2.7182817 },
+                   'subtraction': { 'c': 3 },
+                   'detection': { 'd': 4 },
+                   'cutting': { 'e': 5 },
+                   'measuring': { 'f': 6 }
+                  }
+    ds = DataStore()
+    assert ds.prov_tree is None
+
+    def refresh_tree():
+        ds.prov_tree = None
+        for process, params in procparams.items():
+            ds.get_provenance( process, params, replace_tree=True )
+
+    refresh_tree()
+
+    # Make sure they're all there
+    for process, params in procparams.items():
+        prov = ds.prov_tree[ process ]
+        assert prov.process == process
+        assert prov.parameters == params
+
+    # Make sure that if we get one, we get the same one back
+    for process, params in procparams.items():
+        prov = ds.get_provenance( process, params )
+        assert prov.process == process
+        assert prov.parameters == params
+
+    # Make sure that if we have different parameters, it yells at us
+    for process in procparams.keys():
+        with pytest.raises( ValueError, match="DataStore getting provenance.*don't match" ):
+            prov = ds.get_provenance( process, { 'does_not_exist': 'luminiferous_aether' } )
+
+    # Check that pars_not_match_prov_tree works, but doesn't replace the tree
+    for process, params in procparams.items():
+        prov = ds.get_provenance( process, { 'does_not_exist': 'luminiferous_aether' },
+                                  pars_not_match_prov_tree_pars=True )
+        assert prov.process == process
+        assert prov.parameters == { 'does_not_exist': 'luminiferous_aether' }
+
+    # Check that if we replace a process, all downstream ones get wiped out
+    # (with 'referencing' being a special case exception).
+    # NOTE: I'm assuming that the keys in DataStore.UPSTREAM_STEPS are
+    # sorted.  Really I should build a tree or something basedon the
+    # dependencies.  But, whatevs.
+    for i, process in enumerate( procparams.keys() ):
+        prov = ds.get_provenance( process, { 'replaced': True }, replace_tree=True )
+        assert prov.process == process
+        assert prov.parameters == { 'replaced': True }
+        for upproc in list( procparams.keys() )[:i]:
+            assert upproc in ds.prov_tree
+            assert ds.prov_tree[upproc].process == upproc
+            assert ds.prov_tree[upproc].parameters == procparams[ upproc ]
+        for downproc in list( procparams.keys() )[i+1:]:
+            if downproc != 'referencing':
+                assert downproc not in ds.prov_tree
+        refresh_tree()
+
+    # TODO : test get_provenance when it's pulling upstreams from objects in the
+    #   datastore rather than from its own prov_tree.
+
+
+
 # The fixture gets us a datastore with everything saved and committed
 # The fixture takes some time to build (even from cache), so glom
 # all the tests together in one function.

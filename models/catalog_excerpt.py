@@ -166,6 +166,10 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
         self._hdr = None
         self._data = None
 
+    def get_downstreams( self, session=None, siblings=True ):
+        """CatalogExcerpt has no downstreams """
+        return []
+
     @staticmethod
     def create_from_file( filepath, origin, format="fitsldac" ):
         """Create a CatalogExcerpt from a file on disk.  Use with care!

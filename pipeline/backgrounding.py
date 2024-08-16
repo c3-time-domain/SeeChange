@@ -134,7 +134,7 @@ class Backgrounder:
                         image_shape=image.data.shape
                     )
                 elif self.pars.method == 'zero':  # don't measure the b/g
-                    bg = Background(value=0, noise=0, format='scalar', method='zero')
+                    bg = Background(value=0, noise=0, format='scalar', method='zero', image_shape=image.data.shape)
                 else:
                     raise ValueError(f'Unknown background method "{self.pars.method}"')
 

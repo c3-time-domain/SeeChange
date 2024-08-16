@@ -77,6 +77,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
         extraction, and if there's a reference available, with
         everything else as well.
 
+        The datastore will also come with a custom _pipeline attribute.
+        This is not standard for DataStore, but is used in a lot of the
+        tests (to get the various pipeline processing objects that are
+        consistent with the provenances loaded into the DataStore's
+        prov_tree).
+
         Parameters
         ----------
           exporim: Exposure or Image
@@ -165,6 +171,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         # Create the pipeline and build the provenance tree
 
         p = pipeline_factory( provtag )
+        ds._pipeline = p
 
         # allow calling scope to override/augment parameters for any of the processing steps
         p.override_parameters(**overrides)

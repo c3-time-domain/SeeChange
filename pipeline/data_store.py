@@ -26,6 +26,7 @@ UPSTREAM_STEPS = {
     'exposure': [],  # no upstreams
     'preprocessing': ['exposure'],
     'extraction': ['preprocessing'],
+    'referencing': [],               # This is a special case; it *does* have upstreams, but outside the main pipeline
     'subtraction': ['referencing', 'preprocessing', 'extraction'],
     'detection': ['subtraction'],
     'cutting': ['detection'],
@@ -743,7 +744,9 @@ class DataStore:
         else:
             raise ValueError('Could not get inputs for DataStore.')
 
-    def get_provenance(self, process, pars_dict, session=None, pars_not_match_prov_tree_pars=False ):
+    def get_provenance(self, process, pars_dict, session=None,
+                       pars_not_match_prov_tree_pars=False,
+                       replace_tree=False ):
         """Get the provenance for a given process.
 
         Will try to find a provenance that matches the current code version
@@ -778,9 +781,16 @@ class DataStore:
             The name of the process, e.g., "preprocess", "extraction", "subtraction".
 
         pars_dict: dict
-            A dictionary of parameters used for the process.
-            These include the critical parameters for this process.
-            Use a Parameter object's get_critical_pars().
+            A dictionary of parameters used for the process.  These
+            include the critical parameters for this process.  Use a
+            Parameter object's get_critical_pars() if you are setting
+            this; otherwise, the provenance will be wrong, as it may
+            include things in parameters that aren't supposed to be
+            there.
+
+            WARNING : be careful creating an extraction provenance.
+            The pars_dict there is more complicated because of
+            siblings.
 
         session: sqlalchemy.orm.session.Session
             An optional session to use for the database query.
@@ -795,6 +805,13 @@ class DataStore:
             an exception will be raised if you ask for a provenance
             that's inconsistent with one in the prov_tree.
 
+        replace_tree: bool, default False Replace whatever's in the
+            provenance tree with the newly generated provenance.  This
+            requires upstream provenances to exist-- either in the prov
+            tree, or in upstream objects already saved to the data
+            store.  It (effectively) implies
+            pars_not_match_prov_tree_pars.
+
         Returns
         -------
         prov: Provenance
@@ -803,12 +820,17 @@ class DataStore:
         """
 
         # First, check the provenance tree:
-        if ( self.prov_tree is not None ) and ( process in self.prov_tree ):
+        prov_found_in_tree = None
+        if ( not replace_tree ) and ( self.prov_tree is not None ) and ( process in self.prov_tree ):
             if self.prov_tree[ process ].parameters != pars_dict:
                 if not pars_not_match_prov_tree_pars:
-                    raise ValueError( "DataStore getting provenance for {process} whose parameters "
-                                      "don't match the parameters of the same processin the prov_tree" )
-            return self.prov_tree[ process ]
+                    raise ValueError( f"DataStore getting provenance for {process} whose parameters "
+                                      f"don't match the parameters of the same process in the prov_tree" )
+            else:
+                prov_found_in_tree = self.prov_tree[ process ]
+
+        if prov_found_in_tree is not None:
+            return prov_found_in_tree
 
         # If that fails, see if we can make one
 
@@ -843,7 +865,8 @@ class DataStore:
             raise ValueError(f'Could not find all upstream provenances for process {process}.')
 
         # check if "referencing" is in the list, if so, replace it with its upstreams
-        # RKNOP 2024-08-06 : I don't understand this!  Figure it out!
+        # (Reason: referencing is upstream of subtractions, but subtraction upstreams
+        # are *not* the Reference entry, but rather the images that went into the subtractions.)
         for u in upstreams:
             if u.process == 'referencing':
                 upstreams.remove(u)
@@ -859,6 +882,24 @@ class DataStore:
             is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes
         )
         prov.insert_if_needed( session=session )
+
+        if replace_tree:
+            if self.prov_tree is None:
+                self.prov_tree = { process: prov }
+            else:
+                self.prov_tree[ process ] = prov
+                # Have to wipe out all downstream provenances, because they will change!
+                wiped = set()
+                mustwipe = set( [ k for k,v in UPSTREAM_STEPS.items() if process in v ] )
+                while len( mustwipe ) > 0:
+                    for towipe in mustwipe:
+                        if towipe in self.prov_tree:
+                            del self.prov_tree[ towipe ]
+                        wiped.add( towipe )
+                    mustwipe = set( [ k for k,v in UPSTREAM_STEPS.items() if towipe in v and k not in wiped  ] )
+
+
+
 
         return prov
 

@@ -84,8 +84,8 @@ def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astro
         assert scold.dec.value == pytest.approx( scnew.dec.value, abs=1./3600. )
 
 
-def test_run_scamp( decam_datastore, astrometor ):
-    ds = decam_datastore
+def test_run_scamp( decam_datastore_through_bg, astrometor ):
+    ds = decam_datastore_through_bg
 
     # Get the md5sum and WCS from the image before we do things to it
     with open(ds.path_to_original_image, "rb") as ifp:
@@ -109,6 +109,25 @@ def test_run_scamp( decam_datastore, astrometor ):
     astrometor.pars.min_matched_stars = 10
     astrometor.pars.test_parameter = uuid.uuid4().hex  # make sure it gets a different Provenance
 
+    # The datastore should object when it tries to get the provenance for astrometor
+    # params that don't match what we started with
+    ds = astrometor.run(ds)
+    exc = ds.read_exception()
+    assert exc is not None
+    assert str(exc) == ( "DataStore getting provenance for extraction whose parameters don't match "
+                         "the parameters of the same process in the prov_tree" )
+
+    # Wipe the datastore prov_tree so that we can
+    #   run something with paramaters that are
+    #   different from what's in there.
+    # (This is doing it "wrong", because we're now
+    #   going to generate a WCS in the datastore
+    #   whose provenance is different from the
+    #   provenance of sources.  Doing that for this
+    #   test here, but the production pipeline should
+    #   never do that.  (Not setting ds.prov_tree to
+    #   None would have caught that in this case.))
+    ds.prov_tree = None
     ds = astrometor.run(ds)
 
     assert astrometor.has_recalculated
@@ -125,19 +144,17 @@ def test_run_scamp( decam_datastore, astrometor ):
         assert origsc.ra.value == pytest.approx( newsc.ra.value, abs=40./3600. )   # cos(dec)...
         assert origsc.dec.value == pytest.approx( newsc.dec.value, abs=40./3600. )
 
-    # These next few lines will need to be done after astrometry is done.  Right now,
-    # we don't do saving and committing inside the Astrometor.run method.
-    update_image_header = False
-    if not ds.image.astro_cal_done:
-        ds.image.astro_cal_done = True
-        update_image_header = True
-    ds.save_and_commit( update_image_header=update_image_header, overwrite=True )
+    # NOTE -- because of the cache, the image may well have the "astro_cal_done" flag
+    #  set even though we're using the decam_datastore_through_bg fixture, which doesn't
+    #  do astro_cal.  So, we can't check that.  But, we know that we've done it,
+    #  so we know that we want to update the image header.
+    ds.save_and_commit( update_image_header=True, overwrite=True )
 
     with SmartSession() as session:
-        # Make sure the WCS made it into the databse
-        q = ( session.query( WorldCoordinates )
-              .filter( WorldCoordinates.sources_id == ds.sources.id )
-              .filter( WorldCoordinates.provenance_id == ds.wcs.provenance.id ) )
+        # Make sure the WCS made it into the database
+        # (It should be the only one attached to this ds.sources since the fixture only
+        # went through backgrounding.)
+        q = session.query( WorldCoordinates ).filter( WorldCoordinates.sources_id == ds.sources.id )
         assert q.count() == 1
         dbwcs = q.first()
         dbscs = dbwcs.wcs.pixel_to_world( xvals, yvals )
@@ -147,7 +164,7 @@ def test_run_scamp( decam_datastore, astrometor ):
 
         # Make sure the image got updated properly on the database
         # and on disk
-        q = session.query( Image ).filter( Image.id == ds.image.id )
+        q = session.query( Image ).filter( Image._id == ds.image.id )
         assert q.count() == 1
         foundim = q.first()
         assert foundim.md5sum_extensions[0] == ds.image.md5sum_extensions[0]
@@ -189,10 +206,15 @@ def test_run_scamp( decam_datastore, astrometor ):
 
 def test_warnings_and_exceptions(decam_datastore, astrometor):
 
+    # Wipe the datastore's prov_tree so we get the exceptions we're looking for,
+    #   not an exception about a provenance parameters mismatch.
+    decam_datastore.prov_tree = None
+
     if not SKIP_WARNING_TESTS:
         astrometor.pars.inject_warnings = 1
         with pytest.warns(UserWarning) as record:
             astrometor.run(decam_datastore)
+        assert decam_datastore.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'astro_cal'." in str(w.message) for w in record)
 

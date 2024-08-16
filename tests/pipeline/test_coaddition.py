@@ -6,6 +6,7 @@ from astropy.io import fits
 import numpy as np
 from numpy.fft import fft2, ifft2, fftshift
 
+from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
@@ -16,6 +17,7 @@ from models.zero_point import ZeroPoint
 from improc.simulator import Simulator
 from improc.tools import sigma_clipping
 
+from pipeline.data_store import DataStore
 from pipeline.coaddition import Coadder, CoaddPipeline
 from pipeline.detection import Detector
 from pipeline.astro_cal import AstroCalibrator
@@ -200,13 +202,13 @@ def test_zogy_simulation(coadder, blocking_plots):
     # now that we know the estimator is good, lets check the coadded images vs. the originals:
     outim, outwt, outfl, outpsf, score = coadder._coadd_zogy(  # calculate the ZOGY coadd
         images,
-        weights,
-        flags,
-        psfs,
-        fwhms,
-        zps,
-        bkg_means,
-        bkg_stds,
+        weights=weights,
+        flags=flags,
+        psf_clips=psfs,
+        psf_fwhms=fwhms,
+        flux_zps=zps,
+        bkg_means=bkg_means,
+        bkg_sigmas=bkg_stds,
     )
 
     assert outim.shape == (256, 256)
@@ -253,13 +255,22 @@ def test_zogy_simulation(coadder, blocking_plots):
         plt.show(block=True)
 
 
-def test_zogy_vs_naive(ptf_aligned_images, coadder):
-    assert all([im.psf is not None for im in ptf_aligned_images])
-    assert all([im.zp is not None for im in ptf_aligned_images])
+def test_zogy_vs_naive( ptf_aligned_image_datastores, coadder ):
+    assert all( [d.bg is not None for d in ptf_aligned_image_datastores] )
+    assert all( [d.psf is not None for d in ptf_aligned_image_datastores] )
+    assert all( [d.zp is not None for d in ptf_aligned_image_datastores] )
 
-    naive_im, naive_wt, naive_fl = coadder._coadd_naive(ptf_aligned_images)
+    aligned_images = [ d.image for d in ptf_aligned_image_datastores ]
+    aligned_bgs = [ d.bg for d in ptf_aligned_image_datastores ]
+    aligned_psfs = [ d.psf for d in ptf_aligned_image_datastores ]
+    aligned_zps = [ d.zp for d in ptf_aligned_image_datastores ]
 
-    zogy_im, zogy_wt, zogy_fl, zogy_psf, zogy_score = coadder._coadd_zogy(ptf_aligned_images)
+    naive_im, naive_wt, naive_fl = coadder._coadd_naive( aligned_images )
+
+    zogy_im, zogy_wt, zogy_fl, zogy_psf, zogy_score = coadder._coadd_zogy( aligned_images,
+                                                                           aligned_bgs,
+                                                                           aligned_psfs,
+                                                                           aligned_zps )
 
     assert naive_im.shape == zogy_im.shape
 
@@ -273,7 +284,7 @@ def test_zogy_vs_naive(ptf_aligned_images, coadder):
 
     # get the FWHM estimate for the regular images and for the coadd
     fwhms = []
-    for im in ptf_aligned_images:
+    for im in aligned_images:
         # choose an area in the middle of the image
         fwhms.append(estimate_psf_width(im.nandata[1800:2600, 600:1400]))
 
@@ -290,25 +301,26 @@ def test_zogy_vs_naive(ptf_aligned_images, coadder):
     assert zogy_fwhm < naive_fwhm
 
 
-def test_coaddition_run(coadder, ptf_reference_images, ptf_aligned_images):
+def test_coaddition_run(coadder, ptf_reference_image_datastores, ptf_aligned_image_datastores):
+    refim0 = ptf_reference_image_datastores[0].image
+    refimlast = ptf_reference_image_datastores[-1].image
+
     # first make sure the "naive" coadd method works
     coadder.pars.test_parameter = uuid.uuid4().hex
     coadder.pars.method = 'naive'
 
-    ref_image = coadder.run(ptf_reference_images, ptf_aligned_images)
-    ref_image.provenance.is_testing = True
+    ref_image = coadder.run( ptf_reference_image_datastores, aligned_datastores=ptf_aligned_image_datastores )
 
     # now check that ZOGY works and verify the output
     coadder.pars.test_parameter = uuid.uuid4().hex
     coadder.pars.method = 'zogy'
 
-    ref_image = coadder.run(ptf_reference_images, ptf_aligned_images)
-    ref_image.provenance.is_testing = True
+    ref_image = coadder.run( ptf_reference_image_datastores, aligned_datastores=ptf_aligned_image_datastores )
 
     assert isinstance(ref_image, Image)
     assert ref_image.filepath is None
     assert ref_image.type == 'ComSci'
-    assert ref_image.provenance.id != ptf_reference_images[0].provenance.id
+    assert ref_image.provenance_id != refim0.provenance_id
     assert ref_image.instrument == 'PTF'
     assert ref_image.telescope == 'P48'
     assert ref_image.filter == 'R'
@@ -318,27 +330,32 @@ def test_coaddition_run(coadder, ptf_reference_images, ptf_aligned_images):
     assert isinstance(ref_image.header, fits.Header)
 
     # check a random value from the header, should have been taken from the last image
-    assert ref_image.header['TELDEC'] == ptf_reference_images[-1].header['TELDEC']
+    assert ref_image.header['TELDEC'] == refimlast.header['TELDEC']
     # the coordinates have also been grabbed from the last image
-    assert ref_image.ra == ptf_reference_images[-1].ra
-    assert ref_image.dec == ptf_reference_images[-1].dec
-    assert ref_image.ra_corner_00 == ptf_reference_images[-1].ra_corner_00  # check one of the corners
+    assert ref_image.ra == refimlast.ra
+    assert ref_image.dec == refimlast.dec
+    for coord in [ 'ra', 'dec' ]:
+        for corner in [ '00', '01', '10', '11' ]:
+            assert ( getattr( ref_image, f'{coord}_corner_{corner}' ) ==
+                     getattr( refimlast, f'{coord}_corner_{corner}' ) )
+        assert getattr( ref_image, f'min{coord}' ) == getattr( refimlast, f'min{coord}' )
+        assert getattr( ref_image, f'max{coord}' ) == getattr( refimlast, f'max{coord}' )
 
-    assert ref_image.start_mjd == min([im.start_mjd for im in ptf_reference_images])
-    assert ref_image.end_mjd == max([im.end_mjd for im in ptf_reference_images])
-    assert ref_image.exp_time == sum([im.exp_time for im in ptf_reference_images])
+    assert ref_image.start_mjd == min( [d.image.start_mjd for d in ptf_reference_image_datastores] )
+    assert ref_image.end_mjd == max( [d.image.end_mjd for d in ptf_reference_image_datastores] )
+    assert ref_image.exp_time == sum( [d.image.exp_time for d in ptf_reference_image_datastores] )
 
     assert ref_image.is_coadd
     assert not ref_image.is_sub
     assert ref_image.exposure_id is None
-    assert ref_image.exposure is None
 
-    assert ref_image.upstream_images == ptf_reference_images
-    assert ref_image.ref_image_id == ptf_reference_images[-1].id
-    assert ref_image.new_image is None
+    upstrims = ref_image.get_upstreams( only_images=True )
+    assert [ i.id for i in upstrims ] == [ d.image.id for d in ptf_reference_image_datastores ]
+    assert ref_image.ref_image_id == refimlast.id
+    assert ref_image.new_image_id is None
 
     assert ref_image.data is not None
-    assert ref_image.data.shape == ptf_reference_images[0].data.shape
+    assert ref_image.data.shape == refimlast.data.shape
     assert ref_image.weight is not None
     assert ref_image.weight.shape == ref_image.data.shape
     assert ref_image.flags is not None
@@ -348,7 +365,8 @@ def test_coaddition_run(coadder, ptf_reference_images, ptf_aligned_images):
     assert ref_image.zogy_score.shape == ref_image.data.shape
 
 
-def test_coaddition_pipeline_inputs(ptf_reference_images):
+@pytest.mark.skip( reason="CoaddPipeline.parse_inputs has been removed, this test is obsolete. (Delete?)" )
+def test_coaddition_pipeline_inputs(ptf_reference_image_datastores):
     pipe = CoaddPipeline()
     assert pipe.pars.date_range == 7
     assert isinstance(pipe.coadder, Coadder)
@@ -433,54 +451,59 @@ def test_coaddition_pipeline_inputs(ptf_reference_images):
     assert ptf_im_ids.issubset(im_ids)
 
 
-def test_coaddition_pipeline_outputs(ptf_reference_images, ptf_aligned_images):
+def test_coaddition_pipeline_outputs(ptf_reference_image_datastores, ptf_aligned_image_datastores):
     try:
-        pipe = CoaddPipeline()
-        coadd_image = pipe.run(ptf_reference_images, ptf_aligned_images)
+        pipe = CoaddPipeline( coaddition={ 'cleanup_alignment': False } )
+        coadd_ds = pipe.run( ptf_reference_image_datastores, ptf_aligned_image_datastores )
 
         # check that the second list input was ingested
-        assert pipe.aligned_images == ptf_aligned_images
+        assert pipe.aligned_datastores == ptf_aligned_image_datastores
 
-        assert isinstance(coadd_image, Image)
-        assert coadd_image.filepath is None
-        assert coadd_image.type == 'ComSci'
-        assert coadd_image.provenance.id != ptf_reference_images[0].provenance.id
-        assert coadd_image.instrument == 'PTF'
-        assert coadd_image.telescope == 'P48'
-        assert coadd_image.filter == 'R'
-        assert str(coadd_image.section_id) == '11'
-        assert coadd_image.start_mjd == min([im.start_mjd for im in ptf_reference_images])
-        assert coadd_image.end_mjd == max([im.end_mjd for im in ptf_reference_images])
-        assert coadd_image.provenance_id is not None
-        assert coadd_image.aligned_images == ptf_aligned_images  # use the same images from the input to pipeline
+        assert isinstance(coadd_ds, DataStore)
+        assert coadd_ds.image.filepath is None
+        assert coadd_ds.image.type == 'ComSci'
+        assert coadd_ds.image.provenance_id is not None
+        assert coadd_ds.image.provenance_id != ptf_reference_image_datastores[0].image.provenance_id
+        assert coadd_ds.image.instrument == 'PTF'
+        assert coadd_ds.image.telescope == 'P48'
+        assert coadd_ds.image.filter == 'R'
+        assert str(coadd_ds.image.section_id) == '11'
+        assert coadd_ds.image.start_mjd == min([ d.image.start_mjd for d in ptf_reference_image_datastores ])
+        assert coadd_ds.image.end_mjd == max([ d.image.end_mjd for d in ptf_reference_image_datastores])
 
         # check that all output products are there
-        assert isinstance(coadd_image.sources, SourceList)
-        assert isinstance(coadd_image.psf, PSF)
-        assert isinstance(coadd_image.wcs, WorldCoordinates)
-        assert isinstance(coadd_image.zp, ZeroPoint)
+        assert isinstance(coadd_ds.sources, SourceList)
+        assert isinstance(coadd_ds.psf, PSF)
+        assert isinstance(coadd_ds.wcs, WorldCoordinates)
+        assert isinstance(coadd_ds.zp, ZeroPoint)
 
         # check that the ZOGY PSF width is similar to the PSFex result
-        assert np.max(coadd_image.zogy_psf) == pytest.approx(np.max(coadd_image.psf.get_clip()), abs=0.01)
-        zogy_fwhm = estimate_psf_width(coadd_image.zogy_psf, num_stars=1)
-        psfex_fwhm = estimate_psf_width(np.pad(coadd_image.psf.get_clip(), 20), num_stars=1)  # pad so extract_psf_surrogate works
+        # NOTE -- see comment ROB TODO in coaddition.py.  Right now,
+        # we're storing zogy_psf and zogy_score in the Image
+        # object, but that's vestigal from when the Image object had all
+        # kinds of contingent data proucts (sometimes) in it.  It would
+        # be better to store these in the DataStore; refactor the code
+        # necessary to do that.
+        assert np.max(coadd_ds.image.zogy_psf) == pytest.approx(np.max(coadd_ds.psf.get_clip()), abs=0.01)
+        zogy_fwhm = estimate_psf_width(coadd_ds.image.zogy_psf, num_stars=1)
+        psfex_fwhm = estimate_psf_width(np.pad(coadd_ds.psf.get_clip(), 20), num_stars=1)  # pad so extract_psf_surrogate works
         assert zogy_fwhm == pytest.approx(psfex_fwhm, rel=0.1)
 
         # check that the S/N is consistent with a coadd
-        flux_zp = [10 ** (0.4 * im.zp.zp) for im in ptf_reference_images]  # flux in ADU of a magnitude 0 star
-        bkgs = [im.bkg_rms_estimate for im in ptf_reference_images]
+        flux_zp = [10 ** (0.4 * d.zp.zp) for d in ptf_reference_image_datastores]  # flux in ADU of a magnitude 0 star
+        bkgs = [ d.image.bkg_rms_estimate for d in ptf_reference_image_datastores ]
         snrs = np.array(flux_zp) / np.array(bkgs)
         mean_snr = np.mean(snrs)
 
-        flux_zp_zogy = 10 ** (0.4 * coadd_image.zp.zp)
-        _, bkg_zogy = sigma_clipping(coadd_image.data)
+        flux_zp_zogy = 10 ** (0.4 * coadd_ds.zp.zp)
+        _, bkg_zogy = sigma_clipping(coadd_ds.image.data)
         snr_zogy = flux_zp_zogy / bkg_zogy
 
         # zogy background noise is normalized by construction
         assert bkg_zogy == pytest.approx(1.0, abs=0.1)
 
         # S/N should be sqrt(N) better # TODO: why is the zogy S/N 20% better than expected??
-        assert snr_zogy == pytest.approx(mean_snr * np.sqrt(len(ptf_reference_images)), rel=0.5)
+        assert snr_zogy == pytest.approx(mean_snr * np.sqrt(len(ptf_reference_image_datastores)), rel=0.5)
 
     finally:
         if 'coadd_image' in locals():
@@ -488,22 +511,28 @@ def test_coaddition_pipeline_outputs(ptf_reference_images, ptf_aligned_images):
 
 
 def test_coadded_reference(ptf_ref):
-    ref_image = ptf_ref.image
-    assert isinstance(ref_image, Image)
+    ref_image = Image.get_by_id( ptf_ref.image_id )
     assert ref_image.filepath is not None
     assert ref_image.type == 'ComSci'
-    assert isinstance(ref_image.sources, SourceList)
-    assert isinstance(ref_image.psf, PSF)
-    assert isinstance(ref_image.bg, Background)
-    assert isinstance(ref_image.wcs, WorldCoordinates)
-    assert isinstance(ref_image.zp, ZeroPoint)
+
+    ref_sources, ref_bg, ref_psf, ref_wcs, ref_zp = ptf_ref.get_ref_data_products()
+
+    assert isinstance(ref_sources, SourceList)
+    assert isinstance(ref_psf, PSF)
+    assert isinstance(ref_bg, Background)
+    assert isinstance(ref_wcs, WorldCoordinates)
+    assert isinstance(ref_zp, ZeroPoint)
 
     assert ptf_ref.target == ref_image.target
     assert ptf_ref.filter == ref_image.filter
-    assert ptf_ref.section_id == ref_image.section_id
+    assert str(ptf_ref.section_id) == str(ref_image.section_id)
 
-    assert ptf_ref.provenance.upstreams[0].id == ref_image.provenance_id
-    assert ptf_ref.provenance.process == 'referencing'
+    ref_prov = Provenance.get( ptf_ref.provenance_id )
+    refimg_prov = Provenance.get( ref_image.provenance_id )
 
-    assert ptf_ref.provenance.parameters['test_parameter'] == 'test_value'
+    assert refimg.prov_id in [ p.id for p in ref_prov.upstreams ]
+    assert ref_sources.prov_id in [ p.id for p in ref_prov.upstreams ]
+    assert ref_prov.process == 'referencing'
+
+    assert ref_prov.parameters['test_parameter'] == 'test_value'
 
