@@ -84,7 +84,9 @@ class ParsRefMaker(Parameters):
             'To make sure single-instrument references are made, make a different refset '
             'with a single item on this list, one for each instrument. '
             'This does not have a default value, but you MUST supply a list with at least one instrument '
-            'in order to get a reference provenance and create a reference set. ',
+            'in order to get a reference provenance and create a reference set. '
+            '(NOTE: it\'s not clear that building a multi-instrument ref actually works right now '
+            '(because of provenance handling)). ',
             critical=True,
         )
 
@@ -307,6 +309,7 @@ class RefMaker:
             upstreams=[self.coadd_im_prov, self.coadd_ex_prov],
             is_testing='test_parameter' in pars,
         )
+        self.ref_prov.insert_if_needed()
 
 
     def parse_arguments(self, *args, **kwargs):
@@ -389,41 +392,63 @@ class RefMaker:
         possibly append the reference provenance to the list of provenances
         on the RefSet.
         """
-        with SmartSession(session) as dbsession:
-            self.setup_provenances(session=dbsession)
+        self.setup_provenances(session=session)
 
-            # first make sure the ref_prov is in the database
-            self.ref_prov.insert_if_needed( session=dbsession )
+        # first make sure the ref_prov is in the database
+        self.ref_prov.insert_if_needed( session=session )
 
-            # now load or create a RefSet
-            try:
-                RefSet._get_table_lock( dbsession, 'refsets' )
-                self.refset = dbsession.scalars(sa.select(RefSet).where(RefSet.name == self.pars.name)).first()
-                if self.refset is None:
-                    # not found any RefSet with this name
-                    self.refset = RefSet(
-                        name=self.pars.name,
-                        description=self.pars.description,
-                    )
-                    self.refset.insert( session=dbsession )
-            finally:
-                # Make sure to release the lock in case we didn't commit a new refset
-                SCLogger.debug( "make_refset rolling back" )
-                dbsession.rollback()
+        # now load or create a RefSet if necessary
 
-            if self.refset is None:
-                raise RuntimeError(f'Failed to find or create a RefSet with the name "{self.pars.name}"!')
+        if ( self.refset is None ) or ( self.refset.name != self.pars.name ):
+            with SmartSession( session ) as dbsession:
+                try:
+                    RefSet._get_table_lock( dbsession, 'refsets' )
+                    self.refset = dbsession.scalars(sa.select(RefSet).where(RefSet.name == self.pars.name)).first()
+                    if self.refset is None:
+                        if not self.pars.allow_append:
+                            raise RuntimeError( f'No refset {self.pars.name} found, and allow_append is False' )
+                        # not found any RefSet with this name
+                        self.refset = RefSet(
+                            name=self.pars.name,
+                            description=self.pars.description,
+                        )
+                        self.refset.insert( session=dbsession )
+                    # This next line is because SQLAlchemy, in general, makes no sense and induces rage
+                    dbsession.expunge( self.refset )
+                finally:
+                    # Make sure to release the lock in case we didn't commit a new refset
+                    SCLogger.debug( "make_refset rolling back" )
+                    dbsession.rollback()
 
-            # If the provenance is not already on the RefSet, add it (or raise, if allow_append=False)
-            if self.ref_prov.id not in [ p.id for p in self.refset.provenances ]:
-                if self.pars.allow_append:
-                    self.refset.append_provenance( self.ref_prov, session=dbsession )
-                else:
-                    raise RuntimeError(
-                        f"Found a RefSet with the name \"{self.pars.name}\", but it doesn't include the "
-                        f"right reference provenance!  Use \"allow_append\" parameter to add new provenances "
-                        f"to this RefSet. "
-                    )
+        if self.refset is None:
+            raise RuntimeError(f'Failed to find or create a RefSet with the name "{self.pars.name}"!')
+
+        # Verify that the provenances associatied with the refset all have consistent upstream
+        #   hashes, and that the new ref prov (if it is now) is also consistent.
+
+        uh = None
+        for prov in self.refset.provenances:
+            h = prov.get_combined_upstream_hash()
+            if uh is None:
+                uh = h
+            else:
+                if uh != h:
+                    raise RuntimeError( f"RefSet {self.pars.name} has inconsistent upstream hashes!" )
+        if uh is not None:
+            if self.ref_prov.get_combined_upstream_hash() != uh:
+                raise RuntimeError( f"Found a RefSet with the name {self.pars.name}, "
+                                    f"but it has a different upstream_hash!" )
+
+        # If the provenance is not already on the RefSet, add it (or raise, if allow_append=False)
+        if self.ref_prov.id not in [ p.id for p in self.refset.provenances ]:
+            if self.pars.allow_append:
+                self.refset.append_provenance( self.ref_prov, session=session )
+            else:
+                raise RuntimeError(
+                    f"Found a RefSet with the name \"{self.pars.name}\", but it doesn't include the "
+                    f"right reference provenance!  Use \"allow_append\" parameter to add new provenances "
+                    f"to this RefSet. "
+                )
 
     def run(self, *args, **kwargs):
         """Check if a reference exists for the given coordinates/field ID, and filter, and make it if it is missing.
@@ -444,33 +469,33 @@ class RefMaker:
         """
         session = self.parse_arguments(*args, **kwargs)
 
-        with SmartSession(session) as dbsession:
-            self.make_refset(session=dbsession)
+        self.make_refset( session=session )
 
-            # look for the reference at the given location in the sky (via ra/dec or target/section_id)
-            ref = Reference.get_references(
-                ra=self.ra,
-                dec=self.dec,
-                target=self.target,
-                section_id=self.section_id,
-                filter=self.filter,
-                provenance_ids=self.ref_prov.id,
-                session=dbsession,
-            )
+        # look for the reference at the given location in the sky (via ra/dec or target/section_id)
+        refsandimgs = Reference.get_references(
+            ra=self.ra,
+            dec=self.dec,
+            target=self.target,
+            section_id=self.section_id,
+            filter=self.filter,
+            provenance_ids=self.ref_prov.id,
+            session=session,
+        )
 
-            if ref:  # found a reference, can skip the next part of the code!
-                if len(ref) == 0:
-                    return None
-                elif len(ref) == 1:
-                    return ref[0]
-                else:
-                    raise RuntimeError(
-                        f'Found multiple references with the same provenance {self.ref_prov.id} and location!'
-                    )
-            ############### no reference found, need to build one! ################
+        refs, imgs = refsandimgs
 
-            # first get all the images that could be used to build the reference
-            images = []  # can get images from different instruments
+        # if found a reference, can skip the next part of the code!
+        if len(refs) == 1:
+            return refs[0]
+        elif len(refs) > 1:
+            raise RuntimeError( f'Found multiple references with the same provenance '
+                                f'{self.ref_prov.id} and location!' )
+
+        ############### no reference found, need to build one! ################
+
+        # first get all the images that could be used to build the reference
+        images = []  # can get images from different instruments
+        with SmartSession( session ) as dbsession:
             for inst in self.pars.instrument:
                 query_pars = dict(
                     instrument=inst,
@@ -484,7 +509,7 @@ class RefMaker:
                     max_dateobs=self.pars.end_time,
                     seeing_quality_factor=self.pars.seeing_quality_factor,
                     order_by='quality',
-                    provenance_ids=self.ref_prov[inst].id,
+                    provenance_ids=self.im_provs[inst].id,
                 )
 
                 for key in self.pars.__image_query_pars__:
@@ -494,37 +519,50 @@ class RefMaker:
                 # get the actual images that match the query
                 images += dbsession.scalars(Image.query_images(**query_pars).limit(self.pars.max_number)).all()
 
-            if len(images) < self.pars.min_number:
-                SCLogger.info(f'Found {len(images)} images, need at least {self.pars.min_number} to make a reference!')
-                return None
+        if len(images) < self.pars.min_number:
+            SCLogger.info(f'Found {len(images)} images, need at least {self.pars.min_number} to make a reference!')
+            return None
 
-            # note that if there are multiple instruments, each query may load the max number of images,
-            # that's why we must also limit the number of images after all queries have returned.
-            if len(images) > self.pars.max_number:
-                coeff = abs(self.pars.seeing_quality_factor)  # abs is used to make sure the coefficient is negative
-                for im in images:
-                    im.quality = im.lim_mag_estimate - coeff * im.fwhm_estimate
-
-                # sort the images by the quality
-                images = sorted(images, key=lambda x: x.quality, reverse=True)
-                images = images[:self.pars.max_number]
-
-            # make the reference (note that we are out of the session block, to release it while we coadd)
-            images = sorted(images, key=lambda x: x.mjd)  # sort the images in chronological order for coaddition
-            data_stores = [ DataStore( i, { 'extraction': self.ex_provs[i.instrument] } ) for i in images ]
-
-            # load the extraction products of these images using the ex_provs
+        # note that if there are multiple instruments, each query may load the max number of images,
+        # that's why we must also limit the number of images after all queries have returned.
+        if len(images) > self.pars.max_number:
+            coeff = abs(self.pars.seeing_quality_factor)  # abs is used to make sure the coefficient is negative
             for im in images:
-                im.load_products(self.ex_provs, session=dbsession)
-                prods = {p: getattr(im, p) for p in ['sources', 'psf', 'bg', 'wcs', 'zp']}
-                if any([p is None for p in prods.values()]):
-                    raise RuntimeError(
-                        f'Image {im} is missing products {prods} for coaddition! '
-                        f'Make sure to produce products using the provenances in ex_provs: '
-                        f'{self.ex_provs}'
-                    )
+                im.quality = im.lim_mag_estimate - coeff * im.fwhm_estimate
 
-        coadd_ds = self.coadd_pipeline.run(images)
+            # sort the images by the quality
+            images = sorted(images, key=lambda x: x.quality, reverse=True)
+            images = images[:self.pars.max_number]
+
+        # make the reference (note that we are out of the session block, to release it while we coadd)
+        images = sorted(images, key=lambda x: x.mjd)  # sort the images in chronological order for coaddition
+        data_stores = [ DataStore( i, { 'extraction': self.ex_provs[i.instrument] } ) for i in images ]
+
+        # Create datastores with the images, sources, psfs, etc.
+        dses = []
+        for im in images:
+            inst = im.instrument
+            if ( inst not in self.im_provs ) or ( inst not in self.ex_provs ):
+                raise RuntimeError( f"Can't find instrument {inst} in one of (im_provs, ex_provs); "
+                                    f"this shouldn't happen." )
+            ds = DataStore( im )
+            ds.set_prov_tree( { self.im_provs[inst].process: self.im_provs[inst],
+                                self.ex_provs[inst].process: self.ex_provs[inst] } )
+            ds.sources = ds.get_sources()
+            ds.bg = ds.get_background()
+            ds.psf = ds.get_psf()
+            ds.wcs = ds.get_wcs()
+            ds.zp = ds.get_zp()
+            prods = {p: getattr(ds, p) for p in ['sources', 'psf', 'bg', 'wcs', 'zp']}
+            if any( [p is None for p in prods.values()] ):
+                raise RuntimeError(
+                    f'DataStore for image {im} is missing products {prods} for coaddition! '
+                    f'Make sure to produce products using the provenances in ex_provs: '
+                    f'{self.ex_provs}'
+                )
+            dses.append( ds )
+
+        coadd_ds = self.coadd_pipeline.run( dses )
 
         ref = Reference(
             image_id = coadd_ds.image.id,
@@ -536,7 +574,7 @@ class RefMaker:
         )
 
         if self.pars.save_new_refs:
-            coadd_ds.save_and_commit()
-            ref.insert()
+            coadd_ds.save_and_commit( session=session )
+            ref.insert( session=session )
 
         return ref

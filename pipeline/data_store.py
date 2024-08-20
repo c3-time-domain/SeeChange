@@ -1370,35 +1370,36 @@ class DataStore:
         provenance_ids = [ p.id for p in provenances ]
 
         # first, some checks to see if existing reference is ok
-        if self.reference is not None:
-            if self.reference.provenance_id not in provenance_ids:
+        if ( self.reference is not None ) and ( self.reference.provenance_id not in provenance_ids ):
+            self.reference = None
+
+        if ( ( self.reference is not None ) and
+             ( min_overlap is not None ) and ( min_overlap > 0 )
+            ):
+            refimg = Image.get_by_id( self.reference.image_id )
+            ovfrac = FourCorners.get_overlap_frac(image, refimg)
+            if ovfrac < min_overlap:
                 self.reference = None
 
-            if ( min_overlap is not None ) and ( min_overlap > 0 ):
-                refimg = Image.get_by_id( self.reference.image_id )
-                ovfrac = FourCorners.get_overlap_frac(image, refimg)
-                if ovfrac < min_overlap:
-                    self.reference = None
+        if ( self.reference is not None ) and skip_bad:
+            if self.reference.is_bad:
+                self.reference = None
 
-            if skip_bad:
-                if self.reference.is_bad:
-                    self.reference = None
+        if ( self.reference is not None ) and match_filter:
+            if self.reference.filter != image.filter:
+                self.reference = None
 
-            if match_filter:
-                if self.reference.filter != image.filter:
-                    self.reference = None
+        if ( self.reference is not None ) and match_target:
+            if self.reference.target != image.target:
+                self.reference = None
 
-            if match_target:
-                if self.reference.target != image.target:
-                    self.reference = None
+        if ( self.reference is not None ) and match_instrument:
+            if self.reference.instrument != image.instrument:
+                self.reference = None
 
-            if match_instrument:
-                if self.reference.instrument != image.instrument:
-                    self.reference = None
-
-            if match_section:
-                 if self.reference.section_id != image.section_id:
-                     self.reference = None
+        if ( self.reference is not None ) and match_section:
+            if self.reference.section_id != image.section_id:
+                self.reference = None
 
         # if we have survived this long without losing the reference, can return it here:
         if self.reference is not None:

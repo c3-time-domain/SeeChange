@@ -296,7 +296,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
                                                                 sensor_section=section,
                                                                 flat_type=flattype )
                         sess.add( caliblock )
-                        SCLogger.debug( "CalibratorFileDownloadLock comitting" )
+                        # SCLogger.debug( "CalibratorFileDownloadLock comitting" )
                         sess.commit()
                         sess.refresh( caliblock )   # is this necessary?
                         lockid = caliblock.id
@@ -306,7 +306,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
                             raise RuntimeError( f"Database corruption: multiple CalibratorFileDownloadLock for "
                                                 f"{instrument} {section} {calibset} {calibtype} {flattype}" )
                         lockid = lockq.first().id
-                        SCLogger.debug( "CalibratorFileDownloadLock rolling back" )
+                        # SCLogger.debug( "CalibratorFileDownloadLock rolling back" )
                         sess.rollback()
                         if ( ( lockid in cls._locks.keys() ) and ( cls._locks[lockid] == sess ) ):
                             # The lock already exists, and is owned by this
@@ -333,7 +333,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
                                 sleeptime *= 2
                 finally:
                     # Make sure any dangling table locks are released
-                    SCLogger.debug( "CalibratorFileDownloadLock rolling back" )
+                    # SCLogger.debug( "CalibratorFileDownloadLock rolling back" )
                     sess.rollback()
 
         if lockid == -1:

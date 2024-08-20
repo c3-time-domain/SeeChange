@@ -629,20 +629,28 @@ def ptf_ref_offset(ptf_ref):
     offset_image.ra_corner_01 -= 0.5
     offset_image.ra_corner_10 -= 0.5
     offset_image.ra_corner_11 -= 0.5
+    offset_image.minra -= 0.5
+    offset_image.maxra -= 0.5
+    offset_image.ra -= 0.5
     offset_image.filepath = ptf_ref_image.filepath + '_offset'
     offset_image.provenance_id = ptf_ref_image.provenance_id
     offset_image.md5sum = uuid.uuid4()  # spoof this so we don't have to save to archive
 
-    new_ref = Reference()
-    new_ref.image_id = offset_image.id
+    new_ref = Reference( target=ptf_ref.target,
+                         filter=ptf_ref.filter,
+                         instrument=ptf_ref.instrument,
+                         section_id=ptf_ref.section_id,
+                         image_id=offset_image.id
+                        )
     refprov = Provenance.get( ptf_ref.provenance_id )
     pars = refprov.parameters.copy()
     pars['test_parameter'] = uuid.uuid4().hex
+    refprov = Provenance.get( ptf_ref.provenance_id )
     prov = Provenance(
         process='referencing',
         parameters=pars,
-        upstreams=ptf_ref.provenance.upstreams,
-        code_version_id=ptf_ref.provenance.code_version_id,
+        upstreams=refprov.upstreams,
+        code_version_id=refprov.code_version_id,
         is_testing=True,
     )
     prov.insert_if_needed()

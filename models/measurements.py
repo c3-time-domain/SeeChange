@@ -661,13 +661,13 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                     # (Issue #347)
                     obj.name = str( obj.id )[-12:]
 
-                    SCLogger.debug( "Measurements.associate_object calling Object.insert (which will commit)" )
+                    # SCLogger.debug( "Measurements.associate_object calling Object.insert (which will commit)" )
                     obj.insert( session=sess )
 
                 self.object_id = obj.id
             finally:
                 # Assure that lock is released
-                SCLogger.debug( "Measurements.associate_object rolling back" )
+                # SCLogger.debug( "Measurements.associate_object rolling back" )
                 sess.rollback()
 
     def get_flux_at_point( self, ra, dec, aperture=None, wcs=None, psf=None ):

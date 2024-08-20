@@ -97,4 +97,7 @@ class RefSet(Base, UUIDMixin):
                 sess.commit()
             except IntegrityError as ex:
                 # It was already there, so we're good
-                pass
+                sess.rollback()
+
+            # Refresh the self-list of provenances to include the added one.
+            self._provenances = self.get_provenances( session=sess )

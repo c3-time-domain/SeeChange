@@ -157,13 +157,6 @@ class Reference(Base, UUIDMixin):
 
         return sources, bg, psf, wcs, zp
 
-    def merge_all(self, session):
-        """Merge the reference into the session, along with Image and products. """
-        raise RuntimeError( "merge_all should no longer be needed" )
-        new_ref = session.merge(self)
-        new_ref.image = self.image.merge_all(session)
-
-        return new_ref
 
     @classmethod
     def get_references(
@@ -234,11 +227,6 @@ class Reference(Base, UUIDMixin):
         if ( ra is None ) != ( dec is None ):
             raise ValueError( "Must provide both or neither of ra/dec" )
 
-        # Writing the code in SQL because I know it, and the SQLA
-        #   documentation is obtuse enough that it's hard to figure
-        #   out how to write the SA thing to do the SQL thing
-        #   I want to do
-
         if ra is None:
            stmt = ( sa.select( Reference, Image )
                      .where( Reference.target == target )
@@ -283,23 +271,25 @@ class Reference(Base, UUIDMixin):
 
         with SmartSession( session ) as sess:
             refs = sess.execute( stmt ).all()
+        imgs = [ r[1] for r in refs ]
+        refs = [ r[0] for r in refs ]
 
         if ra is not None:
             # Have to crop down the things found to things that actually include
             #  the ra/dec
-            refsandimgs = refs
-            refs = []
-            imgs = []
-            for refandimg in refsandimgs:
-                ref, img = refandimg
+            croprefs = []
+            cropimgs = []
+            for ref, img in zip( refs, imgs ):
                 poly = shapely.geometry.Polygon( [ ( img.ra_corner_00, img.dec_corner_00 ),
                                                    ( img.ra_corner_01, img.dec_corner_01 ),
                                                    ( img.ra_corner_11, img.dec_corner_11 ),
                                                    ( img.ra_corner_10, img.dec_corner_10 ),
                                                    ( img.ra_corner_00, img.dec_corner_00 ) ] )
                 if poly.contains( shapely.geometry.Point( ra, dec ) ):
-                    refs.append( ref )
-                    imgs.append( img )
+                    croprefs.append( ref )
+                    cropimgs.append( img )
+            refs = croprefs
+            imgs = cropimgs
 
         return refs, imgs
 

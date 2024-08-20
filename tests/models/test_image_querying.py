@@ -350,6 +350,10 @@ def im_qual(im, factor=3.0):
 def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_calibrators):
     # TODO: need to fix some of these values (of lim_mag and quality) once we get actual limiting magnitude measurements
 
+    # Note that (I believe) all of the images in the fixture are square to the sky,
+    #  so find_images and query_images will return the same thing for an ra/dec
+    #  search.  TODO: make an image that's not square to the sky.
+
     with SmartSession() as session:
         stmt = Image.query_images()
         results = session.scalars(stmt).all()
@@ -377,14 +381,18 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
 
         # get only the science images
         stmt = Image.query_images(type=1)
+        found = Image.find_images(type=1)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im._type == 1 for im in results1)
         assert all(im.type == 'Sci' for im in results1)
         assert len(results1) < total
 
         # get the coadd and subtraction images
         stmt = Image.query_images(type=[2, 3, 4])
+        found = Image.find_images(type=[2, 3, 4])
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im._type in [2, 3, 4] for im in results2)
         assert all(im.type in ['ComSci', 'Diff', 'ComDiff'] for im in results2)
         assert len(results2) < total
@@ -392,39 +400,51 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
 
         # use the names of the types instead of integers, or a mixture of ints and strings
         stmt = Image.query_images(type=['ComSci', 'Diff', 4])
+        found = Image.find_images(type=['ComSci', 'Diff', 4])
         results3 = session.scalars(stmt).all()
+        assert [ i.id for i in results3 ] == [ i.id for i in found ]
         assert results2 == results3
 
         # filter by MJD and observation date
         value = 57000.0
         stmt = Image.query_images(min_mjd=value)
+        found = Image.find_images(min_mjd=value)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.mjd >= value for im in results1)
         assert all(im.instrument == 'DECam' for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(max_mjd=value)
+        found = Image.find_images(max_mjd=value)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.mjd <= value for im in results2)
         assert all(im.instrument == 'PTF' for im in results2)
         assert len(results2) < total
         assert len(results1) + len(results2) == total
 
         stmt = Image.query_images(min_mjd=value, max_mjd=value)
+        found = Image.find_images(min_mjd=value, max_mjd=value)
         results3 = session.scalars(stmt).all()
+        assert [ i.id for i in results3 ] == [ i.id for i in found ]
         assert len(results3) == 0
 
         # filter by observation date
         t = Time(57000.0, format='mjd').datetime
         stmt = Image.query_images(min_dateobs=t)
+        found = Image.find_images(min_dateobs=t)
         results4 = session.scalars(stmt).all()
+        assert [ i.id for i in results4 ] == [ i.id for i in found ]
         assert all(im.observation_time >= t for im in results4)
         assert all(im.instrument == 'DECam' for im in results4)
         assert set(results4) == set(results1)
         assert len(results4) < total
 
         stmt = Image.query_images(max_dateobs=t)
+        found = Image.find_images(max_dateobs=t)
         results5 = session.scalars(stmt).all()
+        assert [ i.id for i in results5 ] == [ i.id for i in found ]
         assert all(im.observation_time <= t for im in results5)
         assert all(im.instrument == 'PTF' for im in results5)
         assert set(results5) == set(results2)
@@ -444,43 +464,47 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
         ra = 7.659
         dec = -43.420
 
-        # Removed this for now.  query_images will be inefficient
-        # searching searching for something containing an ra and dec;
-        # see comments in Image.find_containing for the reasons.
-        # Also see the TODO comment in image.query_image
-        # stmt = Image.query_images(ra=ra, dec=dec)
-        # results2 = session.scalars(stmt).all()
-        # assert all(im.instrument == 'DECam' for im in results2)
-        # assert all(im.target == 'ELAIS-E1' for im in results2)
-        # assert len(results2) < total
-        with pytest.raises( RuntimeError, match="Image.query_images using ra and dec is not efficient" ):
-            stmt = Image.query_images(ra=ra, dec=dec)
+        stmt = Image.query_images(ra=ra, dec=dec)
+        found = Image.find_images(ra=ra, dec=dec)
+        results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
+        assert all(im.instrument == 'DECam' for im in results2)
+        assert all(im.target == 'ELAIS-E1' for im in results2)
+        assert len(results2) < total
 
         # # filter by images that contain this point (PTF field number 100014)
-        # ra = 188.0
-        # dec = 4.5
-        # stmt = Image.query_images(ra=ra, dec=dec)
-        # results3 = session.scalars(stmt).all()
-        # assert all(im.instrument == 'PTF' for im in results3)
-        # assert all(im.target == '100014' for im in results3)
-        # assert len(results3) < total
-        # assert len(results1) + len(results2) + len(results3) == total
+        ra = 188.0
+        dec = 4.5
+        stmt = Image.query_images(ra=ra, dec=dec)
+        found = Image.find_images(ra=ra, dec=dec )
+        results3 = session.scalars(stmt).all()
+        assert [ i.id for i in results3 ] == [ i.id for i in found ]
+        assert all(im.instrument == 'PTF' for im in results3)
+        assert all(im.target == '100014' for im in results3)
+        assert len(results3) < total
+        assert len(results1) + len(results2) + len(results3) == total
 
         # filter by section ID
         stmt = Image.query_images(section_id='S3')
+        found = Image.find_images(section_id='S3')
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.section_id == 'S3' for im in results1)
         assert all(im.instrument == 'DECam' for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(section_id='N16')
+        found = Image.find_images(section_id='N16')
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.section_id == 'N16' for im in results2)
         assert all(im.instrument == 'DECam' for im in results2)
         assert len(results2) < total
 
         stmt = Image.query_images(section_id='11')
+        found = Image.find_images(section_id='11')
         results3 = session.scalars(stmt).all()
+        assert [ i.id for i in results3 ] == [ i.id for i in found ]
         assert all(im.section_id == '11' for im in results3)
         assert all(im.instrument == 'PTF' for im in results3)
         assert len(results3) < total
@@ -488,14 +512,18 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
 
         # filter by the PTF project name
         stmt = Image.query_images(project='PTF_DyC_survey')
+        found = Image.find_images(project='PTF_DyC_survey')
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.project == 'PTF_DyC_survey' for im in results1)
         assert all(im.instrument == 'PTF' for im in results1)
         assert len(results1) < total
 
         # filter by the two different project names for DECam:
         stmt = Image.query_images(project=['many', '2023A-716082'])
+        found = Image.find_images(project=['many', '2023A-716082'])
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.project in ['many', '2023A-716082'] for im in results2)
         assert all(im.instrument == 'DECam' for im in results2)
         assert len(results2) < total
@@ -503,33 +531,45 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
 
         # filter by instrument
         stmt = Image.query_images(instrument='PTF')
+        found = Image.find_images(instrument='PTF')
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.instrument == 'PTF' for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(instrument='DECam')
+        found = Image.find_images(instrument='DECam')
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.instrument == 'DECam' for im in results2)
         assert len(results2) < total
         assert len(results1) + len(results2) == total
 
         stmt = Image.query_images(instrument=['PTF', 'DECam'])
+        found = Image.find_images(instrument=['PTF', 'DECam'])
         results3 = session.scalars(stmt).all()
+        assert [ i.id for i in results3 ] == [ i.id for i in found ]
         assert len(results3) == total
 
         stmt = Image.query_images(instrument=['foobar'])
+        found = Image.find_images(instrument=['foobar'])
         results4 = session.scalars(stmt).all()
         assert len(results4) == 0
+        assert len(found) == 0
 
         # filter by filter
         stmt = Image.query_images(filter='R')
+        found = Image.find_images(filter='R')
         results6 = session.scalars(stmt).all()
+        assert [ i.id for i in results6 ] == [ i.id for i in found ]
         assert all(im.filter == 'R' for im in results6)
         assert all(im.instrument == 'PTF' for im in results6)
         assert set(results6) == set(results1)
 
         stmt = Image.query_images(filter='r DECam SDSS c0002 6415.0 1480.0')
+        found = Image.find_images(filter='r DECam SDSS c0002 6415.0 1480.0')
         results7 = session.scalars(stmt).all()
+        assert [ i.id for i in results7 ] == [ i.id for i in found ]
         assert all(im.filter == 'r DECam SDSS c0002 6415.0 1480.0' for im in results7)
         assert all(im.instrument == 'DECam' for im in results7)
         assert set(results7) == set(results2)
@@ -537,101 +577,135 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
         # filter by seeing FWHM
         value = 3.0
         stmt = Image.query_images(max_seeing=value)
+        found = Image.find_images(max_seeing=value)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.instrument == 'DECam' for im in results1)
         assert all(im.fwhm_estimate <= value for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(min_seeing=value)
+        found = Image.find_images(min_seeing=value)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.instrument == 'PTF' for im in results2)
         assert all(im.fwhm_estimate >= value for im in results2)
         assert len(results2) < total
         assert len(results1) + len(results2) == total
 
         stmt = Image.query_images(min_seeing=value, max_seeing=value)
+        found = Image.find_images(min_seeing=value, max_seeing=value)
         results3 = session.scalars(stmt).all()
         assert len(results3) == 0  # we will never have exactly that number
+        assert len(found) == 0
 
         # filter by limiting magnitude
         value = 22.0
         stmt = Image.query_images(min_lim_mag=value)
+        found = Image.find_images(min_lim_mag=value)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.instrument == 'DECam' for im in results1)
         assert all(im.lim_mag_estimate >= value for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(max_lim_mag=value)
+        found = Image.find_images(max_lim_mag=value)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.instrument == 'PTF' for im in results2)
         assert all(im.lim_mag_estimate <= value for im in results2)
         assert len(results2) < total
         assert len(results1) + len(results2) == total
 
         stmt = Image.query_images(min_lim_mag=value, max_lim_mag=value)
+        found = Image.find_images(min_lim_mag=value, max_lim_mag=value)
         results3 = session.scalars(stmt).all()
         assert len(results3) == 0
+        assert len(found) == 0
 
         # filter by background
         value = 25.0
         stmt = Image.query_images(min_background=value)
+        found = Image.find_images(min_background=value)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.bkg_rms_estimate >= value for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(max_background=value)
+        found = Image.find_images(max_background=value)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.bkg_rms_estimate <= value for im in results2)
         assert len(results2) < total
         assert len(results1) + len(results2) == total
 
         stmt = Image.query_images(min_background=value, max_background=value)
+        found = Image.find_images(min_background=value, max_background=value)
         results3 = session.scalars(stmt).all()
         assert len(results3) == 0
+        assert len(found) == 0
 
         # filter by zero point
         value = 27.0
         stmt = Image.query_images(min_zero_point=value)
+        found = Image.find_images(min_zero_point=value)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.zero_point_estimate >= value for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(max_zero_point=value)
+        found = Image.find_images(max_zero_point=value)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.zero_point_estimate <= value for im in results2)
         assert len(results2) < total
         assert len(results1) + len(results2) == total
 
         stmt = Image.query_images(min_zero_point=value, max_zero_point=value)
+        found = Image.find_images(min_zero_point=value, max_zero_point=value)
         results3 = session.scalars(stmt).all()
         assert len(results3) == 0
+        assert len(found) == 0
 
         # filter by exposure time
         value = 60.0 + 1.0
         stmt = Image.query_images(min_exp_time=value)
+        found = Image.find_images(min_exp_time=value)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.exp_time >= value for im in results1)
         assert len(results1) < total
 
         stmt = Image.query_images(max_exp_time=value)
+        found = Image.find_images(max_exp_time=value)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.exp_time <= value for im in results2)
         assert len(results2) < total
 
         stmt = Image.query_images(min_exp_time=60.0, max_exp_time=60.0)
+        found = Image.find_images(min_exp_time=60.0, max_exp_time=60.0)
         results3 = session.scalars(stmt).all()
+        assert [ i.id for i in results3 ] == [ i.id for i in found ]
         assert len(results3) == len(results2)  # all those under 31s are those with exactly 30s
 
         # query based on airmass
         value = 1.15
         total_with_airmass = len([im for im in results if im.airmass is not None])
         stmt = Image.query_images(max_airmass=value)
+        found = Image.find_images(max_airmass=value)
         results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert all(im.airmass <= value for im in results1)
         assert len(results1) < total_with_airmass
 
         stmt = Image.query_images(min_airmass=value)
+        found = Image.find_images(min_airmass=value)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert all(im.airmass >= value for im in results2)
         assert len(results2) < total_with_airmass
         assert len(results1) + len(results2) == total_with_airmass
@@ -648,14 +722,18 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
 
         # get the two best images from the PTF instrument (exp_time chooses the single images only)
         stmt = Image.query_images(max_exp_time=60, order_by='quality')
+        found = Image.find_images(max_exp_time=60, order_by='quality')[:2]
         results1 = session.scalars(stmt.limit(2)).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
         assert len(results1) == 2
         assert all(im_qual(im) > 10.0 for im in results1)
 
         # change the seeing factor a little:
         factor = 2.8
         stmt = Image.query_images(max_exp_time=60, order_by='quality', seeing_quality_factor=factor)
+        found = Image.find_images(max_exp_time=60, order_by='quality', seeing_quality_factor=factor)[:2]
         results2 = session.scalars(stmt.limit(2)).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
 
         # quality will be a little bit higher, but the images are the same
         assert results2 == results1
@@ -665,7 +743,9 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
         # change the seeing factor dramatically:
         factor = 0.2
         stmt = Image.query_images(max_exp_time=60, order_by='quality', seeing_quality_factor=factor)
+        found = Image.find_images(max_exp_time=60, order_by='quality', seeing_quality_factor=factor)[:2]
         results3 = session.scalars(stmt.limit(2)).all()
+        assert [ i.id for i in results3 ] == [ i.id for i in found ]
 
         # TODO -- assumptions that went into this test aren't right, come up with
         #   a test case where it will actually work
@@ -678,11 +758,13 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
         dec = 4.5
         background = 5
 
-        # stmt = Image.query_images(ra=ra, dec=dec, max_background=background)
-        # results1 = session.scalars(stmt).all()
-        # assert len(results1) == 1
-        # assert results1[0].instrument == 'PTF'
-        # assert results1[0].type == 'ComSci'
+        stmt = Image.query_images(ra=ra, dec=dec, max_background=background)
+        found = Image.find_images(ra=ra, dec=dec, max_background=background)
+        results1 = session.scalars(stmt).all()
+        assert [ i.id for i in results1 ] == [ i.id for i in found ]
+        assert len(results1) == 1
+        assert results1[0].instrument == 'PTF'
+        assert results1[0].type == 'ComSci'
 
         # cross the DECam target and section ID with the exposure time that's of the S3 ref image
         target = 'ELAIS-E1'
@@ -690,7 +772,9 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
         exp_time = 120.0
 
         stmt = Image.query_images(target=target, section_id=section_id, min_exp_time=exp_time)
+        found = Image.find_images(target=target, section_id=section_id, min_exp_time=exp_time)
         results2 = session.scalars(stmt).all()
+        assert [ i.id for i in results2 ] == [ i.id for i in found ]
         assert len(results2) == 1
         assert results2[0].instrument == 'DECam'
         assert results2[0].type == 'ComSci'
@@ -701,14 +785,18 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
         instrument = 'PTF'
 
         stmt = Image.query_images(min_mjd=mjd, instrument=instrument)
+        found = Image.find_images(min_mjd=mjd, instrument=instrument)
         results3 = session.scalars(stmt).all()
         assert len(results3) == 0
+        assert len(found) == 0
 
         # cross filter MJD and sort by quality to get the coadd PTF image
         mjd = 54926.31913
 
         stmt = Image.query_images(max_mjd=mjd, order_by='quality')
+        found = Image.find_images(max_mjd=mjd, order_by='quality')
         results4 = session.scalars(stmt).all()
+        assert [ i.id for i in results4 ] == [ i.id for i in found ]
         assert len(results4) == 2
         assert results4[0].mjd == results4[1].mjd  # same time, as one is a coadd of the other images
         assert results4[0].instrument == 'PTF'

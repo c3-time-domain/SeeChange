@@ -11,6 +11,7 @@ from pipeline.ref_maker import RefMaker
 
 from models.base import SmartSession
 from models.provenance import Provenance
+from models.image import Image
 from models.reference import Reference
 from models.refset import RefSet
 
@@ -41,10 +42,8 @@ def test_finding_references(ptf_ref):
         ref,img  = Reference.get_references(ra=188, section_id='bar')
     with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref, img = Reference.get_references(dec=4.5, target='foo')
-    with pytest.raises(ValueError, match='Must provide either ra and dec, or target and section_id'):
+    with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref, img = Reference.get_references()
-    with pytest.raises(ValueError, match='Cannot provide target/section_id and also ra/dec! '):
-        ref, img = Reference.get_references(ra=188, dec=4.5, target='foo', section_id='bar')
 
     ref, img = Reference.get_references(ra=188, dec=4.5)
     assert len(ref) == 1
@@ -63,6 +62,9 @@ def test_finding_references(ptf_ref):
     ref, img = Reference.get_references(ra=180, dec=4.5, provenance_ids=['foo', 'bar'])
     assert len(ref) == 0
 
+    # TODO : test target/section filter on ra/dec search, test
+    # instrument and filter filters, test provenance_ids, test skip_bad
+
 
 def test_making_refsets():
     # make a new refset with a new name
@@ -77,13 +79,21 @@ def test_making_refsets():
     assert maker.coadd_im_prov is None
     assert maker.coadd_ex_prov is None
 
+    # Make sure we can't create a refset if allow_append is false
+    maker.pars.allow_append = False
+    with pytest.raises( RuntimeError, match="No refset .* found, and allow_append is False" ):
+        new_ref = maker.run( ra=0, dec=0, filter='R' )
+
+    maker.pars.allow_append = True
     new_ref = maker.run(ra=0, dec=0, filter='R')
     assert new_ref is None  # cannot find a specific reference here
     refset = maker.refset
 
     assert refset is not None  # can produce a reference set without finding a reference
-    assert all(isinstance(p, Provenance) for p in maker.im_provs)
-    assert all(isinstance(p, Provenance) for p in maker.ex_provs)
+    assert len( maker.im_provs ) > 0
+    assert len( maker.ex_provs ) > 0
+    assert all( isinstance(p, Provenance) for p in maker.im_provs.values() )
+    assert all( isinstance(p, Provenance) for p in maker.ex_provs.values() )
     assert isinstance(maker.coadd_im_prov, Provenance)
     assert isinstance(maker.coadd_ex_prov, Provenance)
 
@@ -96,10 +106,12 @@ def test_making_refsets():
     maker.pars.min_number = min_number + 5
     maker.pars.allow_append = False  # this should prevent us from appending to the existing ref-set
 
-    with pytest.raises(
-            RuntimeError, match='Found a RefSet with the name .*, but it has a different provenance!'
-    ):
+    with pytest.raises( RuntimeError,
+                        match="Found a RefSet with the name .*, but it doesn't include the right reference provenance!"
+                       ) as e:
         new_ref = maker.run(ra=0, dec=0, filter='R')
+    # Make sure it finds the same refset we're expecting
+    assert maker.refset.id == refset.id
 
     maker.pars.allow_append = True  # now it should be ok
     new_ref = maker.run(ra=0, dec=0, filter='R')
@@ -129,7 +141,7 @@ def test_making_refsets():
         new_ref = maker.run(ra=0, dec=0, filter='R')
 
 
-def test_making_references(ptf_reference_images):
+def test_making_references( ptf_reference_image_datastores ):
     name = uuid.uuid4().hex
     ref = None
     ref5 = None
@@ -151,12 +163,12 @@ def test_making_references(ptf_reference_images):
         ref = maker.run(ra=188, dec=4.5, filter='R')
         first_time = time.perf_counter() - t0
         first_refset = maker.refset
-        first_image = ref.image
+        first_image_id = ref.image_id
         assert ref is not None
 
         # check that this ref is saved to the DB
         with SmartSession() as session:
-            loaded_ref = session.scalars(sa.select(Reference).where(Reference.id == ref.id)).first()
+            loaded_ref = session.scalars(sa.select(Reference).where(Reference._id == ref.id)).first()
             assert loaded_ref is not None
 
         # now try to make a new ref with the same parameters
@@ -164,11 +176,11 @@ def test_making_references(ptf_reference_images):
         ref2 = maker.run(ra=188, dec=4.5, filter='R')
         second_time = time.perf_counter() - t0
         second_refset = maker.refset
-        second_image = ref2.image
+        second_image_id = ref2.image_id
         assert second_time < first_time * 0.1  # should be much faster, we are reloading the reference set
         assert ref2.id == ref.id
         assert second_refset.id == first_refset.id
-        assert second_image.id == first_image.id
+        assert second_image_id == first_image_id
 
         # now try to make a new ref set with a new name
         maker.pars.name = uuid.uuid4().hex
@@ -176,11 +188,11 @@ def test_making_references(ptf_reference_images):
         ref3 = maker.run(ra=188, dec=4.5, filter='R')
         third_time = time.perf_counter() - t0
         third_refset = maker.refset
-        third_image = ref3.image
+        third_image_id = ref3.image_id
         assert third_time < first_time * 0.1  # should be faster, we are loading the same reference
         assert third_refset.id != first_refset.id
         assert ref3.id == ref.id
-        assert third_image.id == first_image.id
+        assert third_image_id == first_image_id
 
         # append to the same refset but with different reference parameters (image loading parameters)
         maker.pars.max_number += 1
@@ -188,11 +200,11 @@ def test_making_references(ptf_reference_images):
         ref4 = maker.run(ra=188, dec=4.5, filter='R')
         fourth_time = time.perf_counter() - t0
         fourth_refset = maker.refset
-        fourth_image = ref4.image
+        fourth_image_id = ref4.image_id
         assert fourth_time < first_time * 0.1  # should be faster, we can still re-use the underlying coadd image
         assert fourth_refset.id != first_refset.id
         assert ref4.id != ref.id
-        assert fourth_image.id == first_image.id
+        assert fourth_image_id == first_image_id
 
         # now make the coadd image again with a different parameter for the data production
         maker.coadd_pipeline.coadder.pars.flag_fwhm_factor *= 1.2
@@ -201,50 +213,51 @@ def test_making_references(ptf_reference_images):
         ref5 = maker.run(ra=188, dec=4.5, filter='R')
         fifth_time = time.perf_counter() - t0
         fifth_refset = maker.refset
-        fifth_image = ref5.image
+        fifth_image_id = ref5.image_id
         assert np.log10(fifth_time) == pytest.approx(np.log10(first_time), rel=0.2)  # should take about the same time
         assert ref5.id != ref.id
         assert fifth_refset.id != first_refset.id
-        assert fifth_image.id != first_image.id
+        assert fifth_image_id != first_image_id
 
     finally:  # cleanup
-        if ref is not None and ref.image is not None:
-            ref.image.delete_from_disk_and_database(remove_downstreams=True)
+        if ( ref is not None ) and ( ref.image_id is not None ):
+            im = Image.get_by_id( ref.image_id )
+            im.delete_from_disk_and_database(remove_downstreams=True)
 
         # we don't have to delete ref2, ref3, ref4, because they depend on the same coadd image, and cascade should
         # destroy them as soon as the coadd is removed
 
-        if ref5 is not None and ref5.image is not None:
-            ref5.image.delete_from_disk_and_database(remove_downstreams=True)
+        if ( ref5 is not None ) and ( ref5.image_id is not None ):
+            im = Image.get_by_id( ref5.image_id )
+            im.delete_from_disk_and_database(remove_downstreams=True)
 
 
 def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
     with SmartSession() as session:
         refset = session.scalars(sa.select(RefSet).where(RefSet.name == 'test_refset_ptf')).first()
-        assert refset is not None
-        assert len(refset.provenances) == 1
-        assert refset.provenances[0].id == ptf_ref.provenance_id
 
-        # append the newer reference to the refset
-        ptf_ref_offset = session.merge(ptf_ref_offset)
-        refset.provenances.append(ptf_ref_offset.provenance)
-        session.commit()
+    assert refset is not None
+    assert len(refset.provenances) == 1
+    assert refset.provenances[0].id == ptf_ref.provenance_id
 
-        ref = ptf_datastore.get_reference(provenances=refset.provenances, session=session)
+    refset.append_provenance( Provenance.get( ptf_ref_offset.provenance_id ) )
 
-        assert ref is not None
-        assert ref.id == ptf_ref.id
+    ref = ptf_datastore.get_reference(provenances=refset.provenances)
 
-        # now offset the image that needs matching
-        ptf_datastore.image.ra_corner_00 -= 0.5
-        ptf_datastore.image.ra_corner_01 -= 0.5
-        ptf_datastore.image.ra_corner_10 -= 0.5
-        ptf_datastore.image.ra_corner_11 -= 0.5
-        ptf_datastore.image.minra -= 0.5
-        ptf_datastore.image.maxra -= 0.5
+    assert ref is not None
+    assert ref.id == ptf_ref.id
 
-        ref = ptf_datastore.get_reference(provenances=refset.provenances, session=session)
+    # now offset the image that needs matching
+    ptf_datastore.image.ra_corner_00 -= 0.5
+    ptf_datastore.image.ra_corner_01 -= 0.5
+    ptf_datastore.image.ra_corner_10 -= 0.5
+    ptf_datastore.image.ra_corner_11 -= 0.5
+    ptf_datastore.image.minra -= 0.5
+    ptf_datastore.image.maxra -= 0.5
+    ptf_datastore.image.ra -= 0.5
 
-        assert ref is not None
-        assert ref.id == ptf_ref_offset.id
+    ref = ptf_datastore.get_reference(provenances=refset.provenances)
+
+    assert ref is not None
+    assert ref.id == ptf_ref_offset.id
 

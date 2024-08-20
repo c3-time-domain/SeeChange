@@ -5,6 +5,8 @@ import itertools
 
 import numpy as np
 
+import shapely.geometry
+
 import sqlalchemy as sa
 from sqlalchemy import orm
 
@@ -530,32 +532,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                                                "image_upstreams_association(upstream_id,downstream_id) "
                                                    "VALUES (:them,:me)" ),
                                       { "them": ui, "me": self.id } )
-                    SCLogger.debug( "Image.insert comitting" )
+                    # SCLogger.debug( "Image.insert comitting" )
                     sess.commit()
 
             finally:
                 # Make sure the table locks are released
-                SCLogger.debug( "Image.insert rolling back" )
+                # SCLogger.debug( "Image.insert rolling back" )
                 sess.rollback()
-
-    def merge_all(self, session):
-
-        """Merge self and all its downstream products and assign them back to self.
-
-        This includes: sources, psf, wcs, zp.
-        This will also merge relationships, such as exposure or upstream_images,
-        but that happens automatically using SQLA's magic.
-
-        Must provide a session to merge into. Need to commit at the end.
-
-        Returns the merged image with all its products on the same session.
-
-        DEVELOPER NOTE: changing what gets merged in this function
-        requires a corresponding change in
-        pipeline/data_store.py::DataStore.save_and_commit
-
-        """
-        raise RuntimeError( "merge_all should no longer be necessary; use upsert or insert" )
 
 
     def set_corners_from_header_wcs( self, wcs=None, setradec=False ):
@@ -1774,6 +1757,71 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         return downstreams
 
+
+    @staticmethod
+    def find_images(
+            ra=None,
+            dec=None,
+            session=None,
+            **kwargs
+    ):
+        """Return a list of images that match criteria.
+
+        Similar to query_images (and **kwargs is forwarded there),
+        except that it returns the actual list rather than an SQLAlchemy
+        thingy, and ra/dec searching works.
+
+        Parameters
+        ----------
+          ra, dec: float (decimal degrees) or str (HH:MM:SS and dd:mm:ss) or None
+             Search for images that contain this point.  Must either provide both
+             or neither of ra and dec.
+
+          session: Session or None
+
+          *** See query_images for remaining parameters
+
+        Returns
+        -------
+          list of Image
+
+        """
+
+        if ( ra is None ) != ( dec is None ):
+            raise ValueError( "Must provide both or neither of ra/dec" )
+
+        stmt = Image.query_images( ra=ra, dec=dec, **kwargs )
+
+        with SmartSession( session ) as sess:
+            images = sess.scalars( stmt ).all()
+
+        if ( ra is not None ) and ( len(images) > 0 ):
+            if isinstance( ra, str ):
+                ra = parse_ra_hms_to_deg( ra )
+            if isinstance( dec, str ):
+                dec = parse_dec_dms_to_deg( dec )
+            # We selected by minra/maxra mindec/maxdec in query_images()
+            #  because there are indexes on those fields.  (We could
+            #  have just done a q3c_poly_query using the corners, but
+            #  alas the q3c function will use an index on the ra/dec
+            #  being searched, not the polygon, so it would not have
+            #  used an index and would have been very slow.)  But, if
+            #  images aren't square to the sky, that will be a superset
+            #  of what we want.  Crop down here.
+            keptimages = []
+            for img in images:
+                poly = shapely.geometry.Polygon( [ ( img.ra_corner_00, img.dec_corner_00 ),
+                                                   ( img.ra_corner_01, img.dec_corner_01 ),
+                                                   ( img.ra_corner_11, img.dec_corner_11 ),
+                                                   ( img.ra_corner_10, img.dec_corner_10 ),
+                                                   ( img.ra_corner_00, img.dec_corner_00 ) ] )
+                if poly.contains( shapely.geometry.Point( ra, dec ) ):
+                    keptimages.append( img )
+            images = keptimages
+
+        return images
+
+
     @staticmethod
     def query_images(
             ra=None,
@@ -1808,7 +1856,18 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         This is a convenience method to get a statement object that can be further filtered.
         If no parameters are given, will happily return all images (be careful with this).
-        It is highly recommended to supply ra/dec to find all images overlapping with that point.
+
+        If you want to filter by ra/dec (which is often what you want to
+        do), you may want to use find_images() rather than this
+        function, because a query using the result of this function will
+        may return a superset of images.  For example, the following
+        image (lines) will be returned even though it doesn't include
+        the specified RA/dec (asterix):
+
+                       *╱╲
+                       ╱  ╲
+                       ╲  ╱
+                        ╲╱
 
         The images are sorted either by MJD or by image quality.
         Quality is defined as sum of the limiting magnitude and the seeing,
@@ -1821,70 +1880,98 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         Parameters
         ----------
-        ra: float or str (optional)
-            The right ascension of the target in degrees or in HMS format.
-            Will find all images that contain this position.
-            If given, must also give dec.
-        dec: float or str (optional)
-            The declination of the target in degrees or in DMS format.
-            Will find all images that contain this position.
-            If given, must also give ra.
+        ra, dec: float (decimal degrees) or (HH:MM:SS / dd:mm:ss) or None
+            If supplied, will find images that *might* contain this ra
+            and dec.  The images you get back will be a susperset of
+            images that actually contain this ra and dec.  For
+            efficiency, the filtering is done in the
+            minra/maxra/mindec/maxdec fields of the database (which have
+            indexes).  If the image is not square to the sky, it's
+            possible that the image doesn't actually contain the
+            requested ra/dec.  If you want to be (more) sure that the
+            image actually does contain the ra/dec, use
+            Image.find_images() instead of query_images().
+
         target: str or list of strings (optional)
             Find images that have this target name (e.g., field ID or Object name).
             If given as a list, will match all the target names in the list.
+
         section_id: int/str or list of ints/strings (optional)
             Find images with this section ID.
             If given as a list, will match all the section IDs in the list.
+
         project: str or list of strings (optional)
             Find images from this project.
             If given as a list, will match all the projects in the list.
+
         instrument: str or list of str (optional)
             Find images taken using this instrument.
             Provide a list to match multiple instruments.
+
         filter: str or list of str (optional)
             Find images taken using this filter.
             Provide a list to match multiple filters.
+
         min_mjd: float (optional)
             Find images taken after this MJD.
+
         max_mjd: float (optional)
             Find images taken before this MJD.
+
         min_dateobs: str (optional)
             Find images taken after this date (use ISOT format or a datetime object).
+
         max_dateobs: str (optional)
             Find images taken before this date (use ISOT format or a datetime object).
+
         min_exp_time: float (optional)
             Find images with exposure time longer than this (in seconds).
+
         max_exp_time: float (optional)
             Find images with exposure time shorter than this (in seconds).
+
         min_seeing: float (optional)
             Find images with seeing FWHM larger than this (in arcsec).
+
         max_seeing: float (optional)
             Find images with seeing FWHM smaller than this (in arcsec).
+
         min_lim_mag: float (optional)
             Find images with limiting magnitude larger (fainter) than this.
+
         max_lim_mag: float (optional)
             Find images with limiting magnitude smaller (brighter) than this.
+
         min_airmass: float (optional)
             Find images with airmass larger than this.
+
         max_airmass: float (optional)
             Find images with airmass smaller than this.
+
         min_background: float (optional)
             Find images with background rms higher than this.
+
         max_background: float (optional)
             Find images with background rms lower than this.
+
         min_zero_point: float (optional)
             Find images with zero point higher than this.
+
         max_zero_point: float (optional)
             Find images with zero point lower than this.
-        order_by: str, default 'latest'
+
+        order_by: str, default None
             Sort the images by 'earliest', 'latest' or 'quality'.
             The 'earliest' and 'latest' order by MJD, in ascending/descending order, respectively.
             The 'quality' option will try to order the images by quality, as defined above,
-            with the highest quality images first.
+            with the highest quality images first.  If None, no order_by clause is included.
+
         seeing_quality_factor: float, default 3.0
             The factor to multiply the seeing FWHM by in the quality calculation.
+
         provenance_ids: str or list of strings
             Find images with these provenance IDs.
+
         type: integer or string or list of integers or strings, default [1,2,3,4]
             List of integer converted types of images to search for.
             This defaults to [1,2,3,4] which corresponds to the
@@ -1898,22 +1985,27 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             The statement to be executed to get the images.
             Do session.scalars(stmt).all() to get the images.
             Additional filtering can be done on the statement before executing it.
+
         """
         stmt = sa.select(Image)
 
-        # filter by coordinates being contained in the image
-        if ( ra is not None ) or ( dec is not None ):
-            raise RuntimeError( "Image.query_images using ra and dec is not efficient.  Don't use it for now. "
-                                "TODO: write Image.find_images that does the same thing, but just returns a "
-                                "list of images rather than an SQLA query, and that can handle everything." )
-        # if ra is not None and dec is not None:
-        #     if isinstance(ra, str):
-        #         ra = parse_ra_hms_to_deg(ra)
-        #     if isinstance(dec, str):
-        #         dec = parse_dec_dms_to_deg(dec)
-        #     stmt = stmt.where(Image.containing(ra, dec))
-        # elif ra is not None or dec is not None:
-        #     raise ValueError("Both ra and dec must be provided to search by position.")
+        if ( ra is None ) != ( dec is None ):
+            raise ValueError( "Must provide both or neither of ra/dec" )
+
+        # Filter by position
+        if ( ra is not None ):
+            if isinstance( ra, str ):
+                ra = parse_ra_hms_to_deg( ra )
+            if isinstance( dec, str ):
+                dec = parse_dec_dms_to_deg( dec )
+            # Select on minra/maxra/mindex/maxdec because there are
+            # indexes on those fields.  If the image isn't square to the
+            # sky, it's possible that it will be included here even
+            # though it doesn't actually contain ra/dec.
+            stmt = stmt.where( Image.minra <= ra,
+                               Image.maxra >= ra,
+                               Image.mindec <= dec,
+                               Image.maxdec >= dec )
 
         # filter by target (e.g., field ID, object name) and possibly section ID and/or project
         targets = listify(target)
@@ -2006,10 +2098,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             stmt = stmt.order_by(
                 sa.desc(Image.lim_mag_estimate - abs(seeing_quality_factor) * Image.fwhm_estimate)
             )
-        else:
+        elif order_by is not None:
             raise ValueError(f'Unknown order_by parameter: {order_by}. Use "earliest", "latest" or "quality".')
 
         return stmt
+
 
     @staticmethod
     def get_image_from_upstreams(images, prov_id=None, session=None):
@@ -2037,6 +2130,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 return None
 
             return output[0]  # should usually return one Image or None
+
 
     @property
     def data(self):

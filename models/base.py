@@ -259,50 +259,6 @@ def get_all_database_objects(display=False, session=None):
     return output
 
 
-def safe_merge(session, obj, db_check_att='filepath'):
-    """
-    Only merge the object if it has a valid ID,
-    and if it does not exist on the session.
-    Otherwise, return the object itself.
-
-    Parameters
-    ----------
-    session: sqlalchemy.orm.session.Session
-        The session to use for the merge.
-    obj: SeeChangeBase
-        The object to merge.
-    db_check_att: str (optional)
-        If given, will check if an object with this attribute
-        exists in the DB before merging. If it does, it will
-        merge the new object with the existing object's ID.
-        Default is to check against the "filepath" attribute,
-        which will fail quietly if the object doesn't have
-        this attribute.
-        This check only occurs for objects without an id.
-
-    Returns
-    -------
-    obj: SeeChangeBase
-        The merged object, or the unmerged object
-        if it is already on the session or if it
-        doesn't have an ID.
-    """
-    raise RuntimeError( "safe_merge should no longer be necessary" )
-
-    if obj is None:  # given None, return None
-        return None
-
-    # if there is no ID, maybe need to check another attribute
-    if db_check_att is not None and hasattr(obj, db_check_att):
-        existing = session.scalars(
-            sa.select(type(obj)).where(getattr(type(obj), db_check_att) == getattr(obj, db_check_att))
-        ).first()
-        if existing is not None:  # this object already has a copy on the DB!
-            obj.id = existing.id  # make sure to update existing row with new data
-            obj.created_at = existing.created_at  # make sure to keep the original creation time
-    return session.merge(obj)
-
-
 class SeeChangeBase:
     """Base class for all SeeChange classes."""
 
@@ -397,7 +353,7 @@ class SeeChangeBase:
             tablename = cls.__tablename__
 
         # Uncomment this next debug statement if debugging table locks
-        SCLogger.debug( f"SeeChangeBase.upsert ({cls.__name__}) LOCK TABLE on {tablename}" )
+        # SCLogger.debug( f"SeeChangeBase.upsert ({cls.__name__}) LOCK TABLE on {tablename}" )
         session.connection().execute( sa.text( "SET lock_timeout TO '1s'" ) )
         for i in range(5):
             try:
@@ -495,11 +451,11 @@ class SeeChangeBase:
                 if len(news) > 0:
                     for obj in news:
                         sess.add( obj )
-                    SCLogger.debug( "SeeChangeBase.upsert_list committing" )
+                    # SCLogger.debug( "SeeChangeBase.upsert_list committing" )
                     sess.commit()
             finally:
                 # Make sure the lock is released if something goes wrong
-                SCLogger.debug( "SeeChangeBase.upsert_list rolling back" )
+                # SCLogger.debug( "SeeChangeBase.upsert_list rolling back" )
                 sess.rollback()
 
     def upsert( self, session=None ):
@@ -540,23 +496,17 @@ class SeeChangeBase:
             try:
                 self._get_table_lock( sess )
                 if self.__class__.get_by_id( id_, session=sess ) is None:
-                    SCLogger.debug( f"SeeChangeBase.upsert running self.insert()" )
+                    # SCLogger.debug( f"SeeChangeBase.upsert running self.insert()" )
                     self.insert( session=sess )
                 else:
-                    SCLogger.debug( f"SeeChangeBase.upsert running sess.merge" )
+                    # SCLogger.debug( f"SeeChangeBase.upsert running sess.merge" )
                     sess.merge( self )
-                    SCLogger.debug( "SeeChangeBase.upsert committing" )
+                    # SCLogger.debug( "SeeChangeBase.upsert committing" )
                     sess.commit()
             finally:
                 # Make sure to release the lock if anything goes wrong
-                SCLogger.debug( "SeeChangeBase.upsert rolling back" )
+                # SCLogger.debug( "SeeChangeBase.upsert rolling back" )
                 sess.rollback()
-
-    def safe_merge(self, session, db_check_att='filepath'):
-        """Safely merge this object into the session. See safe_merge()."""
-
-        raise RuntimeError( "safe_merge should no longer be necessary" )
-        return safe_merge(session, self, db_check_att=db_check_att)
 
     def get_upstreams(self, session=None):
         """Get all data products that were directly used to create this object (non-recursive)."""
@@ -818,38 +768,6 @@ def get_archive_object():
         if archive_specs is not None:
             ARCHIVE = Archive(**archive_specs)
     return ARCHIVE
-
-def merge_concurrent( obj, session=None, commit=True ):
-    """Merge a database object but make sure it doesn't exist before adding it to the database.
-
-    When multiple processes are running at the same time, and they might
-    create the same objects (which usually happens with provenances),
-    there can be a race condition inside sqlalchemy that leads to a
-    merge failure because of a duplicate primary key violation.  Here,
-    try the merge repeatedly until it works, sleeping an increasing
-    amount of time; if we wait to long, fail for real.
-
-    """
-    raise RuntimeError( "Instead of this, use the object's insert_or_load" )
-    output = None
-    with SmartSession(session) as session:
-        for i in range(5):
-            try:
-                output = session.merge(obj)
-                if commit:
-                    session.commit()
-                break
-            except ( IntegrityError, UniqueViolation ) as e:
-                if 'violates unique constraint' in str(e):
-                    session.rollback()
-                    SCLogger.debug( f"Merge failed, sleeping {0.1 * 2**i} seconds before retrying" )
-                    time.sleep(0.1 * 2 ** i)  # exponential sleep
-                else:
-                    raise e
-        else:  # if we didn't break out of the loop, there must have been some integrity error
-            raise e
-
-    return output
 
 
 class FileOnDiskMixin:
@@ -1668,7 +1586,7 @@ class UUIDMixin:
 
         """
 
-        _ = self.id    # Make sure id is generated
+        myid = self.id    # Make sure id is generated
         with SmartSession( session ) as sess:
             # Have to make sure to insert a "transient" object so that SQLAlchemy will *really* do an insert.
             # If the object is detached, it does something else (I'm not sure what, but it seems to be a
@@ -1676,7 +1594,12 @@ class UUIDMixin:
             #
             # Looking at https://docs.sqlalchemy.org/en/20/orm/session_api.html#sqlalchemy.orm.make_transient
             # it sounds like make_transient is scary if you have relationships... but we're getting rid of those.
+            #
+            # One side effect of make_transient is that it sets the
+            # primary key to None.  So, put in a SQLAlchemy work-around
+            # to make our SQLAlchemy work-around actually work.  (Rage.)
             orm.make_transient( self )
+            self._id = myid
             sess.add( self )
             sess.commit()
 

@@ -105,7 +105,7 @@ def test_make_provenance():
     procparams = { 'exposure': {},
                    'preprocessing': { 'a': 1 },
                    'extraction': { 'b': 2 },
-                   'referencing': { 'z': 2.7182817 },
+                   'referencing': { 'z': 2.7182818 },
                    'subtraction': { 'c': 3 },
                    'detection': { 'd': 4 },
                    'cutting': { 'e': 5 },

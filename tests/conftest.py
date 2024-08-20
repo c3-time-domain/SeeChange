@@ -24,6 +24,7 @@ from models.provenance import CodeVersion, CodeHash, Provenance
 from models.catalog_excerpt import CatalogExcerpt
 from models.exposure import Exposure
 from models.object import Object
+from models.refset import RefSet
 from models.calibratorfile import CalibratorFileDownloadLock
 
 from util.archive import Archive
@@ -164,7 +165,8 @@ def pytest_sessionfinish(session, exitstatus):
 
         any_objects = any_objects_in_database( dbsession )
 
-        # delete the CodeVersion object (this should remove all provenances as well)
+        # delete the CodeVersion object (this should remove all provenances as well,
+        # and that should cascade to almost everything else)
         dbsession.execute(sa.delete(CodeVersion).where(CodeVersion._id == 'test_v1.0.0'))
 
         # remove any Object objects from tests, as these are not automatically cleaned up:
@@ -173,6 +175,9 @@ def pytest_sessionfinish(session, exitstatus):
         # make sure there aren't any CalibratorFileDownloadLock rows
         # left over from tests that failed or errored out
         dbsession.execute(sa.delete(CalibratorFileDownloadLock))
+
+        # remove RefSets, because those won't have been deleted by the provenance cascade
+        dbsession.execute(sa.delete(RefSet))
 
         dbsession.commit()
 

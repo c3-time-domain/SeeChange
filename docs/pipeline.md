@@ -14,6 +14,7 @@ You can find long debates and flamewars on the Internet about using big integers
 
 Despite these disadvantages, UUIDs offer some advantages, which ultimately end up winning out. They all stem from the fact that you can generate unique primary keys without having to contact the database. This allows us, for example, to build up a collection of objects including foreign keys to each other, and save them all to the database at the end. With auto-generating primary keys, we wouldn't be able to set the foreign keys until we'd saved the referenced object to the databse, so that its id was generated. (SQLAlchemy gets around this with object relationships, but object relationships in SA caused us so many headaches that we stopped using them; see below.)  It also allows us to do things like cache objects that we later load into the database, without worrying that the cached object's id (and references amongst multiple cached objects) will be inconsistent with the state of the database counters.
 
+(Note that there are [performance reasons to prefer UUID7 over UUID4](https://ardentperf.com/2024/02/03/uuid-benchmark-war/), but at the moment we're using v4 UUIDs because the python uuid library doesn't support V7.  If at some future time it does, it might be worth changing.)a
 
 ### Use of SQLAlchemy
 
@@ -40,3 +41,5 @@ You may ask at this point, why use SQLAlchemy at all?  You've taken away a lot o
 * It still does save us the need to write our own code to translate object fields into INSERT or UPDATE statements, and to parse the result of SELECT statements to populate object fields. As long as all the columns you define are simple ones (i.e. not relationships), then what SQLAlchemy is doing is pretty straightforward, and the actual database queries that get run are less likely to be totally obscured from you.
 
 * Some of the syntatic sugar from SQLAlchemy (e.g. `objects=session.query(Class).filter(Class.property==value).all()`) are probably nicer for most people to write than embedding SQL statements.
+
+Of course, we still end up with some SQLAlchemy weirdness, because it _really_ wants you to just leave objects attached to sessions, so some very basic operations sometimes still end up screwing things up.  You will find a few workarounds (with irritated comments ahead of them) in the code that deal with this.

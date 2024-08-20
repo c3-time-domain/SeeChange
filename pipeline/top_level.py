@@ -16,7 +16,7 @@ from pipeline.detection import Detector
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
 
-from models.base import SmartSession, merge_concurrent
+from models.base import SmartSession
 from models.provenance import CodeVersion, Provenance, ProvenanceTag, ProvenanceTagExistsError
 from models.refset import RefSet
 from models.exposure import Exposure

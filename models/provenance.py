@@ -17,7 +17,7 @@ from util.util import get_git_hash
 from util.logger import SCLogger
 
 import models.base
-from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession, safe_merge
+from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession
 
 
 class CodeHash(Base):
@@ -107,11 +107,11 @@ class CodeVersion(Base):
                             raise RuntimeError( 'CodeVersion must be in the database before running update' )
                         hash_obj = CodeHash( id=git_hash, code_version_id=self.id )
                         sess.add( hash_obj )
-                        SCLogger.debug( "CodeVersion.update committing" )
+                        # SCLogger.debug( "CodeVersion.update committing" )
                         sess.commit()
             finally:
                 # If something went wrong, make sure the lock goes away
-                SCLogger.debug( "CodeVersion.update rolling back" )
+                # SCLogger.debug( "CodeVersion.update rolling back" )
                 sess.rollback()
 
     def get_code_hashes( self, session=None ):
@@ -415,9 +415,7 @@ class Provenance(Base):
         """Make a single hash from the hashes of the upstreams.
         This is useful for identifying RefSets.
         """
-        if self._upstreams is None:
-            raise RuntimeError( "Can't run get_combined_upstream_hash, don't know my upstreams!" )
-        json_string = json.dumps( [ u.id for u in self._upstreams ], sort_keys=True)
+        json_string = json.dumps( [ u.id for u in self.upstreams ], sort_keys=True)
         return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
 
@@ -512,7 +510,7 @@ class Provenance(Base):
                    self.insert( session=sess )
            finally:
                # Make sure lock is released
-               SCLogger.debug( "Provenance.insert_if_needed rolling back" )
+               # SCLogger.debug( "Provenance.insert_if_needed rolling back" )
                sess.rollback()
 
     def get_upstreams( self, session=None ):
@@ -520,7 +518,9 @@ class Provenance(Base):
             upstreams = ( sess.query( Provenance )
                           .join( provenance_self_association_table,
                                  provenance_self_association_table.c.upstream_id==Provenance._id )
-                          .where( provenance_self_association_table.c.downstream_id==self.id ) ).all()
+                          .where( provenance_self_association_table.c.downstream_id==self.id )
+                          .order_by( Provenance._id )
+                         ).all()
             return upstreams
 
     def get_downstreams( self, session=None ):
@@ -528,18 +528,11 @@ class Provenance(Base):
             downstreams = ( sess.query( Provenance )
                             .join( provenance_self_association_table,
                                    provenance_self_association_table.c.downstream_id==Provenance._id )
-                            .where( provenance_self_association_table.c.upstream_id==self.id ) ).all()
+                            .where( provenance_self_association_table.c.upstream_id==self.id )
+                            .order_by( Provenance._id )
+                           ).all()
         return downstreams
 
-    # def merge_concurrent(self, session=None, commit=True):
-    #     """Merge the provenance but make sure it doesn't exist before adding it to the database.
-
-    #     If between the time we check if the provenance exists and the time it is merged,
-    #     another process has added the same provenance, we will get an integrity error.
-    #     This is expected under the assumptions of "optimistic concurrency".
-    #     If that happens, we simply begin again, checking for the provenance and merging it.
-    #     """
-    #     return models.base.merge_concurrent( self, session=session, commit=commit )
 
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
@@ -633,13 +626,6 @@ class ProvenanceTag(Base, UUIDMixin):
         doc='Provenance ID.  Each tag/process should only have one provenance.'
     )
 
-    provenance = orm.relationship(
-        'Provenance',
-        cascade='save-update, merge, refresh-expire, expunge',
-        lazy='selectin',
-        doc=( "Provenance" )
-    )
-
     def __repr__( self ):
         return ( '<ProvenanceTag('
                  f'tag={self.tag}, '
@@ -695,19 +681,19 @@ class ProvenanceTag(Base, UUIDMixin):
                 cls._get_table_lock( sess )
                 current = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag == tag )
                 if current.count() != 0:
-                    SCLogger.debug( "ProvenanceTag rolling back" )
+                    # SCLogger.debug( "ProvenanceTag rolling back" )
                     sess.rollback()
                     raise ProvenanceTagExistsError( f"ProvenanceTag {tag} already exists." )
 
                 for provid in provids:
                     sess.add( ProvenanceTag( tag=tag, provenance_id=provid ) )
 
-                SCLogger.debug( "ProvenanceTag comitting" )
+                # SCLogger.debug( "ProvenanceTag comitting" )
                 sess.commit()
             finally:
                 # Make sure no lock is left behind; exiting the with block
                 #   ought to do this, but be paranoid.
-                SCLogger.debug( "ProvenanceTag rolling back" )
+                # SCLogger.debug( "ProvenanceTag rolling back" )
                 sess.rollback()
 
     @classmethod

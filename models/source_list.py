@@ -160,40 +160,6 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         # self.cutouts = None
         # self.measurements = None
 
-    def merge_all(self, session):
-        """Use safe_merge to merge all the downstream products and assign them back to self.
-
-        This includes: wcs, zp, cutouts, measurements.
-        Make sure to first assign a merged image to self.image,
-        otherwise SQLA will use that relationship to merge a new image,
-        which will be different from the one we want to merge into.
-
-        Must provide a session to merge into. Need to commit at the end.
-
-        Returns the merged SourceList with its products on the same session.
-        """
-        raise RuntimeError( "merge_all should no longer be necessary" )
-        new_sources = self.safe_merge(session=session)
-        session.flush()
-        for att in ['wcs', 'zp', 'cutouts']:
-            sub_obj = getattr(self, att, None)
-            if sub_obj is not None:
-                sub_obj.sources = new_sources  # make sure to first point this relationship back to new_sources
-                sub_obj.sources_id = new_sources.id  # make sure to first point this relationship back to new_sources
-                if sub_obj not in session:
-                    sub_obj = sub_obj.safe_merge(session=session)
-                setattr(new_sources, att, sub_obj)
-
-        for att in ['measurements']:
-            sub_obj = getattr(self, att, None)
-            if sub_obj is not None:
-                new_list = []
-                for item in sub_obj:
-                    item.sources = new_sources  # make sure to first point this relationship back to new_sources
-                    new_list.append(session.merge(item))
-                setattr(new_sources, att, new_list)
-
-        return new_sources
 
     def __repr__(self):
         output = (

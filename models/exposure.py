@@ -747,47 +747,6 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         return images
 
-    def merge_concurrent(self, session=None):
-        """Try multiple times to fetch and merge this exposure.
-        This will hopefully protect us against concurrently adding the exposure from multiple processes.
-        Should also be safe to use in case that the same exposure (i.e., with the same filepath)
-        was added by previous runs.
-        """
-        raise RuntimeError( "Don't use this, use upsert or insert" )
-        exposure = None
-        with SmartSession(session) as session:
-
-            for i in range(5):
-                try:
-                    found_exp = session.scalars(
-                        sa.select(Exposure).where(Exposure.filepath == self.filepath)
-                    ).first()
-                    if found_exp is None:
-                        exposure = session.merge(self)
-                        session.commit()
-                    else:
-                        # update the found exposure with any modifications on the existing exposure
-                        columns = Exposure.__table__.columns.keys()
-                        for col in columns:
-                            if col in ['id', 'created_at', 'modified']:
-                                continue
-                            setattr(found_exp, col, getattr(self, col))
-                        exposure = found_exp
-
-                    break  # if we got here without an exception, we can break out of the loop
-                except IntegrityError as e:
-                    # this could happen if in between the query and the merge(exposure)
-                    # another process added the same exposure to the database
-                    if 'duplicate key value violates unique constraint "ix_exposures_filepath"' in str(e):
-                        SCLogger.debug(str(e))
-                        session.rollback()
-                        time.sleep(0.1 * 2 ** i)  # exponential backoff
-                    else:
-                        raise e
-            else:  # if we didn't break out of the loop, there must have been some integrity error
-                raise e
-
-        return exposure
 
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions

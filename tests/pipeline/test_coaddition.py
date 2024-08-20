@@ -530,8 +530,8 @@ def test_coadded_reference(ptf_ref):
     ref_prov = Provenance.get( ptf_ref.provenance_id )
     refimg_prov = Provenance.get( ref_image.provenance_id )
 
-    assert refimg.prov_id in [ p.id for p in ref_prov.upstreams ]
-    assert ref_sources.prov_id in [ p.id for p in ref_prov.upstreams ]
+    assert ref_image.provenance_id in [ p.id for p in ref_prov.upstreams ]
+    assert ref_sources.provenance_id in [ p.id for p in ref_prov.upstreams ]
     assert ref_prov.process == 'referencing'
 
     assert ref_prov.parameters['test_parameter'] == 'test_value'

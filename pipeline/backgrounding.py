@@ -145,6 +145,9 @@ class Backgrounder:
                 ds.image.bkg_mean_estimate = float( bg.value )
                 ds.image.bkg_rms_estimate = float( bg.noise )
 
+            sources = ds.get_sources(session=session)
+            if sources is None:
+                raise ValueError(f'Cannot find a SourceList corresponding to the datastore inputs: {ds.get_inputs()}')
             psf = ds.get_psf(session=session)
             if psf is None:
                 raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.get_inputs()}')
