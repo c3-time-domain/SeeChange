@@ -29,17 +29,17 @@ def add_test_parameters(maker):
 
 
 def test_finding_references(ptf_ref):
-    with pytest.raises(ValueError, match='Must provide both'):
+    with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref, img = Reference.get_references(ra=188)
-    with pytest.raises(ValueError, match='Must provide both'):
+    with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref, img = Reference.get_references(dec=4.5)
-    with pytest.raises(ValueError, match='Must provide both'):
+    with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref, img = Reference.get_references(target='foo')
-    with pytest.raises(ValueError, match='Must provide both'):
+    with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref, img = Reference.get_references(section_id='bar')
-    with pytest.raises(ValueError, match='Must provide both'):
+    with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref,img  = Reference.get_references(ra=188, section_id='bar')
-    with pytest.raises(ValueError, match='Must provide both'):
+    with pytest.raises(ValueError, match='Must provide at least ra/dec or target/section_id'):
         ref, img = Reference.get_references(dec=4.5, target='foo')
     with pytest.raises(ValueError, match='Must provide either ra and dec, or target and section_id'):
         ref, img = Reference.get_references()

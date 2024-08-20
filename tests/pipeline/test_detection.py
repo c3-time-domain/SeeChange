@@ -68,8 +68,8 @@ def make_template_bank(imsize=15, psf_sigma=1.0):
     return templates
 
 
-def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cache_dir):
-    ds = detector.run(ptf_subtraction1)
+def test_detection_ptf_supernova(detector, ptf_subtraction1_datastore, blocking_plots, cache_dir):
+    ds = detector.run( ptf_subtraction1_datastore )
 
     try:
         assert ds.detections is not None
@@ -81,7 +81,7 @@ def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cac
             plt.show(block=True)
 
         # make cutouts to see if we can filter out the bad subtractions
-        data = ptf_subtraction1.nandata
+        data = ds.sub_image.nandata
         det = ds.detections.data
         cutouts = make_cutouts(data, det['x'], det['y'], size=CUTOUT_SIZE)
         big_cutouts = make_cutouts(data, det['x'], det['y'], size=BIG_CUTOUT_SIZE)
@@ -119,9 +119,9 @@ def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cac
         # see: https://www.wiserep.org/object/7876
         # convert the coordinates from RA, Dec to pixel coordinates
         sn_coords = SkyCoord(188.230866 * u.deg, 4.48647 * u.deg)
-        sn_x, sn_y = ds.image.wcs.wcs.world_to_pixel(sn_coords)
+        sn_x, sn_y = ds.wcs.wcs.world_to_pixel(sn_coords)
 
-        coords = ds.image.wcs.wcs.pixel_to_world(det['x'], det['y'])
+        coords = ds.wcs.wcs.pixel_to_world(det['x'], det['y'])
         sep = coords.separation(sn_coords).value
         mndx = np.argmin(sep)  # minimum index
 
@@ -150,22 +150,29 @@ def test_detection_ptf_supernova(detector, ptf_subtraction1, blocking_plots, cac
         #  one of the surviving detections is the supernova (has close enough coordinates).
 
     finally:
-        ds.detections.delete_from_disk_and_database()
+        pass
+        # Don't have to do anything, the datastore fixture clean up will take care of stuff
 
 
-def test_warnings_and_exceptions(decam_datastore, detector):
+def test_warnings_and_exceptions( decam_datastore_through_subtraction ):
+    ds = decam_datastore_through_subtraction
+    detector = ds._pipeline.detector
     if not SKIP_WARNING_TESTS:
         detector.pars.inject_warnings = 1
+        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
 
         with pytest.warns(UserWarning) as record:
-            detector.run(decam_datastore)
+            detector.run( ds )
+        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
 
+    ds.detections = None
     detector.pars.inject_warnings = 0
     detector.pars.inject_exceptions = 1
+    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
     with pytest.raises(Exception) as excinfo:
-        ds = detector.run(decam_datastore)
+        ds = detector.run( ds )
         ds.reraise()
     assert "Exception injected by pipeline parameters in process 'detection'." in str(excinfo.value)
     ds.read_exception()

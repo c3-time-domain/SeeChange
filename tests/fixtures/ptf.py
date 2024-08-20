@@ -25,6 +25,7 @@ from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
+from models.refset import RefSet
 
 from improc.alignment import ImageAligner
 
@@ -294,8 +295,6 @@ def ptf_images_datastore_factory(ptf_urls, ptf_downloader, datastore_factory, pt
             except Exception as e:
                 # I think we should fix this along with issue #150
 
-                import pdb; pdb.set_trace()
-
                 # this will also leave behind exposure and image data on disk only
                 SCLogger.debug(f'Error processing {url}')
                 raise e
@@ -339,20 +338,14 @@ def ptf_reference_image_datastores(ptf_images_datastore_factory):
 
 @pytest.fixture(scope='session')
 def ptf_supernova_image_datastores(ptf_images_datastore_factory):
-    images = ptf_images_datastore_factory('2010-02-01', '2013-12-31', max_images=2, provtag='ptf_supernova_images')
+    dses = ptf_images_datastore_factory('2010-02-01', '2013-12-31', max_images=2, provtag='ptf_supernova_images')
 
-    yield images
+    yield dses
 
     # See comment in ptf_reference_images
 
-    with SmartSession() as session:
-        imgs = session.query( Image ).filter( Image.filepath.in_( [ i.filepath for i in images ] ) ).all()
-        expsrs = session.query( Exposure ).filter(
-            Exposure.filepath.in_( [ i.exposure.filepath for i in images ] ) ).all()
-    for expsr in expsrs:
-        expsr.delete_from_disk_and_database()
-    for image in imgs:
-        image.delete_from_disk_and_database( remove_downstreams=True )
+    for ds in dses:
+        ds.delete_everything()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
     with SmartSession() as session:
@@ -598,27 +591,46 @@ def ptf_ref(
     ref.provenance_id=refprov.id
     ref.insert()
 
+    # Since we didn't actually run the RefMaker we got from refmaker_factory, we may still need
+    #   to create the reference set and tag the reference we built.
+    # (Not bothering with locking here because we know our tests are single-threaded.)
+    must_delete_refset = False
+    with SmartSession() as sess:
+        refset = RefSet.get_by_name( 'test_refset_ptf' )
+        if refset is None:
+            refset = RefSet( name='test_refset_ptf' )
+            refset.insert()
+            must_delete_refset = True
+        refset.append_provenance( refprov )
+
     yield ref
 
     coadd_datastore.delete_everything()
+
     with SmartSession() as session:
         ref_in_db = session.scalars(sa.select(Reference).where(Reference._id == ref.id)).first()
         assert ref_in_db is None  # should have been deleted by cascade when image is deleted
 
-    # Clean out the provenance tag that may have been created by the refmaker_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_ref' } )
-        session.commit()
+        # Clean up the ref set
+        if must_delete_refset:
+            session.execute( sa.delete( RefSet ).where( RefSet._id==refset.id ) )
+            session.commit()
+
+    # # Clean out the provenance tag that may have been created by the refmaker_factory
+    # with SmartSession() as session:
+    #     session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_ref' } )
+    #     session.commit()
 
 @pytest.fixture
 def ptf_ref_offset(ptf_ref):
-    offset_image = Image.copy_image(ptf_ref.image)
+    ptf_ref_image = Image.get_by_id( ptf_ref.image_id )
+    offset_image = Image.copy_image( ptf_ref_image )
     offset_image.ra_corner_00 -= 0.5
     offset_image.ra_corner_01 -= 0.5
     offset_image.ra_corner_10 -= 0.5
     offset_image.ra_corner_11 -= 0.5
-    offset_image.filepath = ptf_ref.image.filepath + '_offset'
-    offset_image.provenance_id = ptf_ref.image.provenance_id
+    offset_image.filepath = ptf_ref_image.filepath + '_offset'
+    offset_image.provenance_id = ptf_ref_image.provenance_id
     offset_image.md5sum = uuid.uuid4()  # spoof this so we don't have to save to archive
 
     new_ref = Reference()
@@ -672,22 +684,11 @@ def ptf_refset(refmaker_factory):
 
 
 @pytest.fixture
-def ptf_subtraction1(ptf_ref, ptf_supernova_image_datastores, subtractor, ptf_cache_dir, code_version):
+def ptf_subtraction1_datastore( ptf_ref, ptf_supernova_image_datastores, subtractor, ptf_cache_dir, code_version ):
     subtractor.pars.refset = 'test_refset_ptf'
-    upstreams = [
-        ptf_ref.image.provenance,
-        ptf_ref.image.sources.provenance,
-        ptf_supernova_image_datastores[0].image.provenance,
-        ptf_supernova_image_datastores[0].sources.provenance,
-    ]
-    prov = Provenance(
-        process='subtraction',
-        parameters=subtractor.pars.get_critical_pars(),
-        upstreams=upstreams,
-        code_version_id=code_version.id,
-        is_testing=True,
-    )
-    prov.save_if_needed()
+    ds = ptf_supernova_image_datastores[0]
+    ds.set_prov_tree( { 'referencing': Provenance.get( ptf_ref.provenance_id ) } )
+    prov = ds.get_provenance( 'subtraction', pars_dict=subtractor.pars.get_critical_pars(), replace_tree=True )
     cache_path = os.path.join(
         ptf_cache_dir,
         f'187/PTF_20100216_075004_11_R_Diff_{prov.id[:6]}_u-iig7a2.image.fits.json'
@@ -699,17 +700,18 @@ def ptf_subtraction1(ptf_ref, ptf_supernova_image_datastores, subtractor, ptf_ca
         im._upstream_ids = [ refim.id, ptf_supernova_images[0].id ]
         im.ref_image_id = ptf_ref.image.id
         im.provenance_id = prov.id
+        ds.sub_image = im
+        ds.sub_image.insert()
 
     else:  # cannot find it on cache, need to produce it, using other fixtures
         ds = subtractor.run( ptf_supernova_image_datastores[0] )
         ds.sub_image.save()
+        ds.sub_image.insert()
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ) :
             copy_to_cache(ds.sub_image, ptf_cache_dir)
-        im = ds.sub_image
 
-    im.insert()
+    yield ds
 
-    yield im
-
-    im.delete_from_disk_and_database(remove_downstreams=True)
+    # Don't have to clean up, everything we have done will be cleaned up by cascade.
+    # (Except for the provenance, but we don't demand those be cleaned up.)

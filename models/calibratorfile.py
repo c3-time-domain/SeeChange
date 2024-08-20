@@ -278,8 +278,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
             with SmartSession(session) as sess:
                 try:
                     # Lock the calibfile_downloadlock table to avoid a race condition
-                    SCLogger.debug( "CalibratorFileDownloadLock.acquire_lock LOCK TABLE on calibfile_downloadlock" )
-                    sess.connection().execute( sa.text( 'LOCK TABLE calibfile_downloadlock' ) )
+                    cls._get_table_lock( sess )
 
                     # Check to see if there's a lock now
                     lockq = ( sess.query( CalibratorFileDownloadLock )

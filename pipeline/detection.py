@@ -466,6 +466,7 @@ class Detector:
             sources.num_sources = len( sources.data )
             sources.inf_aper_num = self.pars.inf_aper_num
             sources.best_aper_num = self.pars.best_aper_num
+            psf.sources_id = sources.id
 
         finally:
             # Clean up the temporary files created (that weren't already cleaned up by _run_sextractor_once)
@@ -873,7 +874,7 @@ class Detector:
         r, flags = sep.flux_radius(data_sub, objects['x'], objects['y'], 6.0 * objects['a'], 0.5, subpix=5)
         r = np.array(r, dtype=[('rhalf', '<f4')])
         objects = rfn.merge_arrays((objects, r), flatten=True)
-        sources = SourceList(image=image, data=objects, format='sepnpy')
+        sources = SourceList(image_id=image.id, data=objects, format='sepnpy')
 
         return sources
 

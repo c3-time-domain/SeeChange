@@ -49,10 +49,30 @@ PROCESS_PRODUCTS = {
 
 
 class DataStore:
-    """
-    Create this object to parse user inputs and identify which data products need
-    to be fetched from the database, and keep a cached version of the products for
-    use downstream in the pipeline.
+    """An object that stores all of the data products from a run through a pipeline.
+
+    Can be created in a few ways.  Standard is to initialize it either
+    with an Exposure and a (string) section_id, or with an Image.
+    (TODO: briefly describe copy construction.)
+
+    Most pipeline tasks take a DataStore as an argument, and return
+    another DataStore with updated products.  (Usually it's the same
+    DataSTore object, modified, that is returned.)
+
+    To work best, you want the DataStore's provenance tree to be loaded
+    with provenances consistent with the parmeters that you will be
+    using in the various pipeline tasks.  The easiest way to do this is
+    to have a fully initilized Pipeline object (see
+    pipeline/top_level.py) and run
+
+      ds.prov_tree = pipeline.make_provenance_tree()
+
+    You can get the provenances from a DataStore with get_provenance;
+    that will try to load a default if there isn't one already in the
+    tree.  You can also use that function to update the provenances
+    stored in the provenance tree.  You can manually update the
+    provenances stored in the provenance tree with set_prov_tree.
+
     """
     # the products_to_save are also getting cleared along with products_to_clear
     products_to_save = [
@@ -698,19 +718,34 @@ class DataStore:
         return value
 
     def __setattr__(self, key, value):
-        """Check some of the inputs before saving them."""
+        """Check some of the inputs before saving them.
+
+        TODO : since we're only checking a couple of them, it might make sense to
+        write specific handlers just for those instead of having every single attribute
+        access of a DataStore have to make this function call.
+
+        """
 
         if value is not None:
             if key in ['section_id'] and not isinstance(value, (int, str)):
-                raise ValueError(f'{key} must be an integer or a string, got {type(value)}')
+                raise TypeError(f'{key} must be an integer or a string, got {type(value)}')
 
-            if (
-                key == 'prov_tree' and not isinstance(value, dict) and
-                not all([isinstance(v, Provenance) for v in value.values()])
-            ):
-                raise ValueError(f'prov_tree must be a list of Provenance objects, got {value}')
+            # This is a tortured condition
+            elif ( ( key == 'prov_tree' ) and
+                 ( ( not isinstance(value, dict) ) or
+                   ( not all( [ isinstance(v, Provenance) or
+                                ( ( k == 'referencing' ) and
+                                  ( isinstance( v, list ) and
+                                    ( [ all( isinstance(i, Provenance) for i in v ) ] )
+                                   )
+                                 )
+                                for k, v in value.items() ] )
+                    )
+                  )
+                ):
+                raise TypeError(f'prov_tree must be a dict of Provenance objects, got {value}')
 
-            if key == 'session' and not isinstance(value, sa.orm.session.Session):
+            elif key == 'session' and not isinstance(value, sa.orm.session.Session):
                 raise ValueError(f'Session must be a SQLAlchemy session or SmartSession, got {type(value)}')
 
         super().__setattr__(key, value)
@@ -743,6 +778,65 @@ class DataStore:
             return f'exposure={self.exposure}, section_id={self.section_id}'
         else:
             raise ValueError('Could not get inputs for DataStore.')
+
+    def set_prov_tree( self, provdict, wipe_tree=False ):
+        """Update the DataStore's provenance tree.
+
+        Assumes that the passed provdict is self-consistent (i.e. the
+        upstreams of downstream processes are the actual upstream
+        processes in provdict).  Don't pass a provdict that doesn't fit
+        this.  (NOTE: UPSTREAM_STEPS is a little deceptive when it comes
+        to referencing and subtraction.  While 'referencing' is listed
+        as an upstream to subtraction, in reality the subtraction
+        provenance upstreams are supposed to be the upstreams of the
+        referencing provenance (plus the preprocessing and extraction
+        provenances), not the referencing provenance itself.)
+
+        Will set any provenances downstream of provenances in provdict
+        to None (to keep the prov_tree self-consistent).  (Of course, if
+        there are multiple provenances in provdict, and one is
+        downstream of another, the first one will not not be None after
+        this function runs, it will be what was passed in provdict.
+
+        Parameters
+        ----------
+           provdict: dictionary of process: Provenance
+              Each key of the dictionary must be one of the keys in
+              UPSTREAM_STEPS ('exposure', 'preprocessing','extractin',
+              'referencing', 'subtraction', 'detection', 'cutting').
+
+           wipe_tree: bool, default False
+              If True, will wipe out the provenance tree before setting
+              the provenances for the processes in provdict.
+              Otherwisel, will only wipe out provenances downstream from
+              the provenances in provdict.
+
+        """
+
+        if wipe_tree:
+            self.prov_tree = None
+
+        givenkeys = list( provdict.keys() )
+        # Sort according to UPSTREAM_STEPS
+        givenkeys.sort( key=lambda x: list( UPSTREAM_STEPS.keys() ).index( x ) )
+
+        for process in givenkeys:
+            if self.prov_tree is None:
+                self.prov_tree = { process: provdict[ process ] }
+            else:
+                self.prov_tree[ process ] = provdict[ process ]
+                # Have to wipe out all downstream provenances, because
+                # they will change!  (There will be a bunch of redundant
+                # work here if multiple provenances are passed in
+                # provdict, but, whatever, it's quick enough, and this
+                # will never be called in an inner loop.)
+                mustwipe = set( [ k for k,v in UPSTREAM_STEPS.items() if process in v ] )
+                while len( mustwipe ) > 0:
+                    for towipe in mustwipe:
+                        if towipe in self.prov_tree:
+                            del self.prov_tree[ towipe ]
+                    mustwipe = set( [ k for k,v in UPSTREAM_STEPS.items() if towipe in v ] )
+
 
     def get_provenance(self, process, pars_dict, session=None,
                        pars_not_match_prov_tree_pars=False,
@@ -805,11 +899,11 @@ class DataStore:
             an exception will be raised if you ask for a provenance
             that's inconsistent with one in the prov_tree.
 
-        replace_tree: bool, default False Replace whatever's in the
-            provenance tree with the newly generated provenance.  This
-            requires upstream provenances to exist-- either in the prov
-            tree, or in upstream objects already saved to the data
-            store.  It (effectively) implies
+        replace_tree: bool, default False
+            Replace whatever's in the provenance tree with the newly
+            generated provenance.  This requires upstream provenances to
+            exist-- either in the prov tree, or in upstream objects
+            already saved to the data store.  It (effectively) implies
             pars_not_match_prov_tree_pars.
 
         Returns
@@ -884,22 +978,7 @@ class DataStore:
         prov.insert_if_needed( session=session )
 
         if replace_tree:
-            if self.prov_tree is None:
-                self.prov_tree = { process: prov }
-            else:
-                self.prov_tree[ process ] = prov
-                # Have to wipe out all downstream provenances, because they will change!
-                wiped = set()
-                mustwipe = set( [ k for k,v in UPSTREAM_STEPS.items() if process in v ] )
-                while len( mustwipe ) > 0:
-                    for towipe in mustwipe:
-                        if towipe in self.prov_tree:
-                            del self.prov_tree[ towipe ]
-                        wiped.add( towipe )
-                    mustwipe = set( [ k for k,v in UPSTREAM_STEPS.items() if towipe in v and k not in wiped  ] )
-
-
-
+            self.set_prov_tree( { process: prov }, wipe_tree=False )
 
         return prov
 
@@ -1649,6 +1728,9 @@ class DataStore:
 
                 elif mustsave:
                     try:
+                        SCLogger.debug( f"sand_and_commit saving a {obj.__class__.__name__}" )
+                        SCLogger.debug( f"self.image={self.image}" )
+                        SCLogger.debug( f"self.sources={self.sources}" )
                         basicargs = { 'overwrite': overwrite, 'exists_ok': exists_ok, 'no_archive': no_archive }
                         # Various things need other things to invent their filepath
                         if att == "sources":
@@ -1681,6 +1763,7 @@ class DataStore:
         # it was probably already in the database
         # anyway.
         if self.exposure is not None:
+            SCLogger.debug( "save_and_commit upserting exposure" )
             self.exposure.upsert()
             # commits.append( 'exposure' )
             # exposure isn't in the commit bitflag
@@ -1689,6 +1772,7 @@ class DataStore:
         if self.image is not None:
             if self.exposure is not None:
                 self.image.exposure_id = self.exposure.id
+            SCLogger.debug( "save_and_commit upserting image" )
             self.image.upsert()
             commits.append( 'image' )
 
@@ -1696,6 +1780,7 @@ class DataStore:
         if self.sources is not None:
             if self.image is not None:
                 self.sources.image_id = self.image.id
+            SCLogger.debug( "save_and_commit upserting sources" )
             self.sources.upsert()
             commits.append( 'sources' )
 
@@ -1704,18 +1789,21 @@ class DataStore:
             if getattr( self, att ) is not None:
                 if self.sources is not None:
                     setattr( getattr( self, att ), 'sources_id', self.sources.id )
+                SCLogger.debug( f"save_and_commit upserting {att}" )
                 getattr( self, att ).upsert()
                 commits.append( att )
 
         # subtraction Image
         if self.sub_image is not None:
             self.sub_image.upsert()
+            SCLogger.debug( "save_and_commit upserting sub_image" )
             commits.append( 'sub_image' )
 
         # detections
         if self.detections is not None:
             if self.sub_image is not None:
                 self.detections.sources_id = self.sub_image.id
+            SCLogger.debug( "save_and_commit detections" )
             self.detections.upsert()
             commits.append( 'detections' )
 
@@ -1723,6 +1811,7 @@ class DataStore:
         if self.cutouts is not None:
             if self.detections is not None:
                 self.cutouts.detections_id = self.detections.id
+            SCLogger.debug( "save_and_commit upserting cutouts" )
             self.cutouts.upsert()
             commits.append( 'cutouts' )
 
@@ -1732,6 +1821,7 @@ class DataStore:
                 for m in self.measurements:
                     m.cutouts_id = self.cutouts.id
             Measurements.upsert_list( self.measurements )
+            SCLogger.debug( "save_and_commit measurements" )
             commits.append( 'measurements' )
 
         self.products_committed = ",".join( commits )

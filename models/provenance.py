@@ -83,6 +83,11 @@ class CodeVersion(Base):
     def update(self, commit=True, session=None):
         """Create a new CodeHash object associated with this CodeVersion using the current git hash."""
 
+        # The debug comments in this function are for debugging database
+        #   deadlocks.  Uncomment them if you're trying to deal with
+        #   that.  Normally they're commented out because they make the
+        #   debug output much more verbose.
+
         git_hash = get_git_hash()
 
         if git_hash is None:
@@ -90,8 +95,7 @@ class CodeVersion(Base):
         with SmartSession(session) as sess:
             try:
                 # Lock the code_hashes table to avoid a race condition
-                SCLogger.debug( "CodeVersion.update LOCK TABLE on code_hashes" )
-                sess.connection().execute( sa.text( 'LOCK TABLE code_hashes' ) )
+                self._get_table_lock( sess, "code_hashes" )
                 hash_obj = sess.scalars( sa.select(CodeHash)
                                          .where( CodeHash._id == git_hash )
                                          .where( CodeHash.code_version_id == self.id )
@@ -492,10 +496,14 @@ class Provenance(Base):
             Usually you don't want to use this
 
         """
+        # The debug comments in this function are for debugging database
+        #   deadlocks.  Uncomment them if you're trying to deal with
+        #   that.  Normally they're commented out because they make the
+        #   debug output much more verbose.
+
         with SmartSession( session ) as sess:
            try:
-               SCLogger.debug( "Provenance.insert_if_needed LOCK TABLE on provenances" )
-               sess.connection().execute( sa.text( 'LOCK TABLE provenances' ) )
+               self._get_table_lock( sess )
                provobj = sess.scalars( sa.select( Provenance ).where( Provenance._id == self.id ) ).first()
                # There's no need to verify that the provenance is consistent, since Provenance.id is
                #   a hash of the contents of the provenance.  Insofar as the hashing is unique,
@@ -659,6 +667,11 @@ class ProvenanceTag(Base, UUIDMixin):
 
         """
 
+        # The debug comments in this function are for debugging database
+        #   deadlocks.  Uncomment them if you're trying to deal with
+        #   that.  Normally they're commented out because they make the
+        #   debug output much more verbose.
+
         with SmartSession( session ) as sess:
             # Get all the provenance IDs we're going to insert
             provids = set()
@@ -679,8 +692,7 @@ class ProvenanceTag(Base, UUIDMixin):
                 #  given how we expect the code to be used, should probably
                 #  not happen in practice), lock the table before searching
                 #  and only unlock after inserting.
-                SCLogger.debug( "ProvenanceTag.newtag LOCK TABLE on provenance_tags" )
-                sess.connection().execute( sa.text( "LOCK TABLE provenance_tags" ) )
+                cls._get_table_lock( sess )
                 current = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag == tag )
                 if current.count() != 0:
                     SCLogger.debug( "ProvenanceTag rolling back" )

@@ -397,8 +397,7 @@ class RefMaker:
 
             # now load or create a RefSet
             try:
-                SCLogger.debug( "make_refset LOCK TABLE refsets" )
-                dbsession.connection().execute( sa.text( f'LOCK TABLE refsets' ) )
+                RefSet._get_table_lock( dbsession, 'refsets' )
                 self.refset = dbsession.scalars(sa.select(RefSet).where(RefSet.name == self.pars.name)).first()
                 if self.refset is None:
                     # not found any RefSet with this name

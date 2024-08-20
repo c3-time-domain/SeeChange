@@ -641,8 +641,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             try:
                 # Avoid race condition of two processes saving a measurement of
                 # the same new object at once.
-                SCLogger.debug( "Measurements.associate_object LOCK TABLE on objects" )
-                sess.connection().execute( sa.text( 'LOCK TABLE objects' ) )
+                self._get_table_lock( sess, 'objects' )
                 obj = sess.scalars(sa.select(Object).where(
                     Object.cone_search( self.ra, self.dec, radius, radunit='arcsec' ),
                     Object.is_test.is_(is_testing),  # keep testing sources separate

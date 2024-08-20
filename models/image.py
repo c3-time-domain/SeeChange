@@ -515,11 +515,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             try:
                 # Lock both the images and image_upstreams_association tables to avoid race
                 #   conditions with another process trying to insert the same image.
-                SCLogger.debug( "Image.insert LOCK TABLE on images" )
-                sess.connection().execute( sa.text( f'LOCK TABLE images' ) )
+                self._get_table_lock( sess )
                 if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
-                    SCLogger.debug( "Image.insert LOCK TABLE on image_upstreams_association" )
-                    sess.connection().execute( sa.text( f'LOCK TABLE image_upstreams_association' ) )
+                    self._get_table_lock( sess, 'image_upstreams_association' )
 
                 # This will raise an exception if the image is already present; in that case,
                 #   the upstream associations should also already be present (loaded by whoever
@@ -1296,16 +1294,14 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # TODO: which elements of the naming convention are really necessary?
         #  and what is a good way to make sure the filename actually depends on them?
 
-        try:
-            if self._upstream_ids is not None and len(self._upstream_ids) > 0:
-                utag = hashlib.sha256()
-                for id in self._upstream_ids:
-                    utag.update( str(id).encode('utf-8') )
-                utag = base64.b32encode(utag.digest()).decode().lower()
-                utag = '_u-' + utag[:6]
-                filepath += utag
-        except DetachedInstanceError:
-            pass  # ignore situations where upstream_images is not loaded, it should not happen for a combined image
+        if self._upstream_ids is not None and len(self._upstream_ids) > 0:
+            utag = hashlib.sha256()
+            for id in self._upstream_ids:
+                utag.update( str(id).encode('utf-8') )
+            utag = base64.b32encode(utag.digest()).decode().lower()
+            utag = '_u-' + utag[:6]
+            filepath += utag
+            # ignore situations where upstream_images is not loaded, it should not happen for a combined image
 
         return filepath
 

@@ -26,7 +26,7 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.dialects.postgresql import array as sqlarray
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from psycopg2.errors import UniqueViolation
 
 from sqlalchemy.schema import CheckConstraint
@@ -168,7 +168,23 @@ def SmartSession(*args):
     # none of the given inputs managed to satisfy any of the conditions...
     # open a new session and close it when outer scope is done
     with Session() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            # Ideally the sesson just closes itself when it goes out of
+            # scope, and the database connection is dropped (since we're
+            # using NullPool), but that didn't always seem to be working;
+            # intermittently (and unpredictably) we'd be left with a
+            # dangling session that was idle in transaction, that would
+            # later cause database deadlocks because of the table locks we
+            # use.  It's probably depending on garbage collection, and
+            # sometimes the garbage doesn't get collected in time.  So,
+            # explicitly close and invalidate the session.
+            # NOTE -- this doesn't seem to have actually fixed the problem. :(
+            # I've tried to hack around it by putting a timeout on the locks
+            # with a retry loop.  Sigh.
+            session.close()
+            session.invalidate()
 
 
 def db_stat(obj):
@@ -356,6 +372,46 @@ class SeeChangeBase:
                 if type( getattr( self, key ) ) != types.MethodType:
                     setattr(self, key, value)
 
+
+    @classmethod
+    def _get_table_lock( cls, session, tablename=None ):
+        """Never use this.  The code that uses this is already written.  Use it and get Bobby Tablesed."""
+
+        # This is kind of irritating.  I got the point where I was sure
+        # there were no deadlocks written into the code.  However,
+        # sometimes, unreproducibly, we'd get a deadlock when trying to
+        # LOCK TABLE because there was a dangling database session that
+        # was idle in transaction.  I can't figure out what was doing
+        # it, and my best hypothesis is that SQLAlchemy is relying on
+        # garbage collection to close database connections, even after a
+        # call to .invalidate() (which I added to
+        # SeeChangeBase.SmartSession).  Sometimes those connections didn't
+        # get garbaged collected before the process got to creating a lock.
+        #
+        # Probably can't figure it out without totally removing SQLAlchemy
+        # session management from the code base (and we've already done
+        # a big chunk of that, but the last bit would be painful), so work
+        # around it with gratuitous retries.
+
+        if tablename is None:
+            tablename = cls.__tablename__
+
+        # Uncomment this next debug statement if debugging table locks
+        SCLogger.debug( f"SeeChangeBase.upsert ({cls.__name__}) LOCK TABLE on {tablename}" )
+        session.connection().execute( sa.text( "SET lock_timeout TO '1s'" ) )
+        for i in range(5):
+            try:
+                session.connection().execute( sa.text( f'LOCK TABLE {tablename}' ) )
+                break
+            except OperationalError as e:
+                if i < 4:
+                    SCLogger.debug( f"Timeout waiting for lock on {tablename}, retrying." )
+                    time.sleep( 1 )
+        else:
+            SCLogger.error( f"Repeated failures getting lock on {tablename}." )
+            raise RuntimeError( f"Repeated failures getting lock on {tablename}." )
+
+
     @classmethod
     def upsert_list( cls, objects, session=None ):
         """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
@@ -370,13 +426,17 @@ class SeeChangeBase:
 
         """
 
+        # The debug comments in this function are for debugging database
+        #   deadlocks.  Uncomment them if you're trying to deal with
+        #   that.  Normally they're commented out because they make the
+        #   debug output much more verbose.
+
         if not all( [ isinstance( o, cls ) for o in objects ] ):
             raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
 
         with SmartSession( session ) as sess:
             try:
-                SCLogger.debug( f"SeeChangeBase.upsert_list LOCK TABLE on {cls.__tablename__}" )
-                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
+                cls._get_table_lock( sess )
                 # Not doing this just with sqlalchemy merge for two reasons.
                 # (1) That generates mysterious errors that induce rage
                 #     against sqlalchemy (e.g. was getting an error about
@@ -468,15 +528,22 @@ class SeeChangeBase:
             Usually you don't want to pass this.
 
         """
+
+        # The debug comments in this function are for debugging database
+        #   deadlocks.  Uncomment them if you're trying to deal with
+        #   that.  Normally they're commented out because they make the
+        #   debug output much more verbose.
+
         id_ = self.id
         cls = self.__class__
         with SmartSession( session ) as sess:
             try:
-                SCLogger.debug( f"SeeChangeBase.upsert LOCK TABLE on {cls.__tablename__}" )
-                sess.connection().execute( sa.text( f'LOCK TABLE {cls.__tablename__}' ) )
+                self._get_table_lock( sess )
                 if self.__class__.get_by_id( id_, session=sess ) is None:
+                    SCLogger.debug( f"SeeChangeBase.upsert running self.insert()" )
                     self.insert( session=sess )
                 else:
+                    SCLogger.debug( f"SeeChangeBase.upsert running sess.merge" )
                     sess.merge( self )
                     SCLogger.debug( "SeeChangeBase.upsert committing" )
                     sess.commit()

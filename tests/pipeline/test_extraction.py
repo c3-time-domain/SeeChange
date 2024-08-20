@@ -71,7 +71,7 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
 
 
 def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
-    decam_small_image.provenance = provenance_base
+    decam_small_image.provenance_id = provenance_base.id
 
     extractor.pars.method = 'sep'
     extractor.pars.subtraction = False
@@ -82,13 +82,14 @@ def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
         process='extraction',
         code_version_id=provenance_base.code_version_id,
         parameters=extractor.pars.get_critical_pars(),
-        upstreams=[decam_small_image.provenance],
+        upstreams=[ Provenance.get( decam_small_image.provenance_id ) ],
         is_testing=True,
     )
-    sources.provenance = prov
+    prov.insert_if_needed()
+    sources.provenance_id = prov.id
 
     try:  # cleanup file / DB at the end
-        sources.save()
+        sources.save( image=decam_small_image )
         filename = sources.get_fullpath()
 
         assert os.path.isfile(filename)
@@ -100,13 +101,9 @@ def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
         data = np.load(filename)
         assert np.array_equal(data, sources.data)
 
-        with SmartSession() as session:
-            sources = session.merge( sources )
-            decam_small_image.save()  # pretend to save this file
-            decam_small_image.exposure.save()
-            session.commit()
-            image_id = decam_small_image.id
-            sources_id = sources.id
+        decam_small_image.save()  # pretend to save this file
+        decam_small_image.insert()
+        sources.insert()
 
     finally:
         if 'sources' in locals():
@@ -227,7 +224,7 @@ def test_run_psfex( decam_datastore, extractor ):
         extractor.pars.method = 'sextractor'
         extractor.pars.subtraction = False
         extractor.pars.threshold = 4.5
-        psf = extractor._run_psfex( tempname, sourcelist.image )
+        psf = extractor._run_psfex( tempname, decam_datastore.image )
         assert psf._header['PSFAXIS1'] == 25
         assert psf._header['PSFAXIS2'] == 25
         assert psf._header['PSFAXIS3'] == 6
@@ -239,13 +236,13 @@ def test_run_psfex( decam_datastore, extractor ):
         assert not tmppsffile.exists()
         assert not tmppsfxmlfile.exists()
 
-        psf = extractor._run_psfex( tempname, sourcelist.image, do_not_cleanup=True )
+        psf = extractor._run_psfex( tempname, decam_datastore.image, do_not_cleanup=True )
         assert tmppsffile.exists()
         assert tmppsfxmlfile.exists()
         tmppsffile.unlink()
         tmppsfxmlfile.unlink()
 
-        psf = extractor._run_psfex( tempname, sourcelist.image, psf_size=26 )
+        psf = extractor._run_psfex( tempname, decam_datastore.image, psf_size=26 )
         assert psf._header['PSFAXIS1'] == 31
         assert psf._header['PSFAXIS1'] == 31
 
@@ -255,8 +252,9 @@ def test_run_psfex( decam_datastore, extractor ):
         tmppsfxmlfile.unlink( missing_ok=True )
 
 
-def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base, data_dir, blocking_plots ):
-    ds = decam_datastore
+def test_extract_sources_sextractor( decam_datastore_through_preprocessing,
+                                     extractor, provenance_base, data_dir, blocking_plots ):
+    ds = decam_datastore_through_preprocessing
 
     extractor.pars.method = 'sextractor'
     extractor.measure_psf = True
@@ -287,7 +285,7 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
     assert psf.fwhm_pixels == pytest.approx( 4.168, abs=0.01 )
     assert psf.fwhm_pixels == pytest.approx( psf.header['PSF_FWHM'], rel=1e-5 )
     assert psf.data.shape == ( 6, 25, 25 )
-    assert psf.image_id == ds.image.id
+    assert psf.sources_id == sources.id
 
     assert sources.apfluxadu()[0].min() == pytest.approx( 918.1, rel=0.01 )
     assert sources.apfluxadu()[0].max() == pytest.approx( 1076000, rel=0.01 )
@@ -300,13 +298,12 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
     assert ( sources.good & sources.is_star ).sum() == pytest.approx(15, abs=5)
 
     try:  # make sure saving the PSF and source list goes as expected, and cleanup at the end
-        psf.provenance = provenance_base
-        psf.save()
+        sources.provenance_id = provenance_base.id
+        sources.save()
+        psf.save( image=ds.image, sources=sources )
         assert re.match(r'\d{3}/c4d_\d{8}_\d{6}_S3_r_Sci_.{6}.psf_.{6}', psf.filepath)
         assert os.path.isfile( os.path.join(data_dir, psf.filepath + '.fits') )
 
-        sources.provenance = provenance_base
-        sources.save()
         assert re.match(r'\d{3}/c4d_\d{8}_\d{6}_S3_r_Sci_.{6}.sources_.{6}.fits', sources.filepath)
         assert os.path.isfile(os.path.join(data_dir, sources.filepath))
 
@@ -317,19 +314,26 @@ def test_extract_sources_sextractor( decam_datastore, extractor, provenance_base
         sources.delete_from_disk_and_database()
 
 
-def test_warnings_and_exceptions(decam_datastore, extractor):
+def test_warnings_and_exceptions( decam_datastore_through_preprocessing ):
+    ds = decam_datastore_through_preprocessing
+    extractor = ds._pipeline.extractor
+
     if not SKIP_WARNING_TESTS:
         extractor.pars.inject_warnings = 1
+        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
 
         with pytest.warns(UserWarning) as record:
-            extractor.run(decam_datastore)
+            extractor.run( ds )
+        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
 
+    ds.sources = None
     extractor.pars.inject_warnings = 0
     extractor.pars.inject_exceptions = 1
+    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
     with pytest.raises(Exception) as excinfo:
-        ds = extractor.run(decam_datastore)
+        ds = extractor.run( ds )
         ds.reraise()
     assert "Exception injected by pipeline parameters in process 'detection'." in str(excinfo.value)
     ds.read_exception()

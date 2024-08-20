@@ -12,7 +12,7 @@ from improc.sextrsky import sextrsky
 from util.logger import SCLogger
 from util.util import env_as_bool
 
-
+# TODO: This test fails right now, look into it
 @pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_compare_sextr_photutils( decam_datastore ):
     plot_dir = os.path.join(CODE_ROOT, 'tests/plots/sextractor_comparison')
