@@ -336,16 +336,20 @@ def ptf_reference_image_datastores(ptf_images_datastore_factory):
         session.commit()
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture
 def ptf_supernova_image_datastores(ptf_images_datastore_factory):
     dses = ptf_images_datastore_factory('2010-02-01', '2013-12-31', max_images=2, provtag='ptf_supernova_images')
 
     yield dses
 
-    # See comment in ptf_reference_images
+    with SmartSession() as session:
+        expsrs = session.query( Exposure ).filter( Exposure._id.in_( [ d.image.exposure_id for d in dses ] ) ).all()
 
     for ds in dses:
         ds.delete_everything()
+
+    for expsr in expsrs:
+        expsr.delete_from_disk_and_database()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
     with SmartSession() as session:

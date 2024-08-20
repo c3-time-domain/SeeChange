@@ -590,7 +590,7 @@ class Pipeline:
                 ptag_pids = [ pt.provenance_id for pt in ptags ]
             for step, prov in provs.items():
                 if isinstance( prov, list ):
-                    missing.extend( [ i.id for i in prov if i.id not in ptag_pids ] )
+                    missing.extend( [ i for i in prov if i.id not in ptag_pids ] )
                 elif prov.id not in ptag_pids:
                     missing.append( prov )
             if len( missing ) != 0:
