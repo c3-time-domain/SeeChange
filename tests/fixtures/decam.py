@@ -542,6 +542,39 @@ def decam_datastore_through_detection(
         session.commit()
 
 @pytest.fixture
+def decam_datastore_through_cutouts(
+        datastore_factory,
+        decam_cache_dir,
+        decam_exposure,
+        decam_reference,
+        decam_default_calibrators
+):
+    ds = datastore_factory(
+        decam_exposure,
+        'S3',
+        cache_dir=decam_cache_dir,
+        cache_base_name='007/c4d_20230702_080904_S3_r_Sci_NBXRIO',
+        overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
+        save_original_image=True,
+        provtag='decam_datastore',
+        through_step='cutting'
+    )
+    ds.save_and_commit()
+
+    yield ds
+
+    if 'ds' in locals():
+        ds.delete_everything()
+
+    # Because save_original_image as True in the call to datastore_factory
+    os.unlink( ds.path_to_original_image )
+
+    # Clean up the provenance tag potentially created by the pipeline
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_datastore' } )
+        session.commit()
+
+@pytest.fixture
 def decam_processed_image(decam_datastore):
 
     ds = decam_datastore

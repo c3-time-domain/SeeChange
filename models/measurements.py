@@ -585,7 +585,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         if psf is None:
             with SmartSession() as session:
                 psf = ( session.query( PSF )
-                        .join( Cutouts, cutouts.sources_id == psf.sources_id )
+                        .join( Cutouts, Cutouts.sources_id == PSF.sources_id )
                         .filter( Cutouts._id == self.cutouts_id ) ).first()
 
         if provenance is None:

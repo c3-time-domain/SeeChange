@@ -13,77 +13,82 @@ from tests.conftest import SKIP_WARNING_TESTS
 
 
 @pytest.mark.flaky(max_runs=3)
-def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
+def test_measuring( decam_default_calibrators, decam_datastore_through_cutouts ):
+    ds = decam_datastore_through_cutouts
+    measurer = ds._pipeline.measurer
+
     measurer.pars.test_parameter = uuid.uuid4().hex
     measurer.pars.bad_pixel_exclude = ['saturated']  # ignore saturated pixels
     measurer.pars.bad_flag_exclude = ['satellite']  # ignore satellite cutouts
+    ds.get_provenance( 'measuring', measurer.pars.to_dict( critical=True ), replace_tree=True )
 
-    decam_cutouts.load_all_co_data()
-    sz = decam_cutouts.co_dict["source_index_0"]["sub_data"].shape
-    fwhm = decam_cutouts.sources.image.get_psf().fwhm_pixels
+    ds.cutouts.load_all_co_data()
+
+    sz = ds.cutouts.co_dict["source_index_0"]["sub_data"].shape
+    fwhm = ds.get_psf().fwhm_pixels
 
     # clear any flags for the fake data we are using
     for i in range(14):
-        decam_cutouts.co_dict[f"source_index_{i}"]["sub_flags"] = np.zeros_like(decam_cutouts.co_dict[f"source_index_{i}"]["sub_flags"])
-        # decam_cutouts[i].filepath = None  # make sure the cutouts don't re-load the original data
+        ds.cutouts.co_dict[f"source_index_{i}"]["sub_flags"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_{i}"]["sub_flags"])
+
     # delta function
-    decam_cutouts.co_dict[f"source_index_0"]["sub_data"] = np.zeros_like(decam_cutouts.co_dict[f"source_index_0"]["sub_data"])
-    decam_cutouts.co_dict[f"source_index_0"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
+    ds.cutouts.co_dict[f"source_index_0"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
+    ds.cutouts.co_dict[f"source_index_0"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
 
     # shifted delta function
-    decam_cutouts.co_dict[f"source_index_1"]["sub_data"] = np.zeros_like(decam_cutouts.co_dict[f"source_index_0"]["sub_data"])
-    decam_cutouts.co_dict[f"source_index_1"]["sub_data"][sz[0] // 2 + 2, sz[1] // 2 + 3] = 200.0
+    ds.cutouts.co_dict[f"source_index_1"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
+    ds.cutouts.co_dict[f"source_index_1"]["sub_data"][sz[0] // 2 + 2, sz[1] // 2 + 3] = 200.0
 
     # gaussian
-    decam_cutouts.co_dict[f"source_index_2"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, norm=1) * 1000
+    ds.cutouts.co_dict[f"source_index_2"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, norm=1) * 1000
 
     # shifted gaussian
-    decam_cutouts.co_dict[f"source_index_3"]["sub_data"] = make_gaussian(
+    ds.cutouts.co_dict[f"source_index_3"]["sub_data"] = make_gaussian(
         imsize=sz[0], sigma_x=fwhm / 2.355, norm=1, offset_x=-2, offset_y=-3
     ) * 500
 
     # dipole
-    decam_cutouts.co_dict[f"source_index_4"]["sub_data"] = np.zeros_like(decam_cutouts.co_dict[f"source_index_4"]["sub_data"])
-    decam_cutouts.co_dict[f"source_index_4"]["sub_data"] += make_gaussian(
+    ds.cutouts.co_dict[f"source_index_4"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_4"]["sub_data"])
+    ds.cutouts.co_dict[f"source_index_4"]["sub_data"] += make_gaussian(
         imsize=sz[0], sigma_x=fwhm / 2.355, norm=1, offset_x=-1, offset_y=-0.8
     ) * 500
-    decam_cutouts.co_dict[f"source_index_4"]["sub_data"] -= make_gaussian(
+    ds.cutouts.co_dict[f"source_index_4"]["sub_data"] -= make_gaussian(
         imsize=sz[0], sigma_x=fwhm / 2.355, norm=1, offset_x=1, offset_y=0.8
     ) * 500
 
     # shifted gaussian with noise
-    decam_cutouts.co_dict[f"source_index_5"]["sub_data"] = decam_cutouts.co_dict[f"source_index_3"]["sub_data"] + np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict[f"source_index_5"]["sub_data"] = ds.cutouts.co_dict[f"source_index_3"]["sub_data"] + np.random.normal(0, 1, size=sz)
 
     # dipole with noise
-    decam_cutouts.co_dict[f"source_index_6"]["sub_data"] = decam_cutouts.co_dict[f"source_index_4"]["sub_data"] + np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict[f"source_index_6"]["sub_data"] = ds.cutouts.co_dict[f"source_index_4"]["sub_data"] + np.random.normal(0, 1, size=sz)
 
     # delta function with bad pixel
-    decam_cutouts.co_dict[f"source_index_7"]["sub_data"] = np.zeros_like(decam_cutouts.co_dict[f"source_index_0"]["sub_data"])
-    decam_cutouts.co_dict[f"source_index_7"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
-    decam_cutouts.co_dict[f"source_index_7"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 2] = 1  # bad pixel
+    ds.cutouts.co_dict[f"source_index_7"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
+    ds.cutouts.co_dict[f"source_index_7"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
+    ds.cutouts.co_dict[f"source_index_7"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 2] = 1  # bad pixel
 
     # delta function with bad pixel and saturated pixel
-    decam_cutouts.co_dict[f"source_index_8"]["sub_data"] = np.zeros_like(decam_cutouts.co_dict[f"source_index_0"]["sub_data"])
-    decam_cutouts.co_dict[f"source_index_8"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
-    decam_cutouts.co_dict[f"source_index_8"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 1] = 1  # bad pixel
-    decam_cutouts.co_dict[f"source_index_8"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 + 1] = 4  # saturated should be ignored!
+    ds.cutouts.co_dict[f"source_index_8"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
+    ds.cutouts.co_dict[f"source_index_8"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
+    ds.cutouts.co_dict[f"source_index_8"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 1] = 1  #bad pixel
+    ds.cutouts.co_dict[f"source_index_8"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 + 1] = 4  #saturated should be ignored!
 
     # delta function with offset that makes it far from the bad pixel
-    decam_cutouts.co_dict[f"source_index_9"]["sub_data"] = np.zeros_like(decam_cutouts.co_dict[f"source_index_0"]["sub_data"])
-    decam_cutouts.co_dict[f"source_index_9"]["sub_data"][sz[0] // 2 + 3, sz[1] // 2 + 3] = 100.0
-    decam_cutouts.co_dict[f"source_index_9"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 - 2] = 1  # bad pixel
+    ds.cutouts.co_dict[f"source_index_9"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
+    ds.cutouts.co_dict[f"source_index_9"]["sub_data"][sz[0] // 2 + 3, sz[1] // 2 + 3] = 100.0
+    ds.cutouts.co_dict[f"source_index_9"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 - 2] = 1  # bad pixel
 
     # gaussian that is too wide
-    decam_cutouts.co_dict[f"source_index_10"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355 * 2, norm=1) * 1000
-    decam_cutouts.co_dict[f"source_index_10"]["sub_data"] += np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict[f"source_index_10"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355 * 2, norm=1) * 1000
+    ds.cutouts.co_dict[f"source_index_10"]["sub_data"] += np.random.normal(0, 1, size=sz)
 
     # streak
-    decam_cutouts.co_dict[f"source_index_11"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, sigma_y=20, rotation=25, norm=1)
-    decam_cutouts.co_dict[f"source_index_11"]["sub_data"] *= 1000
-    decam_cutouts.co_dict[f"source_index_11"]["sub_data"] += np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict[f"source_index_11"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, sigma_y=20, rotation=25, norm=1)
+    ds.cutouts.co_dict[f"source_index_11"]["sub_data"] *= 1000
+    ds.cutouts.co_dict[f"source_index_11"]["sub_data"] += np.random.normal(0, 1, size=sz)
 
     # run the measurer
-    ds = measurer.run(decam_cutouts)
+    ds = measurer.run( ds )
 
     assert len(ds.all_measurements) == len(ds.cutouts.co_dict)
 
@@ -96,7 +101,7 @@ def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
     assert m.disqualifier_scores['bad pixels'] == 0
     assert m.disqualifier_scores['offsets'] < 0.01
     assert m.disqualifier_scores['filter bank'] == 1
-    assert m.get_filter_description() == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
+    assert m.get_filter_description( psf=ds.psf ) == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
 
     assert np.allclose(m.flux_apertures, 100)  # aperture is irrelevant for delta function
     assert m.flux_psf > 150  # flux is more focused than the PSF, so it will bias the flux to be higher than 100
@@ -110,7 +115,7 @@ def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
     assert m.disqualifier_scores['bad pixels'] == 0
     assert m.disqualifier_scores['offsets'] == pytest.approx(np.sqrt(2 ** 2 + 3 ** 2), abs=0.1)
     assert m.disqualifier_scores['filter bank'] == 1
-    assert m.get_filter_description() == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
+    assert m.get_filter_description( psf=ds.psf ) == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
 
     assert np.allclose(m.flux_apertures, 200)
     assert m.flux_psf > 300  # flux is more focused than the PSF, so it will bias the flux to be higher than 100
@@ -122,7 +127,7 @@ def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
     assert m.disqualifier_scores['bad pixels'] == 0
     assert m.disqualifier_scores['offsets'] < 0.1
     assert m.disqualifier_scores['filter bank'] == 0
-    assert m.get_filter_description() == f'PSF match (FWHM= 1.00 x {fwhm:.2f})'
+    assert m.get_filter_description( psf=ds.psf ) == f'PSF match (FWHM= 1.00 x {fwhm:.2f})'
 
     assert m.flux_apertures[0] < 1000
     for i in range(1, len(m.flux_apertures)):
@@ -163,7 +168,7 @@ def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
     assert m.disqualifier_scores['bad pixels'] == 0
     assert m.disqualifier_scores['offsets'] == pytest.approx(np.sqrt(2 ** 2 + 3 ** 2), rel=0.1)
     assert m.disqualifier_scores['filter bank'] == 0
-    assert m.get_filter_description() == f'PSF match (FWHM= 1.00 x {fwhm:.2f})'
+    assert m.get_filter_description( psf=ds.psf ) == f'PSF match (FWHM= 1.00 x {fwhm:.2f})'
 
     assert m.flux_apertures[0] < 500
     for i in range(1, len(m.flux_apertures)):
@@ -180,14 +185,14 @@ def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
     assert m.disqualifier_scores['bad pixels'] == 1
     assert m.disqualifier_scores['offsets'] < 0.01
     assert m.disqualifier_scores['filter bank'] == 1
-    assert m.get_filter_description() == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
+    assert m.get_filter_description( psf=ds.psf ) == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
 
     m = [m for m in ds.all_measurements if m.index_in_sources == 8][0]  # delta function with bad pixel and saturated pixel
     assert m.disqualifier_scores['negatives'] == 0
     assert m.disqualifier_scores['bad pixels'] == 1  # we set to ignore the saturated pixel!
     assert m.disqualifier_scores['offsets'] < 0.01
     assert m.disqualifier_scores['filter bank'] == 1
-    assert m.get_filter_description() == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
+    assert m.get_filter_description( psf=ds.psf ) == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
 
     m = [m for m in ds.all_measurements if m.index_in_sources == 9][0]  # delta function with offset that makes it far from the bad pixel
     assert m.disqualifier_scores['negatives'] == 0
@@ -200,7 +205,7 @@ def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
     assert m.disqualifier_scores['bad pixels'] == 0
     assert m.disqualifier_scores['offsets'] < 0.5
     assert m.disqualifier_scores['filter bank'] == 2
-    assert m.get_filter_description() == f'PSF mismatch (FWHM= 2.00 x {fwhm:.2f})'
+    assert m.get_filter_description( psf=ds.psf ) == f'PSF mismatch (FWHM= 2.00 x {fwhm:.2f})'
 
     assert m.flux_apertures[0] < 600
     for i in range(1, len(m.flux_apertures)):
@@ -215,24 +220,31 @@ def test_measuring(measurer, decam_cutouts, decam_default_calibrators):
     assert m.disqualifier_scores['bad pixels'] == 0
     assert m.disqualifier_scores['offsets'] < 0.7
     assert m.disqualifier_scores['filter bank'] == 28
-    assert m.get_filter_description() == 'Streaked (angle= 25.0 deg)'
+    assert m.get_filter_description( psf=ds.psf ) == 'Streaked (angle= 25.0 deg)'
     assert m.bkg_mean < 0.5
     assert m.bkg_std < 3.0
 
 
-def test_warnings_and_exceptions(decam_datastore, measurer):
+def test_warnings_and_exceptions( decam_datastore_through_cutouts ):
+    ds = decam_datastore_through_cutouts
+    measurer = ds._pipeline.measurer
+
     if not SKIP_WARNING_TESTS:
         measurer.pars.inject_warnings = 1
+        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
 
         with pytest.warns(UserWarning) as record:
-            measurer.run(decam_datastore)
+            measurer.run( ds )
+        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'measuring'." in str(w.message) for w in record)
 
     measurer.pars.inject_exceptions = 1
     measurer.pars.inject_warnings = 0
+    ds.measurements = None
+    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
     with pytest.raises(Exception) as excinfo:
-        ds = measurer.run(decam_datastore)
+        ds = measurer.run( ds )
         ds.reraise()
     assert "Exception injected by pipeline parameters in process 'measuring'." in str(excinfo.value)
     ds.read_exception()
