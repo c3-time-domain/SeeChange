@@ -180,9 +180,37 @@ def SmartSession(*args):
             # use.  It's probably depending on garbage collection, and
             # sometimes the garbage doesn't get collected in time.  So,
             # explicitly close and invalidate the session.
+            #
             # NOTE -- this doesn't seem to have actually fixed the problem. :(
             # I've tried to hack around it by putting a timeout on the locks
             # with a retry loop.  Sigh.
+            #
+            # Even *that* doesn't seem to have fully fixed it.  *Sometimes*,
+            # not reproducibly, there's a session that hangs around that is
+            # idle in transaction.  I tried adding "session.rollback()" here, but
+            # then got all kinds of deatched instance errors trying to access
+            # objects later.  It seems that rollback() subverts the session's
+            # expire_on_commit=False setting.
+            #
+            # OOO, ooo, here's an idea: just use SQL to rollback.  Hopefully
+            # SQLAlchemy won't realize what we're doing and won't totally
+            # undermine us for doing it.  (My god I hate SQLA.)
+            # (What I'm really trying to accomplish here is given that we
+            # seem to rarely have an idle session sitting around, make sure
+            # it's not in a transaction that will prevent table locks.)
+            #
+            # session.execute( sa.text( "ROLLBACK" ) )
+            #
+            # NOPE!  That didn't work.  If there was a previous exception,
+            # sqlalchemy catches that before it lets me run session.execute,
+            # saying I gotta rollback before doing anything else.
+            #
+            # OK, lets try grabbing the connection from the session and
+            # manually rolling back with psycopg2 or whatever is underneath.
+            dbcon = session.bind.raw_connection()
+            cursor = dbcon.cursor()
+            cursor.execute( "ROLLBACK" )
+
             session.close()
             session.invalidate()
 
@@ -379,7 +407,7 @@ class SeeChangeBase:
                     session.rollback()
                     time.sleep( sleeptime )
         if failed:
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
             session.rollback()
             SCLogger.error( f"Repeated failures getting lock on {tablename}." )
             raise RuntimeError( f"Repeated failures getting lock on {tablename}." )

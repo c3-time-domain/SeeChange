@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from pipeline.top_level import PROCESS_OBJECTS
 
 from models.base import SmartSession
+from models.provenance import Provenance
 from models.report import Report
 
 from util.util import env_as_bool
@@ -139,7 +140,8 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
             assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
                                           'sub_image, detections, cutouts, measurements')
             assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
-            assert rep.provenance.upstreams[0].id == ds.measurements[0].provenance_id
+            repprov = Provenance.get( rep.provenance_id )
+            assert repprov.upstreams[0].id == ds.measurements[0].provenance_id
             assert rep.num_prev_reports == 0
             ds.save_and_commit(session=session)
             rep.scan_datastore(ds, session=session)

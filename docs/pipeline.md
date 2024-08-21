@@ -14,7 +14,7 @@ You can find long debates and flamewars on the Internet about using big integers
 
 Despite these disadvantages, UUIDs offer some advantages, which ultimately end up winning out. They all stem from the fact that you can generate unique primary keys without having to contact the database. This allows us, for example, to build up a collection of objects including foreign keys to each other, and save them all to the database at the end. With auto-generating primary keys, we wouldn't be able to set the foreign keys until we'd saved the referenced object to the databse, so that its id was generated. (SQLAlchemy gets around this with object relationships, but object relationships in SA caused us so many headaches that we stopped using them; see below.)  It also allows us to do things like cache objects that we later load into the database, without worrying that the cached object's id (and references amongst multiple cached objects) will be inconsistent with the state of the database counters.
 
-(Note that there are [performance reasons to prefer UUID7 over UUID4](https://ardentperf.com/2024/02/03/uuid-benchmark-war/), but at the moment we're using v4 UUIDs because the python uuid library doesn't support V7.  If at some future time it does, it might be worth changing.)a
+(Note that there are [performance reasons to prefer UUID7 over UUID4](https://ardentperf.com/2024/02/03/uuid-benchmark-war/), but at the moment we're using v4 UUIDs because the python uuid library doesn't support V7.  If at some future time it does, it might be worth changing.)
 
 ### Use of SQLAlchemy
 
@@ -32,7 +32,7 @@ We still use SQLAlchemy, but have tried to avoid most of its dysfunctionality in
 
 * Always get your SQLAlchemy sessions inside a the models.base.SmartSession context manager (i.e. `with SmartSession() as session`). Assuming you're passing no arguments to SmartSession() (which should usually, but not always, be the case--- you can find exampels of its use in the current code), then this will help in not holding database connections open for a long time.
 
-* Don't hold sessions open. Make sure that you only put inside the `with SmartSession()` block the actual code you need to access the database, and don't put any long calculations inside that `with` block.  (If you make a function call that also accesses the datbase inside this call, you may end up with a deadlock, as some of the library code locks tables.)
+* Don't hold sessions open. Make sure that you only put inside the `with SmartSession()` block the actual code you need to access the database, and don't put any long calculations inside that `with` block.  (If you make a function call that also accesses the datbase inside this call, you may end up with a deadlock, as some of the library code locks tables.)  Also, __never save the session variable to a member of an object or anything else__. That could prevent the session from really going out of scope, and stop SA from properly garbage collecting it.  (Maybe.)
 
 You may ask at this point, why use SQLAlchemy at all?  You've taken away a lot of what it does for you (though, of course, that means we have removed the costs of letting it do that), and now have it as more or less a thin layer in front of SQL. The reasons are threefold:
 

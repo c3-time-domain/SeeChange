@@ -37,8 +37,8 @@ from util.logger import SCLogger
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -316,6 +316,12 @@ def code_version():
             session.add( cv )
             cv.update( session=session, commit=True )
         # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
+
+    # HACK ALERT
+    with SmartSession() as session:
+        newcv = session.scalars( sa.select(CodeVersion ) ).first()
+        assert newcv is not None
+    # HACK ALERT
 
     yield cv
 

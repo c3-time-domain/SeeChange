@@ -128,42 +128,6 @@ def get_git_hash():
     return git_hash
 
 
-def get_latest_provenance(process_name, session=None):
-    """
-    Find the provenance object that fits the process_name
-    that is the most recent.
-    # TODO: we need to think about what "most recent" means.
-
-    Parameters
-    ----------
-    process_name: str
-        Name of the process that created this provenance object.
-        Examples can include: "calibration", "subtraction", "source extraction" or just "level1".
-    session: sqlalchemy.orm.session.Session
-        Session to use to query the database.
-        If not given, a new session will be created,
-        and will be closed at the end of the function.
-
-    Returns
-    -------
-    Provenance
-        The most recent provenance object that matches the process_name.
-        If not found, returns None.
-    """
-    # importing the models here to avoid circular imports
-    from models.base import SmartSession
-    from models.provenance import Provenance
-
-    with SmartSession(session) as session:
-        prov = session.scalars(
-            sa.select(Provenance).where(
-                Provenance.process == process_name
-            ).order_by(Provenance.created_at.desc())
-        ).first()
-
-    return prov
-
-
 def parse_dateobs(dateobs=None, output='datetime'):
     """
     Parse the dateobs, that can be a float, string, datetime or Time object.

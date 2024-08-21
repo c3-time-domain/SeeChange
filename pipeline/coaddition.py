@@ -15,7 +15,7 @@ from pipeline.detection import Detector
 from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
-from util.util import get_latest_provenance, parse_session
+from util.util import parse_session
 
 from improc.bitmask_tools import dilate_bitflag
 from improc.inpainting import Inpainter

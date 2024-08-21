@@ -52,8 +52,10 @@ class DataStore:
     """An object that stores all of the data products from a run through a pipeline.
 
     Can be created in a few ways.  Standard is to initialize it either
-    with an Exposure and a (string) section_id, or with an Image.
-    (TODO: briefly describe copy construction.)
+    with an Exposure and a (string) section_id, or with an Image.  You
+    can also initilize it by passing another DataStore, in which case
+    the it will copy all the attributes (shallow copy) of the passed
+    DataStore.  (It copies the __dict__ atribute.)
 
     Most pipeline tasks take a DataStore as an argument, and return
     another DataStore with updated products.  (Usually it's the same
@@ -556,6 +558,8 @@ class DataStore:
             return
 
         args, kwargs, output_session = parse_session(*args, **kwargs)
+        if output_session is not None:
+            raise RuntimeError( "You passed a session to DataStore.  Don't." )
 
         self.session = output_session
 

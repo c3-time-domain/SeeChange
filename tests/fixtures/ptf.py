@@ -489,7 +489,7 @@ def ptf_ref(
 
     # I'm unhappy with this hardcoded thing at the end... TODO: figure out
     #   where it comes from!
-    cache_barf = 'u-i5g5zw'
+    cache_barf = 'u-6uxjb3'
     cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_{cache_barf}'
 
     # this provenance is used for sources, psf, wcs, zp

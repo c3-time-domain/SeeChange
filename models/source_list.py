@@ -883,7 +883,7 @@ class SourceListSibling:
         """
 
         if ( self.id is None ) or ( self.sources_id is None ):
-            return None
+            return []
 
         from models.source_list import SourceList
         with SmartSession( session ) as sess:

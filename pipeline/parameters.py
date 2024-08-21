@@ -4,7 +4,7 @@ import warnings
 
 import sqlalchemy as sa
 
-from util.util import get_git_hash, get_latest_provenance
+from util.util import get_git_hash
 from util.logger import SCLogger
 
 from models.base import SmartSession
@@ -715,80 +715,6 @@ class Parameters:
         Should be implemented in each subclass.
         """
         raise NotImplementedError("Must be implemented in subclass.")
-
-    # TODO: seems like this is no longer used, instead call DataStore.get_provenance()
-    def get_provenance(self, code_version=None, prov_cache=None, session=None):
-        """
-        Get a Provenance object based on the parameters
-        and code version.
-
-        Parameters
-        ----------
-        code_version: str
-            The version of the code that was used to generate
-            the provenance. If not given, will use the version
-            of the current code.
-        prov_cache: dict
-            A dictionary of Provenance objects, from which the relevant
-            upstream ids can be retrieved. If not given, will be filled
-            automatically using the most up-to-date provenances.
-        session: sqlalchemy.orm.session.Session or SmartSession
-            The database session to use to retrieve the provenances.
-            If not given, will open a new session and close it at
-            the end of the function.
-        """
-
-        raise RuntimeError( f"Use DataStore.get_provenance()" )
-
-        if prov_cache is None:
-            prov_cache = {}
-
-        with SmartSession(session) as session:
-            # first check if we can find the upstream provenances
-            upstreams = []
-            for name in self.get_upstream_process_names():  # only works in subclasses!
-                if name not in prov_cache:
-                    # this will also modify the prov_cache that was passed in!
-                    prov_cache[name] = get_latest_provenance(name, session=session)
-
-                upstream_prov = prov_cache[name]
-
-                if upstream_prov is None:
-                    raise ValueError(f'Cannot find provenance for process "{name}"!')
-
-                upstreams.append(upstream_prov)
-
-            process = self.get_process_name()  # only works in subclasses!
-            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion.name == code_version)).first()
-            if cv is not None:
-                cv.update()  # update the current commit hash
-
-            # try to find the CodeHash and through that find the CodeVersion
-            if cv is None:
-                ch = session.scalars(sa.select(CodeHash).where(CodeHash.hash == get_git_hash())).first()
-                if ch is not None:
-                    cv = ch.code_version
-
-            if cv is None:
-                # TODO: should this generate a new code version? Should that be done manually?
-                raise ValueError(f'Cannot find code version "{code_version}" for process "{process}"')
-
-            # now that we have a code version object we can make a provenance
-            prov = Provenance(
-                process=process,
-                code_version_id=cv.id,
-                parameters=self.get_critical_pars(),
-                upstreams=upstreams
-            )
-            prov.update_hash()  # need a new object to calculate the hash, then check if it exists on the DB:
-            existing_p = session.scalars( sa.select(Provenance).where( Provenance._id == prov.id ) ).first()
-
-            if existing_p is not None:
-                prov = existing_p
-                session.add(prov)
-                session.commit()  # make sure to add the new provenance
-
-        return prov
 
     def do_warning_exception_hangup_injection_here(self):
         """When called, will check if any of the inject_ parameters are set to non-zero value.

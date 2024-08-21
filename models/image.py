@@ -1883,7 +1883,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         """
 
         if ( prov_id is not None ) and ( isinstance( prov_id, Provenance ) ):
-            prov_id = prov.id
+            prov_id = prov_id.id
 
         with SmartSession(session) as session:
             session.execute( sa.text( "DROP TABLE IF EXISTS temp_image_from_upstreams" ) )
