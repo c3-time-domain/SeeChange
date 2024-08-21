@@ -86,6 +86,9 @@ class CodeVersion(Base):
         #   that.  Normally they're commented out because they make the
         #   debug output much more verbose.
 
+        # NOTE: don't trust "commit"; if it fails to get_git_hash(), it
+        # will just quietly return None, and not commit.
+
         git_hash = get_git_hash()
 
         if git_hash is None:

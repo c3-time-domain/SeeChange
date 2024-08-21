@@ -314,7 +314,8 @@ def code_version():
         if cv is None:
             cv = CodeVersion(id="test_v1.0.0")
             session.add( cv )
-            cv.update( session=session, commit=True )
+            cv.update( session=session )
+            session.commit()
         # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
 
     # HACK ALERT

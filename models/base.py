@@ -185,11 +185,15 @@ def SmartSession(*args):
             # I've tried to hack around it by putting a timeout on the locks
             # with a retry loop.  Sigh.
             #
-            # Even *that* doesn't seem to have fully fixed it.  *Sometimes*,
-            # not reproducibly, there's a session that hangs around that is
-            # idle in transaction.  I tried adding "session.rollback()" here, but
-            # then got all kinds of deatched instance errors trying to access
-            # objects later.  It seems that rollback() subverts the session's
+            # Even *that* doesn't seem to have fully fixed it.
+            # *Sometimes*, not reproducibly, there's a session that
+            # hangs around that is idle in transaction.  There must be
+            # some reference to it *somewhere* that's stopping it from
+            # getting garbage collected.  I really wish SQLA just closed
+            # the connection when I told it to.  I tried adding
+            # "session.rollback()" here, but then got all kinds of
+            # deatched instance errors trying to access objects later.
+            # It seems that rollback() subverts the session's
             # expire_on_commit=False setting.
             #
             # OOO, ooo, here's an idea: just use SQL to rollback.  Hopefully
