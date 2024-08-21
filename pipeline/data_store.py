@@ -442,8 +442,10 @@ class DataStore:
                 raise RuntimeError( "Can't set DataStore cutouts until it has a detections" )
             if not isinstance( val, Cutouts ):
                 raise TypeError( f"DataStore.cutouts must be a Cutouts, not a {type(val)}" )
-            if ( ( self._measurements is not None ) and ( any( [ m.id != val.id for m in self.measurements ] ) ) ):
-                 raise ValueError( "Can't set a cutouts inconsistent with measurements" )
+            if ( ( self._measurements is not None ) and
+                 ( any( [ m.cutouts_id != val.id for m in self.measurements ] ) )
+                ):
+                raise ValueError( "Can't set a cutouts inconsistent with measurements" )
             self._cutouts = val
             self._cutouts.detections_id = self._detections.id
 
@@ -471,15 +473,18 @@ class DataStore:
 
     @staticmethod
     def from_args(*args, **kwargs):
-        """
-        Create a DataStore object from the given arguments.
+        """Create a DataStore object from the given arguments.
+
         See the parse_args method for details on the different input parameters.
 
         Returns
         -------
         ds: DataStore
             The DataStore object.
+
         session: sqlalchemy.orm.session.Session or SmartSession or None
+            Never use this.
+
         """
         if len(args) == 0:
             raise ValueError('No arguments given to DataStore constructor!')
@@ -489,12 +494,16 @@ class DataStore:
                 len(args) == 2 and isinstance(args[0], DataStore) and
                 (isinstance(args[1], sa.orm.session.Session) or args[1] is None)
         ):
+            if isinstance( args[1], sa.orm.session.Session ):
+                SCLogger.error( "You passed a session to a DataStore constructor.  This is usually a bad idea." )
+                raise RuntimeError( "Don't pass a session to the DataStore constructor." )
             return args[0], args[1]
         else:
             ds = DataStore()
             session = ds.parse_args(*args, **kwargs)
             if session is not None:
                 SCLogger.error( "You passed a session to a DataStore constructor.  This is usually a bad idea." )
+                raise RuntimeError( "Don't pass a session to the DataStore constructor." )
             return ds, session
 
 
@@ -598,6 +607,8 @@ class DataStore:
             # The various setters will do type checking
             setattr( self, key, val )
 
+        if output_session is not None:
+            raise RuntimeError( "DataStore parse_args found a session.  Don't pass sessions to DataStore constructors." )
         return output_session
 
     @staticmethod
@@ -1018,7 +1029,7 @@ class DataStore:
 
         return self._exposure
 
-    def get_image(self, provenance=None, session=None):
+    def get_image( self, provenance=None, reload=False, session=None ):
         """Get the pre-processed (or coadded) image, either from memory or from the database.
 
         If the store is initialized with an image or an image_id, that
@@ -1044,6 +1055,12 @@ class DataStore:
             parameters.  If None, will get the 'preprocessing' provenance
             from self.prov_tree.
 
+        reload: bool, default False
+            If True, ignore the image saved in the Datastore and reload
+            the image from the databse using either the image_id (if one
+            is available) or the exposure, section_id, and
+            'preprocessing' provenance.
+
         session: sqlalchemy.orm.session.Session
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -1059,6 +1076,9 @@ class DataStore:
         session = self.session if session is None else session
 
         # See if we have the image
+
+        if reload:
+            self.image = None
 
         if self.image is not None:
             return self.image
@@ -1090,21 +1110,6 @@ class DataStore:
         # Will return None if no image was found in the search
         return self.image
 
-    def append_image_products(self, image):
-        """Append the image products to the image and sources objects.
-        This is a convenience function to be used by the
-        pipeline applications, to make sure the image
-        object has all the data products it needs.
-        """
-        raise RuntimeError( "Deprecated" )
-        # for att in ['sources', 'psf', 'bg', 'wcs', 'zp', 'detections', 'cutouts', 'measurements']:
-        #     if getattr(self, att, None) is not None:
-        #         setattr(image, att, getattr(self, att))
-        # if image.sources is not None:
-        #     for att in ['wcs', 'zp']:
-        #         if getattr(self, att, None) is not None:
-        #             setattr(image.sources, att, getattr(self, att))
-
     def _get_data_product( self,
                            att,
                            cls,
@@ -1114,6 +1119,7 @@ class DataStore:
                            is_list=False,
                            match_prov=True,
                            provenance=None,
+                           reload=False,
                            session=None ):
         """Get a data product (e.g. sources, detections, etc.).
 
@@ -1127,6 +1133,8 @@ class DataStore:
 
         Returns an object or None (if is_list is False), or a
         (potentially empty) list of objects if is_list is True.
+
+        Also updates the self.{att} property.
 
         Parameters
         ----------
@@ -1161,15 +1169,23 @@ class DataStore:
             indicated process.  If there's nothing there, and the data
             product isn't already in the DataStore, it's an error.
 
+          reload: bool, default False
+            Igonore an existing data product if one is already in the
+            DataStore, and always reload it from the database using the
+            parent products and the provenance.
+
           session: SQLAlchemy session or None
             If not passed, may make and close a sesion.
 
         """
         # First, see if we already have one
         if hasattr( self, att ):
-            obj = getattr( self, att )
-            if obj is not None:
-                return obj
+            if reload:
+                setattr( self, att, None )
+            else:
+                obj = getattr( self, att )
+                if obj is not None:
+                    return obj
         else:
             raise RuntimeError( f"DataStore has no {att} attribute." )
 
@@ -1212,7 +1228,7 @@ class DataStore:
 
 
 
-    def get_sources(self, provenance=None, session=None):
+    def get_sources(self, provenance=None, reload=False, session=None):
         """Get the source list, either from memory or from database.
 
         If there is already a sources will return that one, or raise an
@@ -1237,6 +1253,11 @@ class DataStore:
             appropriate provenance from the prov_tree dictionary.  If
             prov_tree is None, then that's an error.
 
+        reload: bool, default False
+            If True, ignore any .sources already present and reload the
+            sources from the databse using the image and the
+            'extraction' provenance.
+
         session: sqlalchemy.orm.session.Session
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -1252,27 +1273,27 @@ class DataStore:
         """
 
         return self._get_data_product( "sources", SourceList, "image", SourceList.image_id, "extraction",
-                                       provenance=provenance, session=session )
+                                       provenance=provenance, reload=reload, session=session )
 
-    def get_psf(self, session=None, provenance=None):
+    def get_psf(self, session=None, reload=False, provenance=None):
         """Get a PSF, either from memory or from the database."""
         return self._get_data_product( 'psf', PSF, 'sources', PSF.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, session=session )
+                                       match_prov=False, provenance=provenance, reload=reload, session=session )
 
-    def get_background(self, session=None, provenance=None):
+    def get_background(self, session=None, reload=False, provenance=None):
         """Get a Background object, either from memory or from the database."""
         return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, session=session )
+                                       match_prov=False, provenance=provenance, reload=reload, session=session )
 
-    def get_wcs(self, session=None, provenance=None):
+    def get_wcs(self, session=None, reload=False, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""
         return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, session=session )
+                                       match_prov=False, provenance=provenance, reload=reload, session=session )
 
-    def get_zp(self, session=None, provenance=None):
+    def get_zp(self, session=None, reload=False, provenance=None):
         """Get a zeropoint as a ZeroPoint object, from memory or from the database."""
         return self._get_data_product( 'zp', ZeroPoint, 'sources', ZeroPoint.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, session=session )
+                                       match_prov=False, provenance=provenance, reload=reload, session=session )
 
 
     def get_reference(self,
@@ -1284,6 +1305,7 @@ class DataStore:
                       match_instrument=True,
                       match_section=True,
                       skip_bad=True,
+                      reload=False,
                       session=None ):
         """Get the reference for this image.
 
@@ -1331,6 +1353,11 @@ class DataStore:
         skip_bad: bool, default True
             If True, will skip references that are marked as bad.
 
+        reload: bool, default False
+            If True, set the self.reference property (as well as derived
+            things like ref_image, ref_sources, etc.) to None and try to
+            re-acquire the reference from the databse.
+
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -1352,6 +1379,16 @@ class DataStore:
         that instrument.  The software does not enforce this, however.)
 
         """
+
+        if reload:
+            self.reference = None
+            self._ref_image = None
+            self._ref_sources = None
+            self._ref_bg = None
+            self._ref_psf = None
+            self._ref_wcs = None
+            self._ref_zp = None
+            self.sub_image = None
 
         image = self.get_image(session=session)
         if image is None:
@@ -1407,8 +1444,14 @@ class DataStore:
 
         # No reference was found (or it didn't match other parameters) must find a new one
         # First, clear out all data products that are downstream of reference.
-        # (Setting sub_image is enough, as it will cascade.)
+        # (Setting sub_image will cascade to detections, cutouts, measurements.)
 
+        self._ref_image = None
+        self._ref_sources = None
+        self._ref_bg = None
+        self._ref_psf = None
+        self._ref_wcs = None
+        self._ref_zp = None
         self.sub_image = None
 
         arguments = {}
@@ -1462,7 +1505,7 @@ class DataStore:
         return self.reference
 
 
-    def get_subtraction(self, provenance=None, session=None):
+    def get_subtraction(self, provenance=None, reload=False, session=None):
         """Get a subtraction Image, either from memory or from database.
 
         If sub_image is not None, return that.  Otherwise, if
@@ -1482,6 +1525,9 @@ class DataStore:
             provenance from the provenance tree, raising an exception if
             one isn't found.
 
+        reload: bool, default False
+            Set .sub_image to None, and always try to reload from the database.
+
         session: sqlalchemy.orm.session.Session
             An optional session to use for the database query.
             If not given, will use the session stored inside the
@@ -1498,6 +1544,9 @@ class DataStore:
 
         # This one has a more complicated query, so
         #  we can't just use _get_data_product
+
+        if reload:
+            self.sub_image = None
 
         # First see if we already have one
         if self.sub_image is not None:
@@ -1541,21 +1590,21 @@ class DataStore:
 
         return self.sub_image
 
-    def get_detections(self, provenance=None, session=None):
+    def get_detections(self, provenance=None, reload=False, session=None):
         """Get a SourceList for sources from the subtraction image, from memory or from database."""
         return self._get_data_product( "detections", SourceList, "sub_image", SourceList.image_id, "detection",
-                                       provenance=provenance, session=session )
+                                       provenance=provenance, reload=reload, session=session )
 
-    def get_cutouts(self, provenance=None, session=None):
+    def get_cutouts(self, provenance=None, reload=False, session=None):
         """Get a list of Cutouts, either from memory or from database."""
         return self._get_data_product( "cutouts", Cutouts, "detections", Cutouts.sources_id, "cutting",
-                                       provenance=provenance, session=session )
+                                       provenance=provenance, reload=reload, session=session )
 
 
-    def get_measurements(self, provenance=None, session=None):
+    def get_measurements(self, provenance=None, reload=False, session=None):
         """Get a list of Measurements, either from memory or from database."""
         return self._get_data_product( "measurements", Measurements, "cutouts", Measurements.cutouts_id, "measuring",
-                                       is_list=True, provenance=provenance, session=session )
+                                       is_list=True, provenance=provenance, reload=reload, session=session )
 
 
 
@@ -1563,7 +1612,8 @@ class DataStore:
         """Get all the data products associated with this Exposure.
 
         Does *not* try to load missing ones from the databse.  Just
-        returns what the DataStore already knows about.
+        returns what the DataStore already knows about.  (Use
+        load_all_data_products to load missing ones from the database.)
 
         By default, this returns a dict with named entries.
         If using output='list', will return a list of all
@@ -1598,6 +1648,42 @@ class DataStore:
             return [result[att] for att in attributes if result[att] is not None]
         else:
             raise ValueError(f'Unknown output format: {output}')
+
+    def load_all_data_products( self, reload=False, omit_exposure=False ):
+        """Load all of the data products that exist on the database into DataStore attributes.
+
+        Will return existing ones, or try to load them from the database
+        using the provenance in self.prov_tree and the parent objects.
+        If reload is True, will set the attribute to None and always try
+        to reload from the database.
+
+        If omit_exposure is True, will not touch the self.exposure
+        attribute.  Otherwise, will try to load it based on
+        self.exposure_id.
+
+        """
+
+        if not omit_exposure:
+            if reload:
+                self.exposure = None
+            if self.exposure is None:
+                if self.exposure_id is not None:
+                    if self.section_id is None:
+                        raise RuntimeError( "DataStore has exposure_id but not section_id, I am surprised." )
+                    self.exposure = Exposure.get_by_id( self.exposure_id )
+
+        self.get_image( reload=reload )
+        self.get_sources( reload=reload )
+        self.get_psf( reload=reload )
+        self.get_background( reload=reload )
+        self.get_wcs( reload=reload )
+        self.get_zp( reload=reload )
+        self.get_reference( reload=reload )
+        self.get_subtraction( reload=reload )
+        self.get_detections( reload=reload )
+        self.get_cutouts( reload=reload )
+        self.get_measurements( reload=reload )
+
 
     def save_and_commit(self,
                         exists_ok=False,

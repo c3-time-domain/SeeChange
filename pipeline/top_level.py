@@ -227,7 +227,7 @@ class Pipeline:
             provs = self.make_provenance_tree( ds.exposure )
             ds.prov_tree = provs
         except Exception as e:
-            raise RuntimeError('Failed to create the provenance tree!') from e
+            raise RuntimeError( f'Failed to create the provenance tree: {str(e)}' ) from e
 
 
         try:  # must make sure the report is on the DB
@@ -279,6 +279,9 @@ class Pipeline:
             ds, session = self.setup_datastore(*args, **kwargs)
         except Exception as e:
             return DataStore.catch_failure_to_parse(e, *args)
+
+        if session is not None:
+            raise RuntimeError( "You have a persistent session in Pipeline.run; don't do that." )
 
         try:
             if ds.image is not None:

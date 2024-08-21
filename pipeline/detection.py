@@ -392,9 +392,8 @@ class Detector:
 
         if sources is not None:
             sources._upstream_bitflag |= image.bitflag
-        # ROB TODO : figure out sources siblings bitflag handling
-        # if psf is not None:
-        #     psf._upstream_bitflag |= image.bitflag
+        if psf is not None:
+            psf._upstream_bitflag |= image.bitflag
 
         return sources, psf, bkg, bkgsig
 
@@ -997,10 +996,3 @@ class Detector:
 
         return sources
 
-
-# if __name__ == '__main__':
-#     from models.base import Session
-#     from models.provenance import Provenance
-#     session = Session()
-#     source_lists = session.scalars(sa.select(SourceList)).all()
-#     prov = session.scalars(sa.select(Provenance)).all()

@@ -1685,7 +1685,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 return upstreams
 
             # This *is* so bad....
-            myprov = session.query( Provenance ).filter( self.provenance_id == Provenance._id ).first()
+            # myprov = session.query( Provenance ).filter( self.provenance_id == Provenance._id ).first()
+            myprov = Provenance.get( self.provenance_id, session=session )
             upstrprov = myprov.get_upstreams()
             upstrprovids = [ i.id for i in upstrprov ]
 

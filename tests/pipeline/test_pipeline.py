@@ -8,6 +8,7 @@ import numpy as np
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import Provenance, ProvenanceTag
+from models.exposure import Exposure
 from models.image import Image, image_upstreams_association_table
 from models.calibratorfile import CalibratorFile
 from models.source_list import SourceList
@@ -20,10 +21,12 @@ from models.report import Report
 
 from pipeline.top_level import Pipeline
 
+from util.logger import SCLogger
+
 from tests.conftest import SKIP_WARNING_TESTS
 
 
-def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session, ds):
+def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, ds):
     """
     Check that all the required objects are saved on the database
     and in the datastore, after running the entire pipeline.
@@ -41,103 +44,94 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, session
     ds: datastore.DataStore
         The datastore object
     """
-    # find the image
-    im = session.scalars(
-        sa.select(Image).where(
-            Image.exposure_id == exp_id,
-            Image.section_id == str(sec_id),
-            Image.provenance_id == ds.image.provenance_id,
-        )
-    ).first()
-    assert im is not None
-    assert ds.image.id == im.id
 
-    # find the extracted sources
-    sources = session.scalars(
-        sa.select(SourceList).where(
-            SourceList.image_id == im.id,
-            SourceList.is_sub.is_(False),
-            SourceList.provenance_id == ds.sources.provenance_id,
-        )
-    ).first()
-    assert sources is not None
-    assert ds.sources.id == sources.id
-
-    # find the PSF
-    psf = session.scalars(
-        sa.select(PSF).where(PSF.image_id == im.id, PSF.provenance_id == ds.psf.provenance_id)
-    ).first()
-    assert psf is not None
-    assert ds.psf.id == psf.id
-
-    # find the WorldCoordinates object
-    wcs = session.scalars(
-        sa.select(WorldCoordinates).where(
-            WorldCoordinates.sources_id == sources.id,
-            WorldCoordinates.provenance_id == ds.wcs.provenance_id,
-        )
-    ).first()
-    assert wcs is not None
-    assert ds.wcs.id == wcs.id
-
-    # find the ZeroPoint object
-    zp = session.scalars(
-        sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id, ZeroPoint.provenance_id == ds.zp.provenance_id)
-    ).first()
-    assert zp is not None
-    assert ds.zp.id == zp.id
-
-    # find the subtraction image
-    aliased_table = sa.orm.aliased(image_upstreams_association_table)
-    sub = session.scalars(
-        sa.select(Image).join(
-            image_upstreams_association_table,
-            sa.and_(
-                image_upstreams_association_table.c.upstream_id == ref_id,
-                image_upstreams_association_table.c.downstream_id == Image._id,
+    with SmartSession() as session:
+        # find the image
+        im = session.scalars(
+            sa.select(Image).where(
+                Image.exposure_id == exp_id,
+                Image.section_id == str(sec_id),
+                Image.provenance_id == ds.image.provenance_id,
             )
-        ).join(
-            aliased_table,
-            sa.and_(
-                aliased_table.c.upstream_id == im.id,
-                aliased_table.c.downstream_id == Image.id,
+        ).first()
+        assert im is not None
+        assert ds.image.id == im.id
+
+        # find the extracted sources
+        sources = session.scalars(
+            sa.select(SourceList).where(
+                SourceList.image_id == im.id,
+                SourceList.provenance_id == ds.sources.provenance_id,
             )
-        )
-    ).first()
+        ).first()
+        assert sources is not None
+        assert ds.sources.id == sources.id
 
-    assert sub is not None
-    assert ds.sub_image.id == sub.id
+        # find the PSF
+        psf = session.scalars( sa.select(PSF).where(PSF.sources_id == sources.id) ).first()
+        assert psf is not None
+        assert ds.psf.id == psf.id
 
-    # find the detections SourceList
-    det = session.scalars(
-        sa.select(SourceList).where(
-            SourceList.image_id == sub.id,
-            SourceList.is_sub.is_(True),
-            SourceList.provenance_id == ds.detections.provenance_id,
-        )
-    ).first()
+        # find the WorldCoordinates object
+        wcs = session.scalars( sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id) ).first()
+        assert wcs is not None
+        assert ds.wcs.id == wcs.id
 
-    assert det is not None
-    assert ds.detections.id == det.id
+        # find the ZeroPoint object
+        zp = session.scalars( sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id) ).first()
+        assert zp is not None
+        assert ds.zp.id == zp.id
 
-    # find the Cutouts
-    cutouts = session.scalars(
-        sa.select(Cutouts).where(
-            Cutouts.sources_id == det.id,
-            Cutouts.provenance_id == ds.cutouts.provenance_id,
-        )
-    ).first()
-    assert ds.cutouts.id == cutouts.id
+        # find the subtraction image
+        aliased_table = sa.orm.aliased(image_upstreams_association_table)
+        sub = session.scalars(
+            sa.select(Image).join(
+                image_upstreams_association_table,
+                sa.and_(
+                    image_upstreams_association_table.c.upstream_id == ref_id,
+                    image_upstreams_association_table.c.downstream_id == Image._id,
+                )
+            ).join(
+                aliased_table,
+                sa.and_(
+                    aliased_table.c.upstream_id == im.id,
+                    aliased_table.c.downstream_id == Image._id,
+                )
+            )
+        ).first()
 
-    # Measurements
-    measurements = session.scalars(
-        sa.select(Measurements).where(
-            Measurements.cutouts_id == cutouts.id,
-            Measurements.provenance_id == ds.measurements[0].provenance_id,
-        )
-    ).all()
-    assert len(measurements) > 0
-    assert len(ds.measurements) == len(measurements)
+        assert sub is not None
+        assert ds.sub_image.id == sub.id
+
+        # find the detections SourceList
+        det = session.scalars(
+            sa.select(SourceList).where(
+                SourceList.image_id == sub.id,
+                SourceList.provenance_id == ds.detections.provenance_id,
+            )
+        ).first()
+
+        assert det is not None
+        assert ds.detections.id == det.id
+
+        # find the Cutouts
+        cutouts = session.scalars(
+            sa.select(Cutouts).where(
+                Cutouts.sources_id == det.id,
+                Cutouts.provenance_id == ds.cutouts.provenance_id,
+            )
+        ).first()
+        assert ds.cutouts.id == cutouts.id
+
+        # Measurements
+        measurements = session.scalars(
+            sa.select(Measurements).where(
+                Measurements.cutouts_id == cutouts.id,
+                Measurements.provenance_id == ds.measurements[0].provenance_id,
+            )
+        ).all()
+        assert len(measurements) > 0
+        assert len(ds.measurements) == len(measurements)
 
 
 def test_parameters( test_config ):
@@ -190,24 +184,25 @@ def test_parameters( test_config ):
     assert check_override(overrides['measuring'], pipeline.measurer.pars)
 
 
+# TODO : This really tests that there are no reference provenances defined for the refet
+# Also write a test where provenances exist but no reference exists, and then one where
+# a reference exists for a different field but not for this field.
 def test_running_without_reference(decam_exposure, decam_refset, decam_default_calibrators, pipeline_for_tests):
     p = pipeline_for_tests
     p.subtractor.pars.refset = 'test_refset_decam'  # choosing ref set doesn't mean we have an actual reference
     p.pars.save_before_subtraction = True  # need this so images get saved even though it crashes on "no reference"
 
-    with pytest.raises(ValueError, match='Cannot find a reference image corresponding to.*'):
+    with pytest.raises( RuntimeError, match=( "Failed to create the provenance tree: No provenances found "
+                                              "for reference set test_refset_decam!" ) ):
         # Use the 'N1' sensor section since that's not one of the ones used in the regular
         #  DECam fixtures, so we don't have to worry about any session scope fixtures that
         #  load refererences.  (Though I don't think there are any.)
         ds = p.run(decam_exposure, 'N1')
         ds.reraise()
 
-    # make sure the data is saved, but then clean it up
-    with SmartSession() as session:
-        im = session.scalars(sa.select(Image).where(Image._id == ds.image.id)).first()
-        assert im is not None
-        im.delete_from_disk_and_database( remove_downstreams=True )
+    ds.delete_everything()
 
+    with SmartSession() as session:
         # The N1 decam calibrator files will have been automatically added
         # in the pipeline run above; need to clean them up.  However,
         # *don't* remove the linearity calibrator file, because that will
@@ -227,7 +222,12 @@ def test_running_without_reference(decam_exposure, decam_refset, decam_default_c
         session.commit()
 
 def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
-    """Test that the pipeline runs end-to-end."""
+    """Test that the pipeline runs end-to-end.
+
+    Also check that it regenerates things that are missing. The
+    iteration of that makes this a slow test....
+
+    """
     exposure = decam_exposure
 
     ref = decam_reference
@@ -239,12 +239,8 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
         assert p.detector.pars.threshold != 3.14
 
         ds = p.run(exposure, sec_id)
+        ds.save_and_commit()
 
-        # commit to DB using this session
-        with SmartSession() as session:
-            ds.save_and_commit(session=session)
-
-        # use a new session to query for the results
         with SmartSession() as session:
             # check that everything is in the database
             provs = session.scalars(sa.select(Provenance)).all()
@@ -254,27 +250,30 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             for process in expected_processes:
                 assert process in prov_processes
 
-            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image.id, session, ds)
+            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image_id, ds)
 
         # feed the pipeline the same data, but missing the upstream data.
         attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements']
 
+        # TODO : put in the loop below a verification that the processes were
+        #   not rerun, but products were just loaded from the database
         for i in range(len(attributes)):
+            SCLogger.debug( f"test_data_flow: testing removing everything up through {attributes[i]}" )
             for j in range(i + 1):
                 setattr(ds, attributes[j], None)  # get rid of all data up to the current attribute
             # SCLogger.debug(f'removing attributes up to {attributes[i]}')
             ds = p.run(ds)  # for each iteration, we should be able to recreate the data
+            ds.save_and_commit()
 
-            # commit to DB using this session
-            with SmartSession() as session:
-                ds.save_and_commit(session=session)
-
-            # use a new session to query for the results
-            with SmartSession() as session:
-                check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image.id, session, ds)
+            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image_id, ds)
 
         # make sure we can remove the data from the end to the beginning and recreate it
+        # TODO : this is a test that the pipeline can pick up if it's partially done.
+        #   put in checks to verify the earlier processes weren't rerun.
+        # Maybe also create a test where partial products exist in the database to verify
+        #   that the pipeline doesn't recreate those but does recreate the later ones.
         for i in range(len(attributes)):
+            SCLogger.debug( f"test_data_flow: testing removing everything after {attributes[-i-1]}" )
             for j in range(i):
                 obj = getattr(ds, attributes[-j-1])
                 if isinstance(obj, FileOnDiskMixin):
@@ -283,14 +282,9 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
                 setattr(ds, attributes[-j-1], None)
 
             ds = p.run(ds)  # for each iteration, we should be able to recreate the data
+            ds.save_and_commit()
 
-            # commit to DB using this session
-            with SmartSession() as session:
-                ds.save_and_commit(session=session)
-
-            # use a new session to query for the results
-            with SmartSession() as session:
-                check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image.id, session, ds)
+            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image_id, ds)
 
     finally:
         if 'ds' in locals():
@@ -314,7 +308,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         p = Pipeline( pipeline={'provenance_tag': 'test_bitflag_propagation'} )
         p.subtractor.pars.refset = 'test_refset_decam'
         p.pars.save_before_subtraction = False
-        exposure.badness = 'banding'  # add a bitflag to check for propagation
+        exposure.set_badness( 'banding' )  # add a bitflag to check for propagation
 
         # first run the pipeline and check for basic propagation of the single bitflag
         ds = p.run(exposure, sec_id)
@@ -335,15 +329,22 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # test part 2: Add a second bitflag partway through and check it propagates to downstreams
 
         # delete downstreams of ds.sources
+        # Gotta do the sources siblings individually,
+        #   but doing those will catch everything else
+        #   with remove_downstreams defaulting to True
+        ds.bg.delete_from_disk_and_database()
         ds.bg = None
+        ds.wcs.delete_from_disk_and_database()
         ds.wcs = None
+        ds.zp.delete_from_disk_and_database()
         ds.zp = None
+
         ds.sub_image = None
         ds.detections = None
         ds.cutouts = None
         ds.measurements = None
 
-        ds.sources._bitflag = 2 ** 17  # bitflag 2**17 is 'many sources'
+        ds.sources._set_bitflag( 2 ** 17 )  # bitflag 2**17 is 'many sources'
         desired_bitflag = 2 ** 1 + 2 ** 17  # bitflag for 'banding' and 'many sources'
         ds = p.run(ds)
 
@@ -360,49 +361,50 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # test part 3: test update_downstream_badness() function by adding and removing flags
         # and observing propagation
 
-        # commit to DB using this session
-        with SmartSession() as session:
-            ds.save_and_commit(session=session)
-            ds.image = session.merge(ds.image)
+        ds.save_and_commit()       # Redundant, already happened in p.run(ds) above
 
-            # add a bitflag and check that it appears in downstreams
+        # add a bitflag and check that it appears in downstreams
 
-            ds.image._bitflag = 2 ** 4  # bitflag for 'bad subtraction'
-            session.add(ds.image)
-            session.commit()
-            ds.image.exposure.update_downstream_badness(session=session)
-            session.commit()
+        ds.image._set_bitflag( 2 ** 4 )  # bitflag for 'bad subtraction'
+        ds.image.upsert()
+        ds.exposure.update_downstream_badness()
 
-            desired_bitflag = 2 ** 1 + 2 ** 4 + 2 ** 17  # 'banding' 'bad subtraction' 'many sources'
-            assert ds.exposure.bitflag == 2 ** 1
-            assert ds.image.bitflag == 2 ** 1 + 2 ** 4  # 'banding' and 'bad subtraction'
-            assert ds.sources.bitflag == desired_bitflag
-            assert ds.psf.bitflag == 2 ** 1 + 2 ** 4
-            assert ds.wcs.bitflag == desired_bitflag
-            assert ds.zp.bitflag == desired_bitflag
-            assert ds.sub_image.bitflag == desired_bitflag
-            assert ds.detections.bitflag == desired_bitflag
-            assert ds.cutouts.bitflag == desired_bitflag
-            for m in ds.measurements:
-                assert m.bitflag == desired_bitflag
+        desired_bitflag = 2 ** 1 + 2 ** 4 + 2 ** 17  # 'banding' 'bad subtraction' 'many sources'
 
-            # remove the bitflag and check that it disappears in downstreams
-            ds.image._bitflag = 0  # remove 'bad subtraction'
-            session.commit()
-            ds.image.exposure.update_downstream_badness(session=session)
-            session.commit()
-            desired_bitflag = 2 ** 1 + 2 ** 17  # 'banding' 'many sources'
-            assert ds.exposure.bitflag == 2 ** 1
-            assert ds.image.bitflag == 2 ** 1  # just 'banding' left on image
-            assert ds.sources.bitflag == desired_bitflag
-            assert ds.psf.bitflag == 2 ** 1
-            assert ds.wcs.bitflag == desired_bitflag
-            assert ds.zp.bitflag == desired_bitflag
-            assert ds.sub_image.bitflag == desired_bitflag
-            assert ds.detections.bitflag == desired_bitflag
-            assert ds.cutouts.bitflag == desired_bitflag
-            for m in ds.measurements:
-                assert m.bitflag == desired_bitflag
+        assert Exposure.get_by_id( ds.exposure.id )._bitflag == 2 ** 1
+        assert ds.get_image( reload=True ).bitflag == 2 ** 1 + 2 ** 4  # 'banding' and 'bad subtraction'
+        assert ds.get_sources( reload=True ).bitflag == desired_bitflag
+        assert ds.get_psf( reload=True ).bitflag == desired_bitflag
+        assert ds.get_wcs( reload=True ).bitflag == desired_bitflag
+        assert ds.get_zp( reload=True ).bitflag == desired_bitflag
+        assert ds.get_subtraction( reload=True ).bitflag == desired_bitflag
+        assert ds.get_detections( reload=True ).bitflag == desired_bitflag
+        assert ds.get_cutouts( reload=True ).bitflag == desired_bitflag
+        for m in ds.get_measurements( reload=True ):
+            assert m.bitflag == desired_bitflag
+
+        # remove the bitflag and check that it disappears in downstreams
+        ds.image._set_bitflag( 0 )  # remove 'bad subtraction'
+        ds.exposure.update_downstream_badness()
+
+        desired_bitflag = 2 ** 1 + 2 ** 17  # 'banding' 'many sources'
+        assert ds.exposure.bitflag == 2 ** 1
+        assert ds.get_image( reload=True ).bitflag == 2 ** 1  # just 'banding' left on image
+        assert ds.get_sources( reload=True ).bitflag == desired_bitflag
+        assert ds.get_psf( reload=True ).bitflag == desired_bitflag
+        assert ds.get_wcs( reload=True ).bitflag == desired_bitflag
+        assert ds.get_zp( reload=True ).bitflag == desired_bitflag
+        assert ds.get_subtraction( reload=True ).bitflag == desired_bitflag
+        assert ds.get_detections( reload=True ).bitflag == desired_bitflag
+        assert ds.get_cutouts( reload=True ).bitflag == desired_bitflag
+        for m in ds.get_measurements( reload=True ):
+            assert m.bitflag == desired_bitflag
+
+
+        # TODO : adjust ds.sources's bitflag, and make sure that it
+        # propagates to sub_image.  (I believe right now in the code it
+        # won't, but it should!)
+
 
     finally:
         if 'ds' in locals():
@@ -411,11 +413,13 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # this should be removed after we add datastore failure modes (issue #150)
         shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
         shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
+
+        # Reset the exposure bitflag since this is a session fixture
+        exposure._set_bitflag( 0 )
+        exposure.upsert()
+
+        # Remove the ProvenanceTag that will have been created
         with SmartSession() as session:
-            ds.exposure.bitflag = 0
-            session.merge(ds.exposure)
-            session.commit()
-            # Remove the ProvenanceTag that will have been created
             session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag='test_bitflag_propagation'" ) )
             session.commit()
 
@@ -439,18 +443,18 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
 
             # test get_upstreams()
             assert ds.exposure.get_upstreams() == []
-            assert [upstream.id for upstream in ds.image.get_upstreams(session)] == [ds.exposure.id]
-            assert [upstream.id for upstream in ds.sources.get_upstreams(session)] == [ds.image.id]
-            assert [upstream.id for upstream in ds.wcs.get_upstreams(session)] == [ds.sources.id]
-            assert [upstream.id for upstream in ds.psf.get_upstreams(session)] == [ds.image.id]
-            assert [upstream.id for upstream in ds.zp.get_upstreams(session)] == [ds.sources.id]
-            assert set([upstream.id for upstream in ds.sub_image.get_upstreams(session)]) == set([
-                ref.image.id,
-                ref.image.sources.id,
-                ref.image.psf.id,
-                ref.image.bg.id,
-                ref.image.wcs.id,
-                ref.image.zp.id,
+            assert [upstream.id for upstream in ds.image.get_upstreams(session=session)] == [ds.exposure.id]
+            assert [upstream.id for upstream in ds.sources.get_upstreams(session=session)] == [ds.image.id]
+            assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
+            assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
+            assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.sources.id]
+            assert set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ]) == set([
+                ds.ref_image.id,
+                ds.ref_sources.id,
+                ds.ref_psf.id,
+                ds.ref_bg.id,
+                ds.ref_wcs.id,
+                ds.ref_zp.id,
                 ds.image.id,
                 ds.sources.id,
                 ds.psf.id,
@@ -458,11 +462,11 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
                 ds.wcs.id,
                 ds.zp.id,
             ])
-            assert [upstream.id for upstream in ds.detections.get_upstreams(session)] == [ds.sub_image.id]
-            assert [upstream.id for upstream in ds.cutouts.get_upstreams(session)] == [ds.detections.id]
+            assert [upstream.id for upstream in ds.detections.get_upstreams(session=session)] == [ds.sub_image.id]
+            assert [upstream.id for upstream in ds.cutouts.get_upstreams(session=session)] == [ds.detections.id]
 
             for measurement in ds.measurements:
-                assert [upstream.id for upstream in measurement.get_upstreams(session)] == [ds.cutouts.id]
+                assert [upstream.id for upstream in measurement.get_upstreams(session=session)] == [ds.cutouts.id]
 
 
             # test get_downstreams
@@ -481,11 +485,11 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             #   this test work the same in whether run by itself or run
             #   in context, but for now I've just commented out the check
             #   on the length of the exposure downstreams.
-            exp_downstreams = [ downstream.id for downstream in ds.exposure.get_downstreams(session) ]
+            exp_downstreams = [ downstream.id for downstream in ds.exposure.get_downstreams(session=session) ]
             # assert len(exp_downstreams) == 2
             assert ds.image.id in exp_downstreams
 
-            assert set([downstream.id for downstream in ds.image.get_downstreams(session)]) == set([
+            assert set([downstream.id for downstream in ds.image.get_downstreams(session=session)]) == set([
                 ds.sources.id,
                 ds.psf.id,
                 ds.bg.id,
@@ -493,14 +497,14 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
                 ds.zp.id,
                 ds.sub_image.id
             ])
-            assert [downstream.id for downstream in ds.sources.get_downstreams(session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.psf.get_downstreams(session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.wcs.get_downstreams(session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.zp.get_downstreams(session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.sub_image.get_downstreams(session)] == [ds.detections.id]
-            assert [downstream.id for downstream in ds.detections.get_downstreams(session)] == [ds.cutouts.id]
+            assert [downstream.id for downstream in ds.sources.get_downstreams(session=session)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.psf.get_downstreams(session=session)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.wcs.get_downstreams(session=session)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.zp.get_downstreams(session=session)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.sub_image.get_downstreams(session=session)] == [ds.detections.id]
+            assert [downstream.id for downstream in ds.detections.get_downstreams(session=session)] == [ds.cutouts.id]
             measurement_ids = set([measurement.id for measurement in ds.measurements])
-            assert set([downstream.id for downstream in ds.cutouts.get_downstreams(session)]) == measurement_ids
+            assert set([downstream.id for downstream in ds.cutouts.get_downstreams(session=session)]) == measurement_ids
 
     finally:
         if 'ds' in locals():
@@ -514,54 +518,6 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
         # this should be removed after we add datastore failure modes (issue #150)
         shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
         shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
-
-
-def test_datastore_delete_everything(decam_datastore):
-    im = decam_datastore.image
-    im_paths = im.get_fullpath(as_list=True)
-    sources = decam_datastore.sources
-    sources_path = sources.get_fullpath()
-    psf = decam_datastore.psf
-    psf_paths = psf.get_fullpath(as_list=True)
-    sub = decam_datastore.sub_image
-    sub_paths = sub.get_fullpath(as_list=True)
-    det = decam_datastore.detections
-    det_path = det.get_fullpath()
-    cutouts = decam_datastore.cutouts
-    cutouts_file_path = cutouts.get_fullpath()
-    measurements_list = decam_datastore.measurements
-
-    # make sure we can delete everything
-    decam_datastore.delete_everything()
-
-    # make sure everything is deleted
-    for path in im_paths:
-        assert not os.path.exists(path)
-
-    assert not os.path.exists(sources_path)
-
-    for path in psf_paths:
-        assert not os.path.exists(path)
-
-    for path in sub_paths:
-        assert not os.path.exists(path)
-
-    assert not os.path.exists(det_path)
-
-    assert not os.path.exists(cutouts_file_path)
-
-    # check these don't exist on the DB:
-    with SmartSession() as session:
-        assert session.scalars(sa.select(Image).where(Image._id == im.id)).first() is None
-        assert session.scalars(sa.select(SourceList).where(SourceList._id == sources.id)).first() is None
-        assert session.scalars(sa.select(PSF).where(PSF._id == psf.id)).first() is None
-        assert session.scalars(sa.select(Image).where(Image._id == sub.id)).first() is None
-        assert session.scalars(sa.select(SourceList).where(SourceList._id == det.id)).first() is None
-        assert session.scalars(sa.select(Cutouts).where(Cutouts._id == cutouts.id)).first() is None
-        if len(measurements_list) > 0:
-            assert session.scalars(
-                sa.select(Measurements).where(Measurements._id == measurements_list[0].id)
-            ).first() is None
 
 
 def test_provenance_tree(pipeline_for_tests, decam_refset, decam_exposure, decam_datastore, decam_reference):
@@ -594,9 +550,6 @@ def test_provenance_tree(pipeline_for_tests, decam_refset, decam_exposure, decam
 
     assert ds.image.provenance_id == provs['preprocessing'].id
     assert ds.sources.provenance_id == provs['extraction'].id
-    assert ds.psf.provenance_id == provs['extraction'].id
-    assert ds.wcs.provenance_id == provs['extraction'].id
-    assert ds.zp.provenance_id == provs['extraction'].id
     assert ds.sub_image.provenance_id == provs['subtraction'].id
     assert ds.detections.provenance_id == provs['detection'].id
     assert ds.cutouts.provenance_id == provs['cutting'].id

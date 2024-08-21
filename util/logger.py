@@ -5,6 +5,14 @@ import logging
 # _default_log_level = logging.WARNING
 _default_log_level = logging.DEBUG
 
+_default_datefmt = '%Y-%m-%d %H:%M:%S'
+# Normally you don't want to show milliseconds, because it's additional gratuitous information
+#  that makes the header longer.  But, if you're debugging timing stuff, you might want
+#  temporarily to set this to True.
+_show_millisec = True
+# _show_millisec = False
+
+
 class SCLogger:
     """Holds the logging instance that we use throught SeeChange.
 
@@ -23,7 +31,7 @@ class SCLogger:
     _ordinal = 0
 
     @classmethod
-    def instance( cls, midformat=None, datefmt='%Y-%m-%d %H:%M:%S', level=_default_log_level ):
+    def instance( cls, midformat=None, datefmt=_default_datefmt, level=_default_log_level ):
         """Return the singleton instance of SCLogger."""
         if cls._instance is None:
             cls._instance = cls( midformat=midformat, datefmt=datefmt, level=level )
@@ -52,7 +60,7 @@ class SCLogger:
             datefmt = cls._instance.datefmt if datefmt is None else datefmt
             level = cls._instance._logger.level if level is None else level
         else:
-            datefmt = '%Y-%m-%d %H:%M:%S' if datefmt is None else datefmt
+            datefmt = _default_datefmt if datefmt is None else datefmt
             level = _default_log_level if level is None else level
         cls._instance = cls( midformat=midformat, datefmt=datefmt, level=level )
         return cls._instance
@@ -95,7 +103,8 @@ class SCLogger:
     def exception( cls, *args, **kwargs ):
         cls.get().exception( *args, **kwargs )
 
-    def __init__( self, midformat=None, datefmt='%Y-%m-%d %H:%M:%S', level=_default_log_level ):
+    def __init__( self, midformat=None, datefmt=_default_datefmt,
+                  show_millisec=_show_millisec, level=_default_log_level ):
         """Initialize a SCLogger object, and the logging.Logger object it holds.
 
         Parameters
@@ -111,6 +120,9 @@ class SCLogger:
             The date format to use, using standard logging.Formatter
             datefmt syntax.
 
+        show_millisec: bool, default False
+            Add millseconds after a . following the date formatted by datefmt.
+
         level : logging level constant, default logging.WARNING
             This can be changed later with set_level().
 
@@ -122,7 +134,10 @@ class SCLogger:
         self.datefmt = datefmt
 
         logout = logging.StreamHandler( sys.stderr )
-        fmtstr = f"[%(asctime)s - "
+        fmtstr = f"[%(asctime)s"
+        if show_millisec:
+            fmtstr += ".%(msecs)03d"
+        fmtstr += " - "
         if midformat is not None:
             fmtstr += f"{midformat} - "
         fmtstr += "%(levelname)s] - %(message)s"

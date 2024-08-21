@@ -102,18 +102,18 @@ _Session = None
 
 
 def Session():
-    """
-    Make a session if it doesn't already exist.
-    Use this in interactive sessions where you don't
-    want to open the session as a context manager.
-    If you want to use it in a context manager
-    (the "with" statement where it closes at the
-    end of the context) use SmartSession() instead.
+    """Make a session if it doesn't already exist.
+
+    Use this in interactive sessions where you don't want to open the
+    session as a context manager.  Don't use this anywhere in the code
+    base.  Instead, always use a context manager, getting your
+    connection using "with SmartSession(...) as ...".
 
     Returns
     -------
     sqlalchemy.orm.session.Session
         A session object that doesn't automatically close.
+
     """
     global _Session, _engine
 
@@ -348,22 +348,39 @@ class SeeChangeBase:
         # session management from the code base (and we've already done
         # a big chunk of that, but the last bit would be painful), so work
         # around it with gratuitous retries.
+        #
+        # ...and this still doesn't seem to be working.  I'm still getting
+        # timeouts after 16s of waiting.  But, after the thing dies
+        # (drops into the debugger with pytest --pdb), there are no
+        # locks in the database.  Somehow, somewhere, something is not
+        # releasing a database connection that has an idle transaction.
+        # The solution may be to move completely away from SQLAlchemy,
+        # which will mean rewriting even more code.
 
         if tablename is None:
             tablename = cls.__tablename__
 
         # Uncomment this next debug statement if debugging table locks
         # SCLogger.debug( f"SeeChangeBase.upsert ({cls.__name__}) LOCK TABLE on {tablename}" )
-        session.connection().execute( sa.text( "SET lock_timeout TO '1s'" ) )
-        for i in range(5):
+        sleeptime = 0.25
+        failed = False
+        while sleeptime < 16:
             try:
+                session.connection().execute( sa.text( "SET lock_timeout TO '1s'" ) )
                 session.connection().execute( sa.text( f'LOCK TABLE {tablename}' ) )
                 break
             except OperationalError as e:
-                if i < 4:
-                    SCLogger.debug( f"Timeout waiting for lock on {tablename}, retrying." )
-                    time.sleep( 1 )
-        else:
+                sleeptime *= 2
+                if sleeptime >= 16:
+                    failed = True
+                    break
+                else:
+                    SCLogger.warning( f"Timeout waiting for lock on {tablename}, sleeping {sleeptime}s and retrying." )
+                    session.rollback()
+                    time.sleep( sleeptime )
+        if failed:
+            import pdb; pdb.set_trace()
+            session.rollback()
             SCLogger.error( f"Repeated failures getting lock on {tablename}." )
             raise RuntimeError( f"Repeated failures getting lock on {tablename}." )
 
@@ -521,9 +538,11 @@ class SeeChangeBase:
         """
         raise NotImplementedError( f'get_downstreams not implemented for {self.__class__.__name__}' )
 
-    # Don't define this here because of all the complicated overriding semantics of python (potentially
-    # further confused by SQLAlchemy's declarative_base).  Objects weren't finding the _delete_from_database
-    # defined in UUIDMixin if this was defined here.
+    # Don't define _delete_from_database here because of all the
+    # complicated overriding semantics of python (potentially further
+    # confused by SQLAlchemy's declarative_base).  Objects weren't
+    # finding the _delete_from_database defined in UUIDMixin if this was
+    # defined here.
     #
     # Classes that don't derive from UUIDMixin need to implement this for themselves.
     #
@@ -2375,7 +2394,7 @@ class HasBitFlagBadness:
             merged_self = objbank[ self.id ]
 
             new_bitflag = 0  # start from scratch, in case some upstreams have lost badness
-            for upstream in merged_self.get_upstreams(session):
+            for upstream in merged_self.get_upstreams( session=session ):
                 if upstream.id in objbank.keys():
                     upstream = objbank[ upstream.id ]
                 if hasattr(upstream, '_bitflag'):

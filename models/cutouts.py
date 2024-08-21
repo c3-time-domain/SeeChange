@@ -405,7 +405,16 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                         self.co_dict[groupname] = self._load_dataset_dict_from_hdf5(file, groupname)
 
 
-    def get_downstreams( self, session=None ):
+    def get_upstreams( self, session=None ):
+        """Return upstreams of this cutouts object.
+
+        This will be the SourceList that is the detections from which this cutout was made.
+        """
+
+        with SmartSession( session ) as session:
+            return session.scalars( sa.Select( SourceList ).where( SourceList._id == self.sources_id ) ).all()
+
+    def get_downstreams( self, session=None, siblings=False ):
         """Return downstreams of this cutouts object.
 
         Only gets immediate downstreams; does not recurse.  (As per the
@@ -475,8 +484,4 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     @ref_image.setter
     def ref_image( self, val ):
         raise RuntimeError( f"Cutouts.ref_image is deprecated, don't use it" )
-
-    @property
-    def get_upstreams( self ):
-        raise RuntimeError( f"Cutouts.get_upstreams is deprecated, don't use it" )
 

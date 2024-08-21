@@ -939,7 +939,7 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
     # and test_psf.py
 
 # There are other tests of badness elsewhere that do upstreams and downstreams
-# See: test_sources.py::test_source_list_bitflag
+# See: test_sources.py::test_source_list_bitflag ; test_pipeline.py::test_bitflag_propagation
 def test_badness_basic( sim_image_uncommitted, provenance_base ):
     im = sim_image_uncommitted
     im.provenance_id = provenance_base.id

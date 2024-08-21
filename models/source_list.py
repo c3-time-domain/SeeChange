@@ -190,7 +190,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 raise TypeError("data must be a pandas.DataFrame, astropy.table.Table or numpy.recarray")
 
         self._data = value
-        self.num_sources = 0 if value is None else len(value)
+        if value is not None:
+            self.num_sources = len(value)
 
     @property
     def info(self):
@@ -901,7 +902,7 @@ class SourceListSibling:
             #     raise RuntimeError( f"Failed to find SourceList {self.sources_id} "
             #                         f"that goes with Background {self.id}" )
 
-        return sl
+        return [ sl ] if sl is not None else []
 
     def get_downstreams(self, session=None, siblings=False):
         """Get the downstreams of this SourceList sibling object.
@@ -918,9 +919,10 @@ class SourceListSibling:
         """
 
         sl = self.get_upstreams( session=session )
-        if sl is None:
-            return None
+        if len(sl) == 0:
+            return []
 
+        sl = sl[0]
         dses = sl.get_downstreams( session=session, siblings=siblings )
         try:
             dses = [ d for d in dses if d.id != self.id  ]
@@ -930,24 +932,3 @@ class SourceListSibling:
             pass
 
         return dses
-
-
-
-
-
-# # TODO: replace these with association proxies?
-# # add "property" attributes to SourceList referencing the image for convenience
-# for att in [
-#     'section_id',
-#     'mjd',
-#     'filter',
-#     'filter_short',
-#     'telescope',
-#     'instrument',
-#     'instrument_object',
-# ]:
-#     setattr(
-#         SourceList,
-#         att,
-#         property(fget=lambda self, att=att: getattr(self.image, att) if self.image is not None else None)
-#     )

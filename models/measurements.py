@@ -812,7 +812,16 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def _get_inverse_badness(self):
         return measurements_badness_inverse
 
-    def get_downstreams( self, session=None ):
+    def get_upstreams( self, session=None ):
+        """Return the upstreams of this Measurements object.
+
+        Will be the Cutouts that these measurements are from.
+        """
+
+        with SmartSession( session ) as session:
+            return session.scalars( sa.Select( Cutouts ).where( Cutouts._id == self.cutouts_id ) ).all()
+
+    def get_downstreams( self, session=None, siblings=False ):
         """Get downstream data products of this Measurements."""
 
         # Measurements doesn't currently have downstreams; this will
@@ -891,8 +900,4 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     @filter.setter
     def filter( self, val ):
         raise RuntimeError( f"Measurements.filter is deprecated, don't use it" )
-
-    @property
-    def get_upstreams( self ):
-        raise RuntimeError( f"Measurements.get_upstreams is deprecated, don't use it" )
 

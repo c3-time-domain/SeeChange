@@ -1,3 +1,4 @@
+import os
 import pytest
 import uuid
 
@@ -332,5 +333,53 @@ def test_data_store( decam_datastore ):
 
 
     # MORE
+
+
+def test_datastore_delete_everything(decam_datastore):
+    im = decam_datastore.image
+    im_paths = im.get_fullpath(as_list=True)
+    sources = decam_datastore.sources
+    sources_path = sources.get_fullpath()
+    psf = decam_datastore.psf
+    psf_paths = psf.get_fullpath(as_list=True)
+    sub = decam_datastore.sub_image
+    sub_paths = sub.get_fullpath(as_list=True)
+    det = decam_datastore.detections
+    det_path = det.get_fullpath()
+    cutouts = decam_datastore.cutouts
+    cutouts_file_path = cutouts.get_fullpath()
+    measurements_list = decam_datastore.measurements
+
+    # make sure we can delete everything
+    decam_datastore.delete_everything()
+
+    # make sure everything is deleted
+    for path in im_paths:
+        assert not os.path.exists(path)
+
+    assert not os.path.exists(sources_path)
+
+    for path in psf_paths:
+        assert not os.path.exists(path)
+
+    for path in sub_paths:
+        assert not os.path.exists(path)
+
+    assert not os.path.exists(det_path)
+
+    assert not os.path.exists(cutouts_file_path)
+
+    # check these don't exist on the DB:
+    with SmartSession() as session:
+        assert session.scalars(sa.select(Image).where(Image._id == im.id)).first() is None
+        assert session.scalars(sa.select(SourceList).where(SourceList._id == sources.id)).first() is None
+        assert session.scalars(sa.select(PSF).where(PSF._id == psf.id)).first() is None
+        assert session.scalars(sa.select(Image).where(Image._id == sub.id)).first() is None
+        assert session.scalars(sa.select(SourceList).where(SourceList._id == det.id)).first() is None
+        assert session.scalars(sa.select(Cutouts).where(Cutouts._id == cutouts.id)).first() is None
+        if len(measurements_list) > 0:
+            assert session.scalars(
+                sa.select(Measurements).where(Measurements._id == measurements_list[0].id)
+            ).first() is None
 
 

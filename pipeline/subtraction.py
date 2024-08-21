@@ -444,6 +444,8 @@ class Subtractor:
                     sub_image.bkg_rms_estimate = outdict.get('bkg_rms', sig)
 
                 sub_image._upstream_bitflag = 0
+                if ( ds.exposure is not None ):
+                    sub_image._upstream_bitflag |= ds.exposure.bitflag
                 sub_image._upstream_bitflag |= ds.image.bitflag
                 sub_image._upstream_bitflag |= ds.sources.bitflag
                 sub_image._upstream_bitflag |= ds.psf.bitflag
