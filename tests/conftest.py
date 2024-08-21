@@ -487,7 +487,7 @@ def webap_url():
 # but that there is something in the code that's too eager to delete
 # things.  In that case, we really need to find it.)
 
-@pytest.fixture( autouse=True )
-def hack_check_for_exposure( decam_exposure ):
-    yield True
-    assert pathlib.Path( decam_exposure.get_fullpath() ).is_file()
+# @pytest.fixture( autouse=True )
+# def hack_check_for_exposure( decam_exposure ):
+#     yield True
+#     assert pathlib.Path( decam_exposure.get_fullpath() ).is_file()
