@@ -152,7 +152,6 @@ class Backgrounder:
             if psf is None:
                 raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.get_inputs()}')
 
-            # TODO ROB : think about upstreams of sources siblings
             bg._upstream_bitflag = 0
             bg._upstream_bitflag |= ds.image.bitflag
             bg._upstream_bitflag |= sources.bitflag

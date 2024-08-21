@@ -252,19 +252,6 @@ class Report(Base, UUIDMixin):
         )
     )
 
-    # provenance = orm.relationship(
-    #     'Provenance',
-    #     cascade='save-update, merge, refresh-expire, expunge',
-    #     lazy='selectin',
-    #     doc=(
-    #         "The provenance of this report. "
-    #         "The provenance has upstreams that point to the "
-    #         "measurements and R/B score objects that themselves "
-    #         "point back to all the other provenances that were "
-    #         "used to produce this report. "
-    #     )
-    # )
-
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # do not pass kwargs to Base.__init__, as there may be non-column attributes
 

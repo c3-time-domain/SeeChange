@@ -752,24 +752,6 @@ class SeeChangeBase:
         for key in sa.inspect(self).mapper.columns.keys():
             value = getattr( self, key )
             setattr( new, key, value )
-            # # HACK ALERT
-            # # I was getting a sqlalchemy.orm.exc.DetachedInstanceError
-            # #   trying to copy a zeropoint deep inside alignment, and it
-            # #   was on the line value = getattr(self, key) trying to load
-            # #   the "modified" colum.  Rather than trying to figure out WTF
-            # #   is going on with SQLAlchmey *this* time, I just decided that
-            # #   when we copy an object, we don't copy the modified field,
-            # #   so that I could move on with life.
-            # # (This isn't necessarily terrible; one could make the argument
-            # #   that the modified field of the new object *should* be now(),
-            # #   which is the default.  The real worry is that it's yet another
-            # #   mysterious SQLAlchemy thing, which just happened to be this field
-            # #   this time around.  As long as we're tied to the albatross that is
-            # #   SQLAlchemy, these kinds of things are going to keep happening.)
-            # if key != 'modified':
-            #     value = getattr(self, key)
-            #     setattr(new, key, value)
-
         return new
 
 
@@ -1608,8 +1590,8 @@ class UUIDMixin:
         myid = self.id    # Make sure id is generated
         with SmartSession( session ) as sess:
             # Have to make sure to insert a "transient" object so that SQLAlchemy will *really* do an insert.
-            # If the object is detached, it does something else (I'm not sure what, but it seems to be a
-            # "insert if doesn't exist", which probably means it's a heavier weight database communication).
+            # If the object is detached, it does something else, potentially referencing a row that you don't
+            # want to reference because of the objects vestigal connections to how it was read from the database.
             #
             # Looking at https://docs.sqlalchemy.org/en/20/orm/session_api.html#sqlalchemy.orm.make_transient
             # it sounds like make_transient is scary if you have relationships... but we're getting rid of those.
@@ -1828,51 +1810,6 @@ class FourCorners:
         return ( [  ras[dex00],  ras[dex01],  ras[dex10],  ras[dex11] ],
                  [ decs[dex00], decs[dex01], decs[dex10], decs[dex11] ] )
 
-    # @hybrid_method
-    # def containing( self, ra, dec ):
-    #     """An SQLAlchemy filter for objects that might contain a given ra/dec.
-
-    #     This will be reliable for objects (i.e. images, or whatever else
-    #     has four corners) that are square to the sky (assuming that the
-    #     ra* and dec* fields are correct).  However, if the object is at
-    #     an angle, it will return objects that have the given ra, dec in
-    #     the rectangle on the sky oriented along ra/dec lines that fully
-    #     contains the four corners of the image.
-
-    #     NOTE -- this query doesn't use indexes, and so will be very
-    #     slow.  Avoid use.  Use find_containing() instead.
-
-    #     Parameters
-    #     ----------
-    #        ra, dec: float
-    #           Position to search (decimal degrees).
-
-    #     Returns
-    #     -------
-    #        An expression usable in a sqlalchemy filter
-
-    #     """
-
-    #     rase RuntimeError( "Do not use." )
-
-    #     # This query will go through every row of the table it's
-    #     # searching, because q3c uses the index on the first two
-    #     # arguments, not on the array argument.
-
-    #     # It could probably be made faster by making a first pass doing:
-    #     #   greatest( ra** ) >= ra AND least( ra** ) <= ra AND
-    #     #   greatest( dec** ) >= dec AND least( dec** ) <= dec
-    #     # with indexes in ra** and dec**.  Put the results of that into
-    #     # a temp table, and then do the polygon search on that temp table.
-    #     #
-    #     # I have no clue how to implement that simply here as as an
-    #     # SQLAlchemy filter.  So, there is the find_containing() class
-    #     # method below.
-
-    #     return func.q3c_poly_query( ra, dec, sqlarray( [ self.ra_corner_00, self.dec_corner_00,
-    #                                                      self.ra_corner_01, self.dec_corner_01,
-    #                                                      self.ra_corner_11, self.dec_corner_11,
-    #                                                      self.ra_corner_10, self.dec_corner_10 ] ) )
 
     @classmethod
     def find_containing_siobj( cls, siobj, session=None ):

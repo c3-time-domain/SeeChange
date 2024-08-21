@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from astropy.time import Time
 
 from models.base import SmartSession
+from models.provenance import Provenance
 from models.image import Image, image_upstreams_association_table
 
 from tests.fixtures.simulated import ImageCleanup
@@ -813,93 +814,78 @@ def test_image_query(ptf_ref, decam_reference, decam_datastore, decam_default_ca
         assert im_qual(diff) == im_qual(new)
 
 
-@pytest.mark.skip( reason="ROB!  Fix and re-enable this test!" )
-def test_image_get_downstream(ptf_ref, ptf_supernova_images, ptf_subtraction1):
+def test_image_get_upstream_images( ptf_ref, ptf_supernova_image_datastores, ptf_subtraction1_datastore ):
     with SmartSession() as session:
         # how many image to image associations are on the DB right now?
         num_associations = session.execute(
             sa.select(sa.func.count()).select_from(image_upstreams_association_table)
         ).scalar()
 
-        assert num_associations > len(ptf_ref.image.upstream_images)
+    refimg = Image.get_by_id( ptf_ref.image_id )
+    assert num_associations > len( refimg.upstream_image_ids )
 
-        prov = ptf_ref.image.provenance
-        assert prov.process == 'coaddition'
-        images = ptf_ref.image.upstream_images
-        assert len(images) > 1
+    prov = Provenance.get( refimg.provenance_id )
+    assert prov.process == 'coaddition'
+    images = refimg.get_upstreams( only_images=True )
+    assert len(images) > 1
 
-        loaded_image = Image.get_image_from_upstreams(images, prov.id)
+    loaded_image = Image.get_image_from_upstreams(images, prov.id)
 
-        assert loaded_image.id == ptf_ref.image.id
-        assert loaded_image.id != ptf_subtraction1.id
-        assert loaded_image.id != ptf_subtraction1.new_image.id
+    assert loaded_image.id == refimg.id
+    assert loaded_image.id != ptf_subtraction1_datastore.image.id
+    assert loaded_image.id != ptf_subtraction1_datastore.image.new_image_id
 
     new_image = None
     new_image2 = None
     new_image3 = None
     try:
         # make a new image with a new provenance
-        new_image = Image.copy_image(ptf_ref.image)
-        prov = Provenance.get( ptf_ref.provenance_id )
-        prov.process = 'copy'
-        prov.insert()
-        new_image.provenance_id = prov.id
+        new_image = Image.copy_image(refimg)
+        newprov = Provenance.get( ptf_ref.provenance_id )
+        newprov.process = 'copy'
+        _ = newprov.upstreams    # Force newprov._upstreams to load
+        newprov.update_id()
+        newprov.insert()
+        new_image.provenance_id = newprov.id
         # Not supposed to set _upstream_ids directly, so never do it
         # anywhere in code; set the upstreams of an image by building it
         # with Image.from_images() or Image.from_ref_and_now().  But, do
         # this here for testing purposes.
-        new_image._upstream_ids = [ i.id for i in ptf_ref.image.upstream_images ]
+        new_image._upstream_ids = refimg.upstream_image_ids
         new_image.save()
         new_image.insert()
 
-        with SmartSession() as session:
-            new_image = session.merge(new_image)
-            session.commit()
-            assert new_image.id is not None
-            assert new_image.id != ptf_ref.image.id
-
-            loaded_image = Image.get_image_from_upstreams(images, prov.id)
-            assert loaded_image.id == new_image.id
+        loaded_image = Image.get_image_from_upstreams(images, newprov.id)
+        assert loaded_image.id == new_image.id
+        assert new_image.id != refimg.id
 
         # use the original provenance but take down an image from the upstreams
-        prov = ptf_ref.image.provenance
-        images = ptf_ref.image.upstream_images[1:]
-
-        new_image2 = Image.copy_image(ptf_ref.image)
-        new_image2.provenance = prov
-        new_image2.upstream_images = images
+        new_image2 = Image.copy_image( refimg )
+        new_image2.provenance_id = prov.id
+        # See note above about setting _upstream_ids directly (which is naughty)
+        new_image2._upstream_ids = refimg.upstream_image_ids[1:]
         new_image2.save()
+        new_image2.insert()
 
-        with SmartSession() as session:
-            new_image2 = session.merge(new_image2)
-            session.commit()
-            assert new_image2.id is not None
-            assert new_image2.id != ptf_ref.image.id
-            assert new_image2.id != new_image.id
-
-            loaded_image = Image.get_image_from_upstreams(images, prov.id)
-            assert loaded_image.id != ptf_ref.image.id
-            assert loaded_image.id != new_image.id
+        images = [ Image.get_by_id( i ) for i in refimg.upstream_image_ids[1:] ]
+        loaded_image = Image.get_image_from_upstreams(images, prov.id)
+        assert loaded_image.id != refimg.id
+        assert loaded_image.id != new_image.id
+        assert loaded_image.id == new_image2.id
 
         # use the original provenance but add images to the upstreams
-        prov = ptf_ref.image.provenance
-        images = ptf_ref.image.upstream_images + ptf_supernova_images
+        upstrids = refimg.upstream_image_ids + [ d.image.id for d in ptf_supernova_image_datastores ]
 
-        new_image3 = Image.copy_image(ptf_ref.image)
-        new_image3.provenance = prov
-        new_image3.upstream_images = images
+        new_image3 = Image.copy_image(refimg)
+        new_image3.provenance_id = prov.id
+        # See note above about setting _upstream_ids directly (which is naughty)
+        new_image3._upstream_ids = upstrids
         new_image3.save()
+        new_image3.insert()
 
-        with SmartSession() as session:
-            new_image3 = session.merge(new_image3)
-            session.commit()
-            assert new_image3.id is not None
-            assert new_image3.id != ptf_ref.image.id
-            assert new_image3.id != new_image.id
-            assert new_image3.id != new_image2.id
-
-            loaded_image = Image.get_image_from_upstreams(images, prov.id)
-            assert loaded_image.id == new_image3.id
+        images = [ Image.get_by_id( i ) for i in upstrids ]
+        loaded_image = Image.get_image_from_upstreams(images, prov.id)
+        assert loaded_image.id == new_image3.id
 
     finally:
         if new_image is not None:

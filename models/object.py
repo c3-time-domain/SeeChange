@@ -55,14 +55,6 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         doc='Boolean flag to indicate if the object is associated with measurements marked "bad". '
     )
 
-    # measurements = orm.relationship(
-    #     Measurements,
-    #     back_populates='object',
-    #     cascade='all, delete-orphan',
-    #     passive_deletes=True,
-    #     lazy='selectin',
-    #     doc='All Measurements related to the object, can include duplicates or bad measurements! '
-    # )
 
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
@@ -366,7 +358,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
     @staticmethod
     def get_last_id_for_naming(convention, present_time=None, session=None):
         """Get the ID of the last object before the given date (defaults to now).
-
+o
         Will query the database for an object with a created_at which is the last before
         the start of this year, month or day (depending on what exists in the naming convention).
         Will return the ID of that object, or 0 if no object exists.
@@ -424,7 +416,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
 
 
-
+# Issue #347 ; we may just delete the stuff below, or modify it.
 
 # # add an event listener to catch objects before insert and generate a name for them
 # @sa.event.listens_for(Object, 'before_insert')

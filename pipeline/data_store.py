@@ -777,7 +777,7 @@ class DataStore:
     def get_inputs(self):
         """Get a string with the relevant inputs. """
 
-        # ROB TODO -- think about whether the order here actually makes sense given refactoring
+        # Think about whether the order here actually makes sense given refactoring.  (Issue #349.)
 
         if self.image_id is not None:
             return f'image_id={self.image_id}'

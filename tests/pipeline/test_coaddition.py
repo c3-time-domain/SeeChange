@@ -478,7 +478,7 @@ def test_coaddition_pipeline_outputs(ptf_reference_image_datastores, ptf_aligned
         assert isinstance(coadd_ds.zp, ZeroPoint)
 
         # check that the ZOGY PSF width is similar to the PSFex result
-        # NOTE -- see comment ROB TODO in coaddition.py.  Right now,
+        # NOTE -- see comment Issue #350 in coaddition.py.  Right now,
         # we're storing zogy_psf and zogy_score in the Image
         # object, but that's vestigal from when the Image object had all
         # kinds of contingent data proucts (sometimes) in it.  It would

@@ -319,7 +319,7 @@ class Coadder:
         psf_fwhms: list of floats, or None
             The FWHM of the PSF for each image.
 
-        flux_zps: list of floats, or NOne
+        flux_zps: list of floats, or None
             The flux zero points for each image.
 
         bkg_means: list of floats, or None
@@ -612,7 +612,7 @@ class Coadder:
         output.weight = outwt
         output.flags = outfl
 
-        # ROB TODO -- where to put these?  Look at how subtraction or other things use them!!!
+        # Issue #350 -- where to put these?  Look at how subtraction or other things use them!!!
         # (See also comment in test_coaddition.py::test_coaddition_pipeline_outputs)
         if 'outpsf' in locals():
             output.zogy_psf = outpsf  # TODO: do we have a better place to put this?

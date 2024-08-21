@@ -155,11 +155,6 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._info = None
         self._is_star = None
 
-        # self.wcs = None
-        # self.zp = None
-        # self.cutouts = None
-        # self.measurements = None
-
 
     def __repr__(self):
         output = (
@@ -924,11 +919,6 @@ class SourceListSibling:
 
         sl = sl[0]
         dses = sl.get_downstreams( session=session, siblings=siblings )
-        try:
-            dses = [ d for d in dses if d.id != self.id  ]
-        except Exception as ex:
-            # ROB TODO : take this out when you're convinced you're done debugging
-            import pdb; pdb.set_trace()
-            pass
+        dses = [ d for d in dses if d.id != self.id  ]
 
         return dses

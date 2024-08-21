@@ -7,7 +7,6 @@ from collections import defaultdict
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
 from sqlalchemy import event
-from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declared_attr
@@ -38,7 +37,6 @@ class CodeHash(Base):
                                                          name='code_hashes_code_version_id_fkey'),
                                 index=True )
 
-    # code_version = relationship("CodeVersion", back_populates="code_hashes", lazy='selectin')
 
     @property
     def code_version( self ):
@@ -471,12 +469,15 @@ class Provenance(Base):
         """
 
         # This will raise a unique id constraint violation if the provenance id already exists
+        myid = self.id
         with SmartSession( session ) as sess:
             if self._upstreams is None:
                 raise RuntimeError( "Can't save provenance, don't know upstreams.  This usually happens "
                                     "if you try to save one that you loaded from the database.  Use "
                                     "insert_if_needed() instead of insert()." )
-
+            # See comment in models/base.py::UUIDMixin.insert
+            orm.make_transient( self )
+            self._id = myid
             sess.add( self )
             sess.commit()
             for upstream in self._upstreams:
@@ -546,10 +547,6 @@ class Provenance(Base):
     def code_Version( self, val ):
         raise RuntimeError( f"Don't use Provenance.code_Version, use code_Version_id" )
 
-    # @property
-    # def upstreams( self ):
-    #     raise RuntimeError( f"Provenance.upstreams is deprecated, ROB write get/set_upstreams" )
-
     @upstreams.setter
     def upstreams( self, val ):
         raise RuntimeError( f"Provenance.upstreams is deprecated, only set it on creation." )
@@ -564,35 +561,35 @@ class Provenance(Base):
 
     @property
     def upstream_ids( self ):
-        raise RuntimeError( f"Provenance.upstream_ids is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.upstream_ids is deprecated, use upsterams" )
 
     @upstream_ids.setter
     def upstream_ids( self, val ):
-        raise RuntimeError( f"Provenance.upstream_ids is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.upstream_ids is deprecated, use upstreams" )
 
     @property
     def downstream_ids( self ):
-        raise RuntimeError( f"Provenance.downstream_ids is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.downstream_ids is deprecated, use get_downstreams" )
 
     @downstream_ids.setter
     def downstream_ids( self, val ):
-        raise RuntimeError( f"Provenance.downstream_ids is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.downstream_ids is deprecated, use get_downstreams" )
 
     @property
     def upstream_hashes( self ):
-        raise RuntimeError( f"Provenance.upstream_hashes is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.upstream_hashes is deprecated, use upstreams" )
 
     @upstream_hashes.setter
     def upstream_hashes( self, val ):
-        raise RuntimeError( f"Provenance.upstream_hashes is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.upstream_hashes is deprecated, use upstreams" )
 
     @property
     def downstream_hashes( self ):
-        raise RuntimeError( f"Provenance.downstream_hashes is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.downstream_hashes is deprecated, use get_downstreams" )
 
     @downstream_hashes.setter
     def downstream_hashes( self, val ):
-        raise RuntimeError( f"Provenance.downstream_hashes is deprecated, ROB write replacement" )
+        raise RuntimeError( f"Provenance.downstream_hashes is deprecated, use get_downstreams" )
 
 
 class ProvenanceTagExistsError(Exception):

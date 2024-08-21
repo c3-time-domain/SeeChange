@@ -402,26 +402,6 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def new_flags( self, val ):
         raise RuntimeError( "Don't set new_flags, use get_data_from_cutouts()" )
 
-    # @property
-    # def sub_psfflux(self):
-    #     if self._sub_psfflux is None:
-    #         self.get_data_from_cutouts()
-    #     return self._sub_psfflux
-
-    # @sub_psfflux.setter
-    # def sub_psfflux( self, val ):
-    #     raise RuntimeError( "Don't set sub_psfflux, use get_data_from_cutouts()" )
-
-    # @property
-    # def sub_psffluxerr(self):
-    #     if self._sub_psffluxerr is None:
-    #         self.get_data_from_cutouts()
-    #     return self._sub_psffluxerr
-
-    # @sub_psffluxerr.setter
-    # def sub_psffluxerr( self, val ):
-    #     raise RuntimeError( "Don't set sub_psffluxerr, use get_data_from_cutouts()" )
-
     @property
     def sub_nandata(self):
         if self.sub_data is None or self.sub_flags is None:

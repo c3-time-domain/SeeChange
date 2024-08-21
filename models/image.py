@@ -445,12 +445,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         self.calculate_coordinates()  # galactic and ecliptic coordinates
 
-    # def __setattr__(self, key, value):
-    #     if key == 'upstream_images':
-    #         # make sure the upstream_images list is sorted by mjd:
-    #         value.sort(key=lambda x: x.mjd)
-
-    #     super().__setattr__(key, value)
 
     @orm.reconstructor
     def init_on_load(self):
@@ -1015,123 +1009,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # Note that "data" is not filled by this method, also the provenance is empty!
         return output
 
-    def _make_aligned_images(self):
-        """Align the upstream_images to one of the images pointed to by image_index.
-
-        The parameters of the alignment must be given in the parameters attribute
-        of this Image's Provenance.
-
-        The index to which the images are aligned is given by the "to_index" key in the
-        "alignment" dictionary in the parameters of the image provenance; the value can
-        be "first" or "last".
-
-        The resulting images are saved in _aligned_images, which are not saved
-        to the database. Note that each aligned image is also referred to by
-        a global variable under the ImageAligner.temp_images list.
-        """
-        raise RunTimeError( "Deprecated" )
-
-        from improc.alignment import ImageAligner  # avoid circular import
-        if self.provenance is None or self.provenance.parameters is None:
-            raise RuntimeError('Cannot align images without a Provenance with legal parameters!')
-        if 'alignment' not in self.provenance.parameters:
-            raise RuntimeError('Cannot align images without an "alignment" dictionary in the Provenance parameters!')
-
-        to_index = self.provenance.parameters['alignment'].get('to_index')
-        if to_index == 'first':
-            alignment_target = self.upstream_images[0]
-        elif to_index == 'last':
-            alignment_target = self.upstream_images[-1]
-        elif to_index == 'new':
-            alignment_target = self.new_image  # only works for a subtraction (or a coadd with exactly 2 upstreams)
-        elif to_index == 'ref':
-            alignment_target = self.ref_image  # this is not recommended!
-        else:
-            raise RuntimeError(
-                f'Got illegal value for "to_index" ({to_index}) in the Provenance parameters!'
-            )
-
-        if self._aligner is None:
-            self._aligner = ImageAligner(**self.provenance.parameters['alignment'])
-        else:
-            self._aligner.pars.override(self.provenance.parameters['alignment'])
-
-        # verify all products are loaded
-        for im in self.upstream_images:
-            if im.sources is None or im.bg is None or im.wcs is None or im.zp is None:
-                raise RuntimeError('Some images are missing data products. Try running load_upstream_products().')
-
-        aligned = []
-        for i, image in enumerate(self.upstream_images):
-            SCLogger.debug( f"Aligning {image.id} ({image.filepath})" )
-            new_image = self._aligner.run(image, alignment_target)
-            aligned.append(new_image)
-            # ImageAligner.temp_images.append(new_image)  # keep track of all these images for cleanup purposes
-
-        self._aligned_images = aligned
-
-    def _check_aligned_images(self):
-        """Check that the aligned_images loaded in this Image are consistent.
-
-        The aligned_images must have the same provenance parameters as the Image,
-        and their "original_image_id" must point to the IDs of the upstream_images.
-
-        If they are inconsistent, they will be removed and the _aligned_images
-        attribute will be set to None to be lazy filled by _make_aligned_images().
-        """
-        raise RuntimeError( "Deprecated" )
-        # if self._aligned_images is None:
-        #     return
-
-        # if self.provenance is None or self.provenance.parameters is None:
-        #     raise RuntimeError('Cannot check aligned images without a Provenance with legal parameters!')
-        # if 'alignment' not in self.provenance.parameters:
-        #     raise RuntimeError(
-        #         'Cannot check aligned images without an "alignment" dictionary in the Provenance parameters!'
-        #     )
-
-        # upstream_images_filepaths = [image.filepath for image in self.upstream_images]
-
-        # for image in self._aligned_images:
-        #     # im_pars will contain all the default keys and any overrides from self.provenance
-        #     im_pars = image.info.get('alignment_parameters', {})
-
-        #     # if self.provenance has non-default values, or if im_pars are missing any keys, remake all of them
-        #     for key, value in self.provenance.parameters['alignment'].items():
-        #         if key not in im_pars or im_pars[key] != value:
-        #             self._aligned_images = None
-        #             return
-
-        #     if image.info['original_image_filepath'] not in upstream_images_filepaths:
-        #         self._aligned_images = None
-        #         return
-
-    def _get_alignment_target_image(self):
-        """Get the image in upstream_images that is the target to which we align all other images. """
-        raise RuntimeError( "Deprecated" )
-
-        # if self.provenance is None or self.provenance.parameters is None:
-        #     raise RuntimeError('Cannot get alignment target without a Provenance with legal parameters!')
-        # if 'alignment' not in self.provenance.parameters:
-        #     raise RuntimeError(
-        #         'Cannot get alignment target without an "alignment" dictionary in the Provenance parameters!'
-        #     )
-
-        # to_index = self.provenance.parameters['alignment'].get('to_index')
-        # if to_index == 'first':
-        #     alignment_target = self.upstream_images[0]
-        # elif to_index == 'last':
-        #     alignment_target = self.upstream_images[-1]
-        # elif to_index == 'new':
-        #     alignment_target = self.new_image
-        # elif to_index == 'ref':
-        #     alignment_target = self.ref_image
-        # else:
-        #     raise RuntimeError(
-        #         f'Got illegal value for "to_index" ({to_index}) in the Provenance parameters!'
-        #     )
-
-        # return alignment_target
 
     def set_coordinates_to_match_target( self, target ):
         """Make sure the coordinates (RA,dec, corners and WCS) all match the alignment target image. """
@@ -1142,19 +1019,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                     'minra', 'maxra', 'mindec', 'maxdec' ]:
             self.__setattr__(att, getattr(target, att))
 
-    # @property
-    # def aligned_images(self):
-    #     """A set of images matching the upstream_images, only aligned (warped) to one of the image. """
-    #     self._check_aligned_images()  # possibly destroy the old aligned images
-
-    #     if self._aligned_images is None:
-    #         self._make_aligned_images()
-
-    #     return self._aligned_images
-
-    # @aligned_images.setter
-    # def aligned_images(self, value):
-    #     self._aligned_images = value
 
     @property
     def instrument_object(self):
@@ -1513,28 +1377,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 setattr( self, f'_{prop}', None )
 
 
-    def load_products(self, provenances, session=None, must_find_all=True):
-        """Load the products associated with this image, using a list of provenances.
-
-        Parameters
-        ----------
-        provenances: single Provenance or list of Provenance objects
-            A list to go over, that can contain any number of Provenance objects.
-            Will search the database for matching objects to each provenance in turn,
-            and will assign them into "self" if found.
-            Note that it will keep the first successfully loaded product on the provenance list.
-            Will overwrite any existing products on the Image.
-            Will ignore provenances that do not match any of the products
-            (e.g., provenances for a different processing step).
-        session: SQLAlchemy session, optional
-            The session to use for the database queries.
-            If not provided, will open a session internally
-            and close it when the function exits.
-
-        """
-        raise RuntimeError( "Don't use this, data products are in DataStore" )
-
-
     def get_upstream_provenances(self):
         """Collect the provenances for all upstream objects.
 
@@ -1554,84 +1396,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         provids = [ i.provenance_id for i in upstream_objs ]
         provs = Provenance.get_batch( provids )
         return provs
-
-    def get_upstream_products_for_alignment( self, myprov=None, session=None ):
-        """Return everything needed from upstream images in order to perform alignment.
-
-        Parameters
-        ----------
-          myprov: Provenance, or None
-            Here so that you can work with a provenance not yet loaded
-            into the database.  If this is None, will load the
-            provenance defined by self.provenance_id.
-
-        Returns
-        -------
-          images: list, sourceses: dict, bgs: dict, psfs: dict, wcses: dict, zps: dict
-            image is a list of Image objects
-            sourceses is a list of SourceImage objects, keyed by image_id
-            bgs is a list of Background objects, keyed by sources_id
-            psfs is a list of PSF objects, keyed by sources_id
-            wcses is a list of WorldCorodinates objects, keyed by sources_id
-            zps is a list of ZeroPoint objects, keyed by sources_id
-
-        """
-        raise RuntimeError( "I don't think this actually used." )
-        images = []
-        sourceses = []
-        bgs = []
-        psfs = []
-        wcses = []
-        zps = []
-
-        if myprov is None:
-            myprov = Provenance.get( self.provenance_id )
-        upstrprov = myprov.get_upstreams()
-        upstrprovids = [ i.id for i in upstrprov ]
-
-        with SmartSession( session ) as session:
-            images = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
-
-            # Upstream images first
-            upstrimages = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
-
-            # Get all of the other falderal associated with those images
-            upstrsources = ( session.query( SourceList )
-                             .filter( SourceList.image_id ).in_( self.upstream_image_ids )
-                             .filter( SourceList.provenance_id ).in_( upstrprovids )
-                             .all() )
-            upstrsrcids = [ s.id for s in upstrsources ]
-
-            upstrbkgs = session.query( Background ).filter( Background.sources_id.in_( upstrsrcids ) ).all()
-            upstrpsfs = session.query( PSF ).filter( PSF.sources_id.in_( upstsrsrcids ) ).all()
-            upstrwcses = session.query( WorldCoordinate ).filter( WorldCoordinates.sources_id.in_( upstrsrcids ) ).all()
-            upstrzps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( upstrsrcids ) ).all()
-
-        # Verify cleanliness
-        upstrsrc_imageids = [ s.image_id for s in upstrsrcids ]
-        if len( set( upstrsrc_imageids ) ) != len( upstrsrc_imageids ):
-            raise RuntimeError( "Image.get_upstream_products_for_alignment found multiple matching "
-                                "SourceLists for at least some upstream images." )
-        if len( upstrsrc_imageids ) != len( upstrimages ):
-            raise RuntimeError( "Image.get_upstream_products_for_alignment didn't find a SourceList "
-                                "for every upstream image." )
-
-        for other in [ upstrbkgs, upstrpsfs, upstrwcses, upstrzps ]:
-            other_srcids = [ o.sources_id for o in other ]
-            if len( set( other_srcids ) ) != len( other_srcids ):
-                raise RuntimeError( "Image.get_upstream_products_for_alignment found multiple matching "
-                                    "data products." )
-            if len( other_srcids ) != len( upstrimages ):
-                raise RuntimeError( "Image.get_upstream_products_for_alignment didn't find all "
-                                    "data products for all images." )
-
-        sourceses = { u.image_id: u for u in upstrsources }
-        bgs = { u.sources_id: u for u in upstrbkgs }
-        psfs = { u.sources_id: u for u in upstrpsfs }
-        wcses = { u.sources_id: u for u in upstrscses }
-        zps = { u.sourcers_id: u for u in upstrzps }
-
-        return images, sourceses, bgs, psfs, wcses, zps
 
 
     def get_upstreams(self, only_images=False, session=None):
@@ -2107,30 +1871,58 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     @staticmethod
     def get_image_from_upstreams(images, prov_id=None, session=None):
-        """Finds the combined image that was made from exactly the list of images (with a given provenance). """
+        """Finds the combined image that was made from exactly the list of images (with a given provenance).
+
+        Parameters
+        ----------
+           images: list of Image
+             TODO: allow passing just image ids here as an alternative (since id is all we really need).
+
+           prov_id: str
+
+        """
+
+        if ( prov_id is not None ) and ( isinstance( prov_id, Provenance ) ):
+            prov_id = prov.id
 
         with SmartSession(session) as session:
-            association = image_upstreams_association_table
+            session.execute( sa.text( "DROP TABLE IF EXISTS temp_image_from_upstreams" ) )
 
-            stmt = ( sa.select(Image)
-                     .join( association, Image._id == association.c.downstream_id )
-                     .where( association.c.upstream_id.in_( [ i.id for i in images ] ) )
-                    ).group_by( Image._id )
+            # First get a list of candidate images that are ones whose upstreams
+            #   include anything in images, plus a count of how many of
+            #   images are in the upstreams.
+            q = ( "SELECT i._id AS imgid, COUNT(a.upstream_id) AS nmatchupstr "
+                  "INTO TEMP TABLE temp_image_from_upstreams "
+                  "FROM images i "
+                  "INNER JOIN image_upstreams_association a ON a.downstream_id=i._id "
+                  "WHERE a.upstream_id IN :imgids " )
+            subdict = { 'imgids': tuple( [ i.id for i in images ] ) }
 
             if prov_id is not None:  # pick only those with the right provenance id
-                if isinstance(prov_id, Provenance):
-                    prov_id = prov_id.id
-                stmt = stmt.where(Image.provenance_id == prov_id)
+                q += "AND i.provenance_id=:provid "
+                subdict[ 'provid' ] = prov_id
 
-            output = session.scalars(stmt).all()
+            q += "GROUP BY i._id "
+            session.execute( sa.text( q ), subdict )
+
+            # Now go through those images and count *all* of the upstreams.
+            # The one (if any) that has len(images) in both the count of
+            # matched upstreams and all upstreams is the one we're looking for.
+            q = ( "SELECT imgid FROM ("
+                  "  SELECT t.imgid, t.nmatchupstr, COUNT(a.upstream_id) AS nupstr "
+                  "  FROM temp_image_from_upstreams t "
+                  "  INNER JOIN image_upstreams_association a ON a.downstream_id=t.imgid "
+                  "  GROUP BY t.imgid, t.nmatchupstr ) subq "
+                  "WHERE nmatchupstr=:num AND nupstr=:num " )
+            output = session.scalars( sa.text(q), { 'num': len(images) } ).all()
+
             if len(output) > 1:
-                raise ValueError(
-                    f"More than one combined image found with provenance ID {prov_id} and upstreams {images}."
-                )
+                raise ValueError( f"More than one combined image found with provenance ID {prov_id} "
+                                  f"and upstreams {images}." )
             elif len(output) == 0:
                 return None
-
-            return output[0]  # should usually return one Image or None
+            else:
+                return Image.get_by_id( output[0], session=session )
 
 
     @property
@@ -2243,27 +2035,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def nanscore(self, value):
         self._nanscore = value
 
-    @property
-    def data_bgsub(self):
-        """The image data, after subtracting the background. If no Background object is loaded, will raise. """
-        raise RuntimeError( "Deprecated" )
-        if self.bg is None:
-            raise ValueError("No background is loaded for this image.")
-        if self.bg.format == 'scalar':
-            return self.data - self.bg.value
-        else:
-            return self.data - self.bg.counts
-
-    @property
-    def nandata_bgsub(self):
-        """The image data, after subtracting the background and masking with NaNs wherever the flag is not zero. """
-        raise RuntimeError( "Deprecated" )
-        # if self.bg is None:
-        #     raise ValueError("No background is loaded for this image.")
-        # if self.bg.format == 'scalar':
-        #     return self.nandata - self.bg.value
-        # else:
-        #     return self.nandata - self.bg.counts
 
     def show(self, **kwargs):
         """

@@ -761,9 +761,9 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         raise RuntimeError( "Don't use provenance, use provenance_id" )
 
 
-if __name__ == '__main__':
-    import os
-    ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    filepath = os.path.join(ROOT_FOLDER, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
-    e = Exposure(filepath)
-    SCLogger.debug(e)
+# if __name__ == '__main__':
+#     import os
+#     ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#     filepath = os.path.join(ROOT_FOLDER, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
+#     e = Exposure(filepath)
+#     SCLogger.debug(e)

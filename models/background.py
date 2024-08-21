@@ -207,13 +207,6 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         self._counts_data = None
         self._var_data = None
 
-    # def __setattr__(self, key, value):
-    #     if key == 'image':
-    #         if value is not None and not isinstance(value, Image):
-    #             raise ValueError(f'Background.image must be an Image object. Got {type(value)} instead. ')
-    #         self._image_shape = value.data.shape
-
-    #     super().__setattr__(key, value)
 
     def subtract_me( self, image ):
         """Subtract this background from an image.
