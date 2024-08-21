@@ -444,6 +444,7 @@ class Provenance(Base):
         """
 
         if Provenance._current_code_version is None:
+            code_version = None
             with SmartSession( session ) as session:
                 code_hash = session.scalars(sa.select(CodeHash).where(CodeHash._id == get_git_hash())).first()
                 if code_hash is not None:
