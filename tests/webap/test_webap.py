@@ -24,23 +24,21 @@ def test_webap( browser, webap_url, decam_datastore ):
     try:
         # Create a new provenance tag, tagging the provenances that are in decam_datastore
         ProvenanceTag.newtag( 'test_webap',
-                              [ ds.exposure.provenance,
-                                ds.image.provenance,
-                                ds.sources.provenance,
-                                ds.reference.provenance,
-                                ds.sub_image.provenance,
-                                ds.detections.provenance,
-                                ds.cutouts.provenance,
-                                ds.measurements[0].provenance ] )
+                              [ ds.exposure.provenance_id,
+                                ds.image.provenance_id,
+                                ds.sources.provenance_id,
+                                ds.reference.provenance_id,
+                                ds.sub_image.provenance_id,
+                                ds.detections.provenance_id,
+                                ds.cutouts.provenance_id,
+                                ds.measurements[0].provenance_id ] )
 
         # Create a throwaway provenance and provenance tag so we can test
         #  things *not* being found
-        with SmartSession() as session:
-            cv = session.query( CodeVersion ).first()
-            junkprov = Provenance( process='no_process', code_version=cv, is_testing=True )
-            session.add( junkprov )
-            session.commit()
-            ProvenanceTag.newtag( 'no_such_tag', [ junkprov ] )
+        cv = Provenance.get_code_version()
+        junkprov = Provenance( process='no_process', code_version_id=cv.id, is_testing=True )
+        junkprov.insert()
+        ProvenanceTag.newtag( 'no_such_tag', [ junkprov ] )
 
         browser.get( webap_url )
         WebDriverWait( browser, timeout=10 ).until(
@@ -101,8 +99,8 @@ def test_webap( browser, webap_url, decam_datastore ):
         assert cols[0].text == 'c4d_230702_080904_ori.fits.fz'
         assert cols[2].text == 'ELAIS-E1'
         assert cols[5].text == '1'    # n_images
-        assert cols[6].text == '172'  # detections
-        assert cols[7].text == '6'    # sources
+        assert cols[6].text == '187'  # detections
+        assert cols[7].text == '8'    # sources
 
         # Try to click on the exposure name, make sure we get the exposure details
         expnamelink = cols[0].find_element( By.TAG_NAME, 'a' )
@@ -114,7 +112,7 @@ def test_webap( browser, webap_url, decam_datastore ):
         tabcontentdiv = browser.find_element( By.XPATH, "html/body/div/div/div/div/div/div/div[2]" )
         imagesdiv = tabcontentdiv.find_element( By.XPATH, "./div/div/div/div[2]/div" )
         assert re.search( r"^Exposure has 1 images and 1 completed subtractions.*"
-                          r"6 out of 172 detections pass preliminary cuts",
+                          r"8 out of 187 detections pass preliminary cuts",
                           imagesdiv.text, re.DOTALL ) is not None
 
 
@@ -140,7 +138,7 @@ def test_webap( browser, webap_url, decam_datastore ):
 
         sourcestab = imagesdiv.find_element( By.TAG_NAME, 'table' )
         rows = sourcestab.find_elements( By.TAG_NAME, 'tr' )
-        assert len(rows) == 7
+        assert len(rows) == 9
         # check stuff about the rows?
 
         # There is probably more we should be testing here.  Definitely.

@@ -113,52 +113,52 @@ def exposures():
         haveputinwhere = False
         subdict = {}
         if data['provenancetag'] is None:
-            q = ( 'SELECT e.id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
-                  '       i.id AS imgid, s.id AS subid, sl.id AS slid, sl.num_sources, '
-                  '       COUNT(m.id) AS num_measurements '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
+                  '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
+                  '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
                   'FROM exposures e '
-                  'LEFT JOIN images i ON i.exposure_id=e.id '
+                  'LEFT JOIN images i ON i.exposure_id=e._id '
                   'LEFT JOIN ( '
-                  '  SELECT su.id, ias.upstream_id '
+                  '  SELECT su._id, ias.upstream_id '
                   '  FROM images su '
-                  '  INNER JOIN image_upstreams_association ias ON ias.downstream_id=su.id '
+                  '  INNER JOIN image_upstreams_association ias ON ias.downstream_id=su._id '
                   '  WHERE su.is_sub '
-                  ') s ON s.upstream_id=i.id '
-                  'LEFT JOIN source_lists sl ON sl.image_id=s.id '
-                  'LEFT JOIN cutouts cu ON cu.sources_id=sl.id '
-                  'LEFT JOIN measurements m ON m.cutouts_id=cu.id '
-                  'GROUP BY e.id, i.id, s.id, sl.id '
+                  ') s ON s.upstream_id=i._id '
+                  'LEFT JOIN source_lists sl ON sl.image_id=s._id '
+                  'LEFT JOIN cutouts cu ON cu.sources_id=sl._id '
+                  'LEFT JOIN measurements m ON m.cutouts_id=cu._id '
+                  'GROUP BY e._id, i._id, s._id, sl._id '
                  )
         else:
-            q = ( 'SELECT e.id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
-                  '       i.id AS imgid, s.id AS subid, sl.id AS slid, sl.num_sources, '
-                  '       COUNT(m.id) AS num_measurements '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
+                  '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
+                  '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
                   'FROM exposures e '
                   'LEFT JOIN ( '
-                  '  SELECT im.id, im.exposure_id FROM images im '
+                  '  SELECT im._id, im.exposure_id FROM images im '
                   '  INNER JOIN provenance_tags impt ON impt.provenance_id=im.provenance_id AND impt.tag=%(provtag)s '
-                  ') i ON i.exposure_id=e.id '
+                  ') i ON i.exposure_id=e._id '
                   'LEFT JOIN ( '
-                  '  SELECT su.id, ias.upstream_id FROM images su '
-                  '  INNER JOIN image_upstreams_association ias ON ias.downstream_id=su.id AND su.is_sub '
+                  '  SELECT su._id, ias.upstream_id FROM images su '
+                  '  INNER JOIN image_upstreams_association ias ON ias.downstream_id=su._id AND su.is_sub '
                   '  INNER JOIN provenance_tags supt ON supt.provenance_id=su.provenance_id AND supt.tag=%(provtag)s '
-                  ') s ON s.upstream_id=i.id '
+                  ') s ON s.upstream_id=i._id '
                   'LEFT JOIN ( '
-                  '  SELECT sli.id, sli.image_id, sli.num_sources FROM source_lists sli '
+                  '  SELECT sli._id, sli.image_id, sli.num_sources FROM source_lists sli '
                   '  INNER JOIN provenance_tags slpt ON slpt.provenance_id=sli.provenance_id AND slpt.tag=%(provtag)s '
-                  ') sl ON sl.image_id=s.id '
+                  ') sl ON sl.image_id=s._id '
                   'LEFT JOIN ( '
-                  '  SELECT cu.id, cu.sources_id FROM cutouts cu '
+                  '  SELECT cu._id, cu.sources_id FROM cutouts cu '
                   '  INNER JOIN provenance_tags cupt ON cu.provenance_id=cupt.provenance_id AND cupt.tag=%(provtag)s '
-                  ') c ON c.sources_id=sl.id '
+                  ') c ON c.sources_id=sl._id '
                   'LEFT JOIN ( '
-                  '  SELECT meas.id, meas.cutouts_id FROM measurements meas '
+                  '  SELECT meas._id, meas.cutouts_id FROM measurements meas '
                   '  INNER JOIN provenance_tags mept ON mept.provenance_id=meas.provenance_id AND mept.tag=%(provtag)s '
-                  ') m ON m.cutouts_id=c.id '
+                  ') m ON m.cutouts_id=c._id '
                   'INNER JOIN provenance_tags ept ON ept.provenance_id=e.provenance_id AND ept.tag=%(provtag)s '
-                  'GROUP BY e.id, i.id, s.id, sl.id, sl.num_sources '
+                  'GROUP BY e._id, i._id, s._id, sl._id, sl.num_sources '
                  )
             subdict['provtag'] = data['provenancetag']
         if ( t0 is not None ) or ( t1 is not None ):
@@ -176,37 +176,37 @@ def exposures():
         # Now run a second query to count and sum those things
         # These numbers will be wrong (double-counts) if not filtering on a provenance tag, or if the
         #   provenance tag includes multiple provenances for a given step!
-        q = ( 'SELECT t.id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
               '  COUNT(t.subid) AS num_subs, SUM(t.num_sources) AS num_sources, '
               '  SUM(t.num_measurements) AS num_measurements '
               'INTO TEMP TABLE temp_imgs_2 '
               'FROM temp_imgs t '
-              'GROUP BY t.id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time '
+              'GROUP BY t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time '
              )
 
         cursor.execute( q )
 
         # Run a third query count reports
         subdict = {}
-        q = ( 'SELECT t.id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
               '  t.num_subs, t.num_sources, t.num_measurements, '
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
               'FROM temp_imgs_2 t '
              )
         if data['provenancetag'] is None:
-            q += 'LEFT JOIN reports r ON r.exposure_id=t.id '
+            q += 'LEFT JOIN reports r ON r.exposure_id=t._id '
         else:
             q += ( 'LEFT JOIN ( '
                    '  SELECT re.exposure_id, re.success, re.error_message '
                    '  FROM reports re '
                    '  INNER JOIN provenance_tags rept ON rept.provenance_id=re.provenance_id AND rept.tag=%(provtag)s '
-                   ') r ON r.exposure_id=t.id '
+                   ') r ON r.exposure_id=t._id '
                   )
             subdict['provtag'] = data['provenancetag']
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.
-        q += ( 'GROUP BY t.id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
+        q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
                '  t.num_subs, t.num_sources, t.num_measurements ' )
 
         cursor.execute( q, subdict  )
@@ -226,7 +226,7 @@ def exposures():
 
         slashre = re.compile( '^.*/([^/]+)$' )
         for row in cursor.fetchall():
-            ids.append( row[columns['id']] )
+            ids.append( row[columns['_id']] )
             match = slashre.search( row[columns['filepath']] )
             if match is None:
                 name.append( row[columns['filepath']] )
@@ -283,10 +283,10 @@ def exposure_images( expid, provtag ):
         # bigass query, but it's probably more efficient to use temp tables.
         # Easier to build the queries that way too.
 
-        subdict = { 'expid': int(expid), 'provtag': provtag }
+        subdict = { 'expid': str(expid), 'provtag': provtag }
 
         # Step 1: collect image info into temp_exposure_images
-        q = ( 'SELECT i.id, i.filepath, i.ra, i.dec, i.gallat, i.exposure_id, i.section_id, i.fwhm_estimate, '
+        q = ( 'SELECT i._id, i.filepath, i.ra, i.dec, i.gallat, i.exposure_id, i.section_id, i.fwhm_estimate, '
               '       i.zero_point_estimate, i.lim_mag_estimate, i.bkg_mean_estimate, i.bkg_rms_estimate '
               'INTO TEMP TABLE temp_exposure_images '
               'FROM images i '
@@ -296,46 +296,46 @@ def exposure_images( expid, provtag ):
              )
         #  app.logger.debug( f"exposure_images finding images; query: {cursor.mogrify(q,subdict)}" )
         cursor.execute( q, subdict )
-        cursor.execute( "ALTER TABLE temp_exposure_images ADD PRIMARY KEY(id)" )
+        cursor.execute( "ALTER TABLE temp_exposure_images ADD PRIMARY KEY(_id)" )
         # ****
         # cursor.execute( "SELECT COUNT(*) FROM temp_exposure_images" )
         # app.logger.debug( f"Got {cursor.fetchone()[0]} images" )
         # ****
 
         # Step 2: count measurements by joining temp_exposure_images to many things.
-        q = ( 'SELECT i.id, s.id AS subid, sl.num_sources AS numsources, COUNT(m.id) AS nummeasurements '
+        q = ( 'SELECT i._id, s._id AS subid, sl.num_sources AS numsources, COUNT(m._id) AS nummeasurements '
               'INTO TEMP TABLE temp_exposure_images_counts '
               'FROM temp_exposure_images i '
-              'INNER JOIN image_upstreams_association ias ON ias.upstream_id=i.id '
-              'INNER JOIN images s ON s.is_sub AND s.id=ias.downstream_id '
+              'INNER JOIN image_upstreams_association ias ON ias.upstream_id=i._id '
+              'INNER JOIN images s ON s.is_sub AND s._id=ias.downstream_id '
               'INNER JOIN provenance_tags spt ON spt.provenance_id=s.provenance_id AND spt.tag=%(provtag)s '
               'LEFT JOIN ( '
-              '  SELECT sli.id, sli.image_id, sli.num_sources FROM source_lists sli '
+              '  SELECT sli._id, sli.image_id, sli.num_sources FROM source_lists sli '
               '  INNER JOIN provenance_tags slpt ON slpt.provenance_id=sli.provenance_id AND slpt.tag=%(provtag)s '
-              ') sl ON sl.image_id=s.id '
+              ') sl ON sl.image_id=s._id '
               'LEFT JOIN ('
-              '  SELECT cu.id, cu.sources_id FROM cutouts cu '
+              '  SELECT cu._id, cu.sources_id FROM cutouts cu '
               '  INNER JOIN provenance_tags cupt ON cupt.provenance_id=cu.provenance_id AND cupt.tag=%(provtag)s '
-              ') c ON c.sources_id=sl.id '
+              ') c ON c.sources_id=sl._id '
               'LEFT JOIN ('
-              '  SELECT me.id, me.cutouts_id FROM measurements me '
+              '  SELECT me._id, me.cutouts_id FROM measurements me '
               '  INNER JOIN provenance_tags mept ON mept.provenance_id=me.provenance_id AND mept.tag=%(provtag)s '
-              ') m ON m.cutouts_id=c.id '
-              'GROUP BY i.id, s.id, sl.num_sources '
+              ') m ON m.cutouts_id=c._id '
+              'GROUP BY i._id, s._id, sl.num_sources '
              )
         # app.logger.debug( f"exposure_images counting sources: query {cursor.mogrify(q,subdict)}" )
         cursor.execute( q, subdict )
         # We will get an error here if there are multiple rows for a given image.
         # (Which is good; there shouldn't be multiple rows!  There should only be
         # one (e.g.) source list child of the image for a given provenance tag, etc.)
-        cursor.execute( "ALTER TABLE temp_exposure_images_counts ADD PRIMARY KEY(id)" )
+        cursor.execute( "ALTER TABLE temp_exposure_images_counts ADD PRIMARY KEY(_id)" )
         # ****
         # cursor.execute( "SELECT COUNT(*) FROM temp_exposure_images_counts" )
         # app.logger.debug( f"Got {cursor.fetchone()[0]} rows with counts" )
         # ****
 
         # Step 3: join to the report table.  This one is probably mergeable with step 1.
-        q = ( 'SELECT i.id, r.error_step, r.error_type, r.error_message, r.warnings, '
+        q = ( 'SELECT i._id, r.error_step, r.error_type, r.error_message, r.warnings, '
               '       r.process_memory, r.process_runtime, r.progress_steps_bitflag, r.products_exist_bitflag '
               'INTO TEMP TABLE temp_exposure_images_reports '
               'FROM temp_exposure_images i '
@@ -350,7 +350,7 @@ def exposure_images( expid, provtag ):
         # app.logger.debug( f"exposure_images getting reports; query {cursor.mogrify(q,subdict)}" )
         cursor.execute( q, subdict )
         # Again, we will get an error here if there are multiple rows for a given image
-        cursor.execute( "ALTER TABLE temp_exposure_images_reports ADD PRIMARY KEY(id)" )
+        cursor.execute( "ALTER TABLE temp_exposure_images_reports ADD PRIMARY KEY(_id)" )
         # ****
         # cursor.execute( "SELECT COUNT(*) FROM temp_exposure_images_reports" )
         # app.logger.debug( f"Got {cursor.fetchone()[0]} rows with reports" )
@@ -358,14 +358,14 @@ def exposure_images( expid, provtag ):
 
         cursor.execute( "SELECT t1.*, t2.*, t3.* "
                         "FROM temp_exposure_images t1 "
-                        "LEFT JOIN temp_exposure_images_counts t2 ON t1.id=t2.id "
-                        "LEFT JOIN temp_exposure_images_reports t3 ON t1.id=t3.id "
+                        "LEFT JOIN temp_exposure_images_counts t2 ON t1._id=t2._id "
+                        "LEFT JOIN temp_exposure_images_reports t3 ON t1._id=t3._id "
                         "ORDER BY t1.section_id" )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
         # app.logger.debug( f"exposure_images got {len(rows)} rows from the final query." )
 
-        fields = ( 'id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
+        fields = ( '_id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
                    'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate',
                    'numsources', 'nummeasurements', 'subid',
                    'error_step', 'error_type', 'error_message', 'warnings',
@@ -376,21 +376,23 @@ def exposure_images( expid, provtag ):
                    'name': [] }
 
         for field in fields :
-            retval[ field ] = []
+            rfield = 'id' if field == '_id' else field
+            retval[ rfield ] = []
 
         lastimg = -1
         multiples = set()
         slashre = re.compile( '^.*/([^/]+)$' )
         for row in rows:
-            if row[columns['id']] == lastimg:
+            if row[columns['_id']] == lastimg:
                 multiples.add( row[columns['id']] )
                 continue
-            lastimg = row[columns['id']]
+            lastimg = row[columns['_id']]
 
             match = slashre.search( row[columns['filepath']] )
             retval['name'].append( row[columns['filepath']] if match is None else match.group(1) )
             for field in fields:
-                retval[field].append( row[columns[field]] )
+                rfield = 'id' if field == '_id' else field
+                retval[rfield].append( row[columns[field]] )
 
         if len(multiples) != 0:
             return { 'status': 'error',
@@ -408,11 +410,11 @@ def exposure_images( expid, provtag ):
 
 # **********************************************************************
 
-@app.route( "/png_cutouts_for_sub_image/<int:exporsubid>/<provtag>/<int:issubid>/<int:nomeas>",
+@app.route( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>",
             methods=['GET', 'POST'], strict_slashes=False )
-@app.route( "/png_cutouts_for_sub_image/<int:exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>",
+@app.route( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>",
             methods=['GET', 'POST'], strict_slashes=False )
-@app.route( "/png_cutouts_for_sub_image/<int:exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"
+@app.route( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"
             "<int:limit>/<int:offset>",
             methods=['GET', 'POST'], strict_slashes=False )
 def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None, offset=0 ):
@@ -443,26 +445,26 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
         aperradses = {}
         apercorses = {}
 
-        q = ( 'SELECT s.id AS subid, z.zp, z.dzp, z.aper_cor_radii, z.aper_cors, '
-              '  i.id AS imageid, i.bkg_mean_estimate '
+        q = ( 'SELECT s._id AS subid, z.zp, z.dzp, z.aper_cor_radii, z.aper_cors, '
+              '  i._id AS imageid, i.bkg_mean_estimate '
               'FROM images s '
               )
         if not issubid:
             # If we got an exposure id, make sure only to get subtractions of the requested provenance
             q += 'INNER JOIN provenance_tags spt ON s.provenance_id=spt.provenance_id AND spt.tag=%(provtag)s '
-        q +=  ( 'INNER JOIN image_upstreams_association ias ON ias.downstream_id=s.id '
+        q +=  ( 'INNER JOIN image_upstreams_association ias ON ias.downstream_id=s._id '
                 '   AND s.ref_image_id != ias.upstream_id '
-                'INNER JOIN images i ON ias.upstream_id=i.id '
-                'INNER JOIN source_lists sl ON sl.image_id=i.id '
+                'INNER JOIN images i ON ias.upstream_id=i._id '
+                'INNER JOIN source_lists sl ON sl.image_id=i._id '
                 'INNER JOIN provenance_tags slpt ON sl.provenance_id=slpt.provenance_id AND slpt.tag=%(provtag)s '
-                'INNER JOIN zero_points z ON sl.id=z.sources_id ' )
+                'INNER JOIN zero_points z ON sl._id=z.sources_id ' )
         # (Don't need to check provenance tag of zeropoint since we have a
         # 1:1 relationship between zeropoints and source lists.  Don't need
         # to check image provenance, because there will be a single image id
         # upstream of each sub id.
 
         if issubid:
-            q += 'WHERE s.id=%(subid)s '
+            q += 'WHERE s._id=%(subid)s '
             cursor.execute( q, { 'subid': exporsubid, 'provtag': provtag } )
             cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
             rows = cursor.fetchall()
@@ -485,8 +487,8 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
             apercorses[exporsubid] = rows[0][cols['aper_cors']]
 
         else:
-            q += ( 'INNER JOIN exposures e ON i.exposure_id=e.id '
-                   'WHERE e.id=%(expid)s ORDER BY i.section_id  ' )
+            q += ( 'INNER JOIN exposures e ON i.exposure_id=e._id '
+                   'WHERE e._id=%(expid)s ORDER BY i.section_id  ' )
             # Don't need to verify provenance here, because there's just going to be one expid!
             cursor.execute( q, { 'expid': exporsubid, 'provtag': provtag } )
             cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
@@ -507,12 +509,12 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
         app.logger.debug( f'Got {len(subids)} subtractions.' )
 
         app.logger.debug( f"Getting cutouts files for sub images {subids}" )
-        q = ( 'SELECT c.filepath,s.id AS subimageid,sl.filepath AS sources_path '
+        q = ( 'SELECT c.filepath,s._id AS subimageid,sl.filepath AS sources_path '
               'FROM cutouts c '
               'INNER JOIN provenance_tags cpt ON cpt.provenance_id=c.provenance_id AND cpt.tag=%(provtag)s '
-              'INNER JOIN source_lists sl ON c.sources_id=sl.id '
-              'INNER JOIN images s ON sl.image_id=s.id '
-              'WHERE s.id IN %(subids)s ' )
+              'INNER JOIN source_lists sl ON c.sources_id=sl._id '
+              'INNER JOIN images s ON sl.image_id=s._id '
+              'WHERE s._id IN %(subids)s ' )
         # Don't have to check the source_lists provenance tag because the cutouts provenance
         # tag cut will limit us to a single source_list for each cutouts
         cursor.execute( q, { 'subids': tuple(subids), 'provtag': provtag } )
@@ -525,11 +527,11 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
         app.logger.debug( f"Getting measurements for sub images {subids}" )
         q = ( 'SELECT m.ra AS measra, m.dec AS measdec, m.index_in_sources, m.best_aperture, '
               '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, m.is_fake, '
-              '       s.id AS subid, s.section_id '
+              '       s._id AS subid, s.section_id '
               'FROM cutouts c '
               'INNER JOIN provenance_tags cpt ON cpt.provenance_id=c.provenance_id AND cpt.tag=%(provtag)s '
-              'INNER JOIN source_lists sl ON c.sources_id=sl.id '
-              'INNER JOIN images s ON sl.image_id=s.id '
+              'INNER JOIN source_lists sl ON c.sources_id=sl._id '
+              'INNER JOIN images s ON sl.image_id=s._id '
               'LEFT JOIN '
               '  ( SELECT meas.cutouts_id AS meascutid, meas.index_in_sources, meas.ra, meas.dec, meas.is_bad, '
               '           meas.best_aperture, meas.flux_apertures[meas.best_aperture+1] AS flux, '
@@ -538,11 +540,11 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
               '           obj.name, obj.is_test, obj.is_fake '
               '    FROM measurements meas '
               '    INNER JOIN provenance_tags mpt ON meas.provenance_id=mpt.provenance_id AND mpt.tag=%(provtag)s '
-              '    INNER JOIN objects obj ON meas.object_id=obj.id ' )
+              '    INNER JOIN objects obj ON meas.object_id=obj._id ' )
         if not nomeas:
             q += '    WHERE NOT meas.is_bad '
-        q += ( '   ) AS m ON m.meascutid=c.id '
-               'WHERE s.id IN %(subids)s ' )
+        q += ( '   ) AS m ON m.meascutid=c._id '
+               'WHERE s._id IN %(subids)s ' )
         if data['sortby'] == 'fluxdesc_chip_index':
             q += 'ORDER BY flux DESC NULLS LAST,s.section_id,m.index_in_sources '
         else:
