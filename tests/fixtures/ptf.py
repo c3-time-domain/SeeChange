@@ -4,6 +4,7 @@ import uuid
 import os
 import re
 import shutil
+import base64
 import hashlib
 import requests
 
@@ -487,10 +488,15 @@ def ptf_ref(
     )
     im_prov.insert_if_needed()
 
-    # I'm unhappy with this hardcoded thing at the end... TODO: figure out
-    #   where it comes from!
-    cache_barf = 'u-6uxjb3'
-    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_{cache_barf}'
+    # Copying code from Image.invent_filepath so that
+    #   we know what the filenames will be
+    utag = hashlib.sha256()
+    for id in [ d.image.id for d in ptf_reference_image_datastores ]:
+        utag.update( str(id).encode('utf-8') )
+    utag = base64.b32encode(utag.digest()).decode().lower()
+    utag = f'u-{utag[:6]}'
+
+    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_{utag}'
 
     # this provenance is used for sources, psf, wcs, zp
     sources_prov = Provenance(
@@ -562,8 +568,8 @@ def ptf_ref(
 
         # Check that the filename came out what we expected above
         mtch = re.search( r'_([a-zA-Z0-9\-]+)$', coadd_datastore.image.filepath )
-        if mtch.group(1) != cache_barf:
-            raise ValueError( f"fixture cache error: filepaths end with {mtch.group(1)}, expected {cache_barf}" )
+        if mtch.group(1) != utag:
+            raise ValueError( f"fixture cache error: filepath utag is {mtch.group(1)}, expected {utag}" )
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             # save all products into cache:

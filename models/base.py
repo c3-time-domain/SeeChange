@@ -215,6 +215,11 @@ def SmartSession(*args):
             cursor = dbcon.cursor()
             cursor.execute( "ROLLBACK" )
 
+            # ...even that doesn't seem to be solving the problem.
+            # The solution may end up being moving totally away from
+            # SQLAlchemy and using something that lets us actually
+            # control our database connections.
+
             session.close()
             session.invalidate()
 
