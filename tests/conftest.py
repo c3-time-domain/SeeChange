@@ -20,6 +20,7 @@ from models.base import (
     get_all_database_objects,
     setup_warning_filters
 )
+from models.knownexposure import KnownExposure, PipelineWorker
 from models.provenance import CodeVersion, CodeHash, Provenance
 from models.catalog_excerpt import CatalogExcerpt
 from models.exposure import Exposure
@@ -178,6 +179,10 @@ def pytest_sessionfinish(session, exitstatus):
 
         # remove RefSets, because those won't have been deleted by the provenance cascade
         dbsession.execute(sa.delete(RefSet))
+
+        # remove any residual KnownExposures and PipelineWorkers
+        dbsession.execute( sa.delete( KnownExposure ) )
+        dbsession.execute( sa.delete( PipelineWorker ) )
 
         dbsession.commit()
 

@@ -18,6 +18,8 @@ from selenium.webdriver.remote.webelement import WebElement
 from models.base import SmartSession
 from models.knownexposure import KnownExposure, PipelineWorker
 
+# TODO : write tests for hold/release
+
 def test_conductor_not_logged_in( conductor_url ):
     res = requests.post( f"{conductor_url}/status", verify=False )
     assert res.status_code == 500

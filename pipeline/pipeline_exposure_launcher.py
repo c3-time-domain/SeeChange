@@ -19,7 +19,7 @@ from models.instrument import get_instrument_instance
 # Importing this because otherwise when I try to do something completly
 # unrelated to Object or Measurements, sqlalchemy starts objecting about
 # relationships between those two that aren't defined.
-import models.object
+# import models.object
 
 # Gotta import the instruments we might use before instrument fills up
 # its cache of known instrument instances

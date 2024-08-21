@@ -1480,11 +1480,15 @@ class DataStore:
 
         arguments['provenance_ids'] = provenance_ids
 
+        # SCLogger.debug( f"DataStore calling Reference.get_references with arguments={arguments}" )
+
         refs, imgs = Reference.get_references( **arguments, session=session )
         if len(refs) == 0:
+            # SCLogger.debug( f"DataStore: Reference.get_references returned nothing." )
             self.reference = None
             return None
 
+        # SCLogger.debug( f"DataStore: Reference.get_reference returned {len(refs)} possible references" )
         if ( min_overlap is not None ) and ( min_overlap > 0 ):
             okrefs = []
             for ref, img in zip( refs, imgs ):
@@ -1492,6 +1496,7 @@ class DataStore:
                 if ovfrac >= min_overlap:
                     okrefs.append( ref )
             refs = okrefs
+            # SCLogger.debug( f"DataStore: after min_overlap {min_overlap}, {len(refs)} refs remain" )
 
         if len(refs) > 1:
             # Perhaps this should be an error?  Somebody may not be as

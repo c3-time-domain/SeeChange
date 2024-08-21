@@ -329,7 +329,10 @@ class GetKnownExposures( BaseView ):
             kes = q.all()
         retval= { 'status': 'ok',
                   'knownexposures': [ ke.to_dict() for ke in kes ] }
+        # Add the "id" field that's the same as "_id" for convenience,
+        #   and make the filter the short name
         for ke in retval['knownexposures']:
+            ke['id'] = ke['_id']
             ke['filter'] = get_instrument_instance( ke['instrument'] ).get_short_filter_name( ke['filter'] )
         return retval
 
@@ -337,12 +340,15 @@ class GetKnownExposures( BaseView ):
 
 class HoldReleaseExposures( BaseView ):
     def hold_or_release( self, keids, hold ):
+        # app.logger.info( f"HoldOrReleaseExposures with hold={hold} and keids={keids}" )
         if len( keids ) == 0:
             return { 'status': 'ok', 'held': [], 'missing': [] }
         held = []
         with SmartSession() as session:
             q = session.query( KnownExposure ).filter( KnownExposure._id.in_( keids ) )
-            kes = { i.id : i for i in q.all() }
+            todo = q.all()
+            # app.logger.info( f"HoldOrRelease got {len(todo)} things to {'hold' if hold else 'release'}" )
+            kes = { str(i._id) : i for i in q.all() }
             notfound = []
             for keid in keids:
                 if keid not in kes.keys():
