@@ -28,6 +28,7 @@ import models.decam
 import models.exposure
 
 from util.config import Config
+from util.util import asUUID
 
 class BadUpdaterReturnError(Exception):
     pass
@@ -225,8 +226,8 @@ class RegisterWorker( BaseView ):
 class UnregisterWorker( BaseView ):
     def do_the_things( self, pipelineworker_id ):
         with SmartSession() as session:
-            pipelineworker_id = int(pipelineworker_id)
-            existing = session.query( PipelineWorker ).filter( PipelineWorker.id==pipelineworker_id ).all()
+            pipelineworker_id = asUUID( pipelineworker_id )
+            existing = session.query( PipelineWorker ).filter( PipelineWorker._id==pipelineworker_id ).all()
             if len(existing) == 0:
                 return f"Unknown pipeline worker {pipelineworker_id}", 500
             else:
@@ -241,9 +242,9 @@ class UnregisterWorker( BaseView ):
 
 class WorkerHeartbeat( BaseView ):
     def do_the_things( self, pipelineworker_id ):
-        pipelineworker_id = int( pipelineworker_id )
+        pipelineworker_id = asUUID( pipelineworker_id )
         with SmartSession() as session:
-            existing = session.query( PipelineWorker ).filter( PipelineWorker.id==pipelineworker_id ).all()
+            existing = session.query( PipelineWorker ).filter( PipelineWorker._id==pipelineworker_id ).all()
             if len( existing ) == 0:
                 return f"Unknown pipelineworker {pipelineworker_id}"
             existing = existing[0]
@@ -286,15 +287,15 @@ class RequestExposure( BaseView ):
                 dbcon = session.bind.raw_connection()
                 cursor = dbcon.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
                 cursor.execute( "LOCK TABLE knownexposures" )
-                cursor.execute( "SELECT id, cluster_id FROM knownexposures "
+                cursor.execute( "SELECT _id, cluster_id FROM knownexposures "
                                 "WHERE cluster_id IS NULL AND NOT hold "
                                 "ORDER BY mjd LIMIT 1" )
                 rows = cursor.fetchall()
                 if len(rows) > 0:
-                    knownexp_id = rows[0]['id']
+                    knownexp_id = rows[0]['_id']
                     cursor.execute( "UPDATE knownexposures "
                                     "SET cluster_id=%(cluster_id)s, claim_time=NOW() "
-                                    "WHERE id=%(id)s",
+                                    "WHERE _id=%(id)s",
                                     { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
                     dbcon.commit()
             except Exception as ex:
@@ -340,7 +341,7 @@ class HoldReleaseExposures( BaseView ):
             return { 'status': 'ok', 'held': [], 'missing': [] }
         held = []
         with SmartSession() as session:
-            q = session.query( KnownExposure ).filter( KnownExposure.id.in_( keids ) )
+            q = session.query( KnownExposure ).filter( KnownExposure._id.in_( keids ) )
             kes = { i.id : i for i in q.all() }
             notfound = []
             for keid in keids:
@@ -423,8 +424,8 @@ urls = {
     "/requestexposure/<path:argstr>": RequestExposure,
     "/registerworker": RegisterWorker,
     "/registerworker/<path:argstr>": RegisterWorker,
-    "/workerheartbeat/<int:pipelineworker_id>": WorkerHeartbeat,
-    "/unregisterworker/<int:pipelineworker_id>": UnregisterWorker,
+    "/workerheartbeat/<pipelineworker_id>": WorkerHeartbeat,
+    "/unregisterworker/<pipelineworker_id>": UnregisterWorker,
     "/getworkers": GetWorkers,
     "/getknownexposures": GetKnownExposures,
     "/getknownexposures/<path:argstr>": GetKnownExposures,
