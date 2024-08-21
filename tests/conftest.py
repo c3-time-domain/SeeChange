@@ -309,13 +309,16 @@ def test_config():
 
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
-    with SmartSession() as session:
-        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
-        if cv is None:
-            cv = CodeVersion(id="test_v1.0.0")
-            session.add( cv )
-            cv.update( session=session, commit=True )
-        # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
+    # with SmartSession() as session:
+    #     cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
+    #     if cv is None:
+    #         cv = CodeVersion(id="test_v1.0.0")
+    #         session.add( cv )
+    #         cv.update( session=session, commit=True )
+    #     # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
+    cv = CodeVersion( id="test_v1.0.0" )
+    cv.upsert()
+    cv.update( commit=True )
 
     yield cv
 

@@ -451,6 +451,8 @@ class Provenance(Base):
                                                     .where( CodeVersion._id == code_hash.code_version_id ) ).first()
                 else:
                     code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion._id.desc())).first()
+            if code_version is None:
+                raise RuntimeError( "There is no code_version in the database.  Put one there." )
             Provenance._current_code_version = code_version
 
         return Provenance._current_code_version
