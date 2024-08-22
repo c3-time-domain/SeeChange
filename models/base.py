@@ -443,8 +443,12 @@ class SeeChangeBase:
                 continue
             elif col.name == 'modified':
                 val = datetime.datetime.now( tz=datetime.timezone.utc )
+
             if isinstance( col.type, sqlalchemy.dialects.postgresql.json.JSONB ) and ( val is not None ):
                 val = json.dumps( val )
+            elif isinstance( val, np.ndarray ):
+                val = list( val )
+
             if ( ( ( col.server_default is not None ) and ( col.nullable ) and ( val is None ) )
                  or
                  ( val is not None )
@@ -488,7 +492,9 @@ class SeeChangeBase:
         #  other unintended consequences calling that SQLA function
         #  might have.  Third, now that we've moved defaults to be
         #  database-side defaults, we'll get errors from SQLA if those
-        #  fields aren't filled by trying to do an add.
+        #  fields aren't filled by trying to do an add, whereas we
+        #  should be find with that as the database will just load
+        #  the defaults.
         #
         # In any event, doing this manually dodges any weirdness associated
         #  with objects attached, or not attached, to sessions.
@@ -502,7 +508,7 @@ class SeeChangeBase:
             sess.commit()
 
 
-    def upsert( self, session=None ):
+    def upsert( self, session=None, load_defaults=False ):
         """Insert an object into the database, or update it if it's already there (using _id as the primary key).
 
         Will *not* update self's fields with server default values!
@@ -526,6 +532,11 @@ class SeeChangeBase:
         ----------
           session: SQLAlchemy Session, default None
             Usually you don't want to pass this.
+
+          load_defaults: bool, default False
+            Normally, will *not* update self's fields with server
+            default values.  Set this to True for that to happen.  (This
+            will trigger an additional read from the database.)
 
         """
 
@@ -560,9 +571,17 @@ class SeeChangeBase:
             sess.execute( sa.text( q ), subdict )
             sess.commit()
 
+            if load_defaults:
+                dbobj = self.__class__.get_by_id( self.id, session=sess )
+                for col in sa.inspect( self.__class__ ).c:
+                    if ( ( col.name == 'modified' ) or
+                         ( ( col.server_default is not None ) and ( getattr( self, col.name ) is None ) )
+                        ):
+                        setattr( self, col.name, getattr( dbobj, col.name ) )
+
 
     @classmethod
-    def upsert_list( cls, objects, session=None ):
+    def upsert_list( cls, objects, session=None, load_defaults=False ):
         """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
 
         Do *not* use this with classes that have things like association
@@ -595,6 +614,15 @@ class SeeChangeBase:
                 subdict = { c: v for c, v in zip( cols, values ) }
                 sess.execute( sa.text( q ), subdict )
             sess.commit()
+
+            if load_defaults:
+                for obj in objects:
+                    dbobj = obj.__class__.get_by_id( obj.id, session=sess )
+                    for col in sa.inspect( obj.__class__).c:
+                        if ( ( col.name == 'modified' ) or
+                             ( ( col.server_default is not None ) and ( getattr( obj, col.name ) is None ) )
+                            ):
+                            setattr( obj, col.name, getattr( dbobj, col.name ) )
 
 
     def _delete_from_database( self ):

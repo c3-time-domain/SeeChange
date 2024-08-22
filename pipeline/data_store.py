@@ -1726,10 +1726,12 @@ class DataStore:
 
         It will run an upsert on the database record for all data
         products.  This means that if the object is not in the databse,
-        it will get added.  If it already is in the databse, its fields
-        will be updated with what's in the objects in the DataStore.
-        Most of the time, this should be a null operation, as if we're
-        not inserting, we have all the fields that were already loaded.
+        it will get added.  (In this case, the object is then reloaded
+        back from the database, so that the database-default fields will
+        be filled.)  If it already is in the database, its fields will
+        be updated with what's in the objects in the DataStore.  Most of
+        the time, this should be a null operation, as if we're not
+        inserting, we have all the fields that were already loaded.
         However, it does matter for self.image, as some fields (such as
         background level, fwhm, zp) get set during processes that happen
         after the image's record in the database is first created.
@@ -1860,7 +1862,7 @@ class DataStore:
         # anyway.
         if self.exposure is not None:
             SCLogger.debug( "save_and_commit upserting exposure" )
-            self.exposure.upsert()
+            self.exposure.upsert( load_defaults=True )
             # commits.append( 'exposure' )
             # exposure isn't in the commit bitflag
 
@@ -1869,7 +1871,7 @@ class DataStore:
             if self.exposure is not None:
                 self.image.exposure_id = self.exposure.id
             SCLogger.debug( "save_and_commit upserting image" )
-            self.image.upsert()
+            self.image.upsert( load_defaults=True )
             commits.append( 'image' )
 
         # SourceList
@@ -1877,7 +1879,7 @@ class DataStore:
             if self.image is not None:
                 self.sources.image_id = self.image.id
             SCLogger.debug( "save_and_commit upserting sources" )
-            self.sources.upsert()
+            self.sources.upsert( load_defaults=True )
             commits.append( 'sources' )
 
         # SourceList siblings
@@ -1886,12 +1888,12 @@ class DataStore:
                 if self.sources is not None:
                     setattr( getattr( self, att ), 'sources_id', self.sources.id )
                 SCLogger.debug( f"save_and_commit upserting {att}" )
-                getattr( self, att ).upsert()
+                getattr( self, att ).upsert( load_defaults=True )
                 commits.append( att )
 
         # subtraction Image
         if self.sub_image is not None:
-            self.sub_image.upsert()
+            self.sub_image.upsert( load_defaults=True )
             SCLogger.debug( "save_and_commit upserting sub_image" )
             commits.append( 'sub_image' )
 
@@ -1900,7 +1902,7 @@ class DataStore:
             if self.sub_image is not None:
                 self.detections.sources_id = self.sub_image.id
             SCLogger.debug( "save_and_commit detections" )
-            self.detections.upsert()
+            self.detections.upsert( load_defaults=True )
             commits.append( 'detections' )
 
         # cutouts
@@ -1908,7 +1910,7 @@ class DataStore:
             if self.detections is not None:
                 self.cutouts.detections_id = self.detections.id
             SCLogger.debug( "save_and_commit upserting cutouts" )
-            self.cutouts.upsert()
+            self.cutouts.upsert( load_defaults=True )
             commits.append( 'cutouts' )
 
         # measurements
@@ -1916,7 +1918,7 @@ class DataStore:
             if self.cutouts is not None:
                 for m in self.measurements:
                     m.cutouts_id = self.cutouts.id
-            Measurements.upsert_list( self.measurements )
+            Measurements.upsert_list( self.measurements, load_defaults=True )
             SCLogger.debug( "save_and_commit measurements" )
             commits.append( 'measurements' )
 

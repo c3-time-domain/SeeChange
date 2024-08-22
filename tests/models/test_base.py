@@ -176,6 +176,22 @@ def test_upsert( provenance_base ):
             assert len(multifound) == 2
             assert set( [ i.id for i in multifound ] ) == set( uuidstodel )
 
+        # Now verify that server-side values *do* get updated if we ask for it
+
+        image.upsert( load_defaults=True )
+        assert image.created_at is not None
+        assert image.modified is not None
+        assert image.created_at < image.modified
+        assert image._format == 1
+        assert image.preproc_bitflag == 0
+
+        # Make sure they don't always revert to defaults
+        image._format = 2
+        image.upsert( load_defaults=True )
+        assert image._format == 2
+        found = Image.get_by_id( image.id )
+        assert found._format == 2
+
     finally:
         # Clean up
         with SmartSession() as sess:
