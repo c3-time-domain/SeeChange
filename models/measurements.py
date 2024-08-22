@@ -442,6 +442,11 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         self._zp = None
 
+        # These are server defaults, but we might use them
+        #  before saving and reloading
+        self.best_aperture = -1
+        self.disqualifier_scores = {}
+
         # manually set all properties (columns or not)
         for key, value in kwargs.items():
             if hasattr(self, key):

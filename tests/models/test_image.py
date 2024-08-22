@@ -131,6 +131,36 @@ def test_image_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted
         assert len(upstrs) == 0
 
 
+def test_image_upsert( sim_image1, sim_image2, sim_image_uncommitted ):
+    im = sim_image_uncommitted
+    im.filepath = im.invent_filepath()
+    im.md5sum = uuid.uuid4()
+    im.is_coadd = True
+
+    upstreamids = ( [ sim_image1.id, sim_image2.id ]
+                    if sim_image1.mjd < sim_image2.mjd
+                    else [ sim_image2.id, sim_image1.id ] )
+    im._upstream_ids = [ i for i in upstreamids ]
+    im.insert()
+
+    expectedupstreams = set( upstreamids )
+    expectedupstreams.add( im.exposure_id )
+
+    newim = Image.get_by_id( im.id )
+    assert set( [ i.id for i in newim.get_upstreams( only_images=True ) ] ) == expectedupstreams
+
+    # Make sure that if I upsert, it works without complaining, and the upstreams are still in place
+    oldfmt = newim._format
+    im._format = oldfmt + 1
+    im.upsert()
+    newim = Image.get_by_id( im.id )
+    assert set( [ i.id for i in newim.get_upstreams( only_images=True ) ] ) == expectedupstreams
+    assert newim._format == oldfmt + 1
+
+    im._format = None
+    im.upsert( load_defaults=True )
+    assert im._format == oldfmt + 1
+
 
 def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
     try:

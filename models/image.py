@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm.exc import DetachedInstanceError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CheckConstraint
 
 from astropy.time import Time
@@ -470,7 +470,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # if this_object_session is not None:  # if just loaded, should usually have a session!
         #     self.load_upstream_products(this_object_session)
 
-    def insert( self, verifyupstreams=False, session=None ):
+    def insert( self, session=None ):
         """Add the Image object to the database.
 
         In any events, if there are no exceptions, self.id will be set upon
@@ -484,29 +484,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         Parameters
         ----------
-          verifyupstreams: bool, default False
-            If the object was not inserted into the database, verify that
-            self._upstream_ids is consistent with the image upstreams
-            in the database.  (self._upstream_ids=None is consistent, because
-            that means it will just get loaded later.)
-
           session: SQLAlchemy Session, default None
             Usually you do not want to pass this; it's mostly for other
             upsert etc. methods that cascade to this.
-
-        Returns
-        -------
-          was_inserted: bool
-            True = the image was newly inserted.  False = the object was
-            already in the database.
-
-            If the image was in the database and onlyinsert was True,
-            or if the id of the object in the database didn't match a
-            non-None id of self, an execption will be raised.
-
-
-        Returns True if the image was newly loaded, False if the image
-        was already in the database.
 
         """
 
@@ -522,6 +502,31 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                                                "VALUES (:them,:me)" ),
                                   { "them": ui, "me": self.id } )
                 sess.commit()
+
+
+    def upsert( self, session=None, load_defaults=False ):
+        with SmartSession( session ) as sess:
+            SeeChangeBase.upsert( self, session=sess, load_defaults=load_defaults )
+
+            # We're just going to merrily try to set all the upstream associations and not care
+            #   if we get already existing errors.  Assume that if we get one, we'll get 'em
+            #   all, because somebody else has already loaded all of them.
+            # (I hope that's right.  But, in reality, it's extremely unlikely that two processes
+            # will be trying to upsert the same image at the same time.)
+
+            if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
+                try:
+                    for ui in self._upstream_ids:
+                        sess.execute( sa.text( "INSERT INTO "
+                                               "image_upstreams_association(upstream_id,downstream_id) "
+                                                   "VALUES (:them,:me)" ),
+                                      { "them": ui, "me": self.id } )
+                        sess.commit()
+                except IntegrityError as ex:
+                    if 'duplicate key value violates unique constraint "image_upstreams_association_pkey"' in str(ex):
+                        sess.rollback()
+                    else:
+                        raise
 
 
     def set_corners_from_header_wcs( self, wcs=None, setradec=False ):

@@ -773,10 +773,8 @@ class DataStore:
         """Mark the report as successful and set the finish time."""
         self.report.success = True
         self.report.finish_time = datetime.datetime.utcnow()
-        with SmartSession(session) as session:
-            new_report = session.merge(self.report)
-            session.commit()
-        self.report = new_report
+        self.report.upsert()
+
 
     def get_inputs(self):
         """Get a string with the relevant inputs. """
