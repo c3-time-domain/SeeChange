@@ -205,12 +205,18 @@ def SmartSession(*args):
             #
             # session.execute( sa.text( "ROLLBACK" ) )
             #
-            # NOPE!  That didn't work.  If there was a previous exception,
-            # sqlalchemy catches that before it lets me run session.execute,
-            # saying I gotta rollback before doing anything else.
+            # NOPE!  That didn't work.  If there was a previous
+            # exception, sqlalchemy catches that before it lets me run
+            # session.execute, saying I gotta rollback before doing
+            # anything else.  (There is irony here.)
             #
             # OK, lets try grabbing the connection from the session and
-            # manually rolling back with psycopg2 or whatever is underneath.
+            # manually rolling back with psycopg2 or whatever is
+            # underneath.  I'm not sure this will do what I want either,
+            # because I don't know if session.bind.raw_connection() gets
+            # me the connection that session is using, or if it gets
+            # another connection.  (If the latter, than this code is
+            # wholly gratuitous.)
             dbcon = session.bind.raw_connection()
             cursor = dbcon.cursor()
             cursor.execute( "ROLLBACK" )

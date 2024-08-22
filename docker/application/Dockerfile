@@ -258,7 +258,10 @@ RUN mkdir -p /usr/src/seechange/seechange
 #  docker to be thinking about.  (This step will still get redone a lot
 #  anyway because we will regularly be editing things in the improc,
 #  models, pipeline, and util subdirectories.  Fortunately, it should be
-#  a pretty fast step.)
+#  a pretty fast step.)  (The one is the longest and most wasteful, and
+#  is just there so that the creation of util/githash.py works in
+#  util/Makefile.am.)
+ADD .git /usr/src/seechange/seechange/.git
 ADD configure.ac /usr/src/seechange/seechange/configure.ac
 ADD Makefile.am /usr/src/seechange/seechange/Makefile.am
 ADD requirements.txt /usr/src/seechange/seechange/requirements.txt

@@ -13,8 +13,13 @@ from util.util import get_git_hash
 
 def test_code_versions( code_version ):
     cv = CodeVersion( id="this_code_version_does_not_exist_v0.0.1" )
-    with pytest.raises( RuntimeError, match='CodeVersion must be in the database before running update' ):
-        cv.update()
+    git_hash = get_git_hash()
+
+    # The exception won't be raised if get_git_hash() returns None, because it won't
+    #   have a hash to try to add.  So, only run this test where it might actually pass.
+    if git_hash is not None:
+        with pytest.raises( RuntimeError, match='CodeVersion must be in the database before running update' ):
+            cv.update()
 
     cv = code_version
 
@@ -30,7 +35,6 @@ def test_code_versions( code_version ):
     old_hash = '696093387df591b9253973253756447079cea61d'
     try:
         with SmartSession() as session:
-            git_hash = get_git_hash()
             ch = session.scalars(sa.select(CodeHash).where(CodeHash._id == git_hash)).first()
             cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
             assert cv is not None
