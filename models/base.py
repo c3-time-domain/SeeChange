@@ -217,14 +217,20 @@ def SmartSession(*args):
             # me the connection that session is using, or if it gets
             # another connection.  (If the latter, than this code is
             # wholly gratuitous.)
-            dbcon = session.bind.raw_connection()
-            cursor = dbcon.cursor()
-            cursor.execute( "ROLLBACK" )
+            #
+            # dbcon = session.bind.raw_connection()
+            # cursor = dbcon.cursor()
+            # cursor.execute( "ROLLBACK" )
 
             # ...even that doesn't seem to be solving the problem.
             # The solution may end up being moving totally away from
             # SQLAlchemy and using something that lets us actually
             # control our database connections.
+
+            # OK, another thing to try.  See if expunging all objects
+            # lets me rollback.
+            session.expunge_all()
+            session.rollback()
 
             session.close()
             session.invalidate()

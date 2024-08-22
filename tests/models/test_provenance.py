@@ -42,13 +42,18 @@ def test_code_versions( code_version ):
             cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
             assert cv is not None
             assert cv.id == code_version.id
-            assert cv.code_hashes[0].id == ch.id
+            if git_hash is not None:
+                assert cv.code_hashes[0].id == ch.id
 
             ch2 = session.scalars(sa.select(CodeHash).where(CodeHash._id == old_hash)).first()
             assert ch2 is None
             ch2 = CodeHash( id=old_hash, code_version_id=code_version.id )
             session.add( ch2 )
             session.commit()
+        with SmartSession() as session:
+            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
+            assert ch2.id in [ h.id for h in cv.code_hashes ]
+
     finally:
         # Remove the code hash we added
         with SmartSession() as session:
