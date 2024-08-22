@@ -26,10 +26,13 @@ def test_code_versions( code_version ):
     hashes = cv.get_code_hashes()
     assert set( [ i.id for i in cv.code_hashes ] ) == set( [ i.id for i in hashes ] )
     assert hashes is not None
-    assert len(hashes) == 1
-    assert hashes[0] is not None
-    assert isinstance(hashes[0].id, str)
-    assert len(cv.code_hashes[0].id) == 40
+    if git_hash is not None:
+        # There probably won't be a code_hash at all if get_git_hash didn't work.
+        #   (Certainly not if the tests started with a clean database as they were supposed to.)
+        assert len(hashes) == 1
+        assert hashes[0] is not None
+        assert isinstance(hashes[0].id, str)
+        assert len(cv.code_hashes[0].id) == 40
 
     # add old hash
     old_hash = '696093387df591b9253973253756447079cea61d'
