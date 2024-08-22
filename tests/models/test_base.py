@@ -98,30 +98,88 @@ def test_upsert( provenance_base ):
 
     uuidstodel = [ uuid.uuid4() ]
     try:
-        # Make sure we can insert something new
-        with SmartSession() as sess:
-            assert sess.query( DataFile ).filter( DataFile._id==uuidstodel[0] ).first() is None
-        df = DataFile( _id=uuidstodel[0], filepath="foo", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
-        df.upsert()
-        founddf = DataFile.get_by_id( df.id )
-        assert founddf is not None
-        assert founddf.filepath == df.filepath
-        assert founddf.md5sum == df.md5sum
+        assert Image.get_by_id( uuidstodel[0] ) is None
 
-        # Make sure we can update it
-        origmd5sum = df.md5sum
-        df.md5sum = uuid.uuid4()
-        df.upsert()
-        founddf = DataFile.get_by_id( df.id )
-        assert founddf is not None
-        assert founddf.md5sum == df.md5sum
-        assert founddf.md5sum != origmd5sum
-        assert founddf.modified > founddf.created_at
+        image = Image( _id = uuidstodel[0],
+                       provenance_id = provenance_base.id,
+                       mjd = 60575.474664,
+                       end_mjd = 60575.4750116,
+                       exp_time = 30.,
+                       # instrument = 'DemoInstrument',
+                       telescope = 'DemoTelescope',
+                       project = 'test',
+                       target = 'nothing',
+                       filepath = 'foo/bar.fits',
+                       ra = '23.',
+                       dec = '42.',
+                       ra_corner_00 = 22.5,
+                       ra_corner_01 = 22.5,
+                       ra_corner_10 = 23.5,
+                       ra_corner_11 = 23.5,
+                       dec_corner_00 = 41.5,
+                       dec_corner_01 = 42.5,
+                       dec_corner_10 = 41.5,
+                       dec_corner_11 = 42.5,
+                       minra = 22.5,
+                       maxra = 23.5,
+                       mindec = 41.5,
+                       maxdec = 42.5,
+                       md5sum = uuid.uuid4()       # spoof since we didn't save a file
+                      )
+
+        # Make sure the database yells at us if a required column is missing
+
+        with pytest.raises( IntegrityError, match='null value in column "instrument".*violates not-null' ):
+            image.upsert()
+
+        # == Make sure we can insert a thing == a
+        image.instrument = 'DemoInstrument'
+        image.upsert()
+
+        # Object didn't get updated
+        assert image._format is None
+        assert image.preproc_bitflag is None
+        assert image.created_at is None
+        assert image.modified is None
+
+        found = Image.get_by_id( image.id )
+        assert found is not None
+
+        # Check the server side defaults
+        assert found._format == 1
+        assert found.preproc_bitflag == 0
+        assert found.created_at is not None
+        assert found.modified == found.created_at
+
+        # Change something, do an update
+        found.project = 'another_test'
+        found.upsert()
+        refound = Image.get_by_id( image.id )
+        for col in sa.inspect( Image ).c:
+            if col.name == 'modified':
+                assert refound.modified > found.modified
+            elif col.name == 'project':
+                assert refound.project == 'another_test'
+            else:
+                assert getattr( found, col.name ) == getattr( refound, col.name )
+
+        # Verify that we get a new image and the id is generated if the id starts undefined
+        refound._id = None
+        refound.filepath = 'foo/bar_none.fits'
+
+        refound.upsert()
+        assert refound._id is not None
+        uuidstodel.append( refound._id )
+
+        with SmartSession() as session:
+            multifound = session.query( Image ).filter( Image._id.in_( uuidstodel ) ).all()
+            assert len(multifound) == 2
+            assert set( [ i.id for i in multifound ] ) == set( uuidstodel )
 
     finally:
         # Clean up
         with SmartSession() as sess:
-            sess.execute( sa.delete( DataFile ).where( DataFile._id.in_( uuidstodel ) ) )
+            sess.execute( sa.delete( Image ).where( Image._id.in_( uuidstodel ) ) )
             sess.commit()
 
 # TODO : test test_upsert_list when one of the object properties is a SQL array.

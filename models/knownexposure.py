@@ -87,6 +87,8 @@ class PipelineWorker(Base, UUIDMixin):
 
     cluster_id = sa.Column( sa.Text, nullable=False, doc="Cluster where the worker is running" )
     node_id = sa.Column( sa.Text, nullable=True, doc="Node where the worker is running" )
-    nexps = sa.Column( sa.SmallInteger, nullable=False, default=1,
+    nexps = sa.Column( sa.SmallInteger,
+                       nullable=False,
+                       server_default=sa.sql.elements.TextClause( '1' ),
                        doc="How many exposures this worker can do at once" )
     lastheartbeat = sa.Column( sa.DateTime, nullable=False, doc="Last time this pipeline worker checked in" )

@@ -99,7 +99,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     best_aperture = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=-1,
+        server_default=sa.sql.elements.TextClause( '-1' ),
         doc="The index of the aperture that was chosen as the best aperture for this measurement. "
             "Set to -1 to select the PSF flux instead of one of the apertures. "
     )
@@ -305,7 +305,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     disqualifier_scores = sa.Column(
         JSONB,
         nullable=False,
-        default={},
+        server_default='{}',
         index=True,
         doc="Values that may disqualify this object, and mark it as not a real source. "
             "This includes all sorts of analytical cuts defined by the provenance parameters. "

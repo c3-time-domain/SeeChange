@@ -20,7 +20,7 @@ class CalibratorFile(Base, UUIDMixin):
         sa.SMALLINT,
         nullable=False,
         index=True,
-        default=CalibratorTypeConverter.convert( 'unknown' ),
+        server_default=sa.sql.elements.TextClause(str(CalibratorTypeConverter.convert( 'unknown' )) ) ,
         doc="Type of calibrator (Dark, Flat, Linearity, etc.)"
     )
 
@@ -40,7 +40,7 @@ class CalibratorFile(Base, UUIDMixin):
         sa.SMALLINT,
         nullable=False,
         index=True,
-        default=CalibratorTypeConverter.convert('unknown'),
+        server_default=sa.sql.elements.TextClause( str(CalibratorTypeConverter.convert('unknown')) ),
         doc="Calibrator set for instrument (unknown, externally_supplied, general, nightly)"
     )
 
@@ -144,7 +144,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
         sa.SMALLINT,
         nullable=False,
         index=True,
-        default=CalibratorTypeConverter.convert( 'unknown' ),
+        server_default=sa.sql.elements.TextClause( str(CalibratorTypeConverter.convert( 'unknown' )) ),
         doc="Type of calibrator (Dark, Flat, Linearity, etc.)"
     )
 
@@ -166,7 +166,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
         sa.SMALLINT,
         nullable=False,
         index=True,
-        default=CalibratorTypeConverter.convert('unknown'),
+        server_default=sa.sql.elements.TextClause( str(CalibratorTypeConverter.convert('unknown')) ),
         doc="Calibrator set for instrument (unknown, externally_supplied, general, nightly)"
     )
 

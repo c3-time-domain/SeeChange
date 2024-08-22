@@ -48,7 +48,7 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=CatalogExcerptFormatConverter.convert('fitsldac'),
+        server_default=sa.sql.elements.TextClause( str(CatalogExcerptFormatConverter.convert('fitsldac')) ),
         doc="Format of the file on disk.  Currently only fitsldac is supported. "
             "Saved as intetger but is converted to string when loaded."
     )
@@ -117,7 +117,7 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
     filters = sa.Column(
         ARRAY(sa.Text, zero_indexes=True),
         nullable=False,
-        default=[],
+        server_default='{}',
         doc=( "Filters covered by the catalog; names of the filters will be "
               "standard for the catalog source, not globally standard." )
     )

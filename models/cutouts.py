@@ -60,7 +60,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=CutoutsFormatConverter.convert('hdf5'),
+        server_default=sa.sql.elements.TextClause( str(CutoutsFormatConverter.convert('hdf5')) ),
         doc="Format of the file on disk. Should be fits, hdf5, csv or npy. "
             "Saved as integer but is converted to string when loaded. "
     )

@@ -52,7 +52,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=SourceListFormatConverter.convert('sextrfits'),
+        server_default=sa.sql.elements.TextClause( str(SourceListFormatConverter.convert('sextrfits')) ),
         doc="Format of the file on disk. Should be sepnpy or sextrfits. "
             "Saved as integer but is converter to string when loaded. "
     )
@@ -80,7 +80,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     aper_rads = sa.Column(
         ARRAY( sa.REAL, zero_indexes=True ),
         nullable=True,
-        default=None,
+        server_default=None,
         index=False,
         doc="Radius of apertures used for aperture photometry in pixels."
     )
@@ -88,7 +88,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     inf_aper_num = sa.Column(
         sa.SMALLINT,
         nullable=True,
-        default=None,
+        server_default=None,
         index=False,
         doc="Which element of aper_rads to use as the 'infinite' aperture; -1 = last one. "
     )
@@ -96,7 +96,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     best_aper_num = sa.Column(
         sa.SMALLINT,
         nullable=True,
-        default=None,
+        server_default=None,
         index=False,
         doc="Which element of aper_rads to use as the 'best' aperture; -1 = use PSF photometry. "
     )

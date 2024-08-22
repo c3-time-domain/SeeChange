@@ -177,7 +177,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     _type = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=ImageTypeConverter.convert('Sci'),
+        server_default=sa.sql.elements.TextClause( str(ImageTypeConverter.convert('Sci')) ),
         index=True,
         doc=(
             "Type of image. One of: Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, "
@@ -202,7 +202,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=ImageFormatConverter.convert('fits'),
+        server_default=sa.sql.elements.TextClause( str(ImageFormatConverter.convert('fits')) ),
         doc="Format of the file on disk. Should be fits or hdf5. "
             "The value is saved as SMALLINT but translated to a string when read. "
     )
@@ -234,7 +234,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     info = sa.Column(
         JSONB,
         nullable=False,
-        default={},
+        server_default='{}',
         doc=(
             "Subset of the raw exposure's header. "
             "Only keep a subset of the keywords, "
@@ -294,7 +294,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     _bitflag = sa.Column(
         sa.BIGINT,
         nullable=False,
-        default=0,
+        server_default=sa.sql.elements.TextClause( '0' ),
         index=True,
         doc='Bitflag for this exposure. Good exposures have a bitflag of 0. '
             'Bad exposures are each bad in their own way (i.e., have different bits set). '

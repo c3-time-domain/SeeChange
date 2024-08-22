@@ -67,7 +67,7 @@ class Report(Base, UUIDMixin):
         sa.Boolean,
         nullable=False,
         index=True,
-        default=False,
+        server_default='false',
         doc=(
             "Whether the processing of this section was successful. "
         )
@@ -76,7 +76,7 @@ class Report(Base, UUIDMixin):
     num_prev_reports = sa.Column(
         sa.Integer,
         nullable=False,
-        default=0,
+        server_default=sa.sql.elements.TextClause( '0' ),
         doc=(
             "Number of previous reports for this exposure, section, and provenance. "
         )
@@ -142,7 +142,7 @@ class Report(Base, UUIDMixin):
     process_memory = sa.Column(
         JSONB,
         nullable=False,
-        default={},
+        server_default='{}',
         doc='Memory usage of the process during processing. '
             'Each key in the dictionary is for a processing step, '
             'and the value is the memory usage in megabytes. '
@@ -151,7 +151,7 @@ class Report(Base, UUIDMixin):
     process_runtime = sa.Column(
         JSONB,
         nullable=False,
-        default={},
+        server_default='{}',
         doc='Runtime of the process during processing. '
             'Each key in the dictionary is for a processing step, '
             'and the value is the runtime in seconds. '
@@ -160,7 +160,7 @@ class Report(Base, UUIDMixin):
     progress_steps_bitflag = sa.Column(
         sa.BIGINT,
         nullable=False,
-        default=0,
+        server_default=sa.sql.elements.TextClause( '0' ),
         index=True,
         doc='Bitflag recording what processing steps have already been applied to this section. '
     )
@@ -186,7 +186,7 @@ class Report(Base, UUIDMixin):
     products_exist_bitflag = sa.Column(
         sa.BIGINT,
         nullable=False,
-        default=0,
+        server_default=sa.sql.elements.TextClause( '0' ),
         index=True,
         doc='Bitflag recording which pipeline products were not None when the pipeline finished. '
     )
@@ -214,7 +214,7 @@ class Report(Base, UUIDMixin):
     products_committed_bitflag = sa.Column(
         sa.BIGINT,
         nullable=False,
-        default=0,
+        server_default=sa.sql.elements.TextClause( '0' ),
         index=True,
         doc='Bitflag recording which pipeline products were not None when the pipeline finished. '
     )

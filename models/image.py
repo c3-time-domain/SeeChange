@@ -86,7 +86,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=ImageFormatConverter.convert('fits'),
+        server_default=sa.sql.elements.TextClause( str(ImageFormatConverter.convert('fits')) ),
         doc="Format of the file on disk. Should be fits or hdf5. "
     )
 
@@ -152,7 +152,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     is_sub = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         index=True,
         doc='Is this a subtraction image.'
     )
@@ -160,7 +160,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     is_coadd = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         index=True,
         doc='Is this image made by stacking multiple images.'
     )
@@ -168,7 +168,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     _type = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=ImageTypeConverter.convert('Sci'),
+        server_default=sa.sql.elements.TextClause( str(ImageTypeConverter.convert('Sci')) ),
         index=True,
         doc=(
             "Type of image. One of: [Sci, Diff, Bias, Dark, DomeFlat, SkyFlat, TwiFlat, Warped] "
@@ -205,7 +205,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     info = sa.Column(
         JSONB,
         nullable=False,
-        default={},
+        server_default='{}',
         doc=(
             "Additional information on the this image. "
             "Only keep a subset of the header keywords, "
@@ -304,7 +304,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     preproc_bitflag = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=0,
+        server_default=sa.sql.elements.TextClause( '0' ),
         index=False,
         doc='Bitflag specifying which preprocessing steps have been completed for the image.'
     )
@@ -321,7 +321,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     astro_cal_done = sa.Column(
         sa.BOOLEAN,
         nullable=False,
-        default=False,
+        server_default='false',
         index=False,
         doc=( 'Has a WCS been solved for this image.  This should be set to true after astro_cal '
               'has been run, or for images (like subtractions) that are derived from other images '
@@ -333,7 +333,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     sky_sub_done = sa.Column(
         sa.BOOLEAN,
         nullable=False,
-        default=False,
+        server_default='false',
         index=False,
         doc='Has the sky been subtracted from this image. '
     )
@@ -434,6 +434,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._instrument_object = None
         self._bitflag = 0
         self.is_sub = False
+        self.is_coadd = False
+        self.astro_cal_done = False
+        self.photo_cal_done = False
 
         if 'header' in kwargs:
             kwargs['_header'] = kwargs.pop('header')
@@ -508,31 +511,17 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         """
 
         with SmartSession( session ) as sess:
-            try:
-                # Lock both the images and image_upstreams_association tables to avoid race
-                #   conditions with another process trying to insert the same image.
-                self._get_table_lock( sess )
-                if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
-                    self._get_table_lock( sess, 'image_upstreams_association' )
+            # Insert the image.  If this raises an exception (because the image already exists),
+            # then we won't futz with the image_upstreams_association table.
+            SeeChangeBase.insert( self, session=sess )
 
-                # This will raise an exception if the image is already present; in that case,
-                #   the upstream associations should also already be present (loaded by whoever
-                #   loaded the image), so it's fine to just error out.
-                UUIDMixin.insert( self, session=sess )
-
-                if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
-                    for ui in self._upstream_ids:
-                        sess.execute( sa.text( "INSERT INTO "
-                                               "image_upstreams_association(upstream_id,downstream_id) "
-                                                   "VALUES (:them,:me)" ),
-                                      { "them": ui, "me": self.id } )
-                    # SCLogger.debug( "Image.insert comitting" )
-                    sess.commit()
-
-            finally:
-                # Make sure the table locks are released
-                # SCLogger.debug( "Image.insert rolling back" )
-                sess.rollback()
+            if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
+                for ui in self._upstream_ids:
+                    sess.execute( sa.text( "INSERT INTO "
+                                           "image_upstreams_association(upstream_id,downstream_id) "
+                                               "VALUES (:them,:me)" ),
+                                  { "them": ui, "me": self.id } )
+                sess.commit()
 
 
     def set_corners_from_header_wcs( self, wcs=None, setradec=False ):

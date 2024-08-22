@@ -44,7 +44,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=PSFFormatConverter.convert('psfex'),
+        server_default=sa.sql.elements.TextClause( str(PSFFormatConverter.convert('psfex')) ),
         doc='Format of the PSF file.  Currently only supports psfex.'
     )
 

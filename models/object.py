@@ -37,14 +37,14 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
     is_test = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         doc='Boolean flag to indicate if the object is a test object created during testing. '
     )
 
     is_fake = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         doc='Boolean flag to indicate if the object is a fake object that has been artificially injected. '
     )
 

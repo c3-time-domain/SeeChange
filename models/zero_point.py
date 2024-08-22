@@ -40,7 +40,7 @@ class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
     aper_cor_radii = sa.Column(
         ARRAY( sa.REAL, zero_indexes=True ),
         nullable=True,
-        default=None,
+        server_default=None,
         index=False,
         doc="Pixel radii of apertures whose aperture corrections are in aper_cors."
     )
@@ -48,7 +48,7 @@ class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
     aper_cors = sa.Column(
         ARRAY( sa.REAL, zero_indexes=True ),
         nullable=True,
-        default=None,
+        server_default=None,
         index=False,
         doc=( "Aperture corrections for apertures with radii in aper_cor_radii.  Defined so that "
               "mag = -2.5*log10(adu_aper) + zp + aper_cor, where adu_aper is the number of ADU "

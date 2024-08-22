@@ -17,8 +17,8 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 
 import sqlalchemy as sa
+import sqlalchemy.dialects.postgresql
 from sqlalchemy import func, orm
-
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
@@ -434,105 +434,83 @@ class SeeChangeBase:
             raise RuntimeError( f"Repeated failures getting lock on {tablename}." )
 
 
-    @classmethod
-    def upsert_list( cls, objects, session=None ):
-        """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
+    def _get_cols_and_vals_for_insert( self ):
+        cols = []
+        values = []
+        for col in sa.inspect( self.__class__ ).c:
+            val = getattr( self, col.name )
+            if col.name == 'created_at':
+                continue
+            elif col.name == 'modified':
+                val = datetime.datetime.now( tz=datetime.timezone.utc )
+            if isinstance( col.type, sqlalchemy.dialects.postgresql.json.JSONB ) and ( val is not None ):
+                val = json.dumps( val )
+            if ( ( ( col.server_default is not None ) and ( col.nullable ) and ( val is None ) )
+                 or
+                 ( val is not None )
+                ):
+                cols.append( col.name )
+                values.append( val )
+        return cols, values
 
-        Do *not* use this with classes that have things like association
-        tables that need to get updated (i.e. with Image, maybe
-        eventually some others).
 
-        All reference fields (ids of other objects) of the objects must
-        be up to date.  If the referenced objects don't exist in the
-        database already, you'll get integrity errors.
+    def insert( self, session=None ):
+        """Insert the object into the database.
+
+        Does not do any saving to disk, only saves the database record.
+
+        In any event, if there are no exceptions, self.id will be set upon return.
+
+        Will *not* set any unfilled fileds with their defaults.  If you
+        want that, reload the row from the database.
+
+        Depends on the subclass of SeeChangeBase having a column _id in
+        the database, and a property id that accesses that column,
+        autogenerating it if it doesn't exist.
+
+        Parameters
+        ----------
+          session: SQLALchemy Session, or None
+            Usually you do not want to pass this; it's mostly for other
+            upsert etc. methods that cascade to this.
 
         """
 
-        # The debug comments in this function are for debugging database
-        #   deadlocks.  Uncomment them if you're trying to deal with
-        #   that.  Normally they're commented out because they make the
-        #   debug output much more verbose.
+        myid = self.id    # Make sure id is generated
 
-        if not all( [ isinstance( o, cls ) for o in objects ] ):
-            raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
+        # Doing this manually for a few reasons.  First, doing a
+        #  Session.add wasn't always just doing an insert, but was doing
+        #  other things like going to the database and checking if it
+        #  was there and merging, whereas here we want an exception to
+        #  be raised if the row already exists in the database.  Second,
+        #  to work around that, we did orm.make_transient( self ), but
+        #  that wiped out the _id field, and I'm nervous about what
+        #  other unintended consequences calling that SQLA function
+        #  might have.  Third, now that we've moved defaults to be
+        #  database-side defaults, we'll get errors from SQLA if those
+        #  fields aren't filled by trying to do an add.
+        #
+        # In any event, doing this manually dodges any weirdness associated
+        #  with objects attached, or not attached, to sessions.
 
+        cols, values = self._get_cols_and_vals_for_insert()
+        notmod = [ c for c in cols if c != 'modified' ]
+        q = f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (:{",:".join(notmod)}) '
+        subdict = { c: v for c, v in zip( cols, values ) if c != 'modified' }
         with SmartSession( session ) as sess:
-            try:
-                cls._get_table_lock( sess )
-                # Not doing this just with sqlalchemy merge for two reasons.
-                # (1) That generates mysterious errors that induce rage
-                #     against sqlalchemy (e.g. was getting an error about
-                #     created_at being blank, even though it's got a
-                #     default).
-                # (2) A for loop of sqlalchemy merge will, I think, go to the database
-                #     repeatedly, pulling down a copy of each object one at a time
-                #     for merge purposes.  More efficient to pull them all at once.
-                #
-                # I'm hoping that by modifying columns of things pulled
-                # from sqlalchemy and just committing the session will
-                # generate single transaction of a bunch of update
-                # statements, without the need to do selects before the
-                # updates.
-                #
-                # I think this is the case; see
-                # tests/test_base.py::test_upsert_list.  If you want to
-                # see what sql actually gets generated, uncomment the
-                # debug outputs below and run that tests with pytest
-                # --capture=tee-sys.  (For production, leave the
-                # SCLogger.debug statements commented.  Even though
-                # they're debug and won't show up if you haven't set the
-                # log level that high, it's more efficient not to have
-                # gratuitous function calls, and this could be an inner
-                # loop somewhere, plus it holds a database lock.)
+            sess.execute( sa.text( q ), subdict )
+            sess.commit()
 
-                # Figure out which objects are existing, which are new.
-                # Use .id here once to force generation if necessary,
-                # then use _id to bypass one python function call.
-                objids = [ o.id for o in objects ]
-                existing = sess.query( cls ).filter( cls._id.in_( objids ) ).all()
-                existing = { o._id: o for o in existing }
-                updates = [ o for o in objects if o._id in existing.keys() ]
-                news = [ o for o in objects if o._id not in existing.keys() ]
-
-                # Update the existing ones
-                if len(updates) > 0:
-                    for obj in updates:
-                        for col in sa.inspect(obj).mapper.columns.keys():
-                            existingval = getattr( existing[obj._id], col )
-                            objval = getattr( obj, col )
-                            mustreplace = False
-                            if isinstance( existingval, list ):
-                                mustreplace = not all( [ i == j for i, j in zip( existingval, objval ) ] )
-                            else:
-                                mustreplace = ( existingval != objval )
-                            if mustreplace:
-                                setattr( existing[obj._id], col, objval )
-                    SCLogger.debug( "SeeChangeBase.upsert_list committing" )
-                    sess.commit()
-
-                # Insert the new ones.  (We may no longer have the lock at this point,
-                # but it shouldn't matter because uuids will be unique, and if there's
-                # another conflict on another column that is supposed to be unique,
-                # we'd get that conflict in any event.)
-                if len(news) > 0:
-                    for obj in news:
-                        sess.add( obj )
-                    # SCLogger.debug( "SeeChangeBase.upsert_list committing" )
-                    sess.commit()
-            finally:
-                # Make sure the lock is released if something goes wrong
-                # SCLogger.debug( "SeeChangeBase.upsert_list rolling back" )
-                sess.rollback()
 
     def upsert( self, session=None ):
-        """Insert an object into the database, or update it if it's already there.
+        """Insert an object into the database, or update it if it's already there (using _id as the primary key).
+
+        Will *not* update self's fields with server default values!
+        Re-get the database row if you want that.
+
+        Will not attach the object to session if you pass it.
 
         Will assign the object an id if it doesn't alrady have one (in self.id).
-
-        Then looks in the database.  If the object is not yet there,
-        calls the insert method (which will handle things like
-        association tables).  Otherwise, just merges the object to
-        update the object's own fields.
 
         If the object is already there, will NOT update any association
         tables (e.g. the image_upstreams_association table), because we
@@ -551,28 +529,96 @@ class SeeChangeBase:
 
         """
 
-        # The debug comments in this function are for debugging database
-        #   deadlocks.  Uncomment them if you're trying to deal with
-        #   that.  Normally they're commented out because they make the
-        #   debug output much more verbose.
+        # Doing this manually because I don't think SQLAlchemy has a
+        #   clean and direct upsert statement.
+        #
+        # Used to do this with a lock table followed by search followed
+        #   by either an insert or an update.  However, SQLAlchemy
+        #   wans't always closing connections when we told it to.
+        #   Sometimes, rarely and unreproducably, there was a lingering
+        #   connection in a transaction that caused lock tables to fail.
+        #   My hypothesis is that SQLAlchemy is relying on garbage
+        #   collection to *actually* close database connections, and I
+        #   have not found a way to say "no, really, close the
+        #   connection for this session right now".  So, as long as we
+        #   still use SQLAlchemy at all, locking tables is likely to
+        #   cause intermittent problems.
+        #
+        # (Doing this manually also has the added advantage of avoiding
+        #   sqlalchemy "add" and "merge" statements, so we don't have to
+        #   worry about hwatever other side effects those things have.)
 
-        id_ = self.id
-        cls = self.__class__
+        # Make sure that self._id is generated
+        myid = self.id
+        cols, values = self._get_cols_and_vals_for_insert()
+        notmod = [ c for c in cols if c != 'modified' ]
+        q = ( f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (:{",:".join(notmod)}) '
+              f'ON CONFLICT (_id) DO UPDATE SET '
+              f'{",".join( [ f"{c}=:{c}" for c in cols if c!="id" ] )} ')
+        subdict = { c: v for c, v in zip( cols, values ) }
         with SmartSession( session ) as sess:
-            try:
-                self._get_table_lock( sess )
-                if self.__class__.get_by_id( id_, session=sess ) is None:
-                    # SCLogger.debug( f"SeeChangeBase.upsert running self.insert()" )
-                    self.insert( session=sess )
-                else:
-                    # SCLogger.debug( f"SeeChangeBase.upsert running sess.merge" )
-                    sess.merge( self )
-                    # SCLogger.debug( "SeeChangeBase.upsert committing" )
-                    sess.commit()
-            finally:
-                # Make sure to release the lock if anything goes wrong
-                # SCLogger.debug( "SeeChangeBase.upsert rolling back" )
-                sess.rollback()
+            sess.execute( sa.text( q ), subdict )
+            sess.commit()
+
+
+    @classmethod
+    def upsert_list( cls, objects, session=None ):
+        """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
+
+        Do *not* use this with classes that have things like association
+        tables that need to get updated (i.e. with Image, maybe
+        eventually some others).
+
+        All reference fields (ids of other objects) of the objects must
+        be up to date.  If the referenced objects don't exist in the
+        database already, you'll get integrity errors.
+
+        Will update object id fields, but will not update any other
+        object fields with database defaults.  Reload the rows from the
+        table if that's what you need.
+
+        """
+
+        # Doing this manually for the same reasons as in upset()
+
+        if not all( [ isinstance( o, cls ) for o in objects ] ):
+            raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
+
+        with SmartSession( session ) as sess:
+            for obj in objects:
+                myid = obj.id                 #  Make sure _id is generated
+                cols, values = obj._get_cols_and_vals_for_insert()
+                notmod = [ c for c in cols if c != 'modified' ]
+                q = ( f'INSERT INTO {cls.__tablename__}({",".join(notmod)}) VALUES (:{",:".join(notmod)}) '
+                      f'ON CONFLICT (_id) DO UPDATE SET '
+                      f'{",".join( [ f"{c}=:{c}" for c in cols if c!="id" ] )} ')
+                subdict = { c: v for c, v in zip( cols, values ) }
+                sess.execute( sa.text( q ), subdict )
+            sess.commit()
+
+
+    def _delete_from_database( self ):
+        """Remove the object from the database.  Don't call this, call delete_from_disk_and_database.
+
+        This does not remove any associated files (if this is a
+        FileOnDiskMixin) and does not remove the object from the archive.
+
+        Note that if you call this, cascading relationships in the database
+        may well delete other objects.  This shouldn't be a problem if this is
+        called from within SeeChangeBase.delete_from_disk_and_database (the
+        only place it should be called!), because that recurses itself and
+        makes sure to clean up all files and archive files before the database
+        records get deleted.
+
+        """
+
+        with SmartSession() as session:
+            session.execute( sa.text( f"DELETE FROM {self.__tablename__} WHERE _id=:id" ), { 'id': self.id } )
+            session.commit()
+
+        # Look how much easier this is when you don't have to spend a whole bunch of time
+        #  deciding if the object needs to be merged, expunged, etc. to a session
+
 
     def get_upstreams(self, session=None):
         """Get all data products that were directly used to create this object (non-recursive)."""
@@ -991,14 +1037,14 @@ class FileOnDiskMixin:
     md5sum = sa.Column(
         sqlUUID(as_uuid=True),
         nullable=True,
-        default=None,
+        server_default=None,
         doc="md5sum of the file, provided by the archive server"
     )
 
     md5sum_extensions = sa.Column(
         ARRAY(sqlUUID(as_uuid=True), zero_indexes=True),
         nullable=True,
-        default=None,
+        server_default=None,
         doc="md5sum of extension files; must have same number of elements as filepath_extensions"
     )
 
@@ -1574,7 +1620,7 @@ class UUIDMixin:
         sqlUUID,
         primary_key=True,
         index=True,
-        default=uuid.uuid4,
+        default=uuid.uuid4,            # This is the one exception to always using server_default
         doc="Unique identifier for this row",
     )
 
@@ -1620,61 +1666,6 @@ class UUIDMixin:
             objs = sess.query( cls ).filter( cls._id.in_( uuids ) ).all()
         return { o.id: o for o in objs } if return_dict else objs
 
-
-    def insert( self, session=None ):
-        """Insert the object into the database.
-
-        Does not do any saving to disk, only saves the database record.
-
-        In any event, if there are no exceptions, self.id will be set upon return.
-
-        Parameters
-        ----------
-          session: SQLALchemy Session, or None
-            Usually you do not want to pass this; it's mostly for other
-            upsert etc. methods that cascade to this.
-
-        """
-
-        myid = self.id    # Make sure id is generated
-        with SmartSession( session ) as sess:
-            # Have to make sure to insert a "transient" object so that SQLAlchemy will *really* do an insert.
-            # If the object is detached, it does something else, potentially referencing a row that you don't
-            # want to reference because of the objects vestigal connections to how it was read from the database.
-            #
-            # Looking at https://docs.sqlalchemy.org/en/20/orm/session_api.html#sqlalchemy.orm.make_transient
-            # it sounds like make_transient is scary if you have relationships... but we're getting rid of those.
-            #
-            # One side effect of make_transient is that it sets the
-            # primary key to None.  So, put in a SQLAlchemy work-around
-            # to make our SQLAlchemy work-around actually work.  (Rage.)
-            orm.make_transient( self )
-            self._id = myid
-            sess.add( self )
-            sess.commit()
-
-
-    def _delete_from_database( self ):
-        """Remove the object from the database.  Don't call this, call delete_from_disk_and_database.
-
-        This does not remove any associated files (if this is a
-        FileOnDiskMixin) and does not remove the object from the archive.
-
-        Note that if you call this, cascading relationships in the database
-        may well delete other objects.  This shouldn't be a problem if this is
-        called from within SeeChangeBase.delete_from_disk_and_database (the
-        only place it should be called!), because that recurses itself and
-        makes sure to clean up all files and archive files before the database
-        records get deleted.
-
-        """
-
-        with SmartSession() as session:
-            session.execute( sa.text( f"DELETE FROM {self.__tablename__} WHERE _id=:id" ), { 'id': self.id } )
-            session.commit()
-
-        # Look how much easier this is when you don't have to spend a whole bunch of time
-        #  deciding if the object needs to be merged, expunged, etc. to a session
 
 
 class SpatiallyIndexed:
@@ -1786,11 +1777,16 @@ class SpatiallyIndexed:
 class FourCorners:
     """A mixin for tables that have four RA/Dec corners"""
 
-    ra_corner_00 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, low-Dec corner (degrees)" )
-    ra_corner_01 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the low-RA, high-Dec corner (degrees)" )
-    ra_corner_10 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, low-Dec corner (degrees)" )
-    ra_corner_11 = sa.Column( sa.REAL, nullable=False, index=True, doc="RA of the high-RA, high-Dec corner (degrees)" )
-    dec_corner_00 = sa.Column( sa.REAL, nullable=False, index=True, doc="Dec of the low-RA, low-Dec corner (degrees)" )
+    ra_corner_00 = sa.Column( sa.REAL, nullable=False, index=True,
+                              doc="RA of the low-RA, low-Dec corner (degrees)" )
+    ra_corner_01 = sa.Column( sa.REAL, nullable=False, index=True,
+                              doc="RA of the low-RA, high-Dec corner (degrees)" )
+    ra_corner_10 = sa.Column( sa.REAL, nullable=False, index=True,
+                              doc="RA of the high-RA, low-Dec corner (degrees)" )
+    ra_corner_11 = sa.Column( sa.REAL, nullable=False, index=True,
+                              doc="RA of the high-RA, high-Dec corner (degrees)" )
+    dec_corner_00 = sa.Column( sa.REAL, nullable=False, index=True,
+                               doc="Dec of the low-RA, low-Dec corner (degrees)" )
     dec_corner_01 = sa.Column( sa.REAL, nullable=False, index=True,
                                doc="Dec of the low-RA, high-Dec corner (degrees)" )
     dec_corner_10 = sa.Column( sa.REAL, nullable=False, index=True,
@@ -2155,7 +2151,7 @@ class HasBitFlagBadness:
     _bitflag = sa.Column(
         sa.BIGINT,
         nullable=False,
-        default=0,
+        server_default=sa.sql.elements.TextClause( '0' ),
         index=True,
         doc='Bitflag for this object. Good objects have a bitflag of 0. '
             'Bad objects are each bad in their own way (i.e., have different bits set). '
@@ -2169,7 +2165,7 @@ class HasBitFlagBadness:
             return sa.Column(
                 sa.BIGINT,
                 nullable=False,
-                default=0,
+                server_default=sa.sql.elements.TextClause( '0' ),
                 index=True,
                 doc='Bitflag of objects used to generate this object. '
             )

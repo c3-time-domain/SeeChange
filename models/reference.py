@@ -76,7 +76,7 @@ class Reference(Base, UUIDMixin):
     is_bad = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         doc="Whether this reference image is bad. "
     )
 

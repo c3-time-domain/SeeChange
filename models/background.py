@@ -35,7 +35,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
     _format = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=BackgroundFormatConverter.convert('scalar'),
+        server_default=sa.sql.elements.TextClause( str(BackgroundFormatConverter.convert('scalar')) ),
         doc='Format of the Background model. Can include scalar, map, or polynomial. '
     )
 
@@ -55,7 +55,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
     _method = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        default=BackgroundMethodConverter.convert('zero'),
+        server_default=sa.sql.elements.TextClause( str(BackgroundMethodConverter.convert('zero')) ),
         doc='Method used to calculate the background. '
             'Can be an algorithm like "sep", or "zero" for an image that was already background subtracted. ',
     )

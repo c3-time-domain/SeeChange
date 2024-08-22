@@ -251,7 +251,7 @@ class SensorSection(Base, UUIDMixin):
     defective = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         index=True,
         doc='Whether this section is defective (i.e., if True, do not use it!). '
     )

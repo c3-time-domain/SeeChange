@@ -3,6 +3,7 @@ import uuid
 
 import sqlalchemy as sa
 from sqlalchemy.orm.exc import DetachedInstanceError
+from sqlalchemy.exc import IntegrityError
 
 from models.base import SmartSession
 from models.provenance import CodeHash, CodeVersion, Provenance
@@ -12,16 +13,26 @@ from util.util import get_git_hash
 # Note: ProvenanceTag.newtag is tested as part of pipeline/test_pipeline.py::test_provenance_tree
 
 def test_code_versions( code_version ):
-    cv = CodeVersion( id="this_code_version_does_not_exist_v0.0.1" )
+    cv = code_version
     git_hash = get_git_hash()
 
-    # The exception won't be raised if get_git_hash() returns None, because it won't
-    #   have a hash to try to add.  So, only run this test where it might actually pass.
+    # These things won't work if get_git_hash() returns None, because it won't
+    #   have a hash to try to add.  So, only run these tests where they might actually pass.
     if git_hash is not None:
-        with pytest.raises( RuntimeError, match='CodeVersion must be in the database before running update' ):
-            cv.update()
+        # Make sure we can't update a cv that's not yet in the database
+        newcv = CodeVersion( id="this_code_version_does_not_exist_v0.0.1" )
+        with pytest.raises( IntegrityError, match='insert or update on table "code_hashes" violates foreign key' ):
+            newcv.update()
 
-    cv = code_version
+        # Make sure we have a code hash associated with code_version
+        cv.update()
+        with SmartSession() as sess:
+            n1 = sess.query( CodeHash ).count()
+        # Make sure that we can run it again
+        cv.update()
+        with SmartSession() as sess:
+            n2 = sess.query( CodeHash ).count()
+        assert n2 == n1
 
     hashes = cv.get_code_hashes()
     assert set( [ i.id for i in cv.code_hashes ] ) == set( [ i.id for i in hashes ] )
@@ -131,30 +142,26 @@ def test_unique_provenance_hash(code_version):
     )
 
     try:  # cleanup
-        with SmartSession() as session:
-            session.add(p)
-            session.commit()
-            pid = p.id
-            assert pid is not None
-            assert len(p.id) == 20
-            hash = p.id
+        p.insert()
+        pid = p.id
+        assert pid is not None
+        assert len(p.id) == 20
+        hash = p.id
 
-        # start new session
-        with SmartSession() as session:
-            p2 = Provenance(
-                process='test_process',
-                code_version_id=code_version.id,
-                parameters={'test_parameter': parameter},
-                upstreams=[],
-                is_testing=True,
-            )
-            assert p2.id == hash
+        p2 = Provenance(
+            process='test_process',
+            code_version_id=code_version.id,
+            parameters={'test_parameter': parameter},
+            upstreams=[],
+            is_testing=True,
+        )
+        assert p2.id == hash
 
-            with pytest.raises(sa.exc.IntegrityError) as e:
-                session.add(p2)
-                session.commit()
-            assert 'duplicate key value violates unique constraint "provenances_pkey"' in str(e)
-            session.rollback()
+        with pytest.raises(sa.exc.IntegrityError) as e:
+            p2.insert()
+        assert 'duplicate key value violates unique constraint "provenances_pkey"' in str(e)
+
+        p2.insert( _exists_ok=True )
 
     finally:
         if 'pid' in locals():

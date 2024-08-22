@@ -309,20 +309,12 @@ def test_config():
 
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
-    with SmartSession() as session:
-        cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
-        if cv is None:
-            cv = CodeVersion(id="test_v1.0.0")
-            session.add( cv )
-            cv.update( session=session )
-            session.commit()
-        # cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
+    cv = CodeVersion( id="test_v1.0.0" )
+    cv.insert()
 
-    # HACK ALERT
     with SmartSession() as session:
         newcv = session.scalars( sa.select(CodeVersion ) ).first()
         assert newcv is not None
-    # HACK ALERT
 
     yield cv
 
@@ -346,7 +338,7 @@ def provenance_base(code_version):
     yield p
 
     with SmartSession() as session:
-        session.delete(p)
+        session.execute( sa.delete( Provenance ).where( Provenance._id==p.id ) )
         session.commit()
 
 
@@ -364,7 +356,7 @@ def provenance_extra( provenance_base ):
     yield p
 
     with SmartSession() as session:
-        session.delete(p)
+        session.execute( sa.delete( Provenance ).where( Provenance._id==p.id ) )
         session.commit()
 
 

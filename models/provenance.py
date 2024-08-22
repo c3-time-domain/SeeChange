@@ -1,4 +1,5 @@
 import time
+import re
 import json
 import base64
 import hashlib
@@ -78,13 +79,11 @@ class CodeVersion(Base):
             self._code_hashes = self.get_code_hashes()
         return self._code_hashes
 
-    def update(self, commit=True, session=None):
-        """Create a new CodeHash object associated with this CodeVersion using the current git hash."""
+    def update(self, session=None):
+        """Create a new CodeHash object associated with this CodeVersion using the current git hash.
 
-        # The debug comments in this function are for debugging database
-        #   deadlocks.  Uncomment them if you're trying to deal with
-        #   that.  Normally they're commented out because they make the
-        #   debug output much more verbose.
+        Will do nothing if it already exists.
+        """
 
         # NOTE: don't trust "commit"; if it fails to get_git_hash(), it
         # will just quietly return None, and not commit.
@@ -93,27 +92,16 @@ class CodeVersion(Base):
 
         if git_hash is None:
             return  # quietly fail if we can't get the git hash
-        with SmartSession(session) as sess:
-            try:
-                # Lock the code_hashes table to avoid a race condition
-                self._get_table_lock( sess, "code_hashes" )
-                hash_obj = sess.scalars( sa.select(CodeHash)
-                                         .where( CodeHash._id == git_hash )
-                                         .where( CodeHash.code_version_id == self.id )
-                                        ).first()
-                if hash_obj is None:
-                    if commit:
-                        cv = sess.scalars( sa.select(CodeVersion).where( CodeVersion._id==self.id ) ).first()
-                        if cv is None:
-                            raise RuntimeError( 'CodeVersion must be in the database before running update' )
-                        hash_obj = CodeHash( id=git_hash, code_version_id=self.id )
-                        sess.add( hash_obj )
-                        # SCLogger.debug( "CodeVersion.update committing" )
-                        sess.commit()
-            finally:
-                # If something went wrong, make sure the lock goes away
-                # SCLogger.debug( "CodeVersion.update rolling back" )
-                sess.rollback()
+
+        hash_obj = CodeHash( _id=git_hash, code_version_id=self.id )
+        try:
+            hash_obj.insert( session=session )
+        except IntegrityError as ex:
+            if 'duplicate key value violates unique constraint "code_hashes_pkey"' in str(ex):
+                # It's already there, so we don't care.
+                pass
+            else:
+                raise
 
     def get_code_hashes( self, session=None ):
         """Return all CodeHash objects associated with this codeversion"""
@@ -214,14 +202,14 @@ class Provenance(Base):
     parameters = sa.Column(
         JSONB,
         nullable=False,
-        default={},
+        server_default='{}',
         doc="Critical parameters used to generate the underlying data. ",
     )
 
     is_bad = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         doc="Flag to indicate if the provenance is bad and should not be used. ",
     )
 
@@ -234,7 +222,7 @@ class Provenance(Base):
     is_outdated = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         doc="Flag to indicate if the provenance is outdated and should not be used. ",
     )
 
@@ -249,7 +237,7 @@ class Provenance(Base):
     is_testing = sa.Column(
         sa.Boolean,
         nullable=False,
-        default=False,
+        server_default='false',
         doc="Flag to indicate if the provenance is for testing purposes only. ",
     )
 
@@ -462,7 +450,7 @@ class Provenance(Base):
         return Provenance._current_code_version
 
 
-    def insert( self, session=None ):
+    def insert( self, session=None, _exists_ok=False ):
         """Insert the provenance into the database.
 
         Will raise a constraint violation if the provenance ID already exists in the database.
@@ -474,23 +462,29 @@ class Provenance(Base):
 
         """
 
-        # This will raise a unique id constraint violation if the provenance id already exists
-        myid = self.id
         with SmartSession( session ) as sess:
-            if self._upstreams is None:
-                raise RuntimeError( "Can't save provenance, don't know upstreams.  This usually happens "
-                                    "if you try to save one that you loaded from the database.  Use "
-                                    "insert_if_needed() instead of insert()." )
-            # See comment in models/base.py::UUIDMixin.insert
-            orm.make_transient( self )
-            self._id = myid
-            sess.add( self )
-            sess.commit()
-            for upstream in self._upstreams:
-                sess.execute( sa.text( "INSERT INTO provenance_upstreams(upstream_id,downstream_id) "
-                                       "VALUES (:upstream,:me)" ),
-                              { 'me': self.id, 'upstream': upstream.id } )
-            sess.commit()
+            try:
+                SeeChangeBase.insert( self, sess )
+
+                # Should be safe to go ahead and insert into the association table
+                # If the provenance already existed, we will have raised an exceptipn.
+                # If not, somebody else who might try to insert this provenance
+                # will get an exception on the insert() statement above, and so won't
+                # try the following association table inserts.
+
+                upstreams = self._upstreams if self._upstreams is not None else self.get_upstreams( session=sess )
+                if len(upstreams) > 0:
+                    for upstream in upstreams:
+                        sess.execute( sa.text( "INSERT INTO provenance_upstreams(upstream_id,downstream_id) "
+                                               "VALUES (:upstream,:me)" ),
+                                      { 'me': self.id, 'upstream': upstream.id } )
+                    sess.commit()
+            except IntegrityError as ex:
+                if _exists_ok and ( 'duplicate key value violates unique constraint "provenances_pkey"' in str(ex) ):
+                    sess.rollback()
+                else:
+                    raise
+
 
     def insert_if_needed( self, session=None ):
         """Insert the provenance into the database if it's not already there.
@@ -501,24 +495,9 @@ class Provenance(Base):
             Usually you don't want to use this
 
         """
-        # The debug comments in this function are for debugging database
-        #   deadlocks.  Uncomment them if you're trying to deal with
-        #   that.  Normally they're commented out because they make the
-        #   debug output much more verbose.
 
-        with SmartSession( session ) as sess:
-           try:
-               self._get_table_lock( sess )
-               provobj = sess.scalars( sa.select( Provenance ).where( Provenance._id == self.id ) ).first()
-               # There's no need to verify that the provenance is consistent, since Provenance.id is
-               #   a hash of the contents of the provenance.  Insofar as the hashing is unique,
-               #   it *will* be consistent.
-               if provobj is None:
-                   self.insert( session=sess )
-           finally:
-               # Make sure lock is released
-               # SCLogger.debug( "Provenance.insert_if_needed rolling back" )
-               sess.rollback()
+        self.insert( session=session, _exists_ok=True )
+
 
     def get_upstreams( self, session=None ):
         with SmartSession( session ) as sess:
