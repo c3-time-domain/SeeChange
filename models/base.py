@@ -449,12 +449,18 @@ class SeeChangeBase:
             elif isinstance( val, np.ndarray ):
                 val = list( val )
 
-            if ( ( ( col.server_default is not None ) and ( col.nullable ) and ( val is None ) )
-                 or
-                 ( val is not None )
-                ):
+            # In our case, everything nullable has a default of NULL.  So,
+            #   if a nullable column has val at None, it means that we
+            #   know we want it to be None, not that we want the server
+            #   default to overwrite the None.
+            if col.server_default is not None:
+                if ( val is not None ) or ( col.nullable and ( val is None ) ):
+                    cols.append( col.name )
+                    values.append( val )
+            else:
                 cols.append( col.name )
                 values.append( val )
+
         return cols, values
 
 

@@ -2,6 +2,16 @@
 
 TBA
 
+### Database assumptions
+
+If adding new tables, or new columns to existing tables, follow these conventions:
+
+* Each table should have a primary key named `_id`.  (There may be a couple of existing tables that violate this, but new tables should not.)  The model should probably have a property `id` that returns the value of `_id`.  (If your model includes `UUIDMixin`, this just happens.)
+
+* Don't use `default=`, use `server_default=`.  (Reason: so that if we interact with the database outside of the context of SQLAlchmey, the defaults will still apply.)
+
+* Never set a default on a column that is nullable.  If the column is nullable, it should always default to null.  (`models/base.py::SeeChangeBase.insert` et al. (really in `_get_cols_and_vals_for_insert`) make this assumption.)
+
 ### UUIDs as primary keys
 
 If you have asked the question "why are you using UUIDs instead of integers as primary keys", this section is for you.  If you don't care, skip it.

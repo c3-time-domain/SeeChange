@@ -116,6 +116,10 @@ def test_exposure_launcher( conductor_connector,
         for ke in kes:
             ke.exposure_id = None
             ke.upsert()
+
+        # WORRY -- I think this is deleting something that shouldn't get deleted until
+        #  the decam_exposure session fixture cleans up.  Because this test tends to be
+        #  one of the last ones that runs, this hasn't bitten us, but it could.
         exposure.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
 
         # There will also have been a whole bunch of calibrator files.
