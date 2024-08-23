@@ -691,7 +691,7 @@ def ptf_refset(refmaker_factory):
             for ref in refs:
                 session.delete(ref)
 
-        session.delete(refmaker.refset)
+        session.execute( sa.delete( RefSet ).where( RefSet.name == refmaker.refset.name ) )
 
         session.commit()
 

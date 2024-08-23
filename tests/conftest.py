@@ -310,7 +310,12 @@ def test_config():
 @pytest.fixture(scope="session", autouse=True)
 def code_version():
     cv = CodeVersion( id="test_v1.0.0" )
-    cv.insert()
+    # cv.insert()
+    # A test was failing on this line saying test_v1.0.0 already
+    # existed.  This happened on github actions, but *not* locally.  I
+    # can't figure out what's up.  So, for now, work around by just
+    # doing upsert.
+    cv.upsert()
 
     with SmartSession() as session:
         newcv = session.scalars( sa.select(CodeVersion ) ).first()
