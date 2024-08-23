@@ -246,6 +246,8 @@ def test_making_references( ptf_reference_image_datastores ):
     ref = None
     ref5 = None
 
+    refsetstodel = set( name )
+
     try:
         maker = RefMaker(
             maker={
@@ -256,6 +258,7 @@ def test_making_references( ptf_reference_image_datastores ):
                 'end_time': '2010-01-01',
             }
         )
+        refsetstodel.add( maker.pars.name )
         add_test_parameters(maker)  # make sure we have a test parameter on everything
         maker.coadd_pipeline.coadder.pars.test_parameter = uuid.uuid4().hex  # do not load an existing image
 
@@ -284,6 +287,7 @@ def test_making_references( ptf_reference_image_datastores ):
 
         # now try to make a new ref set with a new name
         maker.pars.name = uuid.uuid4().hex
+        refsetstodel.add( maker.pars.name )
         t0 = time.perf_counter()
         ref3 = maker.run(ra=188, dec=4.5, filter='R')
         third_time = time.perf_counter() - t0
@@ -309,6 +313,7 @@ def test_making_references( ptf_reference_image_datastores ):
         # now make the coadd image again with a different parameter for the data production
         maker.coadd_pipeline.coadder.pars.flag_fwhm_factor *= 1.2
         maker.pars.name = uuid.uuid4().hex  # MUST give a new name, otherwise it will not allow the new data parameters
+        refsetstodel.add( maker.pars.name )
         t0 = time.perf_counter()
         ref5 = maker.run(ra=188, dec=4.5, filter='R')
         fifth_time = time.perf_counter() - t0
@@ -330,6 +335,12 @@ def test_making_references( ptf_reference_image_datastores ):
         if ( ref5 is not None ) and ( ref5.image_id is not None ):
             im = Image.get_by_id( ref5.image_id )
             im.delete_from_disk_and_database(remove_downstreams=True)
+
+        # Delete the refsets we made
+
+        with SmartSession() as session:
+            session.execute( sa.delete( RefSet ).where( RefSet.name.in_( refsetstodel ) ) )
+            session.commit()
 
 
 def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
