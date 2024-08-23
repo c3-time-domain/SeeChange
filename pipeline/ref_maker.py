@@ -15,7 +15,7 @@ from models.provenance import Provenance, CodeVersion
 from models.reference import Reference
 from models.exposure import Exposure
 from models.image import Image
-from models.refset import RefSet
+from models.refset import RefSet, refset_provenance_association_table
 
 from util.config import Config
 from util.logger import SCLogger
@@ -385,6 +385,56 @@ class RefMaker:
 
         return session
 
+    def _append_provenance_to_refset_if_appropriate( self, existing, session ):
+        """Used internally by make_refset."""
+
+        if any( [ self.ref_prov.id == e[1].id for e in existing if e is not None ] ):
+            # RefSet and Provenance is already there, we're good
+            self.refset = existing[0][0]
+            return
+
+        else:
+            # RefSet is there, but Provenance isn't
+            if not self.pars.allow_append:
+                raise RuntimeError( f"RefSet {self.pars.name} exists, allow_append is False, "
+                                    f"and provenance {self.ref_prov.id} isn't in that RefSet" )
+
+            # Make sure that the upstreams of the existings are all consistent and
+            # that they are consistent with self.ref_prov.
+            # (TODO : think about this, think about what we really want to require
+            # to be the same for all provenances associated with a refset.)
+            if existing[0][1] is not None:
+                upstrs0 = existing[0][1].get_upstreams( session=session )
+                upstr0hash = Provenance.combined_upstream_hash( upstrs0 )
+                for i in range(1, len(existing) ):
+                    upstrs = existing[i][1].get_upstreams( session=session )
+                    upstrhash = Provenance.combined_upstream_hash( upstrs )
+                    if upstrhash != upstr0hash:
+                        session.rollback()
+                        raise RuntimeError( f"Database integrity error: upstream provenances for "
+                                            r"RefSet {self.pars.name} aren't all the same!" )
+                upstrs = self.ref_prov.get_upstreams( session=session )
+                upstrhash = Provenance.combined_upstream_hash( upstrs )
+                if upstrhash != upstr0hash:
+                    raise RuntimeError( f"Can't append, reference provenance upstreams are not consistent "
+                                        f"with existing provenances in RefSet {self.pars.name}" )
+
+            # Insert the association between the refset and the provenance.  If we get an
+            #   IntegrityError, it just means that there was a race condition and somebody
+            #   else already did what we meant to do, so just be happy and go on with life.
+            try:
+                self.refset = existing[0][0]
+                session.execute( sa.text( "INSERT INTO refset_provenance_association"
+                                            "(provenance_id,refset_id) VALUES(:provid,:refsetid)" ),
+                                   { "provid": self.ref_prov.id, "refsetid": self.refset.id } )
+                session.commit()
+            except IntegrityError:
+                import pdb; pdb.set_trace()
+                pass
+            except Exception:
+                self.refset = None
+                raise
+
     def make_refset(self, session=None):
         """Create or load an existing RefSet with the required name.
 
@@ -392,63 +442,45 @@ class RefMaker:
         possibly append the reference provenance to the list of provenances
         on the RefSet.
         """
-        self.setup_provenances(session=session)
+        self.setup_provenances( session=session )
 
         # first make sure the ref_prov is in the database
         self.ref_prov.insert_if_needed( session=session )
 
-        # now load or create a RefSet if necessary
+        # Just in case we error out, make sure we don't have a misleading refset in there
+        self.refset = None
 
-        if ( self.refset is None ) or ( self.refset.name != self.pars.name ):
-            with SmartSession( session ) as dbsession:
+        # Search the database for an existing provenance
+        assoc = sa.orm.aliased( refset_provenance_association_table )
+        with SmartSession( session ) as dbsession:
+            existing = ( dbsession.query( RefSet, Provenance )
+                         .select_from( RefSet )
+                         .join( assoc, RefSet._id==assoc.c.refset_id, isouter=True )
+                         .join( Provenance, Provenance._id==assoc.c.provenance_id, isouter=True )
+                         .filter( RefSet.name==self.pars.name ) ).all()
+            if len(existing) > 0:
+                # The refset already exists
+                self._append_provenance_to_refset_if_appropriate( existing, dbsession )
+
+            else:
+                # The refset does not exist, so make it
+                self.refset = RefSet( name=self.pars.name )
                 try:
-                    RefSet._get_table_lock( dbsession, 'refsets' )
-                    self.refset = dbsession.scalars(sa.select(RefSet).where(RefSet.name == self.pars.name)).first()
-                    if self.refset is None:
-                        if not self.pars.allow_append:
-                            raise RuntimeError( f'No refset {self.pars.name} found, and allow_append is False' )
-                        # not found any RefSet with this name
-                        self.refset = RefSet(
-                            name=self.pars.name,
-                            description=self.pars.description,
-                        )
-                        self.refset.insert( session=dbsession )
-                    # This next line is because SQLAlchemy, in general, makes no sense and induces rage
-                    dbsession.expunge( self.refset )
-                finally:
-                    # Make sure to release the lock in case we didn't commit a new refset
-                    SCLogger.debug( "make_refset rolling back" )
-                    dbsession.rollback()
+                    self.refset.insert( session=dbsession, nocommit=True )
+                    dbsession.execute( sa.text( "INSERT INTO refset_provenance_association"
+                                                "(provenance_id,refset_id) VALUES(:provid,:refsetid)" ),
+                                       { "provid": self.ref_prov.id, "refsetid": self.refset.id } )
+                    dbsession.commit()
+                except IntegrityError:
+                    # Race condition; somebody else inserted this refset between when we searched for it
+                    #   and now, so fall back to code for dealing with an already-existing refset
+                    existing = ( dbsession.query( RefSet, Provenance )
+                                 .select_from( RefSet )
+                                 .join( assoc, RefSet._id==assoc.c.refset_id, isouter=True )
+                                 .join( Provenance, Provenance._id==assoc.c.provenance_id, isouter=True )
+                                 .filter( RefSet.name==self.pars.name ) ).all()
+                    self._append_provenance_to_refset_if_appropriate( existing, dbsession )
 
-        if self.refset is None:
-            raise RuntimeError(f'Failed to find or create a RefSet with the name "{self.pars.name}"!')
-
-        # Verify that the provenances associatied with the refset all have consistent upstream
-        #   hashes, and that the new ref prov (if it is now) is also consistent.
-
-        uh = None
-        for prov in self.refset.provenances:
-            h = prov.get_combined_upstream_hash()
-            if uh is None:
-                uh = h
-            else:
-                if uh != h:
-                    raise RuntimeError( f"RefSet {self.pars.name} has inconsistent upstream hashes!" )
-        if uh is not None:
-            if self.ref_prov.get_combined_upstream_hash() != uh:
-                raise RuntimeError( f"Found a RefSet with the name {self.pars.name}, "
-                                    f"but it has a different upstream_hash!" )
-
-        # If the provenance is not already on the RefSet, add it (or raise, if allow_append=False)
-        if self.ref_prov.id not in [ p.id for p in self.refset.provenances ]:
-            if self.pars.allow_append:
-                self.refset.append_provenance( self.ref_prov, session=session )
-            else:
-                raise RuntimeError(
-                    f"Found a RefSet with the name \"{self.pars.name}\", but it doesn't include the "
-                    f"right reference provenance!  Use \"allow_append\" parameter to add new provenances "
-                    f"to this RefSet. "
-                )
 
     def run(self, *args, **kwargs):
         """Check if a reference exists for the given coordinates/field ID, and filter, and make it if it is missing.

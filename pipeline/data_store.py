@@ -767,9 +767,9 @@ class DataStore:
 
     def update_report(self, process_step, session=None):
         """Update the report object with the latest results from a processing step that just finished. """
-        self.report = self.report.scan_datastore(self, process_step=process_step, session=session)
+        self.report.scan_datastore( self, process_step=process_step )
 
-    def finalize_report(self, session=None):
+    def finalize_report( self ):
         """Mark the report as successful and set the finish time."""
         self.report.success = True
         self.report.finish_time = datetime.datetime.utcnow()

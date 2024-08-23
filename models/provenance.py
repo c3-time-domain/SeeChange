@@ -400,12 +400,17 @@ class Provenance(Base):
 
         self._id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
+    @classmethod
+    def combined_upstream_hash( self, upstreams ):
+        json_string = json.dumps( [ u.id for u in upstreams ], sort_keys=True)
+        return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
+
+
     def get_combined_upstream_hash(self):
         """Make a single hash from the hashes of the upstreams.
         This is useful for identifying RefSets.
         """
-        json_string = json.dumps( [ u.id for u in self.upstreams ], sort_keys=True)
-        return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
+        return self.__class__.combined_upstream_hash( self.upsterams )
 
 
     # This is a cache.  It won't change in one run, so we can save

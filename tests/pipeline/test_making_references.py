@@ -15,6 +15,8 @@ from models.image import Image
 from models.reference import Reference
 from models.refset import RefSet
 
+from util.util import env_as_bool
+
 
 def add_test_parameters(maker):
     """Utility function to add "test_parameter" to all the underlying objects. """
@@ -66,7 +68,104 @@ def test_finding_references(ptf_ref):
     # instrument and filter filters, test provenance_ids, test skip_bad
 
 
-def test_making_refsets():
+def test_make_refset():
+    provstodel = set()
+    rsname = 'test_making_references.py::test_make_refset'
+
+    try:
+        maker = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] }, coaddition={ 'method': 'zogy' } )
+        assert maker.im_provs is None
+        assert maker.ex_provs is None
+        assert maker.coadd_im_prov is None
+        assert maker.coadd_ex_prov is None
+        assert maker.ref_prov is None
+        assert maker.refset is None
+
+        # Make sure the refset doesn't pre-exist
+        assert RefSet.get_by_name( rsname ) is None
+
+        # Make sure we can create a new refset, and that it sets up the provenances
+        maker.make_refset()
+        assert maker.ref_prov is not None
+        provstodel.add( maker.ref_prov )
+        assert len( maker.im_provs ) > 0
+        assert len( maker.ex_provs ) > 0
+        assert maker.coadd_im_prov is not None
+        assert maker.coadd_ex_prov is not None
+        rs = RefSet.get_by_name( rsname )
+        assert rs is not None
+        assert len( rs.provenances ) == 1
+        assert rs.provenances[0].id == maker.ref_prov.id
+
+        # Make sure that all is well if we try to make the same RefSet all over again
+        newmaker = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] }, coaddition={ 'method': 'zogy' } )
+        assert newmaker.refset is None
+        newmaker.make_refset()
+        assert newmaker.refset.id == maker.refset.id
+        assert newmaker.ref_prov.id == maker.ref_prov.id
+        rs = RefSet.get_by_name( rsname )
+        assert len( rs.provenances ) == 1
+
+        # Make sure that all is well if we try to make the same RefSet all over again even if allow_append is false
+        donothingmaker = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'], 'allow_append': False },
+                                   coaddition={ 'method': 'zogy' } )
+        assert donothingmaker.refset is None
+        donothingmaker.make_refset()
+        assert donothingmaker.refset.id == maker.refset.id
+        assert donothingmaker.ref_prov.id == maker.ref_prov.id
+        rs = RefSet.get_by_name( rsname )
+        assert len( rs.provenances ) == 1
+
+        # Make sure we can't append a new provenance to an existing RefSet if allow_append is False
+        failmaker = RefMaker( maker={ 'name': rsname, 'max_number': 5, 'instruments': ['PTF'], 'allow_append': False },
+                              coaddition={ 'method': 'zogy' } )
+        assert failmaker.refset is None
+        with pytest.raises( RuntimeError, match="RefSet .* exists, allow_append is False, and provenance .* isn't in" ):
+            failmaker.make_refset()
+
+        # Make sure that we can append a new provenance to the same RefSet as long
+        #   as the upstream thingies are consistent.
+        newmaker2 = RefMaker( maker={ 'name': rsname, 'max_number': 5, 'instruments': ['PTF'] },
+                              coaddition={ 'method': 'zogy' } )
+        newmaker2.make_refset()
+        assert newmaker2.refset.id == maker.refset.id
+        assert newmaker2.ref_prov.id != maker.ref_prov.id
+        provstodel.add( newmaker2.ref_prov )
+        assert len( newmaker2.refset.provenances ) == 2
+        rs = RefSet.get_by_name( rsname )
+        assert len( rs.provenances ) == 2
+
+        # Make sure we can't append a new provenance to the same RefSet
+        #   if the upstream thingies are not consistent
+        newmaker3 = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] },
+                              coaddition= { 'coaddition': { 'method': 'naive' } } )
+        with pytest.raises( RuntimeError, match="Can't append, reference provenance upstreams are not consistent" ):
+            newmaker3.make_refset()
+        provstodel.add( newmaker3.ref_prov )
+
+        newmaker4 = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] }, coaddition={ 'method': 'zogy' } )
+        newmaker4.pipeline.extractor.pars.threshold = maker.pipeline.extractor.pars.threshold + 1.
+        with pytest.raises( RuntimeError, match="Can't append, reference provenance upstreams are not consistent" ):
+            newmaker4.make_refset()
+        provstodel.add( newmaker4.ref_prov )
+
+        # TODO : figure out how to test that the race conditions we work
+        #  around in test_make_refset aren't causing problems.  (How to
+        #  do that... I really hate to put contitional 'wait here' code
+        #  in the actual production code for purposes of tests.  Perhaps
+        #  test it repeatedly with multiprocessing to make sure that
+        #  that works?)
+
+    finally:
+        # Clean up the provenances and refset we made
+        with SmartSession() as sess:
+            sess.execute( sa.delete( Provenance )
+                          .where( Provenance._id.in_( [ p.id for p in provstodel ] ) ) )
+            sess.execute( sa.delete( RefSet ).where( RefSet.name==rsname ) )
+            sess.commit()
+
+
+def test_making_refsets_in_run():
     # make a new refset with a new name
     name = uuid.uuid4().hex
     maker = RefMaker(maker={'name': name, 'instruments': ['PTF']})
@@ -79,12 +178,8 @@ def test_making_refsets():
     assert maker.coadd_im_prov is None
     assert maker.coadd_ex_prov is None
 
-    # Make sure we can't create a refset if allow_append is false
+    # Make sure we can create a fresh refset
     maker.pars.allow_append = False
-    with pytest.raises( RuntimeError, match="No refset .* found, and allow_append is False" ):
-        new_ref = maker.run( ra=0, dec=0, filter='R' )
-
-    maker.pars.allow_append = True
     new_ref = maker.run(ra=0, dec=0, filter='R')
     assert new_ref is None  # cannot find a specific reference here
     refset = maker.refset
@@ -107,20 +202,21 @@ def test_making_refsets():
     maker.pars.allow_append = False  # this should prevent us from appending to the existing ref-set
 
     with pytest.raises( RuntimeError,
-                        match="Found a RefSet with the name .*, but it doesn't include the right reference provenance!"
+                        match="RefSet .* exists, allow_append is False, and provenance .* isn't in"
                        ) as e:
         new_ref = maker.run(ra=0, dec=0, filter='R')
-    # Make sure it finds the same refset we're expecting
-    assert maker.refset.id == refset.id
 
     maker.pars.allow_append = True  # now it should be ok
     new_ref = maker.run(ra=0, dec=0, filter='R')
+    # Make sure it finds the same refset we're expecting
+    assert maker.refset.id == refset.id
     assert new_ref is None  # still can't find images there
 
-    assert refset.provenances[0].parameters['min_number'] == min_number
-    assert refset.provenances[1].parameters['min_number'] == min_number + 5
-    assert refset.provenances[0].parameters['max_number'] == max_number
-    assert refset.provenances[1].parameters['max_number'] == max_number
+    assert len( maker.refset.provenances ) == 2
+    assert set( i.parameters['min_number'] for i in maker.refset.provenances ) == { min_number, min_number+5 }
+    assert set( i.parameters['max_number'] for i in maker.refset.provenances ) == { max_number }
+
+    refset = maker.refset
 
     # now try to make a new ref-set with a different name
     name2 = uuid.uuid4().hex
@@ -130,17 +226,21 @@ def test_making_refsets():
 
     refset2 = maker.refset
     assert len(refset2.provenances) == 1
-    assert refset2.provenances[0].id == refset.provenances[1].id  # these ref-sets share the same provenance!
+    # This refset has a provnenace that was also in th eone we made before
+    assert refset2.provenances[0].id in [ i.id for i in refset.provenances ]
 
     # now try to append with different data parameters:
     maker.pipeline.extractor.pars['threshold'] = 3.14
 
-    with pytest.raises(
-            RuntimeError, match='Found a RefSet with the name .*, but it has a different upstream_hash!'
-    ):
+    with pytest.raises( RuntimeError, match="Can't append, reference provenance upstreams are not consistent" ):
         new_ref = maker.run(ra=0, dec=0, filter='R')
 
+    # Clean up
+    with SmartSession() as session:
+        session.execute( sa.delete( RefSet ).where( RefSet.name.in_( [ name, name2 ] ) ) )
+        session.commit()
 
+@pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
 def test_making_references( ptf_reference_image_datastores ):
     name = uuid.uuid4().hex
     ref = None

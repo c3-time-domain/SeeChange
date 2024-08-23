@@ -271,7 +271,7 @@ class Report(Base, UUIDMixin):
     def init_on_load(self):
         SeeChangeBase.init_on_load(self)
 
-    def scan_datastore(self, ds, process_step=None, session=None):
+    def scan_datastore( self, ds, process_step=None ):
         """Go over all the data in a datastore and update the report accordingly.
         Will commit the Report object to the database.
         If there are any exceptions pending on the datastore it will re-raise them.
@@ -294,9 +294,6 @@ class Report(Base, UUIDMixin):
             If not given, will open a session and close it at the end
             of the function.
 
-            NOTE: it may be better not to provide the external session
-            to this function. That way it will only commit this report,
-            and not also save other objects that were pending on the session.
         """
         t0 = time.perf_counter()
         if 'reporting' not in self.process_runtime:
@@ -334,22 +331,13 @@ class Report(Base, UUIDMixin):
                 self.error_message = str(exception)
                 self.error_step = process_step
 
-        with SmartSession(session) as session:
-            new_report = self.commit_to_database(session=session)
+        self.upsert()
 
         self.process_runtime['reporting'] += time.perf_counter() - t0
 
         if exception is not None:
             raise exception
 
-        return new_report
-
-    def commit_to_database(self, session):
-        """Commit this report to the database. """
-        # TODO ROB -- replace this with an upsert
-        new_report = session.merge(self)
-        session.commit()
-        return new_report
 
     @staticmethod
     def read_warnings(process_step, warnings_list):

@@ -458,7 +458,7 @@ class SeeChangeBase:
         return cols, values
 
 
-    def insert( self, session=None ):
+    def insert( self, session=None, nocommit=False ):
         """Insert the object into the database.
 
         Does not do any saving to disk, only saves the database record.
@@ -477,6 +477,13 @@ class SeeChangeBase:
           session: SQLALchemy Session, or None
             Usually you do not want to pass this; it's mostly for other
             upsert etc. methods that cascade to this.
+
+          nocommit: bool, default False
+            If True, run the statement to insert the object, but
+            don't actually commit the database.  Do this if you
+            want the insert to be inside a transaction you've
+            started on session.  It doesn't make sense to use
+            nocommit without passing a session.
 
         """
 
@@ -505,7 +512,8 @@ class SeeChangeBase:
         subdict = { c: v for c, v in zip( cols, values ) if c != 'modified' }
         with SmartSession( session ) as sess:
             sess.execute( sa.text( q ), subdict )
-            sess.commit()
+            if not nocommit:
+                sess.commit()
 
 
     def upsert( self, session=None, load_defaults=False ):

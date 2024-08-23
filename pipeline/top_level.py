@@ -374,7 +374,7 @@ class Pipeline:
 
                     ds.runtimes['save_final'] = time.perf_counter() - t_start
 
-                ds.finalize_report(session)
+                ds.finalize_report()
 
                 return ds
 
