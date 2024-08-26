@@ -391,25 +391,6 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
 
             output_dses.append( ds )
 
-            # imfile, psffile, bgfile = filename.split()
-            # output_images.append(copy_from_cache(Image, cache_dir, imfile + '.image.fits'))
-            # output_images[-1].provenance = prov
-            # # Associate other objects
-            # # BROKEN -- we don't set the provenance properly below!
-            # #   Set the provenance_id to None to explicitly indicate
-            # #   that we're not depending on the proper provenance
-            # #   to happen to have the same id this time around as it
-            # #   did when the cache was written.
-            # output_images[-1].psf = copy_from_cache(PSF, cache_dir, psffile + '.fits')
-            # output_images[-1].psf.image = output_images[-1]
-            # output_images[-1].psf.provenance_id = None
-            # output_images[-1].bg = copy_from_cache(Background, cache_dir, bgfile)
-            # output_images[-1].bg.image = output_images[-1]
-            # output_images[-1].bg.provenance_id = None
-            # output_images[-1].zp = copy_from_cache(ZeroPoint, cache_dir, imfile + '.zp')
-            # output_images[-1].zp.sources_id = None    # This isn't right, but we dont' have what we need
-            # output_images[-1].zp.provenance_id = None
-
     else:
         # no cache available, must regenerate
 
@@ -447,20 +428,6 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
 
     for ds in output_dses:
         ds.delete_everything()
-
-    # must delete these here, as the cleanup for the getfixturevalue() happens after pytest_sessionfinish!
-    # if 'ptf_reference_image_datastores' in locals():
-
-    #     with SmartSession() as session:
-    #         expsrs = ( session.query( Exposure )
-    #                    .filter( Exposure._id.in_( [ d.image.exposure_id for d in ptf_reference_image_datastores ] ) )
-    #                   ).all()
-
-    #     for ds in ptf_reference_image_datastores:
-    #         ds.delete_everything()
-
-    #     for expsr in expsrs:
-    #         expsr.delete_from_disk_and_database()
 
 
 @pytest.fixture
@@ -626,10 +593,6 @@ def ptf_ref(
             session.execute( sa.delete( RefSet ).where( RefSet._id==refset.id ) )
             session.commit()
 
-    # # Clean out the provenance tag that may have been created by the refmaker_factory
-    # with SmartSession() as session:
-    #     session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_ref' } )
-    #     session.commit()
 
 @pytest.fixture
 def ptf_ref_offset(ptf_ref):

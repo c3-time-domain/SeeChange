@@ -177,14 +177,6 @@ class ImageCleanup:
                               { "id": self.image.id } )
                 sess.commit()
             self.image.delete_from_disk_and_database()
-        # except Exception as e:
-        #     if (
-        #             "Can't emit change event for attribute 'Image.md5sum' "
-        #             "- parent object of type <Image> has been garbage collected"
-        #     ) in str(e):
-        #         # no need to worry about md5sum if the underlying Image is already gone
-        #         pass
-        #     warnings.warn(str(e))
         finally:
             pass
 

@@ -559,7 +559,7 @@ class SeeChangeBase:
         #
         # Used to do this with a lock table followed by search followed
         #   by either an insert or an update.  However, SQLAlchemy
-        #   wans't always closing connections when we told it to.
+        #   wasn't always closing connections when we told it to.
         #   Sometimes, rarely and unreproducably, there was a lingering
         #   connection in a transaction that caused lock tables to fail.
         #   My hypothesis is that SQLAlchemy is relying on garbage
@@ -571,7 +571,7 @@ class SeeChangeBase:
         #
         # (Doing this manually also has the added advantage of avoiding
         #   sqlalchemy "add" and "merge" statements, so we don't have to
-        #   worry about hwatever other side effects those things have.)
+        #   worry about whatever other side effects those things have.)
 
         # Make sure that self._id is generated
         myid = self.id
@@ -675,17 +675,6 @@ class SeeChangeBase:
         """
         raise NotImplementedError( f'get_downstreams not implemented for {self.__class__.__name__}' )
 
-    # Don't define _delete_from_database here because of all the
-    # complicated overriding semantics of python (potentially further
-    # confused by SQLAlchemy's declarative_base).  Objects weren't
-    # finding the _delete_from_database defined in UUIDMixin if this was
-    # defined here.
-    #
-    # Classes that don't derive from UUIDMixin need to implement this for themselves.
-    #
-    # def _delete_from_database(self):
-    #     raise NotImplementedError( f"_delete_from_database not implemented for {self.__class__.__name__}" )
-
 
     def delete_from_disk_and_database( self, remove_folders=True, remove_downstreams=True, archive=True ):
         """Delete any data from disk, archive and the database.
@@ -725,8 +714,8 @@ class SeeChangeBase:
         """
 
         if not remove_downstreams:
-            SCLogger.warning( "Setting remove_downstreams to False in delete_from_disk_and_database "
-                              "is probably a bad idea; see docstring." )
+            warnings.warn( "Setting remove_downstreams to False in delete_from_disk_and_database "
+                           "is probably a bad idea; see docstring." )
 
         # Recursively remove downstreams first
 
@@ -1657,7 +1646,9 @@ class UUIDMixin:
     #   when the object is saved to the database, not when the object is created.
     #   It will be None when a new object is created if not explicitly set.
     #   (In practice, often this id will get set by our code when we access the
-    #   id property of a created object before it's saved to the datbase.)
+    #   id property of a created object before it's saved to the datbase, or it will
+    #   be set in our insert/upsert methods, as we only very rarely let SQLAlchemy
+    #   itself actually save anything to the database.)
     _id = sa.Column(
         sqlUUID,
         primary_key=True,
@@ -1716,13 +1707,12 @@ class SpatiallyIndexed:
     # Subclasses of this class must include the following in __table_args__:
     #   sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec))
 
-    # ...this doesn't seem to work the way I want.  What I want is for subclasses to
-    # inherit and run all the __table_args__ from all of their superclasses, but
-    # in practice it doesn't seem to really work that way.  So, we fall back to
-    # the manual solution in the comment above.
-    #
     # @declared_attr
     # def __table_args__( cls ):
+    #     # ...this doesn't seem to work the way I want.  What I want is for subclasses to
+    #     # inherit and run all the __table_args__ from all of their superclasses, but
+    #     # in practice it doesn't seem to really work that way.  So, we fall back to
+    #     # the manual solution in the comment above.
     #     return (
     #         sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
     #     )

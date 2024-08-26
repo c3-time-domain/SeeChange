@@ -132,10 +132,6 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._bitflag = 0
         self._info = None
         self._is_star = None
-        # self.wcs = None
-        # self.zp = None
-        # self.cutouts = None
-        # self.measurements = None
 
         # manually set all properties (columns or not)
         self.set_attributes_from_dict(kwargs)

@@ -132,7 +132,7 @@ class ParsMeasurer(Parameters):
         )
 
         self.do_not_associate = self.add_par(
-            'do_not_association',
+            'do_not_associate',
             False,
             bool,
             'By default, associate_object is called for each measurement, which will commit new '

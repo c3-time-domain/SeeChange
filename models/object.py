@@ -132,7 +132,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
 
         # IN PROGRESS.... MORE THOUGHT REQUIRED
-        # THIS WILL BE DONE IN A FUTURE PR
+        # THIS WILL BE DONE IN A FUTURE PR  (Issue #346)
 
         with SmartSession() as session:
             q = session.query( Measurements, Image.mjd ).filter( Measurements.object_id==self._id )
@@ -430,7 +430,6 @@ o
 #     cfg = config.Config.get()
 #     convention = cfg.value('object_naming_function', '<instrument><yyyy><alpha>')
 #     naming_func = Object.make_naming_function(convention)
-#     # ROB TODO, fix this!
 #     # last_id = Object.get_last_id_for_naming(convention, session=session)
 #     last_id = 666
 

@@ -59,7 +59,7 @@ class DataStore:
 
     Most pipeline tasks take a DataStore as an argument, and return
     another DataStore with updated products.  (Usually it's the same
-    DataSTore object, modified, that is returned.)
+    DataStore object, modified, that is returned.)
 
     To work best, you want the DataStore's provenance tree to be loaded
     with provenances consistent with the parmeters that you will be
@@ -1824,7 +1824,7 @@ class DataStore:
 
                 elif mustsave:
                     try:
-                        SCLogger.debug( f"sand_and_commit saving a {obj.__class__.__name__}" )
+                        SCLogger.debug( f"save_and_commit saving a {obj.__class__.__name__}" )
                         SCLogger.debug( f"self.image={self.image}" )
                         SCLogger.debug( f"self.sources={self.sources}" )
                         basicargs = { 'overwrite': overwrite, 'exists_ok': exists_ok, 'no_archive': no_archive }

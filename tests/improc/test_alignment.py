@@ -186,21 +186,6 @@ def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
             new_image = session.merge(new_image)
             session.commit()
 
-        # should be able to recreate aligned images from scratch
-        # (Can't do this any more since image.aligned_images isn't a
-        # property.  The equivalent would be making a new coadder
-        # with parameters from new_image's provenance and running
-        # it again, which seems a little gratuitous.)
-        # with SmartSession() as session:
-        #     loaded_image = session.scalars(sa.select(Image).where(Image._id == new_image.id)).first()
-        #     assert loaded_image is not None
-        #     assert len(loaded_image.aligned_images) == len(ptf_reference_images)
-        #     assert np.array_equal(loaded_image.aligned_images[-1].data, ptf_reference_images[-1].data_bgsub)
-
-        #     # check that images are aligned properly
-        #     for image in loaded_image.aligned_images:
-        #         check_aligned(image, ref)
-
     finally:
         ImageAligner.cleanup_temp_images()
         # (The aligned datastores should not have been saved to disk or database.)

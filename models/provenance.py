@@ -82,12 +82,9 @@ class CodeVersion(Base):
     def update(self, session=None):
         """Create a new CodeHash object associated with this CodeVersion using the current git hash.
 
-        Will do nothing if it already exists.
+        Will do nothing if it already exists, or if the current git hash can't be determined.
+
         """
-
-        # NOTE: don't trust "commit"; if it fails to get_git_hash(), it
-        # will just quietly return None, and not commit.
-
         git_hash = get_git_hash()
 
         if git_hash is None:
@@ -350,27 +347,6 @@ class Provenance(Base):
             f')>'
         )
 
-    # def __setattr__(self, key, value):
-    #     if key in ['upstreams', 'downstreams']:
-    #         if value is None:
-    #             super().__setattr__(key, [])
-    #         elif isinstance(value, list):
-    #             if not all([isinstance(u, Provenance) for u in value]):
-    #                 raise ValueError(f'{key} must be a list of Provenance objects')
-
-    #             # make sure no duplicate upstreams are added
-    #             hashes = set([u.id for u in value])
-    #             new_list = []
-    #             for p in value:
-    #                 if p.id in hashes:
-    #                     new_list.append(p)
-    #                     hashes.remove(p.id)
-
-    #             super().__setattr__(key, new_list)
-    #         else:
-    #             raise ValueError(f'{key} must be a list of Provenance objects')
-    #     else:
-    #         super().__setattr__(key, value)
 
     @classmethod
     def get( cls, provid, session=None ):
