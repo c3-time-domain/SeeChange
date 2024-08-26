@@ -62,6 +62,22 @@ def extractor(extractor_factory):
 
 
 @pytest.fixture(scope='session')
+def backgrounder_factory(test_config):
+
+    def make_backgrounder():
+        bg = Backgrounder(**test_config.value('extraction.bg'))
+        bg.pars._enforce_no_new_attrs = False
+        bg.pars.test_parameter = bg.pars.add_par(
+            'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
+        )
+        bg.pars._enforce_no_new_attrs = True
+
+        return bg
+
+    return make_backgrounder
+
+
+@pytest.fixture(scope='session')
 def astrometor_factory(test_config):
 
     def make_astrometor():
@@ -80,6 +96,22 @@ def astrometor_factory(test_config):
 @pytest.fixture
 def astrometor(astrometor_factory):
     return astrometor_factory()
+
+
+@pytest.fixture(scope='session')
+def photometor_factory(test_config):
+
+    def make_photometor():
+        photom = PhotCalibrator(**test_config.value('extraction.zp'))
+        photom.pars._enforce_no_new_attrs = False
+        photom.pars.test_parameter = photom.pars.add_par(
+            'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
+        )
+        photom.pars._enforce_no_new_attrs = True
+
+        return photom
+
+    return make_photometor
 
 
 @pytest.fixture(scope='session')
