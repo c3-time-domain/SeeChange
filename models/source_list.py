@@ -13,9 +13,11 @@ from sqlalchemy.schema import UniqueConstraint, CheckConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 
 import astropy.table
+import matplotlib.pyplot as plt
 
 from models.base import Base, SmartSession, UUIDMixin, FileOnDiskMixin, SeeChangeBase, HasBitFlagBadness
 from models.image import Image
+from models.zero_point import ZeroPoint
 from models.enums_and_bitflags import (
     SourceListFormatConverter,
     source_list_badness_inverse,
@@ -448,6 +450,84 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         meanrat = ( rat / ratvar ).sum() / ( 1. / ratvar ).sum()
 
         return -2.5 * np.log10( meanrat )
+
+    def estimate_lim_mag(self, zp=None, aperture=None, savePlot=None, blockPlot=False):
+        """Estimate the 5-sigma limiting magnitude of an image.
+
+        Limiting magnitude is estimated by linearly fitting on magnitude against
+        log(SNR) for sources in an image, and evaluating the magnitude where SNR
+        is equal to 5.
+
+        Parameters:
+        -----------
+        zp : ZeroPoint, optional
+            The zero point of the image. Will try to find the zp in the
+            database if not given.
+
+        aperture : int, optional
+            The aperture size for which the limiting magnitude is to be estimated.
+            If None (default), will use self.best_aper_num
+
+        savePlot : str, optional
+            If given, will save the SNR vs magnitude plot as X in the plots
+            folder, where X is the passed string. Remember a file extension.
+            If not given, no plot will be made.
+
+        blockPlot : bool, optional
+            If True, will show plot and pause tests until plot window is closed.
+
+        Returns:
+        --------
+        limMagEst : float
+            Estimate of 5-sigma limiting magnitude for an image.
+            Will return None if no zero point available
+
+        """
+
+        if zp is None:
+            with SmartSession() as session:
+                zp = session.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
+
+        if zp != None:
+            aperture = aperture if aperture is not None else self.best_aper_num
+            if ( aperture is None ) or not ( ( ( aperture >=0 ) and ( aperture < len(self.aper_rads) ) )
+                                             or
+                                             ( aperture == -1 ) ):
+                raise ValueError( f"Invalid aperture number {aperture}" )
+
+            aperCorr = 0. if aperture == -1 else self.calc_aper_cor(aperture)
+            zeroPoint = zp.zp
+            flux, fluxerr = psffluxadu() if aperture == -1 else self.apfluxadu(aperture)
+            mags = -2.5 * np.log10(flux) + zeroPoint + aperCorr
+            snr = flux/fluxerr
+            mask = (snr >= 3) & (snr <= 20) #only fitting for sources 3 < SNR < 20
+            snrMasked = np.log(snr[mask])
+            magsMasked = mags[mask]
+
+            m,c = np.polyfit(snrMasked,magsMasked,1) #calculate slope and intercept of fitted line
+            limMagEst = m * np.log(5) + c #limiting magnitude estimate at SNR = 5
+
+            if savePlot != None:
+                xdata = np.linspace(np.log(3),np.log(20),1000)
+                plt.plot(snrMasked,magsMasked,linewidth=0,marker='o',c='midnightblue')
+                plt.plot(xdata, m * xdata + c, color='firebrick')
+                plt.xlabel('log SNR')
+                plt.ylabel('magnitude')
+                plt.title('Limiting magntiude = {:.2f} mag'.format(limMagEst))
+                ymin,ymax = plt.gca().get_ylim()
+                plt.vlines(x=np.log(5),ymin=ymin,ymax=ymax)
+                plt.hlines(y=limMagEst,xmin=np.log(3),xmax=np.log(20))
+                plt.xlim(np.log(3),np.log(20))
+                plt.ylim(ymin,ymax)
+                plt.savefig('plots/{}.png'.format(savePlot))
+                plt.show(block=blockPlot)
+
+            return limMagEst
+
+        else:
+            limMagEst = None
+            return limMagEst
+
 
     def load(self, filepath=None):
         """Load this source list from the file.

@@ -333,6 +333,20 @@ def test_calc_apercor( decam_datastore ):
     # assert sources.calc_aper_cor( aper_num=2, inf_aper_num=7 ) == pytest.approx( -0.024, abs=0.001 )
 
 
+def test_lim_mag_estimate( ptf_datastore_through_zp ):
+    ds = ptf_datastore_through_zp
+
+    # make and save a Magnitude vs SNR (limiting mag) plot
+    limMagEst = ds.sources.estimate_lim_mag( aperture=1, zp=ds.zp, savePlot='snr_mag_plot.png' )
+
+    #check the limiting magnitude is consistent with previous runs
+    assert limMagEst == pytest.approx(20.00, abs=0.5)
+
+    # Make sure that it can auto-get the zp if you don't pass one
+    redo = ds.sources.estimate_lim_mag( aperture=1 )
+    assert redo == limMagEst
+
+
 # ROB TODO : check this test once you've updated DataStore and the associated fixtures
 @pytest.mark.skip(reason="This test regularly fails, even when flaky is used. See Issue #263")
 def test_free( decam_datastore ):

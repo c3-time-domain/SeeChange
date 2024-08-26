@@ -186,6 +186,36 @@ def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf
 
 
 @pytest.fixture
+def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map ):
+    ptf_exposure.instrument_object.fetch_sections()
+    ds = datastore_factory(
+        ptf_exposure,
+        11,
+        cache_dir=ptf_cache_dir,
+        cache_base_name='187/PTF_20110429_040004_11_R_Sci_BNKEKA',
+        overrides={'extraction': {'threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
+        bad_pixel_map=ptf_bad_pixel_map,
+        provtag='ptf_datastore',
+        through_step='zp'
+    )
+
+    # Just make sure through_step did what it was supposed to
+    assert ds.cutouts is not None
+    assert ds.measurements is None
+
+    yield ds
+
+    ds.delete_everything()
+
+    ImageAligner.cleanup_temp_images()
+
+    # Clean out the provenance tag that may have been created by the datastore_factory
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
+        session.commit()
+
+
+@pytest.fixture
 def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map):
     ptf_exposure.instrument_object.fetch_sections()
     ds = datastore_factory(

@@ -1,6 +1,7 @@
 import pytest
 import uuid
 import numpy as np
+import os
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
@@ -99,8 +100,6 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     m.flux_psf_err = original_flux_psf_err
     ds.zp.zp = fiducial_zp
     ds.zp.dzp = original_zp_err
-
-    # TODO: add test for limiting magnitude (issue #143)
 
     # Test getting cutout image data
     # (Note: I'm not sure what's up with sub_psfflux and sub_psffluxerr.

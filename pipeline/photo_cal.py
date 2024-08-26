@@ -303,21 +303,25 @@ class PhotCalibrator:
 
                 if ( ds.image.zero_point_estimate is None ) and ( ds.image.lim_mag_estimate is None ):
                     ds.image.zero_point_estimate = ds.zp.zp
-                    fwhm_pix = ds.image.fwhm_estimate / ds.image.instrument_object.pixel_scale
-                    if fwhm_pix is None:
-                        warnings.warn( "image.fwhm_estimate is None in photo_cal, this shouldn't happen" )
-                        # Make it so we can proceed, but this will be a bad estimate
-                        fwhm_pix = 1.
-                    ds.image.lim_mag_estimate = ( ds.zp.zp
-                                                  - 2.5 * np.log10( 5.0 *
-                                                                    ds.image.bkg_rms_estimate *
-                                                                    np.sqrt(np.pi) * fwhm_pix )
-                                                 )
+                    ds.image.lim_mag_estimate = sources.estimate_lim_mag()
+
+                    # Old limiting magnitude estimate
+                    # fwhm_pix = ds.image.fwhm_estimate / ds.image.instrument_object.pixel_scale
+                    # if fwhm_pix is None:
+                    #     warnings.warn( "image.fwhm_estimate is None in photo_cal, this shouldn't happen" )
+                    #     # Make it so we can proceed, but this will be a bad estimate
+                    #     fwhm_pix = 1.
+                    # ds.image.lim_mag_estimate = ( ds.zp.zp
+                    #                               - 2.5 * np.log10( 5.0 *
+                    #                                                 ds.image.bkg_rms_estimate *
+                    #                                                 np.sqrt(np.pi) * fwhm_pix )
+                    #                             )
 
                 ds.runtimes['photo_cal'] = time.perf_counter() - t_start
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
                     ds.memory_usages['photo_cal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+                
 
             # update the bitflag with the upstreams
             ds.zp._upstream_bitflag = 0
