@@ -321,7 +321,7 @@ class PhotCalibrator:
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
                     ds.memory_usages['photo_cal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
-                
+
 
             # update the bitflag with the upstreams
             ds.zp._upstream_bitflag = 0
