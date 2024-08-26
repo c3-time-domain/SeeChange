@@ -149,7 +149,7 @@ def test_webap( browser, webap_url, decam_datastore ):
             session.execute( sa.text( "DELETE FROM provenance_tags "
                                       "WHERE tag IN ('test_webap', 'no_such_tag')" ) )
             if junkprov is not None:
-                session.delete( junkprov )
+                session.execute( sa.text( "DELETE FROM provenances WHERE _id=:id" ), { 'id': junkprov.id } )
             session.commit()
 
 
