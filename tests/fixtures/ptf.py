@@ -200,8 +200,8 @@ def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cach
     )
 
     # Just make sure through_step did what it was supposed to
-    assert ds.cutouts is not None
-    assert ds.measurements is None
+    assert ds.zp is not None
+    assert ds.sub_image is None
 
     yield ds
 

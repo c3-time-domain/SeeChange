@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 
 from models.base import Base, SmartSession, UUIDMixin, FileOnDiskMixin, SeeChangeBase, HasBitFlagBadness
 from models.image import Image
-from models.zero_point import ZeroPoint
 from models.enums_and_bitflags import (
     SourceListFormatConverter,
     source_list_badness_inverse,
@@ -485,6 +484,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
 
         if zp is None:
+            # Avoid circular imports
+            from models.zero_point import ZeroPoint
             with SmartSession() as session:
                 zp = session.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
 
