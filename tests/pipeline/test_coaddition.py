@@ -506,8 +506,8 @@ def test_coaddition_pipeline_outputs(ptf_reference_image_datastores, ptf_aligned
         assert snr_zogy == pytest.approx(mean_snr * np.sqrt(len(ptf_reference_image_datastores)), rel=0.5)
 
     finally:
-        if 'coadd_image' in locals():
-            coadd_image.delete_from_disk_and_database(remove_downstreams=True)
+        if 'coadd_ds' in locals():
+            coadd_ds.delete_everything()
 
 
 def test_coadded_reference(ptf_ref):
