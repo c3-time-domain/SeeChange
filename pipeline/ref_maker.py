@@ -429,7 +429,6 @@ class RefMaker:
                                    { "provid": self.ref_prov.id, "refsetid": self.refset.id } )
                 session.commit()
             except IntegrityError:
-                import pdb; pdb.set_trace()
                 pass
             except Exception:
                 self.refset = None

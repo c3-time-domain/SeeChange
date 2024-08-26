@@ -467,8 +467,7 @@ class Coadder:
             alds.wcs.sources_id = alds.sources.id
 
             # Alignment doesn't change the zeropoint -- BUT WAIT, it could,
-            #  because it could change the aperture corrections!  TODO,
-            #  make an issue about this.
+            #  because it could change the aperture corrections!  Issue #353.
             alds.zp = ds.zp.copy()
             alds.sources_id = alds.sources.id
 
