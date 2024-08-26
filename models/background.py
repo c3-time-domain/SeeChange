@@ -185,7 +185,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
                                         "image_shape, or make sure that sources_id is set, and the SourceList and "
                                         "Image are already saved to the database." )
                 # I don't like this; we're reading the image data just
-                # to get its shape.  Perhaps we should add with and
+                # to get its shape.  Perhaps we should add width and
                 # height fields to the Image model?
                 # (Or, really, when making a background, pass an image_shape!)
                 wrnmsg = ( "Getting background shape from associated image.  This is inefficient. "
