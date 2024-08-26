@@ -207,8 +207,11 @@ def pytest_sessionfinish(session, exitstatus):
             if os.path.isdir(ARCHIVE_PATH):
                 files = list(pathlib.Path(ARCHIVE_PATH).rglob('*'))
 
-                if len(files) > 0 and verify_archive_database_empty:
-                    raise RuntimeError(f'There are files left in the archive after tests cleanup: {files}')
+                if len(files) > 0:
+                    if verify_archive_database_empty:
+                        raise RuntimeError(f'There are files left in the archive after tests cleanup: {files}')
+                    else:
+                        warnings.warn( f'There are files left in the archive after tests cleanup: {files}' )
 
 
 @pytest.fixture(scope='session')

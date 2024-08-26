@@ -516,7 +516,7 @@ def test_image_preproc_bitflag( sim_image1 ):
             im2._delete_from_database()
 
 
-def test_image_from_exposure(sim_exposure1, provenance_base):
+def test_image_from_exposure( provenance_base, sim_exposure1 ):
     sim_exposure1.update_instrument()
 
     # demo instrument only has one section
