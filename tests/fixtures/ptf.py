@@ -184,7 +184,6 @@ def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf
         session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
         session.commit()
 
-
 @pytest.fixture
 def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map ):
     ptf_exposure.instrument_object.fetch_sections()
