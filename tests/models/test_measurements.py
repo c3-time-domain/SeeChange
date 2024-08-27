@@ -140,45 +140,6 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
         assert getattr( m, field ) is not None
         check_fields_not_none()
 
-    # Test getting cutout image data
-    # (Note: I'm not sure what's up with sub_psfflux and sub_psffluxerr.
-
-    m = ds.measurements[1]
-    fields = [ 'sub_data', 'ref_data', 'new_data',
-               'sub_weight', 'ref_weight', 'new_weight',
-               'sub_flags', 'ref_flags', 'new_flags' ]
-
-    def reset_fields():
-        for f in fields:
-            setattr( m, f'_{f}', None )
-
-    def check_fields_none():
-        assert all( getattr( m, f'_{f}' ) is None for f in fields )
-
-    def check_fields_not_none():
-        assert all ( getattr( m, f'_{f}' ) is not None for f in fields )
-
-    # Make sure we start clean
-    check_fields_none()
-
-    # Make sure we can get stuff explicitly passing cutouts and detections
-    m.get_data_from_cutouts( cutouts=ds.cutouts, detections=ds.detections )
-    check_fields_not_none()
-
-    reset_fields()
-    check_fields_none()
-
-    # Make sure we can get stuff with get_data_from_cutouts pulling cutouts and detections from database.
-    m.get_data_from_cutouts()
-    check_fields_not_none()
-
-    # Now go through the auto-loaded attributes one by one
-    for field in fields:
-        reset_fields()
-        check_fields_none()
-        assert getattr( m, field ) is not None
-        check_fields_not_none()
-
 
 def test_filtering_measurements(ptf_datastore):
     measurements = ptf_datastore.measurements
