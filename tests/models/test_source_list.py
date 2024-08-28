@@ -340,6 +340,8 @@ def test_lim_mag_estimate( ptf_datastore_through_zp ):
     if env_as_bool('INTERACTIVE'):
         limMagEst = ds.sources.estimate_lim_mag( aperture=1, zp=ds.zp,
                                                  savePlot=os.path.join(CODE_ROOT, 'tests/plots/snr_mag_plot.png' ) )
+    else:
+        limMagEst = ds.sources.estimate_lim_mag( aperture=1, zp=ds.zp )
 
     #check the limiting magnitude is consistent with previous runs
     assert limMagEst == pytest.approx(20.04, abs=0.05)
