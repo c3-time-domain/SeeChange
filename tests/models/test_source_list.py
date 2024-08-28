@@ -12,7 +12,7 @@ import sqlalchemy as sa
 import astropy.table
 import astropy.io.fits
 
-from models.base import SmartSession, FileOnDiskMixin
+from models.base import SmartSession, FileOnDiskMixin, CODE_ROOT
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
