@@ -301,9 +301,9 @@ class PhotCalibrator:
                 ds.zp = ZeroPoint( sources_id=ds.sources.id, zp=zpval, dzp=dzpval,
                                    aper_cor_radii=sources.aper_rads, aper_cors=apercors )
 
-                if ( ds.image.zero_point_estimate is None ) and ( ds.image.lim_mag_estimate is None ):
+                if ( ds.image.zero_point_estimate is None ) or ( ds.image.lim_mag_estimate is None ):
                     ds.image.zero_point_estimate = ds.zp.zp
-                    ds.image.lim_mag_estimate = sources.estimate_lim_mag()
+                    ds.image.lim_mag_estimate = sources.estimate_lim_mag( zp=ds.zp )
 
                     # Old limiting magnitude estimate
                     # fwhm_pix = ds.image.fwhm_estimate / ds.image.instrument_object.pixel_scale
