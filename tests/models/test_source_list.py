@@ -16,7 +16,7 @@ from models.base import SmartSession, FileOnDiskMixin, CODE_ROOT
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
-
+from util.util import env_as_bool
 
 def test_source_list_bitflag(sim_sources):
     # all these data products should have bitflag zero
