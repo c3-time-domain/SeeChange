@@ -13,7 +13,15 @@ class ConductorConnector:
         cfg = Config.get()
         self.url = url if url is not None else cfg.value( 'conductor.conductor_url' )
         self.username = username if username is not None else cfg.value( 'conductor.username' )
-        self.password = password if password is not None else cfg.value( 'conductor.password' )
+        if password is None:
+            password = cfg.value( 'conductor.password' )
+            if password is None:
+                if cfg.value( 'conductor.password_file' ) is None:
+                    raise ValueError( "ConductorConnector must have a password, either passed, or from "
+                                      "conductor.password or conductor.password_file configs" )
+                with open( cfg.value( "conductor.password_file" ) ) as ifp:
+                    password = ifp.readline().strip()
+        self.password = password
         self.verify = verify
         self.req = None
 

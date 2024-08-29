@@ -58,7 +58,8 @@ archive: null
 conductor:
   conductor_url: unknown
   username: unknown
-  password: unknown
+  password: null
+  password_file: null
 
 
 # ======================================================================
