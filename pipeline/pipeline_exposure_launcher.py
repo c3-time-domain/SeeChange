@@ -29,7 +29,7 @@ from pipeline.top_level import Pipeline
 
 class ExposureProcessor:
     def __init__( self, instrument, identifier, params, numprocs, onlychips=None,
-                  worker_log_level=logging.WARNING ):
+                  through_step=None, worker_log_level=logging.WARNING ):
         """A class that processes all images in a single exposure, potentially using multiprocessing.
 
         This is used internally by ExposureLauncher; normally, you would not use it directly.
@@ -55,6 +55,9 @@ class ExposureProcessor:
           sensor sections returned by the instrument's get_section_ids()
           class method.
 
+        through_step : str or None
+          Passed on to top_level.py::Pipeline
+
         worker_log_level : log level, default logging.WARNING
           The log level for the worker processes.  Here so that you can
           have a different log level for the overall control process
@@ -66,6 +69,7 @@ class ExposureProcessor:
         self.params = params
         self.numprocs = numprocs
         self.onlychips = onlychips
+        self.through_step = through_step
         self.worker_log_level = worker_log_level
 
     def cleanup( self ):
@@ -106,6 +110,8 @@ class ExposureProcessor:
             SCLogger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}..." )
             SCLogger.setLevel( self.worker_log_level )
             pipeline = Pipeline()
+            if ( self.through_step is not None ) and ( self.through_step != 'exposure' ):
+                pipeline.pars.through_step = self.through_step
             ds = pipeline.run( self.exposure, chip, save_intermediate_products=False )
             ds.save_and_commit()
             SCLogger.setLevel( origloglevel )
@@ -127,6 +133,10 @@ class ExposureProcessor:
 
     def __call__( self ):
         """Run all the pipelines for the chips in the exposure."""
+
+        if self.through_step == 'exposure':
+            SCLogger.info( f"Only running through exposure, not launching any image processes" )
+            return
 
         chips = self.instrument.get_section_ids()
         if self.onlychips is not None:
@@ -165,7 +175,7 @@ class ExposureLauncher:
     """
 
     def __init__( self, cluster_id, node_id, numprocs=None, verify=True, onlychips=None,
-                  worker_log_level=logging.WARNING ):
+                  through_step=None, worker_log_level=logging.WARNING ):
         """Make an ExposureLauncher.
 
         Parameters
@@ -200,6 +210,11 @@ class ExposureLauncher:
           sensor sections returned by the instrument's get_section_ids()
           class method.
 
+        through_step : str or None
+          Parameter passed on to top_level.py::Pipeline, unless it is "exposure"
+          in which case all we do is download the exposure and load it into the
+          database.
+
         worker_log_level : log level, default logging.WARNING
           The log level for the worker processes.  Here so that you can
           have a different log level for the overall control process
@@ -213,6 +228,7 @@ class ExposureLauncher:
         self.cluster_id = cluster_id
         self.node_id = node_id
         self.onlychips = onlychips
+        self.through_step = through_step
         self.worker_log_level = worker_log_level
         self.conductor = ConductorConnector( verify=verify )
 
@@ -291,6 +307,7 @@ class ExposureLauncher:
                                                         knownexp.params,
                                                         self.numprocs,
                                                         onlychips=self.onlychips,
+                                                        through_step=self.through_step,
                                                         worker_log_level=self.worker_log_level )
                 SCLogger.info( f'Downloading and loading exposure {knownexp.identifier}...' )
                 exposure_processor.download_and_load_exposure()
@@ -350,6 +367,10 @@ pipelines to process each of the chips in the exposure.
     parser.add_argument( "-w", "--worker-log-level", default="warning", help="Log level for worker processes" )
     parser.add_argument( "--chips", default=None, nargs="+",
                          help="Only do these sensor sections (for debugging purposese)" )
+    parser.add_argument( "-t", "--through-step", default=None,
+                         help=( "Only run through this step; default=run everything.  Step can be "
+                                "exposure, preprocessing, backgrounding, extraction, wcs, zp, "
+                                "subtraction, detection, cutting, measuring" ) )
     args = parser.parse_args()
 
     loglookup = { 'error': logging.ERROR,
@@ -364,7 +385,8 @@ pipelines to process each of the chips in the exposure.
     worker_log_level = loglookup[ args.worker_log_level.lower() ]
 
     elaunch = ExposureLauncher( args.cluster_id, args.node_id, numprocs=args.numprocs, onlychips=args.chips,
-                                verify=not args.noverify, worker_log_level=worker_log_level )
+                                verify=not args.noverify, through_step=args.through_step,
+                                worker_log_level=worker_log_level )
     elaunch.register_worker()
     try:
         elaunch()

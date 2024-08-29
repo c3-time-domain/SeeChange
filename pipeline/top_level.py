@@ -87,6 +87,15 @@ class ParsPipeline(Parameters):
             critical=False
         )
 
+        self.through_step = self.add_par(
+            'through_step',
+            None,
+            ( None, str ),
+            "Stop after this step.  None = run the whole pipeline.  String values can be "
+            "any of preprocessing, backgrounding, extraction, wcs, zp, subtraction, detection, cutting, measuring"
+            critical=False
+        )
+
         self._enforce_no_new_attrs = True  # lock against new parameters
 
         self.override(kwargs)
@@ -284,12 +293,23 @@ class Pipeline:
             raise RuntimeError( "You have a persistent session in Pipeline.run; don't do that." )
 
         try:
+            stepstodo = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp', 'subtraction',
+                          'detection', 'cutting', 'measuring' ]
+            if self.pars.through_step is not None:
+                if self.pars.through_step not in stepsttodo:
+                    raise ValueError( f"Unknown through_step: \"{self.parse.through_step}\"" )
+                stepstodo = stepstodo[ :stepstodo.index(self.pars.through_step)+1 ]
+
             if ds.image is not None:
-                SCLogger.info(f"Pipeline starting for image {ds.image.id} ({ds.image.filepath})")
+                SCLogger.info(f"Pipeline starting for image {ds.image.id} ({ds.image.filepath}), "
+                              f"running through step {stepstodo[-1]}" )
             elif ds.exposure is not None:
-                SCLogger.info(f"Pipeline starting for exposure {ds.exposure.id} ({ds.exposure}) section {ds.section_id}")
+                SCLogger.info(f"Pipeline starting for exposure {ds.exposure.id} "
+                              f"({ds.exposure}) section {ds.section_id}, "
+                              f"running through step {stepstodo[-1]}" )
             else:
-                SCLogger.info(f"Pipeline starting with args {args}, kwargs {kwargs}")
+                SCLogger.info(f"Pipeline starting with args {args}, kwargs {kwargs}, "
+                              f"running through step {stepstodo[-1]}" )
 
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 # ref: https://docs.python.org/3/library/tracemalloc.html#record-the-current-and-peak-size-of-all-traced-memory-blocks
@@ -300,30 +320,35 @@ class Pipeline:
                 ds.warnings_list = w  # appends warning to this list as it goes along
                 # run dark/flat preprocessing, cut out a specific section of the sensor
 
-                SCLogger.info(f"preprocessor")
-                ds = self.preprocessor.run(ds, session)
-                ds.update_report('preprocessing', session=None)
-                SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
+                if 'preprocessing' in stepstodo:
+                    SCLogger.info(f"preprocessor")
+                    ds = self.preprocessor.run(ds, session)
+                    ds.update_report('preprocessing', session=None)
+                    SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
 
                 # extract sources and make a SourceList and PSF from the image
-                SCLogger.info(f"extractor for image id {ds.image.id}")
-                ds = self.extractor.run(ds, session)
-                ds.update_report('extraction', session=None)
+                if 'extraction' in stepstodo:
+                    SCLogger.info(f"extractor for image id {ds.image.id}")
+                    ds = self.extractor.run(ds, session)
+                    ds.update_report('extraction', session=None)
 
                 # find the background for this image
-                SCLogger.info(f"backgrounder for image id {ds.image.id}")
-                ds = self.backgrounder.run(ds, session)
-                ds.update_report('extraction', session=None)
+                if 'backgrounding' in stepstodo:
+                    SCLogger.info(f"backgrounder for image id {ds.image.id}")
+                    ds = self.backgrounder.run(ds, session)
+                    ds.update_report('extraction', session=None)
 
                 # find astrometric solution, save WCS into Image object and FITS headers
-                SCLogger.info(f"astrometor for image id {ds.image.id}")
-                ds = self.astrometor.run(ds, session)
-                ds.update_report('extraction', session=None)
+                if 'wcs' in stepstodo:
+                    SCLogger.info(f"astrometor for image id {ds.image.id}")
+                    ds = self.astrometor.run(ds, session)
+                    ds.update_report('extraction', session=None)
 
                 # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
-                SCLogger.info(f"photometor for image id {ds.image.id}")
-                ds = self.photometor.run(ds, session)
-                ds.update_report('extraction', session=None)
+                if 'zp' in stepstodo:
+                    SCLogger.info(f"photometor for image id {ds.image.id}")
+                    ds = self.photometor.run(ds, session)
+                    ds.update_report('extraction', session=None)
 
                 if self.pars.save_before_subtraction:
                     t_start = time.perf_counter()
@@ -339,29 +364,33 @@ class Pipeline:
                     ds.runtimes['save_intermediate'] = time.perf_counter() - t_start
 
                 # fetch reference images and subtract them, save subtracted Image objects to DB and disk
-                SCLogger.info(f"subtractor for image id {ds.image.id}")
-                ds = self.subtractor.run(ds, session)
-                ds.update_report('subtraction', session=None)
+                if 'subtraction' in stepstodo:
+                    SCLogger.info(f"subtractor for image id {ds.image.id}")
+                    ds = self.subtractor.run(ds, session)
+                    ds.update_report('subtraction', session=None)
 
                 # find sources, generate a source list for detections
-                SCLogger.info(f"detector for image id {ds.image.id}")
-                ds = self.detector.run(ds, session)
-                ds.update_report('detection', session=None)
+                if 'detection' in stepstodo:
+                    SCLogger.info(f"detector for image id {ds.image.id}")
+                    ds = self.detector.run(ds, session)
+                    ds.update_report('detection', session=None)
 
                 # make cutouts of all the sources in the "detections" source list
-                SCLogger.info(f"cutter for image id {ds.image.id}")
-                ds = self.cutter.run(ds, session)
-                ds.update_report('cutting', session=None)
+                if 'cutting' in stepstodo:
+                    SCLogger.info(f"cutter for image id {ds.image.id}")
+                    ds = self.cutter.run(ds, session)
+                    ds.update_report('cutting', session=None)
 
                 # extract photometry and analytical cuts
-                SCLogger.info(f"measurer for image id {ds.image.id}")
-                ds = self.measurer.run(ds, session)
-                ds.update_report('measuring', session=None)
+                if 'measuring' in stepstodo:
+                    SCLogger.info(f"measurer for image id {ds.image.id}")
+                    ds = self.measurer.run(ds, session)
+                    ds.update_report('measuring', session=None)
 
                 # measure deep learning models on the cutouts/measurements
                 # TODO: add this...
 
-                if self.pars.save_at_finish:
+                if self.pars.save_at_finish and ( 'subtraction' in stepstodo ):
                     t_start = time.perf_counter()
                     try:
                         SCLogger.info(f"Saving final products for image id {ds.image.id}")
