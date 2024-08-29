@@ -1068,7 +1068,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         upstream images.
 
         """
-        prov_hash = inst_name = im_type = date = time = filter = ra = dec = dec_int_pm = ''
+        prov_hash = inst_name = im_type = date = time = filter = ra = dec = dec_int_pm = project = ''
         section_id = section_id_int = ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
 
         if self.provenance_id is not None:
@@ -1077,6 +1077,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             inst_name = self.instrument_object.get_short_instrument_name()
         if self.type is not None:
             im_type = self.type
+        if self.project is not None:
+            project = self.project
 
         if self.mjd is not None:
             t = Time(self.mjd, format='mjd', scale='utc').datetime
@@ -1116,6 +1118,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         filepath = name_convention.format(
             inst_name=inst_name,
             im_type=im_type,
+            project=project,
             date=date,
             time=time,
             filter=filter,

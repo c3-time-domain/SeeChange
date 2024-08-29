@@ -23,7 +23,7 @@ storage:
     # should Image object save the weights/flags/etc in a single file with the image data?
     single_file: false
     # The convention for building filenames for images
-    # Use any of the following: short_name, date, time, section_id, filter, ra, dec, prov_id
+    # Use any of the following: inst_name, date, time, section_id, filter, ra, dec, prov_id
     # Can also use section_id_int if the section_id is always an integer
     # Can also use ra_int and ra_frac to get the integer number before/after the decimal point
     # (the same can be done for dec). Also use ra_int_h to get the number in hours.
@@ -42,11 +42,11 @@ storage:
 #
 # Set to null if there is no archive; otherwise, a dict
 # Subfields:
-#   url: the URL of the archive server, or null if archive is on the filesystem
+#   archive_url: the URL of the archive server, or null if archive is on the filesystem
 #   verify_cert: boolean, should we verify the SSL cert of the archive server
 #   path_base: the base of the collection on the archive server (a string unique to this dataset)
-#   read_dir: the directory to read from if the archive is on the local filesystem, or null
-#   write_dir: the directory to write to if the archive is on the local filesystem, or null
+#   local_read_dir: the directory to read from if the archive is on the local filesystem, or null
+#   lcoal_write_dir: the directory to write to if the archive is on the local filesystem, or null
 
 archive: null
 

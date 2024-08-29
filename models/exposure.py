@@ -561,15 +561,20 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         # Much code redundancy with Image.invent_filepath; move to a mixin?
 
+        inst_name = project = ''
+
         if self.provenance_id is None:
             raise ValueError("Cannot invent filepath for exposure without provenance.")
+        if self.instrument_object is not None:
+            inst_name = self.instrument_object.get_short_instrument_name()
+        if self.project is not None:
+            project = self.project
         prov_hash = self.provenance_id
 
         t = Time(self.mjd, format='mjd', scale='utc').datetime
         date = t.strftime('%Y%m%d')
         time = t.strftime('%H%M%S')
 
-        short_name = self.instrument_object.get_short_instrument_name()
         filter = self.instrument_object.get_short_filter_name(self.filter)
 
         ra = self.ra
@@ -584,14 +589,15 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         dec_int_pm = f'p{dec_int:02d}' if dec_int >= 0 else f'm{dec_int:02d}'
         dec_frac = int(dec_frac)
 
-        default_convention = "{short_name}_{date}_{time}_{filter}_{prov_hash:.6s}"
+        default_convention = "{inst_name}_{date}_{time}_{filter}_{prov_hash:.6s}"
         cfg = Config.get()
         name_convention = cfg.value( 'storage.exposures.name_convention', default=None )
         if name_convention is None:
             name_convention = default_convention
 
         filepath = name_convention.format(
-            short_name=short_name,
+            inst_name=inst_name,
+            project=project,
             date=date,
             time=time,
             filter=filter,
