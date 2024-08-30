@@ -110,9 +110,8 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
                     md5.update( ifp.read() )
                 if md5.hexdigest() != md5sum:
                     success = False
-                    logger.warning( f"Downloaded {fname} md5sum {md5.hexdigest()} doesn't match "
-                                    f"expected {md5sum}, retrying" )
-                    time.sleep( sleeptime )
+                    raise ValueError( f"Downloaded {fname} md5sum {md5.hexdigest()} doesn't match "
+                                      f"expected {md5sum}, retrying." )
         except Exception as e:
             strio = io.StringIO("")
             traceback.print_exc( file=strio )
