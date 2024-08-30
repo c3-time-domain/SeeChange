@@ -70,11 +70,8 @@ def test_mismatch_md5():
     fpath = pathlib.Path( fname )
     assert not fpath.exists()
     try:
-        try:
+        with pytest.raises( RuntimeError, match="5 exceptions trying to download.*failing." ):
             retry_download( url1, fpath, exists_ok=False, md5sum="wrong" )
-        except Exception as e:
-            import pdb; pdb.set_trace()
-            pass
     finally:
         fpath.unlink( missing_ok=True )
         assert not fpath.exists()
