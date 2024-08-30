@@ -1993,6 +1993,9 @@ class DemoInstrument(Instrument):
                                filters=None,
                                containing_ra=None,
                                containing_dec=None,
+                               ctr_ra=None,
+                               ctr_dec=None,
+                               radius=None,
                                minexptime=None,
                                projects=None
                               ):
@@ -2014,26 +2017,33 @@ class DemoInstrument(Instrument):
            If True (default), will filter out any exposures that (as
            best can be determined) are already known in the SeeChange
            database.  If False, will include all exposures.
+
         skip_known_exposures: bool
            If True (default), will filter out any exposures that are
            already in the knownexposures table in the database.
+
         minmjd: float
            The earliest time of exposure to search (default: no limit)
+
         maxmjd: float
            The latest time of exposure to search (default: no limit)
+
         filters: str or list of str
            Filters to search.  The actual strings are
            instrument-dependent, and will match what is expected on the
            external repository.  By default, doesn't limit by filter.
-        containing_ra: float
-           Search for exposures that include this RA (degrees, J2000);
-           default, no RA constraint.
-        containing_dec: float
-           Search for exposures that include this Dec (degrees, J2000);
-           default, no Dec constraint.
+
+        containing_ra, containing_dec: float
+           Search for exposures that include this position (degrees, J2000);
+           default, no position constraint.
+
+        ctr_ra, ctr_dec, radius: float
+           Search for exposures within radius degrees of these coordinates.
+
         minexptime: float
            Search for exposures that have this minimum exposure time in
            seconds; default, no limit.
+
         projects: str or list of str
            Name of the projects to search for exposures from
 

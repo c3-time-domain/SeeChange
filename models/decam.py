@@ -701,6 +701,9 @@ class DECam(Instrument):
                                filters=None,
                                containing_ra=None,
                                containing_dec=None,
+                               ctr_ra=None,
+                               ctr_dec=None,
+                               radius=None,
                                minexptime=None,
                                proc_type='raw',
                                projects=None ):
@@ -710,16 +713,27 @@ class DECam(Instrument):
 
         Parameters
         ----------
+
         filters: str or list of str
            The short (i.e. single character) filter names ('g', 'r',
            'i', 'z', or 'Y') to search for.  If not given, will
            return images from all filters.
+
         projects: str or list of str
            The NOIRLab proposal ids to limit the search to.  If not
            given, will not filter based on proposal id.
+
         proc_type: str
            'raw' or 'instcal' : the processing type to get
            from the NOIRLab data archive.
+
+        ctr_ra, ctr_dec, radius: float Whereas the documentation on
+           Instrument implies this is a circular radius, for DECam it's
+           actually a square half-side.  It will find all exposures
+           whose ra_center and dec_center (cf:
+           https://astroarchive.noirlab.edu/api/adv_search/hadoc/) are
+           both within this distance.  (Will do cos(dec) for ra.)
+           Probably pathological too near the poles.
 
         TODO -- deal with provenances!  Right now, skip_known_exposures
         will skip exposures of *any* provenance, may or may not be what
@@ -728,9 +742,18 @@ class DECam(Instrument):
         """
 
         if ( containing_ra is None ) != ( containing_dec is None ):
-            raise RuntimeError( f"Must specify both or neither of (containing_ra, containing_dec)" )
-        if ( ( containing_ra is None ) or ( containing_dec is None ) ) and ( minmjd is None ):
-            raise RuntimeError( f"Must specify either a containing ra,dec or a minmjd to find DECam exposures." )
+            raise RuntimeError( "Must specify both or neither of (containing_ra, containing_dec)" )
+
+        if ( ( ( ctr_ra is None ) != ( ctr_dec is None ) ) or ( ( ctr_ra is None ) != ( radius is None ) ) ):
+            raise RuntimeError( "Must specify all three of, or none of, (ctr_ra, ctr_dec, radius)" )
+
+        if ( ctr_ra is not None ) and ( containing_ra is not None ) :
+            raise RuntimeError( "Can't specify both containing_ra/dec and ctr_ra/dec" )
+
+        if ( containing_ra is None ) and ( ctr_ra is None ) and ( minmjd is None ):
+            raise RuntimeError( "Must specify at least one of (1) a containing ra,dec, (2) center ra/dec and radius, "
+                                "or (3) or a minmjd to find DECam exposures." )
+
         if containing_ra is not None:
             raise NotImplementedError( f"containing_(ra|dec) is not implemented yet for DECam" )
 
@@ -774,6 +797,12 @@ class DECam(Instrument):
 
         if proposals is not None:
             spec["search"].append( [ "proposal" ] + proposals )
+        if ctr_ra is not None:
+            spec["search"].append( [ "ra_center",
+                                     ctr_ra - radius / np.cos( ctr_dec * np.pi/180. ),
+                                     ctr_ra + radius / np.cos( ctr_dec * np.pi/180. ) ] )
+            spec["search"].append( [ "dec_center", ctr_dec - radius, ctr_dec + radius ] )
+
 
         # TODO : implement the ability to log in via a configured username and password
         # For now, will only get exposures that are public
@@ -829,7 +858,7 @@ class DECam(Instrument):
             files = files[keep].reset_index( drop=True )
 
         if len(files) == 0:
-            SCLogger.info( "DEcam exposure search found no files afters skipping known and databsae exposures" )
+            SCLogger.info( "DEcam exposure search found no files afters skipping known and database exposures" )
             return None
 
         # If we were downloaded reduced images, we're going to have multiple prod_types
