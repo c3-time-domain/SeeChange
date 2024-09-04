@@ -1,4 +1,6 @@
 import argparse
+import hashlib
+import uuid
 
 import numpy as np
 
@@ -9,6 +11,10 @@ from models.provenance import Provenance
 from models.decam import DECam
 from models.image import Image
 from models.exposure import Exposure
+
+import util.radec
+from util.logger import SCLogger
+
 
 class DECamRefFetcher:
     def __init__( self, ra, dec, filter, max_seeing=1.2, min_depth=None, min_mjd=None, max_mjd=None, min_per_chip=9 ):
@@ -49,6 +55,7 @@ class DECamRefFetcher:
                                 parameters={ 'preprocessing': 'noirlab_instcal',
                                              'calibset': 'externally_supplied',
                                              'flattype': 'externally_supplied' } )
+        self.prov.insert_if_needed()
 
 
     def identify_existing_images( self, reset=True ):
@@ -59,7 +66,7 @@ class DECamRefFetcher:
         center (based on ra, dec, and the chip's known offset), and that
         overlap the chip by at least 10%.
 
-        Updates self.chipimgs
+        Updates self.chipimgs and self.cornercount
 
         Parameters
         ----------
@@ -173,32 +180,82 @@ class DECamRefFetcher:
 
 
     def download_and_extract( self, origexps, usefuldexen ):
+        """Download identified exposures and load their images into the database.
+
+        Does *not* load the raw exposures.  This would be redundant storage, because we're looking
+        at already-preprocessed exposures, so the image data would be no different from what we store
+        in images.
+
+        """
+
         for dex in usefuldexen:
+            SCLogger.info( f"Downloading origin exposure number {dex}" )
             dled = origexps.download_exposures( outdir=Image.temp_path, indexes=[dex], onlyexposures=False,
                                                 existing_ok=True, clobber=False, )
 
             if set( dled[0].keys() ) != { 'exposure', 'wtmap', 'dqmask' }:
                 raise RuntimeError( f"Don't have all of exposure, wtmap, dqmask in {dled[0].keys()}" )
 
-            import pdb; pdb.set_trace()
-            expsr = Exposure( current_file=str(dled[0]['exposure']),
-                              instrument='DECam' )
+            with fits.open( dled[0]['exposure'] ) as ifp:
+                hdr = { k: v for k, v in ifp[0].header.items()
+                        if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
+                                  'OBS-LONG', 'OBS-LAT', 'EXPTIME', 'DARKTIME', 'OBSID',
+                                  'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
+                                  'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
+                                  'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
+            exphdrinfo = self.decam.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
+                                                            'project', 'target' ] )
+            ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
+            dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
+            expsr = Exposure( current_file=str(dled[0]['exposure']), filepath=dled[0]['exposure'],
+                              type='Sci', format='fits', ra=ra, dec=dec, instrument='DECam',
+                              hdr=hdr, **exphdrinfo )
 
             wtexp = fits.open( dled[0]['wtmap'] )
             flgsexp = fits.open( dled[0]['dqmask'] )
 
+            # HACK ALERT
+            # Image.from_exposure doesn't seem to work for Exposure
+            #   objects which haven't been loaded into the database.
+            #   Reason: it's looking at the md5sum field, which we use
+            #   as a flag for "it has been saved to the archive".
+            #   Normally, that gets set in the FileOnDisk mixin saving
+            #   methods.  I don't want to actually save these exposures
+            #   to the archive here, because that would be a lot of
+            #   redundant storage (100s of MB per exposure).  So, hack
+            #   in the right md5sum so that we don't have to do that, so
+            #   we can trick Image.from_exposure into working.  (In the
+            #   mean time, we might want to think about the
+            #   infrastructure of all of this and what assumptions like
+            #   this we've baked in to make it all work better, but OMG
+            #   that would be huge.)
+            # expmd5 = hashlib.md5()
+            # with open( dled[0]['exposure'], 'rb' ) as ifp:
+            #     expmd5.update( ifp.read() )
+            # expsr.md5sum = uuid.UUID( expmd5.hexdigest() )
 
-            # ROB YOU ARE HERE
-
-            import pdb; pdb.set_trace()
-            pass
-
-
+            for section_id in self.decam.get_section_ids():
+                SCLogger.info( f"Extracting {section_id} from {expsr.filepath}" )
+                img = Image.from_exposure( expsr, section_id )
+                img.data = img.raw_data
+                img.weight = wtexp[section_id].data
+                # TODO : look at the meaning of the NOIRLab flags
+                # For now, assume everything not 0 is "bad"
+                # (In enums_and_bitflags.py, 2**0 is "bad pixel"
+                img.flags = flgsexp[section_id].data.astype( np.int16 )
+                img.flags[ img.flags != 0 ] = 1
+                img.provenance_id = self.prov.id
+                img.exposure_id = None
+                img.save()
+                img.insert()
 
 
     def __call__( self ):
+        SCLogger.info( "Identifying existing images..." )
         self.identify_existing_images( reset=True )
+        SCLogger.info( "Identifying useful remote exposures..." )
         origexps, usefuldexen = self.identify_useful_remote_exposures()
+        SCLogger.info( f"Downloading and extracting {len(usefuldexen)} remote exposures..." )
         self.download_and_extract( origexps, usefuldexen )
 
         import pdb; pdb.set_trace()

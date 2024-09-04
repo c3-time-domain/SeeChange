@@ -937,7 +937,7 @@ class Instrument:
         dec: float or None
             The Dec of the center of the section, in degrees.
         """
-        return get_ra_dec_for_section( exposure.ra, exposure.dec, section_id )
+        return self.get_ra_dec_for_section( exposure.ra, exposure.dec, section_id )
 
 
     def get_standard_flags_image( self, section_id ):
