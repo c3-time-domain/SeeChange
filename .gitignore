@@ -15,6 +15,12 @@ tests/temp_data
 webap/static/rkwebutil.js
 coadd.weight.fits
 tests/coadd.weight.fits
+# util/githash.py is automatically generated
+#  by util/Makefile.am, and is needed by
+#  installed code that isn't a git checkout.
+#  Because it's automatically generated, it
+#  should *not* be in the archive.
+util/githash.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
