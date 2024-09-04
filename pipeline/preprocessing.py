@@ -24,6 +24,15 @@ class ParsPreprocessor(Parameters):
 
         self.add_par( 'steps_required', [], list, "Steps that need to be done to each exposure" )
 
+        self.add_par( 'preprocessing',
+                      'internal',
+                      str,
+                      "Where was the preprocessing done?  internal=using SeeChange preprocessor starting "
+                      "from raw images.  noirlab_instcal=image was loaded alredy preprocessed by NOIRLab pipeline.  "
+                      "Set this parameter manually to something other than 'internal' when loading "
+                      "in already-preprocessed images."
+                      critical=True )
+
         self.add_par( 'calibset', 'externally_supplied', str,
                       "The calibrator set to use.  Choose one of the CalibratorSetConverter enum. ",
                       critical=True )

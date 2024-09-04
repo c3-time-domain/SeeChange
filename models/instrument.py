@@ -883,9 +883,9 @@ class Instrument:
 
         return []
 
-    def get_ra_dec_for_section(self, exposure, section_id):
-        """
-        Get the RA and Dec of the center of the section.
+    def get_ra_dec_for_section( self, ra, dec, section_id ):
+        """Given an exposure at ra, dec, return the ra, dec of the given section.
+
         If there is no clever way to figure out the section
         coordinates, just leave it to return (None, None).
         In that case, the RA/Dec will be read out of the
@@ -899,7 +899,7 @@ class Instrument:
         pixel scale to calculate the center of the section
         relative to the center of the detector.
 
-        THIS METHOD CAN BE OVERRIDEN BY SUBCLASSES.
+        THIS METHOD SHOULD BE OVERRIDEN BY SUBCLASSES.
 
         Parameters
         ----------
@@ -917,6 +917,28 @@ class Instrument:
         """
         self.check_section_id(section_id)
         return None, None
+
+    def get_ra_dec_for_section_of_exposure(self, exposure, section_id):
+        """Get the RA and Dec of the center of the section of an exposure.
+
+        See get_ra_dec_for_section
+
+        Parameters
+        ----------
+        exposure: Exposure
+            The exposure object.
+        section_id: int or str
+            The identifier of the section.
+
+        Returns
+        -------
+        ra: float or None
+            The RA of the center of the section, in degrees.
+        dec: float or None
+            The Dec of the center of the section, in degrees.
+        """
+        return get_ra_dec_for_section( exposure.ra, exposure.dec, section_id )
+
 
     def get_standard_flags_image( self, section_id ):
         """Get the default flags image for the given SensorSection of this instrument.
@@ -2069,6 +2091,87 @@ class InstrumentOriginExposures:
 
     """
 
+    def exposure_coords( self, index ):
+        """Return central ra, dec of exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encaspulated exposures
+
+        Returns
+        -------
+          ra, dec : float, float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_coords" )
+
+    def exposure_depth( self, index ):
+        """Return a number in magnitudes that relates to depth of exposure.
+
+        The meaning of this is likely to be instrument-dependent.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          depth : float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_depth" )
+
+
+    def exposure_filter( self, index ):
+        """Return the filter of an exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          filter: str
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_filter" )
+
+
+    def exposure_seeing( self, index ):
+        """Return the seeing (arcsec) of the exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          seeing: float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_seeing" )
+
+
+    def exposure_exptime( self, index ):
+        """Return the exposure time (sec) of the exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          exptime: float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_exptime" )
+
+
     def add_to_known_exposures( self,
                                 indexes=None,
                                 hold=False,
@@ -2117,20 +2220,25 @@ class InstrumentOriginExposures:
         outdir: Path or str
            Directory where to save the files.  Filenames will be
            straight from the origin.
+
         indexes: list of int or None
            List of indexes into the set of origin exposures to download;
            None means download them all.
+
         onlyexposures: bool default True
            If True, only download the exposure.  If False, and there are
            anciallary exposure (e.g. for the DECam instrument, when
            reducing prod_type='instcal' images, there are weight and
            data quality mask exposure), download those as well.
+
         clobber: bool
            If True, will always download and overwrite existing files.
            If False, will trust that the file is the right thing if existing_ok=True,
            otherwise will throw an exception.
+
         existing_ok: bool
            Only matters if clobber=False (see above)
+
         session: Session
            Database session to use.  (A new one will be created if this
            is None, but that will lead to the returned exposures and

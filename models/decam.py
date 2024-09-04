@@ -1,3 +1,4 @@
+import re
 import math
 import copy
 import pathlib
@@ -192,9 +193,9 @@ class DECam(Instrument):
         Returns
         -------
         offset_x: int
-            The x offset of the section.
+            The x offset of the section in pixels.
         offset_y: int
-            The y offset of the section.
+            The y offset of the section in pixels.
 
         """
 
@@ -221,11 +222,11 @@ class DECam(Instrument):
         return SensorSection(section_id, self.name, size_x=2048, size_y=4096,
                              offset_x=dx, offset_y=dy, defective=defective)
 
-    def get_ra_dec_for_section( self, exposure, section_id ):
+    def get_ra_dec_for_section( self, ra, dec, section_id ):
         if section_id not in self._chip_radec_off:
             raise ValueError( f"Unknown DECam section_id {section_id}" )
-        return ( exposure.ra + self._chip_radec_off[section_id]['dra'] / math.cos( exposure.dec * math.pi / 180. ),
-                 exposure.dec + self._chip_radec_off[section_id]['ddec'] )
+        return ( ra + self._chip_radec_off[section_id]['dra'] / math.cos( dec * math.pi / 180. ),
+                 dec + self._chip_radec_off[section_id]['ddec'] )
 
     def get_standard_flags_image( self, section_id ):
         # NOTE : there's a race condition here; multiple
@@ -757,6 +758,11 @@ class DECam(Instrument):
         if containing_ra is not None:
             raise NotImplementedError( f"containing_(ra|dec) is not implemented yet for DECam" )
 
+        if minmjd is None:
+            minmjd = 51544.0    # 2000-01-01, before DECam existed
+        if maxmjd is None:
+            maxmjd = 88069.0    # 2100-01-01, if DECam exists this long, it's not my problem by a long shot
+
         # Convert mjd to iso format for astroarchive
         starttime, endtime = astropy.time.Time( [ minmjd, maxmjd ], format='mjd').to_value( 'isot' )
         # Make sure there's a Z at the end of these times; astropy
@@ -779,6 +785,8 @@ class DECam(Instrument):
                 "exposure",
                 "ra_center",
                 "dec_center",
+                "seeing",
+                "depth",
                 "md5sum",
                 "OBJECT",
                 "MJD-OBS",
@@ -841,6 +849,26 @@ class DECam(Instrument):
         files['filtercode'] = files.ifilter.str[0]
         files['filter'] = files.ifilter
 
+
+        # Need to de-duplicate; for proc_type='instcal', there are sometimes multiple
+        #  different versions of the processing in the NOIRLab archives.  I haven't found
+        #  documentation on this, so I'm going to hope that the hack I have below will
+        #  continue to work.  It looks like the filename is /net/archive/pipe[line]/*yyyymmdd.../...
+        #  so try to search for that and find the maximum
+        if proc_type == 'instcal':
+            procre = re.compile( '^/net/archive/pipe[^/]*/[^/]*(\d{8})/' )
+            def extract_procdate( val ):
+                match = procre.search( val )
+                if match is None:
+                    raise ValueError( f"Failed to parse processing date from {val}" )
+                return match.group(1)
+
+            files['processdate'] = files.archive_filename.apply( extract_procdate )
+            files.sort_values( by=['dateobs_center','prod_type','processdate'],
+                               ascending=[True,True,False], inplace=True )
+            files = files.groupby( by=['dateobs_center', 'prod_type'] ).first().reset_index()
+
+
         if skip_known_exposures:
             identifiers = [ pathlib.Path( f ).name for f in files.archive_filename.values ]
             with SmartSession() as session:
@@ -887,6 +915,7 @@ class DECamOriginExposures:
         ----------
         proc_type: str
            'raw' or 'instcal'
+
         frame: pandas.DataFrame
 
         """
@@ -898,6 +927,23 @@ class DECamOriginExposures:
         # The length is the number of values there are in the *first* index
         # as that is the number of different exposures.
         return len( self._frame.index.levels[0] )
+
+
+    def exposure_coords( self, index ):
+        return self._frame.loc[ index, 'image' ].ra_center, self._frame.loc[ index, 'image' ].dec_center
+
+    def exposure_depth( self, index ):
+        return self._frame.loc[ index, 'image' ].depth
+
+    def exposure_filter( self, index ):
+        return self._frame.loc[ index, 'image' ].ifilter
+
+    def exposure_seeing( self, index ):
+        return self._frame.loc[ index, 'image' ].seeing
+
+    def exposure_exptime( self, index ):
+        return self._frame.loc[ index, 'image' ].exposure
+
 
     def add_to_known_exposures( self,
                                 indexes=None,

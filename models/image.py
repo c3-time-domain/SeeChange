@@ -672,7 +672,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # figure out the RA/Dec of each image
 
         # first see if this instrument has a special method of figuring out the RA/Dec
-        new.ra, new.dec = new.instrument_object.get_ra_dec_for_section(exposure, section_id)
+        new.ra, new.dec = new.instrument_object.get_ra_dec_for_section_of_exposure(exposure, section_id)
 
         # Assume that if there's a WCS in the header, it's more reliable than the ra/dec keywords,
         #  (and more reliable than the function call above), so try that:
@@ -687,7 +687,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 new.dec = header_info.pop('dec', None)
 
             # if we still have nothing, just use the RA/Dec of the global exposure
-            # (Ideally, new.instrument_object.get_ra_dec_for_section will
+            # (Ideally, new.instrument_object.get_ra_dec_for_section_of_exposure will
             #  have used known chip offsets, so it will never come to this.)
             if new.ra is None or new.dec is None:
                 new.ra = exposure.ra
