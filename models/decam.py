@@ -1063,4 +1063,14 @@ class DECamOriginExposures:
                                                   session=session )
             exposures.append( expobj )
 
+            # If the comitted exposures aren't in the same place as the downloaded exposures,
+            #  clean up the downloaded exposures
+            dled = [ expfile, wtfile, flgfile ]
+            finalfiles = expobj.get_fullpath( as_list=True )
+            for i, finalfile in enumerate( finalfiles ):
+                dl = pathlib.Path( dled[i] )
+                f = pathlib.Path( finalfile )
+                if dl.resolve() != f.resolve():
+                    dl.unlink( missing_ok=True )
+
         return exposures
