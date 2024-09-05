@@ -249,8 +249,8 @@ def parse_session(*args, **kwargs):
 
 
 def read_fits_image(filename, ext=0, output='data'):
-    """
-    Read a standard FITS file's image data and header.
+    """ Read a standard FITS file's image data and header.
+
     Assumes this file doesn't have any complicated data structure.
     For more complicated data files, allow each Instrument subclass
     to use its own methods instead of this.

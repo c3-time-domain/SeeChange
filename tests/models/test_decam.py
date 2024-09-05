@@ -216,7 +216,26 @@ def test_decam_download_reduced_origin_exposure( decam_reduced_origin_exposures,
                 if os.path.isfile( path ):
                     os.unlink( path )
 
-@pytest.mark.skipif( os.getenv('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
+@pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
+def test_decam_download_and_commit_reduced_origin_exposure( decam_reduced_origin_exposures ):
+    # See test_decam_download_and_commit_exposure for downloading a raw
+    #  exposure.  That one pokes into details a bit more too.
+    exps = []
+    try:
+        exps = decam_reduced_origin_exposures.download_and_commit_exposures( indexes=[0] )
+        assert len(exps) == 1
+        assert isinstance( exps[0], Exposure )
+        assert exps[0].filepath_extensions == [ '.image.fits.fz', '.weight.fits.fz', '.flags.fits.fz' ]
+        fpaths = exps[0].get_fullpath()
+        assert all( os.path.isfile(p) for p in fpaths )
+        # Make sure it's actually in the database
+        assert Exposure.get_by_id( exps[0].id ) is not None
+    finally:
+        for e in exps:
+            e.delete_from_disk_and_database()
+
+
+@pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_add_to_known_exposures( decam_raw_origin_exposures ):
     # I'm looking inside the decam_raw_origin_exposures structure,
     #  which you're not supposed to do.  This means if the
@@ -266,6 +285,11 @@ def test_add_to_known_exposures( decam_raw_origin_exposures ):
 def test_decam_download_and_commit_exposure(
         code_version, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive, decam_exposure_name
 ):
+    # This one does a raw exposure;
+    # test_decam_download_and_commit_reduced_origin_exposures downloads one
+    # processed through the NOIRLab pipeline.
+    # (This one also digs in a bit deeper.)
+
     eids = []
     try:
         with SmartSession() as session:
@@ -309,6 +333,11 @@ def test_decam_download_and_commit_exposure(
                 clobber=False,
                 existing_ok=True,
             )
+            # Make sure we only get exposures
+            assert len(downloaded) == len(expdexes)
+            assert all( list(d.keys())==['exposure'] for d in downloaded )
+
+            # Copy out of cache
             for pathdict in downloaded:
                 cachedpath = pathdict['exposure']
                 assert os.path.isfile( cachedpath )

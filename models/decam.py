@@ -24,7 +24,7 @@ import util.util
 from util.retrydownload import retry_download
 from util.logger import SCLogger
 from util.radec import radec_to_gal_ecl
-from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
+from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse, image_preprocessing_inverse
 
 
 class DECam(Instrument):
@@ -589,7 +589,8 @@ class DECam(Instrument):
                         clobber=True, md5sum=params['md5sum'], sizelog='GiB', logger=SCLogger.get() )
         return outfile
 
-    def _commit_exposure( self, origin_identifier, expfile, obs_type='Sci', proc_type='raw', session=None ):
+    def _commit_exposure( self, origin_identifier, expfile, obs_type='Sci',
+                          preproc_bitflag=0, wtfile=None, flgfile=None, session=None ):
         """Add to the Exposures table in the database an exposure downloaded from NOIRLab.
 
         Used internally by acquire_and_commit_origin_exposure and
@@ -606,12 +607,16 @@ class DECam(Instrument):
         obs_type : str, default 'Sci'
           The obs_type parameter (generally parsed from the exposure header, or pulled from the NOIRLab archive)
 
+        preproc_bitflag : int, default 0
+          Bitflag specifying which preprocessing steps are done.  If
+          this is non-zero, then wtfile and flgfile are required.
+
         session : Session
           Optional database session
 
         Returns
         -------
-        Exposure
+        Exposure, which has been saved to the disk and archive, and loaded into the database
 
         """
         outdir = pathlib.Path( FileOnDiskMixin.local_path )
@@ -628,6 +633,24 @@ class DECam(Instrument):
                        'dome flat': 'DomeFlat',
                        'zero': 'Bias'
                       }
+
+        if preproc_bitflag == 0:
+            proc_type = 'raw'
+            exts = None
+        else:
+            proc_type = 'instcal'
+            if ( wtfile is None ) or ( flgfile is None ):
+                raise RuntimeError( "Committing a DECam exposure with non-0 preproc_bitflag requires "
+                                    "a weight and a flags file." )
+
+            exts = []
+            for f, which in zip( [ expfile, wtfile, flgfile ], [ 'image', 'weight', 'flags' ] ):
+                if str(f)[-8:] == '.fits.fz':
+                    exts.append( f'.{which}.fits.fz' )
+                elif str(f)[-5:] == '.fits':
+                    exts.append( f'.{which}.fits' )
+                else:
+                    raise ValueError( f"Can't handle exposure {which} file named {expfile}" )
 
         provenance = Provenance(
             process='download',
@@ -677,9 +700,13 @@ class DECam(Instrument):
             expobj = Exposure( current_file=expfile, invent_filepath=True,
                                type=obs_type, format='fits', provenance_id=provenance.id, ra=ra, dec=dec,
                                instrument='DECam', origin_identifier=origin_identifier, header=hdr,
+                               preproc_bitflag=preproc_bitflag, filepath_extensions=exts,
                                **exphdrinfo )
             dbpath = outdir / expobj.filepath
-            expobj.save( expfile )
+            if preproc_bitflag == 0:
+                expobj.save( expfile )
+            else:
+                expobj.save( expfile, wtfile, flgfile )
             expobj.insert( session=dbsess )
 
         return expobj
@@ -989,25 +1016,45 @@ class DECamOriginExposures:
             indexes = [ indexes ]
 
         downloaded = self.download_exposures( outdir=outdir, indexes=indexes, clobber=clobber,
-                                              existing_ok=existing_ok, session=session )
+                                              onlyexposures=False, existing_ok=existing_ok, session=session )
 
         exposures = []
         for dex, expfiledict in zip( indexes, downloaded ):
-            if set( expfiledict.keys() ) != { 'exposure' }:
-                SCLogger.warning( f"Downloaded wtmap and dqmask files in addition to the exposure file "
-                                 f"from DECam, but only loading the exposure file into the database." )
-                # TODO: load these as file extensions (see
-                # FileOnDiskMixin), if we're ever going to actually
-                # use the observatory-reduced DECam images It's more
-                # work than just what needs to be done here, because
-                # we will need to think about that in
-                # Image.from_exposure(), and perhaps other places as
-                # well.
+            wtfile = None
+            flgfile = None
+            preproc_bitflag = 0
+
+            # For DECam, if all of 'exposure', 'wtmap', and 'dqmask' are present, we're going to
+            #   assume that this has been fully processed by the NOIRLab pipeline
+            # If just 'exposure' is present, we assume it's a raw exposure.
+            # (We might want to parse the filenames looking for ori vs. ooi etc?  Not sure if
+            # that's a fully reliable / documented thingy.  Perhaps look at proc_type, or whatever
+            # NOIRLab uses?)
+            if set( expfiledict.keys() ) == { 'exposure', 'wtmap', 'dqmask' }:
+                if len( expfiledict ) != 3:
+                    raise ValueError( f"Expected 3, not {len(expfiledict)}, exposure files for a reduced "
+                                      f"DECam exposure." )
+                # Should probably look at the DECam documentation and see if really these
+                #   are the steps it runs....
+                preproc_bitflag = ( ( 2 ** image_preprocessing_inverse[ 'overscan' ] ) |
+                                    ( 2 ** image_preprocessing_inverse[ 'zero' ] ) |
+                                    ( 2 ** image_preprocessing_inverse[ 'dark' ] ) |
+                                    ( 2 ** image_preprocessing_inverse[ 'linearity' ] ) |
+                                    ( 2 ** image_preprocessing_inverse[ 'flat' ] ) |
+                                    ( 2 ** image_preprocessing_inverse[ 'fringe' ] ) |
+                                    ( 2 ** image_preprocessing_inverse[ 'illumination' ] ) )
+                wtfile = expfiledict[ 'wtmap' ]
+                flgfile = expfiledict [ 'dqmask' ]
+            elif list( expfiledict.keys() ) != [ 'exposure' ]:
+                raise ValueError( f"Unexpected exposure files for DECam exposure: {list(expfiledict.keys())}" )
+
             expfile = expfiledict[ 'exposure' ]
             origin_identifier = pathlib.Path( self._frame.loc[dex,'image'].archive_filename ).name
             obs_type = self._frame.loc[dex,'image'].obs_type
             proc_type = self._frame.loc[dex,'image'].proc_type
-            expobj = self.decam._commit_exposure( origin_identifier, expfile, obs_type, proc_type, session=session )
+            expobj = self.decam._commit_exposure( origin_identifier, expfile, obs_type=obs_type,
+                                                  preproc_bitflag=preproc_bitflag, wtfile=wtfile, flgfile=flgfile,
+                                                  session=session )
             exposures.append( expobj )
 
         return exposures

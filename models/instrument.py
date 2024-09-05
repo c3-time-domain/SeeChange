@@ -939,6 +939,21 @@ class Instrument:
         sec = self.get_section( section_id )
         return np.zeros( [ sec.size_y, sec.size_x ], dtype=np.uint16 )
 
+    def convert_reduced_flags_to_seechange_flags( self, flagdata ):
+        """Convert the dqmask flags for source-supplied reduced images to the SeeChange bitmask.
+
+        The default method returns an int16 array with everything !=0
+        set to 1 ('bad pixel' in flag_image_bits in
+        enums_and_bitfags.py).  Individual instruments should override
+        this if they want to be more careful about this.
+
+        """
+
+        newflags = np.zeros_like( flagdata, dtype=np.int16 )
+        newflags[ flagdata != 0 ] = 1
+        return newflags
+
+
     def get_gain_at_pixel( self, image, x, y, section_id=None ):
         """Get the gain of an image at a given pixel position.
 
@@ -2155,6 +2170,7 @@ class InstrumentOriginExposures:
         indexes: list of int or None
            List of indexes into the set of origin exposures to download;
            None means download them all.
+
         clobber: bool
            Applies to the originally downloaded file
            (i.e. FileOnDiskMixin.local_path/{origin_filename}) already
@@ -2163,13 +2179,16 @@ class InstrumentOriginExposures:
            If clobber is False, then if existing_ok is True it will
            assume that that file is correct, otherwise it throws an
            exception.
+
         existing_ok: bool
            Applies to the originally downloaded file; see clobber.
+
         delete_downloads: bool
            If True (the default), will delete the originally downloaded
            files after they have been copied to their final location.
            (This mainly exists for testing purposes to avoid repeated
            downloads.)
+
         skip_existing: bool
            If True, will silently skip loading exposures that already exist in the
            database.  If False, will raise an exception on an attempt to load

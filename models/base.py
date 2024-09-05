@@ -1317,13 +1317,17 @@ class FileOnDiskMixin:
         ---------
         data: bytes, string, or Path
           The data to be saved
+
         extension: string or None
           The file extension
+
         overwrite: bool
           True to overwrite existing files (locally and on the archive).
+
         exists_ok: bool
           Ignored if overwrite is True.  Otherwise: if the file exists
           on disk, and this is False, raise an exception.
+
         verify_md5: bool
           Used to modify both overwrite and exists_ok
             LOCAL STORAGE
@@ -1350,6 +1354,7 @@ class FileOnDiskMixin:
                  If overwrite is True, upload to the archive,
                  overwriting what's there.  Otherwise, assume that
                  what's on the archive is right.
+
         no_archive: bool
           If True, do *not* save to the archive, only to the local filesystem.
 

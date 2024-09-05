@@ -593,13 +593,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     @classmethod
     def from_exposure(cls, exposure, section_id):
-        """
-        Copy the raw pixel values and relevant metadata from a section of an Exposure.
+        """Copy the raw pixel values and relevant metadata from a section of an Exposure.
 
         Parameters
         ----------
         exposure: Exposure
             The exposure object to copy data from.
+
         section_id: int or str
             The part of the sensor to use when making this image.
             For single section instruments this is usually set to 0.
@@ -607,10 +607,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         Returns
         -------
         image: Image
-            The new Image object. It would not have any data variables
-            except for raw_data (and all the metadata values).
-            To fill out data, flags, weight, etc., the application must
-            apply the proper preprocessing tools (e.g., bias, flat, etc).
+            The new Image object.  Loads the basic fields and raw_data.
+
+            If the exposure is preprocessed (defined as
+            exposure.preproc_bitflags != 0), then data, weight, and
+            flags will also be loaded.  In this case, data is exactly
+            the same array as raw_data, and "raw_data" is probably
+            misnamed.
 
         """
         if not isinstance(exposure, Exposure):
@@ -647,11 +650,18 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         exposure.instrument_object.check_section_id(section_id)
         new.section_id = section_id
-        new.raw_data = exposure.data[section_id]
         new.instrument_object = exposure.instrument_object
+        new.preproc_bitflag = exposure.preproc_bitflag
+        new.raw_data = exposure.data[section_id]
 
         # read the header from the exposure file's individual section data
         new._header = exposure.section_headers[section_id]
+
+        # If this is a preprocessed exposure, then we should be able to get weight and flags as well
+        if exposure.preproc_bitflag != 0:
+            new.data = new.raw_data
+            new.weight = exposure.weight[section_id]
+            new.flags = exposure.instrument_object.convert_reduced_flags_to_seechange_flags(exposure.flags[section_id])
 
         # Because we will later be writing out float data (BITPIX=-32)
         # -- or whatever the type of raw_data is -- we have to make sure
@@ -1314,13 +1324,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 for extension, filename in zip( self.filepath_extensions, self.get_fullpath(as_list=True) ):
                     if not os.path.isfile(filename):
                         raise FileNotFoundError(f"Could not find the image extension file: {filename}")
-                    if extension == '.image.fits':
+                    if extension in ( '.image.fits', '.image.fits.fz' ):
                         self._data, self._header = read_fits_image(filename, output='both')
                         gotim = True
-                    elif extension == '.weight.fits':
+                    elif extension in ( '.weight.fits', '.weight.fits.fz' ):
                         self._weight = read_fits_image(filename, output='data')
                         gotweight = True
-                    elif extension == '.flags.fits':
+                    elif extension in ( '.flags.fits', '.flags.fits.fz' ):
                         self._flags = read_fits_image(filename, output='data')
                         gotflags = True
                     else:  # other extensions like score and psfflux

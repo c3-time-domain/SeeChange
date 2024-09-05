@@ -16,6 +16,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from models.base import SmartSession, FileOnDiskMixin
+from models.instrument import get_instrument_instance
 from models.image import Image, image_upstreams_association_table
 from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag, image_badness_inverse
 from models.psf import PSF
@@ -582,6 +583,50 @@ def test_image_from_exposure_filter_array(sim_exposure_filter_array):
     im = Image.from_exposure(sim_exposure_filter_array, section_id=0)
     filt = sim_exposure_filter_array.filter_array[0]
     assert im.filter == filt
+
+
+def test_image_from_reduced_exposure( decam_reduced_origin_exposure_loaded_in_db ):
+    decam = get_instrument_instance( 'DECam' )
+    exp = decam_reduced_origin_exposure_loaded_in_db
+
+    img = Image.from_exposure( exp, section_id='N16' )
+    assert img.format == 'fits'
+    assert img.exposure_id == exp.id
+    assert img.ref_image_id is None
+    assert img.new_image_id is None
+    assert img.upstream_image_ids == []
+    assert not img.is_sub
+    assert not img.is_coadd
+    assert img.type == 'Sci'
+    assert img.provenance_id is None    # from_exposure doesn't set provenance
+    assert img.mjd == exp.mjd
+    assert img.exp_time == exp.exp_time
+    assert img.instrument == exp.instrument
+    assert img.telescope == exp.telescope
+    assert img.filter == exp.filter
+    assert img.section_id == 'N16'
+    assert img.project == exp.project
+    assert img.preproc_bitflag == 127           # Same as what was set for exp in the fixture
+    assert not img.astro_cal_done
+    assert not img.sky_sub_done
+    assert img.airmass == exp.airmass
+    assert img.fwhm_estimate is None
+    assert img.zero_point_estimate is None
+    assert img.lim_mag_estimate is None
+    assert img.bkg_mean_estimate is None
+    assert img.bkg_rms_estimate is None
+    ra, dec = decam.get_ra_dec_for_section( exp, 'N16' )
+    assert img.ra == pytest.approx( ra , 10./3600. / np.cos( exp.dec * np.pi / 180. ) )
+    assert img.dec == pytest.approx( dec, 10./3600. )
+    assert img._data.shape == ( 4094, 2046 )
+    assert img._weight.shape == img._data.shape
+    assert img._flags.shape == img._data.shape
+    assert img._data.mean() == pytest.approx( 373.123, abs=0.001 )
+    assert img._data.std() == pytest.approx( 1558.650, abs=0.001 )
+    assert img._flags.dtype == np.int16
+    assert img._flags.max() == 1
+    assert img._flags.min() == 0
+    assert img._flags.sum() == 266089
 
 
 def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_base):
