@@ -658,7 +658,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             already in the right place on disk, and it will use
             self.get_fullpath(nofile=True) to find them.
 
-        Keyword parmeters are passed on to FileOnDiskMixin.save().  Do *not*
+        Keyword parameters are passed on to FileOnDiskMixin.save().  Do *not*
         include an "extension" keyword in **kwargs; that is handled internally.
 
         """
