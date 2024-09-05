@@ -358,6 +358,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         self.type = 'Sci'  # default, can override using kwargs
         self._instrument_object = None
         self._bitflag = 0
+        self.preproc_bitflag = 0     # 0 is the database default; make sure object has it when created
 
         if 'header' in kwargs:
             kwargs['_header'] = kwargs.pop('header')
