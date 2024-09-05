@@ -717,7 +717,7 @@ class DECam(Instrument):
 
         """
         downloaded = self.acquire_origin_exposure( identifier, params )
-        return self._commit_exposure( identifier, downloaded, params['obs_type'], params['proc_type'] )
+        return self._commit_exposure( identifier, downloaded, params['obs_type'], params['preproc_bitflag'] )
 
 
     def find_origin_exposures( self,
@@ -942,11 +942,17 @@ class DECamOriginExposures:
                     continue
                 expinfo = self._frame.loc[ dex, 'image' ]
                 gallat, gallon, ecllat, ecllon = radec_to_gal_ecl( expinfo.ra_center, expinfo.dec_center )
+                if expinfo.proc_type == 'raw':
+                    preproc_bitflag = 0
+                elif expinfo.proc_type == 'instcal':
+                    preproc_bitflag = 127
+                else:
+                    raise ValueError( f"Unknown proc_type {expinfo.proc_type}" )
                 ke = KnownExposure( instrument='DECam', identifier=identifier,
                                     params={ 'url': expinfo.url,
                                              'md5sum': expinfo.md5sum,
                                              'obs_type': expinfo.obs_type,
-                                             'proc_type': expinfo.proc_type },
+                                             'preproc_bitflag': preproc_bitflag },
                                     hold=hold,
                                     exp_time=expinfo.exposure,
                                     filter=expinfo.ifilter,
