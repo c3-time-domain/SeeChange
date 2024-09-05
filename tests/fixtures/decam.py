@@ -27,6 +27,7 @@ from util.retrydownload import retry_download
 from util.logger import SCLogger
 from util.cache import copy_to_cache, copy_from_cache
 from util.util import env_as_bool
+import util.radec
 
 
 @pytest.fixture(scope='session')
@@ -147,6 +148,70 @@ def decam_reduced_origin_exposures():
                                        projects='2023A-716082',
                                        skip_exposures_in_database=False,
                                        proc_type='instcal' )
+
+
+@pytest.fixture(scope='module')
+def decam_reduced_origin_exposure_files( download_url, data_dir ):
+    fnames = []
+    for which in [ 'i', 'w', 'd' ]:
+        f = f'c4d_170925_083024_oo{which}_r_v1.fits.fz'
+        outpath = os.path.join( data_dir, f )
+        fnames.append( outpath )
+        url = os.path.join( download_url, 'DECAM', f )
+
+        if not os.path.isfile( outpath ):
+            if not env_as_bool( 'LIMIT_CACHE_USAGE' ):
+                SCLogger.debug( f"Downloading {f}" )
+                wget.download( url=url, out=outpath )
+            else:
+                cachedpath = os.path.join( decam_cache_dir, outpath )
+                os.mkdirs( os.path.dirname( cachedpath ), exist_ok=True )
+                if not os.path.isfile( cachedpath ):
+                    SCLogger.debug( f"Downloading {f}" )
+                    response = wget.download( url=url, out=cachedpath )
+                    assert response == cachedpath
+                else:
+                    SCLogger.debug( f"Cached file {f} exists, not redownloading." )
+
+                shutil.copy2( cachedpath, outpath )
+
+    yield fnames
+
+    for f in fnames:
+        if os.path.isfile( f ):
+            os.remove( f )
+
+@pytest.fixture
+def decam_reduced_origin_exposure_loaded_in_db( decam_reduced_origin_exposure_files, provenance_base ):
+    expfile, wtfile, flgfile = decam_reduced_origin_exposure_files
+    expobj = None
+
+    try:
+        with fits.open( expfile ) as ifp:
+            hdr = { k: v for k, v in ifp[0].header.items()
+                    if k in ( 'PROCTYPE', 'PRODTYPE', 'FILENAME', 'TELESCOP', 'OBSERVAT', 'INSTRUME'
+                              'OBS-LONG', 'OBS-LAT', 'EXPTIME', 'DARKTIME', 'OBSID',
+                              'DATE-OBS', 'TIME-OBS', 'MJD-OBS', 'OBJECT', 'PROGRAM',
+                              'OBSERVER', 'PROPID', 'FILTER', 'RA', 'DEC', 'HA', 'ZD', 'AIRMASS',
+                              'VSUB', 'GSKYPHOT', 'LSKYPHOT' ) }
+        exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter',
+                                                            'project', 'target' ] )
+        ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
+        dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
+
+        expobj = Exposure( current_file=expfile, invent_filepath=True, type='Sci', origin_identifier='foo',
+                           instrument='DECam', header=hdr, ra=ra, dec=dec, preproc_bitflag=127, format='fits',
+                           filepath_extensions=['.image.fits.fz', '.weight.fits.fz', '.flags.fits.fz'],
+                           **exphdrinfo )
+        expobj.save( expfile, wtfile, flgfile )
+        provenance_base.insert_if_needed()
+        expobj.insert()
+
+        yield expobj
+
+    finally:
+        if expobj is not None:
+            expobj.delete_from_disk_and_database()
 
 
 @pytest.fixture(scope='session')

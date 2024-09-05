@@ -229,5 +229,15 @@ def test_exposure_comes_loaded_with_instrument_from_db(sim_exposure1):
         assert e2.instrument_object.sections is not None
 
 
+def test_save_preprocessed_exposure( decam_reduced_origin_exposure_loaded_in_db ):
+    exp = decam_reduced_origin_exposure_loaded_in_db
+    assert len( exp.get_fullpath(nofile=True) ) == 3
+    for extpath in exp.get_fullpath( nofile=True ):
+        assert os.path.isfile( extpath )
+    # Do more?  Really just testing that the fixture did what it was supposed to
+    # May be able to omit this test and just rely on
+    # test_image_from_reduced_exposure.
+
+
 def test_exposure_spatial_indexing(sim_exposure1):
     pass  # TODO: complete this test

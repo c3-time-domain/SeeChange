@@ -56,8 +56,8 @@ EXPOSURE_HEADER_KEYS = ['gain']  # TODO: add more here
 
 
 class SectionData:
-    """
-    A helper class that lazy loads the section data from the database.
+    """A helper class that lazy loads the section data from the database.
+
     When requesting one of the section IDs it will fetch that data from
     disk and store it in memory.
     To clear the memory cache, call the clear_cache() method.
@@ -97,8 +97,8 @@ class SectionData:
 
 
 class SectionHeaders:
-    """
-    A helper class that lazy loads the section header from the database.
+    """A helper class that lazy loads the section header from the database.
+
     When requesting one of the section IDs it will fetch the header
     for that section, load it from disk and store it in memory.
     To clear the memory cache, call the clear_cache() method.
@@ -300,6 +300,17 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             'Bad exposures are each bad in their own way (i.e., have different bits set). '
     )
 
+    preproc_bitflag = sa.Column(
+        sa.SMALLINT,
+        nullable=False,
+        server_default=sa.sql.elements.TextClause( '0' ),
+        index=False,
+        doc=( 'Bitflag specifying which preprocessing steps have been completed for the images in the '
+              'exposure.  Useful for things like the NOIRlab archive where we can download preprocessed '
+              'images.  If this is anything other than 0, the code might assume that the exposure also '
+              'has weight and flags extensions.' )
+    )
+
     origin_identifier = sa.Column(
         sa.Text,
         nullable=True,
@@ -339,10 +350,15 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         self._data = None  # the underlying image data for each section
         self._section_headers = None  # the headers for individual sections, directly from the FITS file
+        self._weight = None
+        self._weight_section_headers = None
+        self._flags = None
+        self._flags_section_headers = None
         self._header = None  # the global (exposure level) header, directly from the FITS file
         self.type = 'Sci'  # default, can override using kwargs
         self._instrument_object = None
         self._bitflag = 0
+        self.preproc_bitflag = 0     # 0 is the database default; make sure object has it when created
 
         if 'header' in kwargs:
             kwargs['_header'] = kwargs.pop('header')
@@ -419,6 +435,10 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         FileOnDiskMixin.init_on_load(self)
         self._data = None
         self._section_headers = None
+        self._weight = None
+        self._weight_section_headers = None
+        self._flags = None
+        self._flags_section_headers = None
         self._header = None
         self._instrument_object = None
         session = object_session(self)
@@ -612,33 +632,62 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             prov_hash=prov_hash,
         )
 
-        if self.format == 'fits':
-            filepath += ".fits"
-        else:
-            raise ValueError( f"Unknown format for exposures: {self.format}" )
+        if self.filepath_extensions is None:
+            if self.format == 'fits':
+                filepath += ".fits"
+            else:
+                raise ValueError( f"Unknown format for exposures: {self.format}" )
 
         return filepath
 
     def save( self, *args, **kwargs ):
         """Save an exposure to the local file store and the archive.
 
-        One optional positional parameter is the data to save.  This can
-        either be a binary blob, or a file path (str or pathlib.Path).
-        This is passed as the first parameter to FileOnDiskMixin.save().
-        If nothing is given, then we will assume that the exposure is
-        already in the right place in the local filestore, and will use
-        self.get_fullpath(nofile=True) to figure out where it is.  (In
-        that case, the only real reason to call this is to make sure
-        things get pushed to the archive.)
+        Two ways to call:
 
-        Keyword parmeters are passed on to FileOnDiskMixin.save().
+          - one or more positional parameters.  The number of positional
+            parameters must match the length of
+            self.filepath_extensions, or be one if
+            self.filepath_extensions is None.  Each parameter is either
+            a binary blob with what should be written to the file, or a
+            Path or str pointing to where the file currently exists on
+            disk.
+
+          - No positional parameters.  In this case, it will assume that
+            file (or files, if filepath_etensions is not None) are
+            already in the right place on disk, and it will use
+            self.get_fullpath(nofile=True) to find them.
+
+        Keyword parameters are passed on to FileOnDiskMixin.save().  Do *not*
+        include an "extension" keyword in **kwargs; that is handled internally.
 
         """
+
+        data = None
+        datas = None
         if len(args) > 0:
-            data = args[0]
+            if self.filepath_extensions is None:
+                if len(args) != 1:
+                    raise ValueError( f"filepath_extensions is None but {len(args)}>1 positional parameters supplied" )
+                data = args[0]
+            else:
+                if len(args) != len( self.filepath_extensions ):
+                    raise ValueError( f"filepath_extensions has length {len(self.filepath_extensions)}, but "
+                                      f"{len(args)} positional parameters were supplied" )
+                datas = args
         else:
-            data = self.get_fullpath( nofile=True )
-        FileOnDiskMixin.save( self, data, **kwargs )
+            if self.filepath_extensions is None:
+                data = self.get_fullpath( nofile=True )
+            else:
+                datas = [ self.get_fullpath( nofile=True, extension=e ) for e in self.filepath_extensions ]
+
+        if self.filepath_extensions is None:
+            FileOnDiskMixin.save( self, data, **kwargs )
+        else:
+            self.md5sum_extensions = [ None ] * len( self.filepath_extensions )
+            for ext, data in zip( self.filepath_extensions, datas ):
+                FileOnDiskMixin.save( self, data, extension=ext, **kwargs )
+
 
     def load(self, section_ids=None):
         # Thought required: if exposures are going to be on the archive,
@@ -655,17 +704,59 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             raise ValueError("section_ids must be a list of integers. ")
 
         if self.filepath is not None:
+            # Putting this error in to catch if we actually ever actually call this.
+            # This is a scary function, since it will load the entire exposure into
+            # memory at once.  That may be what somebody wants, but often isn't.
+            # If this error is caught, then further thought is required.
+            # If the error is never caught, we might be able to delete the whole
+            # "load" method.
+            raise RuntimeError( "Do you really want to load the whole exposure?" )
             for i in section_ids:
                 self.data[i]  # use the SectionData __getitem__ method to load the data
         else:
             raise ValueError("Cannot load data from database without a filepath! ")
 
+    def _ext_filepath( self, which='image' ):
+        if which not in [ 'image', 'weight', 'flags' ]:
+            raise ValueError( f"Unknown exposure file extension type {which}" )
+        if self.instrument is None:
+            raise ValueError("Cannot load data without an instrument! ")
+
+        paths = self.get_fullpath( as_list=True )
+
+        if self.filepath_extensions is None:
+            if which == 'image':
+                return paths[0]
+            else:
+                raise ValueError( f"Exposure has no filepath_extensions, so won't have a {which} file" )
+
+        if self.format != 'fits':
+            raise ValueError( f"Don't know how to read data from {self.format} exposures" )
+
+        if which == 'image':
+            totry = ( '.image.fits', '.image.fits.fz' )
+        elif which == 'weight':
+            totry = ( '.weight.fits', '.weight.fits.fz' )
+        elif which == 'flags':
+            totry = ( '.flags.fits', '.flags.fits.fz' )
+
+            extdex = None
+        for whichtotry in totry:
+            try:
+                extdex = self.filepath_extensions.index( whichtotry )
+                break
+            except ValueError as ex:
+                continue
+        if extdex is None:
+            raise ValueError( f"Failed to find filepath extentions for {which} in {self.filepath_extensions}" )
+
+        return paths[ extdex ]
+
+
     @property
     def data(self):
         if self._data is None:
-            if self.instrument is None:
-                raise ValueError("Cannot load data without an instrument! ")
-            self._data = SectionData(self.get_fullpath(), self.instrument_object)
+            self._data = SectionData( self._ext_filepath('image'), self.instrument_object )
         return self._data
 
     @data.setter
@@ -677,16 +768,63 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     @property
     def section_headers(self):
         if self._section_headers is None:
-            if self.instrument is None:
-                raise ValueError("Cannot load headers without an instrument! ")
-            self._section_headers = SectionHeaders(self.get_fullpath(), self.instrument_object)
+            self._section_headers = SectionHeaders( self._ext_filepath('image'), self.instrument_object )
         return self._section_headers
 
     @section_headers.setter
     def section_headers(self, value):
         if not isinstance(value, SectionHeaders):
-            raise ValueError(f"data must be a SectionHeaders object. Got {type(value)} instead. ")
+            raise ValueError(f"section_headers must be a SectionHeaders object. Got {type(value)} instead. ")
         self._section_headers = value
+
+    @property
+    def weight(self):
+        if self._weight is None:
+            self._weight = SectionData( self._ext_filepath('weight'), self.instrument_object )
+        return self._weight
+
+    @weight.setter
+    def weight(self, value):
+        if not isinstance(value, SectionData):
+            raise ValueError(f"weight must be a SectionData object. Got {type(value)} instead. ")
+        self._weight = value
+
+    @property
+    def weight_section_headers(self):
+        if self._weight_section_headers is None:
+            self._weight_section_headers = SectionHeaders( self._ext_filepath('weight'), self.instrument_object )
+        return self._weight_section_headers
+
+    @weight_section_headers.setter
+    def weight_section_headers(self, value):
+        if not isinstance(value, SectionHeaders):
+            raise ValueError(f"weight_section_headers must be a SectionHeaders object. Got {type(value)} instead. ")
+        self._weight_section_headers = value
+
+    @property
+    def flags(self):
+        if self._flags is None:
+            self._flags = SectionData( self._ext_filepath('flags'), self.instrument_object )
+        return self._flags
+
+    @flags.setter
+    def flags(self, value):
+        if not isinstance(value, SectionData):
+            raise ValueError(f"flags must be a SectionData object. Got {type(value)} instead. ")
+        self._flags = value
+
+    @property
+    def flags_section_headers(self):
+        if self._flags_section_headers is None:
+            self._flags_section_headers = SectionHeaders( self._ext_filepath('flags'), self.instrument_object )
+        return self._flags_section_headers
+
+    @flags_section_headers.setter
+    def flags_section_headers(self, value):
+        if not isinstance(value, SectionHeaders):
+            raise ValueError(f"flags_section_headers must be a SectionHeaders object. Got {type(value)} instead. ")
+        self._flags_section_headers = value
+
 
     @property
     def header(self):
