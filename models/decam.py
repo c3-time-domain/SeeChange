@@ -1,5 +1,7 @@
 import re
+import os
 import math
+import time
 import copy
 import pathlib
 import requests
@@ -429,15 +431,23 @@ class DECam(Instrument):
 
         if calibtype == 'linearity':
             # Linearity requires special handling because it's the same
-            # file for all chips.  So, to avoid chaos, we have to get
-            # the CalibratorFileDownloadLock for it with section=None.
-            # (By the time this this function is called, we should
-            # already have the lock for one specific section, but not
-            # for the whole instrument.)
+            # file for all chips.  So, to avoid chaos, we will to get
+            # the CalibratorFileDownloadLock for it with section=None;
+            # that will prevent different processes inside this function
+            # from stepping on each others' toes.  (By the time this
+            # this function is called, we should already have the lock
+            # for one specific section, but not for the whole
+            # instrument.)
 
-            with CalibratorFileDownloadLock.acquire_lock(
-                    self.name, None, 'externally_supplied', 'linearity', session=session
-            ) as calibfile_lockid:
+            SCLogger.debug( f"decam._get_default_calibrator: getting lock for {self.name} on all chips "
+                            f"for linearity file {os.path.basename(filepath)}" )
+            with CalibratorFileDownloadLock.acquire_lock( instrument=self.name,
+                                                          section=None,
+                                                          calibset='externally_supplied',
+                                                          calibtype='linearity',
+                                                          session=session
+                                                         ) as calibfile_lockid:
+                SCLogger.debug( "decam._get_default_calibrator: received lock on all chips for linearity file" )
 
                 with SmartSession( session ) as dbsess:
                     # Gotta check to see if the file was there from
@@ -489,6 +499,8 @@ class DECam(Instrument):
                     if calfile is None:
                         raise RuntimeError( f"Failed to get default calibrator file for DECam linearity; "
                                             f"you should never see this error." )
+            SCLogger.debug( f"decam_get_default_calibrator: releasing lock for {self.name} on all chips "
+                            f"for linearity file {os.path.basename(filepath)}" )
         else:
             # No need to get a new calibfile_downloadlock, we should already have the one for this type and section
             retry_download( url, fileabspath )
@@ -971,6 +983,8 @@ class DECamOriginExposures:
     def exposure_exptime( self, index ):
         return self._frame.loc[ index, 'image' ].exposure
 
+    def exposure_origin_identifier( self, index ):
+        return self._frame.loc[ index, 'image' ].archive_filename
 
     def add_to_known_exposures( self,
                                 indexes=None,
@@ -1090,6 +1104,8 @@ class DECamOriginExposures:
 
     def download_and_commit_exposures( self, indexes=None, clobber=False, existing_ok=False,
                                        delete_downloads=True, skip_existing=True, session=None ):
+        # TODO : implement skip_existing
+
         outdir = pathlib.Path( FileOnDiskMixin.local_path )
         if indexes is None:
             indexes = range( len(self._frame) )
@@ -1140,12 +1156,13 @@ class DECamOriginExposures:
 
             # If the comitted exposures aren't in the same place as the downloaded exposures,
             #  clean up the downloaded exposures
-            dled = [ expfile, wtfile, flgfile ]
-            finalfiles = expobj.get_fullpath( as_list=True )
-            for i, finalfile in enumerate( finalfiles ):
-                dl = pathlib.Path( dled[i] )
-                f = pathlib.Path( finalfile )
-                if dl.resolve() != f.resolve():
-                    dl.unlink( missing_ok=True )
+            if delete_downloads:
+                dled = [ expfile, wtfile, flgfile ]
+                finalfiles = expobj.get_fullpath( as_list=True )
+                for i, finalfile in enumerate( finalfiles ):
+                    dl = pathlib.Path( dled[i] )
+                    f = pathlib.Path( finalfile )
+                    if dl.resolve() != f.resolve():
+                        dl.unlink( missing_ok=True )
 
         return exposures

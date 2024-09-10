@@ -1538,6 +1538,7 @@ class Instrument:
                         SCLogger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
                                           f"{self.name} {section}, randomly using one." )
                     if calibquery.count() > 0:
+                        SCLogger.debug( f"Got an existing valid {calibtype} for {self.name} {section}" )
                         calib = calibquery.first()
 
                 if ( calib is None ) and ( calibset == 'externally_supplied' ) and ( not nofetch ):
@@ -1982,7 +1983,7 @@ class DemoInstrument(Instrument):
         ----------
           identifier : str
             Identifies the image at the source of exposures.  (See
-            KnownExposure.identfier or Exposure.origin_identifier.)
+            KnownExposure.identifier or Exposure.origin_identifier.)
 
           params : defined differently for each subclass
             Necessary parameters for this instrument to download an
@@ -2184,7 +2185,25 @@ class InstrumentOriginExposures:
           exptime: float
 
         """
-        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_exptime" )
+        raise NotImplementedError( f"{self.__class__.__name__} hasn't implemented exposure_exptime" )
+
+
+    def exposure_origin_identifier( self, index ):
+        """Return the origin identifier of the exposure.
+
+        This is the thing that eventually goes into KnownExposure.identifier and Exposure.origin_identifier .
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          identifier: str
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} hasn't implemented exposure_origin_identifier" )
 
 
     def add_to_known_exposures( self,

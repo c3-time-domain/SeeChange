@@ -1,9 +1,10 @@
 import sys
+import re
 import multiprocessing
 import logging
 
-_default_log_level = logging.INFO
-# _default_log_level = logging.DEBUG
+# _default_log_level = logging.INFO
+_default_log_level = logging.DEBUG
 
 _default_datefmt = '%Y-%m-%d %H:%M:%S'
 # Normally you don't want to show milliseconds, because it's additional gratuitous information
@@ -64,6 +65,19 @@ class SCLogger:
             level = _default_log_level if level is None else level
         cls._instance = cls( midformat=midformat, datefmt=datefmt, level=level )
         return cls._instance
+
+    @classmethod
+    def multiprocessing_replace( cls, datefmt=None, level=None ):
+        """Shorthand for replace with midformat parsed from the current muiltiprocessing process."""
+
+        me = multiprocessing.current_process()
+        # Usually processes are named things like ForkPoolWorker-{number}, or something
+        match = re.search( '([0-9]+)', me.name )
+        if match is not None:
+            num = f'{int(match.group(1)):3d}'
+        else:
+            num = str(me.pid)
+        cls.replace( midformat=num, datefmt=datefmt, level=level )
 
     @classmethod
     def set_level( cls, level=_default_log_level ):

@@ -30,7 +30,7 @@ class ParsPreprocessor(Parameters):
                       "Where was the preprocessing done?  internal=using SeeChange preprocessor starting "
                       "from raw images.  noirlab_instcal=image was loaded alredy preprocessed by NOIRLab pipeline.  "
                       "Set this parameter manually to something other than 'internal' when loading "
-                      "in already-preprocessed images."
+                      "in already-preprocessed images.",
                       critical=True )
 
         self.add_par( 'calibset', 'externally_supplied', str,
@@ -159,6 +159,9 @@ class Preprocessor:
             if image.preproc_bitflag is None:
                 image.preproc_bitflag = 0
 
+            # Figure out what steps are generally needed.
+            # Needed steps started above at set(self.pars.steps_required).
+            # Subtract off what is *always* done by this instrument.
             needed_steps -= set(self.instrument.preprocessing_steps_done)
             filter_skips = self.instrument.preprocessing_step_skip_by_filter.get(ds.exposure.filter_short, [])
             if not isinstance(filter_skips, list):
@@ -166,16 +169,30 @@ class Preprocessor:
             filter_skips = set(filter_skips)
             needed_steps -= filter_skips
 
-            if image._data is None:  # in case we skip all preprocessing steps
+            # in case we skip all preprocessing steps
+            if image._data is None:
                 image.data = image.raw_data
 
-            # the image keeps track of the steps already done to it in image.preproc_bitflag,
-            # which is translated into a list of keywords when calling image.preprocessing_done
-            # this includes the things that already were applied in the exposure
-            # (i.e., the instrument's preprocessing_steps_done) but does not
-            # include the things that were skipped for this filter
-            # (i.e., the instrument's preprocessing_step_skip_by_filter)
-            already_done = set(image.preprocessing_done.split(', ') if image.preprocessing_done else [])
+            # The image keeps track of the steps already done to it in
+            #   image.preproc_bitflag, which is translated into a string
+            #   of comma-separated keywords in image.preprocessing_done.
+            #   This includes the things that already were applied in
+            #   the exposure, and should have been set when the image
+            #   was extracted from the exposure, but does not include
+            #   the things that were skipped for this filter (i.e., the
+            #   instrument's preprocessing_step_skip_by_filter).
+            already_done = set( image.preprocessing_done.split(', ') if image.preprocessing_done else [] )
+
+            # If self.pars.preprocessing is anything other than
+            #   'internal', there should be nothing left to do except
+            #   set the image provenance, and maybe calculate the weight
+            #   and flags.  Verify that.
+            if self.pars.preprocessing != 'internal':
+                if len( needed_steps - already_done ) > 0:
+                    raise ValueError( f"Preprocessing error: self.pars.preprocessing is {self.pars.preprocessing}, "
+                                      f"but we still need to do steps {needed_steps-already_done} "
+                                      f"(needed_steps={needed_steps}, preproc_bitflag={image.preproc_bitflag})" )
+
             if not needed_steps.issubset(already_done):  # still things to do here
                 self.has_recalculated = True
                 # Overscan is always first (as it reshapes the image)
@@ -222,9 +239,11 @@ class Preprocessor:
                             elif step == 'linearity':
                                 calibfile = session.get( DataFile, stepfileid )
                                 if calibfile is None:
-                                    raise RuntimeError( f"Unable to load datafile id {stepfileid} for preproc step {step}" )
+                                    raise RuntimeError( f"Unable to load datafile id {stepfileid} "
+                                                        f"for preproc step {step}" )
                             else:
-                                raise ValueError( f"Preprocessing step {step} has an unknown file type (image vs. datafile)" )
+                                raise ValueError( f"Preprocessing step {step} has an unknown "
+                                                  f"file type (image vs. datafile)" )
                         self.stepfilesids[ step ] = stepfileid
                         self.stepfiles[ step ] = calibfile
                     if step in [ 'zero', 'dark' ]:
