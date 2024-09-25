@@ -145,6 +145,8 @@ class Coadder:
 
         return bkg, sigma
 
+    # ======================================================================
+
     def _coadd_naive(self, images, weights=None, flags=None):
         """Simply sum the values in each image on top of each other.
 
@@ -195,6 +197,8 @@ class Coadder:
             outfl |= f
 
         return outim, outwt, outfl
+
+    # ======================================================================
 
     def _zogy_core(self, datacube, psfcube, sigmas, flux_zps):
         """Perform the core Zackay & Ofek proper image coaddition on the input data cube.
@@ -423,6 +427,9 @@ class Coadder:
 
         return outim, outwt, outfl, psf, score
 
+
+    # ======================================================================
+
     def run_alignment( self, data_store_list, index ):
         """Run the alignment.
 
@@ -573,39 +580,47 @@ class Coadder:
             #  target that may or may not be one of the images in the sum.
             raise ValueError(f"Unknown alignment reference index: {self.pars.alignment['to_index']}")
 
-        if aligned_datastores is not None:
-            SCLogger.debug( "Coadder using passed aligned datastores" )
-            aligned_datastores = [ aligned_datastores[i] for i in dexen ]
-            self.aligned_datastores = aligned_datastores
+        # 'Swarp' method does alignment and coaddition all in one go
+        if self.pars.method == 'swarp':
+            if aligned_datastores is not None:
+                raise RuntimeError( "Passing aligned_datastores currently not compatible with swarp coadd method" )
+
+            outim, outwt, outfl = self._coadd_swarp( data_store_list, index )
+
         else:
-            SCLogger.debug( "Coadder aligning all images" )
-            self.run_alignment( data_store_list, index )
+            if aligned_datastores is not None:
+                SCLogger.debug( "Coadder using passed aligned datastores" )
+                aligned_datastores = [ aligned_datastores[i] for i in dexen ]
+                self.aligned_datastores = aligned_datastores
+            else:
+                SCLogger.debug( "Coadder aligning all images" )
+                self.run_alignment( data_store_list, index )
 
-        if coadd_provenance is None:
-            coadd_provenance, _ = self.get_coadd_prov( data_store_list )
+            if coadd_provenance is None:
+                coadd_provenance, _ = self.get_coadd_prov( data_store_list )
 
-        output = Image.from_images( [ d.image for d in data_store_list ], index=index )
-        output.provenance_id = coadd_provenance.id
-        output.is_coadd = True
+            output = Image.from_images( [ d.image for d in data_store_list ], index=index )
+            output.provenance_id = coadd_provenance.id
+            output.is_coadd = True
 
-        # actually coadd
+            # actually coadd
 
-        aligned_images = [ d.image for d in self.aligned_datastores ]
-        aligned_bgs = [ d.bg for d in self.aligned_datastores ]
-        aligned_psfs = [ d.psf for d in self.aligned_datastores ]
-        aligned_zps = [ d.zp for d in self.aligned_datastores ]
+            aligned_images = [ d.image for d in self.aligned_datastores ]
+            aligned_bgs = [ d.bg for d in self.aligned_datastores ]
+            aligned_psfs = [ d.psf for d in self.aligned_datastores ]
+            aligned_zps = [ d.zp for d in self.aligned_datastores ]
 
-        if self.pars.method == 'naive':
-            SCLogger.debug( "Coadder doing naive addition" )
-            outim, outwt, outfl = self._coadd_naive( aligned_images )
-        elif self.pars.method == 'zogy':
-            SCLogger.debug( "Coadder doing zogy addition" )
-            outim, outwt, outfl, outpsf, outscore = self._coadd_zogy( aligned_images,
-                                                                      aligned_bgs,
-                                                                      aligned_psfs,
-                                                                      aligned_zps )
-        else:
-            raise ValueError(f'Unknown coaddition method: {self.pars.method}. Use "naive" or "zogy".')
+            if self.pars.method == 'naive':
+                SCLogger.debug( "Coadder doing naive addition" )
+                outim, outwt, outfl = self._coadd_naive( aligned_images )
+            elif self.pars.method == 'zogy':
+                SCLogger.debug( "Coadder doing zogy addition" )
+                outim, outwt, outfl, outpsf, outscore = self._coadd_zogy( aligned_images,
+                                                                          aligned_bgs,
+                                                                          aligned_psfs,
+                                                                          aligned_zps )
+             else:
+                raise ValueError(f'Unknown coaddition method: {self.pars.method}. Use "naive", "swarp", or "zogy".')
 
         output.data = outim
         output.weight = outwt

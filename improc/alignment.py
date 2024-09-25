@@ -190,6 +190,65 @@ class ImageAligner:
 
         return warpedim
 
+    def _get_swarp_fodder_wcs( self, source_image, source_sources, source_wcs, source_zp, target_sources ):
+        tmppath = pathlib.Path( source_image.temp_path )
+        tmpname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwzyz', k=10 ) )
+        tmpimagecat = tmppath / f'{tmpname}_image.sources.fits'
+        tmptargetcat = tmppath / f'{tmpname}_target.sources.fits'
+
+        try:
+            # For everything to work as in the massive comment below in
+            # _align_swarp, we need the "sources" object to have current
+            # ra and dec (X_WORLD and Y_WORLD) fields based on image's
+            # current wcs, as this will be serving as the
+            # faux-astrometric-reference catalog for scamp.
+
+            imskyco = source_wcs.wcs.pixel_to_world( source_sources.x, source_sources.y )
+            # ...the choice of a numpy recarray is inconvenient here, since
+            # adding a column requires making a new datatype, copying data, etc.
+            # Take the shortcut of using astropy.table.Table.  (Could also use Pandas.)
+            datatab = astropy.table.Table( source_sources.data )
+            datatab['X_WORLD'] = imskyco.ra.deg
+            datatab['Y_WORLD'] = imskyco.dec.deg
+            # TODO: the astropy doc says this returns the pixel scale along
+            # each axis in the same units as the WCS yields.  Can we assume
+            # that the WCS is always yielding degrees?
+            pixsc = astropy.wcs.utils.proj_plane_pixel_scales( source_wcs.wcs ).mean()
+            datatab['ERRA_WORLD'] = source_sources.errx * pixsc
+            datatab['ERRB_WORLD'] = source_sources.erry * pixsc
+            flux, dflux = source_sources.apfluxadu()
+            datatab['MAG'] = -2.5 * np.log10( flux ) + source_zp.zp
+            # TODO: Issue #251
+            datatab['MAG'] += source_zp.get_aper_cor( source_sources.aper_rads[0] )
+            datatab['MAGERR'] = 1.0857 * dflux / flux
+
+            # Convert from numpy convention to FITS convention and write
+            # out LDAC files for scamp to chew on.
+            datatab = SourceList._convert_to_sextractor_for_saving( datatab )
+            targetdat = astropy.table.Table( SourceList._convert_to_sextractor_for_saving( target_sources.data ) )
+            ldac.save_table_as_ldac( datatab, tmpimagecat, imghdr=source_sources.info, overwrite=True )
+            ldac.save_table_as_ldac( targetdat, tmptargetcat, imghdr=target_sources.info, overwrite=True )
+
+            # Scamp it up
+            swarp_fodder_wcs = improc.scamp.solve_wcs_scamp(
+                tmptargetcat,
+                tmpimagecat,
+                magkey='MAG',
+                magerrkey='MAGERR',
+                crossid_radius=self.pars.crossid_radius,
+                max_sources_to_use=self.pars.max_sources_to_use,
+                min_frac_matched=self.pars.min_frac_matched,
+                min_matched=self.pars.min_matched,
+                max_arcsec_residual=self.pars.max_arcsec_residual,
+                timeout=self.pars.swarp_timeout,
+            )
+
+            return swarp_fodder_wcs
+
+        finally:
+            tmpimagecat.unlink( missing_ok=True )
+            tmptargetcat.unlink( missing_ok=True )
+
     def _align_swarp( self, source_image, source_sources, source_bg, source_psf, source_wcs, source_zp,
                       target_image, target_sources, warped_prov, warped_sources_prov ):
         """Use scamp and swarp to align image to target.
@@ -251,8 +310,6 @@ class ImageAligner:
         tmppath = pathlib.Path( source_image.temp_path )
         tmpname = ''.join( random.choices( 'abcdefghijlkmnopqrstuvwxyz', k=10 ) )
 
-        tmpimagecat = tmppath / f'{tmpname}_image.sources.fits'
-        tmptargetcat = tmppath / f'{tmpname}_target.sources.fits'
         tmpim = tmppath / f'{tmpname}_image.fits'
         tmpflags = tmppath / f'{tmpname}_flags.fits'
         tmpbg = tmppath / f'{tmpname}_bg.fits'
@@ -312,51 +369,9 @@ class ImageAligner:
         # works!)
 
         try:
-            # For everything to work as described above, we need the
-            # "sources" object to have current ra and dec (X_WORLD and
-            # Y_WORLD) fields based on image's current wcs, as this will
-            # be serving as the faux-astrometric-reference catalog for
-            # scamp.
 
-            imskyco = source_wcs.wcs.pixel_to_world( source_sources.x, source_sources.y )
-            # ...the choice of a numpy recarray is inconvenient here, since
-            # adding a column requires making a new datatype, copying data, etc.
-            # Take the shortcut of using astropy.table.Table.  (Could also use Pandas.)
-            datatab = astropy.table.Table( source_sources.data )
-            datatab['X_WORLD'] = imskyco.ra.deg
-            datatab['Y_WORLD'] = imskyco.dec.deg
-            # TODO: the astropy doc says this returns the pixel scale along
-            # each axis in the same units as the WCS yields.  Can we assume
-            # that the WCS is always yielding degrees?
-            pixsc = astropy.wcs.utils.proj_plane_pixel_scales( source_wcs.wcs ).mean()
-            datatab['ERRA_WORLD'] = source_sources.errx * pixsc
-            datatab['ERRB_WORLD'] = source_sources.erry * pixsc
-            flux, dflux = source_sources.apfluxadu()
-            datatab['MAG'] = -2.5 * np.log10( flux ) + source_zp.zp
-            # TODO: Issue #251
-            datatab['MAG'] += source_zp.get_aper_cor( source_sources.aper_rads[0] )
-            datatab['MAGERR'] = 1.0857 * dflux / flux
-
-            # Convert from numpy convention to FITS convention and write
-            # out LDAC files for scamp to chew on.
-            datatab = SourceList._convert_to_sextractor_for_saving( datatab )
-            targetdat = astropy.table.Table( SourceList._convert_to_sextractor_for_saving( target_sources.data ) )
-            ldac.save_table_as_ldac( datatab, tmpimagecat, imghdr=source_sources.info, overwrite=True )
-            ldac.save_table_as_ldac( targetdat, tmptargetcat, imghdr=target_sources.info, overwrite=True )
-
-            # Scamp it up
-            swarp_fodder_wcs = improc.scamp.solve_wcs_scamp(
-                tmptargetcat,
-                tmpimagecat,
-                magkey='MAG',
-                magerrkey='MAGERR',
-                crossid_radius=self.pars.crossid_radius,
-                max_sources_to_use=self.pars.max_sources_to_use,
-                min_frac_matched=self.pars.min_frac_matched,
-                min_matched=self.pars.min_matched,
-                max_arcsec_residual=self.pars.max_arcsec_residual,
-                timeout=self.pars.swarp_timeout,
-            )
+            swarp_fodder_wcs = self._get_swarp_fodder_wcs( source_image, source_sources, source_wcs, source_zp,
+                                                           target_sources )
 
             # Write out the .head file that swarp will use to figure out what to do
             hdr = swarp_fodder_wcs.to_header()
@@ -533,8 +548,6 @@ class ImageAligner:
             return warpedim, warpedsources, warpedbg, warpedpsf
 
         finally:
-            tmpimagecat.unlink( missing_ok=True )
-            tmptargetcat.unlink( missing_ok=True )
             tmpim.unlink( missing_ok=True )
             tmpflags.unlink( missing_ok=True )
             tmpbg.unlink( missing_ok=True )
