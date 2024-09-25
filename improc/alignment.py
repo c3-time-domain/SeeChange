@@ -14,6 +14,7 @@ from util import ldac
 from util.exceptions import SubprocessFailure
 from util.util import read_fits_image, save_fits_image_file
 from util.logger import SCLogger
+from util.exceptions import BadMatchException
 import improc.scamp
 import improc.tools
 
@@ -190,7 +191,59 @@ class ImageAligner:
 
         return warpedim
 
-    def _get_swarp_fodder_wcs( self, source_image, source_sources, source_wcs, source_zp, target_sources ):
+    def get_swarp_fodder_wcs( self, source_image, source_sources, source_wcs, source_zp, target_sources,
+                               fall_back_wcs=None ):
+        """Get a WCS for an image-to-image alignment.
+
+        Get a WCS for target_sources that uses source_sources as a
+        catalog reference.  If the original WCSes were very good, then
+        this new WCS should be very close to the target's WCS we already
+        have (somewhere in the database).  However, this WCS should
+        usually be better for image alignment, as it provides (as much
+        as possible given the WCS framework) a direct transformation
+        between the two images, rather than relying on a transformation
+        from one image to world, and world to the other image.  (In
+        practice, the transformation will always be calculated in that
+        two-step manner.  However, from this method, the Gaia (or
+        whatever) catalog used to determine image WCSes aren't an
+        intermediary.  See the massive comment in _align_swarp.)
+
+        Parameters
+        ----------
+          source_image : Image
+             The image that we will eventually want to align to target_image.
+
+          source_sources : SourceList
+             A SourceList from source_image.
+
+          source_wcs : WorldCoordinates
+             A WorldCoordinates from source_image.
+
+          source_zp : ZeroPoint
+             A ZeroPoint from source_image.
+
+          target_sources: SourceList
+             A SourceList from target_image.  target_image isn't
+             actually a parameter of this method, because it's not
+             needed, but it's the image to which source_image is going
+             to be aligned.  If it seems perverse that we're returning a
+             new WCS for target_image and not source_image, see the
+             massive comment in the _align_swarp method.
+
+          fall_back_wcs : WorldCoordinates or None
+             If not None, and the scamp fails (e.g. because the two
+             images didn't have enough stars in the region where they
+             overlap), and if this WCS is given, just return this WCS.
+             Practically speaking, this means that you'll be missing out
+             on the benefits described for this method, and assuming
+             that the WCS solutions to Gaia are good enough for the
+             two-step transformation to provide sub-pixel alignments.
+
+        Returns
+        -------
+           astropy.wcs.WCS
+
+        """
         tmppath = pathlib.Path( source_image.temp_path )
         tmpname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwzyz', k=10 ) )
         tmpimagecat = tmppath / f'{tmpname}_image.sources.fits'
@@ -230,18 +283,23 @@ class ImageAligner:
             ldac.save_table_as_ldac( targetdat, tmptargetcat, imghdr=target_sources.info, overwrite=True )
 
             # Scamp it up
-            swarp_fodder_wcs = improc.scamp.solve_wcs_scamp(
-                tmptargetcat,
-                tmpimagecat,
-                magkey='MAG',
-                magerrkey='MAGERR',
-                crossid_radius=self.pars.crossid_radius,
-                max_sources_to_use=self.pars.max_sources_to_use,
-                min_frac_matched=self.pars.min_frac_matched,
-                min_matched=self.pars.min_matched,
-                max_arcsec_residual=self.pars.max_arcsec_residual,
-                timeout=self.pars.swarp_timeout,
-            )
+            try:
+                swarp_fodder_wcs = improc.scamp.solve_wcs_scamp(
+                    tmptargetcat,
+                    tmpimagecat,
+                    magkey='MAG',
+                    magerrkey='MAGERR',
+                    crossid_radius=self.pars.crossid_radius,
+                    max_sources_to_use=self.pars.max_sources_to_use,
+                    min_frac_matched=self.pars.min_frac_matched,
+                    min_matched=self.pars.min_matched,
+                    max_arcsec_residual=self.pars.max_arcsec_residual,
+                    timeout=self.pars.swarp_timeout,
+                )
+            except BadMatchException as ex:
+                if fall_back_wcs is not None:
+                    return fall_back_wcs
+                raise ex
 
             return swarp_fodder_wcs
 
@@ -370,8 +428,8 @@ class ImageAligner:
 
         try:
 
-            swarp_fodder_wcs = self._get_swarp_fodder_wcs( source_image, source_sources, source_wcs, source_zp,
-                                                           target_sources )
+            swarp_fodder_wcs = self.get_swarp_fodder_wcs( source_image, source_sources, source_wcs, source_zp,
+                                                          target_sources )
 
             # Write out the .head file that swarp will use to figure out what to do
             hdr = swarp_fodder_wcs.to_header()

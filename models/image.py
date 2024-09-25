@@ -118,14 +118,15 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         sa.ForeignKey('images._id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
         nullable=True,
         index=True,
-        doc="ID of the reference image used to produce this image, in the upstream_images list. "
+        doc=( "ID of the reference image used to produce this image, in the upstream_images list.  "
+              "For subtractions, this is the template image.  For coadditions, this is the alignment target." )
     )
 
     @property
     def new_image_id(self):
         """Get the id of the image that is NOT the reference image. Only for subtractions (with ref+new upstreams)"""
-        # TODO : this will return something if it's a coadd of two images.
-        # Perhaps we should check self.is_sub, and return None if that's false?
+        if not self.is_sub:
+            raise RuntimeError( "new_image_id is not defined for images that aren't subtractions" )
         image = [ i for i in self.upstream_image_ids if i != self.ref_image_id ]
         if len(image) == 0 or len(image) > 1:
             return None
@@ -794,7 +795,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return new
 
     @classmethod
-    def from_images(cls, images, index=0, set_is_coadd=True):
+    def from_images(cls, images, index=0, target=None, set_is_coadd=True):
         """Create a new Image object from a list of other Image objects.
 
         This is the first step in making a multi-image (usually a
@@ -818,9 +819,14 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         index: int
             The image index in the (mjd sorted) list of upstream images
             that is used to set several attributes of the output image.
-            Notably this includes the RA/Dec (and corners) of the output image,
-            which implies that the indexed source image should be the one that
-            all other images are aligned to (when running alignment).
+
+        target: Image
+            The Image object to which everything will be aligned.  If
+            None, then the image specified by index (above) is used as
+            the target.  The RA/Dec (and corners) of the output image
+            will be taken from this image's header.  Use this when you want
+            the alignment target of the coadded images to be an image
+            that isn't one of the images you're coadding.
 
         set_is_coadd: bool, default True
             Set the is_coadd field of the new image.  This is usually

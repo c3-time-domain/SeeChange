@@ -619,7 +619,7 @@ class Coadder:
                                                                           aligned_bgs,
                                                                           aligned_psfs,
                                                                           aligned_zps )
-             else:
+            else:
                 raise ValueError(f'Unknown coaddition method: {self.pars.method}. Use "naive", "swarp", or "zogy".')
 
         output.data = outim
