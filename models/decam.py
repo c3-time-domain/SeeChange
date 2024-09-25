@@ -913,8 +913,8 @@ class DECam(Instrument):
         if proc_type == 'instcal':
             # Parse out the date, time, file type, filter, and version from the filename,
             #   assuming the filename matches the c4d_* pattern.  (If it doesn't toss it.)
-            procre = re.compile( 'c4d_(?P<date>\d{6})_(?P<time>\d{6})_(?P<which>[a-z]{3})_'
-                                 '(?P<filter>[a-z])_(?P<ver>[^/\.]+)\.fits(?P<fz>\.fz)?$' )
+            procre = re.compile( r'c4d_(?P<date>\d{6})_(?P<time>\d{6})_(?P<which>[a-z]{3})_'
+                                 r'(?P<filter>[a-zA-Z]+)_(?P<ver>[^/\.]+)\.fits(?P<fz>\.fz)?$' )
 
             files[ 'namematch' ] = files['archive_filename'].apply( lambda x: procre.search(x) is not None )
             files = files[ files['namematch'] ]
@@ -958,7 +958,7 @@ class DECam(Instrument):
 
 
                 # Look for a ".v(\d+)" version, pick the highest one
-                vsearch = re.compile( '^v(\d+)$' )
+                vsearch = re.compile( r'^v(\d+)$' )
                 usev = None
                 usevval = -1
                 for v in viableversions:
@@ -973,11 +973,16 @@ class DECam(Instrument):
                 if usev is None:
                     usev = viableversions[0]
 
-                files[ ( files['fndate'] == fndate ) &
-                       ( files['fntime'] == fntime ) &
-                       ( files['fnfilter'] == fnfilter ) &
-                       ( files['fnver'] == usev  )
-                      ].keep = True
+                # Pandas is somtimes mysterious
+                # I ran this with files[ ... ].keep = True
+                # Interactively, it worked.  But in the code here, it didn't.
+                # I don't know why.
+                files.loc[ ( files['fndate'] == fndate ) &
+                           ( files['fntime'] == fntime ) &
+                           ( files['fnfilter'] == fnfilter ) &
+                           ( files['fnver'] == usev ),
+                           'keep'
+                          ] = True
 
             # At this point, the "keep" field should have exactly one version of every exposure
             files = files[ files['keep'] ]

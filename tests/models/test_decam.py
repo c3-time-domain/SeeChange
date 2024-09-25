@@ -180,10 +180,11 @@ def test_decam_search_noirlab_dedup():
     # Make sure that if we do a search we know has duplicates in it, we don't get
     #  duplicate exposures
 
-    try:
-        decam = DECam()
-        originexposures = decam.find_origin_exposures( minmjd=57664.25347, maxmjd=57664.25417, proc_type='instcal' )
-        import pdb; pdb.set_trace()
+    decam = DECam()
+    originexposures = decam.find_origin_exposures( minmjd=57664.25347, maxmjd=57664.25556, proc_type='instcal' )
+    assert len(originexposures) == 1
+    assert ( originexposures.exposure_origin_identifier(0) ==
+             '/net/archive/pipe/20161002/ct4m/2012B-0001/c4d_161003_060737_ooi_r_v1.fits.fz' )
 
 
 @pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
