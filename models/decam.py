@@ -890,23 +890,97 @@ class DECam(Instrument):
 
 
         # Need to de-duplicate; for proc_type='instcal', there are sometimes multiple
-        #  different versions of the processing in the NOIRLab archives.  I haven't found
-        #  documentation on this, so I'm going to hope that the hack I have below will
-        #  continue to work.  It looks like the filename is /net/archive/pipe[line]/*yyyymmdd.../...
-        #  so try to search for that and find the maximum
+        #  different versions of the processing in the NOIRLab archives.
+        #
+        # Looking at
+        # https://noirlab.edu/science/index.php/data-services/data-reduction-software/csdc-mso-pipelines/pl206#12
+        # It says re: the version field, "The version of the data
+        # product which is distinct from the pipeline version. Typically
+        # "v1" but there are various other values from higher version
+        # numbers or project/program/request specific identifiers.
+        #
+        # I've noticed also that there are some files in the archive
+        # that don't match the filename scheme at all, with names like
+        # 'tu1958909.fits.fz'. In that case, though there were also
+        # files with the same date-obs that did match the filename
+        # scheme.  So, first filter out things that don't match the
+        # scheme, and hope that we're not losing exposures.
+        #
+        # Then, try to parse out the version number, and keep the
+        # highest of the "v*" versions if one is avialable, otherwise
+        # just pick something.
+
         if proc_type == 'instcal':
-            procre = re.compile( '^/net/archive/pipe[^/]*/[^/]*(\d{8})/' )
-            def extract_procdate( val ):
+            # Parse out the date, time, file type, filter, and version from the filename,
+            #   assuming the filename matches the c4d_* pattern.  (If it doesn't toss it.)
+            procre = re.compile( 'c4d_(?P<date>\d{6})_(?P<time>\d{6})_(?P<which>[a-z]{3})_'
+                                 '(?P<filter>[a-z])_(?P<ver>[^/\.]+)\.fits(?P<fz>\.fz)?$' )
+
+            files[ 'namematch' ] = files['archive_filename'].apply( lambda x: procre.search(x) is not None )
+            files = files[ files['namematch'] ]
+
+            def extract_procversion( val ):
                 match = procre.search( val )
                 if match is None:
-                    raise ValueError( f"Failed to parse processing date from {val}" )
-                return match.group(1)
+                    raise ValueError( f"Failed to parse {val}" )
+                return ( match.group('date'), match.group('time'), match.group('which'),
+                         match.group('filter'), match.group('ver') )
 
-            files['processdate'] = files.archive_filename.apply( extract_procdate )
-            files.sort_values( by=['dateobs_center','prod_type','processdate'],
-                               ascending=[True,True,False], inplace=True )
-            files = files.groupby( by=['dateobs_center', 'prod_type'] ).first().reset_index()
+            # Add the parsed information from the archive filename
+            files[ ['fndate', 'fntime', 'fnwhich', 'fnfilter', 'fnver' ] ] = (
+                files.apply( lambda row: extract_procversion( row.archive_filename ),
+                             result_type='expand', axis='columns' ) )
 
+            # Get counts of duplicates.  Stick the duplicate count in the column 'dupcounts',
+            #   and create a column 'keep' that initially has everything with dupcounts = 1
+            # (We will keep more later.)
+            files.sort_values( by=['fndate', 'fntime', 'fnfilter', 'fnwhich', 'fnver' ], inplace=True )
+            dupcounts = files[ files['fnwhich'] == 'ooi' ].groupby( [ 'fndate', 'fntime', 'fnfilter' ] ).size()
+            files.set_index( [ 'fndate', 'fntime', 'fnfilter', 'fnwhich', 'fnver' ], inplace=True )
+            files = files.join( dupcounts.rename( 'dupcounts' ) )
+            files['keep'] = ( files.dupcounts == 1 )
+            files.reset_index( inplace=True )
+
+            # Now go through everything that is duped.  There are
+            # probably fancy pandas was of doing this more efficiently,
+            # but for now resort to a for loop
+
+            duped = dupcounts[ dupcounts > 1 ]
+            for index_spec in duped.index.values:
+                fndate, fntime, fnfilter = index_spec
+
+                thesefiles = files[ ( files['fndate'] == fndate ) &
+                                    ( files['fntime'] == fntime ) &
+                                    ( files['fnfilter'] == fnfilter ) ]
+                versions = thesefiles[ thesefiles.fnwhich == 'ooi' ].fnver.values
+                viableversions = [ v for v in versions
+                                   if set( thesefiles[thesefiles.fnver==v].fnwhich ) == { 'ooi', 'oow', 'ood' } ]
+
+
+                # Look for a ".v(\d+)" version, pick the highest one
+                vsearch = re.compile( '^v(\d+)$' )
+                usev = None
+                usevval = -1
+                for v in viableversions:
+                    match = vsearch.search( v )
+                    if match is not None:
+                        curvval = int( match.group(1) )
+                        if curvval > usevval:
+                            usev = v
+                            curvval = usevval
+
+                # Otherwise, just pick a random one
+                if usev is None:
+                    usev = viableversions[0]
+
+                files[ ( files['fndate'] == fndate ) &
+                       ( files['fntime'] == fntime ) &
+                       ( files['fnfilter'] == fnfilter ) &
+                       ( files['fnver'] == usev  )
+                      ].keep = True
+
+            # At this point, the "keep" field should have exactly one version of every exposure
+            files = files[ files['keep'] ]
 
         if skip_known_exposures:
             identifiers = [ pathlib.Path( f ).name for f in files.archive_filename.values ]

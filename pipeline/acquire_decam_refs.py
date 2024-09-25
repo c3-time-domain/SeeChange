@@ -28,10 +28,10 @@ from util.logger import SCLogger
 
 
 class DECamRefFetcher:
-    def __init__( self, ra, dec, filter, chips=['N4'], numprocs=10,
+    def __init__( self, ra, dec, filter, chips=None, numprocs=10,
                   min_exptime=None, max_seeing=1.2, min_depth=None,
                   min_mjd=None, max_mjd=None, min_per_chip=9,
-                  no_fallback=False, full_report=False ):
+                  only_local=False, no_fallback=False, full_report=False ):
         self.numprocs = numprocs
         self.ra = ra
         self.dec = dec
@@ -42,6 +42,7 @@ class DECamRefFetcher:
         self.min_mjd = min_mjd
         self.max_mjd = max_mjd
         self.min_per_chip = min_per_chip
+        self.only_local = only_local
         self.no_fallback = no_fallback
         self.full_report = full_report
 
@@ -451,7 +452,7 @@ class DECamRefFetcher:
 
         if self.do_i_have_enough():
             SCLogger.info( f"============ We're done! ============" )
-        else:
+        elif not self.only_local:
             done = False
             first = True
             while not done:
@@ -486,6 +487,8 @@ class DECamRefFetcher:
                     done = True
 
                 first = False
+        else:
+            SCLogger.info( "only_local is set, not searching NOIRLab archive for more references." )
 
         # Report
         self.min_exptime = None
@@ -538,6 +541,9 @@ def main():
     parser.add_argument( '-c', '--min-num-per-chip', type=int, default=9,
                          help=( "Make sure to get exposure so that each chip will have at least this many "
                                 "images overlapping it." ) )
+    parser.add_argument( '--only-local', action='store_true', default=False,
+                         help=( "Don't actually try to get references, just look in the database to see "
+                                "what we have already.  Implicitly includes --no-fallback." ) )
     parser.add_argument( '--no-fallback', action='store_true', default=False,
                          help=( "If not enough exposures that match the seeing/depth criterion are found initiially, "
                                 "don't fall back to the slow process of downloading lots of exposures until "
@@ -564,7 +570,8 @@ def main():
     fetcher = DECamRefFetcher( args.ra, args.dec, band,
                                min_exptime=args.min_exptime, max_seeing=args.max_seeing, min_depth=args.min_depth,
                                min_mjd=args.min_mjd, max_mjd=args.max_mjd, min_per_chip=args.min_num_per_chip,
-                               numprocs=args.numprocs, no_fallback=args.no_fallback, full_report=args.full_report )
+                               numprocs=args.numprocs,
+                               only_local=args.only_local, no_fallback=args.no_fallback, full_report=args.full_report )
     fetcher()
 
 

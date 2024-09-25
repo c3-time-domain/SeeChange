@@ -176,6 +176,17 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
 
 
 @pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
+def test_decam_search_noirlab_dedup():
+    # Make sure that if we do a search we know has duplicates in it, we don't get
+    #  duplicate exposures
+
+    try:
+        decam = DECam()
+        originexposures = decam.find_origin_exposures( minmjd=57664.25347, maxmjd=57664.25417, proc_type='instcal' )
+        import pdb; pdb.set_trace()
+
+
+@pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_download_reduced_origin_exposure( decam_reduced_origin_exposures, cache_dir ):
 
     # See comment in test_decam_download_and_commit_exposure.
