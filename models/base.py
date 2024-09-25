@@ -891,9 +891,9 @@ def get_archive_object():
     global ARCHIVE
     if ARCHIVE is None:
         cfg = config.Config.get()
-        archive_specs = cfg.value('archive', {})
-        archive_specs[ 'logger' ] = SCLogger
+        archive_specs = cfg.value('archive', None)
         if archive_specs is not None:
+            archive_specs[ 'logger' ] = SCLogger
             ARCHIVE = Archive(**archive_specs)
     return ARCHIVE
 
