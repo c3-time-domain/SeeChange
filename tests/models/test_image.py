@@ -616,7 +616,7 @@ def test_image_from_reduced_exposure( decam_reduced_origin_exposure_loaded_in_db
     assert img.lim_mag_estimate is None
     assert img.bkg_mean_estimate is None
     assert img.bkg_rms_estimate is None
-    ra, dec = decam.get_ra_dec_for_section( exp, 'N16' )
+    ra, dec = decam.get_ra_dec_for_section_of_exposure( exp, 'N16' )
     assert img.ra == pytest.approx( ra , 10./3600. / np.cos( exp.dec * np.pi / 180. ) )
     assert img.dec == pytest.approx( dec, 10./3600. )
     assert img._data.shape == ( 4094, 2046 )
