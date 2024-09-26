@@ -294,9 +294,9 @@ class ImageAligner:
                     min_frac_matched=self.pars.min_frac_matched,
                     min_matched=self.pars.min_matched,
                     max_arcsec_residual=self.pars.max_arcsec_residual,
-                    timeout=self.pars.swarp_timeout,
+                    timeout=self.pars.scamp_timeout,
                 )
-            except BadMatchException as ex:
+            except ( BadMatchException, subprocess.TimeoutExpired ) as ex:
                 if fall_back_wcs is not None:
                     return fall_back_wcs
                 raise ex

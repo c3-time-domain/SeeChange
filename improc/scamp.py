@@ -121,6 +121,10 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                        ]
 
             t0 = time.perf_counter()
+            # Don't catch the timeout exception; assume that if it times out first time around,
+            #   it's not going to succeed with other paramters.  This is maybe too strong of
+            #   an assumption, but it will often be true, and when it is, catching the exception
+            #   and retrying turns this into a multi-minute timewaster.
             res = subprocess.run( command, capture_output=True, timeout=timeout )
             t1 = time.perf_counter()
             SCLogger.debug( f"Scamp with {len(sources)} sources and {len(cat)} catalog stars "
