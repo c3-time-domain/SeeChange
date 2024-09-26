@@ -352,7 +352,8 @@ def test_coaddition_run(coadder, ptf_reference_image_datastores, ptf_aligned_ima
     upstrims = ref_image.get_upstreams( only_images=True )
     assert [ i.id for i in upstrims ] == [ d.image.id for d in ptf_reference_image_datastores ]
     assert ref_image.ref_image_id == refimlast.id
-    assert ref_image.new_image_id is None
+    with pytest.raises( RuntimeError, match="new_image_id is not defined for images that aren't subtractions" ):
+        assert ref_image.new_image_id is None
 
     assert ref_image.data is not None
     assert ref_image.data.shape == refimlast.data.shape

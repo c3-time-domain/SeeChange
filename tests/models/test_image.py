@@ -593,7 +593,8 @@ def test_image_from_reduced_exposure( decam_reduced_origin_exposure_loaded_in_db
     assert img.format == 'fits'
     assert img.exposure_id == exp.id
     assert img.ref_image_id is None
-    assert img.new_image_id is None
+    with pytest.raises( RuntimeError, match="new_image_id is not defined for images that aren't subtractions" ):
+        assert img.new_image_id is None
     assert img.upstream_image_ids == []
     assert not img.is_sub
     assert not img.is_coadd
