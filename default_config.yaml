@@ -182,6 +182,9 @@ measuring:
     offsets: 5.0
     filter bank: 1
 
+scoring:
+  algorithm: random
+
 
 # use these parameters when running the coaddition pipeline, e.g., for making weekly coadds
 # the coaddition pipeline will load the regular configuration first, then the coaddition config:

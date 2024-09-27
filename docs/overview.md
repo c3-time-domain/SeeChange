@@ -99,6 +99,10 @@ Here is a list of the processes and their data products (including the object cl
    distinguish between astronomical sources and artefacts. 
    This process uses the list of `Cutouts` objects 
    to produce a list of `Measurements` objects, one for each source. 
+ - scoring: this part of the pipeline assigns to each measurement a deep learning/machine
+   learning score based on a given algorithm and parameters. In addition to a column for 
+   the score, the resulting deepscores contain a JSONB column which can contain additional relevant information.
+   This process uses the list of `Measurements` objects to product a list of `Deepscore` objects, one for each measurement.
 
 The final stage of the pipeline adds the new measurements to the database 
 and attempts to link them to existing `Object`s. 
@@ -189,6 +193,7 @@ Each part of the pipeline (each process) is conducted using a dedicated object.
  - detection: again using the `Detector` object, with different parameters, also producing a `SourceList` object.
  - cutting: using the `Cutter` object defined in `pipeline/cutting.py`, producing a list of `Cutouts` objects.
  - measuring: using the `Measurer` object defined in `pipeline/measuring.py`, producing a list of `Measurements` objects.
+ - scoring: using the `Scorer` object defined in `pipeline/scoring.py`, producing a list of `Deepscore` objects.
 
 All these objects are initialized as attributes of a top level `Pipeline` object,
 which is defined in `pipeline/top_level.py`. 
@@ -315,6 +320,8 @@ It is useful to get familiar with the naming convention for different data produ
    Each `Cutouts` object is linked back to a subtraction based `SourceList`. 
  - `Measurements`: contains measurements made on the information in the `Cutouts`.  
    These include flux+errors, magnitude+errors, centroid positions, spot width, analytical cuts, etc. 
+ - `DeepScore` : contains a score assigned based on machine learning/deep learning algorithms.
+   Additionally contains a JSONB field which can contain additional information.
  - `Provenance`: A table containing the code version and critical parameters that are unique to this version of the data. 
    Each data product above must link back to a provenance row, so we can recreate the conditions that produced this data. 
  - `Reference`: An object that links a reference `Image` with a specific field/target, a section ID, 

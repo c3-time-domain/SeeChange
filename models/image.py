@@ -207,7 +207,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         nullable=False,
         server_default='{}',
         doc=(
-            "Additional information on the this image. "
+            "Additional information on this image. "
             "Only keep a subset of the header keywords, "
             "and re-key them to be more consistent. "
         )

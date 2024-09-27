@@ -273,6 +273,7 @@ def get_all_database_objects(display=False, session=None):
     from models.zero_point import ZeroPoint
     from models.cutouts import Cutouts
     from models.measurements import Measurements
+    from models.deepscore import DeepScore
     from models.object import Object
     from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
     from models.catalog_excerpt import CatalogExcerpt
@@ -283,9 +284,9 @@ def get_all_database_objects(display=False, session=None):
 
     models = [
         CodeHash, CodeVersion, Provenance, ProvenanceTag, DataFile, Exposure, Image,
-        SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, Object,
-        CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference, RefSet,
-        SensorSection, AuthUser, PasswordLink, KnownExposure, PipelineWorker
+        SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, DeepScore,
+        Object, CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference,
+        RefSet, SensorSection, AuthUser, PasswordLink, KnownExposure, PipelineWorker
     ]
 
     output = {}
@@ -334,7 +335,7 @@ class SeeChangeBase:
 
         if hasattr(self, '_bitflag'):
             self._bitflag = 0
-        if hasattr(self, 'upstream__bitflag'):
+        if hasattr(self, 'upstream_bitflag'):
             self._upstream_bitflag = 0
 
         for k, v in kwargs.items():
@@ -796,6 +797,10 @@ class SeeChangeBase:
                 if isinstance(value, list):
                     value = [v.hex if isinstance(v, UUID) else v for v in value]
 
+            if key == '_id' and value is not None:
+                if isinstance(value, UUID):
+                    value = value.hex
+
             if isinstance(value, np.ndarray) and key in [
                 'aper_rads', 'aper_radii', 'aper_cors', 'aper_cor_radii',
                 'flux_apertures', 'flux_apertures_err', 'area_apertures',
@@ -828,6 +833,10 @@ class SeeChangeBase:
     def from_dict(cls, dictionary):
         """Convert a dictionary into a new object. """
         dictionary.pop('modified', None)  # we do not want to recreate the object with an old "modified" time
+
+        obj_id = dictionary.get('_id')
+        if obj_id is not None:
+            dictionary['_id'] = UUID(obj_id)
 
         md5sum = dictionary.get('md5sum', None)
         if md5sum is not None:

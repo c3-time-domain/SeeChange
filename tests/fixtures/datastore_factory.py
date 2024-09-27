@@ -19,6 +19,7 @@ from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.deepscore import DeepScore
 from models.refset import RefSet
 from pipeline.data_store import DataStore
 
@@ -127,12 +128,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
         augments = {} if augments is None else augments
 
         stepstodo = [ 'preprocessing', 'extraction', 'bg', 'wcs', 'zp',
-                      'subtraction', 'detection', 'cutting', 'measuring' ]
+                      'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ]
         if through_step is None:
             if skip_sub:
                 through_step = 'zp'
             else:
-                through_step = 'measuring'
+                through_step = 'scoring'
         dex = stepstodo.index( through_step )
         stepstodo = stepstodo[:dex+1]
 
@@ -586,10 +587,42 @@ def datastore_factory(data_dir, pipeline_factory, request):
             else:  # cannot find measurements on cache
                 SCLogger.debug( "make_datastore running measurer to create measurements" )
                 ds = p.measurer.run(ds)
+                # assign each measurements an ID to be saved in cache - needed for scores cache
+                [m.id for m in ds.measurements]
                 if use_cache:
                     copy_list_to_cache(ds.all_measurements, cache_dir, all_measurements_cache_name)
                     copy_list_to_cache(ds.measurements, cache_dir, measurements_cache_name)
+                    
+        if 'scoring' in stepstodo:
+            deepscores_cache_name = os.path.join(cache_dir, cache_sub_name +
+                                                   f'.deepscores_{ds.prov_tree["scoring"].id[:6]}.json')
+            
+            needs_rerun = True
+            if use_cache and os.path.isfile(deepscores_cache_name):
+                # In order to load from cache, we must have the ability to point each score to
+                # the proper measurements. Currently, the only way I have to do this is using the
+                # score.measurements_id attribute, which requires that the measurements were also
+                # loaded from cache and have the same id as when the scores were saved.
+                SCLogger.debug( 'make_datastore checking measurement ids before loading scores from cache')
+                scores = copy_list_from_cache(DeepScore, cache_dir, deepscores_cache_name)
+                if ( set([str(score.measurements_id) for score in scores])
+                    .issubset(set([str(m.id) for m in ds.measurements])) ):
+                    SCLogger.debug( 'make_datastore loading scores from cache')
+                    ds.scores = scores
+                    [ setattr(score, 'provenance_id', ds.prov_tree['scoring'].id) for score in ds.scores ]
+                    # no need to set ids - we ensured they were loaded and preserved
+                    needs_rerun = False
+                else:
+                    SCLogger.debug( 'make_datastore failed to find same measurements and scores ids.')
+                    ds.scores = None
 
+            if needs_rerun: # cannot find scores on cache
+                SCLogger.debug( "make_datastore running scorer to create scores" )
+                ds = p.scorer.run(ds)
+                # assign each score an ID to be saved in cache
+                [sc.id for sc in ds.scores]
+                if use_cache:
+                    copy_list_to_cache(ds.scores, cache_dir, deepscores_cache_name)
 
 
         # Make sure there are no residual exceptions caught in the datastore

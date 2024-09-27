@@ -109,6 +109,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert p.detector.has_recalculated
         assert p.cutter.has_recalculated
         assert p.measurer.has_recalculated
+        assert p.scorer.has_recalculated
 
         measured_time = 0
         peak_memory = 0
@@ -135,10 +136,10 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         runtimes.pop('reporting')
         assert runtimes == ds.runtimes
         assert rep.process_memory == ds.memory_usages
-        # should contain: 'preprocessing, extraction, subtraction, detection, cutting, measuring'
+        # should contain: 'preprocessing, extraction, subtraction, detection, cutting, measuring, scoring'
         assert rep.progress_steps == ', '.join(PROCESS_OBJECTS.keys())
         assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
-                                      'sub_image, detections, cutouts, measurements')
+                                      'sub_image, detections, cutouts, measurements, scores')
         assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
         repprov = Provenance.get( rep.provenance_id )
         assert repprov.upstreams[0].id == ds.measurements[0].provenance_id
@@ -146,7 +147,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         ds.save_and_commit()
         rep.scan_datastore(ds)
         assert rep.products_committed == ('image, sources, psf, bg, wcs, zp, '
-                                          'sub_image, detections, cutouts, measurements')
+                                          'sub_image, detections, cutouts, measurements, scores')
     finally:
         if 'ds' in locals():
             ds.delete_everything()

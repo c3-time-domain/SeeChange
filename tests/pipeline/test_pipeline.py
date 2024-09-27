@@ -246,14 +246,14 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             provs = session.scalars(sa.select(Provenance)).all()
             assert len(provs) > 0
             prov_processes = [p.process for p in provs]
-            expected_processes = ['preprocessing', 'extraction', 'subtraction', 'detection', 'cutting', 'measuring']
+            expected_processes = ['preprocessing', 'extraction', 'subtraction', 'detection', 'cutting', 'measuring', 'scoring']
             for process in expected_processes:
                 assert process in prov_processes
 
             check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image_id, ds)
 
         # feed the pipeline the same data, but missing the upstream data.
-        attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements']
+        attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements', 'scores']
 
         # TODO : put in the loop below a verification that the processes were
         #   not rerun, but products were just loaded from the database
@@ -343,6 +343,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         ds.detections = None
         ds.cutouts = None
         ds.measurements = None
+        ds.scores = None
 
         ds.sources._set_bitflag( 2 ** 17 )  # bitflag 2**17 is 'many sources'
         desired_bitflag = 2 ** 1 + 2 ** 17  # bitflag for 'banding' and 'many sources'
@@ -608,6 +609,7 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
             'detector': 'detection',
             'cutter': 'cutting',
             'measurer': 'measuring',
+            'scorer': 'scoring',
         }
         for process, objects in PROCESS_OBJECTS.items():
             if isinstance(objects, str):

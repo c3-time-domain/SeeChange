@@ -15,6 +15,7 @@ from pipeline.subtraction import Subtractor
 from pipeline.detection import Detector
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
+from pipeline.scoring import Scorer
 
 from models.base import SmartSession
 from models.provenance import CodeVersion, Provenance, ProvenanceTag, ProvenanceTagExistsError
@@ -44,7 +45,7 @@ PROCESS_OBJECTS = {
     'detection': 'detector',
     'cutting': 'cutter',
     'measuring': 'measurer',
-    # TODO: add one more for R/B deep learning scores
+    'scoring': 'scorer',
 }
 
 
@@ -177,6 +178,12 @@ class Pipeline:
         self.pars.add_defaults_to_dict(measuring_config)
         self.measurer = Measurer(**measuring_config)
 
+        # assign r/b and ml/dl scores
+        scoring_config = config.value('scoring', {})
+        scoring_config.update(kwargs.get('scoring', {}))
+        self.pars.add_defaults_to_dict(scoring_config)
+        self.scorer = Scorer(**scoring_config)
+
     def override_parameters(self, **kwargs):
         """Override some of the parameters for this object and its sub-objects, using Parameters.override(). """
         for key, value in kwargs.items():
@@ -294,9 +301,9 @@ class Pipeline:
 
         try:
             stepstodo = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp', 'subtraction',
-                          'detection', 'cutting', 'measuring' ]
+                          'detection', 'cutting', 'measuring', 'scoring', ]
             if self.pars.through_step is not None:
-                if self.pars.through_step not in stepsttodo:
+                if self.pars.through_step not in stepstodo:
                     raise ValueError( f"Unknown through_step: \"{self.parse.through_step}\"" )
                 stepstodo = stepstodo[ :stepstodo.index(self.pars.through_step)+1 ]
 
@@ -388,7 +395,10 @@ class Pipeline:
                     ds.update_report('measuring', session=None)
 
                 # measure deep learning models on the cutouts/measurements
-                # TODO: add this...
+                if 'scoring' in stepstodo:
+                    SCLogger.info(f"scorer for image id {ds.image.id}")
+                    ds = self.scorer.run(ds, session)
+                    ds.update_report('scoring', session=None)
 
                 if self.pars.save_at_finish and ( 'subtraction' in stepstodo ):
                     t_start = time.perf_counter()
