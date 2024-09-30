@@ -834,7 +834,8 @@ def test_image_get_upstream_images( ptf_ref, ptf_supernova_image_datastores, ptf
 
     assert loaded_image.id == refimg.id
     assert loaded_image.id != ptf_subtraction1_datastore.image.id
-    assert loaded_image.id != ptf_subtraction1_datastore.image.new_image_id
+    with pytest.raises( RuntimeError, match="new_image_id is not defined for images that aren't subtractions" ):
+        assert loaded_image.id != ptf_subtraction1_datastore.image.new_image_id
 
     new_image = None
     new_image2 = None
