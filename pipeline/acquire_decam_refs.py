@@ -506,10 +506,11 @@ class DECamRefFetcher:
                                  f" (RA={self.corners[chip][corner][0]:.5f}, "
                                  f"Dec={self.corners[chip][corner][1]:.5f})\n" )
                 strio.write( f"    ============ Ref Images:\n" )
-                strio.write( f"        Seeing  Lim_Mag  Filepath\n" )
-                strio.write( f"        ------  -------  --------\n" )
+                strio.write( f"        Seeing  Lim_Mag  RA         Dec        Filepath\n" )
+                strio.write( f"        ------  -------  ---------  ---------  --------\n" )
                 for img in self.chipimgs[chip]:
-                    strio.write( f"        {img.fwhm_estimate:6.2f}  {img.lim_mag_estimate:7.2f}  {img.filepath}\n" )
+                    strio.write( f"        {img.fwhm_estimate:6.2f}  {img.lim_mag_estimate:7.2f}  "
+                                 f"{img.ra:9.2f}  {img.dec:9.2f}  {img.filepath}\n" )
 
             SCLogger.info( f"Full report:\n{strio.getvalue()}\n" )
 
