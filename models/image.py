@@ -795,7 +795,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return new
 
     @classmethod
-    def from_images(cls, images, index=0, target=None, set_is_coadd=True):
+    def from_images(cls, images, index=0, alignment_target=None, set_is_coadd=True):
         """Create a new Image object from a list of other Image objects.
 
         This is the first step in making a multi-image (usually a
@@ -816,11 +816,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         images: list of Image objects
             The images to combine into a new Image object.
 
-        index: int
+        index: int, default 0
             The image index in the (mjd sorted) list of upstream images
             that is used to set several attributes of the output image.
+            If alignment_target is None, this includes coordinate
+            information (ra, dec, minra, maxdec, etc.).
 
-        target: Image
+        alignment_target: Image, default None
             The Image object to which everything will be aligned.  If
             None, then the image specified by index (above) is used as
             the target.  The RA/Dec (and corners) of the output image
@@ -859,19 +861,21 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         #   want to save, or where we can control this.
         upstream_ids = [ i.id for i in images ]
 
+        if alignment_target is not None:
+            alignment_target = images[index]
+
         output = Image( nofile=True, is_coadd=set_is_coadd )
 
         fail_if_not_consistent_attributes = ['filter']
         copy_if_consistent_attributes = ['section_id', 'instrument', 'telescope', 'project', 'target', 'filter']
-        copy_by_index_attributes = []
-        for att in ['ra', 'dec']:
-            copy_by_index_attributes.append(att)
-            for corner in ['00', '01', '10', '11']:
-                copy_by_index_attributes.append(f'{att}_corner_{corner}')
-            copy_by_index_attributes.append( f'min{att}' )
-            copy_by_index_attributes.append( f'max{att}' )
 
-        copy_by_index_attributes += ['gallon', 'gallat', 'ecllon', 'ecllat']
+        copy_target_attributes = ['gallon', 'gallat', 'ecllon', 'ecllat']
+        for att in ['ra', 'dec']:
+            copy_target_attributes.append(att)
+            for corner in ['00', '01', '10', '11']:
+                copy_target_attributes.append(f'{att}_corner_{corner}')
+            copy_target_attributes.append( f'min{att}' )
+            copy_target_attributes.append( f'max{att}' )
 
         for att in fail_if_not_consistent_attributes:
             if len(set([getattr(image, att) for image in images])) > 1:
@@ -883,19 +887,27 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             if len(set([getattr(image, att) for image in images])) == 1:
                 setattr(output, att, getattr(images[0], att))
 
-        # use the "index" to copy the attributes of that image to the output image
-        for att in copy_by_index_attributes:
-            setattr(output, att, getattr(images[index], att))
+        # Copy target image position information
+        for att in copy_target_attributes:
+            setattr(output, att, getattr(alignment_target, att))
 
         # exposure time is usually added together
         output.exp_time = sum([image.exp_time for image in images])
 
         # start MJD and end MJD
-        output.mjd = images[0].mjd  # assume sorted by start of exposures
+        output.mjd = images[0].mjd
         output.end_mjd = max([image.end_mjd for image in images])  # exposure ends are not necessarily sorted
 
         # TODO: what about the header? should we combine them somehow?
         output.info = images[index].info
+        # TODO? : this next one is woeful.  Coordinates should be updated
+        #   to come from the alignment target image, but lots of
+        #   telescopes do lots of different things for coordinates, so
+        #   actually figuring that out is a nightmare.  It's not clear
+        #   what we should really do here.  (This header will end
+        #   up getting replaced if we use the swarp coaddition method,
+        #   and the other methods use an index, so probably we don't
+        #   really need to worry about it.)
         output.header = images[index].header
 
         base_type = images[index].type
@@ -905,7 +917,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         output._upstream_ids = upstream_ids
 
         # mark as the reference the image used for alignment
-        output.ref_image_id = images[index].id
+        output.ref_image_id = alignment_target.id
 
         output._upstream_bitflag = 0
         for im in images:
@@ -2047,7 +2059,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @nanscore.setter
     def nanscore(self, value):
         self._nanscore = value
-
 
     def show(self, **kwargs):
         """

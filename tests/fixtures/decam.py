@@ -861,3 +861,106 @@ def decam_reference( decam_elais_e1_two_references ):
 @pytest.fixture
 def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
+
+@pytest.fixture(scope='session')
+def get_cached_decam_image( code_version, decam_cache_dir, download_url, datastore_factory ):
+    # Note that the "preprocessing" value may well be a lie.  Sometimes these images
+    #   were produced other ways.  But, oh well, this is just a test.
+    improv = Provenance( process="preprocessing",
+                         parameters={ "calibset": "externally_supplied",
+                                      "flattype": "externally_supplied",
+                                      "preprocessing": "noirlab_instcal",
+                                      "steps_required": ["overscan", "linearity", "flat", "fringe"] },
+                         code_version_id=code_version.id,
+                         upstreams=[],
+                         is_testing=True )
+    improv.insert_if_needed()
+    provbarf = improv.id[:6]
+
+    def cached_decam_image_getter( fname ):
+        """Utility function to make a Datastore through zp of a downloaded image.
+
+        Paramters
+        ---------
+          fname : Path
+            The relative path of the image in the file store, but
+            *without* the provenance tag component of the filename.
+            (See decam_four_offset_refs as an example.)  The image will
+            be found at download_url/DECAM/fname.name*, where * is
+            .image.yaml, .image.fits, .weight.fits, and .flags.fits.
+
+        """
+
+        cache_json = f"{fname}.image.fits.json"
+        if not env_as_bool( "LIMIT_CACHE_USAGE" ) and os.path.isfile( os.path.join( decam_cache_dir, cache_json ) ):
+            # If the json file exists in the cache, restore the image (+weight and flags) from there
+            SCLogger.debug( f'Getting decam image {fname} from cache' )
+            img = copy_from_cache( Image, decam_cache_dir, cache_json )
+        else:
+            # Otherwise, download the files, and copy to cache
+            SCLogger.debug( f'Downloading decam images for {fname}' )
+            tmppaths = {}
+            for ext in [ '.image.yaml', '.image.fits', '.weight.fits', '.flags.fits' ]:
+                url = f"{download_url}/DECAM/{fname.name}{ext}"
+                tmppaths[ext] = pathlib.Path( decam_cache_dir ) / f'{fname.name}{ext}'
+                if not tmppaths[ext].is_file():
+                    wget.download( url=url, out=str(tmppaths[ext].resolve()) )
+            kwargs = yaml.safe_load( open( tmppaths['.image.yaml'] ) )
+            kwargs['provenance_id'] = improv.id
+            img = Image( **kwargs )
+            with fits.open( tmppaths['.image.fits'] ) as hdu:
+                # Have to do the astype here to convert from >f4 to native type,
+                #  because sep.Background seems to need that (!?!)
+                img.data = hdu[0].data.astype( np.float32 )
+                img.header = hdu[0].header
+                img.set_corners_from_header_wcs()
+                img.calculate_coordinates()
+            with fits.open( tmppaths['.weight.fits'] ) as hdu:
+                img.weight = hdu[0].data.astype( np.float32 )
+            with fits.open( tmppaths['.flags.fits'] ) as hdu:
+                img.flags = hdu[0].data
+            img.filepath = img.invent_filepath()
+            expectedname = f'{str(fname)}_{provbarf}'
+            assert img.filepath[-len(expectedname):] == expectedname
+            img.save()
+            # Don't save the image to the cache here; that will happen
+            #   in the datastore factory below, and by then the image
+            #   will have the right minra/maxra/etc. fields loaded
+            #   (from post wcs solution)
+            for tmppath in tmppaths.values():
+                tmppath.unlink( missing_ok=True )
+
+        SCLogger.debug( f"Running datastore_factory for decam image {fname}" )
+        ds = datastore_factory( img, cache_dir=decam_cache_dir,
+                                cache_base_name=f'{fname}_{provbarf}', through_step='zp',
+                                provtag='cached_decam_image_getter' )
+        SCLogger.debug( f"Done getting decam image {fname}" )
+
+        return ds
+
+    yield cached_decam_image_getter
+
+    with SmartSession() as session:
+        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag='cached_decam_image_getter'" ) )
+        session.commit()
+
+
+@pytest.fixture
+def decam_four_offset_refs( get_cached_decam_image ):
+    files = [ pathlib.Path( i )
+              for i in [ '029/c4d_20221017_054830_S31_r_Sci',
+                         '029/c4d_20181130_024059_S8_r_Sci',
+                         '030/c4d_20181130_024059_S9_r_Sci',
+                         '029/c4d_20181130_024059_S2_r_Sci' ] ]
+    dses = [ get_cached_decam_image(i) for i in files ]
+
+    yield dses
+
+    for ds in dses:
+        ds.delete_everything()
+
+@pytest.fixture
+def decam_four_refs_alignment_target( get_cached_decam_image ):
+    ds = get_cached_decam_image( pathlib.Path( '030/c4d_20240924_061837_S4_r_Sci' ) )
+    yield ds
+    ds.delete_everything()

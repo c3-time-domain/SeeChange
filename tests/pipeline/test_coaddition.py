@@ -537,3 +537,16 @@ def test_coadded_reference(ptf_ref):
 
     assert ref_prov.parameters['test_parameter'] == 'test_value'
 
+
+def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_alignment_target ):
+
+    coadder = Coadder( method='swarp',
+                       alignment_index='other',
+                       alignment={ 'min_frac_matched': 0.025, 'min_matched': 50 }
+                      )
+    img = coadder.run( data_store_list=decam_four_offset_refs,
+                       alignment_target_datastore=decam_four_refs_alignment_target )
+
+
+    import pdb; pdb.set_trace()
+    pass

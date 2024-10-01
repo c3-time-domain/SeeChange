@@ -1,11 +1,19 @@
+import pathlib
+import time
+import random
+import shutil
+import subprocess
+
 import numpy as np
 from numpy.fft import fft2, ifft2, fftshift
 
 from astropy.time import Time
+from astropy.io import fits
 
 from sep import Background
 
-from models.base import SmartSession
+from models.base import SmartSession, FileOnDiskMixin
+from models.enums_and_bitflags import BitFlagConverter
 from models.provenance import Provenance, CodeVersion
 from models.image import Image
 
@@ -15,15 +23,16 @@ from pipeline.detection import Detector
 from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
-from util.util import parse_session
 
 from improc.bitmask_tools import dilate_bitflag
 from improc.inpainting import Inpainter
 from improc.alignment import ImageAligner
 from improc.tools import sigma_clipping
+import improc.tools
 
 from util.config import Config
-from util.util import listify
+from util.util import listify, parse_session, save_fits_image_file, read_fits_image
+from util.exceptions import SubprocessFailure
 from util.logger import SCLogger
 
 class ParsCoadd(Parameters):
@@ -43,6 +52,15 @@ class ParsCoadd(Parameters):
             {},
             dict,
             'Alignment parameters. ',
+            critical=True
+        )
+
+        self.alignment_index = self.add_par(
+            'alignment_index',
+            'last',
+            str,
+            ( 'How to choose the index of image to align to.  Can be "first", "last", "other", or an integer; '
+              '"other" is currently only supported by coadd method swarp' ),
             critical=True
         )
 
@@ -67,7 +85,8 @@ class ParsCoadd(Parameters):
             'flag_fwhm_factor',
             1.0,
             float,
-            'Multiplicative factor for the PSF FWHM (in pixels) to use for dilating the flag maps. ',
+            ( 'Multiplicative factor for the PSF FWHM (in pixels) to use for dilating the flag maps. '
+              '(Currently only used by zogy.)' ),
             critical=True,
         )
 
@@ -80,6 +99,13 @@ class ParsCoadd(Parameters):
             critical=False
         )
 
+        self.swarp_timeout = self.add_par(
+            'swarp_timeout',
+            600,
+            int,
+            'Timeout for swarp in seconds, if method is swarp',
+            critical=False
+        )
 
         self._enforce_no_new_attrs = True
         self.override( kwargs )
@@ -430,7 +456,167 @@ class Coadder:
 
     # ======================================================================
 
+    def _coadd_swarp( self,
+                      data_store_list,
+                      alignment_target_datastore,
+                      try_to_reduce_memory_usage=True,
+                      leave_behind_temp_files=False ):
+        """Perform alignment and coadding using a single call to swarp.
+
+        Parameters
+        ----------
+          data_store_list: list of DataStore
+             Data stores holding the images to be coadded.  Each must
+             have products through zeropoint.
+
+          alignment_target_datastore: DataStore
+             Data store holding the image to which the images in
+             data_store_list will be aligned before they are coadded.
+             This may be (but does not have to be) one of the members of
+             data_store_list.
+
+          try_to_reduce_memory_usage: bool, default True
+             Call each datastore's free() method after we're done with
+             it.
+
+          leave_behind_temp_files: bool, default False
+             For testing purposes.
+
+        """
+
+        # For subtraction, or one-by-one alignment for coadd methods
+        #   other than swarp, we scamp a new WCS for the target image
+        #   using the source image's source list as a RA/Dec catalog;
+        #   see the massive comment in
+        #   alignment.py::ImageAligner._align_swarp for an explanation
+        #   of the reason.
+        #
+        # Here, we do it differently.  We need to align a whole bunch of
+        #   images to a single target all at the same time.  As such we
+        #   will use the target's source list as the RA/Dec catalog, and
+        #   make a new WCS for each source image based on that.  We'll
+        #   then put the target image's WCS as the output, but since the
+        #   temporary source image WCSes were made using the target
+        #   image's sources as a catalog, the alignment should be better
+        #   than if we'd gone Source->Gaia->Target.
+        #
+        # For this reason, "source" and "target" are backwards in the
+        #   call to ImageAligner.get_swarp_fodder_wcs
+
+        # FileOnDiskMixin.temp_path is a temp directory
+        tmpdir = ( pathlib.Path( FileOnDiskMixin.temp_path )
+                   / ( ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) ) ) )
+        SCLogger.debug( f"_coadd_swarp working in directory {tmpdir}" )
+        tmpdir.mkdir( exist_ok=True, parents=True )
+        try:
+            swarp_vmem_dir = tmpdir / 'vmem'
+            swarp_vmem_dir.mkdir( exist_ok=True, parents=True )
+            swarp_resample_dir = tmpdir / 'resample'
+            swarp_resample_dir.mkdir( exist_ok=True, parents=True )
+
+            targds = alignment_target_datastore
+            sumimgs = []
+            sumwts = []
+
+            # Write out an output header file using the correct target wcs
+            hdr = targds.image.header.copy()
+            improc.tools.strip_wcs_keywords( hdr )
+            hdr.update( targds.wcs.wcs.to_header() )
+            hdr.tofile( tmpdir / 'coadd.head' )
+
+            # Write out a bunch of temporary images that are the source images with an
+            #   updated wcs in the header, and all scaled to the same zeropoint.
+            for imgdex, ds in enumerate(data_store_list):
+                image_paths = ds.image.get_fullpath( as_list=True )
+                imdex = ds.image.filepath_extensions.index( '.image.fits' )
+                wtdex = ds.image.filepath_extensions.index( '.weight.fits' )
+                fldex = ds.image.filepath_extensions.index( '.flags.fits' )
+
+                # Get a wcs for the source image using target image's source list as the RA/Dec catalog
+                dswcs = self.aligner.get_swarp_fodder_wcs( targds.image, targds.sources, targds.wcs, targds.zp,
+                                                           ds.sources )
+
+                # Need to write out a temporary image whose header has this new wcs
+                hdr = ds.image.header.copy()
+                improc.tools.strip_wcs_keywords( hdr )
+                hdr.update( dswcs.to_header() )
+
+                # Background subtract
+                data = ds.bg.subtract_me( ds.image.data )
+
+                # Scale to the target's zeropoint.  This is ultimately arbitrary,
+                #  but we want all the images scaled the same way for the sum
+                data *= 10 ** ( ( targds.zp.zp - ds.zp.zp ) / 2.5 )
+                wtdata = ds.image.weight * 10 ** ( ( ds.zp.zp - targds.zp.zp ) / 1.25 )
+                # Make sure weight is 0 for all bad pixels
+                # (This is what swarp expects.)
+                wtdata[ ds.image.flags ] = 0.
+
+                tmpim = tmpdir / f'in{imgdex:03d}_image.fits'
+                tmpwt = tmpdir / f'in{imgdex:03d}_weight.fits'
+                save_fits_image_file( tmpim, data, hdr, extname=None, single_file=False )
+                save_fits_image_file( tmpwt, wtdata, hdr, extname=None, single_file=False )
+                sumimgs.append( tmpim )
+                sumwts.append( tmpwt )
+
+                if try_to_reduce_memory_usage:
+                    data = None
+                    hdr = None
+                    ds.free()
+
+            if try_to_reduce_memory_usage:
+                targds.free()
+
+            # Use swarp to coadd all the source images, aligning with the target image
+            # TODO : think about what swarp does with gain and saturate!
+
+            command = [ 'swarp' ]
+            command.extend( sumimgs )
+            command.extend( [ '-IMAGEOUT_NAME', str( tmpdir / f'coadd.fits' ),
+                              '-WEIGHTOUT_NAME', str( tmpdir / f'coadd.weight.fits' ),
+                              '-RESCALE_WEIGHTS', 'N',
+                              '-SUBTRACT_BACK', 'N',
+                              '-RESAMPLE_DIR', swarp_resample_dir,
+                              '-VMEM_DIR', swarp_vmem_dir,
+                              '-VMEM_MAX', '1024',
+                              '-MEM_MAX', '1024',
+                              '-WRITE_XML', 'N',
+                              '-COMBINE', 'Y',
+                              '-COMBINE_TYPE', 'CLIPPED',
+                              '-WEIGHT_TYPE', 'MAP_WEIGHT',
+                              '-WEIGHT_IMAGE' ] )
+            command.extend( sumwts )
+
+            # SCLogger.debug( f"Running swarp to coadd {len(sumimgs)} images" )
+            SCLogger.debug( f"Running swarp to coadd {len(sumimgs)} images; swarp command is {command}" )
+            t0 = time.perf_counter()
+            res = subprocess.run( command, capture_output=True, timeout=self.pars.swarp_timeout )
+            t1 = time.perf_counter()
+            SCLogger.debug( f"Swarp to sum {len(sumimgs)} images took {t1-t0:.2f} seconds" )
+            if res.returncode != 0:
+                raise SubprocessFailure( res )
+
+            data, hdr = read_fits_image( tmpdir / f'coadd.fits', output='both' )
+            weight = read_fits_image( tmpdir / f'coadd.weight.fits' )
+            flags = np.zeros( weight.shape, dtype=np.int16 )
+            # TODO : should probably use BitFlagConverter 'out of bounds' if we
+            #   can figure out a way.  Look into swarp, see if it gives us this
+            #   information somewhere.  (In reality, everywhere in the pipeline
+            #   we're probably just using flags!=0 as "bad", so it doesn't matter
+            #   that much.)
+            flags[ weight<=0 ] = 2 ** BitFlagConverter.to_int( 'bad pixel' )
+
+            return hdr, data, weight, flags
+
+        finally:
+            if not leave_behind_temp_files:
+                if tmpdir.is_dir():
+                    shutil.rmtree( tmpdir )
+
+    # ======================================================================
+
     def run_alignment( self, data_store_list, index ):
+
         """Run the alignment.
 
         Creates self.aligned_datastores with the aligned images, sources, bgs, wcses, and zps.
@@ -529,7 +715,8 @@ class Coadder:
         return coadd_provenance, code_version
 
 
-    def run( self, data_store_list, aligned_datastores=None, coadd_provenance=None ):
+    def run( self, data_store_list, aligned_datastores=None, coadd_provenance=None,
+             alignment_target_datastore=None ):
         """Run coaddition on the given list of images, and return the coadded image.
 
         The images should have at least a set of SourceList and WorldCoordinates loaded, so they can be aligned.
@@ -555,6 +742,13 @@ class Coadder:
             data_store_list (in the same order), and that they were
             created with the proper alignment parameters.
 
+        alignment_target_datastore: DataStore or None
+            If self.pars.alignment_index is 'other', then this needs to
+            be a DataStore with loaded image and sources for the target
+            image of the alignment.  This is only supported (currently)
+            with the 'swarp' coaddition method.  For any other value
+            of self.pars.alignment_index, this must be None.
+
         coadd_provenance: Provenance (optional)
             (for efficiency)
 
@@ -570,24 +764,45 @@ class Coadder:
         dexen.sort( key=lambda i: data_store_list[i].image.mjd )
         data_store_list = [ data_store_list[i] for i in dexen ]
 
-        if self.pars.alignment['to_index'] == 'last':
+        # Figure out the index; index=-1 means we're using
+        #   an external alignment target
+        if self.pars['alignment_index'] == 'last':
             index = len(data_store_list) - 1
-        elif self.pars.alignment['to_index'] == 'first':
+        elif self.pars['alignment_index'] == 'first':
             index = 0
+        elif self.pars['alignment_index'] == 'other':
+            if alignment_target_datastore is None:
+                raise ValueError( f"alignment_index 'other' requires alignment_target_datastore" )
+            index = -1
         else:
-            # TODO: consider allowing a specific index as integer?
-            # Also TODO : need to be able to manually provide an alignment
-            #  target that may or may not be one of the images in the sum.
-            raise ValueError(f"Unknown alignment reference index: {self.pars.alignment['to_index']}")
+            try:
+                index = int( self.pars['alignment_index'] )
+            except Exception as e:
+                raise ValueError( f"alignment_index must be 'first', 'last', 'other', or an integer, not "
+                                  f"\"{self.pars['alignment_index']}\"" )
+            if ( index < 0 ) or ( index >= len( data_store_list ) ):
+                raise ValueError( f"alignment_index {index} is outside of the range [0,{len(data_store_list)-1}]" )
 
-        # 'Swarp' method does alignment and coaddition all in one go
+        # Provenance
+        if coadd_provenance is None:
+            coadd_provenance, _ = self.get_coadd_prov( data_store_list )
+
+        # Actually coadd
+
         if self.pars.method == 'swarp':
+            # 'Swarp' method does alignment and coaddition all in one go
             if aligned_datastores is not None:
                 raise RuntimeError( "Passing aligned_datastores currently not compatible with swarp coadd method" )
 
-            outim, outwt, outfl = self._coadd_swarp( data_store_list, index )
+            if index >= 0:
+                alignment_target_datastore = data_store_list[ index ]
+            outhdr, outim, outwt, outfl = self._coadd_swarp( data_store_list, alignment_target_datastore )
 
         else:
+            # Other methods require alignment first
+            if index < 0:
+                raise ValueError( f"Only alignment method swarp supports alignment_index=other" )
+
             if aligned_datastores is not None:
                 SCLogger.debug( "Coadder using passed aligned datastores" )
                 aligned_datastores = [ aligned_datastores[i] for i in dexen ]
@@ -595,13 +810,6 @@ class Coadder:
             else:
                 SCLogger.debug( "Coadder aligning all images" )
                 self.run_alignment( data_store_list, index )
-
-            if coadd_provenance is None:
-                coadd_provenance, _ = self.get_coadd_prov( data_store_list )
-
-            output = Image.from_images( [ d.image for d in data_store_list ], index=index )
-            output.provenance_id = coadd_provenance.id
-            output.is_coadd = True
 
             # actually coadd
 
@@ -622,9 +830,17 @@ class Coadder:
             else:
                 raise ValueError(f'Unknown coaddition method: {self.pars.method}. Use "naive", "swarp", or "zogy".')
 
+        output = Image.from_images( [ d.image for d in data_store_list ],
+                                    index=index if index>=0 else 0,
+                                    alignment_target=None if index>=0 else alignment_target_datastore.image
+                                   )
+        output.provenance_id = coadd_provenance.id
+        output.is_coadd = True
         output.data = outim
         output.weight = outwt
         output.flags = outfl
+        if 'outhdr' in locals():
+            output.header = outhdr
 
         # Issue #350 -- where to put these?  Look at how subtraction or other things use them!!!
         # (See also comment in test_coaddition.py::test_coaddition_pipeline_outputs)
@@ -632,6 +848,7 @@ class Coadder:
             output.zogy_psf = outpsf  # TODO: do we have a better place to put this?
         if 'outscore' in locals():
             output.zogy_score = outscore
+
 
         if self.pars.cleanup_alignment:
             self.aligned_datastores = None

@@ -1965,3 +1965,33 @@ class DataStore:
 
         for att in self.products_to_clear:
             setattr(self, att, None)
+
+    def free( self, not_zogy_specific_products=False ):
+        """Set lazy-loaded data product fields to None in an attempt to save memory.
+
+        If data products have not been saved to the file store and
+        database yet, then things will probably break, because they will not
+        be lazy-loadable.
+
+        """
+
+        if self.exposure is not None:
+            for field in [ '_data', '_section_headers', '_weight', '_weight_section_headers',
+                           '_flags', '_flags_section_headers' ]:
+                if getattr( self.exposure, field ) is not None:
+                    getattr( self.exposure, field ).clear_cache()
+            if self.exposure._header is not None:
+                self.exposure._header = None
+
+        for prop in [ self._image, self._ref_image, self.aligned_ref_image, self.aligned_new_image,
+                      self._sub_image,
+                      self._bg, self._ref_bg, self.aligned_ref_bg, self.aligned_new_bg,
+                      self._sources, self._ref_sources, self.aligned_ref_sources, self.aligned_new_sources,
+                      self._psf, self._ref_psf, self.aligned_ref_psf, self.aligned_new_psf,
+                      self._wcs, self._ref_wcs ]:
+            if prop is not None:
+                prop.free()
+
+        if not not_zogy_specific_products:
+            for prop in [ 'zogy_score', 'zogy_alpha', 'zogy_alpha_err', 'zogy_psf' ]:
+                setattr( self, prop, None )

@@ -138,9 +138,9 @@ subtraction:
   # to start running subtractions, first make a ref set and use the name of that
   # in this field.
   refset: null
+  alignment_index: new
   alignment:
     method: swarp
-    to_index: new
   reference:
     minovfrac: 0.85
     must_match_instrument: true
@@ -194,9 +194,9 @@ coaddition:
     method: zogy
     noise_estimator: sep
     flag_fwhm_factor: 1.0
+    alignment_index: last
     alignment:
       method: swarp
-      to_index: last
     inpainting:
       multi_image_method: median
       feather_width: 2

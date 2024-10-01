@@ -92,7 +92,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
           cache_dir: str, default None
 
-          cache_base_name: str, defautl None
+          cache_base_name: str, default None
 
           overrides: dict, default None
             If passed, overrides parameters sent to pipeline_factory

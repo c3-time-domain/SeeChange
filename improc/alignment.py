@@ -43,14 +43,6 @@ class ParsImageAligner(Parameters):
             critical=True,
         )
 
-        self.to_index = self.add_par(
-            'to_index',
-            'last',
-            str,
-            'How to choose the index of image to align to. Can choose "first" or "last" (default). ',
-            critical=True,
-        )
-
         self.max_arcsec_residual = self.add_par(
             'max_arcsec_residual',
             0.2,
