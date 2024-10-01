@@ -6,8 +6,8 @@ augments:
   - local_augments.yaml
 
 path:
-  data_root: 'tests/temp_data'
-  data_temp: 'tests/temp_data'
+  data_root: '/seechange/tests/temp_data'
+  data_temp: '/seechange/tests/temp_data'
 
 db:
   host: postgres

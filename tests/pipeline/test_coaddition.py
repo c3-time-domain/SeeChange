@@ -547,6 +547,25 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
     img = coadder.run( data_store_list=decam_four_offset_refs,
                        alignment_target_datastore=decam_four_refs_alignment_target )
 
+    assert img.data.shape == ( 4096, 2048 )
+    assert img.flags.shape == img.data.shape
+    assert img.weight.shape == img.data.shape
 
-    import pdb; pdb.set_trace()
-    pass
+    # What else to check?
+
+    # Spot check a few points on the image.
+    # (I manually looked at the image and picked out a few spots)
+
+    # Check that the weight is higher in a region where two images actually overlapped
+    assert img.weight[ 550:640, 975:1140 ].mean() == pytest.approx( 0.0199, abs=0.0005 )
+    assert img.weight[ 690:770, 930:1050 ].mean() == pytest.approx( 0.0131, abs=0.0005 )
+
+    # Look at a spot with a star, and a nearby sky, in a place where there was only
+    #   one image in the coadd
+    assert img.data[ 3217:3231, 479:491 ].sum() == pytest.approx( 82530., abs=25. )
+    assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 231., abs=25. )
+
+    # Look at a spot with a galaxy and a nearby sky, in a place where there were
+    #   two images in the sum
+    assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7918., abs=10. )
+    assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 44., abs=10. )

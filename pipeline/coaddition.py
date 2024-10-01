@@ -550,7 +550,7 @@ class Coadder:
                 wtdata = ds.image.weight * 10 ** ( ( ds.zp.zp - targds.zp.zp ) / 1.25 )
                 # Make sure weight is 0 for all bad pixels
                 # (This is what swarp expects.)
-                wtdata[ ds.image.flags ] = 0.
+                wtdata[ ds.image.flags != 0 ] = 0.
 
                 tmpim = tmpdir / f'in{imgdex:03d}_image.fits'
                 tmpwt = tmpdir / f'in{imgdex:03d}_weight.fits'
@@ -567,8 +567,29 @@ class Coadder:
             if try_to_reduce_memory_usage:
                 targds.free()
 
-            # Use swarp to coadd all the source images, aligning with the target image
-            # TODO : think about what swarp does with gain and saturate!
+            # Use swarp to coadd all the source images, aligning with the target image.
+            #
+            # We don't want to mess with gain multiplication, so make
+            #   sure that swarp doesn't try to do anything funny by
+            #   setting an unlikely keyword.  Because our weights
+            #   already include noise from objects, not just from the
+            #   sky background, we want gain=0 for swarp to do the
+            #   right thing.  Likewise, saturated pixels should already
+            #   be marked as such from our preprocessing (I really
+            #   hope), so try to avoid letting swarp doing things there
+            #   too.  Also make sure swarp doesn't try to do fscaling,
+            #   since we already scaled the images to zeorpoints.
+            #   (Never know what's in the header!)
+            #
+            # The swarp manual is incomplete.  I don't know what the
+            #   CLIP_SIGMA et al. parameters do.  Are they only used
+            #   with COMBINE_TYPE=CLIPPED?  We really want to do a
+            #   weighted combination, but also we want to do some
+            #   clipping to reject CRs and the like.
+            #   ...Looking at the swarp source code, it looks like CLIPPED
+            #   is doing a weighted mean of the things it doesn't
+            #   throw out, so CLIPPED should be good to just use.
+            #   https://github.com/astromatic/swarp/blob/3d8ddf1e61718a2ba402473990c6483862671806/src/coadd.c#L1418
 
             command = [ 'swarp' ]
             command.extend( sumimgs )
@@ -581,11 +602,19 @@ class Coadder:
                               '-VMEM_MAX', '1024',
                               '-MEM_MAX', '1024',
                               '-WRITE_XML', 'N',
+                              '-INTERPOLATE', 'Y',
+                              '-FSCALE_KEYWORD', 'THIS_KEYWORD_WILL_NEVER_EXIST',
+                              '-FSCALE_DEFAULT', '1.0',
+                              '-GAIN_KEYWORD', 'THIS_KEYWORD_WILL_NEVER_EXIT',
+                              '-GAIN_DEFAULT', '0.0',
+                              '-SATLEV_KEYWORD', 'THIS_KEYWORD_WILL_NEVER_EXIST',
+                              '-SATLEV_DEFAULT', '1e10',
                               '-COMBINE', 'Y',
                               '-COMBINE_TYPE', 'CLIPPED',
                               '-WEIGHT_TYPE', 'MAP_WEIGHT',
-                              '-WEIGHT_IMAGE' ] )
-            command.extend( sumwts )
+                              '-WEIGHT_IMAGE', ','.join([ str(s) for s in sumwts ])
+                             ] )
+
 
             # SCLogger.debug( f"Running swarp to coadd {len(sumimgs)} images" )
             SCLogger.debug( f"Running swarp to coadd {len(sumimgs)} images; swarp command is {command}" )
@@ -593,6 +622,8 @@ class Coadder:
             res = subprocess.run( command, capture_output=True, timeout=self.pars.swarp_timeout )
             t1 = time.perf_counter()
             SCLogger.debug( f"Swarp to sum {len(sumimgs)} images took {t1-t0:.2f} seconds" )
+            SCLogger.debug( f"Swarp stdout:\n{res.stdout}" )
+            SCLogger.debug( f"Swarp stderr:\n{res.stderr}" )
             if res.returncode != 0:
                 raise SubprocessFailure( res )
 
