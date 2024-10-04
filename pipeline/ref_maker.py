@@ -96,6 +96,16 @@ class ParsRefMaker(Parameters):
             critical=True,
         )
 
+        self.coadd_overlap_fraction = self.add_par(
+            'coadd_overlap_fraction',
+            0.1,
+            (None, float),
+            ( "When looking for images to coadd into a new reference, only consider images whose "
+              "min/max ra/dec overlap the sky rectangle of the target by at least this much.  "
+              "Ignored when corner_distance is None." ),
+            critical=True,
+        )
+
         self.instruments = self.add_par(
             'instruments',
             None,
@@ -147,7 +157,18 @@ class ParsRefMaker(Parameters):
             1,
             int,
             ( 'Construct a reference only if there are at least this many images that pass all other criteria '
-              ' ' ),
+              'If corner_distance is not None, then this applies to all test positions on the image unless '
+              'min_only_center is True.' ),
+            critical=True,
+        )
+
+        self.min_only_center = self.add_par(
+            'min_only_center',
+            False,
+            bool,
+            ( 'If True, then min_number only applies to the center position of the target area.  Otherwise, '
+              'every test position on the image must have at least min_number references for the construction '
+              'not to fail.  Ignored if corner_distance is None.' ),
             critical=True,
         )
 

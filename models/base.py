@@ -1957,7 +1957,7 @@ class FourCorners:
                   "      ( maxra >= :ra AND minra <= :ra ) )"
                   "    OR "
                   "    ( ( maxra < minra ) AND "
-                  "      ( ( maxra >= :ra OR :ra > 180. ) AND ( minra <= :ra OR ra <= 180. ) ) )"
+                  "      ( ( maxra >= :ra OR :ra > 180. ) AND ( minra <= :ra OR :ra <= 180. ) ) )"
                   "  )"
                   ")"
                  )

@@ -1,4 +1,4 @@
-import shapely.geometry
+from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -163,6 +163,12 @@ class Reference(Base, UUIDMixin):
             cls,
             ra=None,
             dec=None,
+            minra=None,
+            maxra=None,
+            mindec=None,
+            maxdec=None,
+            image=None,
+            overlapfrac=None,
             target=None,
             section_id=None,
             instrument=None,
@@ -174,15 +180,42 @@ class Reference(Base, UUIDMixin):
         """Find all references in the specified part of the sky, with the given filter.
         Can also match specific provenances and will (by default) not return bad references.
 
+        Operates in three modes:
+
+        * References tagged for a given target and sectionid
+
+        * References that include a given point on the sky.  Specify ra and dec, do not
+          pass any of minra, maxra, mindec, maxdec, or target.
+
+        * References that overlap an area on the sky.  Specify either
+          minra/maxra/mindec/maxdec or image.  If overlapfrac is None,
+          will return references that overlap the area at all; this is
+          usually not what you want.
+
         Parameters
         ----------
-        ra: float or string, optional
-            Right ascension in degrees, or a hexagesimal string (in hours!).
-            If given, must also give the declination.
+        ra: float, optional
+            Right ascension in degrees.  If given, must also give the declination.
 
-        dec: float or string, optional
-            Declination in degrees, or a hexagesimal string (in degrees).
-            If given, must also give the right ascension.
+        dec: float, optional
+            Declination in degrees. If given, must also give the right ascension.
+
+        minra, maxra, mindec, maxdec: float, optional
+           Rectangle on the sky, in degrees.  Will find references whose
+           bounding rectangle overlaps this rectangle on the sky.
+           minra is the W edge, maxra is the E edge, so if the center of
+           a 2° wide retange is at RA=0, then minra=359 and maxra=1.
+
+        image: Image, optional
+           If specified, minra/maxra/mindec/maxdec will be pulled from
+           this Image (or any other type of object that inherits from
+           FourCorners).
+
+        overlapfrac: float, default None
+           If minra/maxra/mindec/maxdec or image is not None, then only
+           return references whose bounding rectangle overlaps the
+           passed bounding rectangle by at least this much.  Ignored if
+           ra/dec or target/section_id is specified.
 
         target: string, optional
             Name of the target object or field id.  Will only match
@@ -219,79 +252,200 @@ class Reference(Base, UUIDMixin):
           list of Reference, list of Image
 
         """
-        if ( ( ( ra is None ) or ( dec is None ) ) and
-             ( ( target is None ) or ( section_id is None ) )
+
+        radecgiven = ( ra is not None ) or ( dec is not None )
+        areagiven = ( image is not None ) or any( i is not None for i in [ minra, maxra, mindec, maxdec ] )
+        targetgiven = ( target is not None ) or ( section_id is not None )
+        if ( ( radecgiven and ( areagiven or targetgiven ) ) or
+             ( areagiven and ( radecgiven or targetgiven ) ) or
+             ( targetgiven and ( radecgiven or areagiven ) )
             ):
-            raise ValueError( "Must provide at least ra/dec or target/section_id" )
+            raise ValueError( "Specify only one of ( target/section_id, ra/dec, minra/maxra/mindec/maxdec or image )" )
 
-        if ( ra is None ) != ( dec is None ):
-            raise ValueError( "Must provide both or neither of ra/dec" )
-
-        if ra is None:
-           stmt = ( sa.select( Reference, Image )
-                     .where( Reference.target == target )
-                     .where( Reference.section_id == section_id )
-                    )
-        else:
-            # Not using FourCorners.containing here, because
-            #   that doesn't actually use the q3c indices,
-            #   so will be slow.  minra, maxra, mindec, maxdec
-            #   have classic indices, so this is a good first pass.
-            #   Below, we'll crop the list down.
-            stmt = ( sa.select( Reference, Image )
-                     .where( Image._id==Reference.image_id )
-                     .where( Image.minra<=ra )
-                     .where( Image.maxra>=ra )
-                     .where( Image.mindec<=dec )
-                     .where( Image.maxdec>=dec )
-                    )
-            if target is not None:
-                stmt = stmt.where( Reference.target==target )
-            if section_id is not None:
-                stmt = stmt.where( Reference.section_id==str(section_id) )
-
-        if instrument is not None:
-            stmt = stmt.where( Reference.instrument==instrument )
-
-        if filter is not None:
-            stmt = stmt.where( Reference.filter==filter )
-
-        if skip_bad:
-            stmt = stmt.where( Reference.is_bad.is_( False ) )
-
-        provenance_ids = listify(provenance_ids)
-        if provenance_ids is not None:
-            for i, prov in enumerate(provenance_ids):
-                if isinstance(prov, Provenance):
-                    provenance_ids[i] = prov.id
-                elif not isinstance(prov, str):
-                    raise ValueError(f"Provenance ID must be a string or a Provenance object, not {type(prov)}.")
-
-            stmt = stmt.where( Reference.provenance_id.in_(provenance_ids) )
+        fcobj = None
 
         with SmartSession( session ) as sess:
-            refs = sess.execute( stmt ).all()
-        imgs = [ r[1] for r in refs ]
-        refs = [ r[0] for r in refs ]
+            # Mode 1 : target / section_id
 
-        if ra is not None:
-            # Have to crop down the things found to things that actually include
-            #  the ra/dec
-            croprefs = []
-            cropimgs = []
-            for ref, img in zip( refs, imgs ):
-                poly = shapely.geometry.Polygon( [ ( img.ra_corner_00, img.dec_corner_00 ),
-                                                   ( img.ra_corner_01, img.dec_corner_01 ),
-                                                   ( img.ra_corner_11, img.dec_corner_11 ),
-                                                   ( img.ra_corner_10, img.dec_corner_10 ),
-                                                   ( img.ra_corner_00, img.dec_corner_00 ) ] )
-                if poly.contains( shapely.geometry.Point( ra, dec ) ):
-                    croprefs.append( ref )
-                    cropimgs.append( img )
-            refs = croprefs
-            imgs = cropimgs
+            if ( ( target is not None ) or ( section_id is not None ) ):
+                if ( target is None ) or (section_id is None ):
+                    raise ValueError( "Must give both target and section_id" )
+                if overlapfrac is not None:
+                    raise ValueError( "Can't give overlapfrac with target/section_id" )
 
-        return refs, imgs
+                q = "SELECT r.* FROM refs r WHERE target=:target AND section_id=:section_id "
+                subdict = { 'target': target, 'section_id': section_id }
+
+            # Mode 2 : ra/dec
+
+            elif ( ( ra is not None ) or ( dec is not None ) ):
+                if ( ra is None ) or ( dec is None ):
+                    raise ValueError( "Must give both ra and dec" )
+                if overlapfrac is not None:
+                    raise ValueError( "Can't give overlapfrac with ra/dec" )
+
+                # Bobby Tables
+                ra = float(ra) if isinstance( ra, int ) else ra
+                dec = float(dec) if isinstance( dec, int ) else dec
+                if ( not isinstance( ra, float ) ) or ( not isinstance( dec, float ) ):
+                    raise TypeError( f"(ra, dec) must be floats, got ({type(ra)}, {type(dec)})" )
+
+                # This code is kind of redundant with the code in
+                #   FourCorners._find_possibly_containing_temptable and
+                #   FourCorners.find_containing, but we can't just use
+                #   that because Reference isn't a FourCorners, and we
+                #   have to join Reference to Image
+
+                q = ( "SELECT r.*, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+                      "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
+                      "       INTO TEMP TABLE temp_find_containing_ref "
+                      "       FROM refs r INNER JOIN images i ON r.image_id=i._id "
+                      "WHERE ( "
+                      "  ( i.maxdec >= :dec AND i.mindec <= :dec ) "
+                      "  AND ( "
+                      "    ( ( i.maxra > i.minra ) AND "
+                      "      ( i.maxra >= :ra AND i.minra <= :ra ) )"
+                      "    OR "
+                      "    ( ( i.maxra < i.minra ) AND "
+                      "      ( ( i.maxra >= :ra OR :ra > 180. ) AND ( i.minra <= :ra OR :ra <= 180. ) ) )"
+                      "  )"
+                      ")"
+                     )
+                subdict = { "ra": ra, "dec": dec }
+                sess.execute( sa.text(q), subdict )
+
+                q = ( "SELECT r.* FROM refs r INNER JOIN temp_find_containing_ref t ON r._id=t._id "
+                      f"WHERE q3c_poly_query( :ra, :dec, ARRAY[ t.ra_corner_00, t.dec_corner_00, "
+                      "                                         t.ra_corner_01, t.dec_corner_01, "
+                      "                                         t.ra_corner_11, t.dec_corner_11, "
+                      "                                         t.ra_corner_10, t.dec_corner_10 ] ) " )
+
+            # Mode 3 : overlapping area
+
+            elif ( image is not None ) or any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
+                if image is not None:
+                    if any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
+                        raise ValueError( "Specify either image or minra/maxra/mindec/maxdec, not both" )
+                    minra = image.minra
+                    maxra = image.maxra
+                    mindec = image.mindec
+                    maxdec = image.maxdec
+                    fcobj = image
+                else:
+                    if any( i is None for i in [ minra, maxra, mindec, maxdec ] ):
+                        raise ValueError( "Must give all of minra, maxra, mindec, maxdec" )
+                    fcobj = FourCorners()
+                    fcobj.ra = (minra + maxra) / 2.
+                    fcobj.dec = (mindec + maxdec) / 2.
+                    fcobj.ra_corner_00 = minra
+                    fcobj.ra_corner_01 = minra
+                    fcobj.minra = minra
+                    fcobj.ra_corner_10 = maxra
+                    fcobj.ra_corner_11 = maxra
+                    fcobj.maxra = maxra
+                    fcobj.dec_corner_00 = mindec
+                    fcobj.dec_corner_10 = mindec
+                    fcobj.mindec = mindec
+                    fcobj.dec_corner_01 = maxdec
+                    fcobj.dec_corner_11 = maxdec
+                    fcobj.maxdec = maxdec
+
+                # Sort of redundant code from FourCorners._find_potential_overlapping_temptable,
+                #  but we can't just use that because Reference isn't a FourCorners and
+                #  we have to do the refs/images join.
+
+                q = ( "SELECT r.* FROM refs r INNER JOIN images i ON r.image_id=i._id "
+                      "WHERE ( "
+                      "  ( i.maxdec >= :mindec AND i.mindec <= :maxdec ) "
+                      "  AND "
+                      "  ( ( ( i.maxra >= i.minra AND :maxra >= :minra ) AND "
+                      "      i.maxra >= :minra AND i.minra <= :maxra ) "
+                      "    OR "
+                      "    ( i.maxra < i.minra AND :maxra < :minra ) "   # both include RA=0, will overlap in RA
+                      "    OR "
+                      "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra <= 180. ) AND "
+                      "      i.maxra >= :minra ) "
+                      "    OR "
+                      "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra > 180. ) AND "
+                      "      i.minra <= :maxra ) "
+                      "    OR "
+                      "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra <= 180. ) AND "
+                      "      i.minra <= :maxra ) "
+                      "    OR "
+                      "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra > 180. ) AND "
+                      "      i.maxra >= :minra ) "
+                      "  )"
+                      ") " )
+                subdict = { 'minra': minra, 'maxra': maxra, 'mindec': mindec, 'maxdec': maxdec }
+
+            else:
+                raise ValueError( "Must give one of target/section_id, ra/dec, or minra/maxra/mindec/maxdec or image" )
+
+            # Additional criteria
+
+            if provenance_ids is not None:
+                if isinstance( prov_id, str ) or isinstance( prov_id, UUID ):
+                    q += " AND r.provenance_id=:prov"
+                    subdict['prov'] = provenance_ids
+                elif isinstance( prov_id, Provenance ):
+                    q += " AND r.provenance_id=:prov"
+                    subdict['prov'] = provenance_ids.id
+                elif isinstance( prov_id, list ):
+                    q += " AND r.provenance_id IN :provs"
+                    subdict['provs'] = []
+                    for pid in provenance_ids:
+                        subdict['provs'].append( pid if isinstance( pid, str ) or isinstance( pid, UUID )
+                                                 else pid.id )
+                    subdict['provs'] = tuple( subdict['provs'] )
+
+            if instrument is not None:
+                q += " AND r.instrument=:instrument "
+                subdict['instrument'] = instrument
+
+            if filter is not None:
+                q += " AND r.filter=:filter "
+                subdict['filter'] = filter
+
+            if skip_bad:
+                q += " AND NOT r.is_bad "
+
+            # Get the Reference objects
+
+            references = list( sess.scalars( sa.select( Reference )
+                                             .from_statement( sa.text(q).bindparams(**subdict) )
+                                            ).all() )
+
+            # Get the image objects
+
+            imset = set( sess.scalars( sa.select( Image )
+                                       .where( Image._id.in_( r.image_id for r in references ) )
+                                      ).all() )
+
+        # Make sure they're sorted right
+
+        if len( references ) != len( imset ):
+            raise RuntimeError( "Database corruption: number of returned references and images didn't match!" )
+        if not all( r.image_id in imset for r in references ):
+            raise RuntimeError( "Didn't get back the images expected; this should not happen!" )
+        imdict = { i._id : i for i in imset }
+        images = [ imdict[r.image_id] for r in references ]
+
+        # Deal with overlapfrac if relevant
+
+        if overlapfrac is not None:
+            retref = []
+            retim = []
+            for r, i in zip( references, images ):
+                if FourCorners.get_overlap_frac( fcobj, i ) >= overlapfrac:
+                    retref.append( r )
+                    retim.append( i )
+            references = retref
+            images = rtim
+
+        # Done!
+
+        return references, images
+
 
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
