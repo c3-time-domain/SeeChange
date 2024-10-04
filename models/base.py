@@ -1936,8 +1936,8 @@ class FourCorners:
           session : Session
              Required here, otherwise the temp table would be useless.
 
-          prov_id : str or None
-             If not None, search for objects with this provenance.
+          prov_id : str, list of str, or None
+             If not None, search for objects with this provenance, or any of these provenances if a list.
 
         """
         session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_containing" ) )
@@ -1963,8 +1963,14 @@ class FourCorners:
                  )
         subdict = { "ra": ra, "dec": dec }
         if prov_id is not None:
-            query += " AND provenance_id=:prov"
-            subdict['prov'] = prov_id
+            if isinstance( prov_id, str ):
+                query += " AND provenance_id=:prov"
+                subdict['prov'] = prov_id
+            elif isinstance( prov_id, list ):
+                query += " AND provenance_id IN :prov"
+                subidct['prov'] = tuple( prov_id )
+            else:
+                raise TypeError( "prov_id must be a a str or a list of str" )
 
         session.execute( sa.text( query ), subdict )
 
@@ -1977,8 +1983,8 @@ class FourCorners:
         ----------
           ra, dec: float, decimal degrees
 
-          prov_id: str or None
-             id of the provenance of cls objects to search; if None, won't filter on provenance
+          prov_id : str, list of str, or None
+             If not None, search for objects with this provenance, or any of these provenances if a list.
 
         Returns
         -------
@@ -2001,12 +2007,13 @@ class FourCorners:
         # we'll q3c_poly_query.
 
         with SmartSession( session ) as sess:
-            cls._find_possibly_containing_temptable( ra, dec, session, prov_id=prov_id )
-            query = sa.text( f"SELECT i._id FROM temp_find_containing i "
-                             f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ i.ra_corner_00, i.dec_corner_00, "
-                             f"                                          i.ra_corner_01, i.dec_corner_01, "
-                             f"                                          i.ra_corner_11, i.dec_corner_11, "
-                             f"                                          i.ra_corner_10, i.dec_corner_10 ])" )
+            cls._find_possibly_containing_temptable( ra, dec, sess, prov_id=prov_id )
+            query = sa.text( f"SELECT i.* FROM {cls.__tablename__} i "
+                             f"INNER JOIN temp_find_containing t ON t._id=i._id "
+                             f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ t.ra_corner_00, t.dec_corner_00, "
+                             f"                                          t.ra_corner_01, t.dec_corner_01, "
+                             f"                                          t.ra_corner_11, t.dec_corner_11, "
+                             f"                                          t.ra_corner_10, t.dec_corner_10 ])" )
             objs = sess.scalars( sa.select( cls ).from_statement( query ) ).all()
             sess.execute( sa.text( "DROP TABLE temp_find_containing" ) )
             return objs
@@ -2031,9 +2038,8 @@ class FourCorners:
           session : Session
              required here; otherwise, the temp table wouldn't be useful
 
-          prov_id : str, default None
-             The id of the provenance of objects to look for; defaults to
-             not filtering on provenance (which is almost never what you want).
+          prov_id: str or None
+             id of the provenance of cls objects to search; if None, won't filter on provenance
 
         """
 
@@ -2072,8 +2078,14 @@ class FourCorners:
         subdict = { 'minra': fcobj.minra, 'maxra': fcobj.maxra,
                     'mindec': fcobj.mindec, 'maxdec': fcobj.maxdec }
         if prov_id is not None:
-            query += "AND provenance_id=:prov"
-            subdict['prov'] = prov_id
+            if isinstance( prov_id, str ):
+                query += " AND provenance_id=:prov"
+                subdict['prov'] = prov_id
+            elif isinstance( prov_id, list ):
+                query += " AND provenance_id IN :prov"
+                subidct['prov'] = tuple( prov_id )
+            else:
+                raise TypeError( "prov_id must be a a str or a list of str" )
 
         session.execute( sa.text( query ), subdict )
 

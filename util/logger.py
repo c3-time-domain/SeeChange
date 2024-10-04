@@ -3,8 +3,8 @@ import re
 import multiprocessing
 import logging
 
-# _default_log_level = logging.INFO
-_default_log_level = logging.DEBUG
+_default_log_level = logging.INFO
+# _default_log_level = logging.DEBUG
 
 _default_datefmt = '%Y-%m-%d %H:%M:%S'
 # Normally you don't want to show milliseconds, because it's additional gratuitous information
@@ -15,7 +15,7 @@ _show_millisec = False
 
 
 class SCLogger:
-    """Holds the logging instance that we use throught SeeChange.
+    """Holds the logging instance that we use throughout SeeChange.
 
     Normal use: get the logger object with SCLogger.get(), which is a
     stander logging logger object.  Or, just call SCLogger.debug,

@@ -9,6 +9,7 @@ import shapely.geometry
 
 import sqlalchemy as sa
 from sqlalchemy import orm
+import psycopg2.extras
 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
@@ -16,6 +17,7 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CheckConstraint
+from sqlalchemy.sql import or_, and_
 
 from astropy.time import Time
 from astropy.wcs import WCS
@@ -861,7 +863,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         #   want to save, or where we can control this.
         upstream_ids = [ i.id for i in images ]
 
-        if alignment_target is not None:
+        if alignment_target is None:
             alignment_target = images[index]
 
         output = Image( nofile=True, is_coadd=set_is_coadd )
@@ -1547,75 +1549,18 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         return downstreams
 
-
     @staticmethod
     def find_images(
             ra=None,
             dec=None,
-            session=None,
-            **kwargs
-    ):
-        """Return a list of images that match criteria.
-
-        Similar to query_images (and **kwargs is forwarded there),
-        except that it returns the actual list rather than an SQLAlchemy
-        thingy, and ra/dec searching works.
-
-        Parameters
-        ----------
-          ra, dec: float (decimal degrees) or str (HH:MM:SS and dd:mm:ss) or None
-             Search for images that contain this point.  Must either provide both
-             or neither of ra and dec.
-
-          session: Session or None
-
-          *** See query_images for remaining parameters
-
-        Returns
-        -------
-          list of Image
-
-        """
-
-        if ( ra is None ) != ( dec is None ):
-            raise ValueError( "Must provide both or neither of ra/dec" )
-
-        stmt = Image.query_images( ra=ra, dec=dec, **kwargs )
-
-        with SmartSession( session ) as sess:
-            images = sess.scalars( stmt ).all()
-
-        if ( ra is not None ) and ( len(images) > 0 ):
-            if isinstance( ra, str ):
-                ra = parse_ra_hms_to_deg( ra )
-            if isinstance( dec, str ):
-                dec = parse_dec_dms_to_deg( dec )
-            # We selected by minra/maxra mindec/maxdec in query_images()
-            #  because there are indexes on those fields.  (We could
-            #  have just done a q3c_poly_query using the corners, but
-            #  alas the q3c function will use an index on the ra/dec
-            #  being searched, not the polygon, so it would not have
-            #  used an index and would have been very slow.)  But, if
-            #  images aren't square to the sky, that will be a superset
-            #  of what we want.  Crop down here.
-            keptimages = []
-            for img in images:
-                poly = shapely.geometry.Polygon( [ ( img.ra_corner_00, img.dec_corner_00 ),
-                                                   ( img.ra_corner_01, img.dec_corner_01 ),
-                                                   ( img.ra_corner_11, img.dec_corner_11 ),
-                                                   ( img.ra_corner_10, img.dec_corner_10 ),
-                                                   ( img.ra_corner_00, img.dec_corner_00 ) ] )
-                if poly.contains( shapely.geometry.Point( ra, dec ) ):
-                    keptimages.append( img )
-            images = keptimages
-
-        return images
-
-
-    @staticmethod
-    def query_images(
-            ra=None,
-            dec=None,
+            minra=None,
+            maxra=None,
+            mindec=None,
+            maxdec=None,
+            image=None,
+            overlapfrac=None,
+            provenance_ids=None,
+            type=[1,2,3,4],
             target=None,
             section_id=None,
             project=None,
@@ -1637,50 +1582,67 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             max_background=None,
             min_zero_point=None,
             max_zero_point=None,
-            order_by='latest',
+            order_by=None,
             seeing_quality_factor=3.0,
-            provenance_ids=None,
-            type=[1, 2, 3, 4],  # TODO: is there a smarter way to only get science images?
+            max_number=None
     ):
-        """Get a SQL alchemy statement object for Image objects, with some filters applied.
+        """Return a list of images that match criteria.
 
-        This is a convenience method to get a statement object that can be further filtered.
-        If no parameters are given, will happily return all images (be careful with this).
+        For position searching, can operate in three modes:
 
-        If you want to filter by ra/dec (which is often what you want to
-        do), you may want to use find_images() rather than this
-        function, because a query using the result of this function will
-        may return a superset of images.  For example, the following
-        image (lines) will be returned even though it doesn't include
-        the specified RA/dec (asterix):
+        * Not filtering on position
 
-                       *╱╲
-                       ╱  ╲
-                       ╲  ╱
-                        ╲╱
+        * Finding all images that include a point.  Specify ra/dec.
 
-        The images are sorted either by MJD or by image quality.
-        Quality is defined as sum of the limiting magnitude and the seeing,
-        multiplied by the negative "seeing_quality_factor" parameter:
-          <quality> = <limiting_mag> - <seeing_quality_factor> * <seeing FWHM>
-        This means that as the seeing FWHM is smaller, and the limiting magnitude
-        is bigger (fainter) the quality is higher.
-        Choose a higher seeing_quality_factor to give more weight to the seeing,
-        and less weight to the limiting magnitude.
+        * Finding all images that overlap a rectangle.  Specify either
+          minra/maxra/mindec/maxdec or image.  If overlapfrac is not
+          None, only include images that overlap the desired area by at
+          least this fraction.  (Note: this isn't really right, as this
+          routine treats all images as N-S/E-W aligned rectangles on the
+          sky; see doc on overlap frac below.)
+
+        It will combine the position filters with all the other
+        conditions, ANDing together all the criteria.
 
         Parameters
         ----------
         ra, dec: float (decimal degrees) or (HH:MM:SS / dd:mm:ss) or None
-            If supplied, will find images that *might* contain this ra
+            If supplied, will find images that contain this ra
             and dec.  The images you get back will be a susperset of
-            images that actually contain this ra and dec.  For
-            efficiency, the filtering is done in the
-            minra/maxra/mindec/maxdec fields of the database (which have
-            indexes).  If the image is not square to the sky, it's
-            possible that the image doesn't actually contain the
-            requested ra/dec.  If you want to be (more) sure that the
-            image actually does contain the ra/dec, use
-            Image.find_images() instead of query_images().
+            images t
+
+        minra, maxra, mindec, maxdec: float (decimal degrees) or (HH:MM:SS / dd:mm:ss) or None
+            Specify a rectangle on the sky, find all images that overlap
+            this rectangle at all.  You can only give one of ra/dec or
+            minra/maxra/mindec/maxdec.  Note that minra is the West side
+            of the image, and maxra is the East side of the image, so if
+            the image is 2° wide centered around 0°, minra will be 359
+            and maxra will be 1.
+
+        image: Image (really, any object that inherits the FourCorners mixin) or None
+            If supplied, pull the minra/maxra/mindec/maxdec from this image
+
+        overlapfrac: float or None
+            If supplied (which may only happen when min/max ra/dec are
+            supplied), only return images that overlap the target
+            rectangle by at least this much.  (Sort of.)  NOTE: this
+            doesn't do real overlap fractions of images!  Rather, it
+            does the overlap fraction of the NS/EW-aligned bounding
+            boxes of images!  See docstring for
+            FourCorners.get_overlap_frac().  If that is fixed, this should
+            be too.
+
+        provenance_ids: str or list of strings
+            Find images with these provenance IDs.
+
+        type: integer or string or list of integers or strings, None
+            List of image types to search for; see
+            enums_and_bitflags.py::ImageTypeConverter for the values.
+            Use "Sci" or 1 to get regular (non-coadd, non-subtraction)
+            images.  This defaults to [1,2,3,4], which gets science,
+            coadded science, difference, and coadded difference images;
+            it omits calibration images (bias, flats, etc.) and warped
+            images.  Set this to None to get everything.
 
         target: str or list of strings (optional)
             Find images that have this target name (e.g., field ID or Object name).
@@ -1759,139 +1721,186 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         seeing_quality_factor: float, default 3.0
             The factor to multiply the seeing FWHM by in the quality calculation.
 
-        provenance_ids: str or list of strings
-            Find images with these provenance IDs.
-
-        type: integer or string or list of integers or strings, default [1,2,3,4]
-            List of integer converted types of images to search for.
-            This defaults to [1,2,3,4] which corresponds to the
-            science images, coadds and subtractions
-            (see enums_and_bitflags.ImageTypeConverter for more details).
-            Choose 1 to get only the regular (non-coadd, non-subtraction) images.
+        max_number: int or None
+            If not None, only return this many images.  Will return the
+            first max_number returned from the database, ordered as
+            specified in order_by.
 
         Returns
         -------
-        stmt: SQL alchemy select statement
-            The statement to be executed to get the images.
-            Do session.scalars(stmt).all() to get the images.
-            Additional filtering can be done on the statement before executing it.
+          list of Image
 
         """
-        stmt = sa.select(Image)
 
-        if ( ra is None ) != ( dec is None ):
-            raise ValueError( "Must provide both or neither of ra/dec" )
+        # Name of the table we're going to search after position searches are done
+        searchtable = None
+        fcobj = None
 
-        # Filter by position
-        if ( ra is not None ):
-            if isinstance( ra, str ):
-                ra = parse_ra_hms_to_deg( ra )
-            if isinstance( dec, str ):
-                dec = parse_dec_dms_to_deg( dec )
-            # Select on minra/maxra/mindex/maxdec because there are
-            # indexes on those fields.  If the image isn't square to the
-            # sky, it's possible that it will be included here even
-            # though it doesn't actually contain ra/dec.
-            stmt = stmt.where( Image.minra <= ra,
-                               Image.maxra >= ra,
-                               Image.mindec <= dec,
-                               Image.maxdec >= dec )
+        with SmartSession() as sess:
 
-        # filter by target (e.g., field ID, object name) and possibly section ID and/or project
-        targets = listify(target)
-        if targets is not None:
-            stmt = stmt.where(Image.target.in_(targets))
-        section_ids = listify(section_id)
-        if section_ids is not None:
-            stmt = stmt.where(Image.section_id.in_(section_ids))
-        projects = listify(project)
-        if projects is not None:
-            stmt = stmt.where(Image.project.in_(projects))
+            # First: position filter (but not including overlapfrac).  This may involve
+            #   calling a FourCorners routine to build a temporary table.
 
-        # filter by filter and instrument
-        filters = listify(filter)
-        if filters is not None:
-            stmt = stmt.where(Image.filter.in_(filters))
-        instruments = listify(instrument)
-        if instruments is not None:
-            stmt = stmt.where(Image.instrument.in_(instruments))
+            if ( ra is not None ) or ( dec is not None ):
+                # Filter by position
+                if any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
+                    raise ValueError( "Cannot specify min/max ra/dec and ra/dec together" )
+                if ( ra is None ) or ( dec is None ):
+                    raise ValueError( "Must provide both or neither of ra/dec" )
+                if overlapfrac is not None:
+                    raise ValueError( "Can't provide overlap frac with ra/dec" )
 
-        # filter by MJD or dateobs
-        if min_mjd is not None:
-            if min_dateobs is not None:
-                raise ValueError("Cannot filter by both minimal MJD and dateobs.")
-            stmt = stmt.where(Image.mjd >= min_mjd)
-        if max_mjd is not None:
-            if max_dateobs is not None:
-                raise ValueError("Cannot filter by both maximal MJD and dateobs.")
-            stmt = stmt.where(Image.mjd <= max_mjd)
-        if min_dateobs is not None:
-            min_dateobs = parse_dateobs(min_dateobs, output='mjd')
-            stmt = stmt.where(Image.mjd >= min_dateobs)
-        if max_dateobs is not None:
-            max_dateobs = parse_dateobs(max_dateobs, output='mjd')
-            stmt = stmt.where(Image.mjd <= max_dateobs)
+                if isinstance( ra, str ):
+                    ra = parse_ra_hms_to_deg( ra )
+                if isinstance( dec, str ):
+                    dec = parse_dec_dms_to_deg( dec )
 
-        # filter by exposure time
-        if min_exp_time is not None:
-            stmt = stmt.where(Image.exp_time >= min_exp_time)
-        if max_exp_time is not None:
-            stmt = stmt.where(Image.exp_time <= max_exp_time)
+                Image._find_possibly_containing_temptable( ra, dec, session=sess, prov_id=provenance_ids )
+                searchtable = "temp_find_containing"
 
-        # filter by seeing FWHM
-        if min_seeing is not None:
-            stmt = stmt.where(Image.fwhm_estimate >= min_seeing)
-        if max_seeing is not None:
-            stmt = stmt.where(Image.fwhm_estimate <= max_seeing)
+            elif any( i is not None for i in [ image, minra, maxra, mindec, maxdec ] ):
+                # Filter by rectangle
+                if image is not None:
+                    if any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
+                        raise ValueError( "May specify either image or min/max ra/dec, not both" )
+                    minra = image.minra
+                    maxra = image.maxra
+                    mindec = image.mindec
+                    maxdec = image.maxdec
+                else:
+                    if any( i is None for i in [ minra, maxra, mindec, maxdec ] ):
+                        raise ValueError( "Must specify either all or none of minra/maxra/mindec/maxdec" )
+                    if isinstance( minra, str ):
+                        minra = parse_ra_hms_to_deg( minra )
+                    if isinstance( maxra, str ):
+                        maxra = parse_ra_hms_to_deg( maxra )
+                    if isinstance( mindec, str ):
+                        mindec = parse_dec_dms_to_deg( mindec )
+                    if isinstance( maxdec, str ):
+                        maxdec = parse_dec_dms_to_deg( maxdec )
 
-        # filter by limiting magnitude
-        if max_lim_mag is not None:
-            stmt = stmt.where(Image.lim_mag_estimate <= max_lim_mag)
-        if min_lim_mag is not None:
-            stmt = stmt.where(Image.lim_mag_estimate >= min_lim_mag)
+                fcobj = FourCorners()
+                fcobj.dec = (mindec + maxdec) / 2.
+                fcobj.ra_corner_00 = minra
+                fcobj.ra_corner_01 = minra
+                fcobj.minra = minra
+                fcobj.ra_corner_10 = maxra
+                fcobj.ra_corner_11 = maxra
+                fcobj.maxra = maxra
+                fcobj.dec_corner_00 = mindec
+                fcobj.dec_corner_10 = mindec
+                fcobj.mindec = mindec
+                fcobj.dec_corner_01 = maxdec
+                fcobj.dec_corner_11 = maxdec
+                fcobj.maxdec = maxdec
 
-        # filter by airmass
-        if max_airmass is not None:
-            stmt = stmt.where(Image.airmass <= max_airmass)
-        if min_airmass is not None:
-            stmt = stmt.where(Image.airmass >= min_airmass)
+                Image._find_potential_overlapping_temptable( fcobj, session=sess, prov_id=provenance_ids )
+                searchtable = "temp_find_overlapping"
+            else:
+                if overlapfrac is not None:
+                    raise ValueError( "overlapfrac only makes sense with image or min/max ra/dec" )
 
-        # filter by background
-        if max_background is not None:
-            stmt = stmt.where(Image.bkg_rms_estimate <= max_background)
-        if min_background is not None:
-            stmt = stmt.where(Image.bkg_rms_estimate >= min_background)
+            # Second: all filtering other than position
 
-        # filter by zero point
-        if max_zero_point is not None:
-            stmt = stmt.where(Image.zero_point_estimate <= max_zero_point)
-        if min_zero_point is not None:
-            stmt = stmt.where(Image.zero_point_estimate >= min_zero_point)
+            # Build the query that allows us to search either our temp
+            # table or the images table This is a little awkward,
+            # because we're using SQLAlchemy.  I don't know an easy way
+            # to join to a table that SQLA doesn't know about (i.e. our
+            # temp tables) using SQLA constructs, so I'm going to just
+            # build a SQL query and hope that I understand SQLA
+            # from_statement well enough to do the right thing.  (I'm
+            # also not sure how I'd do a q3c_poly_query with SQLA, and
+            # it's not worth the effort of trying to figure out the
+            # syntax.)
 
-        # filter by provenances
-        provenance_ids = listify(provenance_ids)
-        if provenance_ids is not None:
-            stmt = stmt.where(Image.provenance_id.in_(provenance_ids))
+            subdict = {}
+            andtxt = "WHERE "
+            if searchtable is None:
+                q = "SELECT i.* FROM images i "
+            else:
+                q = f"SELECT i.* FROM {searchtable} t INNER JOIN images i ON t._id=i._id "
+                if searchtable == "temp_find_containing":
+                    q += ( "WHERE q3c_poly_query(:ra, :dec, ARRAY[ i.ra_corner_00, i.dec_corner_00, "
+                           "                                       i.ra_corner_01, i.dec_corner_01, "
+                           "                                       i.ra_corner_11, i.dec_corner_11, "
+                           "                                       i.ra_corner_10, i.dec_corner_10 ]) " )
+                    subdict[ 'ra' ] = ra
+                    subdict[ 'dec' ] = dec
+                    andtxt = " AND "
 
-        # filter by image types
-        types = listify(type)
-        if types is not None:
-            int_types = [ImageTypeConverter.to_int(t) for t in types]
-            stmt = stmt.where(Image._type.in_(int_types))
+            # A few fields need preprocessing before feeding into the code below
+            min_dateobs = None if min_dateobs is None else parse_dateobs(min_dateobs, output='mjd')
+            max_dateobs = None if max_dateobs is None else parse_dateobs(max_dateobs, output='mjd')
+            types = None if type is None else [ ImageTypeConverter.to_int(t) for t in listify(type) ]
 
-        # sort the images
-        if order_by == 'earliest':
-            stmt = stmt.order_by(Image.mjd)
-        elif order_by == 'latest':
-            stmt = stmt.order_by(sa.desc(Image.mjd))
-        elif order_by == 'quality':
-            stmt = stmt.order_by(
-                sa.desc(Image.lim_mag_estimate - abs(seeing_quality_factor) * Image.fwhm_estimate)
-            )
-        elif order_by is not None:
-            raise ValueError(f'Unknown order_by parameter: {order_by}. Use "earliest", "latest" or "quality".')
+            fields = [ { 'field': 'project',             'val': project,        'type': 'list' },
+                       { 'field': 'target',              'val': target,         'type': 'list' },
+                       { 'field': 'section_id',          'val': section_id,     'type': 'list' },
+                       { 'field': 'filter',              'val': filter,         'type': 'list' },
+                       { 'field': 'instrument',          'val': instrument,     'type': 'list' },
+                       { 'field': 'provenance_id',       'val': provenance_ids, 'type': 'list' },
+                       { 'field': '_type',               'val': types,          'type': 'list' },
+                       { 'field': 'mjd',                 'val': min_mjd,        'type': 'ge' },
+                       { 'field': 'mjd',                 'val': min_dateobs,    'type': 'ge' },
+                       { 'field': 'mjd',                 'val': max_mjd,        'type': 'le' },
+                       { 'field': 'mjd',                 'val': max_dateobs,    'type': 'le' },
+                       { 'field': 'exp_time',            'val': min_exp_time,   'type': 'ge' },
+                       { 'field': 'exp_time',            'val': max_exp_time,   'type': 'le' },
+                       { 'field': 'fwhm_estimate',       'val': min_seeing,     'type': 'ge' },
+                       { 'field': 'fwhm_estimate',       'val': max_seeing,     'type': 'le' },
+                       { 'field': 'lim_mag_estimate',    'val': min_lim_mag,    'type': 'ge' },
+                       { 'field': 'lim_mag_estimate',    'val': max_lim_mag,    'type': 'le' },
+                       { 'field': 'airmass',             'val': min_airmass,    'type': 'ge' },
+                       { 'field': 'airmass',             'val': max_airmass,    'type': 'le' },
+                       { 'field': 'zero_point_estimate', 'val': min_zero_point, 'type': 'ge' },
+                       { 'field': 'zero_point_estimate', 'val': max_zero_point, 'type': 'le' },
+                       { 'field': 'bkg_rms_estimate',    'val': min_background, 'type': 'ge' },
+                       { 'field': 'bkg_rms_estimate',    'val': max_background, 'type': 'le' } ]
+            paramn = 0
+            for field in fields:
+                if field['val'] is not None:
+                    val = field['val']
+                    q += f"{andtxt} i.{field['field']} "
+                    if field['type'] == 'list':
+                        q += f" IN :param{paramn}"
+                        val = tuple( listify( val ) )
+                    elif field['type'] == 'ge':
+                        q += f" >= :param{paramn}"
+                    elif field['type'] == 'le':
+                        q += f" <= :param{paramn}"
+                    else:
+                        raise RuntimeError( f"Unknown field type {field['type']}; this should never happen." )
+                    subdict[ f"param{paramn}" ] = val
+                    paramn += 1
+                    andtxt = " AND "
 
-        return stmt
+            # Third: Sort
+
+            if order_by == 'earliest':
+                q += " ORDER BY i.mjd "
+            elif order_by == 'latest':
+                q += " ORDER BY i.mjd DESC "
+            elif order_by == 'quality':
+                q += f" ORDER BY i.lim_mag_estimate - ({np.abs(seeing_quality_factor)}*i.fwhm_estimate) DESC "
+            elif order_by is not None:
+                raise ValueError(f'Unknown order_by parameter: {order_by}. Use "earliest", "latest" or "quality".')
+
+            # Get the Image records
+            images = sess.scalars( sa.select( Image ).from_statement( sa.text( q ).bindparams( **subdict ) ) ).all()
+
+            # Should we delete temp tables?  They ought to get dropped automatically when the session closes.
+
+        # Fourth: remove things with too small overlap fraction if relevant
+
+        if overlapfrac is not None:
+            retimages = []
+            for im in images:
+                if FourCorners.get_overlap_frac( fcobj, im ) >= overlapfrac:
+                    retimages.append( im )
+        else:
+            retimages = list( images )
+
+        return retimages
 
 
     @staticmethod

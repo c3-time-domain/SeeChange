@@ -74,6 +74,28 @@ class ParsRefMaker(Parameters):
             critical=True,
         )
 
+        self.corner_distance = self.add_par(
+            'corner_distance',
+            0.8,
+            (None, float),
+            ( 'When finding references, make sure that we have at least min_number references overlapping '
+              'nine positions on the rectangle we care about, specified by minra/maxra/mindec/maxdec passed '
+              'to run().  One is the center.  The other eight are in a rectangle around the center; '
+              'corner_distance is the fraction of the distance from the center to the edge along the '
+              'relevant direction.  If this is None, then only consider the center; in that case, pass '
+              'only ra and dec to run().' ),
+            critical=True,
+        )
+
+        self.overlap_fraction = self.add_par(
+            'overlap_fraction',
+            0.9,
+            (None, float),
+            ( "When looking for pre-existing references, only return ones whose are overlaps this "
+              "fraction of the desired rectangle's area.  Must be None if corner distance is None." ),
+            critical=True,
+        )
+
         self.instruments = self.add_par(
             'instruments',
             None,
@@ -124,7 +146,8 @@ class ParsRefMaker(Parameters):
             'min_number',
             1,
             int,
-            'Construct a reference only if there are at least this many images that pass all other criteria. ',
+            ( 'Construct a reference only if there are at least this many images that pass all other criteria '
+              ' ' ),
             critical=True,
         )
 
@@ -235,6 +258,10 @@ class RefMaker:
         maker_dict.update(maker_overrides)  # user can provide override arguments in kwargs
         self.pars = ParsRefMaker(**maker_dict)  # initialize without the pipeline/coaddition parameters
 
+        if ( self.pars.corner_distance is None ) != ( self.pars.overlap_fraction is None ):
+            raise ValueError( "Configuration error; for RefMaker, must have a float for both of "
+                              "corner_distance and overlap_fraction, or both must be None." )
+
         # first, make sure we can assemble the provenances up to extraction:
         self.im_provs = None  # the provenances used to make images going into the reference (these are coadds!)
         self.ex_provs = None  # the provenances used to make other products like SourceLists, that go into the reference
@@ -243,13 +270,27 @@ class RefMaker:
         self.ref_prov = None  # the provenance of the reference itself
         self.refset = None  # the RefSet object that was found / created
 
-        # these attributes tell us the place in the sky where we want to look for objects (given to run())
-        # optionally it also specifies which filter we want the reference to be in
+        self.reset()
+
+    # ======================================================================
+
+    def reset( self ):
+        # these attributes tell us the place in the sky (in degrees)
+        # where we want to look for objects (given to run()), # and the
+        # filter we want to be in.  Optionally, it can also specify a
+        # target and section_id to limit images to.
+
+        self.minra = None
+        self.maxra = None
+        self.mindec = None
+        self.maxdec = None
+        self.target = None
         self.ra = None  # in degrees
         self.dec = None  # in degrees
         self.target = None  # the name of the target / field ID / Object ID
         self.section_id = None  # a string with the section ID
-        self.filter = None  # a string with the (short) name of the filter
+
+    # ======================================================================
 
     def setup_provenances(self, session=None):
         """Make the provenances for the images and all their products, including the coadd image.
@@ -311,6 +352,8 @@ class RefMaker:
         )
         self.ref_prov.insert_if_needed()
 
+
+    # ======================================================================
 
     def parse_arguments(self, *args, **kwargs):
         """Figure out if the input parameters are given as coordinates or as target + section ID pairs.
@@ -385,6 +428,8 @@ class RefMaker:
 
         return session
 
+    # ======================================================================
+
     def _append_provenance_to_refset_if_appropriate( self, existing, session ):
         """Used internally by make_refset."""
 
@@ -434,6 +479,8 @@ class RefMaker:
                 self.refset = None
                 raise
 
+    # ======================================================================
+
     def make_refset(self, session=None):
         """Create or load an existing RefSet with the required name.
 
@@ -481,24 +528,120 @@ class RefMaker:
                     self._append_provenance_to_refset_if_appropriate( existing, dbsession )
 
 
-    def run(self, *args, **kwargs):
-        """Check if a reference exists for the given coordinates/field ID, and filter, and make it if it is missing.
+    # ======================================================================
+
+    def parse_arguments( self, image=None, ra=None, dec=None,
+                             minra=None, maxra=None, mindec=None, maxdec=None,
+                             target=None, section_id=None,
+                             reset=True ):
+        """Parse arguments for the RefMaker.
+
+        There are two modes in which RefMaker can operate:
+
+        * If the corner_distance parameter is None, then we're making a
+          reference that covers a single point (useful for forced
+          photometry, for instance).  In this case, either specify an
+          image (in which case its central ra and dec are used), or
+          specify ra/dec.
+
+        * If the corner_distance parameter is not None, we're making a
+          reference that covers a rectangle on the sky (covering at
+          least the overlap_fraction parameter of the recetangle).  In
+          this case, either specify an image that defines the rectangle
+          on the sky, or specify minra/maxra/mindec/maxdec.
+
+        Optionally, specify a target and section_id that images must
+        have to be considered for inclusion in a reference.  Only use
+        this if you're using a survey that's very careful about setting
+        its target names, and if you always go back to exactly the same
+        fields so you know that the same chip is always going to be in
+        the same place.
+
+        """
+        if ( image is not None ) and any( i is not None for i in [ ra, dec, minra, maxra, mindec, maxdecd ] ):
+            raise ValueError( "If you pass image RefMaker.run, you can't pass any coordinates." )
+
+        if self.pars.corner_distance is None:
+            if any( i is not None for i in [ ra, dec, minra, maxra, mindec, maxdec ] ):
+                raise ValueError( "For RefMaker corner_distance None, can't specify minra/maxra/mindec/maxdec" )
+            if image is not None:
+                if ( ra is not None ) or ( dec is not None ):
+                    raise ValueError( "For RefMaker corner_distance None, must specify image or ra/dec, not both" )
+                ra = image.ra
+                dec = image.dec
+            else:
+                if ( ra is None ) or ( dec is None ):
+                    raise ValueError( "For RefMaker corner_distance None, must provide either image or both ra & dec" )
+        else:
+            if ( ra is not None ) or ( dec is not None ):
+                raise ValueError( "For RefMaker corner_distance not None, can't specify ra/dec" )
+            if image is not None:
+                if any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
+                    raise ValueError( "For RefMaker corner_distance not None, must specify image or "
+                                      "minra/maxra/mindex/maxdec, not both" )
+                minra = image.minra
+                maxra = image.maxra
+                mindec = image.mindec
+                maxdec = image.maxdec
+            else:
+                if any ( i is None for i in [ minra, maxra, mindec, maxdec ] ):
+                    raise ValueError( "For RefMaker corner_distance not None, must specify image or "
+                                      "all of minra/maxra/mindec/maxdec" )
+
+
+        self.minra = minra
+        self.maxra = maxra
+        self.mindec = mindec
+        self.maxdec = maxdec
+        self.ra = ra
+        self.dec = dec
+        self.target = target
+        self.section_id = section_id
+
+    # ======================================================================
+
+    def _identify_references_at_position( self ):
+        pass
+
+    # ======================================================================
+
+    def identify_references( self, *args, _do_not_parse_arguments=False, **kwargs ):
+        """Identify existing references in the database.
+
+        See parse_arguments for a description of the arguments.
+
+        (Parameter _do_not_parse_arguments is used internally, ignore it
+        if calling this from the outside.)
+
+        """
+        if not _do_not_parse_arguments:
+            self.parse_arguments( *args, **kwargs )
+
+
+
+
+
+    # ======================================================================
+
+    def run(self, *args, do_not_build=False, **kwargs ):
+        """Look to see if there is an existing reference that matches the specs; if not, optionally build one.
+
+        See parse_arguments for function call parameters.  The remaining
+        policy for which images to picdk, and what provenacne to use to
+        find references, is defined by the parameters object of self and
+        self.pipeline.
+
+        If do_not_build is true, this becomes a thin front-end for Reference.get_references().
 
         Will check if a RefSet exists with the same provenance and name, and if it doesn't, will create a new
         RefSet with these properties, to keep track of the reference provenances.
 
-        Arguments specifying where in the sky to look for / create the reference are parsed by parse_arguments().
-        Same is true for the filter choice.
-        The remaining policy regarding which images to pick, and what provenance to use to find references,
-        is defined by the parameters object of self and of self.pipeline.
-
-        If one of the inputs is a session, will use that in the entire process.
-        Otherwise, will open internal sessions and close them whenever they are not needed.
-
         Will return a Reference, or None in case it doesn't exist and cannot be created
         (e.g., because there are not enough images that pass the criteria).
+
         """
-        session = self.parse_arguments(*args, **kwargs)
+
+        self.parse_arguments( *args, **kwargs )
 
         self.make_refset( session=session )
 
@@ -521,6 +664,9 @@ class RefMaker:
         elif len(refs) > 1:
             raise RuntimeError( f'Found multiple references with the same provenance '
                                 f'{self.ref_prov.id} and location!' )
+
+        if do_not_build:
+            return None
 
         ############### no reference found, need to build one! ################
 
