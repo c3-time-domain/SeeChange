@@ -1308,6 +1308,7 @@ class DataStore:
                       match_section=True,
                       skip_bad=True,
                       reload=False,
+                      randomly_pick_if_mulitple=False,
                       session=None ):
         """Get the reference for this image.
 
@@ -1322,11 +1323,11 @@ class DataStore:
             attribute.  If it can't find them there and provenance isn't
             given, raise an exception.
 
-        min_overlap: float, default 0.85
+        min_overlap: float or None, default 0.85
             Area of overlap region must be at least this fraction of the
             area of the search image for the reference to be good.
             (Warning: calculation implicitly assumes that images are
-            aligned N/S and E/W.)  Make this <= 0 to not consider
+            aligned N/S and E/W.)  Make this None to not consider
             overlap fraction when finding a reference.
 
         ignore_ra_dec: bool, default False
@@ -1359,6 +1360,12 @@ class DataStore:
             If True, set the self.reference property (as well as derived
             things like ref_image, ref_sources, etc.) to None and try to
             re-acquire the reference from the databse.
+
+        multiple_ok: bool, default False
+            Normally, if more the one matching reference is found, it
+            will return an error.  If this is True, then it will pick
+            the reference with the highest overlap, raising an exception
+            if more than one reference has identical overlap.
 
         session: sqlalchemy.orm.session.Session or SmartSession
             An optional session to use for the database query.
@@ -1462,8 +1469,8 @@ class DataStore:
                 raise ValueError( "DataStore.get_reference: ignore_ra_dec requires "
                                   "match_target=True and match_section=True" )
         else:
-            arguments['ra'] = image.ra
-            arguments['dec'] = image.dec
+            arguments['image'] = image
+            arguments['overlapfrac'] = min_overlap
 
         if match_filter:
             arguments['filter'] = image.filter
@@ -1490,24 +1497,33 @@ class DataStore:
             self.reference = None
             return None
 
+        # This next bit is gratuitous if ignore_ra_dec was False, because we already passed
+        #   the overlapfrac to get_references.  It's here in case ignore_ra_dec was True.
         # SCLogger.debug( f"DataStore: Reference.get_reference returned {len(refs)} possible references" )
         if ( min_overlap is not None ) and ( min_overlap > 0 ):
-            okrefs = []
-            for ref, img in zip( refs, imgs ):
-                ovfrac = FourCorners.get_overlap_frac( image, img )
-                if ovfrac >= min_overlap:
-                    okrefs.append( ref )
-            refs = okrefs
-            # SCLogger.debug( f"DataStore: after min_overlap {min_overlap}, {len(refs)} refs remain" )
+            ovfrac = [ FourCorners.get_overlap_frac( image, i ) for i in imgs ]
+            sortdex = list( range( len(refs) ) )
+            sortdex.sort( key=lambda x: -ovfrac[x] )
+            ok = [ ovfrac[i] >= min_overlap for i in sortdex ]
+            if all( not ok ):
+                self.reference = None
+                return None
+            redundant = [ ovfrac[i] == ovfrac[0] for i in sortdex[1:] ]
+            if any( redundant ):
+                SCLogger.warning( "DataStore.get_reference: more than one reference had exactly the maximum "
+                                  "overlap fraction of {ovfrac[0]}; returning a random one.  This is scary." )
 
-        if len(refs) > 1:
-            # Perhaps this should be an error?  Somebody may not be as
-            # anal as they ought to be about references, though, so
-            # leave it a warning.
-            SCLogger.warning( "DataStore.get_reference: more than one reference matched the criteria! "
-                              "This is scary.  Randomly picking one.  Which is also scary." )
+            self.reference = refs[sortdex[0]]
 
-        self.reference = None if len(refs)==0 else refs[0]
+        else:
+            if len(refs) > 1:
+                # Perhaps this should be an error?  Somebody may not be as
+                # anal as they ought to be about references, though, so
+                # leave it a warning.
+                SCLogger.warning( "DataStore.get_reference: more than one reference matched the criteria! "
+                                  "This is scary.  Randomly picking one.  Which is also scary." )
+
+            self.reference = None if len(refs)==0 else refs[0]
 
         return self.reference
 

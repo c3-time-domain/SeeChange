@@ -452,7 +452,7 @@ def test_make_refset():
 def test_making_refsets_in_run():
     # make a new refset with a new name
     name = uuid.uuid4().hex
-    maker = RefMaker(maker={'name': name, 'instruments': ['PTF']})
+    maker = RefMaker(maker={'name': name, 'instruments': ['PTF'], 'corner_distance': None, 'overlap_fraction': None})
     min_number = maker.pars.min_number
     max_number = maker.pars.max_number
 
@@ -616,7 +616,7 @@ def test_identify_images_to_coadd( provenance_base ):
         img_shift_up = imagemaker( 'img_shift_up.fits', 20., 40.03 )
         img_shift_upright = imagemaker( 'img_shift_upright.fits', 20 + 0.03 / np.cos( 20. * np.pi/180. ), 40.03 )
 
-        imgs, poses, nums = refmaker.identify_reference_images_to_coadd( image=img_base, filters=['r'] )
+        imgs, poses, nums = refmaker.identify_reference_images_to_coadd( image=img_base, filter=['r'] )
         assert poses.shape == (9, 2)
         assert len( nums ) == 9
         # numbers below based on the known order of poses.

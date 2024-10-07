@@ -167,7 +167,8 @@ class ParsRefMaker(Parameters):
             'max_number',
             None,
             (None, int),
-            'If there are more than this many images, pick the ones with the highest "quality". ',
+            'If there are more than this many images, pick the ones with the highest "quality". '
+            'WARNING : currently not implemented',
             critical=True,
         )
 
@@ -545,7 +546,7 @@ class RefMaker:
     def parse_arguments( self, image=None, ra=None, dec=None,
                              minra=None, maxra=None, mindec=None, maxdec=None,
                              target=None, section_id=None,
-                             filters=None ):
+                             filter=None ):
         """Parse arguments for the RefMaker.
 
         There are three modes in which RefMaker can operate:
@@ -582,7 +583,7 @@ class RefMaker:
             exactly the same fields so you know that the same chip is
             always going to be in the same place.
 
-          filters: string, list of string, or None
+          filter: string, list of string, or None
             If given, only find images whose filters match something in this list
 
         """
@@ -625,14 +626,14 @@ class RefMaker:
         self.target = target
         self.section_id = section_id
 
-        if filters is not None:
-            if isinstance( filters, str ):
-                self.filters = [ filters ]
-            elif ( ( isinstance( filters, collections.abc.Sequence ) ) and
-                   ( all( isinstance( f, str ) for f in filters ) ) ):
-                self.filters = list( filters )
+        if filter is not None:
+            if isinstance( filter, str ):
+                self.filters = [ filter ]
+            elif ( ( isinstance( filter, collections.abc.Sequence ) ) and
+                   ( all( isinstance( f, str ) for f in filter ) ) ):
+                self.filters = list( filter )
             else:
-                raise TypeError( f"filters must be a string or a list of string, not {type(filters)}" )
+                raise TypeError( f"filters must be a string or a list of string, not {type(filter)}" )
         else:
             self.filters = None
 
@@ -768,62 +769,27 @@ class RefMaker:
 
         ############### no reference found, need to build one! ################
 
+        images, match_pos, match_count = self.identify_reference_images_to_coadd( _do_not_parse_arguments=True )
 
-
-
-
-
-
-
-
-        #### OLD
-
-        # first get all the images that could be used to build the reference
-        images = []  # can get images from different instruments
-        with SmartSession( session ) as dbsession:
-            for inst in self.pars.instrument:
-                query_pars = dict(
-                    instrument=inst,
-                    ra=self.ra,  # can be None!
-                    dec=self.dec,  # can be None!
-                    target=self.target,  # can be None!
-                    section_id=self.section_id,  # can be None!
-                    filter=self.pars.filters,  # can be None!
-                    project=self.pars.project,  # can be None!
-                    min_dateobs=self.pars.start_time,
-                    max_dateobs=self.pars.end_time,
-                    seeing_quality_factor=self.pars.seeing_quality_factor,
-                    order_by='quality',
-                    provenance_ids=self.im_provs[inst].id,
-                )
-
-                for key in self.pars.__image_query_pars__:
-                    for min_max in ['min', 'max']:
-                        query_pars[f'{min_max}_{key}'] = getattr(self.pars, f'{min_max}_{key}')  # can be None!
-
-                # get the actual images that match the query
-                images += dbsession.scalars(Image.query_images(**query_pars).limit(self.pars.max_number)).all()
+        # Make sure we got enough
 
         if len(images) < self.pars.min_number:
-            SCLogger.info(f'Found {len(images)} images, need at least {self.pars.min_number} to make a reference!')
+            SCLogger.info( f"RefMaker only found {len(images)} images overlapping the desired field, "
+                           f"which is less than the minimum of {self.pars.min_number}" )
+            return None
+        # match_count[0] is always for the center position
+        if ( self.pars.min_only_center ) and ( match_count[0] < self.pars.min_number ):
+            SCLogger.info( f"RekMaker only found {len(match_count[0])} images overlapping the center of the "
+                           f"desired field, which is less than the minimum of {self.pars.min_number}" )
+            return None
+        elif ( not self.pars.min_only_center ) and any( c < self.pars.min.number for c in match_count ):
+            SCLogger.info( f"RefMaker didn't find enough references at at least one point on the image; "
+                           f"match_count={match_count}, min_number={self.mars.min_number}" )
             return None
 
-        # note that if there are multiple instruments, each query may load the max number of images,
-        # that's why we must also limit the number of images after all queries have returned.
-        if len(images) > self.pars.max_number:
-            coeff = abs(self.pars.seeing_quality_factor)  # abs is used to make sure the coefficient is negative
-            for im in images:
-                im.quality = im.lim_mag_estimate - coeff * im.fwhm_estimate
+        # Sort the images and create data stores for all of them
 
-            # sort the images by the quality
-            images = sorted(images, key=lambda x: x.quality, reverse=True)
-            images = images[:self.pars.max_number]
-
-        # make the reference (note that we are out of the session block, to release it while we coadd)
         images = sorted(images, key=lambda x: x.mjd)  # sort the images in chronological order for coaddition
-        data_stores = [ DataStore( i, { 'extraction': self.ex_provs[i.instrument] } ) for i in images ]
-
-        # Create datastores with the images, sources, psfs, etc.
         dses = []
         for im in images:
             inst = im.instrument

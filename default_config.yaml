@@ -280,7 +280,7 @@ referencing:
 
   coaddition:  # override the coaddition parameters in the general "coaddition" config
     coaddition:  # override the way coadds are made, from the general "coaddition" config
-      method: zogy
+      method: swarp
     extraction:  # override the coaddition/regular pipeline config, when extracting for the coadd images
       sources: # override the regular source and psf extraction parameters and the coadd extraction parameters
         measure_psf: true
