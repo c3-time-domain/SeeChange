@@ -234,7 +234,7 @@ referencing:
     start_time: null  # only grab images after this time
     end_time: null  # only grab images before this time
     instrument: null  # only grab images from this instrument (if list, will make cross-instrument references)
-    filter: null  # only grab images with this filter
+    # filter: null  # only grab images with this filter
     project: null  # only grab images with this project
     min_airmass: null  # only grab images with airmass above this
     max_airmass: null  # only grab images with airmass below this
@@ -248,6 +248,10 @@ referencing:
     max_exp_time: null  # only grab images with exposure time below this
     min_number: 7  # only create a reference if this many images can be found
     max_number: 30  # do not add more than this number of images to the reference
+    corner_distance: 0.8  # see the docs
+    overlap_fraction: 0.9
+    coadd_overlap_fraction: 0.1
+    min_only_center: False
     seeing_quality_factor: 3.0  # linear coefficient for adding lim_mag and seeing to get the "image quality"
     save_new_refs: true  # should the new references be saved to disk and committed to the database?
   pipeline:  # The following are used to override the regular "extraction" parameters

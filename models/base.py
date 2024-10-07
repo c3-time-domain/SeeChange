@@ -1969,7 +1969,7 @@ class FourCorners:
                 subdict['prov'] = prov_id
             elif isinstance( prov_id, list ):
                 query += " AND provenance_id IN :prov"
-                subidct['prov'] = tuple( prov_id )
+                subdict['prov'] = tuple( prov_id )
             else:
                 raise TypeError( "prov_id must be a a str or a list of str" )
 
@@ -2084,7 +2084,7 @@ class FourCorners:
                 subdict['prov'] = prov_id
             elif isinstance( prov_id, list ):
                 query += " AND provenance_id IN :prov"
-                subidct['prov'] = tuple( prov_id )
+                subdict['prov'] = tuple( prov_id )
             else:
                 raise TypeError( "prov_id must be a a str or a list of str" )
 

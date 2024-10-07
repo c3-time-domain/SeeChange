@@ -524,6 +524,115 @@ def test_making_refsets_in_run():
         session.execute( sa.delete( RefSet ).where( RefSet.name.in_( [ name, name2 ] ) ) )
         session.commit()
 
+def test_identify_images_to_coadd( provenance_base ):
+    refmaker = RefMaker( maker={ 'end_time': 60000.,
+                                 'corner_distance': 0.8,
+                                 'coadd_overlap_fraction': 0.1,
+                                 'instruments': ["DemoInstrument"],
+                                 'max_seeing': 1.1,
+                                 'min_lim_mag': 23. } )
+    refmaker.setup_provenances()
+    improv = refmaker.im_provs["DemoInstrument"]
+
+    # Make a bunch of images.  All are 0.2° by 0.1°.
+    #   img_base
+    #   img_rot_45
+    #   img_wrongfilter
+    #   img_wronginstrument
+    #   img_wrongprov
+    #   img_toolate
+    #   img_badseeing
+    #   img_tooshallow
+    #   img_shift_up
+    #   img_shift_upright
+
+    idstodel = set()
+
+    def imagemaker( filepath, ra, dec, angle=0., **overrides ):
+        dra = 0.1
+        ddec = 0.05
+        _id = uuid.uuid4()
+        kwargs = { 'ra': ra,
+                   'dec': dec,
+                   'provenance_id': improv.id,
+                   'mjd': 59000.,
+                   'end_mjd': 59000.000694,
+                   'exp_time': 60.,
+                   'fwhm_estimate': 1.,
+                   'lim_mag_estimate': 23.5,
+                   'zero_point_estimate': 24.,
+                   'bkg_mean_estimate': 0.,
+                   'bkg_rms_estimate': 1.,
+                   'md5sum': _id,
+                   'format': 'fits',
+                   'telescope': 'DemoTelescope',
+                   'instrument': 'DemoInstrument',
+                   'section_id': '1',
+                   'filter': 'r',
+                   'filepath': filepath,
+                   'project': 'Mercator',
+                   'target': "The Apple On Top Of William Tell's Head"   # Yes, I know, subject/object
+                  }
+        corners = np.array( [ [ -dra/2.,  -dra/2.,   dra/2.,  dra/2. ],
+                              [ -ddec/2.,  ddec/2., -ddec/2., ddec/2. ] ] )
+        rotmat = np.array( [ [ np.cos( angle * np.pi/180. ), np.sin( angle * np.pi/180. ) ],
+                             [-np.sin( angle * np.pi/180. ), np.cos( angle * np.pi/180. ) ] ] )
+        corners = np.matmul( rotmat, corners )
+        corners[0, :] += ra
+        corners[1, :] += dec
+        # Not going to handle RA near 0...
+        minra = min( corners[ 0, : ] )
+        maxra = max( corners[ 0, : ] )
+        mindec = min( corners[ 1, : ] )
+        maxdec = max( corners[ 1, : ] )
+        kwargs.update( { 'ra_corner_00': corners[0][0],
+                         'ra_corner_01': corners[0][1],
+                         'ra_corner_10': corners[0][2],
+                         'ra_corner_11': corners[0][3],
+                         'minra': minra,
+                         'maxra': maxra,
+                         'dec_corner_00': corners[1][0],
+                         'dec_corner_01': corners[1][1],
+                         'dec_corner_10': corners[1][2],
+                         'dec_corner_11': corners[1][3],
+                         'mindec': mindec,
+                         'maxdec': maxdec } )
+        kwargs.update( overrides )
+
+        img = Image( **kwargs )
+        img.insert()
+        idstodel.add( img.id )
+        return img
+
+    try:
+        img_base = imagemaker( 'img_base.fits', 20., 40. )
+        img_rot_45 = imagemaker( 'img_rot_45.fits', 20., 40., 45. )
+        img_wrongfilter = imagemaker( 'img_wrongfilter.fits', 20., 40., filter='g' )
+        img_wronginstrument = imagemaker( 'img_wronginstrument.fits', 20., 40., instrument='DECam' )
+        img_wrongprov = imagemaker( 'img_wrongprov.fits', 20., 40., provenance_id=provenance_base.id )
+        img_toolate = imagemaker( 'img_toolate.fits', 20., 40., mjd=60001, end_mjd=60001.000694 )
+        img_badseeing = imagemaker( 'img_badseeing.fits', 20., 40., fwhm_estimate=2. )
+        img_tooshallow = imagemaker( 'img_tooshallow.fits', 20., 40., lim_mag_estimate=22. )
+        img_shift_up = imagemaker( 'img_shift_up.fits', 20., 40.03 )
+        img_shift_upright = imagemaker( 'img_shift_upright.fits', 20 + 0.03 / np.cos( 20. * np.pi/180. ), 40.03 )
+
+        imgs, poses, nums = refmaker.identify_reference_images_to_coadd( image=img_base, filters=['r'] )
+        assert poses.shape == (9, 2)
+        assert len( nums ) == 9
+        # numbers below based on the known order of poses.
+        assert nums == [ 2, 1, 2, 2, 1, 1, 3, 4, 3 ]
+        assert len(imgs) == 4
+        assert set( i.id for i in imgs ) == { img_base.id, img_rot_45.id, img_shift_up.id, img_shift_upright.id }
+
+        # TODO : test the other parameters call (target, section_id ) and test other variations
+        #   of refmaker parameters
+
+    finally:
+        with SmartSession() as sess:
+            sess.execute( sa.delete( Image ).where( Image._id.in_( idstodel ) ) )
+            sess.commit()
+
+
 @pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
 def test_making_references( ptf_reference_image_datastores ):
     name = uuid.uuid4().hex
