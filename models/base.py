@@ -2090,7 +2090,6 @@ class FourCorners:
 
         session.execute( sa.text( query ), subdict )
 
-
     @classmethod
     def find_potential_overlapping( cls, fcobj, prov_id=None, session=None ):
         """Return all objects of this class that *might* overlap FourCorners object fcobj.
@@ -2193,6 +2192,23 @@ class FourCorners:
                                )
 
         return obj1.intersection( obj2 ).area / obj1.area
+
+
+    def contains( self, ra, dec ):
+        """Return True if ra, dec is contained within the four corners."""
+
+        corners = np.array( [ [ self.ra_corner_00, self.dec_corner_00 ],
+                              [ self.ra_corner_01, self.dec_corner_01 ],
+                              [ self.ra_corner_11, self.dec_corner_11 ],
+                              [ self.ra_corner_10, self.dec_corner_10 ],
+                              [ self.ra_corner_00, self.dec_corner_00 ] ] )
+        if self.maxra < self.minra:
+            corners[ corners[:,0]>180, 0 ] -= 360.
+            if ra > 180.:
+                ra -= 360.
+
+        obj = shapely.Polygon( corners )
+        return obj.contains( shapely.Point( ra, dec ) )
 
 
 class HasBitFlagBadness:

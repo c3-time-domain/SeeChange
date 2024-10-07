@@ -32,10 +32,10 @@ def test_acquire_lock_failure():
             with CalibratorFileDownloadLock.acquire_lock( 'DECam', 'N1', 'externally_supplied', 'flat', 'dome',
                                                           maxsleep=1 ) as l2:
                 pass
-        
+
     # Should be no locks leftover
     with SmartSession() as sess:
         assert sess.query( CalibratorFileDownloadLock ).count() == 0
-    
 
-        
+
+

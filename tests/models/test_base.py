@@ -718,6 +718,79 @@ def test_fourcorners_sort_radec():
     assert decs == [ -0.19, 0.21, -0.21, 0.19 ]
 
 
+def test_fourcorners_contains():
+    dra = 0.75
+    ddec = 0.375
+    rawcorners = np.array( [ [ -dra/2.,  -dra/2.,   dra/2.,   dra/2. ],
+                             [ -ddec/2.,  ddec/2., -ddec/2.,  ddec/2. ] ] )
+    ras = [ 0., 10. ]
+    decs = [ 0., -45, 80. ]
+    angles = [ 0., 15., 30., 45. ]
+    # (I drew a rectangle in LibreOffice Draw and rotated it to decide the points and truth values below visually.)
+    offsets = { 0.: { ( 0,    0  ): True,
+                      ( 0.9,  0.9): True,
+                      ( 0.,   0.9): True,
+                      (-0.9,  0.9): True },
+                15.: { ( 0,   0): True,
+                       (-0.8,-0.8): False,
+                       (-0.8, 0.8): True,
+                       (-0.8,-0.4): True,
+                       (-0.8, 0.4): True,
+                       (-0.8, 0. ): True,
+                       ( 0.,  0.9 ) : True,
+                       ( 0., -0.9 ) : True },
+                30.: { ( 0,   0): True,
+                       (-0.8,-0.8): False,
+                       (-0.8, 0.8): True,
+                       (-0.8,-0.4): False,
+                       (-0.8, 0.4): True,
+                       (-0.8, 0. ): True,
+                       ( 0.,  0.9 ) : True,
+                       ( 0., -0.9 ) : True },
+                45.: { ( 0,   0): True,
+                       (-0.8,-0.8): False,
+                       (-0.8, 0.8): True,
+                       (-0.8,-0.4): False,
+                       (-0.8, 0.4): True,
+                       (-0.8, 0. ): False,
+                       ( 0.,  0.9 ) : True,
+                       ( 0., -0.9 ) : True },
+               }
+
+    for ra in ras:
+        for dec in decs:
+            for angle in angles:
+                rotmat = np.array( [ [  np.cos( angle * np.pi/180. ), np.sin( angle * np.pi/180. ) ],
+                                     [ -np.sin( angle * np.pi/180. ), np.cos( angle * np.pi/180. ) ] ] )
+                corners = np.matmul( rotmat, rawcorners )
+                corners[0, :] /= np.cos( dec * np.pi/180. )
+                corners[0, :] += ra
+                corners[1, :] += dec
+                minra = min( corners[ 0, : ] )
+                maxra = max( corners[ 0, : ] )
+                mindec = min( corners[ 1, : ] )
+                maxdec = max( corners[ 1, : ] )
+                minra = minra if minra > 0 else minra + 360.
+                maxra = maxra if maxra > 0 else maxra
+                corners[ 0, corners[0,:]<0. ] += 360.
+                obj = Image( ra=ra, dec=dec,
+                             ra_corner_00=corners[0][0],
+                             ra_corner_01=corners[0][1],
+                             ra_corner_10=corners[0][2],
+                             ra_corner_11=corners[0][3],
+                             minra=minra, maxra=maxra,
+                             dec_corner_00=corners[1][0],
+                             dec_corner_01=corners[1][1],
+                             dec_corner_10=corners[1][2],
+                             dec_corner_11=corners[1][3],
+                             mindec=mindec, maxdec=maxdec )
+                for offset, included in offsets[angle].items():
+                    checkra = ra + dra/np.cos( dec*np.pi/180 ) * offset[0]/2.
+                    checkra = checkra if checkra > 0. else checkra + 360.
+                    checkdec = dec + ddec * offset[1]/2.
+                    assert obj.contains( checkra, checkdec ) == included
+
+
 def test_fourcorners_overlap_frac():
     dra = 0.75
     ddec = 0.375
