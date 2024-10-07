@@ -621,11 +621,6 @@ class RefMaker:
 
     # ======================================================================
 
-    def _identify_references_at_position( self ):
-        pass
-
-    # ======================================================================
-
     def identify_references( self, *args, _do_not_parse_arguments=False, **kwargs ):
         """Identify existing references in the database.
 

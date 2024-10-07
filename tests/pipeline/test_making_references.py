@@ -54,11 +54,25 @@ def test_finding_references( provenance_base, provenance_extra ):
                        'project': 'Mercator'
                       }
 
+        # Make a couple of refsets
+        refset_base = RefSet( name="base", description="provenance_base" )
+        refset_base.insert()
+        refset_extra = RefSet( name="extra", description="provenance_extra" )
+        refset_extra.insert()
+        refset_both = RefSet( name="both", description="provenance_both" )
+        refset_both.insert()
+        with SmartSession() as session:
+            for pid, rsid in zip( [ provenance_base.id, provenance_extra.id, provenance_base.id, provenance_extra.id ],
+                                  [ refset_base.id,     refset_extra.id,     refset_both.id,     refset_both.id   ] ):
+                q = "INSERT INTO refset_provenance_association(provenance_id,refset_id) VALUES (:pid,:rsid)"
+                session.execute( sa.text(q), { 'pid': pid, 'rsid': rsid } )
+            session.commit()
+
         # Something somewhere, 0.2° on a side, in r and g, and one with a different provenance
         img1 = Image( ra=20., dec=45.,
                       minra=19.8586, maxra=20.1414, mindec=44.9, maxdec=45.1,
                       ra_corner_00=19.8586, ra_corner_01=19.8586, ra_corner_10=20.1414, ra_corner_11=20.1414,
-                      dec_corner_00=44.9, dec_corner_10=44.9, dec_corner_01=45.1, dec_corner_11=44.1,
+                      dec_corner_00=44.9, dec_corner_10=44.9, dec_corner_01=45.1, dec_corner_11=45.1,
                       target='target1', section_id='1', filter='r', filepath='testimage1.fits', **reuseimgkw )
         img1.calculate_coordinates()
         img1.insert()
@@ -71,7 +85,7 @@ def test_finding_references( provenance_base, provenance_extra ):
         img2 = Image( ra=20., dec=45.,
                       minra=19.8586, maxra=20.1414, mindec=44.9, maxdec=45.1,
                       ra_corner_00=19.8586, ra_corner_01=19.8586, ra_corner_10=20.1414, ra_corner_11=20.1414,
-                      dec_corner_00=44.9, dec_corner_10=44.9, dec_corner_01=45.1, dec_corner_11=44.1,
+                      dec_corner_00=44.9, dec_corner_10=44.9, dec_corner_01=45.1, dec_corner_11=45.1,
                       target='target1', section_id='1', filter='g', filepath='testimage2.fits', **reuseimgkw )
         img2.calculate_coordinates()
         img2.insert()
@@ -90,7 +104,7 @@ def test_finding_references( provenance_base, provenance_extra ):
         img3 = Image( ra=20.2121, dec=45.15,
                       minra=20.0707, maxra=20.3536, mindec=45.05, maxdec=45.25,
                       ra_corner_00=20.0707, ra_corner_01=20.0707, ra_corner_10=20.3536, ra_corner_11=20.3536,
-                      dec_corner_00=45.05, dec_corner_10=45.05, dec_corner_01=45.25, dec_corner_11=4525,
+                      dec_corner_00=45.05, dec_corner_10=45.05, dec_corner_01=45.25, dec_corner_11=45.25,
                       target='target2', section_id='1', filter='r',  filepath='testimage3.fits', **reuseimgkw )
         img3.calculate_coordinates()
         img3.insert()
@@ -103,8 +117,8 @@ def test_finding_references( provenance_base, provenance_extra ):
         #Offset, but also rotated by 45°
         img4 = Image( ra=20.2121, dec=45.15,
                       minra=20.0121, maxra=20.4121, mindec=45.0086, maxdec=45.2914,
-                      ra_corner_00=20.0121, ra_corner_01=20.0121, ra_corner_11=20.4121, ra_corner_10=20.4121,
-                      dec_corner_00=45.0086, dec_corner_01=45.0086, dec_corner_11=45.2914, dec_corner_10=44.2914,
+                      ra_corner_00=20.0121, ra_corner_01=20.2121, ra_corner_11=20.4121, ra_corner_10=20.2121,
+                      dec_corner_00=45.15, dec_corner_01=45.2914, dec_corner_11=45.15, dec_corner_10=45.0086,
                       target='target2', section_id='1', filter='r',  filepath='testimage4.fits', **reuseimgkw )
         img4.calculate_coordinates()
         img4.insert()
@@ -160,13 +174,12 @@ def test_finding_references( provenance_base, provenance_extra ):
             ref, img = Reference.get_references( ra=20., dec=45., overlapfrac=0.5 )
 
         # Get point at center of img1, all filters, all provenances
-        import pdb; pdb.set_trace()
         refs, imgs = Reference.get_references( ra=20., dec=45. )
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
-        assert set( r.id for r in refs ) == set( ref1.id, ref2.id, refp.id )
-        assert set( i.id for i in imgs ) == set( img1.id, img2.id )
+        assert set( r.id for r in refs ) == { ref1.id, ref2.id, refp.id }
+        assert set( i.id for i in imgs ) == { img1.id, img2.id }
 
         # Get point at center of img1, all filters, only one provenance
         for provarg in [ provenance_base.id, provenance_base, [ provenance_base.id ], [ provenance_base ] ]:
@@ -174,16 +187,16 @@ def test_finding_references( provenance_base, provenance_extra ):
             assert len(imgs) == len(refs)
             assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
             assert len(refs) == 2
-            assert set( r.id for r in refs ) == set( ref1.id, ref2.id )
-            assert set( i.id for i in imgs ) == set( img1.id, img2.id )
+            assert set( r.id for r in refs ) == { ref1.id, ref2.id }
+            assert set( i.id for i in imgs ) == { img1.id, img2.id }
 
         # Get point at center of img1, all provenances, only one filter
         refs, imgs = Reference.get_references( ra=20., dec=45., filter='r' )
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
-        assert set( r.id for r in refs ) == set( ref1.id, refp.id )
-        assert set( i.id for i in imgs ) == set( img1.id )
+        assert set( r.id for r in refs ) == { ref1.id, refp.id }
+        assert set( i.id for i in imgs ) == { img1.id }
 
         # Get point at center of img1, one provenance, one filter
         refs, imgs = Reference.get_references( ra=20., dec=45., filter='r', provenance_ids=provenance_base.id )
@@ -197,6 +210,30 @@ def test_finding_references( provenance_base, provenance_extra ):
         assert len(refs) == 0
         assert len(imgs) == 0
 
+        # Get point at center of img1, refset base
+        refs, imgs = Reference.get_references( ra=20., dec=45., refset='base' )
+        assert len(imgs) == len(refs)
+        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
+        assert len(refs) == 2
+        assert set( r.id for r in refs ) == { ref1.id, ref2.id }
+        assert set( i.id for i in imgs ) == { img1.id, img2.id }
+
+        # Get point at center of img1, refset extra
+        refs, imgs = Reference.get_references( ra=20., dec=45., refset='extra' )
+        assert len(imgs) == len(refs)
+        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
+        assert len(refs) == 1
+        assert refs[0].id == refp.id
+        assert imgs[0].id == img1.id
+
+        # Get point at center of img1, refset both
+        refs, imgs = Reference.get_references( ra=20., dec=45., refset='both' )
+        assert len(imgs) == len(refs)
+        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
+        assert len(refs) == 3
+        assert set( r.id for r in refs ) == { ref1.id, ref2.id, refp.id }
+        assert set( i.id for i in imgs ) == { img1.id, img2.id }
+
         # TODO : test limiting on other things like instrument, skip_bad
 
         # For the rest of the tests, we're going to do filter r and provenance provenance_base
@@ -207,32 +244,32 @@ def test_finding_references( provenance_base, provenance_extra ):
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
-        assert set( r.id for r in refs ) == set( ref1.id, ref3.id, ref4.id )
-        assert set( i.id for i in imgs ) == set( img1.id, img3.id, img4.id )
+        assert set( r.id for r in refs ) == { ref1.id, ref3.id, ref4.id }
+        assert set( i.id for i in imgs ) == { img1.id, img3.id, img4.id }
 
         # Get point included in img3 but not img4
-        refs, imgs = Reference.get_references( ra=20.+0.16/numpy.sqrt(2.), dec=45.16, **kwargs )
+        refs, imgs = Reference.get_references( ra=20.+0.06*np.sqrt(2.), dec=45.06, **kwargs )
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
-        assert set( r.id for r in refs ) == set( ref1.id, ref3.id )
-        assert set( i.id for i in imgs ) == set( img1.id, img3.id )
+        assert set( r.id for r in refs ) == { ref1.id, ref3.id }
+        assert set( i.id for i in imgs ) == { img1.id, img3.id }
 
         # Get point included in img3 and img4 but not img1 (center of img3)
-        refs, imgs = References.get_references( ra=img3.ra, dec=img3.dec, **kwargs )
+        refs, imgs = Reference.get_references( ra=img3.ra, dec=img3.dec, **kwargs )
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
-        assert set( r.id for r in refs ) == set( ref3.id, ref4.id )
-        assert set( i.id for i in imgs ) == set( img3.id, img4.id )
+        assert set( r.id for r in refs ) == { ref3.id, ref4.id }
+        assert set( i.id for i in imgs ) == { img3.id, img4.id }
 
         # Get points around RA 0
-        ras = [ 0., 0.05, 364.95 ]
+        ras = [ 0., 0.05, 359.95 ]
         decs = [ 0., -0.05, 0.05 ]
-        ramess, decmess = numpy.meshgrid( ras, decs )
+        ramess, decmess = np.meshgrid( ras, decs )
         for messdex in range( len(ramess) ):
             for ra, dec in zip( ramess[messdex], decmess[messdex] ):
-                refs, imgs = References.get_references( ra=ra, dec=dec, **kwargs )
+                refs, imgs = Reference.get_references( ra=ra, dec=dec, **kwargs )
                 assert len(imgs) == len(refs)
                 assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
                 assert len( refs ) == 1
@@ -245,58 +282,75 @@ def test_finding_references( provenance_base, provenance_extra ):
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
-        assert set( r.id for r in refs ) == set( ref1.id, ref3.id, ref4.id )
-        assert set( i.id for i in imgs ) == set( img1.id, img3.id, img4.id )
+        assert set( r.id for r in refs ) == { ref1.id, ref3.id, ref4.id }
+        assert set( i.id for i in imgs ) == { img1.id, img3.id, img4.id }
 
-        refs, imgs == Reference.get_refrences( minra=img1.minra, maxra=img1.maxra,
-                                               mindec=img1.mindec, maxdec=img1.maxdec,
-                                               **kwargs )
+        refs, imgs == Reference.get_references( minra=img1.minra, maxra=img1.maxra,
+                                                mindec=img1.mindec, maxdec=img1.maxdec,
+                                                **kwargs )
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
-        assert set( r.id for r in refs ) == set( ref1.id, ref3.id, ref4.id )
-        assert set( i.id for i in imgs ) == set( img1.id, img3.id, img4.id )
+        assert set( r.id for r in refs ) == { ref1.id, ref3.id, ref4.id }
+        assert set( i.id for i in imgs ) == { img1.id, img3.id, img4.id }
 
         # Overlapping -- overlaps img1 by at least x%
-        # ROB TODO BASED ON CALCULATIONS YOU GET
-        import pdb; pdb.set_trace()
+        # img2 and imgp overlap img1 by 1.0 , but are (respectively) filter g and provenance extra
+        # img3 overlaps img1 by 0.063
+        # img4 overlaps img1 by 0.021
+        # img5 overlaps img1 not at all
+
+        refs, imgs = Reference.get_references( image=img1, overlapfrac=0.5, **kwargs )
+        assert len(imgs) == len(refs)
+        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
+        assert len(refs) == 1
+        assert refs[0].id == ref1.id
+        assert imgs[0].id == img1.id
+
+        refs, imgs = Reference.get_references( image=img1, overlapfrac=0.05, **kwargs )
+        assert len(imgs) == len(refs)
+        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
+        assert len(refs) == 2
+        assert set( r.id for r in refs ) == { ref1.id, ref3.id }
+        assert set( i.id for i in imgs ) == { img1.id, img3.id }
 
         # Overlapping -- overlapping around RA 0
-        for ctrra, ctrdec in zip( [ 0., 0., 0.08, 0.08, -0.08, -0.08 ],
-                                  [ 0., 0.05, 0., 0.05, 0., 0.05 ] ):
-            refs, imgs == Reference.get_references( minra=ctrra-0.1, maxra=ctrra+0.1,
-                                                    mindec=ctrdec-0.1, maxdec=ctrdec+0.1,
-                                                    **kwargs )
+        for ctrra, ctrdec, ovfrac in zip( [ 0.,  0.,    0.08, 0.08, -0.08, -0.08 ],
+                                          [ 0.,  0.05,  0.,   0.05,  0.,    0.05 ],
+                                          [ 0.9, 0.675, 0.7,  0.525, 0.5,   0.375 ] ):
+            minra = ctrra - 0.1
+            minra = minra if minra > 0 else 360 + minra
+            maxra = ctrra + 0.1
+            maxra = maxra if maxra > 0 else 360 + maxra
+            refs, imgs = Reference.get_references( minra=minra, maxra=maxra,
+                                                   mindec=ctrdec-0.1, maxdec=ctrdec+0.1,
+                                                   **kwargs )
             assert len(imgs) == len(refs)
             assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
             assert len(refs) == 1
             assert refs[0].id == ref5.id
             assert imgs[0].id == img5.id
-            # ****
-            fcobj = FourCorners()
-            fcobj.ra = ctrra
-            fcobj.dec = ctrdec
-            fcobj.ra_corner_00 = ctrra-0.1
-            rcobj.ra_corner_01 = ctrra-0.1
-            fcobj.minra = ctrra-0.1
-            fcobj.ra_corner_10 = ctrra+0.1
-            fcobj.ra_corner_11 = ctrra+0.1
-            fcobj.maxra = ctrra+0.1
-            fcobj.dec_corner_00 = ctrdec-0.1
-            fcobj.dec_corner_10 = ctrdec-0.1
-            fcobj.mindec = ctrdec-0.1
-            fcobj.dec_corner_01 = ctrdec+0.1
-            fcobj.dec_corner_11 = ctrdec+0.1
-            fcob.maxdec = ctrdec+0.1
-            SCLogger.info( f"For ctrra,ctrdec = (ctrra,ctrdec), frac="
-                           "f{FourCorners.get_voerlap_frac( fcobj, img5 )}" )
+
+            fiducialfrac = 0.51
+            refs, imgs = Reference.get_references( minra=minra, maxra=maxra,
+                                                   mindec=ctrdec-0.1, maxdec=ctrdec+0.1,
+                                                   overlapfrac=fiducialfrac, **kwargs )
+            assert len(imgs) == len(refs)
+            assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
+            if ovfrac >= fiducialfrac:
+                assert len(refs) == 1
+                assert refs[0].id == ref5.id
+                assert imgs[0].id == img5.id
+            else:
+                assert len(refs) == 0
 
     finally:
-        # Clean up images and refs we made
+        # Clean up images, refs, and refsets we made
         with SmartSession() as session:
             session.execute( sa.delete( Reference ).where( Reference._id.in_( refstodel ) ) )
             session.execute( sa.delete( Image ).where( Image._id.in_( imgstodel ) ) )
-
+            session.execute( sa.delete( RefSet ).where( RefSet.name.in_( ( 'base', 'extra', 'both' ) ) ) )
+            session.commit()
 
 def test_make_refset():
     provstodel = set()

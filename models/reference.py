@@ -3,7 +3,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base, UUIDMixin, SmartSession
+from models.base import Base, FourCorners, UUIDMixin, SmartSession
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
@@ -174,6 +174,7 @@ class Reference(Base, UUIDMixin):
             instrument=None,
             filter=None,
             skip_bad=True,
+            refset=None,
             provenance_ids=None,
             session=None
     ):
@@ -235,10 +236,15 @@ class Reference(Base, UUIDMixin):
             Filter of the reference image.
             If not given, will return references with any filter.
 
+        refset: string, list of String, or None
+            If not None, will only find references that have a
+            provenance included in this refset, or in these refsets.
+
         provenance_ids: list of strings or Provenance objects, optional
-            List of provenance IDs to match.
-            The references must have a provenance with one of these IDs.
-            If not given, will load all matching references with any provenance.
+            List of provenance IDs to match.  The references must have a
+            provenance with one of these IDs.  If neither refset nor
+            provenance_ids are given, will load all matching references
+            with any provenance.
 
         skip_bad: bool
             Whether to skip bad references. Default is True.
@@ -261,6 +267,9 @@ class Reference(Base, UUIDMixin):
              ( targetgiven and ( radecgiven or areagiven ) )
             ):
             raise ValueError( "Specify only one of ( target/section_id, ra/dec, minra/maxra/mindec/maxdec or image )" )
+
+        if ( provenance_ids is not None ) and ( refset is not None ):
+            raise ValueError( "Specify at most one of provenance_ids or refset" )
 
         fcobj = None
 
@@ -296,18 +305,20 @@ class Reference(Base, UUIDMixin):
                 #   that because Reference isn't a FourCorners, and we
                 #   have to join Reference to Image
 
-                q = ( "SELECT r.*, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
-                      "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
-                      "       INTO TEMP TABLE temp_find_containing_ref "
-                      "       FROM refs r INNER JOIN images i ON r.image_id=i._id "
-                      "WHERE ( "
-                      "  ( i.maxdec >= :dec AND i.mindec <= :dec ) "
-                      "  AND ( "
-                      "    ( ( i.maxra > i.minra ) AND "
-                      "      ( i.maxra >= :ra AND i.minra <= :ra ) )"
-                      "    OR "
-                      "    ( ( i.maxra < i.minra ) AND "
-                      "      ( ( i.maxra >= :ra OR :ra > 180. ) AND ( i.minra <= :ra OR :ra <= 180. ) ) )"
+                q = ( "CREATE TEMPORARY TABLE temp_find_containing_ref AS "
+                      "( SELECT r.*, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
+                      "         i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
+                      "  FROM refs r "
+                      "  INNER JOIN images i ON r.image_id=i._id "
+                      "  WHERE ( "
+                      "    ( i.maxdec >= :dec AND i.mindec <= :dec ) "
+                      "    AND ( "
+                      "      ( ( i.maxra > i.minra ) AND "
+                      "        ( i.maxra >= :ra AND i.minra <= :ra ) )"
+                      "      OR "
+                      "      ( ( i.maxra < i.minra ) AND "
+                      "        ( ( i.maxra >= :ra OR :ra > 180. ) AND ( i.minra <= :ra OR :ra <= 180. ) ) )"
+                      "    )"
                       "  )"
                       ")"
                      )
@@ -383,14 +394,27 @@ class Reference(Base, UUIDMixin):
 
             # Additional criteria
 
-            if provenance_ids is not None:
-                if isinstance( prov_id, str ) or isinstance( prov_id, UUID ):
+            if refset is not None:
+                q += " AND r.provenance_id IN "
+                q += " ( SELECT DISTINCT ON(rpa.provenance_id) rpa.provenance_id "
+                q += "   FROM refset_provenance_association rpa "
+                q +=  "     INNER JOIN refsets rs ON rpa.refset_id=rs._id "
+                # TODO : be fancier with collections.abc.Sequence or something
+                if isinstance( refset, list ):
+                    q += "  WHERE rs.name IN :refsets ) "
+                    subdict['refsets'] = tuple( refset )
+                else:
+                    q += "  WHERE rs.name=:refset ) "
+                    subdict['refset'] = refset
+
+            elif provenance_ids is not None:
+                if isinstance( provenance_ids, str ) or isinstance( provenance_ids, UUID ):
                     q += " AND r.provenance_id=:prov"
                     subdict['prov'] = provenance_ids
-                elif isinstance( prov_id, Provenance ):
+                elif isinstance( provenance_ids, Provenance ):
                     q += " AND r.provenance_id=:prov"
                     subdict['prov'] = provenance_ids.id
-                elif isinstance( prov_id, list ):
+                elif isinstance( provenance_ids, list ):
                     q += " AND r.provenance_id IN :provs"
                     subdict['provs'] = []
                     for pid in provenance_ids:
@@ -410,24 +434,20 @@ class Reference(Base, UUIDMixin):
                 q += " AND NOT r.is_bad "
 
             # Get the Reference objects
-
             references = list( sess.scalars( sa.select( Reference )
                                              .from_statement( sa.text(q).bindparams(**subdict) )
                                             ).all() )
 
             # Get the image objects
-
-            imset = set( sess.scalars( sa.select( Image )
-                                       .where( Image._id.in_( r.image_id for r in references ) )
-                                      ).all() )
+            images = list( sess.scalars( sa.select( Image )
+                                         .where( Image._id.in_( r.image_id for r in references ) )
+                                        ).all() )
 
         # Make sure they're sorted right
 
-        if len( references ) != len( imset ):
-            raise RuntimeError( "Database corruption: number of returned references and images didn't match!" )
-        if not all( r.image_id in imset for r in references ):
+        imdict = { i._id : i for i in images }
+        if not all( r.image_id in imdict.keys() for r in references ):
             raise RuntimeError( "Didn't get back the images expected; this should not happen!" )
-        imdict = { i._id : i for i in imset }
         images = [ imdict[r.image_id] for r in references ]
 
         # Deal with overlapfrac if relevant
@@ -440,7 +460,7 @@ class Reference(Base, UUIDMixin):
                     retref.append( r )
                     retim.append( i )
             references = retref
-            images = rtim
+            images = retim
 
         # Done!
 
