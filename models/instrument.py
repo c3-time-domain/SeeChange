@@ -17,6 +17,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord, Distance
 
 from models.base import Base, SmartSession, UUIDMixin
+from models.provenance import Provenance
 
 from pipeline.catalog_tools import Bandpass
 from util.util import parse_dateobs, read_fits_image, get_inheritors
@@ -917,6 +918,24 @@ class Instrument:
         """
         self.check_section_id(section_id)
         return None, None
+
+    def get_ra_dec_corners_for_section( self, ra, dec, section_id ):
+        """Get nominal corners of a sensor section given overall array RA and Dec.
+
+        Parameters
+        ----------
+           ra, dec: float
+              Position of the entire array (not of the specific section).
+
+           section_id: str
+
+        Returns
+        -------
+           dict, 10 keys: (ra|dec)_corner_(0|1)(0|1), (min|max)(ra|dec)
+
+        """
+        raise NotImplementedError( f"{cls.__name__} needs to implement get_ra_dec_corners_for_section" )
+
 
     def get_ra_dec_for_section_of_exposure(self, exposure, section_id):
         """Get the RA and Dec of the center of the section of an exposure.
@@ -1862,6 +1881,48 @@ class Instrument:
 
         """
         raise NotImplementedError( f"{self.__class__.__name__} needs to impldment linearity_correct" )
+
+    def get_exposure_provenance( self, process='download', proc_type='raw', code_version=None ):
+        """Get the provenance for an exposure from this instrument.
+
+        Also makes sure it's in the database.
+
+        The process will have two parameters: proc_type and instrument.
+        The latter is so that images extracted from exposures of
+        different instruments will have different provenances (because
+        of upstreams) even though the preprocessing parameters may be
+        exactly the same.
+
+        Parameters
+        ----------
+          process: str, default 'download'
+             Can be anything, but should be some indication of how the
+             exposure was produced. Default 'download' indicates it was
+             downloaded from some exposure source somewhere.
+
+          proc_type: str, default 'raw'
+             What processing has this exposure been through before
+             loading.  Defaults to 'raw', which indicates it's a raw
+             telescope exposure.  (For DECam, this could also be
+             'instcal'.)
+
+         code_version: CodeVersion or None
+             If None, will use Provenance.get_code_version()
+
+        """
+
+        if code_version is None:
+            code_version = Provenance.get_code_version()
+        provenance = Provenance(
+            code_version_id=code_version.id,
+            process=process,
+            # ROB TODO : make this Instrument into instrument once you're done with legacy testing
+            parameters={ 'proc_type': proc_type, 'Instrument': self.name },
+            upstreams=[],
+        )
+        provenance.insert_if_needed()
+        return provenance
+
 
 
 class DemoInstrument(Instrument):

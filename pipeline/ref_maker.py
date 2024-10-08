@@ -20,7 +20,7 @@ from models.refset import RefSet, refset_provenance_association_table
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import parse_session, listify, parse_dateobs
+from util.util import parse_session, listify, parse_dateobs, asUUID
 from util.radec import parse_sexigesimal_degrees
 
 
@@ -130,6 +130,16 @@ class ParsRefMaker(Parameters):
             'Only use images from these projects. If None, will not limit the projects. '
             'If given as a list, will use any of the projects in the list. ',
             critical=True,
+        )
+
+        self.preprocessing_prov_id = self.add_par(
+            'preprocessing_prov',
+            None,
+            (str, None),
+            "Provenance ID of preprocessing provenacne to search for images for.  Be careful using this!  "
+            "Do not use this if you have more than one instrument.  If you don't specify this, it will "
+            "be determined automatically using config, which is usually what you want.",
+            critical=True
         )
 
         self.__image_query_pars__ = ['airmass', 'background', 'seeing', 'lim_mag', 'exp_time']
@@ -318,21 +328,31 @@ class RefMaker:
         self.im_provs = {}
         self.ex_provs = {}
 
+        if self.pars.preprocessing_prov_id is not None:
+            if len(self.pars.instruments) > 1:
+                SCLogger.warning( "RefMaker was given a preprocessing id, but also more than one instrument. "
+                                  "This is almost certainly wrong." )
+            preprocessing = Provenance.get( self.pars.preprocessing_prov_id )
+            code_version = Provenance.get_code_version()
+            if preprocessing is None:
+                raise ValueError( f"Failed to find provenance {self.pars.preprocessing_prov_id}" )
+
         for inst in self.pars.instruments:
-            load_exposure = Exposure.make_provenance(inst)
-            code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
-            pars = self.pipeline.preprocessor.pars.get_critical_pars()
-            preprocessing = Provenance(
-                process='preprocessing',
-                code_version_id=code_version.id,  # TODO: allow loading versions for each process
-                parameters=pars,
-                upstreams=[load_exposure],
-                is_testing='test_parameter' in pars,
-            )
-            # This provenance needs to be in the database so we can insert the
-            #   coadd provenance later, as this provenance is an upstream of that.
-            # Ideally, it's already there, but if not, we need to be ready.
-            preprocessing.insert_if_needed()
+            if self.pars.preprocessing_prov_id is None:
+                load_exposure = Exposure.make_provenance(inst)
+                code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
+                pars = self.pipeline.preprocessor.pars.get_critical_pars()
+                preprocessing = Provenance(
+                    process='preprocessing',
+                    code_version_id=code_version.id,  # TODO: allow loading versions for each process
+                    parameters=pars,
+                    upstreams=[load_exposure],
+                    is_testing='test_parameter' in pars,
+                )
+                # This provenance needs to be in the database so we can insert the
+                #   coadd provenance later, as this provenance is an upstream of that.
+                # Ideally, it's already there, but if not, we need to be ready.
+                preprocessing.insert_if_needed()
             pars = self.pipeline.extractor.pars.get_critical_pars()  # includes parameters of siblings
             extraction = Provenance(
                 process='extraction',

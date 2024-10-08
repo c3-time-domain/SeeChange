@@ -230,6 +230,28 @@ class DECam(Instrument):
         return ( ra + self._chip_radec_off[section_id]['dra'] / math.cos( dec * math.pi / 180. ),
                  dec + self._chip_radec_off[section_id]['ddec'] )
 
+    def get_ra_dec_corners_for_section( self, ra, dec, section_id ):
+        self.fetch_sections()
+        section = self.get_section( section_id )
+        ra, dec = self.get_ra_dec_for_section( ra, dec, section_id )
+        minra = ra - section.size_y / 2. * self.pixel_scale / 3600. / np.cos( dec * np.pi/180. )
+        maxra = ra + section.size_y / 2. * self.pixel_scale / 3600. / np.cos( dec * np.pi/180. )
+        mindec = dec - section.size_x / 2. * self.pixel_scale / 3600.
+        maxdec = dec + section.size_x / 2. * self.pixel_scale / 3600.
+        return { 'ra_corner_00': minra,
+                 'ra_corner_01': minra,
+                 'ra_corner_10': maxra,
+                 'ra_corner_11': maxra,
+                 'minra': minra,
+                 'maxra': maxra,
+                 'dec_corner_00': mindec,
+                 'dec_corner_01': maxdec,
+                 'dec_corner_10': mindec,
+                 'dec_corner_11': maxdec,
+                 'mindec': mindec,
+                 'maxdec': maxdec
+                }
+
     def get_standard_flags_image( self, section_id ):
         # NOTE : there's a race condition here; multiple
         # processes might try to locally cache the
@@ -587,6 +609,7 @@ class DECam(Instrument):
 
         return newdata
 
+
     def acquire_origin_exposure( self, identifier, params, outdir=None ):
         """Download exposure from NOIRLab; see Instrument.acquire_origin_exposure
 
@@ -665,12 +688,7 @@ class DECam(Instrument):
                 else:
                     raise ValueError( f"Can't handle exposure {which} file named {expfile}" )
 
-        provenance = Provenance(
-            process='download',
-            parameters={ 'proc_type': proc_type, 'Instrument': 'DECam' },
-            code_version_id=Provenance.get_code_version( session=session ).id
-        )
-        provenance.insert_if_needed( session=session )
+        provenance = self.get_acquired_origin_exposure_provenance()
 
         with fits.open( expfile ) as ifp:
             hdr = { k: v for k, v in ifp[0].header.items()

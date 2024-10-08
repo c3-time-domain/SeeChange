@@ -525,7 +525,7 @@ class Pipeline:
         dict
             A dictionary of all the provenances that were created in this function,
             keyed according to the different steps in the pipeline.
-            The provenances are all merged to the session.
+            The provenance will all be inserted into the database if necessary.
 
         """
         if overrides is None:
@@ -550,7 +550,7 @@ class Pipeline:
                 code_version = CodeVersion.get_by_id( passed_image_provenance.code_version_id, session=session )
             is_testing = passed_image_provenance.is_testing
         else:
-            raise TypeError( f"The first parameter to make_provenance_tree msut be an Exposure or Image, "
+            raise TypeError( f"The first parameter to make_provenance_tree must be an Exposure or Image, "
                              f"not a {exposure.__class__.__name__}" )
 
         # Get the reference

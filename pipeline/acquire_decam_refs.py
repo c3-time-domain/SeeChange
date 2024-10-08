@@ -1,6 +1,7 @@
 import sys
 import os
 import io
+import copy
 import argparse
 import hashlib
 import uuid
@@ -22,6 +23,7 @@ from models.exposure import Exposure
 from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
 from pipeline.preprocessing import Preprocessor
+from pipeline.ref_maker import RefMaker
 
 import util.radec
 from util.logger import SCLogger
@@ -63,32 +65,64 @@ class DECamRefFetcher:
             self.chips = chips
         else:
             self.chips = knownchips
-        self.chippos = { c: self.decam.get_ra_dec_for_section( self.ra, self.dec, c ) for c in self.chips }
 
-        # We're going to demand at least min_per_chip images overlapping four points
-        #  on the image, each point being "near" one of the corners.
-        # Put those ra/dec points in the self.corners dictionary.
-        self.corners = {}
-        self.cornercount = {}
-        self.chipimgs = {}
-        cornerfrac = 0.8
-        for chip in self.chips:
-            ra = self.chippos[chip][0]
-            dec = self.chippos[chip][1]
-            cd = np.cos( dec * np.pi / 180. )
-            dra = cornerfrac * 2048. * self.decam.pixel_scale / 3600. / cd
-            ddec = cornerfrac * 1024. * self.decam.pixel_scale / 3600.
-            self.corners[chip] = [ ( ra - dra, dec - ddec ),
-                                   ( ra - dra, dec + ddec ),
-                                   ( ra + dra, dec - ddec ),
-                                   ( ra + dra, dec + ddec ) ]
-            self.cornercount[chip] = [ 0, 0, 0, 0 ]
-            self.chipimgs[chip] = []
+        # Need a RefMaker for probing the database.
+        # For that, need a temporary preprocessor to figure out the provenance
+        preprocessor = Preprocessor( preprocessing='noirlab_instcal',
+                                     calibset='externally_supplied',
+                                     flattype='externally_supplied',
+                                     steps_required=['overscan', 'linearity', 'flat', 'fringe'] )
+        preprocprov = Provenance( process='preprocessing',
+                                  parameters=preprocessor.pars.get_critical_pars(),
+                                  upstreams=[ self.decam.get_exposure_provenance( proc_type='instcal' ) ],
+                                 )
+        preprocprov.insert_if_needed()
 
-    def log_corner_counts( self, prefix="" ):
+        # TODO : get some of these values from config
+        self.refmaker = RefMaker( maker={ 'start_time': min_mjd,
+                                          'end_time': max_mjd,
+                                          'corner_distance': 0.8,
+                                          'coadd_overlap_fraction': 0.1,
+                                          'instruments': [ 'DECam' ],
+                                          'max_seeing': max_seeing,
+                                          'min_lim_mag': min_depth,
+                                          'min_exp_time': min_exptime,
+                                          'min_number': min_per_chip,
+                                          'min_only_center': False,
+                                          'preprocessing_prov_id': str(preprocprov.id)
+                                         } )
+        self.refmaker.setup_provenances()
+
+        self.chipimages = {}
+        self.match_poses = {}
+        self.match_counts = {}
+
+        # # We're going to demand at least min_per_chip images overlapping five points
+        # #  on the image, the center and one point "near" each of the corners.
+        # # Put those ra/dec points in the self.positions dictionary.
+        # self.positions = {}
+        # self.overlapcount = {}
+        # self.chipimgs = {}
+        # cornerfrac = 0.8
+        # for chip in self.chips:
+        #     ra = self.chippos[chip][0]
+        #     dec = self.chippos[chip][1]
+        #     cd = np.cos( dec * np.pi / 180. )
+        #     dra = cornerfrac * 2048. * self.decam.pixel_scale / 3600. / cd
+        #     ddec = cornerfrac * 1024. * self.decam.pixel_scale / 3600.
+        #     self.positions[chip] = [ ( ra, dec ),
+        #                              ( ra - dra, dec - ddec ),
+        #                              ( ra - dra, dec + ddec ),
+        #                              ( ra + dra, dec - ddec ),
+        #                              ( ra + dra, dec + ddec ) ]
+        #     self.overlapcount[chip] = [ 0, 0, 0, 0, 0 ]
+        #     self.chipimgs[chip] = []
+
+    def log_position_counts( self, prefix="", match_counts=None ):
         strio = io.StringIO()
-        strio.write( f"{prefix}corner count for all chips:\n" )
-        for chip, counts in self.cornercount.items():
+        strio.write( f"{prefix}overlap count for all chips:\n" )
+        match_counts = match_counts if match_counts is not None else self.match_counts
+        for chip, counts in match_counts.items():
             strio.write( f"    {chip:4s} : {counts}\n" )
         SCLogger.info( strio.getvalue() )
 
@@ -96,15 +130,16 @@ class DECamRefFetcher:
     def do_i_have_enough( self ):
         yes = True
         for chip in self.chips:
-            if chip not in self.cornercount:
+            if chip not in self.match_counts:
                 yes = False
                 break
-            if not all( [ self.cornercount[chip][c] >= self.min_per_chip for c in [ 0, 1, 2, 3 ] ] ):
+            if not all( [ self.match_counts[chip][c] >= self.min_per_chip
+                          for c in range(len(self.match_counts[chip])) ] ):
                 yes = False
                 break
         return yes
 
-    def identify_existing_images( self, reset=True ):
+    def identify_existing_images( self ):
         """Find DECam instcal images already in the database we can use.
 
         These will probably be here from a previous run of this class.
@@ -112,93 +147,35 @@ class DECamRefFetcher:
         center (based on ra, dec, and the chip's known offset), and that
         overlap the chip by at least 10%.
 
-        Updates self.chipimgs and self.cornercount
-
-        Parameters
-        ----------
-          reset : bool, default True
-            reset all counts to 0 before starting.  Not doing this could
-            easily lead to redundancies.
+        Sets self.chipimages, self_match_poses, and self.match_counts
 
         """
-        if reset:
-            self.cornercount = { c: [ 0, 0, 0, 0 ] for c in self.chips }
-            self.chipimgs = { c: [] for c in self.chips }
-
-        imgidsfound = set()
-        imgs = []
-
-        # OK, this is a little scary.  I'm trying to reconstruct the
-        #   provenance that the exposure would have so I can reconstruct
-        #   the upstreams of the image provenance we want to search on.
-        #   However, the code_version business means that if we ever
-        #   change the code_version, things will not match any more. We
-        #   really need to do Issue #317 to solve this.
-
-        # This code is based on decam.py::DECam._commit_exposure
-        expprov = Provenance( process='download',
-                              parameters={ 'proc_type': 'instcal', 'Instrument': 'DECam' },
-                              code_version_id=Provenance.get_code_version().id )
-        # Make a pipeline using the same arguments we'll use later just so we can get the provenance
-        # (This is ugly.)
-        p = Pipeline( preprocessing={ 'preprocessing': 'noirlab_instcal',
-                                      'calibset': 'externally_supplied',
-                                      'flattype': 'externally_supplied' } )
-        imgprov = Provenance( process='preprocessing',
-                              parameters=p.preprocessor.pars.get_critical_pars(),
-                              upstreams=[expprov],
-                              code_version_id=Provenance.get_code_version().id )
 
         for chip in self.chips:
-            for corner in [ 0, 1, 2, 3 ]:
-                kwargs = { 'ra': self.corners[chip][corner][0],
-                           'dec': self.corners[chip][corner][1],
-                           'instrument': 'DECam',
-                           'filter': self.filter,
-                           'provenance_ids': [imgprov.id],
-                           'order_by': 'quality'
-                          }
-                if self.min_exptime is not None:
-                    kwargs['min_exp_time'] = self.min_exptime
-                if self.min_mjd is not None:
-                    kwargs['min_mjd'] = self.min_mjd
-                if self.max_mjd is not None:
-                    kwargs['max_mjd'] = self.max_mjd
-                if self.max_seeing is not None:
-                    kwargs['max_seeing'] = self.max_seeing
-                if self.min_depth is not None:
-                    kwargs['min_lim_mag'] = self.min_depth
-
-                found = Image.find_images( **kwargs )
-                newlyfound = [ i for i in found if i.id not in imgidsfound ]
-                imgs.extend( newlyfound )
-                imgidsfound = set( i.id for i in imgs )
-
-        if len( imgs ) > 0:
-            for chip in self.chips:
-                for img in imgs:
-                    # Totally punting on ra/dec crossing 0°....
-                    for corner in range(4):
-                        if ( ( img.minra < self.corners[chip][corner][0] ) and
-                             ( img.maxra > self.corners[chip][corner][0] ) and
-                             ( img.mindec < self.corners[chip][corner][1] ) and
-                             ( img.maxdec > self.corners[chip][corner][1] )
-                            ):
-                            self.cornercount[chip][corner] += 1
-                            if img.id not in [ i.id for i in self.chipimgs[chip] ]:
-                                self.chipimgs[chip].append( img )
-                self.chipimgs[chip].sort( key=lambda i: i.mjd )
+            corners = self.decam.get_ra_dec_corners_for_section( self.ra, self.dec, chip )
+            img, pos, count = self.refmaker.identify_reference_images_to_coadd( minra=corners['minra'],
+                                                                                maxra=corners['maxra'],
+                                                                                mindec=corners['mindec'],
+                                                                                maxdec=corners['maxdec'],
+                                                                                filter=self.filter )
+            self.chipimages[chip] = img
+            self.chipimages[chip].sort( key=lambda x: x.mjd )
+            self.match_poses[chip] = pos
+            self.match_counts[chip] = count
 
 
     def identify_useful_remote_exposures( self ):
         """Get a DECamOriginExposures objects and a set of indexes of the ones we want.
 
-        Starts with whats in self.cornercount.  Look for exposures
+        Starts with whats in self.overlapcount.  Look for exposures
         within 2° of our exposure, then go through all chips and find
         things that overlap.
 
-        """
+        Returns
+        -------
+           origexps, usefuldexen, match_counts
 
+        """
         # Get all exposures that might be useful
 
         kwargs = { 'skip_exposures_in_database': True,
@@ -237,6 +214,7 @@ class DECamRefFetcher:
         # For each chip we're looking for.  We're going to go *backwards* in MJD
         #   because we want to favor more recent images.  (Detector more likely to
         #   be the same as what we're using now, yadda yadda.)
+        match_counts = copy.deepcopy( self.match_counts )
         dexen = list( range(len(origexps)) )
         dexen.reverse()
         for chip in self.chips:
@@ -273,31 +251,29 @@ class DECamRefFetcher:
 
                 # Go through all chips of the exposure to figure out which chips
                 #   overlap which chips of our target.  Add exposures that
-                #   help to usefuldexen, and increment self.cornercount
+                #   help to usefuldexen, and increment self.overlapcount
                 for expchip in self.decam.get_section_ids():
-                    ra, dec = self.decam.get_ra_dec_for_section( expra, expdec, expchip )
-                    cd = np.cos( dec * np.pi / 180. )
-                    dra = 2048. * self.decam.pixel_scale / 3600. / cd
-                    ddec = 1024. * self.decam.pixel_scale / 3600.
-                    minra = ra - dra
-                    maxra = ra + dra
-                    mindec = dec - ddec
-                    maxdec = dec + ddec
+                    corners = self.decam.get_ra_dec_corners_for_section( expra, expdec, expchip )
+                    minra = corners['minra']
+                    maxra = corners['maxra']
+                    mindec = corners['mindec']
+                    maxdec = corners['maxdec']
 
-                    for corner in range(4):
-                        if ( ( minra < self.corners[chip][corner][0] ) and
-                             ( maxra > self.corners[chip][corner][0] ) and
-                             ( mindec < self.corners[chip][corner][1] ) and
-                             ( maxdec > self.corners[chip][corner][1] )
+                    for pos in range(len(self.match_poses[chip])):
+                        if ( ( minra < self.match_poses[chip][pos][0] ) and
+                             ( maxra > self.match_poses[chip][pos][0] ) and
+                             ( mindec < self.match_poses[chip][pos][1] ) and
+                             ( maxdec > self.match_poses[chip][pos][1] )
                             ):
-                            self.cornercount[chip][corner] += 1
+                            match_count[chip][pos] += 1
                             usefuldexen.add( expdex )
 
                 # Are we done?  If so, break out of exposure loop, go on to next chip of target
-                if all( [ self.cornercount[chip][c] >= self.min_per_chip for c in [ 0, 1, 2, 3 ] ] ):
+                if all( [ match_count[chip][c] >= self.min_per_chip
+                          for c in range(len(match_count[chip])) ] ):
                     break
 
-        return origexps, usefuldexen
+        return origexps, usefuldexen, match_counts
 
 
     def extract_image_and_do_things( self, exposure, section_id ):
@@ -321,10 +297,12 @@ class DECamRefFetcher:
             ds = DataStore( exposure, section_id )
             pipeline = Pipeline( pipeline={ 'through_step': 'zp',
                                             'save_before_subtraction': True,
-                                            'save_on_exception': save_on_exception },
+                                            'save_on_exception': save_on_exception, },
                                  preprocessing={ 'preprocessing': 'noirlab_instcal',
                                                  'calibset': 'externally_supplied',
-                                                 'flattype': 'externally_supplied' } )
+                                                 'flattype': 'externally_supplied',
+                                                 'steps_required': [ 'overscan', 'linearity', 'flat', 'fringe' ]} )
+            import pdb; pdb.set_trace()
             pipeline.run( ds, no_provtag=True, ok_no_ref_provs=True )
             ds.reraise()
 
@@ -441,14 +419,13 @@ class DECamRefFetcher:
         #       If it's enough, stop iteration.  Otherwise, continue.
         # 7. Look back our database and identify what's there.  Report on how well we did.
 
-        exptimecache = self.min_exptime
         maxseeingcache = self.max_seeing
         mindepthcache = self.min_depth
 
         SCLogger.info( f"============ Initial identification of existing images ============" )
         self.min_exptime = None
-        self.identify_existing_images( reset=True )
-        self.log_corner_counts( ">>>>> After initial database search, " )
+        self.identify_existing_images( )
+        self.log_position_counts( ">>>>> After initial database search, " )
 
         if self.do_i_have_enough():
             SCLogger.info( f"============ We're done! ============" )
@@ -456,13 +433,10 @@ class DECamRefFetcher:
             done = False
             first = True
             while not done:
-                if first:
-                    self.min_exptime = None
-                else:
+                if not first:
                     if self.no_fallback:
                         done = True
                         break
-                    self.min_exptime = exptimecache
                     self.max_seeing = None
                     self.min_depth = None
 
@@ -470,18 +444,18 @@ class DECamRefFetcher:
                     SCLogger.info( f"============ Pull NOIRLab exposures with known quality ============" )
                 else:
                     SCLogger.info( f"============ Pull whatever NOIRLab exposures and hope ============" )
-                origexps, usefuldexen = self.identify_useful_remote_exposures()
+                origexps, usefuldexen, match_counts = self.identify_useful_remote_exposures()
                 if ( ( not first ) or ( self.no_fallback ) ) and ( len( usefuldexen ) == 0 ):
                     SCLogger.error( f"============ Ran out of NOIRLab exposures before we were done ============" )
                     done = True
-                self.log_corner_counts( f">>>>> After identifying NOIRLab exposures, expect " )
+                self.log_position_counts( f">>>>> After identifying NOIRLab exposures, expect ", match_counts )
                 self.download_and_extract( origexps, usefuldexen )
 
                 self.min_exptime = None
                 self.max_seeing = maxseeingcache
                 self.min_depth = mindepthcache
-                self.identify_existing_images( reset=True )
-                self.log_corner_counts( f">>>>> After latest iteration pulling from NOIRlab: " )
+                self.identify_existing_images()
+                self.log_position_counts( f">>>>> After latest iteration pulling from NOIRlab: " )
                 if self.do_i_have_enough():
                     SCLogger.info( f"============ We're done! ============" )
                     done = True
@@ -491,24 +465,23 @@ class DECamRefFetcher:
             SCLogger.info( "only_local is set, not searching NOIRLab archive for more references." )
 
         # Report
-        self.min_exptime = None
         self.max_seeing = maxseeingcache
         self.min_depth = mindepthcache
-        self.identify_existing_images( reset=True )
-        self.log_corner_counts( "Final " )
+        self.identify_existing_images()
+        self.log_position_counts( "Final " )
 
         if self.full_report:
             strio = io.StringIO()
             for chip in self.chips:
                 strio.write( f"================ Chip {chip}\n" )
-                for corner in [ 0, 1, 2, 3 ]:
-                    strio.write( f"    ============ Corner {corner}: {self.cornercount[chip][corner]:2d} "
-                                 f" (RA={self.corners[chip][corner][0]:.5f}, "
-                                 f"Dec={self.corners[chip][corner][1]:.5f})\n" )
+                for pos in range(len(self.match_counts[chip])):
+                    strio.write( f"    ============ Position {pos}: {self.match_counts[chip][pos]:2d} "
+                                 f" (RA={self.match_poses[chip][pos][0]:.5f}, "
+                                 f"Dec={self.match_poses[chip][pos][1]:.5f})\n" )
                 strio.write( f"    ============ Ref Images:\n" )
                 strio.write( f"        Seeing  Lim_Mag  RA         Dec        Filepath\n" )
                 strio.write( f"        ------  -------  ---------  ---------  --------\n" )
-                for img in self.chipimgs[chip]:
+                for img in self.chipimages[chip]:
                     strio.write( f"        {img.fwhm_estimate:6.2f}  {img.lim_mag_estimate:7.2f}  "
                                  f"{img.ra:9.2f}  {img.dec:9.2f}  {img.filepath}\n" )
 
@@ -550,7 +523,7 @@ def main():
                                 "don't fall back to the slow process of downloading lots of exposures until "
                                 "we have enough." ) )
     parser.add_argument( '--full-report', action='store_true', default=False,
-                         help=( "At the end, show all of the images found for all of the corners. "
+                         help=( "At the end, show all of the images found for all of the positions. "
                                 "This will be long." ) )
     parser.add_argument( '-p', '--numprocs', type=int, default=10,
                          help="Number of extraction/wcs/zp processes to run" )
