@@ -136,17 +136,17 @@ Optionally, for importing references, also add
 
 ### Running a shell with shifter
 
-__Don't do this__, it doesn't seem to help.  Use podman.
+Use podman instead of shifter if podman is working.
 
 Pull the image with
 ```
-  shifterimg --user rknop pull docker:rknop/seechange:latest
+  shifterimg pull registry.nersc.gov/m4616/seechange:rknop-dev
 ```
 (May need to `shifterimg login` first.)
 
 Run with:
 ```
-   shifter --volume="/global/homes/r/raknop/SeeChange:/seechange;/pscratch/sd/r/raknop/ls4-rknop-dev/data:/data;/global/homes/r/raknop/secrets:/secrets;/global/cfs/cdirs/m937/www/decat/decat/templatecache:/refs" -e SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev.yaml -e TERM=xterm --image=rknop/seechange /bin/bash
+   shifter --volume="/global/homes/r/raknop/SeeChange:/seechange;/pscratch/sd/r/raknop/ls4-rknop-dev/data:/data;/global/homes/r/raknop/secrets:/secrets;/global/cfs/cdirs/m937/www/decat/decat/templatecache:/refs" -e SEECHANGE_CONFIG=/seechange/hacks/rknop/rknop-dev.yaml -e TERM=xterm --image=registry.nersc.gov/m4616/seechange:rknop-dev /bin/bash
 ```
 
 ### Initializing the database

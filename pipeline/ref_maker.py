@@ -1,5 +1,6 @@
 import datetime
 import time
+import collections.abc
 
 import numpy as np
 import sqlalchemy as sa
@@ -19,7 +20,7 @@ from models.refset import RefSet, refset_provenance_association_table
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import parse_session, listify
+from util.util import parse_session, listify, parse_dateobs, asUUID
 from util.radec import parse_sexigesimal_degrees
 
 
@@ -74,6 +75,38 @@ class ParsRefMaker(Parameters):
             critical=True,
         )
 
+        self.corner_distance = self.add_par(
+            'corner_distance',
+            0.8,
+            (None, float),
+            ( 'When finding references, make sure that we have at least min_number references overlapping '
+              'nine positions on the rectangle we care about, specified by minra/maxra/mindec/maxdec passed '
+              'to run().  One is the center.  The other eight are in a rectangle around the center; '
+              'corner_distance is the fraction of the distance from the center to the edge along the '
+              'relevant direction.  If this is None, then only consider the center; in that case, pass '
+              'only ra and dec to run().' ),
+            critical=True,
+        )
+
+        self.overlap_fraction = self.add_par(
+            'overlap_fraction',
+            0.9,
+            (None, float),
+            ( "When looking for pre-existing references, only return ones whose are overlaps this "
+              "fraction of the desired rectangle's area.  Must be None if corner distance is None." ),
+            critical=True,
+        )
+
+        self.coadd_overlap_fraction = self.add_par(
+            'coadd_overlap_fraction',
+            0.1,
+            (None, float),
+            ( "When looking for images to coadd into a new reference, only consider images whose "
+              "min/max ra/dec overlap the sky rectangle of the target by at least this much.  "
+              "Ignored when corner_distance is None." ),
+            critical=True,
+        )
+
         self.instruments = self.add_par(
             'instruments',
             None,
@@ -90,16 +123,6 @@ class ParsRefMaker(Parameters):
             critical=True,
         )
 
-        self.filters = self.add_par(
-            'filters',
-            None,
-            (None, list),
-            'Only use images with these filters. If None, will not limit the filters. '
-            'If given as a list, will use any of the filters in the list. '
-            'For multiple instruments, can match any filter to any instrument. ',
-            critical=True,
-        )
-
         self.projects = self.add_par(
             'projects',
             None,
@@ -107,6 +130,16 @@ class ParsRefMaker(Parameters):
             'Only use images from these projects. If None, will not limit the projects. '
             'If given as a list, will use any of the projects in the list. ',
             critical=True,
+        )
+
+        self.preprocessing_prov_id = self.add_par(
+            'preprocessing_prov',
+            None,
+            (str, None),
+            "Provenance ID of preprocessing provenacne to search for images for.  Be careful using this!  "
+            "Do not use this if you have more than one instrument.  If you don't specify this, it will "
+            "be determined automatically using config, which is usually what you want.",
+            critical=True
         )
 
         self.__image_query_pars__ = ['airmass', 'background', 'seeing', 'lim_mag', 'exp_time']
@@ -124,7 +157,19 @@ class ParsRefMaker(Parameters):
             'min_number',
             1,
             int,
-            'Construct a reference only if there are at least this many images that pass all other criteria. ',
+            ( 'Construct a reference only if there are at least this many images that pass all other criteria '
+              'If corner_distance is not None, then this applies to all test positions on the image unless '
+              'min_only_center is True.' ),
+            critical=True,
+        )
+
+        self.min_only_center = self.add_par(
+            'min_only_center',
+            False,
+            bool,
+            ( 'If True, then min_number only applies to the center position of the target area.  Otherwise, '
+              'every test position on the image must have at least min_number references for the construction '
+              'not to fail.  Ignored if corner_distance is None.' ),
             critical=True,
         )
 
@@ -132,7 +177,8 @@ class ParsRefMaker(Parameters):
             'max_number',
             None,
             (None, int),
-            'If there are more than this many images, pick the ones with the highest "quality". ',
+            'If there are more than this many images, pick the ones with the highest "quality". '
+            'WARNING : currently not implemented',
             critical=True,
         )
 
@@ -235,6 +281,10 @@ class RefMaker:
         maker_dict.update(maker_overrides)  # user can provide override arguments in kwargs
         self.pars = ParsRefMaker(**maker_dict)  # initialize without the pipeline/coaddition parameters
 
+        if ( self.pars.corner_distance is None ) != ( self.pars.overlap_fraction is None ):
+            raise ValueError( "Configuration error; for RefMaker, must have a float for both of "
+                              "corner_distance and overlap_fraction, or both must be None." )
+
         # first, make sure we can assemble the provenances up to extraction:
         self.im_provs = None  # the provenances used to make images going into the reference (these are coadds!)
         self.ex_provs = None  # the provenances used to make other products like SourceLists, that go into the reference
@@ -243,13 +293,27 @@ class RefMaker:
         self.ref_prov = None  # the provenance of the reference itself
         self.refset = None  # the RefSet object that was found / created
 
-        # these attributes tell us the place in the sky where we want to look for objects (given to run())
-        # optionally it also specifies which filter we want the reference to be in
+        self.reset()
+
+    # ======================================================================
+
+    def reset( self ):
+        # these attributes tell us the place in the sky (in degrees)
+        # where we want to look for objects (given to run()), # and the
+        # filter we want to be in.  Optionally, it can also specify a
+        # target and section_id to limit images to.
+
+        self.minra = None
+        self.maxra = None
+        self.mindec = None
+        self.maxdec = None
+        self.target = None
         self.ra = None  # in degrees
         self.dec = None  # in degrees
         self.target = None  # the name of the target / field ID / Object ID
         self.section_id = None  # a string with the section ID
-        self.filter = None  # a string with the (short) name of the filter
+
+    # ======================================================================
 
     def setup_provenances(self, session=None):
         """Make the provenances for the images and all their products, including the coadd image.
@@ -264,21 +328,31 @@ class RefMaker:
         self.im_provs = {}
         self.ex_provs = {}
 
+        if self.pars.preprocessing_prov_id is not None:
+            if len(self.pars.instruments) > 1:
+                SCLogger.warning( "RefMaker was given a preprocessing id, but also more than one instrument. "
+                                  "This is almost certainly wrong." )
+            preprocessing = Provenance.get( self.pars.preprocessing_prov_id )
+            code_version = Provenance.get_code_version()
+            if preprocessing is None:
+                raise ValueError( f"Failed to find provenance {self.pars.preprocessing_prov_id}" )
+
         for inst in self.pars.instruments:
-            load_exposure = Exposure.make_provenance(inst)
-            code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
-            pars = self.pipeline.preprocessor.pars.get_critical_pars()
-            preprocessing = Provenance(
-                process='preprocessing',
-                code_version_id=code_version.id,  # TODO: allow loading versions for each process
-                parameters=pars,
-                upstreams=[load_exposure],
-                is_testing='test_parameter' in pars,
-            )
-            # This provenance needs to be in the database so we can insert the
-            #   coadd provenance later, as this provenance is an upstream of that.
-            # Ideally, it's already there, but if not, we need to be ready.
-            preprocessing.insert_if_needed()
+            if self.pars.preprocessing_prov_id is None:
+                load_exposure = Exposure.make_provenance(inst)
+                code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
+                pars = self.pipeline.preprocessor.pars.get_critical_pars()
+                preprocessing = Provenance(
+                    process='preprocessing',
+                    code_version_id=code_version.id,  # TODO: allow loading versions for each process
+                    parameters=pars,
+                    upstreams=[load_exposure],
+                    is_testing='test_parameter' in pars,
+                )
+                # This provenance needs to be in the database so we can insert the
+                #   coadd provenance later, as this provenance is an upstream of that.
+                # Ideally, it's already there, but if not, we need to be ready.
+                preprocessing.insert_if_needed()
             pars = self.pipeline.extractor.pars.get_critical_pars()  # includes parameters of siblings
             extraction = Provenance(
                 process='extraction',
@@ -312,78 +386,82 @@ class RefMaker:
         self.ref_prov.insert_if_needed()
 
 
-    def parse_arguments(self, *args, **kwargs):
-        """Figure out if the input parameters are given as coordinates or as target + section ID pairs.
+    # ======================================================================
 
-        Possible combinations:
-        - float + float + string: interpreted as RA/Dec in degrees
-        - str + str: try to interpret as sexagesimal (RA as hours, Dec as degrees)
-                     if it fails, will interpret as target + section ID
-        # TODO: can we identify a reference with only a target/field ID without a section ID? Issue #320
-        In addition to the first two arguments, can also supply a filter name as a string
-        and can provide a session object as an argument (in any position) to be used and kept open
-        for the entire run. If not given a session, will open a new one and close it when done using it internally.
+    # def parse_arguments(self, *args, **kwargs):
+    #     """Figure out if the input parameters are given as coordinates or as target + section ID pairs.
 
-        Alternatively, can provide named arguments with the same combinations for either
-        (ra, dec) or (target, section_id) and filter.
+    #     Possible combinations:
+    #     - float + float + string: interpreted as RA/Dec in degrees
+    #     - str + str: try to interpret as sexagesimal (RA as hours, Dec as degrees)
+    #                  if it fails, will interpret as target + section ID
+    #     # TODO: can we identify a reference with only a target/field ID without a section ID? Issue #320
+    #     In addition to the first two arguments, can also supply a filter name as a string
+    #     and can provide a session object as an argument (in any position) to be used and kept open
+    #     for the entire run. If not given a session, will open a new one and close it when done using it internally.
 
-        Returns
-        -------
-        session: sqlalchemy.orm.session.Session object or None
-            The session object, if it was passed in as a positional argument.
-            If not given, the ref maker will just open and close sessions internally
-            when needed.
-        """
-        self.ra = None
-        self.dec = None
-        self.target = None
-        self.section_id = None
-        self.filter = None
+    #     Alternatively, can provide named arguments with the same combinations for either
+    #     (ra, dec) or (target, section_id) and filter.
 
-        args, kwargs, session = parse_session(*args, **kwargs)  # first pick out any sessions
+    #     Returns
+    #     -------
+    #     session: sqlalchemy.orm.session.Session object or None
+    #         The session object, if it was passed in as a positional argument.
+    #         If not given, the ref maker will just open and close sessions internally
+    #         when needed.
+    #     """
+    #     self.ra = None
+    #     self.dec = None
+    #     self.target = None
+    #     self.section_id = None
+    #     self.filter = None
 
-        if len(args) == 3:
-            if not isinstance(args[2], str):
-                raise ValueError('Third argument must be a string, the filter name!')
-            self.filter = args[2]
-            args = args[:2]  # remove the last one
+    #     args, kwargs, session = parse_session(*args, **kwargs)  # first pick out any sessions
 
-        if len(args) == 2:
-            if isinstance(args[0], (float, int, np.number)) and isinstance(args[1], (float, int, np.number)):
-                self.ra = float(args[0])
-                self.dec = float(args[1])
-            if isinstance(args[0], str) and isinstance(args[1], str):
-                try:
-                    self.ra = parse_sexigesimal_degrees(args[0], hours=True)
-                    self.dec = parse_sexigesimal_degrees(args[1], hours=False)
-                except ValueError:
-                    self.target, self.section_id = args[0], args[1]
-        elif len(args) == 0:  # parse kwargs instead!
-            if 'ra' in kwargs and 'dec' in kwargs:
-                self.ra = kwargs.pop('ra')
-                if isinstance(self.ra, str):
-                    self.ra = parse_sexigesimal_degrees(self.ra, hours=True)
+    #     if len(args) == 3:
+    #         if not isinstance(args[2], str):
+    #             raise ValueError('Third argument must be a string, the filter name!')
+    #         self.filter = args[2]
+    #         args = args[:2]  # remove the last one
 
-                self.dec = kwargs.pop('dec')
-                if isinstance(self.dec, str):
-                    self.dec = parse_sexigesimal_degrees(self.dec, hours=False)
+    #     if len(args) == 2:
+    #         if isinstance(args[0], (float, int, np.number)) and isinstance(args[1], (float, int, np.number)):
+    #             self.ra = float(args[0])
+    #             self.dec = float(args[1])
+    #         if isinstance(args[0], str) and isinstance(args[1], str):
+    #             try:
+    #                 self.ra = parse_sexigesimal_degrees(args[0], hours=True)
+    #                 self.dec = parse_sexigesimal_degrees(args[1], hours=False)
+    #             except ValueError:
+    #                 self.target, self.section_id = args[0], args[1]
+    #     elif len(args) == 0:  # parse kwargs instead!
+    #         if 'ra' in kwargs and 'dec' in kwargs:
+    #             self.ra = kwargs.pop('ra')
+    #             if isinstance(self.ra, str):
+    #                 self.ra = parse_sexigesimal_degrees(self.ra, hours=True)
 
-            elif 'target' in kwargs and 'section_id' in kwargs:
-                self.target = kwargs.pop('target')
-                self.section_id = kwargs.pop('section_id')
-            else:
-                raise ValueError('Cannot find ra/dec or target/section_id in any of the inputs! ')
+    #             self.dec = kwargs.pop('dec')
+    #             if isinstance(self.dec, str):
+    #                 self.dec = parse_sexigesimal_degrees(self.dec, hours=False)
 
-            if 'filter' in kwargs:
-                self.filter = kwargs.pop('filter')
+    #         elif 'target' in kwargs and 'section_id' in kwargs:
+    #             self.target = kwargs.pop('target')
+    #             self.section_id = kwargs.pop('section_id')
+    #         else:
+    #             raise ValueError('Cannot find ra/dec or target/section_id in any of the inputs! ')
 
-        else:
-            raise ValueError('Invalid number of arguments given to RefMaker.parse_arguments()')
+    #         if 'filter' in kwargs:
+    #             self.filter = kwargs.pop('filter')
 
-        if self.filter is None:
-            raise ValueError('No filter given to RefMaker.parse_arguments()!')
+    #     else:
+    #         raise ValueError('Invalid number of arguments given to RefMaker.parse_arguments()')
 
-        return session
+    #     if self.filter is None:
+    #         raise ValueError('No filter given to RefMaker.parse_arguments()!')
+
+    #     return session
+
+    # ======================================================================
 
     def _append_provenance_to_refset_if_appropriate( self, existing, session ):
         """Used internally by make_refset."""
@@ -434,6 +512,8 @@ class RefMaker:
                 self.refset = None
                 raise
 
+    # ======================================================================
+
     def make_refset(self, session=None):
         """Create or load an existing RefSet with the required name.
 
@@ -481,24 +561,206 @@ class RefMaker:
                     self._append_provenance_to_refset_if_appropriate( existing, dbsession )
 
 
-    def run(self, *args, **kwargs):
-        """Check if a reference exists for the given coordinates/field ID, and filter, and make it if it is missing.
+    # ======================================================================
+
+    def parse_arguments( self, image=None, ra=None, dec=None,
+                             minra=None, maxra=None, mindec=None, maxdec=None,
+                             target=None, section_id=None,
+                             filter=None ):
+        """Parse arguments for the RefMaker.
+
+        There are three modes in which RefMaker can operate:
+
+        * If the corner_distance parameter is None, then we're making a
+          reference that covers a single point (useful for forced
+          photometry, for instance).  In this case, either specify an
+          image (in which case its central ra and dec are used), or
+          specify ra/dec.
+
+        * If the corner_distance parameter is not None, we're making a
+          reference that covers a rectangle on the sky (covering at
+          least the overlap_fraction parameter of the rectangle).  In
+          this case, either specify an image that defines the rectangle
+          on the sky, or specify minra/maxra/mindec/maxdec.  The rectangle
+          is aligned to NS/EW.
+
+        Parameters
+        ----------
+          image: Image or None
+            Used to get the ra/dec (if pars.corner_distance is None) or min/max ra/dec.
+
+          ra, dec: float or None
+            Position to search.   Only makes sense if pars.corner_distance is None
+
+          minra, maxra, mindec, maxdec: float or None
+            Area to search.  Only makes sense if pars.corner_disdtance is not None
+
+          target, section_id: string or None
+            Optionally, specify a target and section_id that images must
+            have to be considered for inclusion in a reference.  Only
+            use this if you're using a survey that's very careful about
+            setting its target names, and if you always go back to
+            exactly the same fields so you know that the same chip is
+            always going to be in the same place.
+
+          filter: string, list of string, or None
+            If given, only find images whose filters match something in this list
+
+        """
+        if ( image is not None ) and any( i is not None for i in [ ra, dec, minra, maxra, mindec, maxdec ] ):
+            raise ValueError( "If you pass image to RefMaker.run, you can't pass any coordinates." )
+
+        if self.pars.corner_distance is None:
+            if any( i is not None for i in [ ra, dec, minra, maxra, mindec, maxdec ] ):
+                raise ValueError( "For RefMaker corner_distance None, can't specify minra/maxra/mindec/maxdec" )
+            if image is not None:
+                if ( ra is not None ) or ( dec is not None ):
+                    raise ValueError( "For RefMaker corner_distance None, must specify image or ra/dec, not both" )
+                ra = image.ra
+                dec = image.dec
+            else:
+                if ( ra is None ) or ( dec is None ):
+                    raise ValueError( "For RefMaker corner_distance None, must provide either image or both ra & dec" )
+        else:
+            if ( ra is not None ) or ( dec is not None ):
+                raise ValueError( "For RefMaker corner_distance not None, can't specify ra/dec" )
+            if image is not None:
+                if any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
+                    raise ValueError( "For RefMaker corner_distance not None, must specify image or "
+                                      "minra/maxra/mindex/maxdec, not both" )
+                minra = image.minra
+                maxra = image.maxra
+                mindec = image.mindec
+                maxdec = image.maxdec
+            else:
+                if any ( i is None for i in [ minra, maxra, mindec, maxdec ] ):
+                    raise ValueError( "For RefMaker corner_distance not None, must specify image or "
+                                      "all of minra/maxra/mindec/maxdec" )
+
+        self.minra = minra
+        self.maxra = maxra
+        self.mindec = mindec
+        self.maxdec = maxdec
+        self.ra = ra
+        self.dec = dec
+        self.target = target
+        self.section_id = section_id
+
+        if filter is not None:
+            if isinstance( filter, str ):
+                self.filters = [ filter ]
+            elif ( ( isinstance( filter, collections.abc.Sequence ) ) and
+                   ( all( isinstance( f, str ) for f in filter ) ) ):
+                self.filters = list( filter )
+            else:
+                raise TypeError( f"filters must be a string or a list of string, not {type(filter)}" )
+        else:
+            self.filters = None
+
+
+    # ======================================================================
+
+    def identify_reference_images_to_coadd( self, *args, _do_not_parse_arguments=False, **kwargs ):
+        """Identify images in the database that could be used to build our reference.
+
+        See parse_arguments for a description of the arguments.
+
+        (Parameter _do_not_parse_arguments is used internally, ignore it
+        if calling this from the outside.)
+
+        Returns
+        -------
+           images, match_pos, match_count
+
+           images: list of Image
+             Images that can be included in the sum
+
+           match_pos: 2d numpy array
+             Each row is [ra,dec] of a position on the summed image.  If
+             operating in (ra,dec) mode (rather than min/max ra/dec
+             mode), this will be [[ra,dec]].
+
+          match_count: list of int
+             Number of images that overlap the corresponding match_pos.
+
+        """
+        if not _do_not_parse_arguments:
+            self.parse_arguments( *args, **kwargs )
+
+        if self.pars.corner_distance is None:
+            match_pos = [ [ self.ra, self.dec ] ]
+            match_count = [ 0 ]
+            kwargs = { 'ra': self.ra, 'dec': self.dec }
+        else:
+            if ( self.maxra < self.minra ):
+                dra = ( self.maxra + 360. - self.minra ) * self.pars.corner_distance/2.
+                ctrra = ( self.maxra+360. + self.minra ) / 2.
+                ctrra = ctrra if ctrra >= 0. else ctrra + 360.
+            else:
+                dra = ( self.maxra - self.minra ) * self.pars.corner_distance/2.
+                ctrra = ( self.maxra + self.minra ) / 2.
+            ddec = ( self.maxdec - self.mindec ) * self.pars.corner_distance/2.
+            ctrdec = ( self.maxdec + self.mindec ) / 2.
+            match_pos = np.array( [ [ ctrra + 0.,  ctrdec + 0. ],
+                                    [ ctrra - dra, ctrdec - ddec ],
+                                    [ ctrra + 0.,  ctrdec - ddec ],
+                                    [ ctrra + dra, ctrdec - ddec ],
+                                    [ ctrra - dra, ctrdec + 0. ],
+                                    [ ctrra + dra, ctrdec + 0. ],
+                                    [ ctrra - dra, ctrdec + ddec ],
+                                    [ ctrra + 0.,  ctrdec + ddec ],
+                                    [ ctrra + dra, ctrdec + ddec ] ] )
+            match_count = [ 0 ] * 9
+            kwargs = { 'minra': self.minra, 'maxra': self.maxra, 'mindec': self.mindec, 'maxdec': self.maxdec,
+                       'overlapfrac': self.pars.coadd_overlap_fraction }
+
+        kwargs['provenance_ids'] = [ p.id for p in self.im_provs.values() ]
+        kwargs['instrument' ] = self.pars.instruments
+        kwargs['project'] = self.pars.projects
+        kwargs['filter'] = self.filters
+        kwargs['min_mjd'] = None if self.pars.start_time is None else parse_dateobs( self.pars.start_time, output='mjd' )
+        kwargs['max_mjd'] = None if self.pars.end_time is None else parse_dateobs( self.pars.end_time, output='mjd' )
+        kwargs['max_seeing'] = self.pars.max_seeing
+        kwargs['min_lim_mag'] = self.pars.min_lim_mag
+        kwargs['min_exp_time'] = self.pars.min_exp_time
+        # TODO : airmass, background
+
+        possible = Image.find_images( **kwargs )
+
+        existing = []
+        for image in possible:
+            keep = False
+            for i, pos in enumerate(match_pos):
+                if image.contains( pos[0], pos[1] ):
+                    match_count[i] += 1
+                    keep = True
+            if keep:
+                existing.append( image )
+
+        return existing, match_pos, match_count
+
+
+    # ======================================================================
+
+    def run(self, *args, do_not_build=False, **kwargs ):
+        """Look to see if there is an existing reference that matches the specs; if not, optionally build one.
+
+        See parse_arguments for function call parameters.  The remaining
+        policy for which images to picdk, and what provenacne to use to
+        find references, is defined by the parameters object of self and
+        self.pipeline.
+
+        If do_not_build is true, this becomes a thin front-end for Reference.get_references().
 
         Will check if a RefSet exists with the same provenance and name, and if it doesn't, will create a new
         RefSet with these properties, to keep track of the reference provenances.
 
-        Arguments specifying where in the sky to look for / create the reference are parsed by parse_arguments().
-        Same is true for the filter choice.
-        The remaining policy regarding which images to pick, and what provenance to use to find references,
-        is defined by the parameters object of self and of self.pipeline.
-
-        If one of the inputs is a session, will use that in the entire process.
-        Otherwise, will open internal sessions and close them whenever they are not needed.
-
         Will return a Reference, or None in case it doesn't exist and cannot be created
         (e.g., because there are not enough images that pass the criteria).
+
         """
-        session = self.parse_arguments(*args, **kwargs)
+
+        self.parse_arguments( *args, **kwargs )
 
         self.make_refset( session=session )
 
@@ -522,54 +784,32 @@ class RefMaker:
             raise RuntimeError( f'Found multiple references with the same provenance '
                                 f'{self.ref_prov.id} and location!' )
 
-        ############### no reference found, need to build one! ################
-
-        # first get all the images that could be used to build the reference
-        images = []  # can get images from different instruments
-        with SmartSession( session ) as dbsession:
-            for inst in self.pars.instrument:
-                query_pars = dict(
-                    instrument=inst,
-                    ra=self.ra,  # can be None!
-                    dec=self.dec,  # can be None!
-                    target=self.target,  # can be None!
-                    section_id=self.section_id,  # can be None!
-                    filter=self.pars.filters,  # can be None!
-                    project=self.pars.project,  # can be None!
-                    min_dateobs=self.pars.start_time,
-                    max_dateobs=self.pars.end_time,
-                    seeing_quality_factor=self.pars.seeing_quality_factor,
-                    order_by='quality',
-                    provenance_ids=self.im_provs[inst].id,
-                )
-
-                for key in self.pars.__image_query_pars__:
-                    for min_max in ['min', 'max']:
-                        query_pars[f'{min_max}_{key}'] = getattr(self.pars, f'{min_max}_{key}')  # can be None!
-
-                # get the actual images that match the query
-                images += dbsession.scalars(Image.query_images(**query_pars).limit(self.pars.max_number)).all()
-
-        if len(images) < self.pars.min_number:
-            SCLogger.info(f'Found {len(images)} images, need at least {self.pars.min_number} to make a reference!')
+        if do_not_build:
             return None
 
-        # note that if there are multiple instruments, each query may load the max number of images,
-        # that's why we must also limit the number of images after all queries have returned.
-        if len(images) > self.pars.max_number:
-            coeff = abs(self.pars.seeing_quality_factor)  # abs is used to make sure the coefficient is negative
-            for im in images:
-                im.quality = im.lim_mag_estimate - coeff * im.fwhm_estimate
+        ############### no reference found, need to build one! ################
 
-            # sort the images by the quality
-            images = sorted(images, key=lambda x: x.quality, reverse=True)
-            images = images[:self.pars.max_number]
+        images, match_pos, match_count = self.identify_reference_images_to_coadd( _do_not_parse_arguments=True )
 
-        # make the reference (note that we are out of the session block, to release it while we coadd)
+        # Make sure we got enough
+
+        if len(images) < self.pars.min_number:
+            SCLogger.info( f"RefMaker only found {len(images)} images overlapping the desired field, "
+                           f"which is less than the minimum of {self.pars.min_number}" )
+            return None
+        # match_count[0] is always for the center position
+        if ( self.pars.min_only_center ) and ( match_count[0] < self.pars.min_number ):
+            SCLogger.info( f"RekMaker only found {len(match_count[0])} images overlapping the center of the "
+                           f"desired field, which is less than the minimum of {self.pars.min_number}" )
+            return None
+        elif ( not self.pars.min_only_center ) and any( c < self.pars.min.number for c in match_count ):
+            SCLogger.info( f"RefMaker didn't find enough references at at least one point on the image; "
+                           f"match_count={match_count}, min_number={self.mars.min_number}" )
+            return None
+
+        # Sort the images and create data stores for all of them
+
         images = sorted(images, key=lambda x: x.mjd)  # sort the images in chronological order for coaddition
-        data_stores = [ DataStore( i, { 'extraction': self.ex_provs[i.instrument] } ) for i in images ]
-
-        # Create datastores with the images, sources, psfs, etc.
         dses = []
         for im in images:
             inst = im.instrument

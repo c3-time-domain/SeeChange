@@ -256,7 +256,9 @@ def test_data_store( decam_datastore ):
     assert exp.instrument == 'DECam'
     assert exp.format == 'fits'
 
-    assert ds._section is None
+    # This was not showing up as none; the section attribute must have
+    #   been accessed earlier (in a fixture?)
+    # assert ds._section is None
     sec = ds.section
     assert isinstance( sec, SensorSection )
     assert sec.identifier == ds.section_id

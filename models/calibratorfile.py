@@ -1,10 +1,16 @@
+import os
 import time
+import math
 import datetime
 import contextlib
+import random
 
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.exc import IntegrityError
 
 from models.base import Base, UUIDMixin, SmartSession
 from models.image import Image
@@ -140,10 +146,18 @@ class CalibratorFile(Base, UUIDMixin):
 class CalibratorFileDownloadLock(Base, UUIDMixin):
     __tablename__ = 'calibfile_downloadlock'
 
+    @declared_attr
+    def __table_args__( cls ):
+        return (
+            UniqueConstraint( '_type', '_calibrator_set', '_flat_type', 'instrument', 'sensor_section',
+                              name='calibfile_downloadlock_unique',
+                              postgresql_nulls_not_distinct=True ),
+        )
+
     _type = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        index=True,
+        index=False,
         server_default=sa.sql.elements.TextClause( str(CalibratorTypeConverter.convert( 'unknown' )) ),
         doc="Type of calibrator (Dark, Flat, Linearity, etc.)"
     )
@@ -165,7 +179,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
     _calibrator_set = sa.Column(
         sa.SMALLINT,
         nullable=False,
-        index=True,
+        index=False,
         server_default=sa.sql.elements.TextClause( str(CalibratorTypeConverter.convert('unknown')) ),
         doc="Calibrator set for instrument (unknown, externally_supplied, general, nightly)"
     )
@@ -185,7 +199,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
     _flat_type = sa.Column(
         sa.SMALLINT,
         nullable=True,
-        index=True,
+        index=False,
         doc="Type of flat (unknown, observatory_supplied, sky, twilight, dome), or None if not a flat"
     )
 
@@ -205,14 +219,14 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
     instrument = sa.Column(
         sa.Text,
         nullable=False,
-        index=True,
+        index=False,
         doc="Instrument this calibrator image is for"
     )
 
     sensor_section = sa.Column(
         sa.Text,
         nullable=True,
-        index=True,
+        index=False,
         doc="Sensor Section of the Instrument this calibrator image is for"
     )
 
@@ -226,7 +240,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
 
     @classmethod
     @contextlib.contextmanager
-    def acquire_lock( cls, instrument, section, calibset, calibtype, flattype=None, maxsleep=20, session=None ):
+    def acquire_lock( cls, instrument, section, calibset, calibtype, flattype=None, maxsleep=40, session=None ):
         """Get a lock on updating/adding Calibrators of a given type for a given instrument/section.
 
         This class method should *only* be called as a context manager ("with").
@@ -248,11 +262,9 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
         flattype: str, default None
            The flat type if calibtype is 'flat'
 
-        maxsleep: int, default 25
-           When trying to get a lock, this routine will sleep after
-           failing to get it.  It start sleeping at 0.1 seconds, and
-           doubles the sleep time each time it fails.  Once sleeptime is
-           this value or greater, it will raise an exception.
+        maxsleep: int, default 40
+           Keep trying for at most this many seconds before finally
+           giving up and failing to get the lock.
 
         session: Session
 
@@ -272,24 +284,27 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
 
         """
 
-        lockid = None
-        sleeptime = 0.1
-        while lockid is None:
-            with SmartSession(session) as sess:
-                try:
-                    # Lock the calibfile_downloadlock table to avoid a race condition
-                    cls._get_table_lock( sess )
+        # First, see if the session already has the lock, and if so, just
+        #  return (not yield) it.  (In this case, this function was called
+        #  earlier with the same session.)
+        if ( session is not None ) and ( session in cls._locks ):
+            return cls._locks[ session ]
 
-                    # Check to see if there's a lock now
-                    lockq = ( sess.query( CalibratorFileDownloadLock )
-                              .filter( CalibratorFileDownloadLock.calibrator_set == calibset )
-                              .filter( CalibratorFileDownloadLock.instrument == instrument )
-                              .filter( CalibratorFileDownloadLock.type == calibtype )
-                              .filter( CalibratorFileDownloadLock.sensor_section == section ) )
-                    if calibtype == 'flat':
-                        lockq = lockq.filter( CalibratorFileDownloadLock.flat_type == flattype )
-                    if lockq.count() == 0:
-                        # There isn't, so create the lock
+        lockid = None
+        fail = False
+        sleepmin = 0.25
+        sleepsigma = 0.25
+        totsleep = 0.
+        # Use os.urandom() to see the rng because if we just use the
+        #  random module stuff, it will use the system clock.  A bunch
+        #  of processes may well hit this line at the same time and get
+        #  the same random seed.
+        random.seed( os.urandom(4) )
+        try:
+            while ( lockid is None ) and ( not fail ):
+                # Try to create the lock
+                with SmartSession(session) as sess:
+                    try:
                         caliblock = CalibratorFileDownloadLock( calibrator_set=calibset,
                                                                 instrument=instrument,
                                                                 type=calibtype,
@@ -298,62 +313,52 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
                         sess.add( caliblock )
                         # SCLogger.debug( "CalibratorFileDownloadLock comitting" )
                         sess.commit()
-                        sess.refresh( caliblock )   # is this necessary?
+                        sess.refresh( caliblock )
                         lockid = caliblock.id
-                        # SCLogger.debug( f"Created calibfile_downloadlock {lockid}" )
-                    else:
-                        if lockq.count() > 1:
-                            raise RuntimeError( f"Database corruption: multiple CalibratorFileDownloadLock for "
-                                                f"{instrument} {section} {calibset} {calibtype} {flattype}" )
-                        lockid = lockq.first().id
-                        # SCLogger.debug( "CalibratorFileDownloadLock rolling back" )
+                    except IntegrityError as ex:
                         sess.rollback()
-                        if ( ( lockid in cls._locks.keys() ) and ( cls._locks[lockid] == sess ) ):
-                            # The lock already exists, and is owned by this
-                            # session, so just return it.  Return not yield;
-                            # if the lock already exists, then there should
-                            # be an outer with block that grabbed the lock,
-                            # and we don't want to delete it prematurely.
-                            # (Note that above, we compare
-                            # cls._locks[lockid] to sess, not to session.
-                            # if cls._locks[lockid] is None, it means that
-                            # it's a global lock owned by nobody; if session
-                            # is None, it means no session was passed.  A
-                            # lack of a sesson doesn't own a lock owned by
-                            # nobody.)
-                            return lockid
-                        else:
-                            # Either the lock doesn't exist, or belongs to another session,
-                            # so wait a bit and try again.
-                            lockid = None
-                            if sleeptime > maxsleep:
-                                lockid = -1
-                            else:
-                                time.sleep( sleeptime )
-                                sleeptime *= 2
-                finally:
-                    # Make sure any dangling table locks are released
-                    # SCLogger.debug( "CalibratorFileDownloadLock rolling back" )
-                    sess.rollback()
+                        lockid = None
+                if lockid is None:
+                    # Lock already existed, so wait a bit and try again
+                    if totsleep > maxsleep:
+                        fail = True
+                    else:
+                        # We used to keep exponentially expanding the sleep time by a factor of 2
+                        # each time, but that had a race condition of its own.  When launching a
+                        # bunch of processes with a multiprocessing pool, they'd all be synchronized
+                        # enough that multiple processes would get to a long sleep at the same time,
+                        # and then all pool for the lock at clse enough to the same time that only
+                        # one would get it.  The rest would all wait a very long time (while, for
+                        # most of it, no lock was being held) before trying again.  They'd only have
+                        # a few tries left, and ultimately several would fail.  So, instead, wait a
+                        # random amount of time, to prevent syncronization.
+                        tsleep = sleepmin + math.fabs( random.normalvariate( mu=0., sigma=sleepsigma ) )
+                        time.sleep( tsleep )
+                        totsleep += tsleep
 
-        if lockid == -1:
-            raise RuntimeError( f"Couldn't get CalibratorFileDownloadLock for "
-                                f"{instrument} {section} {calibset} {calibtype} after many tries." )
+            if fail:
+                raise RuntimeError( f"Couldn't get CalibratorFileDownloadLock for "
+                                    f"{instrument} {section} {calibset} {calibtype} after many tries." )
 
-        # Assign the lock to the passed session.  (If no session was passed, it will be assigned
-        # to None, which is OK.)
-        cls._locks[lockid] = session
-        yield lockid
+            # Assign the lock to the passed session, if any
+            if session is not None:
+                cls._locks[session] = lockid
 
-        with SmartSession(session) as sess:
-            # SCLogger.debug( f"Deleting calibfile_downloadlock {lockid}" )
-            sess.connection().execute( sa.text( 'DELETE FROM calibfile_downloadlock WHERE _id=:id' ),
-                                       { 'id': lockid } )
-            sess.commit()
-            try:
-                del cls._locks[ lockid ]
-            except KeyError:
-                pass
+            yield lockid
+
+        finally:
+            if lockid is not None:
+                with SmartSession(session) as sess:
+                    # SCLogger.debug( f"Deleting calibfile_downloadlock {lockid}" )
+                    sess.connection().execute( sa.text( 'DELETE FROM calibfile_downloadlock WHERE _id=:id' ),
+                                               { 'id': lockid } )
+                    sess.commit()
+
+            if session is not None:
+                try:
+                    del cls._locks[ session ]
+                except KeyError:
+                    pass
 
 
     @classmethod

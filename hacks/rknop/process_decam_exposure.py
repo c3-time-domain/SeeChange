@@ -28,8 +28,9 @@ _config = Config.get()
 # ======================================================================
 
 class ExposureProcessor:
-    def __init__( self, exposurefile, decam ):
+    def __init__( self, exposurefile, decam, through_step=None ):
         self.decam = decam
+        self.through_step = through_step
 
         # Make sure we can read the input exposure file
 
@@ -54,10 +55,7 @@ class ExposureProcessor:
                 SCLogger.info( f"Loading exposure {relpath} into database" )
                 self.exposure = Exposure( filepath=relpath, instrument='DECam', **exphdrinfo )
                 self.exposure.save()
-
-                self.exposure.provenance = sess.merge( self.exposure.provenance )
-                sess.merge( self.exposure )
-                sess.commit()
+                self.exposure.insert( session=sess )
             else:
                 SCLogger.info( f"Exposure {relpath} is already in the database" )
 
@@ -76,8 +74,11 @@ class ExposureProcessor:
                 me.name = str( me.pid )
             SCLogger.replace( me.name )
             SCLogger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
-            pipeline = Pipeline()
-            ds = pipeline.run( self.exposure, chip )
+            pipeline = Pipeline( pipeline={ 'through_step': self.through_step } )
+            kwargs = {}
+            if self.through_step in [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp' ]:
+                kwargs['ok_no_ref_provs'] = True
+            ds = pipeline.run( self.exposure, chip, **kwargs )
             ds.save_and_commit()
             return ( chip, True )
         except Exception as ex:
@@ -95,6 +96,9 @@ def main():
                                       formatter_class=argparse.ArgumentDefaultsHelpFormatter )
     parser.add_argument( "exposure", help="Path to exposure file" )
     parser.add_argument( "-n", "--numprocs", default=60, type=int, help="Number of processes to run at once" )
+    parser.add_argument( "-t", "--through-step", default=None,
+                         help=("Process through this step (preprocessing, backgrounding, extraction, wcs, zp, "
+                               "subtraction, detection, cutting, measuring") )
     parser.add_argument( "-c", "--chips", nargs='+', default=[], help="Chips to process (default: all good)" );
     args = parser.parse_args()
 
@@ -161,7 +165,7 @@ def main():
 
     # Now on to the real work
 
-    exproc = ExposureProcessor( args.exposure, decam )
+    exproc = ExposureProcessor( args.exposure, decam, through_step=args.through_step )
 
     chips = args.chips
     if len(chips) == 0:

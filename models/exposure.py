@@ -410,24 +410,10 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     def make_provenance(cls, instrument):
         """Generate a Provenance for this exposure and save it to the database.
 
-        The provenance will have only one parameter,
-        which is the instrument name.
-
-        Why use the instrument as a parameter of the exposure?
-        So we never have data products from different instruments
-        with the same provenance (this is important to how we group
-        the upstream images when e.g., making a coadd).
+        Just calls the instrument's get_exposure_provenance() method.
         """
-        codeversion = Provenance.get_code_version()
-        prov = Provenance(
-            code_version_id=codeversion.id,
-            process='load_exposure',
-            parameters={'instrument': instrument},
-            upstreams=[],
-        )
-        prov.insert_if_needed()
+        return get_instrument_instance( instrument ).get_exposure_provenance()
 
-        return prov
 
     @sa.orm.reconstructor
     def init_on_load(self):

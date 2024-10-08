@@ -38,7 +38,7 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
     sizelog : str
       One of 'GiB', 'MiB', or 'kib', defaulting to 'MiB' (which will
       also be usede if the string doesn't match any of the three).
-      Units to report download size and rate in to logger.info().
+      Units to report download size and rate in to logger.debug().
 
     """
 
@@ -53,19 +53,19 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
             raise FileExistsError( f"{fpath} already exists and exists_ok is false." )
         else:
             if md5sum is None:
-                logger.info( f"retry_download: {fpath} exists, trusting it's the right thing." )
+                logger.debug( f"retry_download: {fpath} exists, trusting it's the right thing." )
                 return
             md5 = hashlib.md5()
             with open( fpath, 'rb' ) as ifp:
                 md5.update( ifp.read() )
             if md5.hexdigest() == md5sum:
-                logger.info( f"retry_download: {fname} already exists with the right md5sum, not redownloading" )
+                logger.debug( f"retry_download: {fname} already exists with the right md5sum, not redownloading" )
                 return
             mmerr = f"md5sum {md5.hexdigest()} doesn't match expected {md5sum}"
             if not clobber:
                 logger.error( f"retry_download: {fpath} exists but {mmerr} and clobber is False" )
                 raise FileExistsError( f"{fpath} exists but {mmerr} and clobber is False" )
-            logger.info( f"retry_download: existing {fpath} {mmerr}, clobbering and redownloading"  )
+            logger.debug( f"retry_download: existing {fpath} {mmerr}, clobbering and redownloading"  )
             fpath.unlink()
 
     # If we get this far, then there is no file at fpath, either because
@@ -80,7 +80,7 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
     success = False
     while not success:
         if countdown < retries:
-            logger.info( f"...retrying download of {fname}" )
+            logger.debug( f"...retrying download of {fname}" )
         countdown -= 1
         try:
             starttime = time.perf_counter()
@@ -96,13 +96,13 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
                 size = len(response.content) / 1024 / 1024
                 sizelog = 'MiB'
             dt = float( midtime-starttime )
-            logger.info( f"...downloaded {size:.3f} {sizelog} in {midtime-starttime:.2f} sec "
+            logger.debug( f"...downloaded {size:.3f} {sizelog} in {midtime-starttime:.2f} sec "
                          f"({size/dt:.3f} {sizelog}/sec)" )
             fpath.parent.mkdir( exist_ok=True, parents=True )
             with open( fpath, "wb" ) as ofp:
                 ofp.write( response.content )
             endtime = time.perf_counter()
-            logger.info( f"...written to disk in {endtime-midtime:.2f} sec" )
+            logger.debug( f"...written to disk in {endtime-midtime:.2f} sec" )
             success = True
             if md5sum is not None:
                 md5 = hashlib.md5()

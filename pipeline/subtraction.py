@@ -37,9 +37,17 @@ class ParsSubtractor(Parameters):
 
         self.alignment = self.add_par(
             'alignment',
-            {'method': 'swarp', 'to_index': 'new'},
+            {'method': 'swarp'},
             dict,
             'How to align the reference image to the new image. This will be ingested by ImageAligner. '
+        )
+
+        self.alignment_index = self.add_par(
+            'alignment_index',
+            'new',
+            str,
+            'How to choose the index of image to align to.  Can be "new" or "ref"',
+            critical=True
         )
 
         self.reference = self.add_par(
@@ -322,7 +330,7 @@ class Subtractor:
             if self.has_recalculated:
 
                 # Align the images
-                to_index = self.aligner.pars.to_index
+                to_index = self.pars.alignment_index
                 if to_index == 'ref':
                     SCLogger.error( "Aligning new to ref will violate assumptions in detection.py and measuring.py" )
                     raise RuntimeError( "Aligning new to ref not supported; align ref to new instead" )
@@ -371,7 +379,7 @@ class Subtractor:
                     ds.aligned_wcs = ds.wcs
 
                 else:
-                    raise ValueError( f"aligner to_index must be ref or new, not {to_index}" )
+                    raise ValueError( f"alignment_index must be ref or new, not {to_index}" )
 
                 ImageAligner.cleanup_temp_images()
 

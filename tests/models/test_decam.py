@@ -156,8 +156,35 @@ def test_decam_search_noirlab( decam_reduced_origin_exposures ):
                                                        skip_exposures_in_database=False )
         assert len(originexposures._frame.index.levels[0]) == 4
         assert set(originexposures._frame.filtercode) == { 'r', 'g' }
+
+        # Make sure that we can search based on RA, Dec center
+        originexposures = decam.find_origin_exposures( minmjd=59893.18, maxmjd=60008.01,
+                                                       proc_type='instcal', ctr_ra=30., ctr_dec=-7., radius=1. )
+        assert len(originexposures._frame.index.levels[0]) == 4
+        assert set(originexposures._frame.index.levels[1]) == { 'image', 'wtmap', 'dqmask' }
+        assert set(originexposures._frame.filtercode) == { 'r', 'i', 'z' }
+        assert set(originexposures._frame.proposal) == { '2020B-0053', '2021B-0909' }
+        ras = originexposures._frame.xs( 'image', level='prod_type' ).ra_center
+        decs = originexposures._frame.xs( 'image', level='prod_type' ).dec_center
+        assert all( ras > 30. - 1. / np.cos( -7 * np.pi/180. ) )
+        assert all( ras < 30. + 1. / np.cos( -7 * np.pi/180. ) )
+        assert all( decs > -7 - 1. )
+        assert all( decs < -7 + 1. )
+
     finally:
         SCLogger.setLevel( origloglevel )
+
+
+@pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
+def test_decam_search_noirlab_dedup():
+    # Make sure that if we do a search we know has duplicates in it, we don't get
+    #  duplicate exposures
+
+    decam = DECam()
+    originexposures = decam.find_origin_exposures( minmjd=57664.25347, maxmjd=57664.25556, proc_type='instcal' )
+    assert len(originexposures) == 1
+    assert ( originexposures.exposure_origin_identifier(0) ==
+             '/net/archive/pipe/20161002/ct4m/2012B-0001/c4d_161003_060737_ooi_r_v1.fits.fz' )
 
 
 @pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )

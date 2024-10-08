@@ -352,7 +352,8 @@ def test_coaddition_run(coadder, ptf_reference_image_datastores, ptf_aligned_ima
     upstrims = ref_image.get_upstreams( only_images=True )
     assert [ i.id for i in upstrims ] == [ d.image.id for d in ptf_reference_image_datastores ]
     assert ref_image.ref_image_id == refimlast.id
-    assert ref_image.new_image_id is None
+    with pytest.raises( RuntimeError, match="new_image_id is not defined for images that aren't subtractions" ):
+        assert ref_image.new_image_id is None
 
     assert ref_image.data is not None
     assert ref_image.data.shape == refimlast.data.shape
@@ -536,3 +537,35 @@ def test_coadded_reference(ptf_ref):
 
     assert ref_prov.parameters['test_parameter'] == 'test_value'
 
+
+def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_alignment_target ):
+
+    coadder = Coadder( method='swarp',
+                       alignment_index='other',
+                       alignment={ 'min_frac_matched': 0.025, 'min_matched': 50 }
+                      )
+    img = coadder.run( data_store_list=decam_four_offset_refs,
+                       alignment_target_datastore=decam_four_refs_alignment_target )
+
+    assert img.data.shape == ( 4096, 2048 )
+    assert img.flags.shape == img.data.shape
+    assert img.weight.shape == img.data.shape
+
+    # What else to check?
+
+    # Spot check a few points on the image.
+    # (I manually looked at the image and picked out a few spots)
+
+    # Check that the weight is higher in a region where two images actually overlapped
+    assert img.weight[ 550:640, 975:1140 ].mean() == pytest.approx( 0.0199, abs=0.0005 )
+    assert img.weight[ 690:770, 930:1050 ].mean() == pytest.approx( 0.0131, abs=0.0005 )
+
+    # Look at a spot with a star, and a nearby sky, in a place where there was only
+    #   one image in the coadd
+    assert img.data[ 3217:3231, 479:491 ].sum() == pytest.approx( 82530., abs=25. )
+    assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 231., abs=25. )
+
+    # Look at a spot with a galaxy and a nearby sky, in a place where there were
+    #   two images in the sum
+    assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7918., abs=10. )
+    assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 44., abs=10. )

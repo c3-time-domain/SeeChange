@@ -1,4 +1,7 @@
+import re
+import os
 import math
+import time
 import copy
 import pathlib
 import requests
@@ -192,9 +195,9 @@ class DECam(Instrument):
         Returns
         -------
         offset_x: int
-            The x offset of the section.
+            The x offset of the section in pixels.
         offset_y: int
-            The y offset of the section.
+            The y offset of the section in pixels.
 
         """
 
@@ -221,11 +224,33 @@ class DECam(Instrument):
         return SensorSection(section_id, self.name, size_x=2048, size_y=4096,
                              offset_x=dx, offset_y=dy, defective=defective)
 
-    def get_ra_dec_for_section( self, exposure, section_id ):
+    def get_ra_dec_for_section( self, ra, dec, section_id ):
         if section_id not in self._chip_radec_off:
             raise ValueError( f"Unknown DECam section_id {section_id}" )
-        return ( exposure.ra + self._chip_radec_off[section_id]['dra'] / math.cos( exposure.dec * math.pi / 180. ),
-                 exposure.dec + self._chip_radec_off[section_id]['ddec'] )
+        return ( ra + self._chip_radec_off[section_id]['dra'] / math.cos( dec * math.pi / 180. ),
+                 dec + self._chip_radec_off[section_id]['ddec'] )
+
+    def get_ra_dec_corners_for_section( self, ra, dec, section_id ):
+        self.fetch_sections()
+        section = self.get_section( section_id )
+        ra, dec = self.get_ra_dec_for_section( ra, dec, section_id )
+        minra = ra - section.size_y / 2. * self.pixel_scale / 3600. / np.cos( dec * np.pi/180. )
+        maxra = ra + section.size_y / 2. * self.pixel_scale / 3600. / np.cos( dec * np.pi/180. )
+        mindec = dec - section.size_x / 2. * self.pixel_scale / 3600.
+        maxdec = dec + section.size_x / 2. * self.pixel_scale / 3600.
+        return { 'ra_corner_00': minra,
+                 'ra_corner_01': minra,
+                 'ra_corner_10': maxra,
+                 'ra_corner_11': maxra,
+                 'minra': minra,
+                 'maxra': maxra,
+                 'dec_corner_00': mindec,
+                 'dec_corner_01': maxdec,
+                 'dec_corner_10': mindec,
+                 'dec_corner_11': maxdec,
+                 'mindec': mindec,
+                 'maxdec': maxdec
+                }
 
     def get_standard_flags_image( self, section_id ):
         # NOTE : there's a race condition here; multiple
@@ -428,15 +453,23 @@ class DECam(Instrument):
 
         if calibtype == 'linearity':
             # Linearity requires special handling because it's the same
-            # file for all chips.  So, to avoid chaos, we have to get
-            # the CalibratorFileDownloadLock for it with section=None.
-            # (By the time this this function is called, we should
-            # already have the lock for one specific section, but not
-            # for the whole instrument.)
+            # file for all chips.  So, to avoid chaos, we will to get
+            # the CalibratorFileDownloadLock for it with section=None;
+            # that will prevent different processes inside this function
+            # from stepping on each others' toes.  (By the time this
+            # this function is called, we should already have the lock
+            # for one specific section, but not for the whole
+            # instrument.)
 
-            with CalibratorFileDownloadLock.acquire_lock(
-                    self.name, None, 'externally_supplied', 'linearity', session=session
-            ) as calibfile_lockid:
+            SCLogger.debug( f"decam._get_default_calibrator: getting lock for {self.name} on all chips "
+                            f"for linearity file {os.path.basename(filepath)}" )
+            with CalibratorFileDownloadLock.acquire_lock( instrument=self.name,
+                                                          section=None,
+                                                          calibset='externally_supplied',
+                                                          calibtype='linearity',
+                                                          session=session
+                                                         ) as calibfile_lockid:
+                SCLogger.debug( "decam._get_default_calibrator: received lock on all chips for linearity file" )
 
                 with SmartSession( session ) as dbsess:
                     # Gotta check to see if the file was there from
@@ -488,6 +521,8 @@ class DECam(Instrument):
                     if calfile is None:
                         raise RuntimeError( f"Failed to get default calibrator file for DECam linearity; "
                                             f"you should never see this error." )
+            SCLogger.debug( f"decam_get_default_calibrator: releasing lock for {self.name} on all chips "
+                            f"for linearity file {os.path.basename(filepath)}" )
         else:
             # No need to get a new calibfile_downloadlock, we should already have the one for this type and section
             retry_download( url, fileabspath )
@@ -574,6 +609,7 @@ class DECam(Instrument):
 
         return newdata
 
+
     def acquire_origin_exposure( self, identifier, params, outdir=None ):
         """Download exposure from NOIRLab; see Instrument.acquire_origin_exposure
 
@@ -652,12 +688,7 @@ class DECam(Instrument):
                 else:
                     raise ValueError( f"Can't handle exposure {which} file named {expfile}" )
 
-        provenance = Provenance(
-            process='download',
-            parameters={ 'proc_type': proc_type, 'Instrument': 'DECam' },
-            code_version_id=Provenance.get_code_version( session=session ).id
-        )
-        provenance.insert_if_needed( session=session )
+        provenance = self.get_acquired_origin_exposure_provenance()
 
         with fits.open( expfile ) as ifp:
             hdr = { k: v for k, v in ifp[0].header.items()
@@ -728,6 +759,9 @@ class DECam(Instrument):
                                filters=None,
                                containing_ra=None,
                                containing_dec=None,
+                               ctr_ra=None,
+                               ctr_dec=None,
+                               radius=None,
                                minexptime=None,
                                proc_type='raw',
                                projects=None ):
@@ -737,16 +771,27 @@ class DECam(Instrument):
 
         Parameters
         ----------
+
         filters: str or list of str
            The short (i.e. single character) filter names ('g', 'r',
            'i', 'z', or 'Y') to search for.  If not given, will
            return images from all filters.
+
         projects: str or list of str
            The NOIRLab proposal ids to limit the search to.  If not
            given, will not filter based on proposal id.
+
         proc_type: str
            'raw' or 'instcal' : the processing type to get
            from the NOIRLab data archive.
+
+        ctr_ra, ctr_dec, radius: float Whereas the documentation on
+           Instrument implies this is a circular radius, for DECam it's
+           actually a square half-side.  It will find all exposures
+           whose ra_center and dec_center (cf:
+           https://astroarchive.noirlab.edu/api/adv_search/hadoc/) are
+           both within this distance.  (Will do cos(dec) for ra.)
+           Probably pathological too near the poles.
 
         TODO -- deal with provenances!  Right now, skip_known_exposures
         will skip exposures of *any* provenance, may or may not be what
@@ -755,11 +800,25 @@ class DECam(Instrument):
         """
 
         if ( containing_ra is None ) != ( containing_dec is None ):
-            raise RuntimeError( f"Must specify both or neither of (containing_ra, containing_dec)" )
-        if ( ( containing_ra is None ) or ( containing_dec is None ) ) and ( minmjd is None ):
-            raise RuntimeError( f"Must specify either a containing ra,dec or a minmjd to find DECam exposures." )
+            raise RuntimeError( "Must specify both or neither of (containing_ra, containing_dec)" )
+
+        if ( ( ( ctr_ra is None ) != ( ctr_dec is None ) ) or ( ( ctr_ra is None ) != ( radius is None ) ) ):
+            raise RuntimeError( "Must specify all three of, or none of, (ctr_ra, ctr_dec, radius)" )
+
+        if ( ctr_ra is not None ) and ( containing_ra is not None ) :
+            raise RuntimeError( "Can't specify both containing_ra/dec and ctr_ra/dec" )
+
+        if ( containing_ra is None ) and ( ctr_ra is None ) and ( minmjd is None ):
+            raise RuntimeError( "Must specify at least one of (1) a containing ra,dec, (2) center ra/dec and radius, "
+                                "or (3) or a minmjd to find DECam exposures." )
+
         if containing_ra is not None:
             raise NotImplementedError( f"containing_(ra|dec) is not implemented yet for DECam" )
+
+        if minmjd is None:
+            minmjd = 51544.0    # 2000-01-01, before DECam existed
+        if maxmjd is None:
+            maxmjd = 88069.0    # 2100-01-01, if DECam exists this long, it's not my problem by a long shot
 
         # Convert mjd to iso format for astroarchive
         starttime, endtime = astropy.time.Time( [ minmjd, maxmjd ], format='mjd').to_value( 'isot' )
@@ -783,6 +842,8 @@ class DECam(Instrument):
                 "exposure",
                 "ra_center",
                 "dec_center",
+                "seeing",
+                "depth",
                 "md5sum",
                 "OBJECT",
                 "MJD-OBS",
@@ -801,6 +862,12 @@ class DECam(Instrument):
 
         if proposals is not None:
             spec["search"].append( [ "proposal" ] + proposals )
+        if ctr_ra is not None:
+            spec["search"].append( [ "ra_center",
+                                     ctr_ra - radius / np.cos( ctr_dec * np.pi/180. ),
+                                     ctr_ra + radius / np.cos( ctr_dec * np.pi/180. ) ] )
+            spec["search"].append( [ "dec_center", ctr_dec - radius, ctr_dec + radius ] )
+
 
         # TODO : implement the ability to log in via a configured username and password
         # For now, will only get exposures that are public
@@ -839,6 +906,105 @@ class DECam(Instrument):
         files['filtercode'] = files.ifilter.str[0]
         files['filter'] = files.ifilter
 
+
+        # Need to de-duplicate; for proc_type='instcal', there are sometimes multiple
+        #  different versions of the processing in the NOIRLab archives.
+        #
+        # Looking at
+        # https://noirlab.edu/science/index.php/data-services/data-reduction-software/csdc-mso-pipelines/pl206#12
+        # It says re: the version field, "The version of the data
+        # product which is distinct from the pipeline version. Typically
+        # "v1" but there are various other values from higher version
+        # numbers or project/program/request specific identifiers.
+        #
+        # I've noticed also that there are some files in the archive
+        # that don't match the filename scheme at all, with names like
+        # 'tu1958909.fits.fz'. In that case, though there were also
+        # files with the same date-obs that did match the filename
+        # scheme.  So, first filter out things that don't match the
+        # scheme, and hope that we're not losing exposures.
+        #
+        # Then, try to parse out the version number, and keep the
+        # highest of the "v*" versions if one is avialable, otherwise
+        # just pick something.
+
+        if proc_type == 'instcal':
+            # Parse out the date, time, file type, filter, and version from the filename,
+            #   assuming the filename matches the c4d_* pattern.  (If it doesn't toss it.)
+            procre = re.compile( r'c4d_(?P<date>\d{6})_(?P<time>\d{6})_(?P<which>[a-z]{3})_'
+                                 r'(?P<filter>[a-zA-Z]+)_(?P<ver>[^/\.]+)\.fits(?P<fz>\.fz)?$' )
+
+            files[ 'namematch' ] = files['archive_filename'].apply( lambda x: procre.search(x) is not None )
+            files = files[ files['namematch'] ]
+
+            def extract_procversion( val ):
+                match = procre.search( val )
+                if match is None:
+                    raise ValueError( f"Failed to parse {val}" )
+                return ( match.group('date'), match.group('time'), match.group('which'),
+                         match.group('filter'), match.group('ver') )
+
+            # Add the parsed information from the archive filename
+            files[ ['fndate', 'fntime', 'fnwhich', 'fnfilter', 'fnver' ] ] = (
+                files.apply( lambda row: extract_procversion( row.archive_filename ),
+                             result_type='expand', axis='columns' ) )
+
+            # Get counts of duplicates.  Stick the duplicate count in the column 'dupcounts',
+            #   and create a column 'keep' that initially has everything with dupcounts = 1
+            # (We will keep more later.)
+            files.sort_values( by=['fndate', 'fntime', 'fnfilter', 'fnwhich', 'fnver' ], inplace=True )
+            dupcounts = files[ files['fnwhich'] == 'ooi' ].groupby( [ 'fndate', 'fntime', 'fnfilter' ] ).size()
+            files.set_index( [ 'fndate', 'fntime', 'fnfilter', 'fnwhich', 'fnver' ], inplace=True )
+            files = files.join( dupcounts.rename( 'dupcounts' ) )
+            files['keep'] = ( files.dupcounts == 1 )
+            files.reset_index( inplace=True )
+
+            # Now go through everything that is duped.  There are
+            # probably fancy pandas was of doing this more efficiently,
+            # but for now resort to a for loop
+
+            duped = dupcounts[ dupcounts > 1 ]
+            for index_spec in duped.index.values:
+                fndate, fntime, fnfilter = index_spec
+
+                thesefiles = files[ ( files['fndate'] == fndate ) &
+                                    ( files['fntime'] == fntime ) &
+                                    ( files['fnfilter'] == fnfilter ) ]
+                versions = thesefiles[ thesefiles.fnwhich == 'ooi' ].fnver.values
+                viableversions = [ v for v in versions
+                                   if set( thesefiles[thesefiles.fnver==v].fnwhich ) == { 'ooi', 'oow', 'ood' } ]
+
+
+                # Look for a ".v(\d+)" version, pick the highest one
+                vsearch = re.compile( r'^v(\d+)$' )
+                usev = None
+                usevval = -1
+                for v in viableversions:
+                    match = vsearch.search( v )
+                    if match is not None:
+                        curvval = int( match.group(1) )
+                        if curvval > usevval:
+                            usev = v
+                            curvval = usevval
+
+                # Otherwise, just pick a random one
+                if usev is None:
+                    usev = viableversions[0]
+
+                # Pandas is somtimes mysterious
+                # I ran this with files[ ... ].keep = True
+                # Interactively, it worked.  But in the code here, it didn't.
+                # I don't know why.
+                files.loc[ ( files['fndate'] == fndate ) &
+                           ( files['fntime'] == fntime ) &
+                           ( files['fnfilter'] == fnfilter ) &
+                           ( files['fnver'] == usev ),
+                           'keep'
+                          ] = True
+
+            # At this point, the "keep" field should have exactly one version of every exposure
+            files = files[ files['keep'] ]
+
         if skip_known_exposures:
             identifiers = [ pathlib.Path( f ).name for f in files.archive_filename.values ]
             with SmartSession() as session:
@@ -856,7 +1022,7 @@ class DECam(Instrument):
             files = files[keep].reset_index( drop=True )
 
         if len(files) == 0:
-            SCLogger.info( "DEcam exposure search found no files afters skipping known and databsae exposures" )
+            SCLogger.info( "DEcam exposure search found no files afters skipping known and database exposures" )
             return None
 
         # If we were downloaded reduced images, we're going to have multiple prod_types
@@ -885,6 +1051,7 @@ class DECamOriginExposures:
         ----------
         proc_type: str
            'raw' or 'instcal'
+
         frame: pandas.DataFrame
 
         """
@@ -896,6 +1063,25 @@ class DECamOriginExposures:
         # The length is the number of values there are in the *first* index
         # as that is the number of different exposures.
         return len( self._frame.index.levels[0] )
+
+
+    def exposure_coords( self, index ):
+        return self._frame.loc[ index, 'image' ].ra_center, self._frame.loc[ index, 'image' ].dec_center
+
+    def exposure_depth( self, index ):
+        return self._frame.loc[ index, 'image' ].depth
+
+    def exposure_filter( self, index ):
+        return self._frame.loc[ index, 'image' ].ifilter
+
+    def exposure_seeing( self, index ):
+        return self._frame.loc[ index, 'image' ].seeing
+
+    def exposure_exptime( self, index ):
+        return self._frame.loc[ index, 'image' ].exposure
+
+    def exposure_origin_identifier( self, index ):
+        return self._frame.loc[ index, 'image' ].archive_filename
 
     def add_to_known_exposures( self,
                                 indexes=None,
@@ -1015,6 +1201,8 @@ class DECamOriginExposures:
 
     def download_and_commit_exposures( self, indexes=None, clobber=False, existing_ok=False,
                                        delete_downloads=True, skip_existing=True, session=None ):
+        # TODO : implement skip_existing
+
         outdir = pathlib.Path( FileOnDiskMixin.local_path )
         if indexes is None:
             indexes = range( len(self._frame) )
@@ -1065,12 +1253,13 @@ class DECamOriginExposures:
 
             # If the comitted exposures aren't in the same place as the downloaded exposures,
             #  clean up the downloaded exposures
-            dled = [ expfile, wtfile, flgfile ]
-            finalfiles = expobj.get_fullpath( as_list=True )
-            for i, finalfile in enumerate( finalfiles ):
-                dl = pathlib.Path( dled[i] )
-                f = pathlib.Path( finalfile )
-                if dl.resolve() != f.resolve():
-                    dl.unlink( missing_ok=True )
+            if delete_downloads:
+                dled = [ expfile, wtfile, flgfile ]
+                finalfiles = expobj.get_fullpath( as_list=True )
+                for i, finalfile in enumerate( finalfiles ):
+                    dl = pathlib.Path( dled[i] )
+                    f = pathlib.Path( finalfile )
+                    if dl.resolve() != f.resolve():
+                        dl.unlink( missing_ok=True )
 
         return exposures

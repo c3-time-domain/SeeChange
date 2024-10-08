@@ -10,9 +10,10 @@ import json
 import datetime
 import uuid
 from uuid import UUID
-
 from contextlib import contextmanager
+
 import numpy as np
+import shapely
 
 from astropy.coordinates import SkyCoord
 
@@ -893,6 +894,7 @@ def get_archive_object():
         cfg = config.Config.get()
         archive_specs = cfg.value('archive', None)
         if archive_specs is not None:
+            archive_specs[ 'logger' ] = SCLogger
             ARCHIVE = Archive(**archive_specs)
     return ARCHIVE
 
@@ -1935,8 +1937,8 @@ class FourCorners:
           session : Session
              Required here, otherwise the temp table would be useless.
 
-          prov_id : str or None
-             If not None, search for objects with this provenance.
+          prov_id : str, list of str, or None
+             If not None, search for objects with this provenance, or any of these provenances if a list.
 
         """
         session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_containing" ) )
@@ -1956,14 +1958,20 @@ class FourCorners:
                   "      ( maxra >= :ra AND minra <= :ra ) )"
                   "    OR "
                   "    ( ( maxra < minra ) AND "
-                  "      ( ( maxra >= :ra OR :ra > 180. ) AND ( minra <= :ra OR ra <= 180. ) ) )"
+                  "      ( ( maxra >= :ra OR :ra > 180. ) AND ( minra <= :ra OR :ra <= 180. ) ) )"
                   "  )"
                   ")"
                  )
         subdict = { "ra": ra, "dec": dec }
         if prov_id is not None:
-            query += " AND provenance_id=:prov"
-            subdict['prov'] = prov_id
+            if isinstance( prov_id, str ):
+                query += " AND provenance_id=:prov"
+                subdict['prov'] = prov_id
+            elif isinstance( prov_id, list ):
+                query += " AND provenance_id IN :prov"
+                subdict['prov'] = tuple( prov_id )
+            else:
+                raise TypeError( "prov_id must be a a str or a list of str" )
 
         session.execute( sa.text( query ), subdict )
 
@@ -1976,8 +1984,8 @@ class FourCorners:
         ----------
           ra, dec: float, decimal degrees
 
-          prov_id: str or None
-             id of the provenance of cls objects to search; if None, won't filter on provenance
+          prov_id : str, list of str, or None
+             If not None, search for objects with this provenance, or any of these provenances if a list.
 
         Returns
         -------
@@ -2000,12 +2008,13 @@ class FourCorners:
         # we'll q3c_poly_query.
 
         with SmartSession( session ) as sess:
-            cls._find_possibly_containing_temptable( ra, dec, session, prov_id=prov_id )
-            query = sa.text( f"SELECT i._id FROM temp_find_containing i "
-                             f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ i.ra_corner_00, i.dec_corner_00, "
-                             f"                                          i.ra_corner_01, i.dec_corner_01, "
-                             f"                                          i.ra_corner_11, i.dec_corner_11, "
-                             f"                                          i.ra_corner_10, i.dec_corner_10 ])" )
+            cls._find_possibly_containing_temptable( ra, dec, sess, prov_id=prov_id )
+            query = sa.text( f"SELECT i.* FROM {cls.__tablename__} i "
+                             f"INNER JOIN temp_find_containing t ON t._id=i._id "
+                             f"WHERE q3c_poly_query( {ra}, {dec}, ARRAY[ t.ra_corner_00, t.dec_corner_00, "
+                             f"                                          t.ra_corner_01, t.dec_corner_01, "
+                             f"                                          t.ra_corner_11, t.dec_corner_11, "
+                             f"                                          t.ra_corner_10, t.dec_corner_10 ])" )
             objs = sess.scalars( sa.select( cls ).from_statement( query ) ).all()
             sess.execute( sa.text( "DROP TABLE temp_find_containing" ) )
             return objs
@@ -2030,9 +2039,8 @@ class FourCorners:
           session : Session
              required here; otherwise, the temp table wouldn't be useful
 
-          prov_id : str, default None
-             The id of the provenance of objects to look for; defaults to
-             not filtering on provenance (which is almost never what you want).
+          prov_id: str or None
+             id of the provenance of cls objects to search; if None, won't filter on provenance
 
         """
 
@@ -2071,11 +2079,16 @@ class FourCorners:
         subdict = { 'minra': fcobj.minra, 'maxra': fcobj.maxra,
                     'mindec': fcobj.mindec, 'maxdec': fcobj.maxdec }
         if prov_id is not None:
-            query += "AND provenance_id=:prov"
-            subdict['prov'] = prov_id
+            if isinstance( prov_id, str ):
+                query += " AND provenance_id=:prov"
+                subdict['prov'] = prov_id
+            elif isinstance( prov_id, list ):
+                query += " AND provenance_id IN :prov"
+                subdict['prov'] = tuple( prov_id )
+            else:
+                raise TypeError( "prov_id must be a a str or a list of str" )
 
         session.execute( sa.text( query ), subdict )
-
 
     @classmethod
     def find_potential_overlapping( cls, fcobj, prov_id=None, session=None ):
@@ -2128,25 +2141,9 @@ class FourCorners:
         overlap_frac: float
             The fraction of obj1's area that is covered by the intersection of the objects
 
-        WARNING: Right now this assumes that the images are aligned N/S and E/W.
-        TODO: areas of general quadrilaterals and intersections of general quadrilaterals.
-
-        For the "image area", it uses
-            max(image E ra) - min(image W ra) ) * ( max(image N dec) - min( imageS dec)
-        (where "image E ra" refers to the corners of the image that are
-        on the eastern side, i.e. ra_corner_10 and ra_corner_11).  This
-        will in general overestimate the image area, though the
-        overestimate will be small if the image is very close to
-        oriented square to the sky.
-
-        For the "overlap area", it uses
-          ( min( image E ra, ref E ra ) - max( image W ra, ref W ra ) *
-            min( image N dec, ref N dec ) - max( image S dec, ref S dec ) )
-        This will in general underestimate the overlap area, though the
-        underestimate will be small if both the image and reference
-        are oriented close to square to the sky.
-
-        (RA ranges in all cases are scaled by cos(dec).)
+        Assumes that the images are small enough that a simple cos(dec)
+        correction for RA is enough that we can assume that the sky is
+        flat.  This assumption will break down near the poles.
 
         """
 
@@ -2155,32 +2152,63 @@ class FourCorners:
         o1dec = np.array( [ [ obj1.dec_corner_00, obj1.dec_corner_01 ], [ obj1.dec_corner_10, obj1.dec_corner_11 ] ] )
         o2dec = np.array( [ [ obj2.dec_corner_00, obj2.dec_corner_01 ], [ obj2.dec_corner_10, obj2.dec_corner_11 ] ] )
 
-        # Have to handle the case of ra spanning 0
-        # This happens when maxra < minra.  In that case,
-        # take all ras > 180 and subtract 360 to make them
-        # negative.  Subsequent computations will then work.
-        # (Can check each image individually.  If one is
-        # all above 0, and the other is all below 0, they
-        # don't overlap, so no need to do fancy things.)
+        # Have to handle the case of ra spanning 0.  This happens when
+        # maxra < minra.  In that case, take all ras > 180 and subtract
+        # 360 to make them negative.  Subsequent computations will then
+        # work.  This will break horribly if the size of the image
+        # approaches 180°, but that's an absurd case that should never
+        # happen.  (If you're using this pipeline with some sort of
+        # fisheye all-sky camera, then... well, sorry.  All kinds of things
+        # are probably going to break having to do with coordinates.)
         if ( obj1.maxra < obj1.minra ) or ( obj2.maxra < obj2.minra ):
             o1ra[ o1ra > 180. ] -= 360.
             o2ra[ o2ra > 180. ] -= 360.
 
-        dimra = ( ( ( o1ra[1,0] + o1ra[1,1] ) / 2. -
-                    ( o1ra[0,0] + o1ra[0,1] ) / 2.
-                   ) / np.cos( obj1.dec * np.pi / 180. ) )
-        dimdec = ( ( o1dec[0,1] + o1dec[1,1] ) / 2. -
-                   ( o1dec[0,0] + o1dec[1,0] ) / 2. )
+        # Really cheesy spherical trig.  Multiply all RAs by cos(dec).
+        #   This will move them on the sky, but it will move them all
+        #   together so that doesn't matter for area computations.  More
+        #   importantly, it will make all the relative positions
+        #   approximately correct in units of linear degrees under the
+        #   assumption that the surface of a sphere is "flat enough"
+        #   within the area covered by the images.  Use dec1 as our dec
+        #   because that's the reference.  (For things where dec is far
+        #   from each other, this isn't really right for obj2, but in
+        #   that case, they won't overlap anyway, so we'll still get
+        #   intersection area 0 and it won't matter.)
+        o1ra *= np.cos( obj1.dec * np.pi / 180. )
+        o2ra *= np.cos( obj1.dec * np.pi / 180. )
 
-        r0 = max( o2ra[0,0], o2ra[0,1], o1ra[0,0], o1ra[0,1] )
-        r1 = min( o2ra[1,0], o2ra[1,1], o1ra[1,0], o1ra[1,1] )
-        d0 = max( o2dec[0,0], o2dec[1,0], o1dec[0,0], o2dec[1,0] )
-        d1 = min( o2dec[0,1], o2dec[1,1], o1dec[0,1], o1dec[1,1] )
+        obj1 = shapely.Polygon( ( ( o1ra[0,0], o1dec[0,0] ),
+                                  ( o1ra[1,0], o1dec[1,0] ),
+                                  ( o1ra[1,1], o1dec[1,1] ),
+                                  ( o1ra[0,1], o1dec[0,1] ),
+                                  ( o1ra[0,0], o1dec[0,0] ) )
+                               )
+        obj2 = shapely.Polygon( ( ( o2ra[0,0], o2dec[0,0] ),
+                                  ( o2ra[1,0], o2dec[1,0] ),
+                                  ( o2ra[1,1], o2dec[1,1] ),
+                                  ( o2ra[0,1], o2dec[0,1] ),
+                                  ( o2ra[0,0], o2dec[0,0] ) )
+                               )
 
-        dra = ( r1 - r0 ) / np.cos( (d1+d0 ) / 2. * np.pi / 180. )
-        ddec = d1 - d0
+        return obj1.intersection( obj2 ).area / obj1.area
 
-        return ( dra * ddec ) / ( dimra * dimdec )
+
+    def contains( self, ra, dec ):
+        """Return True if ra, dec is contained within the four corners."""
+
+        corners = np.array( [ [ self.ra_corner_00, self.dec_corner_00 ],
+                              [ self.ra_corner_01, self.dec_corner_01 ],
+                              [ self.ra_corner_11, self.dec_corner_11 ],
+                              [ self.ra_corner_10, self.dec_corner_10 ],
+                              [ self.ra_corner_00, self.dec_corner_00 ] ] )
+        if self.maxra < self.minra:
+            corners[ corners[:,0]>180, 0 ] -= 360.
+            if ra > 180.:
+                ra -= 360.
+
+        obj = shapely.Polygon( corners )
+        return obj.contains( shapely.Point( ra, dec ) )
 
 
 class HasBitFlagBadness:

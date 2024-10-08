@@ -17,6 +17,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord, Distance
 
 from models.base import Base, SmartSession, UUIDMixin
+from models.provenance import Provenance
 
 from pipeline.catalog_tools import Bandpass
 from util.util import parse_dateobs, read_fits_image, get_inheritors
@@ -883,9 +884,9 @@ class Instrument:
 
         return []
 
-    def get_ra_dec_for_section(self, exposure, section_id):
-        """
-        Get the RA and Dec of the center of the section.
+    def get_ra_dec_for_section( self, ra, dec, section_id ):
+        """Given an exposure at ra, dec, return the ra, dec of the given section.
+
         If there is no clever way to figure out the section
         coordinates, just leave it to return (None, None).
         In that case, the RA/Dec will be read out of the
@@ -899,7 +900,7 @@ class Instrument:
         pixel scale to calculate the center of the section
         relative to the center of the detector.
 
-        THIS METHOD CAN BE OVERRIDEN BY SUBCLASSES.
+        THIS METHOD SHOULD BE OVERRIDEN BY SUBCLASSES.
 
         Parameters
         ----------
@@ -917,6 +918,46 @@ class Instrument:
         """
         self.check_section_id(section_id)
         return None, None
+
+    def get_ra_dec_corners_for_section( self, ra, dec, section_id ):
+        """Get nominal corners of a sensor section given overall array RA and Dec.
+
+        Parameters
+        ----------
+           ra, dec: float
+              Position of the entire array (not of the specific section).
+
+           section_id: str
+
+        Returns
+        -------
+           dict, 10 keys: (ra|dec)_corner_(0|1)(0|1), (min|max)(ra|dec)
+
+        """
+        raise NotImplementedError( f"{cls.__name__} needs to implement get_ra_dec_corners_for_section" )
+
+
+    def get_ra_dec_for_section_of_exposure(self, exposure, section_id):
+        """Get the RA and Dec of the center of the section of an exposure.
+
+        See get_ra_dec_for_section
+
+        Parameters
+        ----------
+        exposure: Exposure
+            The exposure object.
+        section_id: int or str
+            The identifier of the section.
+
+        Returns
+        -------
+        ra: float or None
+            The RA of the center of the section, in degrees.
+        dec: float or None
+            The Dec of the center of the section, in degrees.
+        """
+        return self.get_ra_dec_for_section( exposure.ra, exposure.dec, section_id )
+
 
     def get_standard_flags_image( self, section_id ):
         """Get the default flags image for the given SensorSection of this instrument.
@@ -1516,6 +1557,7 @@ class Instrument:
                         SCLogger.warning( f"Found {calibquery.count()} valid {calibtype}s for "
                                           f"{self.name} {section}, randomly using one." )
                     if calibquery.count() > 0:
+                        SCLogger.debug( f"Got an existing valid {calibtype} for {self.name} {section}" )
                         calib = calibquery.first()
 
                 if ( calib is None ) and ( calibset == 'externally_supplied' ) and ( not nofetch ):
@@ -1840,6 +1882,48 @@ class Instrument:
         """
         raise NotImplementedError( f"{self.__class__.__name__} needs to impldment linearity_correct" )
 
+    def get_exposure_provenance( self, process='download', proc_type='raw', code_version=None ):
+        """Get the provenance for an exposure from this instrument.
+
+        Also makes sure it's in the database.
+
+        The process will have two parameters: proc_type and instrument.
+        The latter is so that images extracted from exposures of
+        different instruments will have different provenances (because
+        of upstreams) even though the preprocessing parameters may be
+        exactly the same.
+
+        Parameters
+        ----------
+          process: str, default 'download'
+             Can be anything, but should be some indication of how the
+             exposure was produced. Default 'download' indicates it was
+             downloaded from some exposure source somewhere.
+
+          proc_type: str, default 'raw'
+             What processing has this exposure been through before
+             loading.  Defaults to 'raw', which indicates it's a raw
+             telescope exposure.  (For DECam, this could also be
+             'instcal'.)
+
+         code_version: CodeVersion or None
+             If None, will use Provenance.get_code_version()
+
+        """
+
+        if code_version is None:
+            code_version = Provenance.get_code_version()
+        provenance = Provenance(
+            code_version_id=code_version.id,
+            process=process,
+            # ROB TODO : make this Instrument into instrument once you're done with legacy testing
+            parameters={ 'proc_type': proc_type, 'Instrument': self.name },
+            upstreams=[],
+        )
+        provenance.insert_if_needed()
+        return provenance
+
+
 
 class DemoInstrument(Instrument):
     fake_image_size_x = 512
@@ -1960,7 +2044,7 @@ class DemoInstrument(Instrument):
         ----------
           identifier : str
             Identifies the image at the source of exposures.  (See
-            KnownExposure.identfier or Exposure.origin_identifier.)
+            KnownExposure.identifier or Exposure.origin_identifier.)
 
           params : defined differently for each subclass
             Necessary parameters for this instrument to download an
@@ -2008,6 +2092,9 @@ class DemoInstrument(Instrument):
                                filters=None,
                                containing_ra=None,
                                containing_dec=None,
+                               ctr_ra=None,
+                               ctr_dec=None,
+                               radius=None,
                                minexptime=None,
                                projects=None
                               ):
@@ -2029,26 +2116,33 @@ class DemoInstrument(Instrument):
            If True (default), will filter out any exposures that (as
            best can be determined) are already known in the SeeChange
            database.  If False, will include all exposures.
+
         skip_known_exposures: bool
            If True (default), will filter out any exposures that are
            already in the knownexposures table in the database.
+
         minmjd: float
            The earliest time of exposure to search (default: no limit)
+
         maxmjd: float
            The latest time of exposure to search (default: no limit)
+
         filters: str or list of str
            Filters to search.  The actual strings are
            instrument-dependent, and will match what is expected on the
            external repository.  By default, doesn't limit by filter.
-        containing_ra: float
-           Search for exposures that include this RA (degrees, J2000);
-           default, no RA constraint.
-        containing_dec: float
-           Search for exposures that include this Dec (degrees, J2000);
-           default, no Dec constraint.
+
+        containing_ra, containing_dec: float
+           Search for exposures that include this position (degrees, J2000);
+           default, no position constraint.
+
+        ctr_ra, ctr_dec, radius: float
+           Search for exposures within radius degrees of these coordinates.
+
         minexptime: float
            Search for exposures that have this minimum exposure time in
            seconds; default, no limit.
+
         projects: str or list of str
            Name of the projects to search for exposures from
 
@@ -2073,6 +2167,105 @@ class InstrumentOriginExposures:
     made about it other than that it's a sequence (and so can be indexed).
 
     """
+
+    def exposure_coords( self, index ):
+        """Return central ra, dec of exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encaspulated exposures
+
+        Returns
+        -------
+          ra, dec : float, float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_coords" )
+
+    def exposure_depth( self, index ):
+        """Return a number in magnitudes that relates to depth of exposure.
+
+        The meaning of this is likely to be instrument-dependent.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          depth : float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_depth" )
+
+
+    def exposure_filter( self, index ):
+        """Return the filter of an exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          filter: str
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_filter" )
+
+
+    def exposure_seeing( self, index ):
+        """Return the seeing (arcsec) of the exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          seeing: float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_seeing" )
+
+
+    def exposure_exptime( self, index ):
+        """Return the exposure time (sec) of the exposure.
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          exptime: float
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} hasn't implemented exposure_exptime" )
+
+
+    def exposure_origin_identifier( self, index ):
+        """Return the origin identifier of the exposure.
+
+        This is the thing that eventually goes into KnownExposure.identifier and Exposure.origin_identifier .
+
+        Parameters
+        ----------
+          index: int
+            Index into encapsulated expolsures
+
+        Returns
+        -------
+          identifier: str
+
+        """
+        raise NotImplementedError( f"{self.__class__.__name__} hasn't implemented exposure_origin_identifier" )
+
 
     def add_to_known_exposures( self,
                                 indexes=None,
@@ -2122,20 +2315,25 @@ class InstrumentOriginExposures:
         outdir: Path or str
            Directory where to save the files.  Filenames will be
            straight from the origin.
+
         indexes: list of int or None
            List of indexes into the set of origin exposures to download;
            None means download them all.
+
         onlyexposures: bool default True
            If True, only download the exposure.  If False, and there are
            anciallary exposure (e.g. for the DECam instrument, when
            reducing prod_type='instcal' images, there are weight and
            data quality mask exposure), download those as well.
+
         clobber: bool
            If True, will always download and overwrite existing files.
            If False, will trust that the file is the right thing if existing_ok=True,
            otherwise will throw an exception.
+
         existing_ok: bool
            Only matters if clobber=False (see above)
+
         session: Session
            Database session to use.  (A new one will be created if this
            is None, but that will lead to the returned exposures and

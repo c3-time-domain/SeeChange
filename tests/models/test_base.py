@@ -718,12 +718,84 @@ def test_fourcorners_sort_radec():
     assert decs == [ -0.19, 0.21, -0.21, 0.19 ]
 
 
+def test_fourcorners_contains():
+    dra = 0.75
+    ddec = 0.375
+    rawcorners = np.array( [ [ -dra/2.,  -dra/2.,   dra/2.,   dra/2. ],
+                             [ -ddec/2.,  ddec/2., -ddec/2.,  ddec/2. ] ] )
+    ras = [ 0., 10. ]
+    decs = [ 0., -45, 80. ]
+    angles = [ 0., 15., 30., 45. ]
+    # (I drew a rectangle in LibreOffice Draw and rotated it to decide the points and truth values below visually.)
+    offsets = { 0.: { ( 0,    0  ): True,
+                      ( 0.9,  0.9): True,
+                      ( 0.,   0.9): True,
+                      (-0.9,  0.9): True },
+                15.: { ( 0,   0): True,
+                       (-0.8,-0.8): False,
+                       (-0.8, 0.8): True,
+                       (-0.8,-0.4): True,
+                       (-0.8, 0.4): True,
+                       (-0.8, 0. ): True,
+                       ( 0.,  0.9 ) : True,
+                       ( 0., -0.9 ) : True },
+                30.: { ( 0,   0): True,
+                       (-0.8,-0.8): False,
+                       (-0.8, 0.8): True,
+                       (-0.8,-0.4): False,
+                       (-0.8, 0.4): True,
+                       (-0.8, 0. ): True,
+                       ( 0.,  0.9 ) : True,
+                       ( 0., -0.9 ) : True },
+                45.: { ( 0,   0): True,
+                       (-0.8,-0.8): False,
+                       (-0.8, 0.8): True,
+                       (-0.8,-0.4): False,
+                       (-0.8, 0.4): True,
+                       (-0.8, 0. ): False,
+                       ( 0.,  0.9 ) : True,
+                       ( 0., -0.9 ) : True },
+               }
+
+    for ra in ras:
+        for dec in decs:
+            for angle in angles:
+                rotmat = np.array( [ [  np.cos( angle * np.pi/180. ), np.sin( angle * np.pi/180. ) ],
+                                     [ -np.sin( angle * np.pi/180. ), np.cos( angle * np.pi/180. ) ] ] )
+                corners = np.matmul( rotmat, rawcorners )
+                corners[0, :] /= np.cos( dec * np.pi/180. )
+                corners[0, :] += ra
+                corners[1, :] += dec
+                minra = min( corners[ 0, : ] )
+                maxra = max( corners[ 0, : ] )
+                mindec = min( corners[ 1, : ] )
+                maxdec = max( corners[ 1, : ] )
+                minra = minra if minra > 0 else minra + 360.
+                maxra = maxra if maxra > 0 else maxra
+                corners[ 0, corners[0,:]<0. ] += 360.
+                obj = Image( ra=ra, dec=dec,
+                             ra_corner_00=corners[0][0],
+                             ra_corner_01=corners[0][1],
+                             ra_corner_10=corners[0][2],
+                             ra_corner_11=corners[0][3],
+                             minra=minra, maxra=maxra,
+                             dec_corner_00=corners[1][0],
+                             dec_corner_01=corners[1][1],
+                             dec_corner_10=corners[1][2],
+                             dec_corner_11=corners[1][3],
+                             mindec=mindec, maxdec=maxdec )
+                for offset, included in offsets[angle].items():
+                    checkra = ra + dra/np.cos( dec*np.pi/180 ) * offset[0]/2.
+                    checkra = checkra if checkra > 0. else checkra + 360.
+                    checkdec = dec + ddec * offset[1]/2.
+                    assert obj.contains( checkra, checkdec ) == included
+
+
 def test_fourcorners_overlap_frac():
     dra = 0.75
     ddec = 0.375
     radec1 = [(10., -3.), (10., -45.), (10., -80.), ( 0., 0. ), ( 0., 80 ), ( 359.9, 20. ), ( 0.2, -20 ) ]
 
-    # TODO : add tests where things aren't perfectly square
     for ra, dec in radec1:
         cd = np.cos(dec * np.pi / 180.)
         minra = ra - dra / 2. / cd
@@ -759,9 +831,11 @@ def test_fourcorners_overlap_frac():
                                  (0.25, -0.5, -0.5),
                                  (0., 1., 0.),
                                  (0., -1., 0.),
-                                 (0., 1., 0.),
-                                 (0., -1., 0.),
+                                 (0., 0., 1.),
+                                 (0., 0., -1.),
                                  (0., -1., -1.),
+                                 (0., 1., -1.),
+                                 (0., -1., 1.),
                                  (0., 1., -1.)]:
             ra2 = ra + offx * dra / cd
             ra2 = ra2 if ra2 >= 0. else ra2 + 360.
@@ -790,10 +864,112 @@ def test_fourcorners_overlap_frac():
                         dec_corner_11=decs[3],
                         mindec=mindec,
                         maxdec=maxdec )
-
             calcfrac = FourCorners.get_overlap_frac(i1, i2)
             # More leeway for high dec
             if np.fabs( dec ) > 70.:
                 assert calcfrac == pytest.approx( frac, abs=0.02 )
             else:
                 assert calcfrac == pytest.approx(frac, abs=0.01)
+
+    # Test an absurd case to make sure that we don't have problems with
+    # the assumptions made for ra around 0. (Such problems existed
+    # before we added this test....)
+
+    i1 = Image( ra=0., dec=0.,
+                ra_corner_00=359.9,
+                ra_corner_01=359.9,
+                ra_corner_10=0.1,
+                ra_corner_11=0.1,
+                minra=359.9,
+                maxra=0.1,
+                dec_corner_00=-0.1,
+                dec_corner_10=-0.1,
+                dec_corner_01=1.0,
+                dec_corner_11=1.0,
+                mindec=-0.1,
+                maxdec=0.1 )
+    i2 = Image( ra=20., dec=-45.,
+                ra_corner_00=19.8586,
+                ra_corner_01=19.8586,
+                ra_corner_10=20.1414,
+                ra_corner_11=20.1414,
+                minra=19.8586,
+                maxra=20.1414,
+                dec_corner_00=-45.1,
+                dec_corner_10=-45.1,
+                dec_corner_01=-44.9,
+                dec_corner_11=-44.9,
+                mindec=-45.1,
+                maxdec=-44.9 )
+    assert FourCorners.get_overlap_frac( i1, i2 ) == 0
+
+
+    # Not-square-to-the-sky tests. Start with a reference square image.
+    # Do this at a few different RAs and decs so that we can test our
+    # spherical trig assumptions and ra near 0.
+    # (Note: the spherical trig assumption tests are kind of circular,
+    # since I use the same cos(dec) factor to calculate the coordinates
+    # as I then use later in the overlap calculation.  Maybe somebody
+    # should try putting real spherical trig in here.)
+
+    dra = 0.1
+    ddec = 0.1
+    for ctrra, ctrdec in zip( [ 0., 0.,  0.,  10., 10., 10. ],
+                              [ 0., 25., 80., 0.,  25., 80. ]  ):
+        # Make a reference image that's square on the sky
+        minra = ctrra - dra / np.cos( ctrdec * np.pi / 180. )
+        minra = minra if minra > 0 else minra + 360.
+        maxra = ctrra + dra / np.cos( ctrdec * np.pi / 180. )
+        mindec = ctrdec - ddec
+        maxdec = ctrdec + ddec
+        i1 = Image( ra=ctrra, dec=ctrdec,
+                    ra_corner_00=minra, ra_corner_01=minra, minra=minra,
+                    ra_corner_10=maxra, ra_corner_11=maxra, maxra=maxra,
+                    dec_corner_00=mindec, dec_corner_10=mindec, mindec=mindec,
+                    dec_corner_01=maxdec, dec_corner_11=maxdec, maxdec=maxdec )
+
+        # Rotate in place by 45°.  Overlap should be 0.828 (from geometry)
+        minra = ctrra - np.sqrt( dra**2 + ddec**2 ) / np.cos( ctrdec * np.pi / 180. )
+        minra = minra if minra > 0 else minra + 360.
+        maxra = ctrra + np.sqrt( dra**2 + ddec**2 ) / np.cos( ctrdec * np.pi / 180. )
+        mindec = ctrdec - np.sqrt( dra**2 + ddec**2 )
+        maxdec = ctrdec + np.sqrt( dra**2 + ddec**2 )
+        i2 = Image( ra=ctrra, dec=ctrdec,
+                    ra_corner_00=ctrra, ra_corner_01=minra, ra_corner_11=ctrra, ra_corner_10=maxra,
+                    dec_corner_00=mindec, dec_corner_01=ctrdec, dec_corner_11=maxdec, dec_corner_10=ctrdec,
+                    minra=minra, maxra=maxra, mindec=mindec, maxdec=maxdec )
+        assert FourCorners.get_overlap_frac( i1, i2 ) == pytest.approx( 0.828, abs=0.01 )
+
+        # Rotate in place by a few angles <45°. (For expected overlap
+        # fraction, I didn't do geometry, I trusted the 0,0 result).
+        # Numbers look plausible, though.
+        for ang, ovfrac in zip( [ 5.,    10.,   20.,    30. ],
+                                [ 0.960, 0.927, 0.877,  0.845 ] ):
+            rotmat = np.array( [ [ np.cos( ang*np.pi/180. ), -np.sin( ang*np.pi/180. ) ],
+                                 [ np.sin( ang*np.pi/180. ),  np.cos( ang*np.pi/180. ) ] ] )
+            # (I should probably made a 4d array and do things less verbosely.  Oh well.)
+            corner00 = np.matmul( rotmat, np.array( [ [ -dra ], [ -ddec ] ] ) )
+            corner10 = np.matmul( rotmat, np.array( [ [  dra ], [ -ddec ] ] ) )
+            corner01 = np.matmul( rotmat, np.array( [ [ -dra ], [  ddec ] ] ) )
+            corner11 = np.matmul( rotmat, np.array( [ [  dra ], [  ddec ] ] ) )
+            corner00[0][0] = ctrra + corner00[0][0] / np.cos( ctrdec * np.pi / 180. )
+            corner01[0][0] = ctrra + corner01[0][0] / np.cos( ctrdec * np.pi / 180. )
+            corner10[0][0] = ctrra + corner10[0][0] / np.cos( ctrdec * np.pi / 180. )
+            corner11[0][0] = ctrra + corner11[0][0] / np.cos( ctrdec * np.pi / 180. )
+            corner00[1][0] = ctrdec + corner00[1][0]
+            corner01[1][0] = ctrdec + corner01[1][0]
+            corner10[1][0] = ctrdec + corner10[1][0]
+            corner11[1][0] = ctrdec + corner11[1][0]
+            minra = min( corner00[0][0], corner01[0][0], corner10[0][0], corner11[0][0] )
+            maxra = max( corner00[0][0], corner01[0][0], corner10[0][0], corner11[0][0] )
+            mindec = min( corner00[1][0], corner01[1][0], corner10[1][0], corner11[1][0] )
+            maxdec = max( corner00[1][0], corner01[1][0], corner10[1][0], corner11[1][0] )
+            i2 = Image( ra=ctrra, dec=ctrdec,
+                        ra_corner_00=corner00[0][0], ra_corner_10=corner10[0][0], ra_corner_01=corner01[0][0],
+                        ra_corner_11=corner11[0][0], minra=minra, maxra=maxra,
+                        dec_corner_00=corner00[1][0], dec_corner_10=corner10[1][0], dec_corner_01=corner01[1][0],
+                        dec_corner_11=corner11[1][0], mindec=mindec, maxdec=maxdec )
+            assert FourCorners.get_overlap_frac( i1, i2 ) == pytest.approx( ovfrac, abs=0.01 )
+
+    # TODO : not-square-to-the-sky tests where the centers don't overlap
+    # TODO : not-square-to-the-sky tests where dra does not equal ddec

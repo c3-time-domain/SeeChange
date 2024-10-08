@@ -395,7 +395,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
             ( os.path.isfile(os.path.join(cache_dir, 'manifest.txt')) )
         ):
 
-        aligner = ImageAligner( method='swarp', to_index='last' )
+        aligner = ImageAligner( method='swarp' )
         # Going to assume that the upstream provenances are the same for all
         # of the images.  That will be true here by construction... I think.
         ds = ptf_reference_image_datastores[0]
@@ -426,7 +426,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         # ref: https://stackoverflow.com/a/75337251
         # ptf_reference_image_datastores = request.getfixturevalue('ptf_reference_image_datastores')
 
-        coadder = Coadder( alignment={ 'method': 'swarp', 'to_index': 'last' } )
+        coadder = Coadder( alignment_index='last', alignment={ 'method': 'swarp' } )
         coadder.run_alignment( ptf_reference_image_datastores, len(ptf_reference_image_datastores)-1 )
 
         for ds in coadder.aligned_datastores:
