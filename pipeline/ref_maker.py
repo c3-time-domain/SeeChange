@@ -603,15 +603,15 @@ class RefMaker:
             exactly the same fields so you know that the same chip is
             always going to be in the same place.
 
-          filter: string, list of string, or None
-            If given, only find images whose filters match something in this list
+          filter: string or None
+            If given, only find images whose filter match this filter
 
         """
         if ( image is not None ) and any( i is not None for i in [ ra, dec, minra, maxra, mindec, maxdec ] ):
             raise ValueError( "If you pass image to RefMaker.run, you can't pass any coordinates." )
 
         if self.pars.corner_distance is None:
-            if any( i is not None for i in [ ra, dec, minra, maxra, mindec, maxdec ] ):
+            if any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
                 raise ValueError( "For RefMaker corner_distance None, can't specify minra/maxra/mindec/maxdec" )
             if image is not None:
                 if ( ra is not None ) or ( dec is not None ):
@@ -645,18 +645,7 @@ class RefMaker:
         self.dec = dec
         self.target = target
         self.section_id = section_id
-
-        if filter is not None:
-            if isinstance( filter, str ):
-                self.filters = [ filter ]
-            elif ( ( isinstance( filter, collections.abc.Sequence ) ) and
-                   ( all( isinstance( f, str ) for f in filter ) ) ):
-                self.filters = list( filter )
-            else:
-                raise TypeError( f"filters must be a string or a list of string, not {type(filter)}" )
-        else:
-            self.filters = None
-
+        self.filter = filter
 
     # ======================================================================
 
@@ -717,7 +706,7 @@ class RefMaker:
         kwargs['provenance_ids'] = [ p.id for p in self.im_provs.values() ]
         kwargs['instrument' ] = self.pars.instruments
         kwargs['project'] = self.pars.projects
-        kwargs['filter'] = self.filters
+        kwargs['filter'] = self.filter
         kwargs['min_mjd'] = None if self.pars.start_time is None else parse_dateobs( self.pars.start_time, output='mjd' )
         kwargs['max_mjd'] = None if self.pars.end_time is None else parse_dateobs( self.pars.end_time, output='mjd' )
         kwargs['max_seeing'] = self.pars.max_seeing
@@ -762,7 +751,7 @@ class RefMaker:
 
         self.parse_arguments( *args, **kwargs )
 
-        self.make_refset( session=session )
+        self.make_refset()
 
         # look for the reference at the given location in the sky (via ra/dec or target/section_id)
         refsandimgs = Reference.get_references(
@@ -772,7 +761,6 @@ class RefMaker:
             section_id=self.section_id,
             filter=self.filter,
             provenance_ids=self.ref_prov.id,
-            session=session,
         )
 
         refs, imgs = refsandimgs
@@ -845,7 +833,7 @@ class RefMaker:
         )
 
         if self.pars.save_new_refs:
-            coadd_ds.save_and_commit( session=session )
-            ref.insert( session=session )
+            coadd_ds.save_and_commit()
+            ref.insert()
 
         return ref

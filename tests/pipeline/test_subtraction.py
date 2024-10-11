@@ -23,7 +23,7 @@ def test_subtraction_data_products( ptf_ref, ptf_supernova_image_datastores ):
     subtractor.pars.test_parameter = uuid.uuid4().hex
     subtractor.pars.method = 'naive'
     subtractor.pars.refset = 'test_refset_ptf'
-    assert subtractor.pars.alignment['to_index'] == 'new'  # make sure alignment is configured to new, not latest image
+    assert subtractor.pars['alignment_index'] == 'new'  # make sure alignment is configured to new, not latest image
     ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
     ds = subtractor.run( ds1 )
     ds.reraise()  # make sure there are no exceptions from run()
@@ -58,7 +58,7 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     subtractor.pars.test_parameter = uuid.uuid4().hex
     subtractor.pars.method = 'zogy'  # this is the default, but it might not always be
     subtractor.pars.refset = 'test_refset_ptf'
-    assert subtractor.pars.alignment['to_index'] == 'new'  # make sure alignment is configured to new, not latest image
+    assert subtractor.pars['alignment_index'] == 'new'  # make sure alignment is configured to new, not latest image
     ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
     ds = subtractor.run( ds1 )
     ds.reraise()  # make sure there are no exceptions from run()
