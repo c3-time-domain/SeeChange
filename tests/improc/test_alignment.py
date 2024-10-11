@@ -175,17 +175,17 @@ def test_warp_decam( decam_datastore_through_zp, decam_reference ):
 def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
     try:  # cleanup at the end
         # ptf_reference_images = ptf_reference_images[:4]  # speed things up using fewer images
-        coaddparams = { 'alignment': { 'method': 'swarp', 'to_index': 'last' } }
+        coaddparams = { 'alignment': { 'method': 'swarp' }, 'alignment_index': 'last' }
 
         coadder = Coadder( **coaddparams )
         prov, _ = coadder.get_coadd_prov( ptf_reference_image_datastores, code_version_id=code_version.id )
         prov.insert_if_needed()
-        if prov.parameters['alignment']['to_index'] == 'last':
+        if prov.parameters['alignment_index'] == 'last':
             index = -1
-        elif prov.parameters['alignment']['to_index'] == 'first':
+        elif prov.parameters['alignment_index'] == 'first':
             index = 0
         else:
-            raise ValueError(f"Unknown alignment reference index: {prov.parameters['alignment']['to_index']}")
+            raise ValueError(f"Unknown alignment reference index: {prov.parameters['alignment_index']}")
 
         new_image = Image.from_images( [ d.image for d in ptf_reference_image_datastores ], index=index )
         new_image.provenance_id = prov.id
