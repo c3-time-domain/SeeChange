@@ -649,6 +649,8 @@ def test_making_references( ptf_reference_image_datastores ):
                 'min_number': 4,
                 'max_number': 10,
                 'end_time': '2010-01-01',
+                'corner_distance': None,
+                'overlap_fraction': None,
             }
         )
         refsetstodel.add( maker.pars.name )

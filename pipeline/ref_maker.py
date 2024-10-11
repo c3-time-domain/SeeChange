@@ -790,7 +790,7 @@ class RefMaker:
             SCLogger.info( f"RekMaker only found {len(match_count[0])} images overlapping the center of the "
                            f"desired field, which is less than the minimum of {self.pars.min_number}" )
             return None
-        elif ( not self.pars.min_only_center ) and any( c < self.pars.min.number for c in match_count ):
+        elif ( not self.pars.min_only_center ) and any( c < self.pars.min_number for c in match_count ):
             SCLogger.info( f"RefMaker didn't find enough references at at least one point on the image; "
                            f"match_count={match_count}, min_number={self.mars.min_number}" )
             return None
