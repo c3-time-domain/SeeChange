@@ -1299,13 +1299,11 @@ class DataStore:
 
 
     def get_reference(self,
+                      search_by='image',
                       provenances=None,
-                      min_overlap=0.85,
-                      ignore_ra_dec=False,
-                      match_filter=True,
-                      match_target=False,
                       match_instrument=True,
-                      match_section=True,
+                      match_filter=True,
+                      min_overlap=0.85,
                       skip_bad=True,
                       reload=False,
                       randomly_pick_if_mulitple=False,
@@ -1316,6 +1314,23 @@ class DataStore:
 
         Parameters
         ----------
+        search_by: str, default 'image'
+            One of 'image', 'ra/dec', or 'target/section'.  If 'image',
+            will pass the image to Reference.get_references(), which
+            will find references that overlap the area of the image by
+            at least min_overlap.  If 'ra/dec', will pass the centra
+            ra/dec of the image to Reference.get_references(), and then
+            post-filter them by overlapfrac (if that is not None).  If
+            'target/section', will pass target and section_id of the
+            image to Reference.get_references().  You almost always want
+            to use the default of 'image', unles you're working with a
+            survey that has very well-defined targets and the image
+            headers are always completely reliable; in that case, use
+            'target/section'.  'ra/dec' might be useful if you're doing
+            forced photometry and the image is a targeted image with the
+            target right at the center of the image (which is probably
+            a fairly contrived situation).
+
         provenances: list of Provenance objects, or None
             A list of provenances to use to identify a reference.  Any
             found references must have one of these provenances.  If not
@@ -1323,35 +1338,19 @@ class DataStore:
             attribute.  If it can't find them there and provenance isn't
             given, raise an exception.
 
-        min_overlap: float or None, default 0.85
-            Area of overlap region must be at least this fraction of the
-            area of the search image for the reference to be good.
-            (Warning: calculation implicitly assumes that images are
-            aligned N/S and E/W.)  Make this None to not consider
-            overlap fraction when finding a reference.
-
-        ignore_ra_dec: bool, default False
-            If True, search for references based on the target and
-            section_id of the Datastore's image, instead of on the
-            Datastore's ra and dec.  match_target must be True if this
-            is True.
-
         match_filter: bool, default True
             If True, only find a reference whose filter matches the
             DataStore's image's filter.
-
-        match_target: bool, default False
-            If True, only find a reference whose target matches the
-            Datatstore's image's target.
 
         match_instrument: bool, default True
             If True, only find a refernce whose instrument matches the
             Datastore's images' instrument.
 
-        match_section: bool, default True
-            If True, only find a reference whose section_id matches the
-            Datastore's imag's section_id.  It doesn't make sense for
-            this to be True if match_instrument isn't True.
+        min_overlap: float or None, default 0.85
+            Area of overlap region must be at least this fraction of the
+            area of the search image for the reference to be good.  Make
+            this None to not consider overlap fraction when finding a
+            reference.
 
         skip_bad: bool, default True
             If True, will skip references that are marked as bad.
@@ -1416,40 +1415,33 @@ class DataStore:
         provenance_ids = [ p.id for p in provenances ]
 
         # first, some checks to see if existing reference is ok
-        if ( self.reference is not None ) and ( self.reference.provenance_id not in provenance_ids ):
-            self.reference = None
-
-        if ( ( self.reference is not None ) and
-             ( min_overlap is not None ) and ( min_overlap > 0 )
-            ):
-            refimg = Image.get_by_id( self.reference.image_id )
-            ovfrac = FourCorners.get_overlap_frac(image, refimg)
-            if ovfrac < min_overlap:
-                self.reference = None
-
-        if ( self.reference is not None ) and skip_bad:
-            if self.reference.is_bad:
-                self.reference = None
-
-        if ( self.reference is not None ) and match_filter:
-            if self.reference.filter != image.filter:
-                self.reference = None
-
-        if ( self.reference is not None ) and match_target:
-            if self.reference.target != image.target:
-                self.reference = None
-
-        if ( self.reference is not None ) and match_instrument:
-            if self.reference.instrument != image.instrument:
-                self.reference = None
-
-        if ( self.reference is not None ) and match_section:
-            if self.reference.section_id != image.section_id:
-                self.reference = None
-
-        # if we have survived this long without losing the reference, can return it here:
         if self.reference is not None:
-            return self.reference
+            if self.reference.provenance_id not in provenance_ids:
+                self.reference = None
+
+            elif skip_bad and self.reference.is_bad:
+                self.reference = None
+
+            elif match_filter and self.reference.filter != image.filter:
+                self.reference = None
+
+            elif match_instrument and self.reference.instrument != image.instrument:
+                self.reference = None
+
+            elif ( ( search_by in [ 'target/section', 'target/section_id' ] ) and
+                   ( ( self.reference.target != image.target ) or ( self.reference.section_id != image.section_id ) )
+                  ):
+                self.reference = None
+
+            elif ( min_overlap is not None ) and ( min_overlap > 0 ):
+                refimg = Image.get_by_id( self.reference.image_id )
+                ovfrac = FourCorners.get_overlap_frac(image, refimg)
+                if ovfrac < min_overlap:
+                    self.reference = None
+
+            # if we have survived this long without losing the reference, can return it here:
+            if self.reference is not None:
+                return self.reference
 
         # No reference was found (or it didn't match other parameters) must find a new one
         # First, clear out all data products that are downstream of reference.
@@ -1464,25 +1456,21 @@ class DataStore:
         self.sub_image = None
 
         arguments = {}
-        if ignore_ra_dec:
-            if ( not match_target ) or ( not match_section ):
-                raise ValueError( "DataStore.get_reference: ignore_ra_dec requires "
-                                  "match_target=True and match_section=True" )
-        else:
+        if search_by == 'image':
             arguments['image'] = image
             arguments['overlapfrac'] = min_overlap
+        elif search_by == 'ra/dec':
+            arguments['ra'] = image.ra
+            arguments['dec'] = image.dec
+        elif search_by in [ 'target/section', 'target/section_id' ]:
+            arguments['target'] = image.target
+            arguments['section_id'] = image.section_id
 
         if match_filter:
             arguments['filter'] = image.filter
 
-        if match_target:
-            arguments['target'] = image.target
-
         if match_instrument:
             arguments['instrument'] = image.instrument
-
-        if match_section:
-            arguments['section_id'] = image.section_id
 
         if skip_bad:
             arguments['skip_bad'] = True
@@ -1497,10 +1485,10 @@ class DataStore:
             self.reference = None
             return None
 
-        # This next bit is gratuitous if ignore_ra_dec was False, because we already passed
-        #   the overlapfrac to get_references.  It's here in case ignore_ra_dec was True.
+        # If we didn't search by image, we have to do the area overlap
+        # test, as Reference.get_references() won't have.
         # SCLogger.debug( f"DataStore: Reference.get_reference returned {len(refs)} possible references" )
-        if ( min_overlap is not None ) and ( min_overlap > 0 ):
+        if ( search_by != 'image' ) and ( min_overlap is not None ) and ( min_overlap > 0 ):
             ovfrac = [ FourCorners.get_overlap_frac( image, i ) for i in imgs ]
             sortdex = list( range( len(refs) ) )
             sortdex.sort( key=lambda x: -ovfrac[x] )
@@ -1517,13 +1505,19 @@ class DataStore:
 
         else:
             if len(refs) > 1:
-                # Perhaps this should be an error?  Somebody may not be as
-                # anal as they ought to be about references, though, so
-                # leave it a warning.
-                SCLogger.warning( "DataStore.get_reference: more than one reference matched the criteria! "
-                                  "This is scary.  Randomly picking one.  Which is also scary." )
-
-            self.reference = None if len(refs)==0 else refs[0]
+                # ...aaaaand, still have to calculate the overlap fraction so we can sort
+                ovfrac = [ FourCorners.get_overlap_frac( image, i ) for i in imgs ]
+                sortdex = list( range( len(refs) ) )
+                sortdex.sort( key=lambda x: -ovfrac[x] )
+                if ovfrac[sortdex[0]] == ovfrac[sordex[1]]:
+                    # Perhaps this should be an error?  Somebody may not be as
+                    # anal as they ought to be about references, though, so
+                    # leave it a warning.
+                    SCLogger.warning( "DataStore.get_reference: more than one reference matched the criteria! "
+                                      "This is scary.  Randomly picking one.  Which is also scary." )
+                self.reference = refs[sordex[0]]
+            else:
+                self.reference = None if len(refs)==0 else refs[0]
 
         return self.reference
 
