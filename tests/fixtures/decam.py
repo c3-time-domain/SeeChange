@@ -367,7 +367,7 @@ def decam_datastore(
         decam_exposure,
         'S3',
         cache_dir=decam_cache_dir,
-        cache_base_name='007/c4d_20230702_080904_S3_r_Sci_PN4G4I',
+        cache_base_name='007/c4d_20230702_080904_S3_r_Sci_IDDLGQ',
         overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
         save_original_image=True,
         provtag='decam_datastore'
