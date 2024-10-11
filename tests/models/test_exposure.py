@@ -28,7 +28,7 @@ def test_exposure_instrument_provenance(sim_exposure1):
         assert sim_exposure1.provenance_id is not None
         prov = Provenance.get( sim_exposure1.provenance_id )
         assert prov.code_version_id == 'test_v1.0.0'
-        assert prov.parameters == {'instrument': 'DemoInstrument'}
+        assert prov.parameters == {'instrument': 'DemoInstrument', 'proc_type': 'raw'}
 
 
 def test_exposure_insert( unloaded_exposure ):
@@ -128,8 +128,8 @@ def test_exposure_no_null_values():
         exposure_id = e.id
         assert exposure_id is not None
         prov = Provenance.get( e.provenance_id )
-        assert prov.process == 'load_exposure'
-        assert prov.parameters == {'instrument': e.instrument}
+        assert prov.process == 'download'
+        assert prov.parameters == {'instrument': e.instrument, 'proc_type': 'raw'}
 
     finally:
         # cleanup
@@ -170,19 +170,19 @@ def test_exposure_guess_decam_instrument(decam_fits_image_filename, cache_dir, d
 
 
 def test_exposure_coordinates():
-    e = Exposure(filepath='foo.fits', ra=None, dec=None, nofile=True)
+    e = Exposure(filepath='foo.fits', instrument='DemoInstrument', ra=None, dec=None, nofile=True)
     assert e.ecllat is None
     assert e.ecllon is None
     assert e.gallat is None
     assert e.gallon is None
 
-    e = Exposure(filepath='foo.fits', ra=123.4, dec=None, nofile=True)
+    e = Exposure(filepath='foo.fits', instrument='DemoInstrument', ra=123.4, dec=None, nofile=True)
     assert e.ecllat is None
     assert e.ecllon is None
     assert e.gallat is None
     assert e.gallon is None
 
-    e = Exposure(filepath='foo.fits', ra=123.4, dec=56.78, nofile=True)
+    e = Exposure(filepath='foo.fits', instrument='DemoInstrument', ra=123.4, dec=56.78, nofile=True)
     assert abs(e.ecllat - 35.846) < 0.01
     assert abs(e.ecllon - 111.838) < 0.01
     assert abs(e.gallat - 33.542) < 0.01

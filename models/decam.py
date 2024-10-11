@@ -688,7 +688,7 @@ class DECam(Instrument):
                 else:
                     raise ValueError( f"Can't handle exposure {which} file named {expfile}" )
 
-        provenance = self.get_acquired_origin_exposure_provenance()
+        provenance = self.get_exposure_provenance()
 
         with fits.open( expfile ) as ifp:
             hdr = { k: v for k, v in ifp[0].header.items()

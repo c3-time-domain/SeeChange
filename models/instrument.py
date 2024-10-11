@@ -1916,8 +1916,7 @@ class Instrument:
         provenance = Provenance(
             code_version_id=code_version.id,
             process=process,
-            # ROB TODO : make this Instrument into instrument once you're done with legacy testing
-            parameters={ 'proc_type': proc_type, 'Instrument': self.name },
+            parameters={ 'instrument': self.name, 'proc_type': proc_type },
             upstreams=[],
         )
         provenance.insert_if_needed()
