@@ -964,3 +964,34 @@ def decam_four_refs_alignment_target( get_cached_decam_image ):
     ds = get_cached_decam_image( pathlib.Path( '030/c4d_20240924_061837_S4_r_Sci' ) )
     yield ds
     ds.delete_everything()
+
+# This fixture takes minutes and minutes to run; any tests that
+#    use it should probably be marked for skipping unles
+#    RUN_SLOW_TESTS is set.
+@pytest.fixture
+def decam_17_offset_refs( get_cached_decam_image ):
+    files = [ pathlib.Path( i )
+              for i in [ '029/c4d_20221017_054113_S31_r_Sci',
+                         '029/c4d_20221017_055008_S31_r_Sci',
+                         '030/c4d_20171116_030256_S26_r_Sci',
+                         '029/c4d_20221017_053359_S31_r_Sci',
+                         '029/c4d_20221017_054253_S31_r_Sci',
+                         '029/c4d_20140819_085520_S4_r_Sci',
+                         '030/c4d_20140819_085520_S5_r_Sci',
+                         '029/c4d_20221017_053539_S31_r_Sci',
+                         '029/c4d_20221017_054830_S31_r_Sci',
+                         '030/c4d_20171207_024824_N31_r_Sci',
+                         '030/c4d_20171207_024824_N27_r_Sci',
+                         '029/c4d_20140924_064323_N21_r_Sci',
+                         '030/c4d_20140924_064323_N22_r_Sci',
+                         '030/c4d_20140924_064323_N26_r_Sci',
+                         '029/c4d_20181130_024059_S8_r_Sci',
+                         '030/c4d_20181130_024059_S9_r_Sci',
+                         '029/c4d_20181130_024059_S2_r_Sci' ] ]
+    dses = [ get_cached_decam_image(i) for i in files ]
+    import pdb; pdb.set_trace()
+
+    yield dses
+
+    for ds in dses:
+        ds.delete_everything()
