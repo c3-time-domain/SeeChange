@@ -578,12 +578,14 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
     assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7950., abs=10. )
     assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 51., abs=10. )
 
-# This test is very slow (9 minutes on github), and also perhaps a bit
-#   much given that it downloads and swarps together 17 images.  As
+# This next test is very slow (9 minutes on github), and also perhaps a
+#   bit much given that it downloads and swarps together 17 images.  As
 #   such, put in two conditions to skip it; this means it won't be run
 #   by default either when you just do "pytest -v" or on github (where
-#   SKIP_BIG_MEMORY is and RUN_SLOW_TESTS are both 1).  To actually run
-#   it, use RUN_SLOW_TESTS=1 pytest ....
+#   SKIP_BIG_MEMORY and RUN_SLOW_TESTS are both 1).  To actually run it,
+#   use
+#           RUN_SLOW_TESTS=1 pytest ...
+#
 # (The same code is tested in the previous test, so it's not a big deal
 #   to routinely skip this test.  It's here because I wanted an example
 #   of an actual ref that might approximate something we'd use, and I
