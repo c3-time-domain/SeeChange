@@ -989,7 +989,6 @@ def decam_17_offset_refs( get_cached_decam_image ):
                          '030/c4d_20181130_024059_S9_r_Sci',
                          '029/c4d_20181130_024059_S2_r_Sci' ] ]
     dses = [ get_cached_decam_image(i) for i in files ]
-    import pdb; pdb.set_trace()
 
     yield dses
 

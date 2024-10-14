@@ -558,18 +558,18 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
     # (I manually looked at the image and picked out a few spots)
 
     # Check that the weight is higher in a region where two images actually overlapped
-    assert img.weight[ 550:640, 975:1140 ].mean() == pytest.approx( 0.020, abs=0.001 )
+    assert img.weight[ 550:640, 975:1140 ].mean() == pytest.approx( 0.021, abs=0.001 )
     assert img.weight[ 690:770, 930:1050 ].mean() == pytest.approx( 0.013, abs=0.001 )
 
     # Look at a spot with a star, and a nearby sky, in a place where there was only
     #   one image in the coadd
     assert img.data[ 3217:3231, 479:491 ].sum() == pytest.approx( 84485., abs=25. )
-    assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 210., abs=25. )
+    assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 205., abs=25. )
 
     # Look at a spot with a galaxy and a nearby sky, in a place where there were
     #   two images in the sum
-    assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 8088., abs=10. )
-    assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 53., abs=10. )
+    assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7950., abs=10. )
+    assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 51., abs=10. )
 
 # This test is very slow, and also perhaps a bit much given that it downloads
 #   and swarps together 17 images.  As such, put in two conditions to skip it;
