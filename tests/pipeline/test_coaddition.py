@@ -571,7 +571,7 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
     #   and needs investigation: Issue #361
     # For now, just verify that the spot with the star is a lot brighter
     #   than the neighboring spot
-    assert ( img.data[ 17:3231, 479:491 ].sum() / img.data[ 3217:3231, 509:521 ].sum() >= 400.
+    assert ( img.data[ 17:3231, 479:491 ].sum() / img.data[ 3217:3231, 509:521 ].sum() ) >= 400.
 
     # Look at a spot with a galaxy and a nearby sky, in a place where there were
     #   two images in the sum
