@@ -7,10 +7,12 @@ import hashlib
 import pathlib
 import uuid
 import time
+import warnings
 
 import numpy as np
 
 from astropy.io import fits
+from astropy.utils.exceptions import AstropyWarning
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
@@ -586,10 +588,15 @@ def test_image_from_exposure_filter_array(sim_exposure_filter_array):
 
 
 def test_image_from_reduced_exposure( decam_reduced_origin_exposure_loaded_in_db ):
-    decam = get_instrument_instance( 'DECam' )
-    exp = decam_reduced_origin_exposure_loaded_in_db
+    # We get a whole bunch of annoying AstropyUserWarning about an invalid
+    #  header record.  It's hard to work up a care.
+    with warnings.catch_warnings():
+        warnings.simplefilter( 'ignore', AstropyWarning )
+        decam = get_instrument_instance( 'DECam' )
+        exp = decam_reduced_origin_exposure_loaded_in_db
 
-    img = Image.from_exposure( exp, section_id='N16' )
+        img = Image.from_exposure( exp, section_id='N16' )
+
     assert img.format == 'fits'
     assert img.exposure_id == exp.id
     assert img.ref_image_id is None

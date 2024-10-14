@@ -563,8 +563,8 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
 
     # Look at a spot with a star, and a nearby sky, in a place where there was only
     #   one image in the coadd
-    # assert img.data[ 3217:3231, 479:491 ].sum() == pytest.approx( 84485., abs=25. )
-    # assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 205., abs=25. )
+    assert img.data[ 3217:3231, 479:491 ].sum() == pytest.approx( 82561., abs=25. )
+    assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 205., abs=25. )
     # ...for reasons I don't understand, the actual numbers that github actions was
     #   getting did not quite match the numbers I got on my local machine.  (I did
     #   make sure I'd cleared the cache on my local machine.)  This is concerning,
@@ -578,15 +578,18 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
     assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7950., abs=10. )
     assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 51., abs=10. )
 
-# This test is very slow, and also perhaps a bit much given that it downloads
-#   and swarps together 17 images.  As such, put in two conditions to skip it;
-#   this means it won't be run by default either when you just do "pytest -v" or on
-#   github.  To actually run it, use RUN_SLOW_TESTS=1 pytest ....
-# (The same code is tested in the previous test, so it's not a big deal to
-#   routinely skip this test.  It's here because I wanted an example of an
-#   actual ref that might approximate something we'd use, and I wanted to have
-#   the code to generate the image so I could look at it.)
-@pytest.mark.skipif( ( not env_as_bool('RUN_SLOW_TESTS') ) or ( env_as_bool('SKIP_BIG_MEMROY' ) ),
+# This test is very slow (9 minutes on github), and also perhaps a bit
+#   much given that it downloads and swarps together 17 images.  As
+#   such, put in two conditions to skip it; this means it won't be run
+#   by default either when you just do "pytest -v" or on github (where
+#   SKIP_BIG_MEMORY is and RUN_SLOW_TESTS are both 1).  To actually run
+#   it, use RUN_SLOW_TESTS=1 pytest ....
+# (The same code is tested in the previous test, so it's not a big deal
+#   to routinely skip this test.  It's here because I wanted an example
+#   of an actual ref that might approximate something we'd use, and I
+#   wanted to have the code to generate the image so I could look at
+#   it.)
+@pytest.mark.skipif( ( not env_as_bool('RUN_SLOW_TESTS') ) or ( env_as_bool('SKIP_BIG_MEMORY' ) ),
                      reason="Set RUN_SLOW_TESTS and unset SKIP_BIG_MEMORY to run this test" )
 def test_coadd_17_decam_images_swarp( decam_17_offset_refs, decam_four_refs_alignment_target ):
     coadder = Coadder( method='swarp',
