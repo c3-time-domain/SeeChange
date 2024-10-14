@@ -183,7 +183,7 @@ class Reference(Base, UUIDMixin):
 
         Operates in three modes:
 
-        * References tagged for a given target and sectionid
+        * References tagged for a given target and section_id
 
         * References that include a given point on the sky.  Specify ra and dec, do not
           pass any of minra, maxra, mindec, maxdec, or target.
@@ -266,7 +266,7 @@ class Reference(Base, UUIDMixin):
              ( areagiven and ( radecgiven or targetgiven ) ) or
              ( targetgiven and ( radecgiven or areagiven ) )
             ):
-            raise ValueError( "Specify only one of ( target/section_id, ra/dec, minra/maxra/mindec/maxdec or image )" )
+            raise ValueError( "Specify only one of ( target/section_id, ra/dec, minra/maxra/mindec/maxdec, or image )" )
 
         if ( provenance_ids is not None ) and ( refset is not None ):
             raise ValueError( "Specify at most one of provenance_ids or refset" )

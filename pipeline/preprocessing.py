@@ -27,9 +27,9 @@ class ParsPreprocessor(Parameters):
         self.add_par( 'preprocessing',
                       'internal',
                       str,
-                      "Where was the preprocessing done?  internal=using SeeChange preprocessor starting "
-                      "from raw images.  noirlab_instcal=image was loaded alredy preprocessed by NOIRLab pipeline.  "
-                      "Set this parameter manually to something other than 'internal' when loading "
+                      "Where was the preprocessing done?  'internal' means using SeeChange preprocessor starting "
+                      "from raw images.  'noirlab_instcal' means image was loaded alredy preprocessed by the NOIRLab "
+                      "pipeline.  Set this parameter manually to something other than 'internal' when loading "
                       "in already-preprocessed images.",
                       critical=True )
 

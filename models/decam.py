@@ -453,7 +453,7 @@ class DECam(Instrument):
 
         if calibtype == 'linearity':
             # Linearity requires special handling because it's the same
-            # file for all chips.  So, to avoid chaos, we will to get
+            # file for all chips.  So, to avoid chaos, we will get
             # the CalibratorFileDownloadLock for it with section=None;
             # that will prevent different processes inside this function
             # from stepping on each others' toes.  (By the time this
@@ -785,13 +785,13 @@ class DECam(Instrument):
            'raw' or 'instcal' : the processing type to get
            from the NOIRLab data archive.
 
-        ctr_ra, ctr_dec, radius: float Whereas the documentation on
-           Instrument implies this is a circular radius, for DECam it's
-           actually a square half-side.  It will find all exposures
-           whose ra_center and dec_center (cf:
-           https://astroarchive.noirlab.edu/api/adv_search/hadoc/) are
-           both within this distance.  (Will do cos(dec) for ra.)
-           Probably pathological too near the poles.
+        ctr_ra, ctr_dec, radius: float
+           Whereas the documentation on Instrument implies this is a
+           circular radius, for DECam it's actually a square half-side.
+           It will find all exposures whose ra_center and dec_center
+           (cf: https://astroarchive.noirlab.edu/api/adv_search/hadoc/)
+           are both within this distance.  (Will do cos(dec) for ra.)
+           Probably pathological near the poles.
 
         TODO -- deal with provenances!  Right now, skip_known_exposures
         will skip exposures of *any* provenance, may or may not be what
