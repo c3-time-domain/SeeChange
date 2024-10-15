@@ -1,7 +1,7 @@
 """calibfile_downloadlock_unique
 
 Revision ID: 0df35a4a7925
-Revises: 147e28b89b99
+Revises: 140047012e43
 Create Date: 2024-09-06 19:02:31.393214
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '0df35a4a7925'
-down_revision = '147e28b89b99'
+down_revision = '140047012e43'
 branch_labels = None
 depends_on = None
 
