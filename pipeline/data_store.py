@@ -20,6 +20,7 @@ from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.deepscore import DeepScore
 
 # for each process step, list the steps that go into its upstream
 UPSTREAM_STEPS = {
@@ -31,6 +32,7 @@ UPSTREAM_STEPS = {
     'detection': ['subtraction'],
     'cutting': ['detection'],
     'measuring': ['cutting'],
+    'scoring': ['measuring'],
 }
 
 # The products that are made at each processing step.
@@ -45,6 +47,7 @@ PROCESS_PRODUCTS = {
     'detection': 'detections',
     'cutting': 'cutouts',
     'measuring': 'measurements',
+    'scoring': 'scores',
 }
 
 
@@ -88,7 +91,8 @@ class DataStore:
         'sub_image',
         'detections',
         'cutouts',
-        'measurements'
+        'measurements',
+        'scores'
     ]
 
     # these get cleared but not saved
@@ -459,6 +463,7 @@ class DataStore:
     def measurements( self, val ):
         if val is None:
             self._measurements = None
+            self.scores = None
         else:
             if self._cutouts is None:
                 raise RuntimeError( "Can't set DataStore measurements until it has a cutouts" )
@@ -472,6 +477,34 @@ class DataStore:
             for m in self._measurements:
                 m.cutouts_id = self._cutouts.id
 
+    @property
+    def scores( self ):
+        return self._scores
+
+    @scores.setter
+    def scores( self, val ):
+        if val is None:
+            self._scores = None
+        else:
+            if ( self._measurements is None or len(self._measurements) == 0 ):
+                raise RuntimeError( " Can't set DataStore scores until it has measurements" )
+            if not isinstance( val, list ):
+                raise TypeError( f"Datastore.scores must be a list of scores, not a {type(val)}" )
+            wrongtypes = set( [ type(s) for s in val if not isinstance( s, DeepScore ) ] )
+            if len(wrongtypes) > 0:
+                raise TypeError( f"Datastore.scores must be a list of DeepScores, but the passed list "
+                                 f"included {wrongtypes}" )
+
+            # ensure that there is a score for each measurement, otherwise reject
+            if ( len( val ) != len(self._measurements) ):
+                raise ValueError( "Score and measurements list not the same length" )
+            
+            # ensure that the scores relate to measurements in the datascore
+            if ( set([str(score.measurements_id) for score in val])
+                    .issubset(set([str(m.id) for m in self._measurements])) ):
+                self._scores = val
+            else:
+                raise RuntimeError( "Attempted to set scores corresponding to wrong measurements")
 
     @staticmethod
     def from_args(*args, **kwargs):
@@ -679,6 +712,7 @@ class DataStore:
         self._cutouts = None  # cutouts around sources
         self._measurements = None  # photometry and other measurements for each source
         self._objects = None  # a list of Object associations of Measurements
+        self._scores = None  # a list of r/b and ML/DL scores for Measurements
 
         # these need to be added to the products_to_clear list
         self.reference = None
@@ -1119,6 +1153,7 @@ class DataStore:
                            cls_upstream_id_att,
                            process,
                            is_list=False,
+                           upstream_is_list=False,
                            match_prov=True,
                            provenance=None,
                            reload=False,
@@ -1159,6 +1194,9 @@ class DataStore:
 
           is_list: bool, default False
             True if a list is expected (which currently is only for measurements).
+
+          upstream_is_list: bool, default False
+            True if the attribute represented by upstream_att is a list (eg measurements)
 
           match_prov: bool, default True
             True if the provenance must match.  (For some things,
@@ -1210,11 +1248,20 @@ class DataStore:
             setattr( self, att, None )
             return None
 
-        with SmartSession( session ) as sess:
-            obj = sess.query( cls ).filter( cls_upstream_id_att == upstreamobj._id )
-            if ( match_prov ):
-                obj = obj.filter( cls.provenance_id == provenance._id )
-            obj = obj.all()
+        if not upstream_is_list:
+            with SmartSession( session ) as sess:
+                obj = sess.query( cls ).filter( cls_upstream_id_att == upstreamobj._id )
+                if ( match_prov ):
+                    obj = obj.filter( cls.provenance_id == provenance._id )
+                obj = obj.all()
+        
+        else: # should only be scoring atm
+            upstream_ids = [obj.id for obj in upstreamobj]
+            with SmartSession( session ) as sess:
+                obj = sess.query( cls ).filter( cls_upstream_id_att.in_( upstream_ids ) )
+                if ( match_prov ):
+                    obj = obj.filter( cls.provenance_id == provenance._id )
+                obj = obj.all()
 
         if is_list:
             setattr( self, att, None if len(obj)==0 else list(obj) )
@@ -1623,6 +1670,22 @@ class DataStore:
         return self._get_data_product( "measurements", Measurements, "cutouts", Measurements.cutouts_id, "measuring",
                                        is_list=True, provenance=provenance, reload=reload, session=session )
 
+    def get_scores(self, provenance=None, reload=False, session=None):
+        """Get a list of DeepScores, either from memory or from database"""
+        scores =  self._get_data_product( "scores", DeepScore, "measurements", DeepScore.measurements_id,
+                                      "scoring", is_list=True, upstream_is_list=True,
+                                      provenance=provenance, reload=reload, session=session)
+        
+        # sort the scores so the list order matches measurements
+        if scores is not None and len(scores) > 0:
+
+            if len(scores) != len(self.measurements):
+                raise RuntimeError(f"get_scores found {len(scores)} scores for {len(self.measurements)} measurements")
+            
+            m_ids = [str(m.id) for m in self.measurements]
+            scores.sort( key=lambda x: m_ids.index( str(x.measurements_id) ) )
+
+        return scores
 
 
     def get_all_data_products(self, output='dict', omit_exposure=False):
@@ -1657,7 +1720,7 @@ class DataStore:
         """
         attributes = [] if omit_exposure else [ '_exposure' ]
         attributes.extend( [ 'image', 'sources', 'psf', 'bg', 'wcs', 'zp', 'sub_image',
-                             'detections', 'cutouts', 'measurements' ] )
+                             'detections', 'cutouts', 'measurements', 'scores' ] )
         result = {att: getattr(self, att) for att in attributes}
         if output == 'dict':
             return result
@@ -1921,6 +1984,21 @@ class DataStore:
             self.cutouts.upsert( load_defaults=True )
             commits.append( 'cutouts' )
 
+        # track which score goes with which measurement
+        if ( ( ( self.measurements is not None ) and ( len(self.measurements) > 0 ) ) and
+             ( ( self.scores is not None ) and ( len(self.scores) > 0 ) ) ):
+
+            # make sure there is one score per measurement
+            if ( len( self.scores ) != len(self.measurements) ):
+                raise ValueError(f"Score and measurements list not the same length")
+
+            sm_index_list = []
+            m_ids = [str(m.id) for m in self.measurements]
+            for i, s in enumerate(self.scores):
+                if not str(s.measurements_id) in m_ids:
+                    raise ValueError("score points to nonexistant measurement")
+                sm_index_list.append(m_ids.index(str(s.measurements_id)))
+
         # measurements
         if ( self.measurements is not None ) and ( len(self.measurements) > 0 ):
             if self.cutouts is not None:
@@ -1929,6 +2007,15 @@ class DataStore:
             Measurements.upsert_list( self.measurements, load_defaults=True )
             SCLogger.debug( "save_and_commit measurements" )
             commits.append( 'measurements' )
+
+        # scores
+        if ( self.scores is not None ) and ( len(self.scores) > 0 ):
+            if ( self.measurements is not None ) and ( len(self.measurements) > 0 ):
+                for i, s in enumerate(self.scores):
+                    s.measurements_id = m_ids[sm_index_list[i]]
+            DeepScore.upsert_list( self.scores, load_defaults=True )
+            SCLogger.debug( "save_and_commit scores" )
+            commits.append( 'scores' )
 
         self.products_committed = ",".join( commits )
 

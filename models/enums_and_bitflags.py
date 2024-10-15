@@ -272,6 +272,15 @@ class BackgroundMethodConverter( EnumConverter ):
     _dict_filtered = None
     _dict_inverse = None
 
+class DeepscoreAlgorithmConverter( EnumConverter ):
+    # These algorithms are implemented in models/deepscore.py
+    _dict = {
+        0: 'random',  # for testing only
+        1: 'allperfect', # for testing only
+    }
+    _allowed_values = None
+    _dict_filtered = None
+    _dict_inverse = None
 
 def bitflag_to_string(value, dictionary):
 
@@ -494,7 +503,8 @@ process_steps_dict = {
     6: 'detection',      # creates a SourceList from a subtraction Image
     7: 'cutting',        # creates Cutouts from a subtraction Image
     8: 'measuring',      # creates Measurements from Cutouts
-    # TODO: add R/B scores and maybe an extra step for finalizing a report
+    9: 'scoring',        # creates DeepScore from Measurements
+    # TODO: add maybe an extra step for finalizing a report
 }
 process_steps_inverse = {EnumConverter.c(v): k for k, v in process_steps_dict.items()}
 
@@ -511,7 +521,7 @@ pipeline_products_dict = {
     8: 'detections',
     9: 'cutouts',
     10: 'measurements',
-    # 11: 'rb_scores',
+    11: 'scores',
 }
 
 pipeline_products_inverse = {EnumConverter.c(v): k for k, v in pipeline_products_dict.items()}
