@@ -222,6 +222,11 @@ RUN source /venv/bin/activate \
     && pip install --upgrade pip setuptools wheel \
     && pip install  -r /seechange/requirements.txt
 
+# Pytorch
+RUN source /venv/bin/activate \
+    && uv pip install torch==2.3.0+cpu --find-links https://download.pytorch.org/whl/torch_stable.html
+
+
 # ======================================================================
 # A small addendum to build that adds selenium-firefox to /venv
 # (I hope it works to pip install selenium-firefox when firefox

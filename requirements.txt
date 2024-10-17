@@ -34,7 +34,12 @@ SQLAlchemy==2.0.23
 SQLAlchemy-Utils==0.41.1
 tables==3.9.1
 urllib3==2.1.0
+uv==0.4.23
 wget==3.2
+
+# NOTE : pytorch is also required, but I haven't figured out how to get
+# a CPU-only version of pytorch from PyPi.  (The GPU version adds 5GB to
+# the Dockerfile...!)   So, it's manually installed in the Dockerfile.
 
 # Other pip packages I removed from above that were
 # previously there in the list, but that as of now
