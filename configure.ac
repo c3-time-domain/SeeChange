@@ -6,6 +6,7 @@ AC_CONFIG_FILES([
   models/Makefile
   pipeline/Makefile
   util/Makefile
+  share/Makefile
   ])
 
 AC_ARG_WITH(installdir,

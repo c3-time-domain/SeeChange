@@ -1,6 +1,6 @@
 services:
   make-archive-directories:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20241017}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -20,7 +20,7 @@ services:
     depends_on:
       make-archive-directories:
         condition: service_completed_successfully
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20241017}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -47,7 +47,7 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
 
   postgres:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/postgres:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/postgres:${IMGTAG:-test20241017}
     build:
       context: ../docker/postgres
     environment:
@@ -60,7 +60,7 @@ services:
       retries: 5
 
   setuptables:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20241017}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -84,7 +84,7 @@ services:
         - "${MAILHOG_PORT:-8025}:8025"
 
   conductor:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/conductor:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/conductor:${IMGTAG:-test20241017}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -114,7 +114,7 @@ services:
         condition: service_completed_successfully
       make-archive-directories:
         condition: service_completed_successfully
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-test20241017}
     build:
       context: ../webap
     user: ${USERID:-0}:${GROUPID:-0}
@@ -135,7 +135,7 @@ services:
     entrypoint: [ "gunicorn", "-w", "4", "-b", "0.0.0.0:8081", "--timeout", "0", "seechange_webap:app" ]
 
   runtests:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20241017}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -165,7 +165,7 @@ services:
     entrypoint: "pytest -v /seechange/$TEST_SUBFOLDER"
 
   runalltests:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20241017}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -195,7 +195,7 @@ services:
     entrypoint: "pytest -v /seechange/tests"
 
   shell:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20240905}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20241017}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile

@@ -226,6 +226,21 @@ RUN source /venv/bin/activate \
 RUN source /venv/bin/activate \
     && uv pip install torch==2.3.0+cpu --find-links https://download.pytorch.org/whl/torch_stable.html
 
+# RBbot
+# Remove the requirements.txt file because it will install
+# a GPU version of pytorch, and we've already installed
+# a CPU version above.  Also, check out the specific
+# commit that we were looking at when I made this.
+RUN git clone https://github.com/nabeelre/RBbot_inference.git \
+    && cd RBbot_inference \
+    && git checkout 3a255300770c79c4339769a238bffb03d218aaf7 \
+    && rm -f requirements.txt \
+    && touch requirements.txt \
+    && source /venv/bin/activate \
+    && pip install . \
+    && cd .. \
+    && rm -rf RBbot_inference
+
 
 # ======================================================================
 # A small addendum to build that adds selenium-firefox to /venv
@@ -274,8 +289,11 @@ ADD improc/ /usr/src/seechange/seechange/improc/
 ADD models/ /usr/src/seechange/seechange/models/
 ADD pipeline/ /usr/src/seechange/seechange/pipeline/
 ADD util/ /usr/src/seechange/seechange/util/
+ADD share/ /usr/src/seechange/seechange/share/
 # archive.py needs special treatment because it's a symbolic link in the repo
 ADD util/archive.py /usr/src/seechange/seechange/util/archive.py
+# special treatment for share/RBbot_inference/models because of sybmolic links
+ADD share/RBbot_models/* /usr/src/seechange/seechange/share/RBbot_models/
 
 WORKDIR /usr/src/seechange/seechange
 RUN autoreconf --install

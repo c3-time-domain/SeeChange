@@ -277,6 +277,7 @@ class DeepscoreAlgorithmConverter( EnumConverter ):
     _dict = {
         0: 'random',  # for testing only
         1: 'allperfect', # for testing only
+        2: 'RBbot-quiet-shadow-131'
     }
     _allowed_values = None
     _dict_filtered = None

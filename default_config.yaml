@@ -155,8 +155,9 @@ detection:
   threshold: 5.0
 
 # how to make the cutouts
+# Note: the RBbot models we're using require a 41×41 cutout
 cutting:
-  cutout_size: 25
+  cutout_size: 41
 
 # how to measure things like fluxes and centroids, and make analytical cuts
 measuring:
@@ -183,7 +184,8 @@ measuring:
     filter bank: 1
 
 scoring:
-  algorithm: random
+  algorithm: RBbot-quiet-shadow-131
+  rbbot_model_dir: /seeechange/share/RBbot_models
 
 
 # use these parameters when running the coaddition pipeline, e.g., for making weekly coadds

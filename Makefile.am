@@ -1,1 +1,1 @@
-SUBDIRS = improc models pipeline util
+SUBDIRS = improc models pipeline util share

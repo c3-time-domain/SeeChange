@@ -13,7 +13,7 @@
 #
 
 FROM rknop/devuan-daedalus-rknop
-MAINTAINER Rob Knop <raknop@lbl.gov>
+LABEL maintainer="Rob Knop <raknop@lbl.gov>"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
