@@ -136,7 +136,7 @@ class ParsRefMaker(Parameters):
             'preprocessing_prov',
             None,
             (str, None),
-            "Provenance ID of preprocessing provenacne to search for images for.  Be careful using this!  "
+            "Provenance ID of preprocessing provenance to search for images for.  Be careful using this!  "
             "Do not use this if you have more than one instrument.  If you don't specify this, it will "
             "be determined automatically using config, which is usually what you want.",
             critical=True
@@ -660,7 +660,7 @@ class RefMaker:
         """Look to see if there is an existing reference that matches the specs; if not, optionally build one.
 
         See parse_arguments for function call parameters.  The remaining
-        policy for which images to picdk, and what provenacne to use to
+        policy for which images to pick, and what provenance to use to
         find references, is defined by the parameters object of self and
         self.pipeline.
 
@@ -717,7 +717,7 @@ class RefMaker:
             return None
         elif ( not self.pars.min_only_center ) and any( c < self.pars.min_number for c in match_count ):
             SCLogger.info( f"RefMaker didn't find enough references at at least one point on the image; "
-                           f"match_count={match_count}, min_number={self.mars.min_number}" )
+                           f"match_count={match_count}, min_number={self.pars.min_number}" )
             return None
 
         # Sort the images and create data stores for all of them

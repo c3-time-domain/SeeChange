@@ -327,11 +327,11 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
                         # each time, but that had a race condition of its own.  When launching a
                         # bunch of processes with a multiprocessing pool, they'd all be synchronized
                         # enough that multiple processes would get to a long sleep at the same time,
-                        # and then all pool for the lock at clse enough to the same time that only
+                        # and then all pool for the lock at close enough to the same time that only
                         # one would get it.  The rest would all wait a very long time (while, for
                         # most of it, no lock was being held) before trying again.  They'd only have
                         # a few tries left, and ultimately several would fail.  So, instead, wait a
-                        # random amount of time, to prevent syncronization.
+                        # random amount of time, to prevent synchronization.
                         tsleep = sleepmin + math.fabs( random.normalvariate( mu=0., sigma=sleepsigma ) )
                         time.sleep( tsleep )
                         totsleep += tsleep

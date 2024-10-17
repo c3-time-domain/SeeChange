@@ -68,7 +68,7 @@ class SCLogger:
 
     @classmethod
     def multiprocessing_replace( cls, datefmt=None, level=None ):
-        """Shorthand for replace with midformat parsed from the current muiltiprocessing process."""
+        """Shorthand for replace with midformat parsed from the current multiprocessing process."""
 
         me = multiprocessing.current_process()
         # Usually processes are named things like ForkPoolWorker-{number}, or something
