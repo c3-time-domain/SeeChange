@@ -2180,7 +2180,7 @@ class InstrumentOriginExposures:
           ra, dec : float, float
 
         """
-        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_coords" )
+        raise NotImplementedError( f"{self.__class__.__name__} hasn't implemented exposure_coords" )
 
     def exposure_depth( self, index ):
         """Return a number in magnitudes that relates to depth of exposure.
@@ -2190,7 +2190,7 @@ class InstrumentOriginExposures:
         Parameters
         ----------
           index: int
-            Index into encapsulated expolsures
+            Index into encapsulated exposures
 
         Returns
         -------

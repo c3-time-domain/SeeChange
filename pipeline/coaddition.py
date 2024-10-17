@@ -616,7 +616,6 @@ class Coadder:
                              ] )
 
 
-            # SCLogger.debug( f"Running swarp to coadd {len(sumimgs)} images" )
             SCLogger.debug( f"Running swarp to coadd {len(sumimgs)} images; swarp command is {command}" )
             t0 = time.perf_counter()
             res = subprocess.run( command, capture_output=True, timeout=self.pars.swarp_timeout )

@@ -607,5 +607,3 @@ def test_coadd_17_decam_images_swarp( decam_17_offset_refs, decam_four_refs_alig
     assert img.flags.shape == img.data.shape
     assert img.weight.shape == img.weight.shape
 
-    # import pdb; pdb.set_trace()
-    # pass

@@ -302,7 +302,6 @@ class DECamRefFetcher:
                                                  'calibset': 'externally_supplied',
                                                  'flattype': 'externally_supplied',
                                                  'steps_required': [ 'overscan', 'linearity', 'flat', 'fringe' ]} )
-            import pdb; pdb.set_trace()
             pipeline.run( ds, no_provtag=True, ok_no_ref_provs=True )
             ds.reraise()
 
@@ -339,7 +338,6 @@ class DECamRefFetcher:
         """Download identified exposures; load them and their images into the database."""
 
         SCLogger.info( f"============ Downloading {len(usefuldexen)} reduced exposures." )
-        # exposures = origexps.download_and_commit_exposures( list(usefuldexen) )
         exposures = origexps.download_and_commit_exposures( list(usefuldexen),
                                                             delete_downloads=False,
                                                             existing_ok=True )
