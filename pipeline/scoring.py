@@ -57,18 +57,63 @@ class Scorer:
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
 
-    def score_rbbot( self, ds, deepmodel ):
+    def score_rbbot( self, ds, deepmodel, algo=None, prov=None, session=None ):
+        if prov is None:
+            raise ValueError( "provenance can't be None" )
+        if algo is None:
+            algo = self.pars.algorithm
+
+        SCLogger.debug( "score_rbbot starting, loading cutouts data" )
+            
         sources = ds.get_sources( session=session )
         cutouts = ds.get_cutouts( session=session )
         cutouts.load_all_co_data( sources=sources )
 
         # Construct the numpy array
         # Current RBbot models assume 41×41 cutouts
+        if ( cutouts.co_dict[f'source_index_{ds.measurements[0].index_in_sources}']['sub_data'].shape
+             != (41,41) ):
+            raise ValueError( f"RBbot currently requires cutouts to be 41×41" )
+        data = np.empty( ( len(ds.measurements), 3, 41, 41 ) )
+        for i, meas in enumerate( ds.measurements ):
+            cdex = f'source_index_{meas.index_in_sources}'
+            data[ i, 0, :, : ] = cutouts.co_dict[cdex]['new_data']
+            data[ i, 1, :, : ] = cutouts.co_dict[cdex]['ref_data']
+            data[ i, 2, :, : ] = cutouts.co_dict[cdex]['sub_data']
 
+        # TODO : zero out masked pixels?
+            
+        # rbbot expects each cutout to be normalized by sqrt(Σf²)
+        norm = np.sqrt( ( data*data ).sum( axis=(2,3) ) )
+        data /= norm[ :, :, np.newaxis, np.newaxis ]
+
+        
         import pdb; pdb.set_trace()
+        
+            
+        # Load the rbbot model
+        # TODO : cache this so we don't have to reload it?  Maybe not a big deal,
+        #  since in a single run of the pipeline we expet this function to
+        #  only be called once.
+        SCLogger.debug( "Loading model and running inference" )
+        model = RBbot_inference.load_model.load_model( deepmodel, model_root=self.pars.rbbot_model_dir )
 
-        RBbot_inference.load_model( deepmodel, model_root=self.pars.rbbot_model_dir )
+        # Run the inference
+        trips_tensor = torch.Tensor(data).to('cpu')
+        output = model( trips_tensor )
+        scores = output[0].detach().cpu().numpy()
 
+        SCLogger.debug( "Building DeepsScore objects" )
+        scorelist = []
+        for score, meas in zip( scores, ds.measurements ):
+            d = DeepScore.from_measurements( meas, provenance=prov )
+            d.algorithm = algo
+            d.score = score
+            scorelist.append( d )
+
+        SCLogger.debug( "score_rbbot done" )
+        import pdb; pdb.set_trace()
+        return scorelist
 
 
     def run(self, *args, **kwargs):
@@ -108,12 +153,12 @@ class Scorer:
 
             if scores is None or len(scores) == 0:
                 self.has_recalculated = True
-                algo = Provenance.get( d.provenance_id ).parameters['algorithm']
+                algo = self.pars.algorithm
 
                 if ( algo == 'random' ) or ( algo =='allperfect' ):
                     scorelist = []
                     for m in measurements:
-                        d = DeepSCore.from_measurements( m, provenance=prov )
+                        d = DeepScore.from_measurements( m, provenance=prov )
 
                         if algo == 'random':
                             d.score = np.random.default_rng().random()
@@ -127,7 +172,7 @@ class Scorer:
                         scorelist.append( d )
 
                 elif algo[0:5] == 'RBbot':
-                    scorelist = self.score_rbbot( ds, algo )
+                    scorelist = self.score_rbbot( ds, algo, prov=prov, session=session )
 
                 elif algo in DeepscoreAlgorithmConverter.dict_inverse:
                     raise NotImplementedError(f"algorithm {algo} isn't yet implemented")

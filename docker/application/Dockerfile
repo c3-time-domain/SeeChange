@@ -229,11 +229,9 @@ RUN source /venv/bin/activate \
 # RBbot
 # Remove the requirements.txt file because it will install
 # a GPU version of pytorch, and we've already installed
-# a CPU version above.  Also, check out the specific
-# commit that we were looking at when I made this.
-RUN git clone https://github.com/nabeelre/RBbot_inference.git \
-    && cd RBbot_inference \
-    && git checkout 3a255300770c79c4339769a238bffb03d218aaf7 \
+# a CPU version above.
+COPY extern/RBbot_inference /usr/src/seechange/RBbot_inference
+RUN cd RBbot_inference \
     && rm -f requirements.txt \
     && touch requirements.txt \
     && source /venv/bin/activate \

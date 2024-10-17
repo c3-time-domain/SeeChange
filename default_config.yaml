@@ -185,7 +185,7 @@ measuring:
 
 scoring:
   algorithm: RBbot-quiet-shadow-131
-  rbbot_model_dir: /seeechange/share/RBbot_models
+  rbbot_model_dir: /seechange/share/RBbot_models
 
 
 # use these parameters when running the coaddition pipeline, e.g., for making weekly coadds

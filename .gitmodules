@@ -7,3 +7,6 @@
 [submodule "extern/nersc-desi-gaia-dr3-server"]
 	path = extern/nersc-desi-gaia-dr3-server
 	url = https://github.com/c3-time-domain/nersc-desi-gaia-dr3-server.git
+[submodule "extern/RBbot_inference"]
+	path = extern/RBbot_inference
+	url = https://github.com/nabeelre/RBbot_inference.git

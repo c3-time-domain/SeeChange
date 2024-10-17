@@ -33,3 +33,6 @@ referencing:
   coaddition:
     coaddition:
       method: zogy        # Many tests were written with this as the default
+
+scoring:
+  algorithm: random

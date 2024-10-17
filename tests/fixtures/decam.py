@@ -407,7 +407,7 @@ def decam_datastore(
 
 @pytest.fixture
 def decam_partial_datastore_factory( datastore_factory, decam_cache_dir, decam_exposure,
-                                     decam_refeference, decam_default_calibrators ):
+                                     decam_reference, decam_default_calibrators ):
     ds_storage = { 'ds': None }
 
     def decam_partial_datastore_maker( through_step ):

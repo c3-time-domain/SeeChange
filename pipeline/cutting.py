@@ -104,13 +104,26 @@ class Cutter:
                 #     sub_stamps_psfflux = None
                 #     sub_stamps_psffluxerr = None
 
-                ref_stamps_data = make_cutouts(ds.aligned_ref_image.data, x, y, sz)
-                ref_stamps_weight = make_cutouts(ds.aligned_ref_image.weight, x, y, sz, fillvalue=0)
-                ref_stamps_flags = make_cutouts(ds.aligned_ref_image.flags, x, y, sz, fillvalue=0)
+                # For both ref and new, we want to do cutouts on sky-subtracted images.
+                # (The ref is almost certainly already over a zero sky, so for the ref this
+                # should approximately be a null operation.)
 
-                new_stamps_data = make_cutouts(ds.aligned_new_image.data, x, y, sz)
-                new_stamps_weight = make_cutouts(ds.aligned_new_image.weight, x, y, sz, fillvalue=0)
-                new_stamps_flags = make_cutouts(ds.aligned_new_image.flags, x, y, sz, fillvalue=0)
+                rdata = ds.aligned_ref_bg.subtract_me( ds.aligned_ref_image.data )
+                ref_stamps_data = make_cutouts(rdata, x, y, sz)
+                ref_stamps_weight = make_cutouts(rdata, x, y, sz, fillvalue=0)
+                ref_stamps_flags = make_cutouts(rdata, x, y, sz, fillvalue=0)
+                del rdata
+
+                # Rescale the reference cutouts to have the same zeropoint as the
+                #   new cutouts:
+                ref_stamps_data *= 10 ** ( ( ds.aligned_ref_zp.zp - ds.aligned_new_zp.zp ) / -2.5 )
+                ref_stamps_weight *= 10 ** ( ( ds.aligned_ref_zp.zp - ds.aligned_new_zp.zp ) / 5. )
+
+                ndata = ds.aligned_new_bg.subtract_me( ds.aligned_new_image.data )
+                new_stamps_data = make_cutouts(ndata, x, y, sz)
+                new_stamps_weight = make_cutouts(ndata, x, y, sz, fillvalue=0)
+                new_stamps_flags = make_cutouts(ndata, x, y, sz, fillvalue=0)
+                del ndata
 
                 cutouts = Cutouts.from_detections(detections, provenance=prov)
 
