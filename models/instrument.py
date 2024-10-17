@@ -2197,7 +2197,7 @@ class InstrumentOriginExposures:
           depth : float
 
         """
-        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_depth" )
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemented exposure_depth" )
 
 
     def exposure_filter( self, index ):
@@ -2206,14 +2206,14 @@ class InstrumentOriginExposures:
         Parameters
         ----------
           index: int
-            Index into encapsulated expolsures
+            Index into encapsulated exposures
 
         Returns
         -------
           filter: str
 
         """
-        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_filter" )
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemented exposure_filter" )
 
 
     def exposure_seeing( self, index ):
@@ -2222,14 +2222,14 @@ class InstrumentOriginExposures:
         Parameters
         ----------
           index: int
-            Index into encapsulated expolsures
+            Index into encapsulated exposures
 
         Returns
         -------
           seeing: float
 
         """
-        raise NotImplementedError( f"{self.__class__.__name__} has't implemetned exposure_seeing" )
+        raise NotImplementedError( f"{self.__class__.__name__} has't implemented exposure_seeing" )
 
 
     def exposure_exptime( self, index ):
@@ -2238,7 +2238,7 @@ class InstrumentOriginExposures:
         Parameters
         ----------
           index: int
-            Index into encapsulated expolsures
+            Index into encapsulated exposures
 
         Returns
         -------
@@ -2256,7 +2256,7 @@ class InstrumentOriginExposures:
         Parameters
         ----------
           index: int
-            Index into encapsulated expolsures
+            Index into encapsulated exposures
 
         Returns
         -------
