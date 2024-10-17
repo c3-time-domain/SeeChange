@@ -326,10 +326,10 @@ class Reference(Base, UUIDMixin):
                 sess.execute( sa.text(q), subdict )
 
                 q = ( "SELECT r.* FROM refs r INNER JOIN temp_find_containing_ref t ON r._id=t._id "
-                      f"WHERE q3c_poly_query( :ra, :dec, ARRAY[ t.ra_corner_00, t.dec_corner_00, "
-                      "                                         t.ra_corner_01, t.dec_corner_01, "
-                      "                                         t.ra_corner_11, t.dec_corner_11, "
-                      "                                         t.ra_corner_10, t.dec_corner_10 ] ) " )
+                      "WHERE q3c_poly_query( :ra, :dec, ARRAY[ t.ra_corner_00, t.dec_corner_00, "
+                      "                                        t.ra_corner_01, t.dec_corner_01, "
+                      "                                        t.ra_corner_11, t.dec_corner_11, "
+                      "                                        t.ra_corner_10, t.dec_corner_10 ] ) " )
 
             # Mode 3 : overlapping area
 

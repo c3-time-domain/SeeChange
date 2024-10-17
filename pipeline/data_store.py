@@ -498,7 +498,7 @@ class DataStore:
             # ensure that there is a score for each measurement, otherwise reject
             if ( len( val ) != len(self._measurements) ):
                 raise ValueError( "Score and measurements list not the same length" )
-            
+
             # ensure that the scores relate to measurements in the datascore
             if ( set([str(score.measurements_id) for score in val])
                     .issubset(set([str(m.id) for m in self._measurements])) ):
@@ -1254,7 +1254,7 @@ class DataStore:
                 if ( match_prov ):
                     obj = obj.filter( cls.provenance_id == provenance._id )
                 obj = obj.all()
-        
+
         else: # should only be scoring atm
             upstream_ids = [obj.id for obj in upstreamobj]
             with SmartSession( session ) as sess:
@@ -1353,7 +1353,8 @@ class DataStore:
                       min_overlap=0.85,
                       skip_bad=True,
                       reload=False,
-                      randomly_pick_if_mulitple=False,
+                      multiple_ok=False,
+                      randomly_pick_if_multiple=False,
                       session=None ):
         """Get the reference for this image.
 
@@ -1363,20 +1364,22 @@ class DataStore:
         ----------
         search_by: str, default 'image'
             One of 'image', 'ra/dec', or 'target/section'.  If 'image',
-            will pass the image to Reference.get_references(), which
-            will find references that overlap the area of the image by
-            at least min_overlap.  If 'ra/dec', will pass the centra
-            ra/dec of the image to Reference.get_references(), and then
-            post-filter them by overlapfrac (if that is not None).  If
-            'target/section', will pass target and section_id of the
-            image to Reference.get_references().  You almost always want
-            to use the default of 'image', unles you're working with a
-            survey that has very well-defined targets and the image
-            headers are always completely reliable; in that case, use
+            will pass the DataStore's image to
+            Reference.get_references(), which will find references that
+            overlap the area of the image by at least min_overlap.  If
+            'ra/dec', will pass the central ra/dec of the image to
+            Reference.get_references(), and then post-filter them by
+            overlapfrac (if that is not None).  If 'target/section',
+            will pass target and section_id of the image to
+            Reference.get_references().  You almost always want to use
+            the default of 'image', unles you're working with a survey
+            that has very well-defined targets and the image headers are
+            always completely reliable; in that case, use
             'target/section'.  'ra/dec' might be useful if you're doing
             forced photometry and the image is a targeted image with the
-            target right at the center of the image (which is probably
-            a fairly contrived situation).
+            target right at the center of the image (which is probably a
+            fairly contrived situation, though you may have created
+            subset images constructed that way).
 
         provenances: list of Provenance objects, or None
             A list of provenances to use to identify a reference.  Any
@@ -1397,7 +1400,9 @@ class DataStore:
             Area of overlap region must be at least this fraction of the
             area of the search image for the reference to be good.  Make
             this None to not consider overlap fraction when finding a
-            reference.
+            reference.  (Sort of; it will still return the one with the
+            higehst overlap, it's just it will return that one even if
+            the overlap is tiny.)
 
         skip_bad: bool, default True
             If True, will skip references that are marked as bad.
@@ -1405,33 +1410,57 @@ class DataStore:
         reload: bool, default False
             If True, set the self.reference property (as well as derived
             things like ref_image, ref_sources, etc.) to None and try to
-            re-acquire the reference from the databse.
+            re-acquire the reference from the databse.  (Normally, if
+            there already is a self.reference and it matches all the
+            other criteria, it will just be returned.)
 
         multiple_ok: bool, default False
-            Normally, if more the one matching reference is found, it
-            will return an error.  If this is True, then it will pick
-            the reference with the highest overlap, raising an exception
-            if more than one reference has identical overlap.
+            Ignored for 'ra/dec' and 'target/section' search, or if
+            min_overlap is None or <=0.  For 'image' search, normally,
+            if more the one matching reference is found, it will return
+            an error.  If this is True, then it will pick the reference
+            with the highest overlap (depending on
+            randomly_pick_if_multiple).
+
+        randomly_pick_if_multiple: bool, default False
+            Normally, if there multiple references with exactly the same
+            maximum overlap fraction with the DataStore's image (which
+            should be _very_ rare), an exception will be raised.  If
+            randomly_pick_if_multiple is True, the code will not raise
+            an exception, and will just return whichever one the
+            database and code happend to sort first (which is
+            non-deterministic).
 
         session: sqlalchemy.orm.session.Session or SmartSession
-            An optional session to use for the database query.
-            If not given, will use the session stored inside the
-            DataStore object; if there is none, will open a new session
-            and close it at the end of the function.
+            An optional session to use for the database query.  If not
+            given, then functions called by this function will open and
+            close sessions as necessary.
 
         Returns
         -------
         ref: Image object
             The reference image for this image, or None if no reference is found.
 
-        If min_overlap is given, it will return the reference that has the
-        highest overlap fraction.  (If, by unlikely chance, more than one have
-        identical overlap fractions, an undeterministically chosen
-        reference will be returned.  Ideally, by construction, you will
-        never have this situation in your database; you will only have a
-        single valid reference image for a given instrument/filter/date
-        that has an appreciable overlap with any possible image from
-        that instrument.  The software does not enforce this, however.)
+        Behavior when more than one reference is found:
+
+        * For search_by='image':
+            * If multiple_ok=True or min_overlap is None or <=0, return
+              the reference with the highest overlap fraction with the
+              DataStore's image.
+
+            * If multiple_ok=False and min_overlap is positive, raise an
+              exception.
+
+        * Otherwise:
+            * Return the refrence with the highest overlap fraction with
+              the DataStore's image.
+
+        * Special case for both of the above: if there are multiple
+          images and, by unlikely chance, there are more than one that
+          have exactly the same highest overlap fraction, then raise an
+          exception if randomly_pick_if_multiple is False, otherwise
+          pick whichever one the database and code happened to sort
+          first.
 
         """
 
@@ -1457,7 +1486,6 @@ class DataStore:
 
         if ( provenances is None ) or ( len(provenances) == 0 ):
             raise RuntimeError( f"DataStore can't get a reference, no provenances to search" )
-            # self.reference = None  # cannot get a reference without any associated provenances
 
         provenance_ids = [ p.id for p in provenances ]
 
@@ -1532,41 +1560,81 @@ class DataStore:
             self.reference = None
             return None
 
-        # If we didn't search by image, we have to do the area overlap
-        # test, as Reference.get_references() won't have.
-        # SCLogger.debug( f"DataStore: Reference.get_reference returned {len(refs)} possible references" )
-        if ( search_by != 'image' ) and ( min_overlap is not None ) and ( min_overlap > 0 ):
+        elif len(refs) == 1:
+            # One reference found.  Return it if it's OK.
+            self.reference = refs[0]
+
+            # For image search, Reference.get_references() will
+            #  already have filtered by min_overlap if relevant.
+            if search_by != 'image':
+                if ( ( min_overlap is not None ) and
+                     ( min_overlap > 0 ) and
+                     ( FourCorners.get_overlap_frac( image, imgs[0] ) < min_overlap )
+                    ):
+                    self.reference = None
+
+            return self.reference
+
+        else:
+            # Multiple references found; deal with it.
+
+            # Sort references by overlap fraction descending
             ovfrac = [ FourCorners.get_overlap_frac( image, i ) for i in imgs ]
             sortdex = list( range( len(refs) ) )
             sortdex.sort( key=lambda x: -ovfrac[x] )
-            ok = [ ovfrac[i] >= min_overlap for i in sortdex ]
-            if all( not ok ):
-                self.reference = None
-                return None
-            redundant = [ ovfrac[i] == ovfrac[0] for i in sortdex[1:] ]
-            if any( redundant ):
-                SCLogger.warning( "DataStore.get_reference: more than one reference had exactly the maximum "
-                                  "overlap fraction of {ovfrac[0]}; returning a random one.  This is scary." )
 
-            self.reference = refs[sortdex[0]]
+            if search_by == 'image':
+                # For image search, raise an exception if multiple_ok is
+                #   False, as Reference.get_references() will already
+                #   have thrown out things with ovfrac < min_overlap.
+                #   If multiple_ok is True, or if we didn't give a
+                #   min_overlap, then return the one with the highest
+                #   overlap, except in the
+                #   randomly_pick_if_multiple=False edge case.
+                if ( not multiple_ok ) and ( min_overlap is not None ) and ( min_overlap > 0 ):
+                    self.reference = None
+                    raise RuntimeError( f"More than one reference overlapped the image by at least {min_overlap}" )
+                if ( not randomly_pick_if_multiple ) and ( ovfrac[sortdex[0]] == ovfrac[sortdex[1]] ):
+                    self.reference = None
+                    raise RuntimeError( f"More than one reference had exactly the same overlap of "
+                                        f"{ovfrac[sortdex[0]]}" )
+                self.reference = refs[ sortdex[0] ]
+                return self.reference
 
-        else:
-            if len(refs) > 1:
-                # ...aaaaand, still have to calculate the overlap fraction so we can sort
-                ovfrac = [ FourCorners.get_overlap_frac( image, i ) for i in imgs ]
-                sortdex = list( range( len(refs) ) )
-                sortdex.sort( key=lambda x: -ovfrac[x] )
-                if ovfrac[sortdex[0]] == ovfrac[sordex[1]]:
-                    # Perhaps this should be an error?  Somebody may not be as
-                    # anal as they ought to be about references, though, so
-                    # leave it a warning.
-                    SCLogger.warning( "DataStore.get_reference: more than one reference matched the criteria! "
-                                      "This is scary.  Randomly picking one.  Which is also scary." )
-                self.reference = refs[sordex[0]]
             else:
-                self.reference = None if len(refs)==0 else refs[0]
+                # For ra/dec or target/section search,
+                # References.get_reference() will not have filtered by
+                # min_overlap, so do that here.
+                if ( min_overlap is not None ) and ( min_overlap > 0 ):
+                    sortdex = [ s for s in sortdex if ovfrac[s] >= min_overlap ]
+                    if len(sortdex) == 0:
+                        self.reference = None
+                        return self.reference
+                    # Edge case
+                    if ( ( len(sortdex) > 1 ) and
+                         ( not randomly_pick_if_multiple ) and
+                         ( ovfrac[sortdex[0]] == ovfrac[sortdex[1]] )
+                        ):
+                        self.reference = None
+                        raise RuntimeError( f"More than one reference had exactly the same overlap of "
+                                            f"{ovfrac[sortdex[0]]}" )
+                    # Return the one with highest overlap
+                    self.reference = refs[ sortdex[0] ]
+                    return self.reference
+                else:
+                    # We can just return the one with highest overlap, even if it's tiny, because we
+                    #   didn't ask to filter on min_overlap, except in the edge case
+                    if ( ( len(sortdex) > 1 ) and
+                         ( not randomly_pick_if_multiple ) and
+                         ( ovfrac[sortdex[0]] == ovfrac[sortdex[1]] )
+                        ):
+                        self.reference = None
+                        raise RuntimeError( f"More than one reference had exactly the same overlap of "
+                                            f"{ovfrac[sortdex[0]]}" )
+                    self.reference = refs[ sortdex[0] ]
+                    return self.reference
 
-        return self.reference
+        raise RuntimeError( "The code should never get to this line." )
 
 
     def get_subtraction(self, provenance=None, reload=False, session=None):
@@ -1675,13 +1743,13 @@ class DataStore:
         scores =  self._get_data_product( "scores", DeepScore, "measurements", DeepScore.measurements_id,
                                       "scoring", is_list=True, upstream_is_list=True,
                                       provenance=provenance, reload=reload, session=session)
-        
+
         # sort the scores so the list order matches measurements
         if scores is not None and len(scores) > 0:
 
             if len(scores) != len(self.measurements):
                 raise RuntimeError(f"get_scores found {len(scores)} scores for {len(self.measurements)} measurements")
-            
+
             m_ids = [str(m.id) for m in self.measurements]
             scores.sort( key=lambda x: m_ids.index( str(x.measurements_id) ) )
 

@@ -9,7 +9,6 @@ import shapely.geometry
 
 import sqlalchemy as sa
 from sqlalchemy import orm
-import psycopg2.extras
 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
@@ -17,7 +16,6 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CheckConstraint
-from sqlalchemy.sql import or_, and_
 
 from astropy.time import Time
 from astropy.wcs import WCS

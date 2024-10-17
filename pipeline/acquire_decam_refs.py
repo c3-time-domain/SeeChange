@@ -97,27 +97,6 @@ class DECamRefFetcher:
         self.match_poses = {}
         self.match_counts = {}
 
-        # # We're going to demand at least min_per_chip images overlapping five points
-        # #  on the image, the center and one point "near" each of the corners.
-        # # Put those ra/dec points in the self.positions dictionary.
-        # self.positions = {}
-        # self.overlapcount = {}
-        # self.chipimgs = {}
-        # cornerfrac = 0.8
-        # for chip in self.chips:
-        #     ra = self.chippos[chip][0]
-        #     dec = self.chippos[chip][1]
-        #     cd = np.cos( dec * np.pi / 180. )
-        #     dra = cornerfrac * 2048. * self.decam.pixel_scale / 3600. / cd
-        #     ddec = cornerfrac * 1024. * self.decam.pixel_scale / 3600.
-        #     self.positions[chip] = [ ( ra, dec ),
-        #                              ( ra - dra, dec - ddec ),
-        #                              ( ra - dra, dec + ddec ),
-        #                              ( ra + dra, dec - ddec ),
-        #                              ( ra + dra, dec + ddec ) ]
-        #     self.overlapcount[chip] = [ 0, 0, 0, 0, 0 ]
-        #     self.chipimgs[chip] = []
-
     def log_position_counts( self, prefix="", match_counts=None ):
         strio = io.StringIO()
         strio.write( f"{prefix}overlap count for all chips:\n" )
@@ -265,12 +244,12 @@ class DECamRefFetcher:
                              ( mindec < self.match_poses[chip][pos][1] ) and
                              ( maxdec > self.match_poses[chip][pos][1] )
                             ):
-                            match_count[chip][pos] += 1
+                            match_counts[chip][pos] += 1
                             usefuldexen.add( expdex )
 
                 # Are we done?  If so, break out of exposure loop, go on to next chip of target
-                if all( [ match_count[chip][c] >= self.min_per_chip
-                          for c in range(len(match_count[chip])) ] ):
+                if all( [ match_counts[chip][c] >= self.min_per_chip
+                          for c in range(len(match_counts[chip])) ] ):
                     break
 
         return origexps, usefuldexen, match_counts

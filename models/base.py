@@ -2048,8 +2048,9 @@ class FourCorners:
           session : Session
              required here; otherwise, the temp table wouldn't be useful
 
-          prov_id: str or None
-             id of the provenance of cls objects to search; if None, won't filter on provenance
+          prov_id: str, list of str, or None
+             id or ids of the provenance of cls objects to search; if
+             None, won't filter on provenance
 
         """
 

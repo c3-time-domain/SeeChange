@@ -617,6 +617,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             deepscores_cache_name = os.path.join(cache_dir, cache_sub_name +
                                                    f'.deepscores_{ds.prov_tree["scoring"].id[:6]}.json')
             
+            SCLogger.debug( f'make_datastore searching cache for deepscores {deepscores_cache_name}' )
             needs_rerun = True
             if use_cache and os.path.isfile(deepscores_cache_name):
                 # In order to load from cache, we must have the ability to point each score to
