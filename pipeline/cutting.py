@@ -110,8 +110,8 @@ class Cutter:
 
                 rdata = ds.aligned_ref_bg.subtract_me( ds.aligned_ref_image.data )
                 ref_stamps_data = make_cutouts(rdata, x, y, sz)
-                ref_stamps_weight = make_cutouts(rdata, x, y, sz, fillvalue=0)
-                ref_stamps_flags = make_cutouts(rdata, x, y, sz, fillvalue=0)
+                ref_stamps_weight = make_cutouts(ds.aligned_ref_image.weight, x, y, sz, fillvalue=0)
+                ref_stamps_flags = make_cutouts(ds.aligned_ref_image.flags, x, y, sz, fillvalue=0)
                 del rdata
 
                 # Rescale the reference cutouts to have the same zeropoint as the
@@ -121,8 +121,8 @@ class Cutter:
 
                 ndata = ds.aligned_new_bg.subtract_me( ds.aligned_new_image.data )
                 new_stamps_data = make_cutouts(ndata, x, y, sz)
-                new_stamps_weight = make_cutouts(ndata, x, y, sz, fillvalue=0)
-                new_stamps_flags = make_cutouts(ndata, x, y, sz, fillvalue=0)
+                new_stamps_weight = make_cutouts(ds.aligned_new_image.weight, x, y, sz, fillvalue=0)
+                new_stamps_flags = make_cutouts(ds.aligned_new_image.flags, x, y, sz, fillvalue=0)
                 del ndata
 
                 cutouts = Cutouts.from_detections(detections, provenance=prov)

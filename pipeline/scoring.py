@@ -75,13 +75,27 @@ class Scorer:
              != (41,41) ):
             raise ValueError( f"RBbot currently requires cutouts to be 41×41" )
         data = np.empty( ( len(ds.measurements), 3, 41, 41 ) )
+        tmpdata = np.empty( ( 3, 41, 41 ) )
+        tmpmask = np.empty( ( 3, 41, 41 ), dtype=bool )
         for i, meas in enumerate( ds.measurements ):
             cdex = f'source_index_{meas.index_in_sources}'
-            data[ i, 0, :, : ] = cutouts.co_dict[cdex]['new_data']
-            data[ i, 1, :, : ] = cutouts.co_dict[cdex]['ref_data']
-            data[ i, 2, :, : ] = cutouts.co_dict[cdex]['sub_data']
+            tmpdata[ 0, :, : ] = cutouts.co_dict[cdex]['new_data']
+            tmpdata[ 1, :, : ] = cutouts.co_dict[cdex]['ref_data']
+            tmpdata[ 2, :, : ] = cutouts.co_dict[cdex]['sub_data']
 
-        # TODO : zero out masked pixels?
+            # Zero out any masked pixels.  (TODO: thought requred.  Is this the right
+            # thing to do?  One might expect a pipeline to NaNify masked pixels,
+            # and setting NaNs to zero is explicitly required for RBbot....)
+            tmpmask[ 0, :, : ] = ( cutouts.co_dict[cdex]['new_flags'] != 0 )
+            tmpmask[ 1, :, : ] = ( cutouts.co_dict[cdex]['ref_flags'] != 0 )
+            tmpmask[ 2, :, : ] = ( cutouts.co_dict[cdex]['sub_flags'] != 0 )
+            tmpdata[ tmpmask ] = 0.
+
+            data[ i, :, :, : ] = tmpdata
+
+        # Make sure there are no nans in data.  (RBbot expects them to have
+        # been set to 0.)
+        data[ np.isnan( data ) ] = 0.
 
         # rbbot expects each cutout to be normalized by sqrt(Σf²)
         norm = np.sqrt( ( data*data ).sum( axis=(2,3) ) )
