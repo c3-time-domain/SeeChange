@@ -453,7 +453,7 @@ def decam_datastore_through_extraction( decam_partial_datastore_factory ):
 
 
 @pytest.fixture
-def decam_datastore_through_bg( decam_partial_datastore_maker ):
+def decam_datastore_through_bg( decam_partial_datastore_factory ):
     return decam_partial_datastore_factory( 'bg' )
 
 

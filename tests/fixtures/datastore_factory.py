@@ -460,8 +460,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 f = f.replace('Sci', 'Warped')     # in any case, replace it with 'Warped'
                 f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
                 filename_aligned_ref = f
+                filename_aligned_ref_bg = f'{f}_bg'
                 cache_name_aligned_ref = filename_aligned_ref + '.image.fits.json'
+                cache_name_aligned_ref_bg = filename_aligned_ref_bg + '.image.fits.json'
                 aligned_ref_cache_path = os.path.join( cache_dir, cache_name_aligned_ref )
+                aligned_ref_bg_cache_path = os.path.join( cache_dir, cache_name_aligned_ref_bg )
 
                 # Commenting this out -- we know that we're aligning to new,
                 #   do don't waste cache on aligned_new
@@ -482,7 +485,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 if ( ( os.path.isfile(sub_cache_path) ) and
                      ( os.path.isfile(zogy_score_cache_path) ) and
                      ( os.path.isfile(zogy_alpha_cache_path) ) and
-                     ( os.path.isfile(aligned_ref_cache_path) ) ):
+                     ( os.path.isfile(aligned_ref_cache_path) ) and
+                     ( os.path.isfile(aligned_ref_bg_cache_path) ) ):
                     SCLogger.debug('make_datastore loading subtraction image from cache: {sub_cache_path}" ')
                     tmpsubim =  copy_from_cache(Image, cache_dir, cache_name)
                     tmpsubim.provenance_id = ds.prov_tree['subtraction'].id
@@ -508,6 +512,10 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     # TODO: should we also load the aligned image's sources, PSF, and ZP?
                     ds.aligned_ref_image = image_aligned_ref
 
+                    ds.aligned_ref_bg = copy_from_cache( Background, cache_dir, cache_name_aligned_ref_bg )
+                    ds.aligned_new_image = ds.image
+                    ds.aligned_new_bg = ds.bg
+
                 else:
                     SCLogger.debug( "make_datastore didn't find subtraction image in cache" )
 
@@ -526,6 +534,10 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     SCLogger.debug( "make_datastore saving aligned ref image to cache" )
                     ds.aligned_ref_image.save( no_archive=True )
                     copy_to_cache( ds.aligned_ref_image, cache_dir )
+                    # Normally, the aligned_Ref_bg doesn't get saved to disk, but
+                    #   we need it for the cache
+                    ds.aligned_ref_bg.save( no_archive=True, filename=f'{ds.aligned_ref_image.filepath}_bg.h5' )
+                    copy_to_cache( ds.aligned_ref_bg, cache_dir )
 
         ############ detecting to create a source list ############
 

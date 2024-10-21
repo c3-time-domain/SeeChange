@@ -68,7 +68,15 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     if m.best_aperture == -1:
         assert m.flux == m.flux_psf - m.bkg_mean * m.area_psf
         assert m.magnitude != m.mag_psf  # the magnitude has background subtracted from it
-        assert m.magnitude_err > m.mag_psf_err  # the magnitude error is larger because of the error in background
+        assert m.flux_err > m.flux_psf_err   # the magnitude error is larger because of the error in background
+        # This next one can fail if the mean background is negative.
+        #   While the flux error will be larger, the flux itself will
+        #   also be larger in the background-subtracted version if the
+        #   mean background is negative, so the magnitude error (which
+        #   is a log of dflux/flux) may come out slightly smaller.
+        #   (This is just yet another indication that you should
+        #   generally work with fluxes, not magnitudes!)
+        # assert m.magnitude_err > m.mag_psf_err  # the magnitude error is larger because of the error in background
     else:
         assert m.flux == m.flux_apertures[m.best_aperture] - m.bkg_mean * m.area_apertures[m.best_aperture]
 
@@ -150,8 +158,8 @@ def test_filtering_measurements(ptf_datastore):
         ms = session.scalars(sa.select(Measurements).where(Measurements.flux_apertures[0] > 0)).all()
         assert len(ms) == len(measurements)  # saved measurements will probably have a positive flux
 
-        ms = session.scalars(sa.select(Measurements).where(Measurements.flux_apertures[0] > 2000)).all()
-        assert len(ms) < len(measurements)  # only some measurements have a flux above 2000
+        ms = session.scalars(sa.select(Measurements).where(Measurements.flux_apertures[0] > 5000)).all()
+        assert len(ms) < len(measurements)  # only some measurements have a flux above 5000
 
         ms = session.scalars(sa.select(Measurements).where(Measurements.bkg_mean > 0)).all()
         assert len(ms) <= len(measurements)  # only some of the measurements have positive background
