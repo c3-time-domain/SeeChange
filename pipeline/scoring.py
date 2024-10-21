@@ -64,7 +64,7 @@ class Scorer:
             algo = self.pars.algorithm
 
         SCLogger.debug( "score_rbbot starting, loading cutouts data" )
-            
+
         sources = ds.get_sources( session=session )
         cutouts = ds.get_cutouts( session=session )
         cutouts.load_all_co_data( sources=sources )
@@ -82,15 +82,11 @@ class Scorer:
             data[ i, 2, :, : ] = cutouts.co_dict[cdex]['sub_data']
 
         # TODO : zero out masked pixels?
-            
+
         # rbbot expects each cutout to be normalized by sqrt(Σf²)
         norm = np.sqrt( ( data*data ).sum( axis=(2,3) ) )
         data /= norm[ :, :, np.newaxis, np.newaxis ]
 
-        
-        import pdb; pdb.set_trace()
-        
-            
         # Load the rbbot model
         # TODO : cache this so we don't have to reload it?  Maybe not a big deal,
         #  since in a single run of the pipeline we expet this function to
@@ -112,7 +108,6 @@ class Scorer:
             scorelist.append( d )
 
         SCLogger.debug( "score_rbbot done" )
-        import pdb; pdb.set_trace()
         return scorelist
 
 
