@@ -28,7 +28,7 @@ class ParsMeasurer(Parameters):
             'annulus_radii',
             [7.5, 10.0],
             list,
-            'Inner and outer radii of the annulus. '
+            'Inner and outer radii of the background annulus. '
         )
 
         self.annulus_units = self.add_par(
@@ -52,22 +52,24 @@ class ParsMeasurer(Parameters):
             'analytical_cuts',
             ['negatives', 'bad pixels', 'offsets', 'filter bank', 'bad_flag'],
             [list],
-            'Which kinds of analytic cuts are used to give scores to this measurement. '
+            ( 'Which kinds of analytic cuts are used to give scores to this measurement. '
+              'TODO: remove these in favor of the thresholds dict (and put None to not thresdhold '
+              'on any one of them)?  Issue #319.' ),
         )
 
         self.outlier_sigma = self.add_par(
             'outlier_sigma',
             3.0,
             float,
-            'How many times the local background RMS for each pixel counts '
-            'as being a negative or positive outlier pixel. '
+            'How many times the local background RMS the pixel flux must be '
+            'to be considered a negative or positive outlier pixel. '
         )
 
         self.bad_pixel_radius = self.add_par(
             'bad_pixel_radius',
             3.0,
             float,
-            'Radius in pixels for the bad pixel cut. '
+            'Radius in pixels for the bad pixel cut. (??)'
         )
 
         self.bad_pixel_exclude = self.add_par(
