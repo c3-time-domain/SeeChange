@@ -65,9 +65,9 @@ class Scorer:
 
         SCLogger.debug( "score_rbbot starting, loading cutouts data" )
 
-        sources = ds.get_sources( session=session )
+        detections = ds.get_detections( session=session )
         cutouts = ds.get_cutouts( session=session )
-        cutouts.load_all_co_data( sources=sources )
+        cutouts.load_all_co_data( sources=detections )
 
         # Construct the numpy array
         # Current RBbot models assume 41×41 cutouts

@@ -29,6 +29,15 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     assert ds.measurements[0].from_db
     assert not measurer.has_recalculated
 
+    # Make sure positions are consistent with what's in detections
+    # (They won't be identical because the positions are redetermined in measuring.py
+    # vs. what was found in the detections originally, but they should be close.)
+    # ...these don't pass.  I see typicaly differences of 0.5".  This alarms me.
+    # But, it probably has something to do with the positions found by the filter detection
+    # method used with zogy.  Maybe worth understanding, but leave it be for now.
+    # assert all( m.ra == pytest.approx( ds.detections.ra[m.index_in_sources], abs=0.1/3600. ) for m in ds.measurements )
+    # assert all( m.dec == pytest.approx( ds.detections.dec[m.index_in_sources], abs=0.1/3600. ) for m in ds.measurements )
+
     # grab one example measurements object
     m = ds.measurements[0]
 

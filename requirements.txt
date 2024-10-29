@@ -4,11 +4,13 @@ astro-datalab==2.20.1
 astropy==5.3.4
 astroquery==0.4.6
 beautifulsoup4==4.12.2
+confluent-kafka==2.6.0
 fitsio==0.9.12
 flaky==3.8.1
 flask==3.0.3
 flask-session==0.8.0
 GitPython==3.1.40
+fastavro==1.9.7
 gunicorn==22.0.0
 h5py==3.10.0
 healpy==1.16.6

@@ -201,16 +201,19 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def from_detections(detections, provenance=None, **kwargs):
         """Create a Cutout object from a row in the SourceList.
 
-        The SourceList must have a valid image attribute, and that image should have exactly two
-        upstream_images: the reference and new image. Each Cutout will have three small stamps
-        from the new, reference, and subtraction images.
+        Each Cutout will have three small stamps from the new,
+        reference, and subtraction images.
 
         Parameters
         ----------
         detections: SourceList
-            The source list from which to create the cutout.
+            The source list from which to create the cutout.  It should
+            have exactly two upstream_images: the reference and new
+            image.
+
         provenance: Provenance, optional
             The provenance of the cutout. If not given, will leave as None (to be filled externally).
+
         kwargs: dict
             Can include any of the following keys, in the format: {im}_{att}, where
             the {im} can be "sub", "ref", or "new", and the {att} can be "data", "weight", or "flags".
@@ -220,6 +223,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         -------
         cutout: Cutout
             The cutout object.
+
         """
         cutout = Cutouts()
         cutout.sources_id = detections.id

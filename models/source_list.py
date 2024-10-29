@@ -256,6 +256,30 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             raise ValueError( "Unknown format {self.format}" )
 
     @property
+    def ra( self ):
+        """A numpy array with RA in degrees, or None if not available"""
+        if self.format == 'sextrfits':
+            return self.data['X_WORLD']
+        elif self.format == 'sepnpy':
+            return None
+        elif self.format == 'filter':
+            return self.data['ra']
+        else:
+            raise ValueError( "Unknown format {self.format}" )
+
+    @property
+    def dec( self ):
+        """A numpy array with Dec in degrees, or None if not available"""
+        if self.format == 'sextrfits':
+            return self.data['Y_WORLD']
+        elif self.format == 'sepnpy':
+            return None
+        elif self.format == 'filter':
+            return self.data['dec']
+        else:
+            raise ValueError( "Unknown format {self.format}" )
+
+    @property
     def errx( self ):
         """A numpy array with uncertainties on x position"""
         return np.sqrt( self.varx ) if self.varx is not None else None

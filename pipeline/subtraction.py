@@ -438,11 +438,13 @@ class Subtractor:
                 ds.subtraction_output = outdict  # save the full output for debugging
 
                 # TODO: can we get better estimates from our subtraction outdict? Issue #312
+                # (Rough estimate might just be the larger of new/ref seeing.  That's what it would
+                # be using the old 1990s SCP subtraction algorithm, and I think also with Alard/Luption.)
                 sub_image.fwhm_estimate = ds.image.fwhm_estimate
                 # We (I THINK) renormalized the sub_image to new_image above, so its zeropoint is the new's zeropoint
                 sub_image.zero_point_estimate = ds.zp.zp
                 # TODO: this implicitly assumes that the ref is much deeper than the new.
-                #  If it's not, this is going to be too generous.
+                #  If it's not, this is going to be too generous. → Issue #364
                 sub_image.lim_mag_estimate = ds.image.lim_mag_estimate
 
                 # if the subtraction does not provide an estimate of the background, use sigma clipping

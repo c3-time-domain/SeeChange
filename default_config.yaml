@@ -370,17 +370,21 @@ scoring:
 
 alerts:
   send_alerts: true
-  - method: kafka
-    enabled: false
-    deepcut: 0.8
-    avro_schema: /share/avsc/alert.avsc
-    kafka_server: kafka.server.com
-    kafka_topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"
-  - method: kafka
-    enabled: false
-    avro_schema: /share/avsc/alert.avsc
-    kafka_server: kafka.server.com
-    kafka_topic_pattern: "topic_with_junk_{year:04d}-{month:02d}-{day:02d}"
+  methods:
+    - method: kafka
+      enabled: false
+      deepcut: 0.8
+      avro_schema: /seechange/share/avsc/alert.avsc
+      kafka_server: kafka.server.com
+      kafka_topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"
+      previous_source_days: 365
+    - method: kafka
+      enabled: false
+      deepcut: 0.
+      avro_schema: /seechange/share/avsc/alert.avsc
+      kafka_server: kafka.server.com
+      kafka_topic_pattern: "topic_with_junk_{year:04d}-{month:02d}-{day:02d}"
+      previous_source_days: 365
 
 # ======================================================================
 # ======================================================================
