@@ -371,14 +371,16 @@ scoring:
 alerts:
   send_alerts: true
   methods:
-    - method: kafka
+    - name: filtered_kafka_stream
+      method: kafka
       enabled: false
       deepcut: 0.8
       avro_schema: /seechange/share/avsc/alert.avsc
       kafka_server: kafka.server.com
       kafka_topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"
       previous_source_days: 365
-    - method: kafka
+    - name: junk_included_kafka_stream
+      method: kafka
       enabled: false
       deepcut: 0.
       avro_schema: /seechange/share/avsc/alert.avsc

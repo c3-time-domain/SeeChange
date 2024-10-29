@@ -1,9 +1,12 @@
+import io
 import uuid
+import random
+import datetime
+
 import fastavro
+import confluent_kafka
 
 import numpy as np
-
-import sa.orm
 
 from models.base import SmartSession
 from models.image import Image, image_upstreams_association_table
@@ -41,22 +44,32 @@ class Alerting:
         self.send_alerts = cfg.value( 'alerts.send_alerts' ) if send_alerts is None else send_alerts
         self.methods = cfg.value( 'alerts.methods' ) if methods is None else methods
 
-        if ( not isinstance( self.methods, list ) ) or ( not all( isinstance(m, dict) for m self.methods ) ):
+        if ( not isinstance( self.methods, list ) ) or ( not all( isinstance(m, dict) for m in self.methods ) ):
             raise TypeError( "Alerting: methods must be a list of dicts." )
 
-        self.schema = {}
+        if not len( set( m['name'] for m in self.methods ) ) == len( self.methods ):
+            raise ValueError( "Alerting: all alert methods must have unique names" )
+        
         for method in self.methods:
             if 'method' not in method:
-                raise ValueError( f"'method' is not defined for (at least) one of the alert methods" )
+                raise ValueError( f"'method' is not defined for (at least) alert method {method['name']}" )
 
             if method['method'] not in self.known_methods:
                 raise ValueError( f"Unknown alert method {method['method']}; known are {self.known_methods}" )
             
-            if 'enabled' not in self.methods:
-                raise ValueError( f"Each method must have a value for 'enabled'; (at last) "
-                                  f"{method['method']} does not." )
+            if 'enabled' not in method:
+                raise ValueError( f"Each method must have a value for 'enabled'; (at least) "
+                                  f"{method['name']} does not." )
 
-            self.schema[method['method']] = fastavro.schema.load_schema( method['avro_schema'] )
+            if method['method'] == 'kafka':
+                method['schema'] = fastavro.schema.load_schema( method['avro_schema'] )
+
+                now = datetime.datetime.now()
+                barf = "".join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=6 ) )
+                method['topic'] = method['kafka_topic_pattern'].format( year = now.year,
+                                                                        month = now.month,
+                                                                        day = now.day,
+                                                                        barf = barf )
 
 
 
@@ -124,8 +137,8 @@ class Alerting:
                  'apFlux': meas.flux_apertures[ aperdex ] * fluxscale,
                  'apFluxErr': meas.flux_apertures_err[ aperdex ] * fluxscale,
                  'snr': meas.flux_apertures[aperdex] / meas.flux_apertures_err[aperdex],
-                 'psfFlux': meas.flux_psf,
-                 'psfFluxErr':meas.flux_psf_err,
+                 'psfFlux': meas.flux_psf * fluxscale,
+                 'psfFluxErr':meas.flux_psf_err * fluxscale,
                  'ixx': None,
                  'ixxErr': None,
                  'iyy': None,
@@ -173,15 +186,15 @@ class Alerting:
 
         if len(scores) != len(measurements):
             raise ValueError( f"Alert sending error: DataStore has different number of "
-                              f"measurements ({len(measurements)} and scores ({len(scores)}}.  "
+                              f"measurements ({len(measurements)}) and scores ({len(scores)}).  "
                               f"This should never happen." )
 
         # Figure out which aperture is radius of 1 FWHM
         radfwhm = measurements[0].aper_radii / ( image.fwhm_estimate / image.instrument_object.pixel_scale )
         w = np.where( np.fabs( radfwhm - 1. ) < 0.01 )
-        if len(w) == 0.:
+        if len(w[0]) == 0.:
             raise RuntimeError( f"No 1FWHM aperture (have {radfwhm})" )
-        aperdex = w[0]
+        aperdex = w[0][0]
 
         # We're going to use the standard SNANA zeropoint for no adequately explained reason
         # (We *could* just store the image zeropoint in fluxZeroPoint.  However, it will be
@@ -208,7 +221,7 @@ class Alerting:
                       'diaSource': {},
                       'prvDiaSources': [],
                       'prvDiaForcedSources': None,
-                      'prvDiaNondetectionLimits': [],
+                      'prvDiaNonDetectionLimits': [],
                       'diaObject': {},
                       'cutoutDifference': subdata.tobytes(),
                       'cutoutScience': newdata.tobytes(),
@@ -227,14 +240,17 @@ class Alerting:
                 # because the cutouts source list is the detections, and
                 # the detections image is the sub image) to get
                 # mjd and filter.
+
+                # TODO -- handle previous_sources_days
+                 
                 prvimgids = {}
                 q = ( sess.query( Measurements, Image )
-                      .join( Cutouts, Measurements.cutouts_id==Cutouts.id )
-                      .join( SourceList, Cutouts.sources_id==SourceList.id )
-                      .join( Image, SourceList.image_id==Image.id )
+                      .join( Cutouts, Measurements.cutouts_id==Cutouts._id )
+                      .join( SourceList, Cutouts.sources_id==SourceList._id )
+                      .join( Image, SourceList.image_id==Image._id )
                       .filter( Measurements.object_id==meas.object_id )
                       .filter( Measurements.provenance_id==meas.provenance_id )
-                      .filter( Measurements.id!=meas.id )
+                      .filter( Measurements._id!=meas.id )
                       .order_by( Image.mjd ) )
                 for pvrmeas, prvimg in q.all():
                     alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvimg ) )
@@ -264,12 +280,22 @@ class Alerting:
 
         return alerts
 
-            
-                    
-                  
-            
-            
-            
-                      
-                      
-                              
+
+    def send_kafka_alerts( self, avroalerts, method ):
+        # TODO when appropriate : deal with login information etc.
+
+        # TODO : put in a timeout for the server connection to fail, and
+        #   test that it does in fact time out rather than hang forever
+        #   if it tries to connect to a non-existent server.
+        producer = confluent_kafka.Producer( { 'bootstrap.servers': method['kafka_server'],
+                                               'batch.size': 131072,
+                                               'linger.ms': 50 } )
+
+        # TODO : filter on scoring
+        
+        for alert in avroalerts:
+            msgio = io.BytesIO()
+            fastavro.write.schemaless_writer( msgio, method['schema'], alert )
+            producer.produce( method['topic'], msgio.getvalue() )
+
+        producer.flush()

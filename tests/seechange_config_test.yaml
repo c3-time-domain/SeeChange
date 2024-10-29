@@ -36,3 +36,15 @@ referencing:
 
 scoring:
   algorithm: random
+
+alerts:
+  send_alerts: true
+  methods:
+    - name: test_alert_stream
+      method: kafka
+      enabled: true
+      deepcut: 0.8
+      avro_schema: /seechange/share/avsc/ls4.v0_1.alert.avsc
+      kafka_server: kafka-server
+      kafka_topic_pattern: "test_topic_{barf}"
+      previous_source_days: 30

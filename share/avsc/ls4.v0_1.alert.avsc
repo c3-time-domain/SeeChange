@@ -1,0 +1,26 @@
+{
+    "namespace": "ls4.v0_1",
+    "type": "record",
+    "name": "alert",
+    "doc": "LS4 beta alert schema v0.1",
+    "fields": [
+        { "name": "alertId", "type": "string", "logicalType": "uuid", "doc": "unique alert identifer" },
+        { "name": "diaObject", "type": ["null", "ls4.v0_1.diaObject"], "default": null },
+        { "name": "diaSource", "type": "ls4.v0_1.diaSource" },
+        { "name": "prvDiaSources",
+          "type": ["null", {  "type": "array", "items": "ls4.v0_1.diaSource" }],
+          "default": null
+        },
+        { "name": "prvDiaForcedSources",
+          "type": ["null", { "type": "array", "items": "ls4.v0_1.diaForcedSource" }],
+          "default": null
+        },
+        { "name": "prvDiaNonDetectionLimits",
+          "type": ["null", { "type": "array", "items": "ls4.v0_1.diaNonDetectionLimit"}],
+          "default": null
+        },
+        { "name": "cutoutDifference", "type": ["null", "bytes"], "default": null },
+        { "name": "cutoutScience", "type": ["null", "bytes"], "default": null },
+        { "name": "cutoutTemplate", "type": ["null", "bytes"], "default": null }
+    ]
+}

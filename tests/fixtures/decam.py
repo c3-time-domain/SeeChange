@@ -488,6 +488,11 @@ def decam_datastore_through_measurements( decam_partial_datastore_factory ):
 
 
 @pytest.fixture
+def decam_datastore_through_scoring( decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( 'scoring' )
+
+
+@pytest.fixture
 def decam_processed_image(decam_datastore):
 
     ds = decam_datastore

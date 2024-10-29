@@ -83,6 +83,33 @@ services:
     ports:
         - "${MAILHOG_PORT:-8025}:8025"
 
+  kafka-zookeeper:
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20241022}
+    build:
+      context: ../
+      dockerfile: ./docker/test_kafka/Dockerfile
+    healthcheck:
+      test: netcat -w 1 localhost 2181 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    entrypoint: [ "bin/zookeeper-server-start.sh", "config/zookeeper.properties" ]
+
+  kafka-server:
+    depends_on:
+       kafka-zookeeper:
+         condition: service_healthy
+    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20241022}
+    build:
+      context: ../
+      dockerfile: ./docker/test_kafka/Dockerfile
+    healthcheck:
+      test: netcat -w 1 localhost 9092 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    entrypoint: [ "bin/kafka-server-start.sh", "config/server.properties" ]
+
   conductor:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/conductor:${IMGTAG:-test20241022}
     build:
@@ -153,6 +180,8 @@ services:
         condition: service_healthy
       webap:
         condition: service_healthy
+      kafka-server:
+        condition: service_healthy
     volumes:
       - type: bind
         source: ..
@@ -183,6 +212,8 @@ services:
         condition: service_healthy
       webap:
         condition: service_healthy
+      kafka-server:
+        condition: service_healthy
     volumes:
       - type: bind
         source: ..
@@ -211,6 +242,8 @@ services:
       conductor:
         condition: service_healthy
       webap:
+        condition: service_healthy
+      kafka-server:
         condition: service_healthy
     volumes:
       - type: bind
