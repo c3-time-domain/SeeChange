@@ -1,26 +1,51 @@
-{
-    "namespace": "ls4.v0_1",
-    "type": "record",
-    "name": "alert",
-    "doc": "LS4 beta alert schema v0.1",
-    "fields": [
-        { "name": "alertId", "type": "string", "logicalType": "uuid", "doc": "unique alert identifer" },
-        { "name": "diaObject", "type": ["null", "ls4.v0_1.diaObject"], "default": null },
-        { "name": "diaSource", "type": "ls4.v0_1.diaSource" },
-        { "name": "prvDiaSources",
-          "type": ["null", {  "type": "array", "items": "ls4.v0_1.diaSource" }],
-          "default": null
-        },
-        { "name": "prvDiaForcedSources",
-          "type": ["null", { "type": "array", "items": "ls4.v0_1.diaForcedSource" }],
-          "default": null
-        },
-        { "name": "prvDiaNonDetectionLimits",
-          "type": ["null", { "type": "array", "items": "ls4.v0_1.diaNonDetectionLimit"}],
-          "default": null
-        },
-        { "name": "cutoutDifference", "type": ["null", "bytes"], "default": null },
-        { "name": "cutoutScience", "type": ["null", "bytes"], "default": null },
-        { "name": "cutoutTemplate", "type": ["null", "bytes"], "default": null }
-    ]
+{ "type": "record",
+  "namespace": "ls4.v0_1",
+  "name": "alert",
+  "doc": "LS4 alert schema v0.1",
+  "fields": [
+    { "name": "alertId",
+      "type": "string",
+      "logicalType": "uuid",
+      "doc": "unique alert identifer"
+    },
+    { "name": "diaObject",
+      "type": [ "ls4.v0_1.diaObject", "null" ],
+      "default": null,
+      "doc": "Object of source that triggered alert; diaObject.diaObjectId should match diaSource.diaObjectId"
+    },
+    { "name": "diaSource",
+      "type": "ls4.v0_1.diaSource",
+      "doc": "The diaSource that triggered this alert"
+    },
+    { "name": "prvDiaSources",
+      "type": [ { "type": "array", "items": "ls4.v0_1.diaSource" }, "null" ],
+      "default": null,
+      "doc": "Previous DIA detections of this object"
+    },
+    { "name": "prvDiaForcedSources",
+      "type": [ { "type": "array", "items": "ls4.v0_1.diaForcedSource" }, "null" ],
+      "default": null,
+      "doc": "Previous forced photometry of this object if available (null if not)"
+    },
+    { "name": "prvDiaNonDetectionLimits",
+      "type": [ { "type": "array", "items": "ls4.v0_1.diaNonDetectionLimit"}, "null" ],
+      "default": null,
+      "doc": "Upper limits of previous difference images containing this object that did not have a detection"
+    },
+    { "name": "cutoutDifference",
+      "type": [  "bytes", "null" ],
+      "default": null,
+      "doc": "Big-endian 32-bit IEEE float byte array: square cutout on the difference image centered on the source"
+    },
+    { "name": "cutoutScience",
+      "type": [ "bytes", "null" ],
+      "default": null,
+      "doc": "Big-endian 32-bit IEEE float byte array: square cutout on the science image centered on the source"
+    },
+    { "name": "cutoutTemplate",
+      "type": [ "bytes", "null" ],
+      "default": null,
+      "doc": "Big-endian 32-bit IEEE float byte array: square cutout on the temnplate image centered on the source"
+    }
+  ]
 }

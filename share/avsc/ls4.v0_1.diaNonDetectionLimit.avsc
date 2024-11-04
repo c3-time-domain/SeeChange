@@ -1,11 +1,18 @@
-{
-    "namespace": "ls4.v0_1",
-    "name": "diaNonDetectionLimit",
-    "type": "record",
-    "fields": [
-        {"name": "MJD", "type": "double",
-         "doc": "MJD of midpoint of the exposure for this source, using whatever time standard the instrument used" },
-        {"name": "band", "type": "string"},
-        {"name": "limitingMag", "type": "float", "doc": "Nominal 5σ magnitude detection limit"}
-    ]
+{ "type": "record",
+  "namespace": "ls4.v0_1",
+  "name": "diaNonDetectionLimit",
+  "fields": [
+    { "name": "MJD",
+      "type": "double",
+      "doc": "MJD of midpoint of the exposure for this source, using whatever time standard the instrument used"
+    },
+    { "name": "band",
+      "type": "string",
+      "doc": "Filter band of the image."
+    },
+    { "name": "limitingMag",
+      "type": "float",
+      "doc": "Nominal 5σ magnitude detection limit"
+    }
+  ]
 }

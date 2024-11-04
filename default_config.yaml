@@ -348,7 +348,7 @@ measuring:
 # assigning an empricial score to the cutouts.
 
 scoring:
-  algorithm: RBbot-quiet-shadow-131
+  algorithm: RBbot-quiet-shadow-131-cut0.55
   rbbot_model_dir: /seechange/share/RBbot_models
 
 # ======================================================================
@@ -366,6 +366,10 @@ scoring:
 # sent to multiple kafka servers, or if alerts are sent to multiple
 # different topics on the same kafka server with different parameters.
 #
+# 'deepcut': if Null, use the nominal value for the algorithm
+# (in DeepScore.get_rb_cut).  If a float, use that.  This is the r/b
+# cut below which no alert will be generated.
+#
 # kafka_topic_pattern : TODO DOCS
 
 alerts:
@@ -374,7 +378,7 @@ alerts:
     - name: filtered_kafka_stream
       method: kafka
       enabled: false
-      deepcut: 0.8
+      deepcut: null
       avro_schema: /seechange/share/avsc/alert.avsc
       kafka_server: kafka.server.com
       kafka_topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"

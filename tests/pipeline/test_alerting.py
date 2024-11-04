@@ -7,20 +7,21 @@ import fastavro
 import confluent_kafka
 
 from models.object import Object
+from models.deepscore import DeepScore
 from util.config import Config
 from pipeline.alerting import Alerting
 
 def test_build_avro_alert_structures( test_config, decam_datastore_through_scoring ):
     ds = decam_datastore_through_scoring
     fluxscale = 10** ( ( ds.zp.zp - 27.5 ) / -2.5 )
-    
+
     alerter = Alerting()
     alerts = alerter.build_avro_alert_structures( ds )
 
     assert len(alerts) == len(ds.measurements)
     assert all( isinstance( a['alertId'], str ) for a in alerts )
     assert all( len(a['alertId']) == 36 for a in alerts )
-    
+
     assert all( a['diaSource']['diaSourceId'] == str(m.id) for a, m in zip( alerts, ds.measurements ) )
     assert all( a['diaSource']['diaObjectId'] == str(m.object_id) for a, m in zip( alerts, ds.measurements ) )
     assert all( a['diaSource']['MJD'] == pytest.approx( ds.image.mid_mjd, abs=0.0001 ) for a in alerts )
@@ -38,19 +39,23 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
     assert all( a['diaSource']['apFluxErr'] == pytest.approx( m.flux_apertures_err[0] * fluxscale, rel=1e-5 )
                 for a, m in zip( alerts, ds.measurements ) )
 
+    assert all( a['diaSource']['rbtype'] == s.algorithm for a, s in zip( alerts, ds.scores ) )
+    assert all( a['diaSource']['rbcut'] == DeepScore.get_rb_cut( s.algorithm ) for a, s in zip( alerts, ds.scores ) )
+    assert all( a['diaSource']['rb'] == pytest.approx( s.score, rel=0.001 ) for a, s in zip( alerts, ds.scores ) )
+
     assert all( a['diaObject']['diaObjectId'] == str( m.object_id ) for a, m in zip( alerts, ds.measurements ) )
     for a, m in zip( alerts, ds.measurements ):
         obj = Object.get_by_id( m.object_id )
         assert a['diaObject']['name'] == obj.name
         assert a['diaObject']['ra'] == pytest.approx( obj.ra, abs=0.1/3600. )
         assert a['diaObject']['dec'] == pytest.approx( obj.dec, abs=0.1/3600. )
-        
+
     assert all( len(a['cutoutScience']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutTemplate']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutDifference']) == 41 * 41 * 4 for a in alerts )
 
     # TODO : test the actual values in the cutouts
-    
+
     # TODO : this will require bigger and longer fixtures to really test, sadly!  We need to
     #   test prvDiaSources and prvNonDetectionLimits.
     # (prvDiaForcedSources is an even bigger ball of wax since at the moment we have no plans
@@ -108,6 +113,10 @@ def test_send_alerts( test_config,decam_datastore_through_scoring ):
                                                                  * fluxscale, rel=1e-5 )
         assert alert['diaObject']['diaObjectId'] == str( ds.measurements[dex].object_id )
 
+        assert alert['diaSource']['rbtype'] == ds.scores[dex].algorithm
+        assert alert['diaSource']['rbcut'] == DeepScore.get_rb_cut( ds.scores[dex].algorithm )
+        assert alert['diaSource']['rb'] == pytest.approx( ds.scores[dex].score, rel=0.001 )
+
         assert len(alert['cutoutScience']) == 41 * 41 * 4
         assert len(alert['cutoutTemplate']) == 41 * 41 * 4
         assert len(alert['cutoutDifference']) == 41 * 41 * 4
@@ -118,4 +127,6 @@ def test_send_alerts( test_config,decam_datastore_through_scoring ):
         assert alert['prvDiaForcedSources'] is None
         assert len( alert['prvDiaNonDetectionLimits'] ) == 0
 
-    assert measurements_seen == set( m.id for m in ds.measurements )
+    # The test had None configured for its r/b cutoff, so it should be using the default
+    cut = DeepScore.get_rb_cut( ds.scores[0].algorithm )
+    assert measurements_seen == set( m.id for m, s in zip( ds.measurements, ds.scores ) if s.score >= cut )

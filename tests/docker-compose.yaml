@@ -84,7 +84,7 @@ services:
         - "${MAILHOG_PORT:-8025}:8025"
 
   kafka-zookeeper:
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20241022}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20241022}
     build:
       context: ../
       dockerfile: ./docker/test_kafka/Dockerfile
@@ -99,7 +99,7 @@ services:
     depends_on:
        kafka-zookeeper:
          condition: service_healthy
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20241022}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20241022}
     build:
       context: ../
       dockerfile: ./docker/test_kafka/Dockerfile

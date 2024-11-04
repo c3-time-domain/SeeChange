@@ -35,7 +35,7 @@ referencing:
       method: zogy        # Many tests were written with this as the default
 
 scoring:
-  algorithm: random
+  algorithm: RBbot-quiet-shadow-131-cut0.55
 
 alerts:
   send_alerts: true
@@ -43,7 +43,7 @@ alerts:
     - name: test_alert_stream
       method: kafka
       enabled: true
-      deepcut: 0.8
+      deepcut: null
       avro_schema: /seechange/share/avsc/ls4.v0_1.alert.avsc
       kafka_server: kafka-server
       kafka_topic_pattern: "test_topic_{barf}"

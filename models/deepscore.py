@@ -130,3 +130,18 @@ class DeepScore(Base, UUIDMixin, HasBitFlagBadness):
     def get_downstreams(self, session=None, siblings=False):
         """Get the downstreams of this DeepScore"""
         return []
+
+    @classmethod
+    def get_rb_cut( cls, method ):
+        """Return the nominal cutoff for 'real' objects for a given method."""
+
+        method = DeepscoreAlgorithmConverter.to_string( method )
+        cuts = {
+            'random': 0.5,
+            'allperfect': 0.99,
+            'RBbot-quiet-shadow-131-cut0.55': 0.55    # Dunno if this is a good cutoff, but it's what we use in tests
+        }
+        if method not in cuts.keys():
+            raise ValueError( "Unknown deepscore method {method}" )
+
+        return cuts[ method ]

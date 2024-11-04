@@ -8,11 +8,14 @@ import confluent_kafka
 
 import numpy as np
 
+import sqlalchemy as sa
+
 from models.base import SmartSession
 from models.image import Image, image_upstreams_association_table
 from models.source_list import SourceList
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.deepscore import DeepScore
 from models.object import Object
 from util.config import Config
 
@@ -49,14 +52,14 @@ class Alerting:
 
         if not len( set( m['name'] for m in self.methods ) ) == len( self.methods ):
             raise ValueError( "Alerting: all alert methods must have unique names" )
-        
+
         for method in self.methods:
             if 'method' not in method:
                 raise ValueError( f"'method' is not defined for (at least) alert method {method['name']}" )
 
             if method['method'] not in self.known_methods:
                 raise ValueError( f"Unknown alert method {method['method']}; known are {self.known_methods}" )
-            
+
             if 'enabled' not in method:
                 raise ValueError( f"Each method must have a value for 'enabled'; (at least) "
                                   f"{method['name']} does not." )
@@ -103,9 +106,9 @@ class Alerting:
 
             else:
                 raise RuntimeError( "This should never happen." )
-        
 
-    def dia_source_alert( self, meas, img, aperdex=None, fluxscale=None ):
+
+    def dia_source_alert( self, meas, score, img, aperdex=None, fluxscale=None ):
         # For snr, we're going to assume that the detection was approximately
         #   detection in a 1-FWHM aperture.  This isn't really right, but
         #   it should be approximately right.
@@ -114,7 +117,7 @@ class Alerting:
         #   off of difference images.  (Note that the "flux" property of
         #   measurements *does* do background subtraction, but flux_psf and
         #   flux_apertures does not.)
-            
+
         if aperdex is None:
             radfwhm = meas.aper_radii / ( img.fwhm_estimate / img.instrument_object.pixel_scale )
             w = np.where( np.fabs( radfwhm - 1. ) < 0.01 )
@@ -136,22 +139,12 @@ class Alerting:
                  'fluxZeroPoint': 27.5,
                  'apFlux': meas.flux_apertures[ aperdex ] * fluxscale,
                  'apFluxErr': meas.flux_apertures_err[ aperdex ] * fluxscale,
-                 'snr': meas.flux_apertures[aperdex] / meas.flux_apertures_err[aperdex],
                  'psfFlux': meas.flux_psf * fluxscale,
                  'psfFluxErr':meas.flux_psf_err * fluxscale,
-                 'ixx': None,
-                 'ixxErr': None,
-                 'iyy': None,
-                 'iyyErr': None,
-                 'ixy': None,
-                 'ixyErr': None,
-                 'ixx_iyy_Cov': None,
-                 'ixx_ixy_Cov': None,
-                 'iyy_iyy_Cov': None,
-                 'ixxPSF': None,
-                 'iyyPSF': None,
-                 'ixyPSF': None
-                }        
+                 'rb': None if score is None else score.score,
+                 'rbcut': None if score is None else DeepScore.get_rb_cut( score.algorithm ),
+                 'rbtype': None if score is None else score.algorithm
+                }
 
     def dia_object_alert( self, obj ):
         return { 'diaObjectId': str( obj.id ),
@@ -161,15 +154,9 @@ class Alerting:
                  'dec': obj.dec,
                  'decErr': None,
                  'ra_dec_Cov': None,
-                 'nearbyObj1': None,
-                 'nearbyObj1Dist': None,
-                 'nearbyObj2': None,
-                 'nearbyObj2Dist': None,
-                 'nearbyObj3': None,
-                 'nearbyObj3Dist': None,
                 }
-                 
-    
+
+
     def build_avro_alert_structures( self, ds ):
         sub_image = ds.get_subtraction()
         image = ds.get_image()
@@ -205,7 +192,7 @@ class Alerting:
         fluxscale = 10 ** ( ( zp.zp - 27.5 ) / -2.5 )
 
         alerts = []
-        
+
         for meas, scr in zip( measurements, scores ):
             # Make sure cutout data is big-endian floats and that
             #  masked pixels are NaN
@@ -216,7 +203,7 @@ class Alerting:
             newdata[ cutouts.co_dict[cdex]['new_flags'] != 0 ] = np.nan
             refdata[ cutouts.co_dict[cdex]['ref_flags'] != 0 ] = np.nan
             subdata[ cutouts.co_dict[cdex]['sub_flags'] != 0 ] = np.nan
-            
+
             alert = { 'alertId': str(uuid.uuid4()),
                       'diaSource': {},
                       'prvDiaSources': [],
@@ -227,13 +214,13 @@ class Alerting:
                       'cutoutScience': newdata.tobytes(),
                       'cutoutTemplate': refdata.tobytes() }
 
-            alert['diaSource'] = self.dia_source_alert( meas, image, aperdex=aperdex, fluxscale=fluxscale )
+            alert['diaSource'] = self.dia_source_alert( meas, scr, image, aperdex=aperdex, fluxscale=fluxscale )
             alert['diaObject'] = self.dia_object_alert( Object.get_by_id( meas.object_id ) )
 
             # In Image.from_new_and_ref, we set a lot of the sub image's properties (crucially,
             #   filter and mjd) to be the same as the new image.  So, for what we need for
             #   alerts, we can just use the sub image.
-            
+
             with SmartSession() as sess:
                 # Get all previous sources with the same provenance.  Need to
                 # join to Image (we'll be joining to the sub image,
@@ -242,18 +229,21 @@ class Alerting:
                 # mjd and filter.
 
                 # TODO -- handle previous_sources_days
-                 
+
                 prvimgids = {}
-                q = ( sess.query( Measurements, Image )
+                q = ( sess.query( Measurements, DeepScore, Image )
                       .join( Cutouts, Measurements.cutouts_id==Cutouts._id )
                       .join( SourceList, Cutouts.sources_id==SourceList._id )
                       .join( Image, SourceList.image_id==Image._id )
+                      .join( DeepScore, sa.and_( DeepScore.measurements_id==Measurements._id,
+                                                 DeepScore.provenance_id==scr.provenance_id ),
+                             isouter=True )
                       .filter( Measurements.object_id==meas.object_id )
                       .filter( Measurements.provenance_id==meas.provenance_id )
                       .filter( Measurements._id!=meas.id )
                       .order_by( Image.mjd ) )
-                for pvrmeas, prvimg in q.all():
-                    alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvimg ) )
+                for pvrmeas, prvscr, prvimg in q.all():
+                    alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvscr, prvimg ) )
                     prvimgids.add( prvimg.id )
 
             # Get all previous nondetections on subtractions of the same provenance.
@@ -291,11 +281,18 @@ class Alerting:
                                                'batch.size': 131072,
                                                'linger.ms': 50 } )
 
-        # TODO : filter on scoring
-        
+        nsent = 0
+        import pdb; pdb.set_trace()
         for alert in avroalerts:
-            msgio = io.BytesIO()
-            fastavro.write.schemaless_writer( msgio, method['schema'], alert )
-            producer.produce( method['topic'], msgio.getvalue() )
+            rb = alert[ 'diaSource' ][ 'rb' ]
+            rbmethod = alert[ 'diaSource' ][ 'rbtype' ]
+            cut = method['deepcut'] if method['deepcut'] is not None else DeepScore.get_rb_cut( rbmethod )
+            if ( rb is not None ) and ( rb >= cut ):
+                msgio = io.BytesIO()
+                fastavro.write.schemaless_writer( msgio, method['schema'], alert )
+                producer.produce( method['topic'], msgio.getvalue() )
+                nsent +=1
 
         producer.flush()
+        return nsent
+

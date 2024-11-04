@@ -1,233 +1,94 @@
-{
-  "type": "record",
+{ "type": "record",
   "namespace": "ls4.v0_1",
   "name": "diaSource",
   "fields": [
-    {
-      "doc": "Unique identifier of this DiaSource.",
-      "name": "diaSourceId",
+    { "name": "diaSourceId",
       "type": "string",
-      "logcalType": "uuid"
+      "logcalType": "uuid",
+      "doc": "Unique identifier of this DiaSource."
     },
-    {
-      "default": null,
-      "doc": "Id of the diaObject this source was associated with.",
-      "name": "diaObjectId",
+    { "name": "diaObjectId",
       "type": [ "string", "null" ],
-      "logicalType": "uuid"
-    },
-    {
-      "doc": "MJD of midpoint of the exposure for this source, using whatever time standard the instrument used",
-      "name": "MJD",
-      "type": "double"
-    },
-    {
-      "doc": "Right ascension coordinate of the center of this diaSource.",
-      "name": "ra",
-      "type": "double"
-    },
-    {
+      "logicalType": "uuid",
       "default": null,
-      "doc": "Uncertainty of ra.",
-      "name": "raErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Id of the diaObject this source was associated with."
     },
-    {
-      "doc": "Declination coordinate of the center of this diaSource.",
-      "name": "dec",
-      "type": "double"
+    { "name": "MJD",
+      "type": "double",
+      "doc": "MJD of midpoint of the exposure for this source, using whatever time standard the instrument used"
     },
-    {
+    { "name": "ra",
+      "type": "double",
+      "doc": "Right ascension coordinate of the center of this diaSource."
+    },
+    { "name": "raErr",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Uncertainty of dec.",
-      "name": "decErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Uncertainty of ra."
     },
-    {
-      "default": null,
-      "doc": "Covariance between ra and dec.",
-      "name": "ra_dec_Cov",
-      "type": [
-        "null",
-        "float"
-      ]
+    { "name": "dec",
+      "type": "double",
+      "doc": "Declination coordinate of the center of this diaSource."
     },
-    {
+    { "name": "decErr",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Filter band this source was observed with.",
-      "name": "band",
-      "type": [
-        "null",
-        "string"
-      ]
+      "doc": "Uncertainty of dec."
     },
-    {
+    { "name": "ra_dec_Cov",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Zeropoint for apFlux and psfFlux to go to AB magnitude ( m = -2.5*log10(flux) + zp )",
-      "name": "fluxZeroPoint",
-      "type": [
-         "null",
-         "float"
-      ]
+      "doc": "Covariance between ra and dec."
     },
-    {
+    { "name": "band",
+      "type": [ "string", "null" ],
       "default": null,
-      "doc": "Flux in a 1 FWHM radius aperture on the difference image, not aperture corrected, ",
-      "name": "apFlux",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Filter band this source was observed with."
     },
-    {
+    { "name": "fluxZeroPoint",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Estimated uncertainty of apFlux.",
-      "name": "apFluxErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Zeropoint for apFlux and psfFlux to go to AB magnitude ( m = -2.5*log10(flux) + zp )"
     },
-    {
+    { "name": "apFlux",
+      "type": [ "float",  "null" ],
       "default": null,
-      "doc": "The signal-to-noise ratio at which this source was detected in the difference image.",
-      "name": "snr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Flux in a 1 FWHM radius aperture on the difference image, not aperture corrected, "
     },
-    {
+    { "name": "apFluxErr",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Flux for Point Source model on the difference image.",
-      "name": "psfFlux",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Estimated uncertainty of apFlux."
     },
-    {
+    { "name": "snr",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Uncertainty of psfFlux.",
-      "name": "psfFluxErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "The signal-to-noise ratio at which this source was detected in the difference image."
     },
-    {
+    { "name": "psfFlux",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Adaptive second moment of the source intensity.",
-      "name": "ixx",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Flux for Point Source model on the difference image."
     },
-    {
+    { "name": "psfFluxErr",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Uncertainty of ixx.",
-      "name": "ixxErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Uncertainty of psfFlux."
     },
-    {
+    { "name": "rb",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Adaptive second moment of the source intensity.",
-      "name": "iyy",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Real/Bogus score, between 0 (bogus) and 1 (real)"
     },
-    {
+    { "name": "rbcut",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Uncertainty of iyy.",
-      "name": "iyyErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Value of rb above which source should be considered 'real'"
     },
-    {
+    { "name": "rbtype",
+      "type": [ "string", "null" ],
       "default": null,
-      "doc": "Adaptive second moment of the source intensity.",
-      "name": "ixy",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Uncertainty of ixy.",
-      "name": "ixyErr",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Covariance of ixx and iyy.",
-      "name": "ixx_iyy_Cov",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Covariance of ixx and ixy.",
-      "name": "ixx_ixy_Cov",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Covariance of iyy and ixy.",
-      "name": "iyy_ixy_Cov",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Adaptive second moment for the PSF.",
-      "name": "ixxPSF",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Adaptive second moment for the PSF.",
-      "name": "iyyPSF",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Adaptive second moment for the PSF.",
-      "name": "ixyPSF",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Identifier of R/B algorithm and model used."
     }
   ]
 }

@@ -1,109 +1,38 @@
-{
-  "type": "record",
+{ "type": "record",
   "namespace": "ls4.v0_1",
   "name": "diaObject",
   "fields": [
-    {
-      "doc": "Unique identifier of this DiaObject.",
-      "name": "diaObjectId",
+    { "name": "diaObjectId",
       "type": "string",
-      "logicalType": "uuid"
+      "logicalType": "uuid",
+      "doc": "Unique identifier of this DiaObject."
     },
-    {
-      "doc": "Human-readable unique name of this DiaObject.",
-      "name": "name",
-      "type": "string"
+    { "name": "name",
+      "type": "string",
+      "doc": "Human-readable unique name of this DiaObject."
     },
-    {
-      "doc": "Fiducial right ascension coordinate of the position of the object; not a best position.",
-      "name": "ra",
-      "type": "double"
+    { "name": "ra",
+      "type": "double",
+      "doc": "Fiducial right ascension coordinate of the position of the object; not a best position."
     },
-    {
+    { "name": "raErr",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Uncertainty of ra.",
-      "name": "raErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Uncertainty of ra."
     },
-    {
-      "doc": "Fiducial declination coordinate of the position of the object; not a best position.",
-      "name": "dec",
-      "type": "double"
+    { "name": "dec",
+      "type": "double",
+      "doc": "Fiducial declination coordinate of the position of the object; not a best position."
     },
-    {
+    { "name": "decErr",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Uncertainty of dec.",
-      "name": "decErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Uncertainty of dec."
     },
-    {
+    { "name": "ra_dec_Cov",
+      "type": [ "float", "null" ],
       "default": null,
-      "doc": "Covariance between ra and dec.",
-      "name": "ra_dec_Cov",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Id of the closest nearby object.",
-      "name": "nearbyObj1",
-      "type": [
-        "null",
-        "long"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Distance to nearbyObj1.",
-      "name": "nearbyObj1Dist",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Id of the second-closest nearby object.",
-      "name": "nearbyObj2",
-      "type": [
-        "null",
-        "long"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Distance to nearbyObj2.",
-      "name": "nearbyObj2Dist",
-      "type": [
-        "null",
-        "float"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Id of the third-closest nearby object.",
-      "name": "nearbyObj3",
-      "type": [
-        "null",
-        "long"
-      ]
-    },
-    {
-      "default": null,
-      "doc": "Distance to nearbyObj3.",
-      "name": "nearbyObj3Dist",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Covariance between ra and dec."
     }
   ]
 }

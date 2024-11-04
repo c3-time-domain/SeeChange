@@ -75,9 +75,10 @@ is acceptable as long as the variables are self-explanatory.
 
 ### Coding assistance
 
-We encourage developers to use a modern IDE such as PyCharm or VSCode.
-This helps mitigate spelling mistakes,
-and highlights style guide violations that
+We (...well, the original author of this paragraph; the current main
+developer acutally disagrees with this enitre section...) encourage
+developers to use a modern IDE such as PyCharm or VSCode.  This helps
+mitigate spelling mistakes, and highlights style guide violations that
 are otherwise not enforced by the code base.
 
 Using AI methods for code completion is encouraged, 

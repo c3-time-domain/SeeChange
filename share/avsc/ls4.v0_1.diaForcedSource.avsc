@@ -1,89 +1,59 @@
-{
-  "type": "record",
+{ "type": "record",
   "namespace": "ls4.v0_1",
   "name": "diaForcedSource",
   "fields": [
-    {
-      "doc": "Unique identifier of this DiaForcedSource.",
-      "name": "diaForcedSourceId",
+    { "name": "diaForcedSourceId",
       "type": "string",
-      "logcalType": "uuid"
+      "logcalType": "uuid",
+      "doc": "Unique identifier of this DiaForcedSource."
     },
-    {
-      "default": null,
-      "doc": "Id of the diaObject this source was associated with.",
-      "name": "diaObjectId",
+    { "name": "diaObjectId",
       "type": [ "null", "string" ],
-      "logicalType": "uuid"
-    },
-    {
-      "doc": "MJD of midpoint of the exposure for this source, using whatever time standard the instrument used",
-      "name": "MJD",
-      "type": "double"
-    },
-    {
-      "doc": "Right ascension coordinate of the center of this diaForcedSource.",
-      "name": "ra",
-      "type": "double"
-    },
-    {
-      "doc": "Declination coordinate of the center of this diaForcedSource.",
-      "name": "dec",
-      "type": "double"
-    },
-    {
+      "logicalType": "uuid",
       "default": null,
-      "doc": "Filter band this source was observed with.",
-      "name": "band",
-      "type": [
-        "null",
-        "string"
-      ]
+      "doc": "Id of the diaObject this source was associated with."
     },
-    {
-      "default": null,
-      "doc": "Zeropoint for apFlux and psfFlux to go to AB magnitude ( m = -2.5*log10(flux) + zp )",
-      "name": "fluxZeroPoint",
-      "type": [
-         "null",
-         "float"
-      ]
+    { "name": "MJD",
+      "type": "double",
+      "doc": "MJD of midpoint of the exposure for this source, using whatever time standard the instrument used"
     },
-    {
-      "default": null,
-      "doc": "Flux in a 1 FWHM radius aperture on the difference image, not aperture corrected, ",
-      "name": "apFlux",
-      "type": [
-        "null",
-        "float"
-      ]
+    { "name": "ra",
+      "type": "double",
+      "doc": "Right ascension coordinate of the center of this diaForcedSource."
     },
-    {
-      "default": null,
-      "doc": "Estimated uncertainty of apFlux.",
-      "name": "apFluxErr",
-      "type": [
-        "null",
-        "float"
-      ]
+    { "name": "dec",
+      "type": "double",
+      "doc": "Declination coordinate of the center of this diaForcedSource."
     },
-    {
+    { "name": "band",
+      "type": [ "string", "null" ],
       "default": null,
-      "doc": "Flux for Point Source model on the difference image.",
-      "name": "psfFlux",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Filter band this source was observed with."
     },
-    {
+    { "name": "fluxZeroPoint",
+      "type": [ "string", "null" ],
       "default": null,
-      "doc": "Uncertainty of psfFlux.",
-      "name": "psfFluxErr",
-      "type": [
-        "null",
-        "float"
-      ]
+      "doc": "Zeropoint for apFlux and psfFlux to go to AB magnitude ( m = -2.5*log10(flux) + zp )"
+    },
+    { "name": "apFlux",
+      "type": [ "float", "null" ],
+      "default": null,
+      "doc": "Flux in a 1 FWHM radius aperture on the difference image, not aperture corrected, "
+    },
+    { "name": "apFluxErr",
+      "type": [ "float", "null" ],
+      "default": null,
+      "doc": "Estimated uncertainty of apFlux."
+    },
+    { "name": "psfFlux",
+      "type": [ "float",  "null" ],
+      "default": null,
+      "doc": "Flux for Point Source model on the difference image."
+    },
+    { "name": "psfFluxErr",
+      "type": [ "float", "null" ],
+      "default": null,
+      "doc": "Uncertainty of psfFlux."
     }
   ]
 }
