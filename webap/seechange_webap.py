@@ -52,6 +52,22 @@ app = flask.Flask( __name__, instance_relative_config=True )
 # app.logger.setLevel( logging.INFO )
 app.logger.setLevel( logging.DEBUG )
 
+# UNHAPPY CODE ORGANIZATION WARNING
+# Because the webap doesn't import all of the SeeChange code base, stuff
+#    coded there needs to be copied here.  The following table NEEDS TO
+#    BE KEPT SYNCED with the combination of
+#    enums_and_bitflags.py::DeepScoreAlgorithmConverter and
+#    DeepScore.get_rb_cut
+#
+# Probably I should just give in and have the webap import the SeeChange
+#   code base.  The Conductor does, after all.
+
+_rb_cuts = {
+    0: 0.5,
+    1: 0.99,
+    2: 0.55
+}
+
 # **********************************************************************
 
 def dbconn():
@@ -419,7 +435,7 @@ def exposure_images( expid, provtag ):
             methods=['GET', 'POST'], strict_slashes=False )
 def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None, offset=0 ):
     try:
-        data = { 'sortby': 'fluxdesc_chip_index' }
+        data = { 'sortby': 'rbdesc_fluxdesc_chip_index' }
         if flask.request.is_json:
             data.update( flask.request.json )
 
@@ -527,7 +543,7 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
         app.logger.debug( f"Getting measurements for sub images {subids}" )
         q = ( 'SELECT m.ra AS measra, m.dec AS measdec, m.index_in_sources, m.best_aperture, '
               '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, m.is_fake, '
-              '       s._id AS subid, s.section_id '
+              '       m.score, m._algorithm, s._id AS subid, s.section_id '
               'FROM cutouts c '
               'INNER JOIN provenance_tags cpt ON cpt.provenance_id=c.provenance_id AND cpt.tag=%(provtag)s '
               'INNER JOIN source_lists sl ON c.sources_id=sl._id '
@@ -537,16 +553,24 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
               '           meas.best_aperture, meas.flux_apertures[meas.best_aperture+1] AS flux, '
               '           meas.flux_apertures_err[meas.best_aperture+1] AS dflux, '
               '           meas.flux_psf AS psfflux, meas.flux_psf_err AS dpsfflux, '
-              '           obj.name, obj.is_test, obj.is_fake '
+              '           obj.name, obj.is_test, obj.is_fake, score.score, score._algorithm '
               '    FROM measurements meas '
               '    INNER JOIN provenance_tags mpt ON meas.provenance_id=mpt.provenance_id AND mpt.tag=%(provtag)s '
-              '    INNER JOIN objects obj ON meas.object_id=obj._id ' )
+              '    INNER JOIN objects obj ON meas.object_id=obj._id '
+              '    LEFT JOIN '
+              '      ( SELECT s.measurements_id, s.score, s._algorithm FROM deepscores s '
+              '        INNER JOIN provenance_tags spt ON spt.provenance_id=s.provenance_id AND spt.tag=%(provtag)s '
+              '      ) AS score '
+              '      ON score.measurements_id=meas._id '
+             )
         if not nomeas:
             q += '    WHERE NOT meas.is_bad '
         q += ( '   ) AS m ON m.meascutid=c._id '
                'WHERE s._id IN %(subids)s ' )
         if data['sortby'] == 'fluxdesc_chip_index':
             q += 'ORDER BY flux DESC NULLS LAST,s.section_id,m.index_in_sources '
+        elif data['sortby'] == 'rbdesc_fluxdesc_chip_index':
+            q += 'ORDER BY score DESC NULLS LAST,flux DESC NULLS LAST,s.section_id,m.index_in_sources '
         else:
             raise RuntimeError( f"Unknown sort criterion {data['sortby']}" )
         if limit is not None:
@@ -571,6 +595,8 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
                        'aperrad': [],
                        'mag': [],
                        'dmag': [],
+                       'rb': [],
+                       'rbcut': [],
                        'is_bad': [],
                        'objname': [],
                        'is_test': [],
@@ -642,6 +668,8 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
 
+            retval['cutouts']['rb'].append( row[cols['score']] )
+            retval['cutouts']['rbcut'].append( _rb_cuts[ row[cols['_algorithm']] ] )
             retval['cutouts']['is_bad'].append( row[cols['is_bad']] )
             retval['cutouts']['objname'].append( row[cols['name']] )
             retval['cutouts']['is_test'].append( row[cols['is_test']] )

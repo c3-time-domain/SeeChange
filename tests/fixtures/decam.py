@@ -1,5 +1,6 @@
 import pytest
 import os
+import re
 import wget
 import yaml
 import shutil
@@ -227,81 +228,85 @@ def decam_raw_origin_exposures( decam_raw_origin_exposures_parameters ):
     yield decam.find_origin_exposures( **decam_raw_origin_exposures_parameters )
 
 
-@pytest.fixture(scope="session")
-def decam_exposure_name():
-    return 'c4d_230702_080904_ori.fits.fz'
+# @pytest.fixture(scope="session")
+# def decam_exposure_name():
+#     return 'c4d_230702_080904_ori.fits.fz'
 
 @pytest.fixture(scope="session")
-def decam_filename(download_url, data_dir, decam_exposure_name, decam_cache_dir):
-    """Secure a DECam exposure.
+def decam_exposure_factory(download_url, data_dir, decam_cache_dir):
+    exposurestodelete = []
 
-    Pulled from the SeeChange test data cache maintained on the web at
-    NERSC (see download_url in conftest.py).
+    def make_decam_exposure( decam_exposure_name ):
+        """Secure a DECam exposure.
 
-    Because this is a slow process (depending on the NOIRLab archive
-    speed, it can take up to minutes), first look for this file
-    in the cache_dir, and if it exists, and copy it. If not,
-    actually download the image from NOIRLab into the cache_dir,
-    and create a symlink to the temp_dir. That way, until the
-    user manually deletes the cached file, we won't have to redo the
-    slow NOIRLab download again.
+        Pulled from the SeeChange test data cache maintained on the web at
+        NERSC (see download_url in conftest.py).
 
-    This exposure is the same as the one pulled down by the
-    test_decam_download_and_commit_exposure test (with expdex 1) in
-    tests/models/test_decam.py, so whichever runs first will load the
-    cache.
+        Because this is a slow process (depending on the NOIRLab archive
+        speed, it can take up to minutes), first look for this file
+        in the cache_dir, and if it exists, and copy it. If not,
+        actually download the image from NOIRLab into the cache_dir,
+        and create a symlink to the temp_dir. That way, until the
+        user manually deletes the cached file, we won't have to redo the
+        slow NOIRLab download again.
 
-    """
-    base_name = decam_exposure_name
-    filename = os.path.join(data_dir, base_name)
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    url = os.path.join(download_url, 'DECAM', base_name)
+        This exposure is the same as the one pulled down by the
+        test_decam_download_and_commit_exposure test (with expdex 1) in
+        tests/models/test_decam.py, so whichever runs first will load the
+        cache.
 
-    if not os.path.isfile(filename):
-        if env_as_bool( "LIMIT_CACHE_USAGE" ):
-            SCLogger.debug( f"Downloading {filename}" )
-            wget.download( url=url, out=filename )
-        else:
-            cachedfilename = os.path.join(decam_cache_dir, base_name)
-            os.makedirs(os.path.dirname(cachedfilename), exist_ok=True)
+        """
+        base_name = decam_exposure_name
+        filename = os.path.join(data_dir, base_name)
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        url = os.path.join(download_url, 'DECAM', base_name)
 
-            if not os.path.isfile(cachedfilename):
+        if not os.path.isfile(filename):
+            if env_as_bool( "LIMIT_CACHE_USAGE" ):
                 SCLogger.debug( f"Downloading {filename}" )
-                response = wget.download(url=url, out=cachedfilename)
-                assert response == cachedfilename
+                wget.download( url=url, out=filename )
             else:
-                SCLogger.debug( f"Cached file {filename} exists, not redownloading." )
+                cachedfilename = os.path.join(decam_cache_dir, base_name)
+                os.makedirs(os.path.dirname(cachedfilename), exist_ok=True)
 
-            shutil.copy2(cachedfilename, filename)
+                if not os.path.isfile(cachedfilename):
+                    SCLogger.debug( f"Downloading {filename}" )
+                    response = wget.download(url=url, out=cachedfilename)
+                    assert response == cachedfilename
+                else:
+                    SCLogger.debug( f"Cached file {filename} exists, not redownloading." )
 
-    yield filename
+                shutil.copy2(cachedfilename, filename)
 
-    if os.path.isfile(filename):
-        os.remove(filename)
+        with fits.open( filename, memmap=True ) as ifp:
+            hdr = ifp[0].header
+        exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
 
-# Making this a session fixture means running a single
-#   fast test starts kinda slow.  (It seems that
-#   the fixture is run even if the one test doesn't
-#   ask for it.)
-# Make it not a session fixture will make tests that
-#   reuse it kinda slow.
-# There is no good answer.
+        exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
+        exposure.save()  # save to archive and get an MD5 sum
+        with SmartSession() as session:
+            exposure.insert()
+
+        exposurestodelete.append( exposure )
+        exposure.data.clear_cache()
+        return exposure
+
+    yield make_decam_exposure
+
+    for exposure in exposurestodelete:
+        exposure.delete_from_disk_and_database()
+
+# All three of the exposures are r-band, and
+#   of the same field (the field that goes with
+#   decam_reference).
+#
+# We make these session fixtures because they're slow,
+#   we don't want them to run over and over again,
+#   and because exposures are the sort of thing you load
+#   in once anyway.
 @pytest.fixture(scope="session")
-def decam_exposure(decam_filename, data_dir):
-    filename = decam_filename
-
-    with fits.open( filename, memmap=True ) as ifp:
-        hdr = ifp[0].header
-    exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
-
-    exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
-    exposure.save()  # save to archive and get an MD5 sum
-    with SmartSession() as session:
-        exposure.insert()
-
-    yield exposure
-
-    exposure.delete_from_disk_and_database()
+def decam_exposure( decam_exposure_factory ):
+    return decam_exposure_factory( 'c4d_230702_080904_ori.fits.fz' )
 
 @pytest.fixture
 def decam_raw_image_provenance( provenance_base ):
@@ -405,17 +410,30 @@ def decam_datastore(
         session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_datastore' } )
         session.commit()
 
+# This next fixture returns a factory that's
+# not general; it will only work for DECam
+# fields that use decam_reference (so they
+# have to be r-band, and in the right specific field.)
 @pytest.fixture
-def decam_partial_datastore_factory( datastore_factory, decam_cache_dir, decam_exposure,
+def decam_partial_datastore_factory( datastore_factory, decam_cache_dir,
                                      decam_reference, decam_default_calibrators ):
-    ds_storage = { 'ds': None }
+    dses = []
 
-    def decam_partial_datastore_maker( through_step ):
+    def decam_partial_datastore_maker( exposure, through_step ):
+        # This is a little ugly, though it's replacing something that
+        #   used to just be hardcoded, so it's probably not any less
+        #   ugly than that.  Look at the exposure filename, and worm
+        #   it around to figure out the image filename.
+        mat = re.search( r'^c4d_(?P<yymmdd>\d{6})_(?P<hhmmss>\d{6})_ori\.fits\.fz$', str(exposure.filepath) )
+        if mat is None:
+            raise ValueError( f"Failed to match {exposure.filepath}" )
+        cache_base_name = f'007/c4d_20{mat.group("yymmdd")}_{mat.group("hhmmss")}_S3_r_Sci_IDDLGQ'
+
         ds = datastore_factory(
-            decam_exposure,
+            exposure,
             'S3',
             cache_dir=decam_cache_dir,
-            cache_base_name='007/c4d_20230702_080904_S3_r_Sci_IDDLGQ',
+            cache_base_name=cache_base_name,
             overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
             save_original_image=True,
             provtag='decam_datastore',
@@ -424,16 +442,15 @@ def decam_partial_datastore_factory( datastore_factory, decam_cache_dir, decam_e
         ds.save_and_commit()
 
         # Here's hoping I really understand the python scoping rules
-        ds_storage['ds'] = ds
+        dses.append( ds )
         return ds
 
     yield decam_partial_datastore_maker
 
-    if ds_storage['ds'] is not None:
-        ds_storage['ds'].delete_everything()
-
+    for ds in dses:
+        ds.delete_everything()
         # Because save_original_image as True in the call to datastore_factory
-        os.unlink( ds_storage['ds'].path_to_original_image )
+        os.unlink( ds.path_to_original_image )
 
     # Clean up the provenance tag potentially created by the pipeline
     with SmartSession() as session:
@@ -443,53 +460,53 @@ def decam_partial_datastore_factory( datastore_factory, decam_cache_dir, decam_e
 
 
 @pytest.fixture
-def decam_datastore_through_preprocessing( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'preprocessing' )
+def decam_datastore_through_preprocessing( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'preprocessing' )
 
 
 @pytest.fixture
-def decam_datastore_through_extraction( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'extraction' )
+def decam_datastore_through_extraction( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'extraction' )
 
 
 @pytest.fixture
-def decam_datastore_through_bg( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'bg' )
+def decam_datastore_through_bg( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'bg' )
 
 
 @pytest.fixture
-def decam_datastore_through_wcs( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'wcs' )
+def decam_datastore_through_wcs( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'wcs' )
 
 
 @pytest.fixture
-def decam_datastore_through_zp( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'zp' )
+def decam_datastore_through_zp( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'zp' )
 
 
 @pytest.fixture
-def decam_datastore_through_subtraction( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'subtraction' )
+def decam_datastore_through_subtraction( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'subtraction' )
 
 
 @pytest.fixture
-def decam_datastore_through_detection( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'detection' )
+def decam_datastore_through_detection( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'detection' )
 
 
 @pytest.fixture
-def decam_datastore_through_cutouts( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'cutting' )
+def decam_datastore_through_cutouts( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'cutting' )
 
 
 @pytest.fixture
-def decam_datastore_through_measurements( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'measuring' )
+def decam_datastore_through_measurements( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'measuring' )
 
 
 @pytest.fixture
-def decam_datastore_through_scoring( decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( 'scoring' )
+def decam_datastore_through_scoring( decam_exposure, decam_partial_datastore_factory ):
+    return decam_partial_datastore_factory( decam_exposure, 'scoring' )
 
 
 @pytest.fixture

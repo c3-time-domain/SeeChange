@@ -462,7 +462,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 filename_aligned_ref = f
                 filename_aligned_ref_bg = f'{f}_bg'
                 cache_name_aligned_ref = filename_aligned_ref + '.image.fits.json'
-                cache_name_aligned_ref_bg = filename_aligned_ref_bg + '.image.fits.json'
+                cache_name_aligned_ref_bg = filename_aligned_ref_bg + '.h5.json'
                 aligned_ref_cache_path = os.path.join( cache_dir, cache_name_aligned_ref )
                 aligned_ref_bg_cache_path = os.path.join( cache_dir, cache_name_aligned_ref_bg )
 

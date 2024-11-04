@@ -45,7 +45,14 @@ from util.logger import SCLogger
 from util.radec import radec_to_gal_ecl
 from util.util import asUUID, UUIDJsonEncoder
 
-utcnow = func.timezone("UTC", func.current_timestamp())
+# Postgres adapters to allow insertion of some numpy types
+import psycopg2.extensions
+def _adapt_numpy_float64_psycopg2( val ):
+    return psycopg2.extensions.AsIs( val )
+def _adapt_numpy_float32_psycopg2( val ):
+    return psycopg2.extensions.AsIs( val );
+psycopg2.extensions.register_adapter( np.float64, _adapt_numpy_float64_psycopg2 )
+psycopg2.extensions.register_adapter( np.float32, _adapt_numpy_float32_psycopg2 )
 
 
 # this is the root SeeChange folder

@@ -24,11 +24,9 @@ from util.logger import SCLogger
 from util.util import env_as_bool
 
 
-def test_decam_exposure(decam_filename):
-    assert os.path.isfile(decam_filename)
+def test_decam_exposure(decam_exposure):
+    e = decam_exposure
 
-    e = Exposure(filepath=decam_filename)
-    e.save()  # make sure to save it to archive, so it has an MD5 sum
     assert e.instrument == 'DECam'
     assert isinstance(e.instrument_object, DECam)
     assert e.telescope == 'CTIO 4.0-m telescope'
@@ -41,7 +39,6 @@ def test_decam_exposure(decam_filename):
     assert e.filter == 'r DECam SDSS c0002 6415.0 1480.0'
     assert not e.from_db
     assert e.info == {}
-    assert e._id is None
     assert e.target == 'ELAIS-E1'
     assert e.project == '2023A-716082'
 
@@ -65,14 +62,8 @@ def test_decam_exposure(decam_filename):
     assert e.section_headers['N4']['NAXIS2'] == 4146
 
 
-def test_image_from_decam_exposure(decam_filename, provenance_base, data_dir):
-    with fits.open( decam_filename, memmap=False ) as ifp:
-        hdr = ifp[0].header
-    exphdrinfo = Instrument.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target' ] )
-    ra = util.radec.parse_sexigesimal_degrees( hdr['RA'], hours=True )
-    dec = util.radec.parse_sexigesimal_degrees( hdr['DEC'] )
-    e = Exposure( ra=ra, dec=dec, instrument='DECam', format='fits', **exphdrinfo,
-                  filepath=os.path.join(data_dir, pathlib.Path(decam_filename).name ))
+def test_image_from_decam_exposure(decam_exposure, provenance_base, data_dir):
+    e = decam_exposure
     sec_id = 'N4'
     im = Image.from_exposure(e, section_id=sec_id)  # load the first CCD
 

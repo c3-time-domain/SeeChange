@@ -645,7 +645,11 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
         td = rkWebUtil.elemaker( "td", tr );
         let subdiv = rkWebUtil.elemaker( "div", td );
         // TODO: use "warning" color for low r/b
-        if ( data.cutouts['flux'][i] == null ) td.classList.add( 'bad' );
+        if ( ( data.cutouts['flux'][i] == null ) ||
+             ( data.cutouts['rb'][i] == null ) ||
+             ( data.cutouts['rb'][i] < data.cutouts['rbcut'][i] )
+           )
+            td.classList.add( 'bad' )
         else td.classList.add( 'good' );
         let textblob = ( "<b>chip:</b> " + data.cutouts.section_id[i] + "<br>" +
                          // "<b>cutout (α, δ):</b> (" + data.cutouts['ra'][i].toFixed(5) + " , "
@@ -665,6 +669,7 @@ seechange.Exposure.prototype.show_cutouts_for_image = function( div, dex, indata
         textblob += ("<br>" + "<b>Mag:</b> " + seechange.nullorfixed( data.cutouts['mag'][i], 2 )
                      + " ± " + seechange.nullorfixed( data.cutouts['dmag'][i], 2 )
                     );
+        textblob += "<br><b>R/B:</b> " + seechange.nullorfixed( data.cutouts['rb'][i], 3 );
         subdiv.innerHTML = textblob;
     }
 }

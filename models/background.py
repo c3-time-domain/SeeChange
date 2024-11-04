@@ -426,6 +426,19 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
         return newbg
 
+    def to_dict( self ):
+        # Background needs special handling for to_dict, at least for the
+        #   testing cache.  Normally, only the fields that would get saved
+        #   to the database go into the dict.  However, in Background.__init__,
+        #   it needs to be passed image_shape if the image and sources
+        #   aren't already in the database (which they aren't in the test
+        #   fixtures cache).  But, image_shape isn't saved to the database.
+        #   So, add it.
+
+        output = super().to_dict()
+        output['image_shape'] = self.image_shape
+        return output
+
 
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
