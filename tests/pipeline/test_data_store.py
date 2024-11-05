@@ -16,6 +16,7 @@ from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements
+from models.deepscore import DeepScore
 from models.provenance import Provenance
 
 from pipeline.data_store import DataStore
@@ -351,6 +352,7 @@ def test_datastore_delete_everything(decam_datastore):
     cutouts = decam_datastore.cutouts
     cutouts_file_path = cutouts.get_fullpath()
     measurements_list = decam_datastore.measurements
+    scores_list = decam_datastore.scores
 
     # make sure we can delete everything
     decam_datastore.delete_everything()
@@ -383,5 +385,6 @@ def test_datastore_delete_everything(decam_datastore):
             assert session.scalars(
                 sa.select(Measurements).where(Measurements._id == measurements_list[0].id)
             ).first() is None
-
+        if len(scores_list) > 0:
+            assert session.scalars( sa.select(DeepScore).where(DeepScore._id == scores_list[0].id) ).first() is None
 

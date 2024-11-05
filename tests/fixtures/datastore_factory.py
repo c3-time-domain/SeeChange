@@ -465,8 +465,10 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 filename_aligned_ref_bg = f'{f}_bg'
                 cache_name_aligned_ref = filename_aligned_ref + '.image.fits.json'
                 cache_name_aligned_ref_bg = filename_aligned_ref_bg + '.h5.json'
+                cache_name_aligned_ref_zp = filename_aligned_ref + '.zp.json'
                 aligned_ref_cache_path = os.path.join( cache_dir, cache_name_aligned_ref )
                 aligned_ref_bg_cache_path = os.path.join( cache_dir, cache_name_aligned_ref_bg )
+                aligned_ref_zp_cache_path = os.path.join( cache_dir, cache_name_aligned_ref_zp )
 
                 # Commenting this out -- we know that we're aligning to new,
                 #   do don't waste cache on aligned_new
@@ -488,7 +490,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                      ( os.path.isfile(zogy_score_cache_path) ) and
                      ( os.path.isfile(zogy_alpha_cache_path) ) and
                      ( os.path.isfile(aligned_ref_cache_path) ) and
-                     ( os.path.isfile(aligned_ref_bg_cache_path) ) ):
+                     ( os.path.isfile(aligned_ref_bg_cache_path) ) and
+                     ( os.path.isfile(aligned_ref_zp_cache_path) )
+                    ):
                     SCLogger.debug('make_datastore loading subtraction image from cache: {sub_cache_path}" ')
                     tmpsubim =  copy_from_cache(Image, cache_dir, cache_name)
                     tmpsubim.provenance_id = ds.prov_tree['subtraction'].id
@@ -511,12 +515,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     # Not sure why the md5sum_extensions was [], but it was
                     image_aligned_ref.md5sum_extensions = [ None, None, None ]
                     image_aligned_ref.save(verify_md5=False, no_archive=True)
-                    # TODO: should we also load the aligned image's sources, PSF, and ZP?
+                    # TODO: should we also load the aligned images' sources and PSF?
+                    #  (We've added bg and zp because specific tests need them.)
                     ds.aligned_ref_image = image_aligned_ref
 
                     ds.aligned_ref_bg = copy_from_cache( Background, cache_dir, cache_name_aligned_ref_bg )
+                    ds.aligned_ref_zp = copy_from_cache( ZeroPoint, cache_dir, cache_name_aligned_ref_zp )
                     ds.aligned_new_image = ds.image
                     ds.aligned_new_bg = ds.bg
+                    ds.aligned_new_zp = ds.zp
 
                 else:
                     SCLogger.debug( "make_datastore didn't find subtraction image in cache" )
@@ -535,8 +542,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                     SCLogger.debug( "make_datastore saving aligned ref image to cache" )
                     ds.aligned_ref_image.save( no_archive=True )
-                    copy_to_cache( ds.aligned_ref_image, cache_dir )
-                    # Normally, the aligned_Ref_bg doesn't get saved to disk, but
+                    import pdb; pdb.set_trace()
+                    copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=cache_name_aligned_ref_zp )
+                    # Normally, the aligned_ref_bg doesn't get saved to disk, but
                     #   we need it for the cache
                     ds.aligned_ref_bg.save( no_archive=True, filename=f'{ds.aligned_ref_image.filepath}_bg.h5' )
                     copy_to_cache( ds.aligned_ref_bg, cache_dir )

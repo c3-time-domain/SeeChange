@@ -53,7 +53,7 @@ class ParsMeasurer(Parameters):
             ['negatives', 'bad pixels', 'offsets', 'filter bank', 'bad_flag'],
             [list],
             ( 'Which kinds of analytic cuts are used to give scores to this measurement. '
-              'TODO: remove these in favor of the thresholds dict (and put None to not thresdhold '
+              'TODO: remove these in favor of the thresholds dict (and put None to not threshold '
               'on any one of them)?  Issue #319.' ),
         )
 
