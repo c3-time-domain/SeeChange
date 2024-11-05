@@ -542,7 +542,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                     SCLogger.debug( "make_datastore saving aligned ref image to cache" )
                     ds.aligned_ref_image.save( no_archive=True )
-                    import pdb; pdb.set_trace()
                     copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=cache_name_aligned_ref_zp )
                     # Normally, the aligned_ref_bg doesn't get saved to disk, but
                     #   we need it for the cache
