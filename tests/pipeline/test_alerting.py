@@ -8,7 +8,6 @@ import confluent_kafka
 
 from models.object import Object
 from models.deepscore import DeepScore
-from util.config import Config
 from pipeline.alerting import Alerting
 
 def test_build_avro_alert_structures( test_config, decam_datastore_through_scoring ):
@@ -213,6 +212,5 @@ def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partia
     assert all( len(a['cutoutTemplate']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutDifference']) == 41 * 41 * 4 for a in alerts )
 
-    import pdb; pdb.set_trace()
     pass
 

@@ -11,7 +11,7 @@ import numpy as np
 import sqlalchemy as sa
 
 from models.base import SmartSession
-from models.image import Image, image_upstreams_association_table
+from models.image import Image
 from models.source_list import SourceList
 from models.cutouts import Cutouts
 from models.measurements import Measurements
@@ -185,7 +185,7 @@ class Alerting:
 
         # We're going to use the standard SNANA zeropoint for no adequately explained reason
         # (We *could* just store the image zeropoint in fluxZeroPoint.  However, it will be
-        # more convenient for people of all of the flux values from all of the sources, previous
+        # more convenient for people if all of the flux values from all of the sources, previous
         # sources, and previous forced sources are on the same scale.  We have to pick something,
         # and SNANA is something.  So, there's an explanation; I don't know if it's an
         # adequate explanation.)
@@ -242,7 +242,7 @@ class Alerting:
                       .filter( Measurements.provenance_id==meas.provenance_id )
                       .filter( Measurements._id!=meas.id )
                       .order_by( Image.mjd ) )
-                for pvrmeas, prvscr, prvimg in q.all():
+                for prvmeas, prvscr, prvimg in q.all():
                     alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvscr, prvimg ) )
                     prvimgids.add( prvimg.id )
 
