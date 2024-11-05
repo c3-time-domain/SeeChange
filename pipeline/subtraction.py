@@ -1,12 +1,22 @@
 import time
-import numpy as np
+import random
+import pathlib
+import shutil
+import subprocess
 
+import numpy as np
+import pandas
 import sqlalchemy as sa
+
+from astropy.io import fits
+import astropy.coordinates
+import astropy.units as units
+from astropy.coordinates import SkyCoord
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from models.base import SmartSession
+from models.base import SmartSession, FileOnDiskMixin
 from models.image import Image
 from models.refset import RefSet
 
@@ -15,8 +25,9 @@ from improc.inpainting import Inpainter
 from improc.alignment import ImageAligner
 from improc.tools import sigma_clipping
 
-from util.util import env_as_bool
+from util.util import env_as_bool, save_fits_image_file
 from util.logger import SCLogger
+from util.exceptions import SubprocessFailure
 
 class ParsSubtractor(Parameters):
     def __init__(self, **kwargs):
@@ -242,32 +253,315 @@ class Subtractor:
 
         return output
 
-    def _subtract_hotpants(self, new_image, ref_image):
-        """Use Hotpants to subtract the two images.
+    def _subtract_hotpants(self,
+                           new_image, new_bg, new_sources, new_wcs, new_psf,
+                           ref_image, ref_bg, ref_sources, ref_wcs, ref_psf ):
+        """Alard/Lupton subtraction.
 
-        This applies PSF matching and uses the Hotpants algorithm to subtract the two images.
-        reference: ...
+        This applies PSF matching and uses the Alard/Lupton algorithm,
+        as implemented by "hotpants", to subtract the two images.
+
+           https://github.com/acbecker/hotpants
+           https://ui.adsabs.harvard.edu/abs/1998ApJ...503..325A/abstract
 
         Parameters
         ----------
         new_image : Image
-            The Image containing the new data, including the data array, weight, and flags.
-            Image must also have the PSF and ZeroPoint objects loaded.
+            The Image containing the new data, including the data array,
+            weight, and flags.  ref_image and new_image must be aligned
+            to each other.
+
+        new_bg : Background
+            Sky background for new_image
+
+        new_sources : SourceList
+            Source List for new_image.  Must have the is_star parameter
+            (which, as of this writing, means that the source list must
+            be a sextrfits source list.)
+
+        new_wcs : WorldCoordinates
+            WCS  for new_image
+
+        new_psf : PSF
+            PSF for new_image
+
         ref_image : Image
-            The Image containing the reference data, including the data array, weight, and flags
-            Image must also have the PSF and ZeroPoint objects loaded.
+            The Image containing the reference data, including the data
+            array, weight, and flags.  ref_image and new_image must be
+            aligned to each other.
+
+        ref_sources: SourceList
+            Source List for ref_image.  Must have the is_star parameter
+            (which, as of this writing, means that the source list must
+            be a sextrfits source list.)
+
+        ref_bg : Background
+            Sky background for ref_image
+
+        ref_wcs : WorldCoordinates
+            WCS for ref_image
+
+        ref_psf : PSF
+            PSF for ref_image
 
         Returns
         -------
         dictionary with the following keys:
+            outimhdr : fits.Header
+                The FITS header that hotpants wrote
             outim : np.ndarray
                 The difference between the new and reference images
             outwt: np.ndarray
                 The weight image for the difference
             outfl: np.ndarray
                 The flag image for the difference
+
         """
-        raise NotImplementedError('Not implemented Hotpants subtraction yet')
+
+        tmpdir = ( pathlib.Path( FileOnDiskMixin.temp_path )
+                   / ( ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) ) ) )
+        SCLogger.debug( f'_subtract_hotpants working in directory {tmpdir}' )
+        try:
+            tmpdir.mkdir( exist_ok=True, parents=True )
+            newim = tmpdir / "new.fits"
+            newflags = tmpdir / "new.flags.fits"
+            newnoise = tmpdir / "new.noise.fits"
+            refim = tmpdir / "ref.fits"
+            refflags = tmpdir / "ref.flags.fits"
+            refnoise = tmpdir / "ref.noise.fits"
+            refconv = tmpdir / "ref.convolved.fits"
+            subim = tmpdir / "sub.fits"
+            subflags = tmpdir / "sub.flags.fits"
+            subnoise = tmpdir / "sub.noise.fits"
+            substamp_file = tmpdir / "tmp.ssf"
+
+            pixscale = new_image.instrument_object.pixel_scale
+
+            # It's not immediately obvious what to do with the hotpants iu/tu keywords, since we haven't
+            #   been carefully tracking saturation levels.  (Maybe we should?)  So, use the
+            #   maximum not-flagged pixel.  (Look into how these are actually used.  Since we're
+            #   explicitly giving hotpants stars to use for PSF matching, and we throw out stars
+            #   that got flagged as bad, then maybe this doesn't matter so much.  Dunno.)
+            il = new_bg.value - 10.0 * new_bg.noise
+            iu = np.max( new_image.data[ new_image.flags == 0 ] )
+            tl = ref_bg.value - 10.0 * ref_bg.noise
+            tu = np.max( ref_image.data[ new_image.flags == 0 ] )
+
+            kernelrad = int( 2.5 * new_psf.fwhm_pixels )
+            rss = int( 3.75 * new_psf.fwhm_pixels )
+            trtlt = 2. * np.sqrt( 2. * np.log(2.,) )
+
+            # One could probably spend ten years futzing around and deciding
+            #  what the right parmaeters to use here are.  What I've got here
+            #  right now is what I used in curveball, which seemed to work
+            #  for ZTF and DECam.
+            hotgaussorders = [ 2, 0, 0 ]
+            hotgaussfactors = [ 0.5, 1.0, 1.5 ]
+            if new_psf.fwhm_pixels < ref_psf.fwhm_pixels:
+                SCLogger.warning( f"New has better setting {new_psf.fwhm_pixels:.2f} "
+                                  f"than ref {ref_psf.fwhm_pixels:.2f}! "
+                                  f"Going to use higher orders so there can be sharpneing scariness (brrr....)" )
+                hotgaussorders = [ 6, 4, 2 ]
+                hotgaussfactors = [ 0.5, 1., 2. ]
+                nominalfwhm = trtlt * pixscale
+            else:
+                noimnalfwhm = np.sqrt( new_psf.fwhm_pixels**2 - ref_psf.fwhm_pixels**2 ) * pixscale
+            SCLogger.debug( f'Hotpants nominal convolution kernel fwhm: {nominalfwhm: .3f}"' )
+
+            # hotpants seems to have issues if the gaussian sigmas are too
+            # small.  This could also be a case where the seeings are too
+            # close.  I've seen cases where the ref was *slightly* lower
+            # seeing than the new (as measured), but it was actually the new
+            # that probably needed to be convolved.  Convolving the ref was
+            # a disaster, until we used higher orders.  So, in this case,
+            # use higher orders, and worry and fret a lot.
+            nominalsigpix = nominalfwhm / trtlt / pixscale
+            if nominalsigpix < 0.6:
+                self.logger.warning( f'Seeings were close enough '
+                                     f'(new={new_psf.fwhm_pixels:.2f}, ref={ref_psf.fwhm_pixels:.2f}) '
+                                     f'that nominalsigpix was < 0.6.  Going to use higher orders in case there needs '
+                                     f'to be sharpening scariness (brrr...)' )
+                nominalsigpix = 1.0
+                hotgaussorders = [6, 4, 2]
+                hotgaussfactors = [0.5, 1., 2]
+
+            gaussparam = [ '-ng', str(len(hotgaussorders)) ]
+            tmptxt = 'Hotpants convolution σ and orders: '
+            for order, factor in zip( hotgaussorders, hotgaussfactors ):
+                gaussparam.extend( [ str(order), str(factor * nominalsigpix) ] )
+                tmptxt += f'{factor*nominalsigpix:.3f} {order}, '
+            SCLogger.debug( tmptxt )
+
+            # Write out the aligned image data to a place hotpants can find it
+            # (We *could* look to see if it's already on disk, and that would
+            # save us extra writes, but right now I'm being lazy and just sticking
+            # everything in the temp directory.  We don't in general expect
+            # the aligned ref to be on disk, so we will have to do some writes.)
+            save_fits_image_file( newim, new_image.data, new_image.header )
+            save_fits_image_file( newflags, new_image.flags, new_image.header )
+            save_fits_image_file( refim, ref_image.data, ref_image.header )
+            save_fits_image_file( refflags, ref_image.flags, ref_image.header )
+
+            # hotpants needs noise images not 1/σ² weight images, so do that:
+            SCLogger.debug( f'Making noise images for hotpants' )
+            for img, outfile in zip( [ new_image, ref_image ], [ newnoise, refnoise ] ):
+                noisedata = img.weight.copy()
+                # Set the weight to something tiny (i.e. ~infinite
+                #   noise) where things are masked.  Do this so that we
+                #   don't divide by 0 when we do sqrt(1/weight).
+                #   Typical images are going to have values up to
+                #   10⁴-10⁵, so typical noises are going to be of order
+                #   10¹-10³, so typical weights are going to be of order
+                #   10⁻⁶ or bigger.  If we set "something tiny" to be
+                #   10⁻¹², that should have the same practical effect as
+                #   making weight 0.
+                noisedata[ ( noisedata < 0 ) | ( img.flags != 0 ) ] = 1e-12
+                noisedata = np.sqrt( 1. / noisedata )
+                fits.writeto( outfile, noisedata )
+
+            # Match _stars_ on the two images, to give the hotpants PSF
+            #   matching the best chance to succeed.  Of course,
+            #   this depends on sextractors CLASS_STAR being good,
+            #   which is dubious, but it's what we can do.
+            # To do this, we need to figure out the ra and dec of the
+            #   objects on both the new and the ref images using the
+            #   current WCSes.
+
+            # wgood = new_sources.is_star & new_sources.good
+            # ...sextractor's CLASS_STAR is doing so terribly that we
+            #   sometimes aren't left with anything.  So, do a much
+            #   cheesier star/galaxy separator right here to make sure
+            #   we at least have something to work with: anything whose
+            #   FWHM is within 10% of the nominal image FWHM is, we shall
+            #   pretend, a star.  (Really, ought to be good enough for
+            #   what hotpants really needs.)  Hopefully the FWHM won't
+            #   vary too much across the image, or this could end up
+            #   throwing away all the stars in (say) one corner of the
+            #   image.
+            # This is going to crash if there isn't a FWHM_IMAGE
+            #   field in ref_sources and new_sources.  If that happens,
+            #   hopefully you came here and saw this comment.  Those
+            #   fields really should be there if sources were extracted
+            #   with sextractor, and right now there are lots of things
+            #   in the code that depend on stuff sextractor does that
+            #   sep doesn't.
+            width_ratio = new_sources.data['FWHM_IMAGE'] / new_psf.fwhm_pixels
+            wgood = ( width_ratio > 0.9 ) & ( width_ratio < 1.1 ) & ( new_sources.good )
+
+            newstars = pandas.DataFrame( { 'x': new_sources.x[wgood],
+                                           'y': new_sources.y[wgood],
+                                           'flux': new_sources.psffluxadu()[0][wgood] } )
+            newsc = new_wcs.wcs.pixel_to_world( newstars.x, newstars.y )
+
+            # wgood = ref_sources.is_star & ref_sources.good
+            width_ratio = ref_sources.data['FWHM_IMAGE'] / ref_psf.fwhm_pixels
+            wgood = ( width_ratio > 0.9 ) & ( width_ratio < 1.1 ) & ( ref_sources.good )
+            refstars = pandas.DataFrame( { 'x': ref_sources.x[wgood],
+                                           'y': ref_sources.y[wgood] } )
+            refsc = ref_wcs.wcs.pixel_to_world( refstars.x, refstars.y )
+
+            matchdex, sep2d, _ = astropy.coordinates.match_coordinates_sky( refsc, newsc )
+            wmatch = np.where( sep2d < 1 * units.arcsecond )[0]
+
+            refstars = refstars.iloc[ wmatch ].reset_index()
+            newstars = newstars.iloc[ matchdex[wmatch] ].reset_index()
+
+            SCLogger.debug( f"_subtract_hotpants matched {len(newstars)} stars between new and ref" )
+
+            # How many stars do we want?  Imagine dividing the image
+            # into regions of size 256; we want at least one star per
+            # region.  (This is kinda arbitrary, but whatevs.)
+            nstars_ideal = ( new_image.data.shape[0] // 256 ) * ( new_image.data.shape[1] // 256 )
+
+            if len(newstars) < nstars_ideal // 8:
+                SCLogger.error( f"_subtract_hotpants: {len(newstars)} stars for PSF matching isn't enough" )
+                raise RuntimeError( "Not enough stars for _subtract_hotpants PSF matching" )
+            if len(newstars) < nstars_ideal // 4:
+                SCLogger.warning( f"_subtract_hotpants: {len(newstars)} stars for PSF matching is low, "
+                                  f"reducing kernel orders" )
+                hotgaussorders = [ 1, 0 ]
+                hotgaussfactors = [ 0.6, 1.2 ]
+            if len(newstars) > nstars_ideal * 2:
+                # embarssment of riches, crop the list to make hotpants run faster
+                sortdex = numpy.argsort( newstars.flux )
+                sortdex = sortdex[ -(nstars_ideal*2): ]
+                newstars = newstars.iloc[ sortdex ].reset_index()
+                refstars = refstars.iloc[ sortdex ].reset_index()
+
+            SCLogger.debug( f"_subtract_hotpants using {len(newstars)} stars for kernel determination" )
+            with open( substamp_file, "w" ) as ofp:
+                for i in range(len(newstars)):
+                    ofp.write( f'{newstars.x[i]} {newstars.y[i]}\n' )
+
+            com = [ 'hotpants',
+                    '-inim', newim,
+                    '-tmplim', refim,
+                    '-outim', subim,
+                    '-tni', refnoise,
+                    '-ini', newnoise,
+                    '-tmi', refflags,
+                    '-imi', newflags,
+                    '-oni', subnoise,
+                    '-oci', refconv,
+                    '-hki',
+                    '-n', 'i',
+                    '-c', 't',
+                    '-tl', str(tl),
+                    '-tu', str(tu),
+                    '-il', str(il),
+                    '-iu', str(iu),
+                    '-r', str(kernelrad),
+                    '-rss', str(rss),
+                    '-ssf', substamp_file,
+                    '-v', "0",
+                    '-nrx', "1",
+                    '-nry', "1",
+                    '-ko', "1",    # Maybe make this configurable?  Order of kernel spatial variation
+                    '-bgo', "1"    # Order of background variation.  Since we are not doing bgsubbed news, this matters
+                    ]
+            com.extend( gaussparam )
+            # SCLogger.debug( "Running hotpants..." )
+            SCLogger.debug( f"Running hotpants with command: {com}" )
+            res = subprocess.run( com, shell=True, timeout=600, check=True, capture_output=True )
+            SCLogger.debug( f"...done running hotpants." )
+            if res.returncode != 0:
+                raise SubprocessFailure( res )
+
+            # Read the results and return
+            retval = {}
+            with fits.open( subim, "r" ) as hdul:
+                retval['outimhdr'] = hdul[0].header
+                retval['outim'] = hdul[0].data
+            with fits.open( subflags, "r" ) as hdul:
+                retval['outfl'] = hdul[0].data
+            with fits.open( subnoise, "r" ) as hdul:
+                noise = hdul[0].data
+
+            # Have to turn noise back into weight
+            wt = np.emtpy_like( noise, dtype=np.float32 )
+            wbad = ( noise <= 0 )
+            wgood = ( ~wbad )
+            wt[ wgood ] = 1. / ( noise[wgood] **2 )
+            wt[ wbad ] = 0.
+            wt[ retval['outfl'] != 0 ] = 0.
+            retval['outwt'] = wt
+
+            SCLogger.debug( f"_subtract_hotpants returning." )
+            return retval
+
+        except Exception as ex:
+            # This is just here for debugging so I can see
+            #   what the exception was before it jumps to
+            #   the finally block.
+            import pdb; pdb.set_trace()
+            raise
+
+        finally:
+            # Clean up the temp directory
+            import pdb; pdb.set_trace()
+            if tmpdir.is_dir():
+                shutil.rmtree( tmpdir )
+
 
     def run(self, *args, **kwargs):
         """Get a reference image and subtract it from the new image.
@@ -391,7 +685,10 @@ class Subtractor:
 
                 elif self.pars.method == 'hotpants':
                     SCLogger.debug( "Subtracting with hotpants" )
-                    outdict = self._subtract_hotpants() # FIGURE OUT ARGUMENTS
+                    outdict = self._subtract_hotpants( ds.aligned_new_image, ds.aligned_new_bg,
+                                                       ds.aligned_new_sources, ds.aligned_wcs, ds.aligned_new_psf,
+                                                       ds.aligned_ref_image, ds.aligned_ref_bg,
+                                                       ds.aligned_ref_sources, ds.aligned_wcs, ds.aligned_ref_psf )
 
                 elif self.pars.method == 'zogy':
                     SCLogger.debug( "Subtracting with zogy" )
@@ -423,14 +720,13 @@ class Subtractor:
                 sub_image.data = outdict['outim']
                 sub_image.weight = outdict['outwt']
                 sub_image.flags = outdict['outfl']
+                if 'outimhdr' in outdict:
+                    sub_image.header = outdict['outimhdr']
                 if 'score' in outdict:
                     ds.zogy_score = outdict['score']
-                    # sub_image.score = outdict['score']
                 if 'alpha' in outdict:
-                    # sub_image.psfflux = outdict['alpha']
                     ds.zogy_alpha = outdict['alpha']
                 if 'alpha_err' in outdict:
-                    # sub_image.psffluxerr = outdict['alpha_err']
                     ds.zogy_alpha_err = outdict['alpha_err']
                 if 'psf' in outdict:
                     ds.zogy_psf = outdict['psf']
@@ -450,8 +746,11 @@ class Subtractor:
                 # if the subtraction does not provide an estimate of the background, use sigma clipping
                 if 'bkg_mean' not in outdict or 'bkg_rms' not in outdict:
                     mu, sig = sigma_clipping(sub_image.data)
-                    sub_image.bkg_mean_estimate = outdict.get('bkg_mean', mu)
-                    sub_image.bkg_rms_estimate = outdict.get('bkg_rms', sig)
+                else:
+                    mu = 0.
+                    sig = 0.
+                sub_image.bkg_mean_estimate = outdict.get('bkg_mean', mu)
+                sub_image.bkg_rms_estimate = outdict.get('bkg_rms', sig)
 
                 sub_image._upstream_bitflag = 0
                 if ( ds.exposure is not None ):

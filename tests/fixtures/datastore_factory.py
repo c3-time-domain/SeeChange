@@ -486,13 +486,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # filename_aligned_new = f
 
                 SCLogger.debug( f'make_datastore searching for subtraction cache including {sub_cache_path}' )
-                if ( ( os.path.isfile(sub_cache_path) ) and
-                     ( os.path.isfile(zogy_score_cache_path) ) and
-                     ( os.path.isfile(zogy_alpha_cache_path) ) and
-                     ( os.path.isfile(aligned_ref_cache_path) ) and
-                     ( os.path.isfile(aligned_ref_bg_cache_path) ) and
-                     ( os.path.isfile(aligned_ref_zp_cache_path) )
-                    ):
+                files_needed = [ sub_cache_path, aligned_ref_cache_path,
+                                 aligned_ref_bg_cache_path, aligned_ref_zp_cache_path ]
+                if p.subtractor.pars.method == 'zogy':
+                    files_needed.extend( [ zogy_score_cache_path, zogy_alpha_cache_path ] )
+
+                if all( os.path.isfile(f) for f in files_needed ):
                     SCLogger.debug('make_datastore loading subtraction image from cache: {sub_cache_path}" ')
                     tmpsubim =  copy_from_cache(Image, cache_dir, cache_name)
                     tmpsubim.provenance_id = ds.prov_tree['subtraction'].id
@@ -500,8 +499,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     tmpsubim.ref_image_id = ref.image_id
                     tmpsubim.save(verify_md5=False)  # make sure it is also saved to archive
                     ds.sub_image = tmpsubim
-                    ds.zogy_score = np.load( zogy_score_cache_path )
-                    ds.zogy_alpha = np.load( zogy_alpha_cache_path )
+                    if p.subtractor.pars.method == 'zogy':
+                        ds.zogy_score = np.load( zogy_score_cache_path )
+                        ds.zogy_alpha = np.load( zogy_alpha_cache_path )
 
                     ds.aligned_new_image = ds.image
 
@@ -537,14 +537,20 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if output_path != sub_cache_path:
                         raise ValueError( f'cache path {sub_cache_path} does not match output path {output_path}' )
                         # warnings.warn(f'cache path {sub_cache_path} does not match output path {output_path}')
-                    np.save( zogy_score_cache_path, ds.zogy_score, allow_pickle=False )
-                    np.save( zogy_alpha_cache_path, ds.zogy_alpha, allow_pickle=False )
+                    if p.subtractor.pars.method == 'zogy':
+                        np.save( zogy_score_cache_path, ds.zogy_score, allow_pickle=False )
+                        np.save( zogy_alpha_cache_path, ds.zogy_alpha, allow_pickle=False )
 
+                    # Normally the aligned ref (and associated products) doesn't get saved
+                    #  to disk.  But, we need it in the cache, since it's used in the
+                    #  pipeline.
+                    # (This might actually require some thought.  Right now, if the
+                    #  pipeline has run through subtraction, you *can't* pick it up at
+                    #  cutting becasue cutting needs the aligned refs!  So perhaps
+                    #  we should be saving it.)
                     SCLogger.debug( "make_datastore saving aligned ref image to cache" )
                     ds.aligned_ref_image.save( no_archive=True )
                     copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=cache_name_aligned_ref_zp )
-                    # Normally, the aligned_ref_bg doesn't get saved to disk, but
-                    #   we need it for the cache
                     ds.aligned_ref_bg.save( no_archive=True, filename=f'{ds.aligned_ref_image.filepath}_bg.h5' )
                     copy_to_cache( ds.aligned_ref_bg, cache_dir )
 
@@ -633,11 +639,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 if use_cache:
                     copy_list_to_cache(ds.all_measurements, cache_dir, all_measurements_cache_name)
                     copy_list_to_cache(ds.measurements, cache_dir, measurements_cache_name)
-                    
+
         if 'scoring' in stepstodo:
             deepscores_cache_name = os.path.join(cache_dir, cache_sub_name +
                                                    f'.deepscores_{ds.prov_tree["scoring"].id[:6]}.json')
-            
+
             SCLogger.debug( f'make_datastore searching cache for deepscores {deepscores_cache_name}' )
             needs_rerun = True
             if use_cache and os.path.isfile(deepscores_cache_name):

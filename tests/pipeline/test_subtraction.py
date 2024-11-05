@@ -86,6 +86,24 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     assert abs(sigma - 1) < 0.1  # the standard deviation should be close to 1
 
 
+def test_subtraction_ptf_hotpants( ptf_ref, ptf_supernova_image_datastores ):
+    assert len( ptf_supernova_image_datastores ) == 2
+    ds1, ds2 = ptf_supernova_image_datastores
+    subtractor = ds1._pipeline.subtractor
+    detector = ds1._pipeline.detector
+
+    subtractor.pars.method = 'hotpants'
+    subtractor.pars.refset = 'test_refset_ptf'
+    detector.pars.method = 'sextractor'
+    ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
+    import pdb; pdb.set_trace()
+    ds = subtractor.run( ds1 )
+
+    import pdb; pdb.set_trace()
+    pass
+
+
+
 def test_warnings_and_exceptions( decam_datastore_through_zp, decam_reference, decam_default_calibrators):
     ds = decam_datastore_through_zp
     subtractor = ds._pipeline.subtractor

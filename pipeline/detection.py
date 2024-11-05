@@ -599,10 +599,10 @@ class Detector:
         # on my desktop, it goes from a several seconds to a minute and
         # a half.  SPREAD_MODEL is supposed to be a much better
         # star/galaxy separator than the older CLASS_STAR parameter.
-        # Right now, it's in there, as source_list uses it in the
-        # is_star property.  Investigate whether there's a way to
-        # parallelize this (using -NTHREADS 8 doesn't lead sextractor to
-        # using more than one CPU), or even GPUize it....  (I.e.,
+        # So, for now, don't use SPREAD_MODEL, even though it would be
+        # nice.  It's just too slow.  Investigate whether there's a way
+        # to parallelize this (using -NTHREADS 8 doesn't lead sextractor
+        # to using more than one CPU), or even GPUize it....  (I.e.,
         # rewrite sextractor....)
 
         if len(apers) == 1:

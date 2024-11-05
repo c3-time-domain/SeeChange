@@ -287,10 +287,13 @@ subtraction:
 # Finding sources on difference images
 #
 # subtraction : bool
-#    ??? Look at what this is doing
+#    This should always be True, because the "Detection" step runs
+#    on difference images.
 #
 # method : str
-#    For the ZOGY subtraction method, the detection method must be filter
+#    For the ZOGY subtraction method, the detection method must be
+#    filter.  For the hotpants method, the detection method must be
+#    sextractor.
 #
 # See pipline/subtraction.py for parameter definitions
 
