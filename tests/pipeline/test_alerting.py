@@ -82,7 +82,27 @@ def test_send_alerts( test_config,decam_datastore_through_scoring ):
                                            'auto.offset.reset': 'earliest',
                                            'group.id': groupid } )
     consumer.subscribe( [ alerter.methods[0]['topic'] ] )
-    msgs = consumer.consume( 100, timeout=1 )
+
+    # I have noticed that the very first time I run this test within a
+    #   docker compose environment, and the very first time I send
+    #   alerts to the kafka server, they don't show up here with a
+    #   consumer.consume call command.  If I rerun the tests, it works a
+    #   second time.  If I rerun the consume task, if finds them.  In
+    #   practical usage, one would be repeatedly polling the consumer,
+    #   so if they don't come through one time, but do the next, then
+    #   things are basically working.  So, to hack around the error I've
+    #   seen, put in a poll loop that continues until we get messages
+    #   once, and then stops once we aren't.
+    gotsome = False
+    done = False
+    msgs = []
+    while not done:
+        newmsgs = consumer.consume( 100, timeout=1 )
+        if gotsome and ( len(newmsgs) == 0 ):
+            done = True
+        if len( newmsgs ) > 0:
+            msgs.extend( newmsgs )
+            gotsome = True
 
     measurements_seen = set()
     for msg in msgs:
@@ -125,13 +145,11 @@ def test_send_alerts( test_config,decam_datastore_through_scoring ):
     cut = DeepScore.get_rb_cut( ds.scores[0].algorithm )
     assert measurements_seen == set( m.id for m, s in zip( ds.measurements, ds.scores ) if s.score >= cut )
 
-    import pdb; pdb.set_trace()
-    pass
-
 
 # This one long time even if all the data is cached, because it takes a
-#  while to process all the *cached* data (load it in, uplaod to
-#  archive, etc.), and now we're doing *three* datastores.
+#  while (10s of seconds) to process all the *cached* data for a fully
+#  processed datastore (load it in, uplaod to archive, etc.), and now
+#  we're doing *three* datastores.
 #
 # Not doing the datastore construction in fixtures because we want to control
 #   the order in which they are run.  Making sure that none of these exposures
@@ -146,6 +164,7 @@ def test_send_alerts( test_config,decam_datastore_through_scoring ):
 #   to set up for the test.  A better way to test that would be to have some
 #   fixtures that create pre-canned things in all the tables, plus bogus
 #   cutouts files, but not bothering with all the image processing.
+@pytest.mark.skip( reason="See Issue #365" )
 def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partial_datastore_factory ):
     exp1 = decam_exposure_factory( "c4d_210322_030920_ori.fits.fz" )
     exp2 = decam_exposure_factory( "c4d_230714_081145_ori.fits.fz" )

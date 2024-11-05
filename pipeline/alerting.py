@@ -282,7 +282,6 @@ class Alerting:
                                                'linger.ms': 50 } )
 
         nsent = 0
-        import pdb; pdb.set_trace()
         for alert in avroalerts:
             rb = alert[ 'diaSource' ][ 'rb' ]
             rbmethod = alert[ 'diaSource' ][ 'rbtype' ]

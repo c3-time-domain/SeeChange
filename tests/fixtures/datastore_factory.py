@@ -1,4 +1,5 @@
 import os
+import pathlib
 import warnings
 import shutil
 import pytest
@@ -259,6 +260,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.path_to_original_image = ds.image.get_fullpath()[0] + '.image.fits.original'
                     shutil.copy2( ds.image.get_fullpath()[0], ds.path_to_original_image )
                     if use_cache:
+                        ( pathlib.Path( cache_dir ) / ds.image.filepath ).parent.mkdir( exist_ok=True, parents=True )
                         shutil.copy2( ds.image.get_fullpath()[0],
                                       os.path.join(cache_dir, ds.image.filepath + '.image.fits.original') )
 

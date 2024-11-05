@@ -413,7 +413,8 @@ def decam_datastore(
 # This next fixture returns a factory that's
 # not general; it will only work for DECam
 # fields that use decam_reference (so they
-# have to be r-band, and in the right specific field.)
+# have to be r-band, in the right specific
+# field, and on chip S3.)
 @pytest.fixture
 def decam_partial_datastore_factory( datastore_factory, decam_cache_dir,
                                      decam_reference, decam_default_calibrators ):
