@@ -141,7 +141,7 @@ class DeepScore(Base, UUIDMixin, HasBitFlagBadness):
             'allperfect': 0.99,
             'RBbot-quiet-shadow-131-cut0.55': 0.55    # Dunno if this is a good cutoff, but it's what we use in tests
         }
-        if method not in cuts.keys():
+        if method not in cuts:
             raise ValueError( "Unknown deepscore method {method}" )
 
         return cuts[ method ]
