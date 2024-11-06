@@ -74,8 +74,16 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     region_pixel_counts.sort()
     region_pixel_counts = region_pixel_counts[:-1]  # remove that last region, which is the largest one
 
-    assert max(region_pixel_counts) < 5000  # no region should have more than 5000 pixels masked
-    assert np.sum(region_pixel_counts) / ds.sub_image.data.size < 0.01  # no more than 1% of the pixels should be masked
+    # no region should have more than 5000 pixels masked
+    assert max(region_pixel_counts) < 5000
+    # No more than 1.5% pixels masked.  (This used to be 1%, but I think we masked a few more
+    # pixels in the ref with the fixing of caodd zogy weights.)
+    assert np.sum(region_pixel_counts) / ds.sub_image.data.size < 0.015
+
+    # check that a visually-identified blank region really is 0, and that
+    #   the subtraction noise makes sense.
+
+    import pdb; pdb.set_trace()
 
     # isolate the score, masking the bad pixels
     S = ds.zogy_score.copy()
@@ -96,8 +104,8 @@ def test_subtraction_ptf_hotpants( ptf_ref, ptf_supernova_image_datastores ):
     subtractor.pars.refset = 'test_refset_ptf'
     detector.pars.method = 'sextractor'
     ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
-    import pdb; pdb.set_trace()
     ds = subtractor.run( ds1 )
+    ds.reraise()          # Make sure the DataStore didn't catch any subtractions during subtractor.run()
 
     import pdb; pdb.set_trace()
     pass

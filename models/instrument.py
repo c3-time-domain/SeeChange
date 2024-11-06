@@ -1022,14 +1022,22 @@ class Instrument:
         float
 
         """
-        if image is not None:
-            return self.get_section( image.section_id ).gain
-        elif section_id is not None:
-            return self.get_section( section_id ).gain
-        elif self.gain is not None:
-            return self.gain
-        else:
-            return 1.
+        raise NotImplementedError( f"{self.__class__.__name___} needs to implement get_gain_at_pixel" )
+
+        # Leaving the previous implementation here commented out
+        #   in case for some reason we need to fall back to it.
+        # For now, all of DemoInstrument, PTF, and DECam have
+        #   their own implementations.  We either need to solve
+        #   Issue #369, or insist that every Instrument subclass
+        #   implement get_gain_at_pixel (which is the current behavior).
+        # if image is not None:
+        #     return self.get_section( image.section_id ).gain
+        # elif section_id is not None:
+        #     return self.get_section( section_id ).gain
+        # elif self.gain is not None:
+        #     return self.gain
+        # else:
+        #     return 1.
 
     def average_gain( self, image, section_id=None ):
         """Get an average gain for the image.
@@ -2022,6 +2030,9 @@ class DemoInstrument(Instrument):
             'INSTRUME': self.name,
             'GAIN': np.random.normal(self.gain, 0.01),
         } )
+
+    def get_gain_at_pixel( self, image, x, y, section_id=None ):
+        return self.gain
 
     @classmethod
     def get_filename_regex(cls):

@@ -168,3 +168,8 @@ class PTF(Instrument):
         trans_magerr = np.sqrt(catdata['MAGERR_G'] ** 2 + (trns[np.newaxis, :] * coltonerr).sum(axis=1) ** 2)
 
         return trans_mag, trans_magerr
+
+    def get_gain_at_pixel( self, image, x, y, section_id=None ):
+        if 'GAIN' not in image.header:
+            raise RuntimeError( "Failed to find gain in PTF image header" )
+        return float( image.header['GAIN'] )

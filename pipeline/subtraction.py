@@ -407,16 +407,17 @@ class Subtractor:
             for img, outfile in zip( [ new_image, ref_image ], [ newnoise, refnoise ] ):
                 noisedata = img.weight.copy()
                 # Set the weight to something tiny (i.e. ~infinite
-                #   noise) where things are masked.  Do this so that we
-                #   don't divide by 0 when we do sqrt(1/weight).
-                #   Typical images are going to have values up to
-                #   10⁴-10⁵, so typical noises are going to be of order
-                #   10¹-10³, so typical weights are going to be of order
-                #   10⁻⁶ or bigger.  If we set "something tiny" to be
-                #   10⁻¹², that should have the same practical effect as
-                #   making weight 0.
-                noisedata[ ( noisedata < 0 ) | ( img.flags != 0 ) ] = 1e-12
-                noisedata = np.sqrt( 1. / noisedata )
+                #   noise) where things are masked, or where noise≤0
+                #   (which doesn't make sense, and is hopefully already
+                #   masked).  Do this so that we don't divide by 0 when
+                #   we do sqrt(1/weight).  Typical images are going to
+                #   have values up to 10⁴-10⁵, so typical noises are
+                #   going to be of order 10¹-10³, so typical weights are
+                #   going to be of order 10⁻⁶ or bigger.  If we set
+                #   "something tiny" to be 10⁻¹², that should have the
+                #   same practical effect as making weight 0.
+                noisedata[ ( noisedata <= 0. ) | ( img.flags != 0 ) ] = 1e-12
+                noisedata = ( 1. / np.sqrt( noisedata ) )
                 fits.writeto( outfile, noisedata )
 
             # Match _stars_ on the two images, to give the hotpants PSF
@@ -502,6 +503,7 @@ class Subtractor:
                     '-tmi', refflags,
                     '-imi', newflags,
                     '-oni', subnoise,
+                    '-omi', subflags,
                     '-oci', refconv,
                     '-hki',
                     '-n', 'i',
@@ -520,25 +522,24 @@ class Subtractor:
                     '-bgo', "1"    # Order of background variation.  Since we are not doing bgsubbed news, this matters
                     ]
             com.extend( gaussparam )
-            # SCLogger.debug( "Running hotpants..." )
             SCLogger.debug( f"Running hotpants with command: {com}" )
-            res = subprocess.run( com, shell=True, timeout=600, check=True, capture_output=True )
+            res = subprocess.run( com, shell=False, timeout=600, check=True, capture_output=True )
             SCLogger.debug( f"...done running hotpants." )
             if res.returncode != 0:
                 raise SubprocessFailure( res )
 
             # Read the results and return
             retval = {}
-            with fits.open( subim, "r" ) as hdul:
+            with fits.open( subim ) as hdul:
                 retval['outimhdr'] = hdul[0].header
                 retval['outim'] = hdul[0].data
-            with fits.open( subflags, "r" ) as hdul:
+            with fits.open( subflags ) as hdul:
                 retval['outfl'] = hdul[0].data
-            with fits.open( subnoise, "r" ) as hdul:
+            with fits.open( subnoise ) as hdul:
                 noise = hdul[0].data
 
             # Have to turn noise back into weight
-            wt = np.emtpy_like( noise, dtype=np.float32 )
+            wt = np.empty_like( noise, dtype=np.float32 )
             wbad = ( noise <= 0 )
             wgood = ( ~wbad )
             wt[ wgood ] = 1. / ( noise[wgood] **2 )
@@ -558,9 +559,9 @@ class Subtractor:
 
         finally:
             # Clean up the temp directory
-            import pdb; pdb.set_trace()
-            if tmpdir.is_dir():
-                shutil.rmtree( tmpdir )
+            SCLogger.warning( f"Not cleaning up tmpdir {tmpdir}, fix that before committing!" )
+            # if tmpdir.is_dir():
+            #     shutil.rmtree( tmpdir )
 
 
     def run(self, *args, **kwargs):

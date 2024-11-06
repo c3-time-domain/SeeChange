@@ -366,6 +366,13 @@ def test_coaddition_run(coadder, ptf_reference_image_datastores, ptf_aligned_ima
     assert ref_image.zogy_score is not None
     assert ref_image.zogy_score.shape == ref_image.data.shape
 
+    # The zogy coaddition should have left the sky noise at 1, and
+    # the weights are all 1 (under the zogy assumption of sky noise
+    # domination).  Look at at a visually-selected "blank spot"
+    # on the image:
+    assert ref_image.data[ 1985:2015, 915:945 ].std() = pytest.approx( 1.0, rel=0.1 )
+    assert np.all( ref_image.weight[ ref_image.flags == 0 ] == 1 )
+
 
 @pytest.mark.skip( reason="CoaddPipeline.parse_inputs has been removed, this test is obsolete. (Delete?)" )
 def test_coaddition_pipeline_inputs(ptf_reference_image_datastores):
@@ -558,8 +565,24 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
     # (I manually looked at the image and picked out a few spots)
 
     # Check that the weight is higher in a region where two images actually overlapped
-    assert img.weight[ 550:640, 975:1140 ].mean() == pytest.approx( 0.021, abs=0.001 )
-    assert img.weight[ 690:770, 930:1050 ].mean() == pytest.approx( 0.013, abs=0.001 )
+    wtmean1 = img.weight[ 550:640, 975:1140 ].mean()
+    wtmean2 = img.weight[ 690:770, 930:1050 ].mean()
+    assert  wtmean1 == pytest.approx( 0.021, abs=0.001 )
+    assert  wtmean2 == pytest.approx( 0.013, abs=0.001 )
+    # And, while we're here, check that those weights make sense.  (These are blank regions
+    #   on the images, so the weights should be approx 1/(sdev(image)**2).)
+    # ...but, no.  Because the pixels were resampled when warped, there
+    #   is now correlated noise between the pixels, which will (I
+    #   believe) tend to reduce the measured standard deviation.  So, we
+    #   expect the weights to be "too low" here (though, really, they're
+    #   probably right).  But, they should be in the same general range.
+    #   Somebody who knows statistics better than me can determine a
+    #   better value to use for the empirical 0.3 or 0.4 that I have
+    #   below.
+    assert wtmean1 < 1. / np.std( img.data[550:640, 957:1140] ) ** 2
+    assert wtmean1 == pytest.approx( 1. / np.std(img.data[550:640, 957:1140])**2, rel=0.4 )
+    assert wtmean2 < 1. / np.std( img.data[690:770, 930:1050] ) ** 2
+    assert wtmean2 == pytest.approx( 1. / np.std(img.data[690:770, 930:1050])**2, rel=0.3 )
 
     # Look at a spot with a star, and a nearby sky, in a place where there was only
     #   one image in the coadd
