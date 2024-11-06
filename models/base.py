@@ -50,7 +50,7 @@ import psycopg2.extensions
 def _adapt_numpy_float64_psycopg2( val ):
     return psycopg2.extensions.AsIs( val )
 def _adapt_numpy_float32_psycopg2( val ):
-    return psycopg2.extensions.AsIs( val );
+    return psycopg2.extensions.AsIs( val )
 psycopg2.extensions.register_adapter( np.float64, _adapt_numpy_float64_psycopg2 )
 psycopg2.extensions.register_adapter( np.float32, _adapt_numpy_float32_psycopg2 )
 

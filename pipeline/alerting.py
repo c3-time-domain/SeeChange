@@ -108,7 +108,7 @@ class Alerting:
                 raise RuntimeError( "This should never happen." )
 
 
-    def dia_source_alert( self, meas, score, img, aperdex=None, fluxscale=None ):
+    def dia_source_alert( self, score, img, zp=None, aperdex=None, fluxscale=None ):
         # For snr, we're going to assume that the detection was approximately
         #   detection in a 1-FWHM aperture.  This isn't really right, but
         #   it should be approximately right.
@@ -125,6 +125,8 @@ class Alerting:
                 raise RuntimeError( f"No 1FWHM aperture (have {radfwhm})" )
             aperdex = w[0]
         if fluxscale is None:
+            if zp is None:
+                raise ValueError( "Must pass one of fluxscale or zp" )
             fluxscale = 10 ** ( ( zp.zp - 27.5 ) / -2.5 )
 
         return { 'diaSourceId': str( meas.id ),
@@ -214,7 +216,7 @@ class Alerting:
                       'cutoutScience': newdata.tobytes(),
                       'cutoutTemplate': refdata.tobytes() }
 
-            alert['diaSource'] = self.dia_source_alert( meas, scr, image, aperdex=aperdex, fluxscale=fluxscale )
+            alert['diaSource'] = self.dia_source_alert( meas, scr, image, zp, aperdex=aperdex, fluxscale=fluxscale )
             alert['diaObject'] = self.dia_object_alert( Object.get_by_id( meas.object_id ) )
 
             # In Image.from_new_and_ref, we set a lot of the sub image's properties (crucially,
@@ -231,9 +233,10 @@ class Alerting:
                 # TODO -- handle previous_sources_days
 
                 prvimgids = {}
-                q = ( sess.query( Measurements, DeepScore, Image )
+                q = ( sess.query( Measurements, DeepScore, Image, ZeroPoint )
                       .join( Cutouts, Measurements.cutouts_id==Cutouts._id )
                       .join( SourceList, Cutouts.sources_id==SourceList._id )
+                      .join( ZeroPoint, ZeroPoint.sources_id==SourceList._id )
                       .join( Image, SourceList.image_id==Image._id )
                       .join( DeepScore, sa.and_( DeepScore.measurements_id==Measurements._id,
                                                  DeepScore.provenance_id==scr.provenance_id ),
@@ -242,8 +245,8 @@ class Alerting:
                       .filter( Measurements.provenance_id==meas.provenance_id )
                       .filter( Measurements._id!=meas.id )
                       .order_by( Image.mjd ) )
-                for prvmeas, prvscr, prvimg in q.all():
-                    alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvscr, prvimg ) )
+                for prvmeas, prvscr, prvimg, prvzp in q.all():
+                    alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvscr, prvimg, zp=prvzp ) )
                     prvimgids.add( prvimg.id )
 
             # Get all previous nondetections on subtractions of the same provenance.

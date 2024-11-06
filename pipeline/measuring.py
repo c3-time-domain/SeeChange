@@ -69,7 +69,8 @@ class ParsMeasurer(Parameters):
             'bad_pixel_radius',
             3.0,
             float,
-            'Radius in pixels for the bad pixel cut. (??)'
+            ( 'Any bad pixels within this pixel radius of the center of a cutout will be counted '
+              'towards the "bad pixels" disqualifier score' )
         )
 
         self.bad_pixel_exclude = self.add_par(
