@@ -108,7 +108,7 @@ class Alerting:
                 raise RuntimeError( "This should never happen." )
 
 
-    def dia_source_alert( self, score, img, zp=None, aperdex=None, fluxscale=None ):
+    def dia_source_alert( self, meas, score, img, zp=None, aperdex=None, fluxscale=None ):
         # For snr, we're going to assume that the detection was approximately
         #   detection in a 1-FWHM aperture.  This isn't really right, but
         #   it should be approximately right.
@@ -216,7 +216,7 @@ class Alerting:
                       'cutoutScience': newdata.tobytes(),
                       'cutoutTemplate': refdata.tobytes() }
 
-            alert['diaSource'] = self.dia_source_alert( meas, scr, image, zp, aperdex=aperdex, fluxscale=fluxscale )
+            alert['diaSource'] = self.dia_source_alert( meas, scr, image, zp=zp, aperdex=aperdex, fluxscale=fluxscale )
             alert['diaObject'] = self.dia_object_alert( Object.get_by_id( meas.object_id ) )
 
             # In Image.from_new_and_ref, we set a lot of the sub image's properties (crucially,
