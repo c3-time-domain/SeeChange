@@ -65,6 +65,7 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
 
     assert ds.sub_image is not None
     assert ds.sub_image.data is not None
+    assert ds.sub_image.weight is not None
 
     # make sure there are not too many masked pixels
     mask = ds.sub_image.flags > 0
@@ -113,9 +114,33 @@ def test_subtraction_ptf_hotpants( ptf_ref, ptf_supernova_image_datastores ):
     ds = subtractor.run( ds1 )
     ds.reraise()          # Make sure the DataStore didn't catch any subtractions during subtractor.run()
 
-    import pdb; pdb.set_trace()
-    pass
+    assert ds.sub_image is not None
+    assert ds.sub_image.data is not None
+    assert ds.sub_image.weight is not None
 
+    # make sure there are not too many masked pixels
+    mask = ds.sub_image.flags > 0
+    labels, num_masked_regions = ndimage.label(mask)
+    all_idx = np.arange(1, num_masked_regions + 1)
+    region_pixel_counts = ndimage.sum(mask, labels, all_idx)
+    region_pixel_counts.sort()
+    region_pixel_counts = region_pixel_counts[:-1]  # remove that last region, which is the largest one
+
+    # no region should have more than 10000 pixels masked
+    assert max(region_pixel_counts) < 10000
+    # No more than ~3% pixels masked.  (Hotpants method seems to maks more than zogy.)
+    assert np.sum(region_pixel_counts) / ds.sub_image.data.size < 0.031
+
+    # check that a visually-identified blank region really is 0, and that
+    #   the subtraction weight makes sense.
+    y0 = 1908
+    y1 = 1934
+    x0 = 1049
+    x1 = 1075
+    assert ( np.abs( ds.sub_image.data[y0:y1,x0:x1].mean() )
+             < 3. * ( ds.sub_image.data[y0:y1,x0:x1].std() / np.sqrt( ds.sub_image.data[y0:y1,x0:x1].size ) ) )
+    assert ( ds.sub_image.data[y0:y1,x0:x1].std()
+             == pytest.approx( 1. / np.sqrt( ds.sub_image.weight[y0:y1,x0:x1] ).mean(), rel=0.1 ) )
 
 
 def test_warnings_and_exceptions( decam_datastore_through_zp, decam_reference, decam_default_calibrators):
