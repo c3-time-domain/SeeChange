@@ -81,9 +81,15 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     assert np.sum(region_pixel_counts) / ds.sub_image.data.size < 0.015
 
     # check that a visually-identified blank region really is 0, and that
-    #   the subtraction noise makes sense.
-
-    import pdb; pdb.set_trace()
+    #   the subtraction weight makes sense.
+    y0 = 1908
+    y1 = 1934
+    x0 = 1049
+    x1 = 1075
+    assert ( np.abs( ds.sub_image.data[y0:y1,x0:x1].mean() )
+             < 3. * ( ds.sub_image.data[y0:y1,x0:x1].std() / np.sqrt( ds.sub_image.data[y0:y1,x0:x1].size ) ) )
+    assert ( ds.sub_image.data[y0:y1,x0:x1].std()
+             == pytest.approx( 1. / np.sqrt( ds.sub_image.weight[y0:y1,x0:x1] ).mean(), rel=0.1 ) )
 
     # isolate the score, masking the bad pixels
     S = ds.zogy_score.copy()

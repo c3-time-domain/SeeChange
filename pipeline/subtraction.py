@@ -236,20 +236,23 @@ class Subtractor:
         output['zogy_score_uncorrected'] = output.pop('score')
         output['score'] = output.pop('score_corr')
         output['alpha_err'] = output.pop('alpha_std')
+        # convert flux based into magnitude based zero point
+        output['zero_point'] = 2.5 * np.log10(output['zero_point'])
 
         outwt, outfl = zogy_add_weights_flags(
             ref_image.weight,
             new_image.weight,
             ref_image.flags,
             new_image.flags,
+            ref_zp.zp,
+            new_zp.zp,
+            output['zero_point'],
             ref_psf.fwhm_pixels,
             new_psf.fwhm_pixels
         )
         output['outwt'] = outwt
         output['outfl'] = outfl
 
-        # convert flux based into magnitude based zero point
-        output['zero_point'] = 2.5 * np.log10(output['zero_point'])
 
         return output
 
