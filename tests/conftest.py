@@ -373,7 +373,7 @@ def provenance_preprocessing(code_version):
         upstreams=[],
         is_testing=True,
     )
-    p.insert()
+    p.insert_if_needed()
 
     yield p
 

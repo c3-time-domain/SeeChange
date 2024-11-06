@@ -121,7 +121,7 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     # Test getting cutout image data
     # (Note: I'm not sure what's up with sub_psfflux and sub_psffluxerr.
 
-    m = ds.measurements[1]
+    m = ds.measurements[0]
     fields = [ 'sub_data', 'ref_data', 'new_data',
                'sub_weight', 'ref_weight', 'new_weight',
                'sub_flags', 'ref_flags', 'new_flags' ]
