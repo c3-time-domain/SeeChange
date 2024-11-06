@@ -211,4 +211,3 @@ def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partia
     assert all( len(a['cutoutScience']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutTemplate']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutDifference']) == 41 * 41 * 4 for a in alerts )
-
