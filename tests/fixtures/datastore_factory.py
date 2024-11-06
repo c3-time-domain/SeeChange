@@ -1,4 +1,5 @@
 import os
+import io
 import pathlib
 import warnings
 import shutil
@@ -526,7 +527,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.aligned_new_zp = ds.zp
 
                 else:
-                    SCLogger.debug( "make_datastore didn't find subtraction image in cache" )
+                    strio = io.StringIO()
+                    strio.write( "make_datastore didn't find subtraction image in cache\n" )
+                    for f in files_needed:
+                        strio.write( f"   ... {f} : {'found' if os.path.isfile(f) else 'NOT FOUND'}\n" )
+                    SCLogger.debug( strio.getvalue() )
 
             if ds.sub_image is None:  # no hit in the cache
                 SCLogger.debug( "make_datastore running subtractor to create subtraction image" )
@@ -550,6 +555,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     #  we should be saving it.)
                     SCLogger.debug( "make_datastore saving aligned ref image to cache" )
                     ds.aligned_ref_image.save( no_archive=True )
+                    copy_to_cache( ds.aligned_ref_image, cache_dir )
                     copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=cache_name_aligned_ref_zp )
                     ds.aligned_ref_bg.save( no_archive=True, filename=f'{ds.aligned_ref_image.filepath}_bg.h5' )
                     copy_to_cache( ds.aligned_ref_bg, cache_dir )

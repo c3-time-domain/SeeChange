@@ -60,7 +60,7 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
     assert all( len(a['prvDiaNonDetectionLimits']) == 0 for a in alerts )
 
 
-def test_send_alerts( test_config,decam_datastore_through_scoring ):
+def test_send_alerts( test_config, decam_datastore_through_scoring ):
     ds = decam_datastore_through_scoring
 
     alerter = Alerting()
@@ -211,6 +211,4 @@ def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partia
     assert all( len(a['cutoutScience']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutTemplate']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutDifference']) == 41 * 41 * 4 for a in alerts )
-
-    pass
 

@@ -553,18 +553,17 @@ class Subtractor:
             SCLogger.debug( f"_subtract_hotpants returning." )
             return retval
 
-        except Exception as ex:
-            # This is just here for debugging so I can see
-            #   what the exception was before it jumps to
-            #   the finally block.
-            import pdb; pdb.set_trace()
-            raise
+        # except Exception as ex:
+        #     # This is just here for debugging so I can see
+        #     #   what the exception was before it jumps to
+        #     #   the finally block.
+        #     import pdb; pdb.set_trace()
+        #     raise
 
         finally:
             # Clean up the temp directory
-            SCLogger.warning( f"Not cleaning up tmpdir {tmpdir}, fix that before committing!" )
-            # if tmpdir.is_dir():
-            #     shutil.rmtree( tmpdir )
+            if tmpdir.is_dir():
+                shutil.rmtree( tmpdir )
 
 
     def run(self, *args, **kwargs):
@@ -693,6 +692,8 @@ class Subtractor:
                                                        ds.aligned_new_sources, ds.aligned_wcs, ds.aligned_new_psf,
                                                        ds.aligned_ref_image, ds.aligned_ref_bg,
                                                        ds.aligned_ref_sources, ds.aligned_wcs, ds.aligned_ref_psf )
+
+                    # The hotpants call in the code above ensures the sub image is normalized to the new image
 
                 elif self.pars.method == 'zogy':
                     SCLogger.debug( "Subtracting with zogy" )
