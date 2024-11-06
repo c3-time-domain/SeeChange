@@ -370,7 +370,7 @@ def test_coaddition_run(coadder, ptf_reference_image_datastores, ptf_aligned_ima
     # the weights are all 1 (under the zogy assumption of sky noise
     # domination).  Look at at a visually-selected "blank spot"
     # on the image:
-    assert ref_image.data[ 1985:2015, 915:945 ].std() = pytest.approx( 1.0, rel=0.1 )
+    assert ref_image.data[ 1985:2015, 915:945 ].std() == pytest.approx( 1.0, rel=0.1 )
     assert np.all( ref_image.weight[ ref_image.flags == 0 ] == 1 )
 
 

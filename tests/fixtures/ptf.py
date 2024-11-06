@@ -388,31 +388,6 @@ def ptf_supernova_image_datastores(ptf_images_datastore_factory):
         session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_supernova_images' } )
         session.commit()
 
-# @pytest.fixture
-# def ptf_supernova_image_datastores_for_hotpants( ptf_images_datastore_factory ):
-#     dses = ptf_images_datastore_factory( '2010-02-01', '2013-12-31', max_images=2, provtag='ptf_supernova_images',
-#                                          overrides={ { 'extraction': { 'threshold': 5 },
-#                                                        'subtraction': { 'method': 'zogy' },
-#                                                        'detection': { 'subtraction': true, 'method': 'sextractor' } }
-#                                                     } )
-
-#     yield dses
-
-#     with SmartSession() as session:
-#         expsrs = session.query( Exposure ).filter( Exposure._id.in_( [ d.image.exposure_id for d in dses ] ) ).all()
-
-#     for ds in dses:
-#         ds.delete_everything()
-
-#     for expsr in expsrs:
-#         expsr.delete_from_disk_and_database()
-
-#     # Clean out the provenance tag that may have been created by the datastore_factory
-#     with SmartSession() as session:
-#         session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_supernova_images' } )
-#         session.commit()
-
-
 
 @pytest.fixture(scope='session')
 def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_cache_dir, data_dir, code_version):
