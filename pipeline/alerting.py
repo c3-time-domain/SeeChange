@@ -13,6 +13,7 @@ import sqlalchemy as sa
 from models.base import SmartSession
 from models.image import Image
 from models.source_list import SourceList
+from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.deepscore import DeepScore
