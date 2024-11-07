@@ -246,7 +246,7 @@ class Coadder:
 
         psfcube: ndarray
             The PSF cube to use for coaddition.  3D numpy array, each layer must
-            have a normalized (i.e. sum=1) PSF image at the scame pixel scale
+            have a normalized (i.e. sum=1) PSF image at the same pixel scale
             as the images in datacube.
 
         sigmas: ndarray

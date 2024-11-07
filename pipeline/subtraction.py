@@ -11,7 +11,6 @@ import sqlalchemy as sa
 from astropy.io import fits
 import astropy.coordinates
 import astropy.units as units
-from astropy.coordinates import SkyCoord
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -368,7 +367,7 @@ class Subtractor:
                 hotgaussfactors = [ 0.5, 1., 2. ]
                 nominalfwhm = trtlt * pixscale
             else:
-                noimnalfwhm = np.sqrt( new_psf.fwhm_pixels**2 - ref_psf.fwhm_pixels**2 ) * pixscale
+                nominalfwhm = np.sqrt( new_psf.fwhm_pixels**2 - ref_psf.fwhm_pixels**2 ) * pixscale
             SCLogger.debug( f'Hotpants nominal convolution kernel fwhm: {nominalfwhm: .3f}"' )
 
             # hotpants seems to have issues if the gaussian sigmas are too
@@ -487,7 +486,7 @@ class Subtractor:
                 hotgaussfactors = [ 0.6, 1.2 ]
             if len(newstars) > nstars_ideal * 2:
                 # embarssment of riches, crop the list to make hotpants run faster
-                sortdex = numpy.argsort( newstars.flux )
+                sortdex = np.argsort( newstars.flux )
                 sortdex = sortdex[ -(nstars_ideal*2): ]
                 newstars = newstars.iloc[ sortdex ].reset_index()
                 refstars = refstars.iloc[ sortdex ].reset_index()
