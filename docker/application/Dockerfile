@@ -37,18 +37,18 @@
 #     test_bindmount
 #
 # As of 2024-06-10, the sizes of images from the various stages are as follows:
-#   base                1.18GB
-#   build               2.82GB
-#   included_code_build 2.82GB
-#   conductor_build     2.82GB
-#   build_selenium      2.89GB
-#   included_code       2.06GB
-#   conductor           2.06GB
-#   bindmount_code      2.06GB
-#   conductor_bindmount 2.06GB
-#   base_selenium       1.80GB
-#   test_bindmount      2.73GB
-#   test_included       2.73GB
+#   base                0.86GB
+#   build               3.41GB
+#   included_code_build 3.49GB
+#   conductor_build     3.49GB
+#   build_selenium      3.48GB
+#   included_code       2.55GB
+#   conductor           2.55GB
+#   bindmount_code      2.54GB
+#   conductor_bindmount 2.54GB
+#   base_selenium       1.22GB
+#   test_bindmount      2.92GB
+#   test_included       2.93GB
 #
 # The "smallest usable image" is bindmount_code, as it includes all the
 # pip requirements, but does not include firefox or selenium.
@@ -72,7 +72,7 @@ SHELL ["/bin/bash", "-c"]
 
 RUN apt-get update && \
     DEBIAN_FRONTEND="noninteractive" apt-get -y upgrade && \
-    DEBIAN_FRONTEND="nonintearctive" TZ="UTC" apt-get -y install -y \
+    DEBIAN_FRONTEND="nonintearctive" TZ="UTC" apt-get -y install -y --no-install-recommends \
       lsb-release \
       curl \
       emacs-nox \
@@ -149,7 +149,7 @@ ENV LESS=-XLRi
 FROM base AS build
 
 RUN apt-get update && \
-    DEBIAN_FRONTEND="nonintearctive" TZ="UTC" apt-get -y install -y \
+    DEBIAN_FRONTEND="nonintearctive" TZ="UTC" apt-get -y install -y --no-install-recommends \
       autoconf \
       automake \
       build-essential \
@@ -172,6 +172,7 @@ RUN apt-get update && \
       python3-ipykernel \
       python3-pip \
       python3-venv \
+      python3-dev \
     && apt-get -y purge python3-cffi-backend python3-requests python3-dateutil && \
     apt-get -y autoremove && \
     apt-get clean && \
@@ -417,7 +418,7 @@ FROM base AS base_selenium
 
 RUN apt-get update \
     && DEBIAN_FRONTEND="noninteractive" apt-get -y upgrade \
-    && DEBIAN_FRONTEND="noninteractive" apt-get -y install firefox-esr \
+    && DEBIAN_FRONTEND="noninteractive" apt-get -y install firefox-esr --no-install-recommends \
     && apt-get -y autoremove \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
