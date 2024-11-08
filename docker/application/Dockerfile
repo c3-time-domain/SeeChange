@@ -36,7 +36,7 @@
 #     test_included    ** Image used in tests to run the tests
 #     test_bindmount
 #
-# As of 2024-06-10, the sizes of images from the various stages are as follows:
+# As of 2024-11-08, the sizes of images from the various stages are as follows:
 #   base                0.86GB
 #   build               3.41GB
 #   included_code_build 3.49GB
