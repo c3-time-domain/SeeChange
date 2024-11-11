@@ -10,8 +10,6 @@ from models.provenance import CodeHash, CodeVersion, Provenance
 
 from util.util import get_git_hash
 
-# Note: ProvenanceTag.newtag is tested as part of pipeline/test_pipeline.py::test_provenance_tree
-
 def test_code_versions( code_version ):
     cv = code_version
     git_hash = get_git_hash()

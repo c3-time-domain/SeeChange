@@ -17,6 +17,8 @@ import shapely
 
 from astropy.coordinates import SkyCoord
 
+import psycopg2
+
 import sqlalchemy as sa
 import sqlalchemy.dialects.postgresql
 from sqlalchemy import func, orm
@@ -107,7 +109,7 @@ setup_warning_filters()  # need to call this here and also call it explicitly wh
 
 _engine = None
 _Session = None
-
+_psycopg2params = None
 
 def Session():
     """Make a session if it doesn't already exist.
@@ -127,6 +129,9 @@ def Session():
 
     if _Session is None:
         cfg = config.Config.get()
+
+        if cfg.value("db.engine") != "postgresql":
+            raise ValueError( "This pipeline only supports PostgreSQL as a database engine" )
 
         password = cfg.value( "db.password" )
         if password is None:
@@ -242,6 +247,69 @@ def SmartSession(*args):
 
             session.close()
             session.invalidate()
+
+@contextmanager
+def Psycopg2Connection( current=None ):
+    """Get a direct psycopg2 connection to the database; use this in a with statement.
+
+    Useful if you don't want to fight with SQLAlchemy, e.g. if you
+    want to use table locks (see comment above in SmartSession).
+
+    Parameters
+    ----------
+      current : psycopg2.connection or None (default None)
+         Pass an existing connection, get it back.  Useful if you are in
+         nested functions that might want to be working within the same
+         transaction.
+
+    Returns
+    -------
+       psycopg2.connection
+
+       After the with block, the connection will be rolled back and
+       closed.  So, if you want what you've done committed, make sure to
+       call the commit() method on the return value before the with
+       block exits.
+
+    """
+    global _psycopg2params
+
+    if current is not None:
+        if not isinstance( current, psycopg2.connection ):
+            raise TypeError( f"Must pass a psycopg2.connection or None ot Pyscopg2Conection" )
+        yield current
+        # Don't roll back or close, because whoever created it in the
+        #   first place is responsible for that.
+        return
+
+    # If a connection wasn't passed, make one, and then be sure to roll it back and close it when we're done
+
+    if _psycopg2params is None:
+        cfg = config.Config.get()
+        if cfg.value( "db.engine" ) != "postgresql":
+            raise ValueError( "This pipeline only supports PostgreSQL as a database engine" )
+
+        password = cfg.value( 'db.password' )
+        if password is None:
+            if cfg.value( "db.password_file" ) is None:
+                raise RuntimeError( "Must specify either db.password or db.password_file in config" )
+            with open( cfg.value( "db.password_file" ) ) as ifp:
+                password = ifp.readline().strip()
+
+        _psycopg2params = { 'host': cfg.value('db.host'),
+                            'port': cfg.value('db.port'),
+                            'dbname': cfg.value('db.database'),
+                            'user': cfg.value('db.user'),
+                            'password': password }
+
+    conn = psycopg2.connect( **_psycopg2params )
+    yield conn
+
+    # Just in case things were done, roll back.  Usually, the caller
+    #   will have done a conn.commit() or conn.rollback(), so this is
+    #   often gratuitous, but be safe.
+    conn.rollback()
+    conn.close()
 
 
 def db_stat(obj):

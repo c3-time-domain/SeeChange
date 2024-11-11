@@ -475,7 +475,12 @@ class Pipeline:
         with SmartSession() as session:
             self.run(session=session)
 
-    def make_provenance_tree( self, exposure, overrides=None, no_provtag=False, ok_no_ref_provs=False ):
+    def make_provenance_tree( self,
+                              exposure,
+                              overrides=None,
+                              no_provtag=False,
+                              add_missing_processes_to_provtag=True,
+                              ok_no_ref_provs=False ):
         """Create provenances for all steps in the pipeline.
 
         Use the current configuration of the pipeline and all the
@@ -522,6 +527,15 @@ class Pipeline:
             provenance tag if it doesn't exist.  If it does exist, will
             verify that all the provenances in the created provenance
             tree are what's tagged.
+
+        add_missing_processes_to_provtag: bool, default True
+            If the provenance tag already exists in the database, and
+            the provenance tag for a given provenance does not match the
+            provenance derived by this function for that process, an
+            exception will be raised.  If the provenance tag already
+            exists but there is no current provenance tag for a given
+            process, then if this is True, that provenance will be
+            added; if this is False, an exception will be raised.
 
         ok_no_ref_provs: bool, default False
             Normally, if a refeset can't be found, or no image
@@ -652,39 +666,9 @@ class Pipeline:
         )
         provs['report'].insert_if_needed()
 
-        # Ensure that the provenance tag is right, creating it if it doesn't exist
         if not no_provtag:
-            provtag = self.pars.provenance_tag
-            try:
-                provids = []
-                for prov in provs.values():
-                    if isinstance( prov, list ):
-                        provids.extend( [ i.id for i in prov ] )
-                    else:
-                        provids.append( prov.id )
-                ProvenanceTag.newtag( provtag, provids )
-            except ProvenanceTagExistsError as ex:
-                pass
-
-            # The rest of this could be inside the except block,
-            #   but leaving it outside verifies that the
-            #   ProvenanceTag.newtag worked properly.
-            missing = []
-            with SmartSession() as sess:
-                ptags = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag==provtag ).all()
-                ptag_pids = [ pt.provenance_id for pt in ptags ]
-            for step, prov in provs.items():
-                if isinstance( prov, list ):
-                    missing.extend( [ i for i in prov if i.id not in ptag_pids ] )
-                elif prov.id not in ptag_pids:
-                    missing.append( prov )
-            if len( missing ) != 0:
-                strio = io.StringIO()
-                strio.write( f"The following provenances are not associated with provenance tag {provtag}:\n " )
-                for prov in missing:
-                    strio.write( f"   {prov.process}: {prov.id}\n" )
-                SCLogger.error( strio.getvalue() )
-                raise RuntimeError( strio.getvalue() )
+            ProvenanceTag.addtag( self.pars.provenance_tag, provs.items(),
+                                  add_missing_processes_to_provtag=add_missing_processes_to_provtag )
 
         return provs
 

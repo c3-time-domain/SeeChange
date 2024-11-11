@@ -98,7 +98,7 @@ def main():
     parser.add_argument( "-n", "--numprocs", default=60, type=int, help="Number of processes to run at once" )
     parser.add_argument( "-t", "--through-step", default=None,
                          help=("Process through this step (preprocessing, backgrounding, extraction, wcs, zp, "
-                               "subtraction, detection, cutting, measuring, scoring, alerting") )
+                               "subtraction, detection, cutting, measuring, scoring") )
     parser.add_argument( "-c", "--chips", nargs='+', default=[], help="Chips to process (default: all good)" );
     args = parser.parse_args()
 
