@@ -654,6 +654,15 @@ class Detector:
             # we want.  Outside of this function, we'll have to crop it.
             # (Dividing by 3 may not be enough...)
 
+            # NOTE -- looking at the SExtractor documentation, it needs
+            # SEEING_FWHM to be ±20% right for CLASS_STAR to be reasonable for
+            # bright sources, ±5% for dim.  We have a hardcore chicken-and-egg
+            # problem here.  The default SEEING_FWHM is 1.2; try just going with that,
+            # and give it PIXEL_SCALE that's right.  We may need to move to
+            # doing this iteratively (i.e. go from two to three runs of SExtractor;
+            # first time around, do whatever, but look at the distribution of FWHMs
+            # in an attempt to figure out what the actual seeing FWHM is.)
+
             args = [ "source-extractor",
                      "-CATALOG_NAME", tmpsources,
                      "-CATALOG_TYPE", "FITS_LDAC",
@@ -675,6 +684,7 @@ class Detector:
                      "-SATUR_LEVEL", str( image.instrument_object.average_saturation_limit( image ) ),
                      "-GAIN", "1.0",  # TODO: we should probably put the instrument gain here
                      "-STARNNW_NAME", nnw,
+                     "-PIXEL_SCALE", str( image.instrument_object.pixel_scale ),
                      "-BACK_TYPE", "AUTO",
                      "-BACK_SIZE", str( image.instrument_object.background_box_size ),
                      "-BACK_FILTERSIZE", str( image.instrument_object.background_filt_size ),
