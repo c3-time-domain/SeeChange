@@ -262,8 +262,8 @@ def test_provenance_tag( code_version ):
         # Insert the first few
         provs = allprovs[0:3]
         ProvenanceTag.addtag( 'tagtest', provs )
-        with SmartSession as sess:
-            existing = sess.query( ProvenanceTag ).filter( tag='tagtest' ).all()
+        with SmartSession() as sess:
+            existing = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag=='tagtest' ).all()
             assert len(existing) == 3
             assert set( e.provenance_id for e in existing ) == set( p.id for p in provs )
 
@@ -271,25 +271,25 @@ def test_provenance_tag( code_version ):
         with pytest.raises( RuntimeError,
                             match="The following provenances are not associated with provenance tag tagtest:" ):
             ProvenanceTag.addtag( 'tagtest', allprovs, add_missing_processes_to_provtag=False )
-        with SmartSession as sess:
-            assert sess.query( ProvenanceTag ).filter( tag='tagtest' ).count() == 3
+        with SmartSession() as sess:
+            assert sess.query( ProvenanceTag ).filter( ProvenanceTag.tag=='tagtest' ).count() == 3
 
         # Make sure that if we try to add something that's inconsistent, nothing gets added
         tmpprovs = allprovs.copy()
         tmpprovs[0] = Provenance( code_version_id=code_version.id, process='preprocessing', parameters={'a': 2} )
         tmpprovs[0].insert_if_needed()
-        delprovids.add( tmpprovs[0] )
+        delprovids.add( tmpprovs[0].id )
         with pytest.raises( RuntimeError,
-                            match=( f"The following provenances do not match the existing provenance for tag tagtest:"
+                            match=( f"The following provenances do not match the existing provenance for tag tagtest:\n"
                                     f".*preprocessing" ) ):
             ProvenanceTag.addtag( 'tagtest', tmpprovs )
-        with SmartSession as sess:
-            assert sess.query( ProvenanceTag ).filter( tag='tagtest' ).count() == 3
+        with SmartSession() as sess:
+            assert sess.query( ProvenanceTag ).filter( ProvenanceTag.tag=='tagtest' ).count() == 3
 
         # Finally make sure that if we add a happy list where some already exist, it all works
         ProvenanceTag.addtag( 'tagtest', allprovs )
-        with SmartSession as sess:
-            existing = sess.query( ProvenanceTag ).filter( tag='tagtest' ).all()
+        with SmartSession() as sess:
+            existing = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag=='tagtest' ).all()
             assert len(existing) == len(allprovs)
             assert set( e.provenance_id for e in existing ) == set( p.id for p in allprovs )
 

@@ -1,5 +1,6 @@
 import time
 import re
+import io
 import json
 import base64
 import hashlib
@@ -633,6 +634,8 @@ class ProvenanceTag(Base, UUIDMixin):
         # First, make sure that provs doesn't have multiple entries for
         #   processes other than 'referencing'
         seen = set()
+        missing = []
+        conflict = []
         for p in provs:
             if ( p.process != 'referencing' ) and ( p.process in seen ):
                 raise ValueError( f"Process {p.process} is in the list of provenances more than once!" )
@@ -665,10 +668,13 @@ class ProvenanceTag(Base, UUIDMixin):
                 # if add_missing_process_to_provtag is False
                 add_missing_process_to_provtag = True
 
+            addedsome = False
             for prov in provs:
                 # Special case handling for 'referencing', because there we do allow
                 #   multiple provenances tagged with the same tag.
                 if prov.process == 'referencing':
+                    if 'referencing' not in known:
+                        known['referencing'] = []
                     if prov.id not in known['referencing']:
                         if not add_missing_processes_to_provtag:
                             missing.append( prov )
@@ -676,7 +682,7 @@ class ProvenanceTag(Base, UUIDMixin):
                             cursor.execute( "INSERT INTO provenance_tags(tag,provenance_id,_id) "
                                             "VALUES (%(tag)s,%(provid)s,%(uuid)s)",
                                             { 'tag': tag, 'provid': prov.id, 'uuid': uuid.uuid4() } )
-                            known['referencing'].append( p.id )
+                            known['referencing'].append( prov.id )
                             addedsome = True
                 else:
                     if prov.process not in known:
@@ -685,7 +691,7 @@ class ProvenanceTag(Base, UUIDMixin):
                         else:
                             cursor.execute( "INSERT INTO provenance_tags(tag,provenance_id,_id) "
                                             "VALUES (%(tag)s,%(provid)s,%(uuid)s)",
-                                            { 'tag': tag, 'provid': p.id, 'uuid': uuid.uuid4() } )
+                                            { 'tag': tag, 'provid': prov.id, 'uuid': uuid.uuid4() } )
                             known[prov.process] = prov.id
                             addedsome = True
                     elif known[prov.process] != prov.id:

@@ -276,7 +276,7 @@ def Psycopg2Connection( current=None ):
 
     if current is not None:
         if not isinstance( current, psycopg2.connection ):
-            raise TypeError( f"Must pass a psycopg2.connection or None ot Pyscopg2Conection" )
+            raise TypeError( f"Must pass a psycopg2.connection or None to Pyscopg2Conection" )
         yield current
         # Don't roll back or close, because whoever created it in the
         #   first place is responsible for that.
@@ -302,14 +302,20 @@ def Psycopg2Connection( current=None ):
                             'user': cfg.value('db.user'),
                             'password': password }
 
-    conn = psycopg2.connect( **_psycopg2params )
-    yield conn
+    try:
+        conn = psycopg2.connect( **_psycopg2params )
+        yield conn
 
-    # Just in case things were done, roll back.  Usually, the caller
-    #   will have done a conn.commit() or conn.rollback(), so this is
-    #   often gratuitous, but be safe.
-    conn.rollback()
-    conn.close()
+    finally:
+        # Just in case things were done, roll back.  Often, the caller
+        #   will have done a conn.commit() (which it must if it wants to
+        #   keep things that were done) or conn.rollback(), in which
+        #   case this rollback is gratuitous.  However, we can't count
+        #   on the caller having done that.  (E.g., if there's an
+        #   exception, the caller may have short-circuited, which is why
+        #   the yield is in a try and this cleaup is in a finally.)
+        conn.rollback()
+        conn.close()
 
 
 def db_stat(obj):
