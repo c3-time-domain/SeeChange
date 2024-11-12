@@ -1,4 +1,8 @@
+import random
 import numpy
+import math
+import uuid
+from contextlib import contextmanager
 
 import sqlalchemy as sa
 import sqlalchemy.types
@@ -11,6 +15,7 @@ import util.ldac
 from util.util import ensure_file_does_not_exist
 from util.logger import SCLogger
 from models.base import Base, SeeChangeBase, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners
+from models.base import Psycopg2Connection
 from models.enums_and_bitflags import CatalogExcerptFormatConverter, CatalogExcerptOriginConverter
 from sqlalchemy.dialects.postgresql import ARRAY
 
@@ -254,3 +259,99 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
         with open( regfile, "w" ) as ofp:
             for ra, dec, in zip( ras, decs ):
                 ofp.write( f'icrs;circle({ra}d,{dec}d,{radius}") # color={color} width={width}\n' )
+
+
+class GaiaDR3DownloadLock(Base, UUIDMixin):
+    """See comments in catalog_tools.py::fetch_gaia_dr3_excerpt"""
+
+    __tablename__ = 'gaiadr3_downloadlock'
+
+    # Not bothering to index the columns because I don't expect this
+    #   table to ever have very many rows at one time.
+    minra = sa.Column( sa.REAL, nullable=False, index=False, doc="Min RA" )
+    maxra = sa.Column( sa.REAL, nullable=False, index=False, doc="Max RA" )
+    mindec = sa.Column( sa.REAL, nullable=False, index=False, doc="Min RA" )
+    maxdec = sa.Column( sa.REAL, nullable=False, index=False, doc="Max RA" )
+    minmag = sa.Column( sa.REAL, nullable=True, index=False, doc="min mag" )
+    maxmag = sa.Column( sa.REAL, nullable=True, index=False, doc="max mag" )
+
+    @classmethod
+    @contextmanager
+    def lock( cls, minra, maxra, mindec, maxdec, minmag, maxmag ):
+        """Acquire a lock on a specific set of parameters for Gaia DR3.
+
+        Here so that we can avoid the race condition of multiple
+        processes downloading the same Gaia catalog at the same time.
+
+        Call this in a with statement ("with GaiaDR3DownloadLock(...)").
+        You will *not* be holding any database locks inside the with
+        block, it just means that there's a row on a specialized table
+        that will stop other processes from trying to download the same
+        catalog at the same time.
+
+        """
+
+        def sqlconds( minra, maxra, minmag, maxmag ):
+            q = ( "WHERE ABS(minra-%(minra)s) < 0.005 "
+                  "  AND ABS(maxra-%(maxra)s) < 0.005 "
+                  "  AND ABS(mindec-%(mindec)s) < 0.005 "
+                  "  AND ABS(maxdec-%(maxdec)s) < 0.005 " )
+            subdict = { 'minra': minra, 'maxra': maxra,
+                        'mindec': mindec, 'maxdec': maxdec }
+            if minmag is None:
+                q += "  AND minmag IS NULL "
+            else:
+                q += "  AND ABS(minmag-%(minmag)s) < 0.1 "
+                subdict['minmag'] = minmag
+            if maxmag is None:
+                q += "  AND maxmag IS NULL "
+            else:
+                q += "  AND ABS(maxmag-%(maxmag)s) < 0.1 "
+                subdict['maxmag'] = maxmag
+
+            return q, subdict
+
+        try:
+            with Psycopg2Connection() as conn:
+                gotit = False
+                cursor = None
+                while not gotit:
+                    cursor = conn.cursor()
+                    cursor.execute( "LOCK TABLE gaiadr3_downloadlock" )
+                    q = "SELECT * FROM gaiadr3_downloadlock "
+                    conds, subdict = sqlconds( minra, maxra, minmag, maxmag )
+                    q += conds
+                    cursor.execute( q, subdict )
+                    rows = cursor.fetchall()
+                    if len(rows) == 0:
+                        gotit = True
+                    else:
+                        # The row existed, so somebody else is doing this.
+                        # Release the lock, wait, try again
+                        conn.rollback()
+                        SCLogger.debug( "...waiting for gaiadr3 downloadlock..." )
+                        tsleep = 0.2 + math.fabs( random.normalvariate( mu=0., sigma=1. ) )
+
+                # If we get here, we're holding a lock
+                q = ( "INSERT INTO gaiadr3_downloadlock(_id,minra,maxra,mindec,maxdec,minmag,maxmag) "
+                      "VALUES (%(_id)s,%(minra)s,%(maxra)s,%(mindec)s,%(maxdec)s,%(minmag)s,%(maxmag)s)" )
+                cursor.execute( q, { '_id': uuid.uuid4(),
+                                     'minra': minra, 'maxra': maxra,
+                                     'mindec': mindec, 'maxdec': maxdec,
+                                     'minmag': minmag, 'maxmag': maxmag } )
+                # This will add the row to the table and release the lock
+                conn.commit()
+
+            yield True
+
+        finally:
+            # This is in a "finally" so that if the thing that we
+            #  yielded to gets an exception, this stuff still gets
+            #  executed.
+            with Psycopg2Connection() as conn:
+                cursor = conn.cursor()
+                q = "DELETE FROM gaiadr3_downloadlock "
+                conds, subdict = sqlconds( minra, maxra, minmag, maxmag )
+                q += conds
+                cursor.execute( q, subdict )
+                conn.commit()
