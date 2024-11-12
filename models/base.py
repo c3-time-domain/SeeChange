@@ -18,6 +18,7 @@ import shapely
 from astropy.coordinates import SkyCoord
 
 import psycopg2
+from psycopg2.errors import UniqueViolation
 
 import sqlalchemy as sa
 import sqlalchemy.dialects.postgresql
@@ -30,7 +31,6 @@ from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.dialects.postgresql import array as sqlarray
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError, OperationalError
-from psycopg2.errors import UniqueViolation
 
 from sqlalchemy.schema import CheckConstraint
 
@@ -257,14 +257,14 @@ def Psycopg2Connection( current=None ):
 
     Parameters
     ----------
-      current : psycopg2.connection or None (default None)
+      current : psycopg2.extensions.connection or None (default None)
          Pass an existing connection, get it back.  Useful if you are in
          nested functions that might want to be working within the same
          transaction.
 
     Returns
     -------
-       psycopg2.connection
+       psycopg2.extensions.connection
 
        After the with block, the connection will be rolled back and
        closed.  So, if you want what you've done committed, make sure to
@@ -275,8 +275,8 @@ def Psycopg2Connection( current=None ):
     global _psycopg2params
 
     if current is not None:
-        if not isinstance( current, psycopg2.connection ):
-            raise TypeError( f"Must pass a psycopg2.connection or None to Pyscopg2Conection" )
+        if not isinstance( current, psycopg2.extensions.connection ):
+            raise TypeError( f"Must pass a psycopg2.extensions.connection or None to Pyscopg2Conection" )
         yield current
         # Don't roll back or close, because whoever created it in the
         #   first place is responsible for that.
@@ -563,7 +563,7 @@ class SeeChangeBase:
 
         Parameters
         ----------
-          session: SQLALchemy Session, or psycopg2.connection, or None
+          session: SQLALchemy Session, or psycopg2.extensions.connection, or None
             Usually you do not want to pass this; it's mostly for other
             upsert etc. methods that cascade to this.
 
@@ -594,6 +594,9 @@ class SeeChangeBase:
         #
         # In any event, doing this manually dodges any weirdness associated
         #  with objects attached, or not attached, to sessions.
+        #
+        # (Even better, unless a sa Session is passed, bypass sqlalchemy
+        # altogether.)
 
         cols, values = self._get_cols_and_vals_for_insert()
         notmod = [ c for c in cols if c != 'modified' ]
@@ -607,10 +610,11 @@ class SeeChangeBase:
                     sess.commit()
             return
 
-        if ( session is not None ) and ( not isinstance( session, psycopg2.connection ) ):
-            raise TypeError( f"session must be a sa Sesssion or psycopg2.connection or None, not a {type(session)}" )
+        if ( session is not None ) and ( not isinstance( session, psycopg2.extensions.connection ) ):
+            raise TypeError( f"session must be a sa Session or psycopg2.extensions.connection or None, "
+                             f"not a {type(session)}" )
 
-        q = f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (%({"s),%(".join(notmod)})s) '
+        q = f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (%({")s,%(".join(notmod)})s) '
         subdict = { c: v for c, v in zip( cols, values ) if c != 'modified' }
         with Psycopg2Connection( session ) as conn:
             cursor = conn.cursor()
