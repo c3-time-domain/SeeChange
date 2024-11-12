@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 import util.config as config
 from util.logger import SCLogger
 import models.base
-from models.base import Base, SmartSession, UUIDMixin, FileOnDiskMixin, FourCorners
+from models.base import Base, SmartSession, Psycopg2Connection, UUIDMixin, FileOnDiskMixin, FourCorners
 from models.image import Image
 from models.datafile import DataFile
 from models.object import Object
@@ -68,11 +68,28 @@ def test_to_dict(data_dir):
 
 def test_insert( provenance_base ):
 
-    uuidstodel = [ uuid.uuid4() ]
+    def make_sure_its_there( _id, filepath ):
+        df = DataFile.get_by_id( _id )
+        assert df is not None
+        assert df.filepath == filepath
+
+    def make_sure_its_not_there( _id, filepath ):
+        df = DataFile.get_by_id( _id )
+        assert df is None
+
+    uuidstodel = []
     try:
+        curid = uuid.uuid4()
+        uuidstodel.append( curid )
+        df = DataFile( _id=curid, filepath="foo", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+
+        # Make sure we get an error if we don't pass the right kind of thing
+        with pytest.raises( TypeError, match="session must be a sa Session or psycopg2.connection or None" ):
+            df.insert( 2 )
+
         # Make sure we can insert
-        df = DataFile( _id=uuidstodel[0], filepath="foo", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
         df.insert()
+        make_sure_its_there( curid, "foo" )
 
         founddf = DataFile.get_by_id( df.id )
         assert founddf is not None
@@ -87,6 +104,40 @@ def test_insert( provenance_base ):
         newdf = DataFile( _id=df.id, filepath='bar', md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
         with pytest.raises( IntegrityError, match='duplicate key value violates unique constraint "data_files_pkey"' ):
             df.insert()
+
+        # Make sure we can insert using a session
+        curid = uuid.uuid4()
+        uuidstodel.append( curid )
+        df = DataFile( _id=curid, filepath="foo2", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        with SmartSession() as session:
+            df.insert( session )
+        make_sure_its_there( curid, "foo2" )
+
+        # Make sure nocommit with session works as expected
+        curid = uuid.uuid4()
+        uuidstodel.append( curid )
+        df = DataFile( _id=curid, filepath="foo3", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        with SmartSession() as session:
+            df.insert( session, nocommit=True )
+            sess.rollback()
+        make_sure_its_not_there( curid, "foo3" )
+
+        # Make sure we can insert passing a psycopg2 connection
+        curid = uuid.uuid4()
+        uuidstodel.append( curid )
+        df = DataFile( _id=curid, filepath="foo4", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        with Psycopg2Connection() as conn:
+            df.insert( conn )
+        make_sure_its_there( curid, "foo4" )
+
+        # Make sure nocommit with connection works as expected
+        curid = uuid.uuid4()
+        uuidstodel.append( curid )
+        df = DataFile( _id=curid, filepath="foo5", md5sum=uuid.uuid4(), provenance_id=provenance_base.id )
+        with Psycopg2Connection() as conn:
+            df.insert( conn, nocmmit=True )
+        make_sure_its_not_there( curid, "foo5" )
+
 
     finally:
         # Clean up

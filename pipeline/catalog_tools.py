@@ -474,6 +474,8 @@ def fetch_gaia_dr3_excerpt( image, minstars=50, maxmags=22, magrange=None, sessi
                 maxmag=maxmag,
             )
             if catexp.num_items >= minstars:
+                # We need to lock the catalog exceprt table here to
+                #   avoid race conditions.
                 catexp.filepath = dbfile
                 catexp.save( localfile )
                 with SmartSession( session ) as dbsess:

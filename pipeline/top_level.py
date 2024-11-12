@@ -667,7 +667,13 @@ class Pipeline:
         provs['report'].insert_if_needed()
 
         if not no_provtag:
-            ProvenanceTag.addtag( self.pars.provenance_tag, provs.items(),
+            # Gotta package up the provenances for what
+            # ProvenanceTag.addtag wants (i.e. just a single list)
+            allprovs = [ p for p in provs.values() if not isinstance( p, list ) ]
+            for p in provs.values():
+                if isinstance( p, list ):
+                    allprovs.extend( p )
+            ProvenanceTag.addtag( self.pars.provenance_tag, allprovs,
                                   add_missing_processes_to_provtag=add_missing_processes_to_provtag )
 
         return provs

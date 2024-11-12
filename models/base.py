@@ -563,16 +563,16 @@ class SeeChangeBase:
 
         Parameters
         ----------
-          session: SQLALchemy Session, or None
+          session: SQLALchemy Session, or psycopg2.connection, or None
             Usually you do not want to pass this; it's mostly for other
             upsert etc. methods that cascade to this.
 
           nocommit: bool, default False
-            If True, run the statement to insert the object, but
-            don't actually commit the database.  Do this if you
-            want the insert to be inside a transaction you've
-            started on session.  It doesn't make sense to use
-            nocommit without passing a session.
+            If True, run the statement to insert the object, but don't
+            actually commit the database.  Do this if you want the
+            insert to be inside a transaction you've started on session.
+            It doesn't make sense to set nocommit=True unless you've
+            passed either a Session or a psycopg2 connection.
 
         """
 
@@ -597,12 +597,26 @@ class SeeChangeBase:
 
         cols, values = self._get_cols_and_vals_for_insert()
         notmod = [ c for c in cols if c != 'modified' ]
-        q = f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (:{",:".join(notmod)}) '
+
+        if ( session is not None ) and ( isinstance( session, sa.orm.session.Session ) ):
+            q = f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (:{",:".join(notmod)}) '
+            subdict = { c: v for c, v in zip( cols, values ) if c != 'modified' }
+            with SmartSession( session ) as sess:
+                sess.execute( sa.text( q ), subdict )
+                if not nocommit:
+                    sess.commit()
+            return
+
+        if ( session is not None ) and ( not isinstance( session, psycopg2.connection ) ):
+            raise TypeError( f"session must be a sa Sesssion or psycopg2.connection or None, not a {type(session)}" )
+
+        q = f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (%({"s),%(".join(notmod)})s) '
         subdict = { c: v for c, v in zip( cols, values ) if c != 'modified' }
-        with SmartSession( session ) as sess:
-            sess.execute( sa.text( q ), subdict )
+        with Psycopg2Connection( session ) as conn:
+            cursor = conn.cursor()
+            cursor.execute( q, subdict )
             if not nocommit:
-                sess.commit()
+                conn.commit()
 
 
     def upsert( self, session=None, load_defaults=False ):
