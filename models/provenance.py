@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import UniqueConstraint
+import psycopg2.extras
 
 from util.util import get_git_hash
 from util.logger import SCLogger
@@ -641,7 +642,7 @@ class ProvenanceTag(Base, UUIDMixin):
         # lock tables without a world of hurt.  (See massive comment in
         # base.SmartSession.)
         with Psycopg2Connection() as conn:
-            cursor = conn.cursor( connection_factory=psycopg2.extras.RealDictCursor )
+            cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
             cursor.execute( "LOCK TABLE provenance_tags" )
             cursor.execute( "SELECT t.tag,p._id,p.process FROM provenance_tags t "
                             "INNER JOIN provenances p ON t.provenance_id=p._id "
@@ -693,7 +694,7 @@ class ProvenanceTag(Base, UUIDMixin):
                 conn.commit()
 
         if len( conflict ) != 0:
-            strio = io.StringIO():
+            strio = io.StringIO()
             strio.write( f"The following provenances do not match the existing provenance for tag {tag}:\n " )
             for prov in conflict:
                 strio.write( f"   {prov.process}: {prov.id}  (existing: {known[prov.process]})\n" )
@@ -707,46 +708,3 @@ class ProvenanceTag(Base, UUIDMixin):
                 strio.write( f"   {prov.process}: {prov.id}\n" )
             SCLogger.error( strio.getvalue() )
             raise RuntimeError( strio.getvalue() )
-
-
-    @classmethod
-    def validate( cls, tag, processes=None, session=None ):
-        """Verify that a given tag doesn't have multiply defined processes.
-
-        One exception: referenceing can have multiply defined processes.
-
-        Raises an exception if things don't work.
-
-        Parameters
-        ----------
-          tag: str
-            The tag to validate
-
-          processes: list of str
-            The processes to make sure are present.  If None, won't make sure
-            that any processes are present, will just make sure there are no
-            duplicates.
-
-        """
-
-        repeatok = { 'referencing' }
-
-        with SmartSession( session ) as sess:
-            ptags = ( sess.query( (ProvenanceTag._id,Provenance.process) )
-                      .filter( ProvenanceTag.provenance_id==Provenance._id )
-                      .filter( ProvenanceTag.tag==tag )
-                     ).all()
-
-        count = defaultdict( lambda: 0 )
-        for ptagid, process in ptags:
-            count[ process ] += 1
-
-        multiples = [ i for i in count.keys() if count[i] > 1 and i not in repeatok ]
-        if len(multiples) > 0:
-            raise ValueError( f"Database integrity error: ProcessTag {tag} has more than one "
-                              f"provenance for processes {multiples}" )
-
-        if processes is not None:
-            missing = [ i for i in processes if i not in count.keys() ]
-            if len( missing ) > 0:
-                raise ValueError( f"Some processes missing from ProcessTag {tag}: {missing}" )
