@@ -871,7 +871,8 @@ class SeeChangeBase:
         be lazy loaded anyway, as they are not persisted.
 
         Will convert non-standard data types:
-        UUID will be converted to string (using the .hex attribute).
+        md5sum UUIDS will be converted to string (using .hex)
+        _id UUIDS will be converted to string (using str())
         Numpy arrays are replaced by lists.
 
         To reload, use the from_dict() method:
@@ -899,7 +900,7 @@ class SeeChangeBase:
 
             if key == '_id' and value is not None:
                 if isinstance(value, UUID):
-                    value = value.hex
+                    value = str(value)
 
             if isinstance(value, np.ndarray) and key in [
                 'aper_rads', 'aper_radii', 'aper_cors', 'aper_cor_radii',

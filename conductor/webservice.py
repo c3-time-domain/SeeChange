@@ -238,7 +238,7 @@ class UnregisterWorker( BaseView ):
 # ======================================================================
 # /workerheartbeat
 #
-# Call at /workerheartbeat/n where n is the numeric id of the pipeline worker
+# Call at /workerheartbeat/n where n is the uuid of the pipeline worker
 
 class WorkerHeartbeat( BaseView ):
     def do_the_things( self, pipelineworker_id ):
