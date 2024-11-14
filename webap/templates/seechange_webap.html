@@ -9,8 +9,13 @@
 
 {% block title %}SeeChange Webap{% endblock %}
 
-<h1>SeeChange Webap</h1>
+{% block content %}
+  <div name="authdiv" id="authdiv" class="authdiv"></div>
 
-{% block pagebody %}
-<div name="pagebody" id="pagebody"></div>
+  <h1>SeeChange Webap</h1>
+
+  <div name="pagebody" id="pagebody"></div>
+{% endblock %}
+
+{% block footer %}
 {% endblock %}

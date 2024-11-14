@@ -3,7 +3,7 @@
 import matplotlib
 matplotlib.use( "Agg" )
 # matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
-# matplotlib.rc('text', usetex=True)  #  Need LaTeX in Dockerfile
+# matplotlib.rc('text', usetex=True)  #  Need LaTeX in Dockerfile, not worth it
 from matplotlib import pyplot
 
 import sys
@@ -16,8 +16,6 @@ import pathlib
 import logging
 import base64
 
-import psycopg2
-import psycopg2.extras
 import numpy
 import h5py
 import PIL
@@ -25,90 +23,93 @@ import astropy.time
 import astropy.visualization
 
 import flask
+import flask_session
+import flask.views
 
 from util.config import Config
-
-# Figure out where we are, add that to PYTHONPATH
-
-workdir = pathlib.Path(__name__).resolve().parent
-sys.path.insert( 0, workdir )
-
-# Create and configure the flask app
-
-cfg = Config.get()
-
-app = flask.Flask( __name__, instance_relative_config=True )
-# app.logger.setLevel( logging.INFO )
-app.logger.setLevel( logging.DEBUG )
-app.config_from_mapping(
-    SECRET_KEY=FLASK_SECRET_KEY,
-    SESSION_COOKIE_PATH='/',
-    SESSION_TYPE='filesystem',
-    SESSION_PERMANENT=True,
-    SESSION_FILE_DIR='/sessions',
-    SESSION_FILE_THRESHOLD=1000,
-)
-server_session = flask_session.Session( app )
-
-# Import and configure the auth subapp
-import rkauth_flask
+from models.user import AuthUser
+from models.deepscore import DeepScore
+from models.base import SmartSession
 
 
-# UNHAPPY CODE ORGANIZATION WARNING
-# Because the webap doesn't import all of the SeeChange code base, stuff
-#    coded there needs to be copied here.  The following table NEEDS TO
-#    BE KEPT SYNCED with the combination of
-#    enums_and_bitflags.py::DeepScoreAlgorithmConverter and
-#    DeepScore.get_rb_cut
-#
-# Probably I should just give in and have the webap import the SeeChange
-#   code base.  The Conductor does, after all.
+# ======================================================================
 
-_rb_cuts = {
-    0: 0.5,
-    1: 0.99,
-    2: 0.55
-}
+class BaseView( flask.views.View ):
+    def __init__( self, *args, **kwargs ):
+        super().__init__( *args, **kwargs )
 
-# **********************************************************************
+    def check_auth( self ):
+        self.username = flask.session['username'] if 'username' in flask.session else '(None)'
+        self.displayname = flask.session['userdisplayname'] if 'userdisplayname' in flask.session else '(None)'
+        self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
+        self.user = None
+        if self.authenticated:
+            self.user = self.session.query( AuthUser ).filter( AuthUser.username==self.username ).first()
+            if self.user is None:
+                self.authenticated = False
+                raise ValueError( f"Error, failed to find user {self.username} in database" )
+        return self.authenticated
 
-def dbconn():
-    conn = psycopg2.connect( host=PG_HOST, port=PG_PORT, user=PG_USER, password=PG_PASS, dbname=PG_NAME )
-    yield conn
-    conn.rollback()
-    conn.close()
+    def dispatch_request( self, *args, **kwargs ):
+        # Webaps, where you expect the runtime to be short (ideally at
+        #  most seconds, or less!) is the use case where holding open a
+        #  database connection for the whole runtime actually might make
+        #  sense.
 
-# **********************************************************************
+        with SmartSession() as session:
+            self.session = session
+            # Also get the raw psycopg2 connection, because we need it
+            #   to be able to avoid dealing with SA where possible.
+            self.conn = session.bind.raw_connection()
 
-@app.route( "/", strict_slashes=False )
-def mainpage():
-    return flask.render_template( "seechange_webap.html" )
+            if not self.check_auth():
+                return f"Not logged in", 500
+            try:
+                return self.do_the_things( *args, **kwargs )
+            except Exception as ex:
+                # sio = io.StringIO()
+                # traceback.print_exc( file=sio )
+                # app.logger.debug( sio.getvalue() )
+                app.logger.exception( str(ex) )
+                return f"Exception handling request: {ex}", 500
 
-# **********************************************************************
 
-@app.route( "/provtags", methods=['POST'], strict_slashes=False )
-def provtags():
-    try:
-        conn = next( dbconn() )
-        cursor = conn.cursor()
+# ======================================================================
+
+class MainPage( BaseView ):
+    def dispatch_request( self ):
+        return flask.render_template( "seechange_webap.html" )
+
+
+# ======================================================================
+
+class ProvTags( BaseView ):
+    def do_the_things( self ):
+        cursor = self.conn.cursor()
         cursor.execute( 'SELECT DISTINCT ON(tag) tag FROM provenance_tags ORDER BY tag' )
         return { 'status': 'ok',
                  'provenance_tags': [ row[0] for row in cursor.fetchall() ]
                 }
-    except Exception as ex:
-        app.logger.exception( ex )
-        return { 'status': 'error',
-                 'error': f'Exception: {ex}' }
+
+# ======================================================================
+
+class Projects( BaseView ):
+    def do_the_things( self ):
+        cursor = self.conn.cursor()
+        cursor.execute( 'SELECT DISTINCT ON(project) project FROM exposures ORDER BY project' )
+        return { 'status': 'ok',
+                 'projects': [ row[0] for row in cursor.fetchall() ]
+                }
 
 
-# **********************************************************************
+# ======================================================================
 
-@app.route( "/exposures", methods=['POST'], strict_slashes=False )
-def exposures():
-    try:
+class Exposures( BaseView ):
+    def do_the_things( self ):
         data = { 'startdate': None,
                  'enddate': None,
                  'provenancetag': None,
+                 'projects': None,
                 }
         if flask.request.is_json:
             data.update( flask.request.json )
@@ -118,8 +119,7 @@ def exposures():
         t1 = None if data['enddate'] is None else astropy.time.Time( data['enddate'], format='isot' ).mjd
         app.logger.debug( f"t0 = {t0}, t1 = {t1}" )
 
-        conn = next( dbconn() )
-        cursor = conn.cursor()
+        cursor = self.conn.cursor()
 
         # Gonna do this in three steps.  First, get all the images with
         #  counts of source lists and counts of measurements in a temp
@@ -131,7 +131,7 @@ def exposures():
         haveputinwhere = False
         subdict = {}
         if data['provenancetag'] is None:
-            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.project, e.filter, e.filter_array, e.exp_time, '
                   '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
                   '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
@@ -149,64 +149,76 @@ def exposures():
                   'GROUP BY e._id, i._id, s._id, sl._id '
                  )
         else:
-            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.filter, e.filter_array, e.exp_time, '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.filter, e.project, e.filter_array, e.exp_time, '
                   '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
                   '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
                   'FROM exposures e '
                   'LEFT JOIN ( '
                   '  SELECT im._id, im.exposure_id FROM images im '
-                  '  INNER JOIN provenance_tags impt ON impt.provenance_id=im.provenance_id AND impt.tag=%(provtag)s '
+                  '  INNER JOIN provenance_tags impt ON impt.provenance_id=im.provenance_id '
+                  '                                  AND impt.tag=%(provtag)s '
                   ') i ON i.exposure_id=e._id '
                   'LEFT JOIN ( '
                   '  SELECT su._id, ias.upstream_id FROM images su '
                   '  INNER JOIN image_upstreams_association ias ON ias.downstream_id=su._id AND su.is_sub '
-                  '  INNER JOIN provenance_tags supt ON supt.provenance_id=su.provenance_id AND supt.tag=%(provtag)s '
+                  '  INNER JOIN provenance_tags supt ON supt.provenance_id=su.provenance_id '
+                  '                                  AND supt.tag=%(provtag)s '
                   ') s ON s.upstream_id=i._id '
                   'LEFT JOIN ( '
                   '  SELECT sli._id, sli.image_id, sli.num_sources FROM source_lists sli '
-                  '  INNER JOIN provenance_tags slpt ON slpt.provenance_id=sli.provenance_id AND slpt.tag=%(provtag)s '
+                  '  INNER JOIN provenance_tags slpt ON slpt.provenance_id=sli.provenance_id '
+                  '                                  AND slpt.tag=%(provtag)s '
                   ') sl ON sl.image_id=s._id '
                   'LEFT JOIN ( '
                   '  SELECT cu._id, cu.sources_id FROM cutouts cu '
-                  '  INNER JOIN provenance_tags cupt ON cu.provenance_id=cupt.provenance_id AND cupt.tag=%(provtag)s '
+                  '  INNER JOIN provenance_tags cupt ON cu.provenance_id=cupt.provenance_id '
+                  '                                  AND cupt.tag=%(provtag)s '
                   ') c ON c.sources_id=sl._id '
                   'LEFT JOIN ( '
                   '  SELECT meas._id, meas.cutouts_id FROM measurements meas '
-                  '  INNER JOIN provenance_tags mept ON mept.provenance_id=meas.provenance_id AND mept.tag=%(provtag)s '
+                  '  INNER JOIN provenance_tags mept ON mept.provenance_id=meas.provenance_id '
+                  '                                  AND mept.tag=%(provtag)s '
                   ') m ON m.cutouts_id=c._id '
                   'INNER JOIN provenance_tags ept ON ept.provenance_id=e.provenance_id AND ept.tag=%(provtag)s '
-                  'GROUP BY e._id, i._id, s._id, sl._id, sl.num_sources '
                  )
             subdict['provtag'] = data['provenancetag']
-        if ( t0 is not None ) or ( t1 is not None ):
+        if ( data['projects'] is not None ) or ( t0 is not None ) or ( t1 is not None ):
             q += 'WHERE '
+            _and = ''
+            if data['projects'] is not None:
+                q += f'{_and}e.project IN %(projects)s '
+                subdict['projects'] = tuple( data['projects'] )
+                _and = 'AND '
             if t0 is not None:
-                q += 'e.mjd >= %(t0)s'
+                q += f'{_and}e.mjd >= %(t0)s '
                 subdict['t0'] = t0
+                _and = 'AND '
             if t1 is not None:
-                if t0 is not None: q += ' AND '
-                q += 'e.mjd <= %(t1)s'
+                q += f'{_and}e.mjd <= %(t1)s '
                 subdict['t1'] = t1
+                _and = 'AND '
+
+        q += 'GROUP BY e._id, i._id, s._id, sl._id, sl.num_sources '
 
         cursor.execute( q, subdict )
 
         # Now run a second query to count and sum those things
         # These numbers will be wrong (double-counts) if not filtering on a provenance tag, or if the
         #   provenance tag includes multiple provenances for a given step!
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time, '
               '  COUNT(t.subid) AS num_subs, SUM(t.num_sources) AS num_sources, '
               '  SUM(t.num_measurements) AS num_measurements '
               'INTO TEMP TABLE temp_imgs_2 '
               'FROM temp_imgs t '
-              'GROUP BY t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time '
+              'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time '
              )
 
         cursor.execute( q )
 
-        # Run a third query count reports
+        # Run a third query to count reports
         subdict = {}
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time, '
               '  t.num_subs, t.num_sources, t.num_measurements, '
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
@@ -218,13 +230,14 @@ def exposures():
             q += ( 'LEFT JOIN ( '
                    '  SELECT re.exposure_id, re.success, re.error_message '
                    '  FROM reports re '
-                   '  INNER JOIN provenance_tags rept ON rept.provenance_id=re.provenance_id AND rept.tag=%(provtag)s '
+                   '  INNER JOIN provenance_tags rept ON rept.provenance_id=re.provenance_id '
+                   '                                  AND rept.tag=%(provtag)s '
                    ') r ON r.exposure_id=t._id '
                   )
             subdict['provtag'] = data['provenancetag']
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.
-        q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.target, t.filter, t.filter_array, t.exp_time, '
+        q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time, '
                '  t.num_subs, t.num_sources, t.num_measurements ' )
 
         cursor.execute( q, subdict  )
@@ -234,6 +247,7 @@ def exposures():
         name = []
         mjd = []
         target = []
+        project = []
         filtername = []
         exp_time = []
         n_subs = []
@@ -252,6 +266,7 @@ def exposures():
                 name.append( match.group(1) )
             mjd.append( row[columns['mjd']] )
             target.append( row[columns['target']] )
+            project.append( row[columns['project']] )
             app.logger.debug( f"filter={row[columns['filter']]} type {row[columns['filter']]}; "
                               f"filter_array={row[columns['filter_array']]} type {row[columns['filter_array']]}" )
             filtername.append( row[columns['filter']] )
@@ -266,10 +281,12 @@ def exposures():
                  'startdate': t0,
                  'enddate': t1,
                  'provenance_tag': data['provenancetag'],
+                 'projects': data['projects'],
                  'exposures': {
                      'id': ids,
                      'name': name,
                      'mjd': mjd,
+                     'project': project,
                      'target': target,
                      'filter': filtername,
                      'exp_time': exp_time,
@@ -280,22 +297,13 @@ def exposures():
                      'n_errors': n_errors,
                  }
                 }
-    except Exception as ex:
-        # sio = io.StringIO()
-        # traceback.print_exc( file=sio )
-        # app.logger.debug( sio.getvalue() )
-        app.logger.exception( ex )
-        return { 'status': 'error',
-                 'error': f'Exception: {ex}'
-                }
 
-# **********************************************************************
 
-@app.route( "/exposure_images/<expid>/<provtag>", methods=['GET', 'POST'], strict_slashes=False )
-def exposure_images( expid, provtag ):
-    try:
-        conn = next( dbconn() )
-        cursor = conn.cursor()
+# ======================================================================
+
+class ExposureImages( BaseView ):
+    def do_the_things( self, expid, provtag ):
+        cursor = self.conn.cursor()
 
         # Going to do this in a few steps again.  Might be able to write one
         # bigass query, but it's probably more efficient to use temp tables.
@@ -421,22 +429,11 @@ def exposure_images( expid, provtag ):
         app.logger.debug( f"exposure_images returning {retval}" )
         return retval
 
-    except Exception as ex:
-        app.logger.exception( ex )
-        return { 'status': 'error',
-                 'error': f'Exception: {ex}' }
 
-# **********************************************************************
+# ======================================================================
 
-@app.route( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>",
-            methods=['GET', 'POST'], strict_slashes=False )
-@app.route( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>",
-            methods=['GET', 'POST'], strict_slashes=False )
-@app.route( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"
-            "<int:limit>/<int:offset>",
-            methods=['GET', 'POST'], strict_slashes=False )
-def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None, offset=0 ):
-    try:
+class PngCutoutsForSubImage( BaseView ):
+    def do_the_things(  self, exporsubid, provtag, issubid, nomeas, limit=None, offset=0 ):
         data = { 'sortby': 'rbdesc_fluxdesc_chip_index' }
         if flask.request.is_json:
             data.update( flask.request.json )
@@ -449,9 +446,7 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
             app.logger.debug( f"Looking for cutouts from exposure {exporsubid} ({'with' if nomeas else 'without'} "
                               f"missing-measurements)" )
 
-        conn = next( dbconn() )
-        cursor = conn.cursor()
-        # TODO : r/b and sorting
+        cursor = self.conn.cursor()
 
         # Figure out the subids, zeropoints, backgrounds, and apertures we need
 
@@ -620,7 +615,8 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
 
         hdf5files = {}
         for subid in cutoutsfiles.keys():
-            hdf5files[ subid ] = h5py.File( ARCHIVE_DIR / cutoutsfiles[subid], 'r' )
+            hdf5files[ subid ] = h5py.File( pathlib.Path( cfg.value( 'archive.local_read_dir' ) )
+                                            / cutoutsfiles[subid], 'r' )
 
         def append_to_retval( subid, index_in_sources, section_id, row ):
             grp = hdf5files[ subid ][f'source_index_{index_in_sources}']
@@ -683,7 +679,7 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
                 aperrad= 0.
             else:
                 retval['cutouts']['rb'].append( row[cols['score']] )
-                retval['cutouts']['rbcut'].append( _rb_cuts[ row[cols['_algorithm']] ] )
+                retval['cutouts']['rbcut'].append( DeepScore.get_rb_cut( row[cols['_algorithm']] ) )
                 retval['cutouts']['is_bad'].append( row[cols['is_bad']] )
                 retval['cutouts']['objname'].append( row[cols['name']] )
                 retval['cutouts']['is_test'].append( row[cols['is_test']] )
@@ -734,14 +730,88 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
                 for index_in_sources in range( len( hdf5files[subid] ) ):
                     if not ( index_in_sources in already_done ):
                         append_to_retval( subid, index_in_sources, section_id, None )
-                
+
         for f in hdf5files.values():
             f.close()
 
         app.logger.debug( f"Returning {len(retval['cutouts']['sub_id'])} cutouts" )
         return retval
 
-    except Exception as ex:
-        app.logger.exception( ex )
-        return { 'status': 'error',
-                 'error': f'Exception: {ex}' }
+
+# =====================================================================
+# Create and configure the flask app
+
+cfg = Config.get()
+
+app = flask.Flask( __name__, instance_relative_config=True )
+# app.logger.setLevel( logging.INFO )
+app.logger.setLevel( logging.DEBUG )
+
+secret_key = cfg.value( 'webap.flask_secret_key' )
+if secret_key is None:
+    with open( cfg.value( 'webap.flask_secret_key_file' ) ) as ifp:
+        secret_key = ifp.readline().strip()
+
+app.config.from_mapping(
+    SECRET_KEY=secret_key,
+    SESSION_COOKIE_PATH='/',
+    SESSION_TYPE='filesystem',
+    SESSION_PERMANENT=True,
+    SESSION_FILE_DIR='/sessions',
+    SESSION_FILE_THRESHOLD=1000,
+)
+server_session = flask_session.Session( app )
+
+# Import and configure the auth subapp
+sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
+import rkauth_flask
+
+kwargs = {
+    'db_host': cfg.value( 'db.host' ),
+    'db_port': cfg.value( 'db.port' ),
+    'db_name': cfg.value( 'db.database' ),
+    'db_user': cfg.value( 'db.user' ),
+    'db_password': cfg.value( 'db.password' )
+}
+if kwargs['db_password'] is None:
+    if cfg.value( 'db.password_file' ) is None:
+        raise RuntimeError( 'In config, one of db.password or db.password_file must be specified' )
+    with open( cfg.value( 'db.password_file' ) ) as ifp:
+        kwargs[ 'db_password' ] = ifp.readline().strip()
+
+for attr in [ 'email_from', 'email_subject', 'email_system_name',
+              'smtp_server', 'smtp_port', 'smtp_use_ssl', 'smtp_username', 'smtp_password' ]:
+    kwargs[ attr ] = cfg.value( f'email.{attr}' )
+if ( kwargs['smtp_password'] ) is None and ( cfg.value('email.smtp_password_file') is not None ):
+    with open( cfg.value('email.smtp_password_file') ) as ifp:
+        kwargs['smtp_password'] = ifp.readline().strip()
+
+rkauth_flask.RKAuthConfig.setdbparams( **kwargs )
+
+app.register_blueprint( rkauth_flask.bp )
+
+
+# Configure urls
+
+urls = {
+    "/": MainPage,
+    "/provtags": ProvTags,
+    "/projects": Projects,
+    "/exposures": Exposures,
+    "/exposure_images/<expid>/<provtag>": ExposureImages,
+    "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>": PngCutoutsForSubImage,
+    "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>": PngCutoutsForSubImage,
+    ( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"
+      "<int:limit>/<int:offset>" ): PngCutoutsForSubImage,
+}
+
+usedurls = {}
+for url, cls in urls.items():
+    if url not in usedurls.keys():
+        usedurls[ url ] = 0
+        name = url
+    else:
+        usedurls[ url ] += 1
+        name = f"url.{usedurls[usr]}"
+
+    app.add_url_rule( url, view_func=cls.as_view(name), methods=["GET", "POST"], strict_slashes=False )

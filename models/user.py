@@ -13,6 +13,7 @@ class AuthUser(Base):
     email = sa.Column( sa.Text, nullable=False, index=True )
     pubkey = sa.Column( sa.Text )
     privkey = sa.Column( JSONB )
+    isadmin = sa.Column( sa.Boolean, nullable=False, server_default='false' )
 
 class PasswordLink(Base):
     __tablename__ = "passwordlink"

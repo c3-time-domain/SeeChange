@@ -292,21 +292,21 @@ class GaiaDR3DownloadLock(Base, UUIDMixin):
         """
 
         def sqlconds( minra, maxra, minmag, maxmag ):
-            q = ( "WHERE ABS(minra-%(minra)s) < 0.005 "
-                  "  AND ABS(maxra-%(maxra)s) < 0.005 "
-                  "  AND ABS(mindec-%(mindec)s) < 0.005 "
-                  "  AND ABS(maxdec-%(maxdec)s) < 0.005 " )
+            q = ( "WHERE ABS(minra - %(minra)s) < 0.005 "
+                  "  AND ABS(maxra - %(maxra)s) < 0.005 "
+                  "  AND ABS(mindec - %(mindec)s) < 0.005 "
+                  "  AND ABS(maxdec - %(maxdec)s) < 0.005 " )
             subdict = { 'minra': minra, 'maxra': maxra,
                         'mindec': mindec, 'maxdec': maxdec }
             if minmag is None:
                 q += "  AND minmag IS NULL "
             else:
-                q += "  AND ABS(minmag-%(minmag)s) < 0.1 "
+                q += "  AND ABS(minmag - %(minmag)s) < 0.1 "
                 subdict['minmag'] = minmag
             if maxmag is None:
                 q += "  AND maxmag IS NULL "
             else:
-                q += "  AND ABS(maxmag-%(maxmag)s) < 0.1 "
+                q += "  AND ABS(maxmag - %(maxmag)s) < 0.1 "
                 subdict['maxmag'] = maxmag
 
             return q, subdict

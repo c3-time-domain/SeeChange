@@ -412,7 +412,7 @@ FROM included_code AS webap
 
 COPY --from=webap_build /webap_code/ /webap_code/
 WORKDIR /webap_code/
-RUN chmod 
+RUN chmod 755 run_webap.sh
 
 RUN mkdir /sessions
 RUN chmod 777 /sessions

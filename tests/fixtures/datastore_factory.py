@@ -4,6 +4,7 @@ import pathlib
 import warnings
 import shutil
 import pytest
+import datetime
 
 import numpy as np
 
@@ -12,6 +13,7 @@ import sqlalchemy as sa
 from models.base import SmartSession
 from models.provenance import Provenance, CodeVersion
 from models.enums_and_bitflags import BitFlagConverter
+from models.report import Report
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
@@ -137,6 +139,10 @@ def datastore_factory(data_dir, pipeline_factory, request):
         overrides = {} if overrides is None else overrides
         augments = {} if augments is None else augments
 
+        if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            import tracemalloc
+            tracemalloc.start()
+
         stepstodo = [ 'preprocessing', 'extraction', 'bg', 'wcs', 'zp',
                       'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ]
         if through_step is None:
@@ -180,6 +186,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
             overrides['subtraction']['refset'] = refset_name
 
         # Create the pipeline and build the provenance tree
+        # We're not just going to call pipeline.run() because of all the
+        #   cache reading/writing below.  Instead, we call the
+        #   individual steps directly.  That makes this fixture way
+        #   bigger than it would be without the cache, but if a fixture
+        #   is reused, we can save a bunch of time by caching the
+        #   results.  (The fixture is still kind of slow because even
+        #   restoring the cache takes time — ~tens of seconds for a full
+        #   subtraction/measurement datastore.)
 
         p = pipeline_factory( provtag )
         ds._pipeline = p
@@ -190,6 +204,30 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         ds.prov_tree = p.make_provenance_tree( ds.exposure if ds.exposure is not None else ds.image,
                                                ok_no_ref_provs=True )
+
+        # Try to read the report from the cache.  If it's there, then _hopefully_ everything
+        # else is there.  (Report cache is written at the end, but it's possible that there
+        # will be provenance mismatches.  If that happens, then the report read from the cache
+        # will be wrong.  Clear your cache to be sure.)
+        #
+        # (We can only make reports if given an exposure, so skip all report stuff if we
+        # were given an image.)
+        if isinstance( exporim, Exposure ):
+            report_cache_name = f'{cache_base_name}.report.json'
+            report_cache_path = os.path.join( cache_dir, report_cache_name )
+            report_was_loaded_from_cache = False
+            SCLogger.debug( f'make_datastore searching cache for report {report_cache_path}' )
+            if use_cache and os.path.isfile( report_cache_path ):
+                SCLogger.debug( 'make_datastore loading report from cache' )
+                ds.report = copy_from_cache( Report, cache_dir, report_cache_name )
+                # The cached exposure id won't be right
+                ds.report.exposure_id = exporim.id
+                ds.report.insert()
+                report_was_loaded_from_cache = True
+            else:
+                ds.report = Report( exposure_id=exporim.id, section_id=section_id )
+                ds.report.start_time = datetime.datetime.now( tz=datetime.timezone.utc )
+                ds.report.provenance_id = ds.prov_tree['report'].id
 
         # Remove all steps past subtraction if there's no referencing provenance
         if ( 'subtraction' in stepstodo ) and ( 'referencing' not in ds.prov_tree ):
@@ -229,6 +267,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             if ds.image is None:  # make the preprocessed image
                 SCLogger.debug('make_datastore making preprocessed image')
                 ds = p.preprocessor.run(ds)
+                ds.update_report( 'preprocessing' )
                 if bad_pixel_map is not None:
                     ds.image.flags |= bad_pixel_map
                     if ds.image.weight is not None:
@@ -310,14 +349,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                 SCLogger.debug('make_datastore extracting sources. ')
                 ds = p.extractor.run(ds)
-
                 ds.sources.save( image=ds.image, overwrite=True )
+                ds.psf.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.update_report( 'extraction' )
+
                 if use_cache:
                     output_path = copy_to_cache(ds.sources, cache_dir)
                     if output_path != sources_cache_path:
                         warnings.warn(f'cache path {sources_cache_path} does not match output path {output_path}')
 
-                ds.psf.save( image=ds.image, sources=ds.sources, overwrite=True )
                 if use_cache:
                     output_path = copy_to_cache(ds.psf, cache_dir)
                     if output_path != psf_cache_path:
@@ -343,8 +383,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
             if ds.bg is None:
                 SCLogger.debug('Running background estimation')
                 ds = p.backgrounder.run(ds)
-
                 ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.update_report( 'backgrounding' )
                 if use_cache:
                     output_path = copy_to_cache(ds.bg, cache_dir)
                     if output_path != bg_cache_path:
@@ -369,6 +409,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug('Running astrometric calibration')
                 ds = p.astrometor.run(ds)
                 ds.wcs.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.update_report( 'astrocal' )
                 if use_cache:
                     output_path = copy_to_cache(ds.wcs, cache_dir)
                     if output_path != wcs_cache_path:
@@ -390,6 +431,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             if ds.zp is None:
                 SCLogger.debug('Running photometric calibration')
                 ds = p.photometor.run(ds)
+                ds.update_report( 'photocal' )
                 if use_cache:
                     cache_name = cache_base_name + '.zp.json'
                     output_path = copy_to_cache(ds.zp, cache_dir, cache_name)
@@ -537,6 +579,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug( "make_datastore running subtractor to create subtraction image" )
                 ds = p.subtractor.run( ds )
                 ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
+                ds.update_report( 'subtraction' )
                 if use_cache:
                     output_path = copy_to_cache(ds.sub_image, cache_dir)
                     if output_path != sub_cache_path:
@@ -577,6 +620,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug( "make_datastore running detector to find detections" )
                 ds = p.detector.run(ds)
                 ds.detections.save( image=ds.sub_image, verify_md5=False )
+                ds.update_report( 'detection' )
                 if use_cache:
                     copy_to_cache( ds.detections, cache_dir, cache_name )
 
@@ -597,6 +641,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug( "make_datastore running cutter to create cutouts" )
                 ds = p.cutter.run(ds)
                 ds.cutouts.save( image=ds.sub_image, sources=ds.detections )
+                ds.update_report( 'cutting' )
                 if use_cache:
                     copy_to_cache(ds.cutouts, cache_dir)
 
@@ -640,6 +685,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             else:  # cannot find measurements on cache
                 SCLogger.debug( "make_datastore running measurer to create measurements" )
                 ds = p.measurer.run(ds)
+                ds.update_report( 'measuring' )
                 # assign each measurements an ID to be saved in cache - needed for scores cache
                 [m.id for m in ds.measurements]
                 if use_cache:
@@ -673,10 +719,21 @@ def datastore_factory(data_dir, pipeline_factory, request):
             if needs_rerun: # cannot find scores on cache
                 SCLogger.debug( "make_datastore running scorer to create scores" )
                 ds = p.scorer.run(ds)
+                ds.update_report( 'scoring' )
                 # assign each score an ID to be saved in cache
                 [sc.id for sc in ds.scores]
                 if use_cache:
                     copy_list_to_cache(ds.scores, cache_dir, deepscores_cache_name)
+
+        # If necessary, save the report to the cache
+        if isinstance( exporim, Exposure ) and use_cache and ( not report_was_loaded_from_cache ):
+            ds.finalize_report()
+            if ds.report is not None:
+                output_path = copy_to_cache( ds.report, cache_dir, report_cache_name )
+                if output_path != report_cache_path:
+                    warnings.warn( f'report cache path {report_cache_path} does not match output path {output_path}' )
+            else:
+                SCLogger.warning( f"Report not available!" )
 
 
         # Make sure there are no residual exceptions caught in the datastore

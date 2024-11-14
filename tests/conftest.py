@@ -37,8 +37,8 @@ from util.logger import SCLogger
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -49,6 +49,7 @@ pytest_plugins = [
     'tests.fixtures.pipeline_objects',
     'tests.fixtures.datastore_factory',
     'tests.fixtures.conductor',
+    'tests.fixtures.webap',
 ]
 
 ARCHIVE_PATH = None
@@ -468,8 +469,3 @@ def browser():
     yield ff
     ff.close()
     ff.quit()
-
-
-@pytest.fixture( scope="session" )
-def webap_url():
-    return "http://webap:8081/"

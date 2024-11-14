@@ -4,6 +4,9 @@ import time
 import datetime
 import dateutil.parser
 import requests
+# Disable warnings from urllib, since there will be lots about insecure connections
+#  given that we're using a self-signed cert for the server in the test environment
+requests.packages.urllib3.disable_warnings()
 
 import sqlalchemy as sa
 

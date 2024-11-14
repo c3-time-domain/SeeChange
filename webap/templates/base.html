@@ -8,6 +8,11 @@
   <title>{% block title %}{% endblock %}</title>
 </head>
 <body>
+  {% block navblock %}{% endblock %}
   {% block pagebody %}{% endblock %}
+  <section>
+    {% block content %}{% endblock %}
+  </section>
+  {% block footer %}{% endblock %}
 </body>
 </html>

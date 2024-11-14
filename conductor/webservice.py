@@ -384,7 +384,7 @@ app.logger.setLevel( logging.DEBUG )
 
 secret_key = cfg.value( 'conductor.flask_secret_key' )
 if secret_key is None:
-    with open( cfg.value( 'conductor.flask_secret_key_file' ) as ifp ):
+    with open( cfg.value( 'conductor.flask_secret_key_file' ) ) as ifp:
         secret_key = ifp.readline().strip()
 
 app.config.from_mapping(
@@ -406,7 +406,7 @@ kwargs = {
     'db_host': cfg.value( 'db.host' ),
     'db_port': cfg.value( 'db.port' ),
     'db_name': cfg.value( 'db.database' ),
-    'db_user': cfg.value( 'db.user' )
+    'db_user': cfg.value( 'db.user' ),
     'db_password': cfg.value( 'db.password' )
 }
 if kwargs['db_password'] is None:

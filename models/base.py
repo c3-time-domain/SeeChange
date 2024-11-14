@@ -915,11 +915,13 @@ class SeeChangeBase:
             if isinstance(value, np.number):
                 value = value.item()
 
-            # 'claim_time' is from knownexposure, lastheartbeat is from PipelineWorker
+            # 'claim_time' is from KnownExposure, lastheartbeat is from PipelineWorker
+            # 'start_time' and 'finish_time' are from Report
             # We should probably define a class-level variable "_datetimecolumns" and list them
             #   there, other than adding to what's hardcoded here.  (Likewise for the ndarray aper stuff
             #   above.)
-            if (   ( key in ['modified', 'created_at', 'claim_time', 'lastheartbeat'] ) and
+            if (   ( key in [ 'modified', 'created_at', 'claim_time', 'lastheartbeat',
+                              'start_time', 'finish_time' ] ) and
                    isinstance(value, datetime.datetime) ):
                 value = value.isoformat()
 

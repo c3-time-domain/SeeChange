@@ -22,7 +22,7 @@ seechange.init_interval = window.setInterval(
                 seechange.started = true;
                 window.clearInterval( seechange.init_interval );
                 renderer = new seechange.Context();
-                renderer.render_page();
+                renderer.init();
             }
         }
     },

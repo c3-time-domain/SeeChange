@@ -114,7 +114,7 @@ archive: null
 #
 #   conductor_url: string
 #     The default value here is what we use in our test environment.
-#     It's almost certainly wrong for any production config. 
+#     It's almost certainly wrong for any production config.
 #
 #   username: string
 #     The username for authentication on the conductor.
@@ -147,6 +147,19 @@ conductor:
   flask_secret_key_file: null
 
 # ======================================================================
+# Webap
+#
+# This config is not used by the main pipeline, only the wbap.
+# When building the Dockerfile, those configs will be set from
+# webap/seechange_webap.yaml and webap/local_overrides.yaml
+# (though they include this file)
+
+webap:
+  webap_url: https://webap:8081/
+  flask_secret_key: null
+  flask_secret_key_file: null
+
+# ======================================================================
 # Email for Conductor and Webap
 #
 # These configs are only used by the conductor and webap; their
@@ -161,11 +174,12 @@ email:
   email_subject: 'Seechange password reset'
   email_system_name: 'Seechange'
   smtp_server: 'mailhog'
+  smtp_port: 1025
   smtp_use_ssl: false
   smtp_username: null
   smtp_password: null
   smtp_password_file: null
-  
+
 
 # ======================================================================
 # Gaia DR3 server

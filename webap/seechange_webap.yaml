@@ -1,0 +1,40 @@
+# This default config file works for the tests and devshell conductors
+#
+# To customize it for where you're actually running the webap,
+# before building the docker image, edit the file local_overrides.yaml
+# in this directory and put in the relevant confing.
+
+preloads:
+  - default_config.yaml
+overrides:
+  - local_overrides.yaml
+augments:
+  - local_augments.yaml
+
+db:
+  host: postgres
+
+# This flask secret key is what we use in your tests.  You would be advised to
+# make it something else for your environment.  Better, leave it null,
+# and have flask_secret_key_file point to a file that's stored as a
+# kubernetes secret and that has one line with a 64-characters string of barf.
+webap:
+  flask_secret_key: 'dgzd0wy04gr83pkttq9md13rl1xe0f3n9jnk5tbtpfzflfh4gcmyhjal28g4d4om'
+  flask_secret_key_file: null
+
+# The webap must run where it can mount (readonly) the archive
+# directories directly.  This is how it gets cutouts.
+archive:
+  archive_url: null
+  local_read_dir: /archive-storage/base/test
+  
+# The webap will not be using these,
+#  but it has to have something because
+#  startup code that will get run upon
+#  module import is going to try to
+#  make sure these directories exist, using
+#  defaults that turn out not to be
+#  writeable if they don't exist.
+path:
+  data_root: /tmp
+  data_temp: /tmp

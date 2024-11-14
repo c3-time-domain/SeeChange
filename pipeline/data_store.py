@@ -805,8 +805,9 @@ class DataStore:
 
     def finalize_report( self ):
         """Mark the report as successful and set the finish time."""
+        self.report.scan_datastore( self, process_step='finalize' )
         self.report.success = True
-        self.report.finish_time = datetime.datetime.utcnow()
+        self.report.finish_time = datetime.datetime.now( datetime.timezone.utc )
         self.report.upsert()
 
 

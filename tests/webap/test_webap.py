@@ -1,6 +1,10 @@
 import re
 import time
 import pytest
+import requests
+# Disable warnings from urllib, since there will be lots about insecure connections
+#  given that we're using a self-signed cert for the server in the test environment
+requests.packages.urllib3.disable_warnings()
 
 import sqlalchemy as sa
 
@@ -17,28 +21,39 @@ from models.provenance import CodeVersion, Provenance, ProvenanceTag
 
 from util.logger import SCLogger
 
-def test_webap( browser, webap_url, decam_datastore ):
+def test_webap_not_logged_in( webap_url ):
+    res = requests.post( f"{webap_url}/provtags", verify=False )
+    assert res.status_code == 500
+    assert res.text == "Not logged in"
+
+def test_webap_logged_in( webap_browser_logged_in ):
+    # If the fixtured succeeded, then we're logged in
+    pass
+
+def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
+    browser = webap_browser_logged_in
+    import pdb; pdb.set_trace()
     ds = decam_datastore
     junkprov = None
 
     try:
         # Create a new provenance tag, tagging the provenances that are in decam_datastore
-        ProvenanceTag.newtag( 'test_webap',
-                              [ ds.exposure.provenance_id,
-                                ds.image.provenance_id,
-                                ds.sources.provenance_id,
-                                ds.reference.provenance_id,
-                                ds.sub_image.provenance_id,
-                                ds.detections.provenance_id,
-                                ds.cutouts.provenance_id,
-                                ds.measurements[0].provenance_id ] )
+        provs = Provenance.get_batch( [ ds.exposure.provenance_id,
+                                        ds.image.provenance_id,
+                                        ds.sources.provenance_id,
+                                        ds.reference.provenance_id,
+                                        ds.sub_image.provenance_id,
+                                        ds.detections.provenance_id,
+                                        ds.cutouts.provenance_id,
+                                        ds.measurements[0].provenance_id ] )
+        ProvenanceTag.addtag( 'test_webap', provs )
 
         # Create a throwaway provenance and provenance tag so we can test
         #  things *not* being found
         cv = Provenance.get_code_version()
         junkprov = Provenance( process='no_process', code_version_id=cv.id, is_testing=True )
         junkprov.insert()
-        ProvenanceTag.newtag( 'no_such_tag', [ junkprov ] )
+        ProvenanceTag.addtag( 'no_such_tag', [ junkprov ] )
 
         browser.get( webap_url )
         WebDriverWait( browser, timeout=10 ).until(
