@@ -363,8 +363,10 @@ pipelines to process each of the chips in the exposure.
                          help="Number of worker processes to run at once.  (Default: # of CPUS - 1.)" )
     parser.add_argument( "--noverify", default=False, action='store_true',
                          help="Don't verify the conductor's SSL certificate" )
-    parser.add_argument( "-l", "--log-level", default="info", help="Log level for the main process" )
-    parser.add_argument( "-w", "--worker-log-level", default="warning", help="Log level for worker processes" )
+    parser.add_argument( "-l", "--log-level", default="info",
+                         help="Log level for the main process (error, warning, info, or debug)" )
+    parser.add_argument( "-w", "--worker-log-level", default="warning",
+                         help="Log level for worker processes (error, warning, info, or debug)" )
     parser.add_argument( "--chips", default=None, nargs="+",
                          help="Only do these sensor sections (for debugging purposese)" )
     parser.add_argument( "-t", "--through-step", default=None,
