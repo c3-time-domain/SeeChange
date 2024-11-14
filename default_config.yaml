@@ -113,6 +113,8 @@ archive: null
 # conductor.)
 #
 #   conductor_url: string
+#     The default value here is what we use in our test environment.
+#     It's almost certainly wrong for any production config. 
 #
 #   username: string
 #     The username for authentication on the conductor.
@@ -127,13 +129,43 @@ archive: null
 #     so that you don't have to put the password in an actual
 #     config file that might be publicly readable or that might
 #     get committed to a git archive.
+#
+#   flask_secret_key:
+#   flask_secret_key_file:
+#     These are only used by the conductor itself, and can
+#     be safely left as null for the main pipeline.  However,
+#     in the conductor config (conductor/seechange_conductor.yaml
+#     and conductor/local_overrides.yaml), this must be set to
+#     something real.
 
 conductor:
-  conductor_url: unknown
+  conductor_url: https://conductor:8082/
   username: unknown
   password: null
   password_file: null
+  flask_secret_key: null
+  flask_secret_key_file: null
 
+# ======================================================================
+# Email for Conductor and Webap
+#
+# These configs are only used by the conductor and webap; their
+# values do not matter for the main pipeline.  However, they must
+# be set properly in the config files used when building the Docker
+# image for the conductor and the webap.  The configs below are what's
+# needed for our test environment, and are definitely wrong for any
+# production environment.
+
+email:
+  email_from: 'Seechange <nobody@nowhere.org>'
+  email_subject: 'Seechange password reset'
+  email_system_name: 'Seechange'
+  smtp_server: 'mailhog'
+  smtp_use_ssl: false
+  smtp_username: null
+  smtp_password: null
+  smtp_password_file: null
+  
 
 # ======================================================================
 # Gaia DR3 server

@@ -14,6 +14,14 @@ augments:
 db:
   host: postgres
 
+# This flask secret key is what we use in your tests.  You would be advised to
+# make it something else for your environment.  Better, leave it null,
+# and have flask_secret_key_file point to a file that's stored as a
+# kubernetes secret and that has one line with a 64-characters string of barf.
+conductor:
+  flask_secret_key: 'szca2ukaz4l33v13yx7asrwqudigau46n0bjcc9yc9bau1sn709c5or44rmg2ybb'
+  flask_secret_key_file: null
+
 # The conductor will not be using these,
 #  but it has to have something because
 #  startup code that will get run upon
@@ -24,14 +32,3 @@ db:
 path:
   data_root: /tmp
   data_temp: /tmp
-
-conductor:
-  conductor_url: https://conductor:8082/
-  email_from: 'Seechange conductor <nobody@nowhere.org>'
-  email_subject: 'Seechange conductor password reset'
-  email_system_name: 'Seechange conductor'
-  smtp_server: 'mailhog'
-  smtp_port: 1025
-  smtp_use_ssl: false
-  smtp_username: null
-  smtp_password: null

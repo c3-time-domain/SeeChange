@@ -27,11 +27,12 @@
 #   build
 #     included_code_build
 #       conductor_build
+#       webap_build
 #     build_selenium
 #   included_code
 #     conductor
+#     webap
 #   bindmount_code
-#     conductor_bindmount
 #   base_selenium
 #     test_included    ** Image used in tests to run the tests
 #     test_bindmount
@@ -41,11 +42,12 @@
 #   build               3.41GB
 #   included_code_build 3.49GB
 #   conductor_build     3.49GB
+#   webap_build
 #   build_selenium      3.48GB
 #   included_code       2.55GB
 #   conductor           2.55GB
+#   webap
 #   bindmount_code      2.54GB
-#   conductor_bindmount 2.54GB
 #   base_selenium       1.22GB
 #   test_bindmount      2.92GB
 #   test_included       2.93GB
@@ -301,12 +303,13 @@ RUN make install
 
 # ======================================================================
 # This is the target used to do a make install for the conductor's
-#   specific webap code.
+#   specific server and client code.
 
 FROM included_code_build AS conductor_build
 
 RUN mkdir -p /usr/src/seechange/conductor
 ADD conductor/ /usr/src/seechange/conductor/
+
 # Need special handling of symlinks, because the
 #  ADD above copied the links as is, but they point
 #  to something that won't exist at the destination.
@@ -315,9 +318,22 @@ ADD conductor/static/rkwebutil.js /usr/src/seechange/conductor/static/rkwebutil.
 ADD conductor/static/rkauth.js /usr/src/seechange/conductor/static/rkauth.js
 ADD conductor/static/seechange.css /usr/src/seechange/conductor/static/seechange.css
 ADD conductor/static/resetpasswd_start.js /usr/src/seechange/conductor/static/resetpasswd_start.js
+
 WORKDIR /usr/src/seechange/conductor
 
 RUN make INSTALLDIR=/webservice_code install
+
+# ======================================================================
+# This is the target used to do a make install for the webap's
+#   specific server and client code.
+
+FROM included_code_build AS webap_build
+
+RUN mkdir -p /usr/src/seechange/webap
+ADD webap/ /usr/src/seechange/webap/
+
+WORKDIR /usr/src/seechange/webap
+RUN make INSTALLDIR=/webap_code install
 
 # ======================================================================
 # This target is for an image that will not include any
@@ -361,7 +377,7 @@ CMD ["tail", "-f", "/etc/issue"]
 
 
 # ======================================================================
-# This is the target for the conductor as used in production.
+# This is the target for the conductor
 
 FROM included_code AS conductor
 
@@ -388,27 +404,34 @@ ENV PYTHONPATH="/seechange/lib"
 
 CMD [ "./run_conductor.sh", "8080" ]
 
+
 # ======================================================================
-# This is the target for the conductor as used in tests It expects to
-# bind-mount its code at /webservice_code The only diference from the
-# conductor target is that it doesn't COPY the conductor code from the
-# conductor_build target.
+# This is the target for the webap
 
-FROM bindmount_code AS conductor_bindmount
+FROM included_code AS webap
 
-RUN mkdir /webservice_code
-WORKDIR /webservice_code
+COPY --from=webap_build /webap_code/ /webap_code/
+WORKDIR /webap_code/
+RUN chmod 
 
 RUN mkdir /sessions
 RUN chmod 777 /sessions
 
-ADD conductor/seechange_conductor.yaml /seechange/seechange_conductor.yaml
-ADD conductor/local_overrides.yaml /seechange/local_overrides.yaml
-ADD conductor/local_augments.yaml /seechange/local_augments.yaml
-ENV SEECHANGE_CONFIG=/seechange/seechange_conductor.yaml
+ADD webap/seechange_webap.yaml /seechange/seechange_webap.yaml
+ADD webap/local_overrides.yaml /seechange/local_overrides.yaml
+ADD webap/local_augments.yaml /seechange/local_augments.yaml
+
+# Copy in the self-signed certificate we need to use in tests.
+# This should *not* be used in production, even though it's
+# sitting there in the image.
+COPY docker/application/conductor_bogus_key.pem /webap_code/bogus_key.pem
+COPY docker/application/conductor_bogus_cert.pem /webap_code/bogus_cert.pem
+RUN chmod a+r /webap_code/bogus*pem
+
+ENV SEECHANGE_CONFIG=/seechange/seechange_webap.yaml
 ENV PYTHONPATH="/seechange/lib"
 
-CMD [ "./run_conductor.sh", "8080" ]
+CMD [ "./run_webap.sh", "8080" ]
 
 
 # ======================================================================
@@ -422,6 +445,7 @@ RUN apt-get update \
     && apt-get -y autoremove \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
 
 # ======================================================================
 # This is the image that includes a web browser and includes the code

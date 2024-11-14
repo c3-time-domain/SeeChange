@@ -1,8 +1,3 @@
-# MASSIVE TODO : this whole webap doesn't handle provenances at all
-# We need a way to choose provenances.  I sugest some sort of tag
-# table that allows us to associate tags with provenances so that
-# we can choose a set of provenances based a simple tag name.
-
 # Put this first so we can be sure that there are no calls that subvert
 #  this in other includes.
 import matplotlib
@@ -10,11 +5,6 @@ matplotlib.use( "Agg" )
 # matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 # matplotlib.rc('text', usetex=True)  #  Need LaTeX in Dockerfile
 from matplotlib import pyplot
-
-# TODO : COUNT(DISTINCT()) can be slow, deal with this if necessary
-#   I'm hoping that since they all show up inside a group and the
-#   total number of things I expect to have to distinct on within each group is
-#   not likely to more than ~10^2, it won't matter.
 
 import sys
 import traceback
@@ -36,21 +26,33 @@ import astropy.visualization
 
 import flask
 
-# Read the database config
+from util.config import Config
 
-sys.path.append( '/secrets' )
-from seechange_webap_config import PG_HOST, PG_PORT, PG_USER, PG_PASS, PG_NAME, ARCHIVE_DIR
-
-# Figure out where we are
+# Figure out where we are, add that to PYTHONPATH
 
 workdir = pathlib.Path(__name__).resolve().parent
+sys.path.insert( 0, workdir )
 
-# Create the flask app, which is what gunicorn is going to look for
+# Create and configure the flask app
+
+cfg = Config.get()
 
 app = flask.Flask( __name__, instance_relative_config=True )
-
 # app.logger.setLevel( logging.INFO )
 app.logger.setLevel( logging.DEBUG )
+app.config_from_mapping(
+    SECRET_KEY=FLASK_SECRET_KEY,
+    SESSION_COOKIE_PATH='/',
+    SESSION_TYPE='filesystem',
+    SESSION_PERMANENT=True,
+    SESSION_FILE_DIR='/sessions',
+    SESSION_FILE_THRESHOLD=1000,
+)
+server_session = flask_session.Session( app )
+
+# Import and configure the auth subapp
+import rkauth_flask
+
 
 # UNHAPPY CODE ORGANIZATION WARNING
 # Because the webap doesn't import all of the SeeChange code base, stuff

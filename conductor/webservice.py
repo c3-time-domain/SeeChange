@@ -381,8 +381,14 @@ cfg = Config.get()
 app = flask.Flask( __name__, instance_relative_config=True )
 # app.logger.setLevel( logging.INFO )
 app.logger.setLevel( logging.DEBUG )
+
+secret_key = cfg.value( 'conductor.flask_secret_key' )
+if secret_key is None:
+    with open( cfg.value( 'conductor.flask_secret_key_file' ) as ifp ):
+        secret_key = ifp.readline().strip()
+
 app.config.from_mapping(
-    SECRET_KEY='szca2ukaz4l33v13yx7asrwqudigau46n0bjcc9yc9bau1sn709c5or44rmg2ybb',
+    SECRET_KEY=secret_key,
     SESSION_COOKIE_PATH='/',
     SESSION_TYPE='filesystem',
     SESSION_PERMANENT=True,
@@ -401,18 +407,20 @@ kwargs = {
     'db_port': cfg.value( 'db.port' ),
     'db_name': cfg.value( 'db.database' ),
     'db_user': cfg.value( 'db.user' )
+    'db_password': cfg.value( 'db.password' )
 }
-password = cfg.value( 'db.password' )
-if password is None:
+if kwargs['db_password'] is None:
     if cfg.value( 'db.password_file' ) is None:
         raise RuntimeError( 'In config, one of db.password or db.password_file must be specified' )
     with open( cfg.value( 'db.password_file' ) ) as ifp:
-        password = ifp.readline().strip()
-kwargs[ 'db_password' ] = password
+        kwargs[ 'db_password' ] = ifp.readline().strip()
 
 for attr in [ 'email_from', 'email_subject', 'email_system_name',
               'smtp_server', 'smtp_port', 'smtp_use_ssl', 'smtp_username', 'smtp_password' ]:
-    kwargs[ attr ] = cfg.value( f'conductor.{attr}' )
+    kwargs[ attr ] = cfg.value( f'email.{attr}' )
+if ( kwargs['smtp_password'] ) is None and ( cfg.value('email.smtp_password_file') is not None ):
+    with open( cfg.value('email.smtp_password_file') ) as ifp:
+        kwargs['smtp_password'] = ifp.readline().strip()
 
 rkauth_flask.RKAuthConfig.setdbparams( **kwargs )
 
