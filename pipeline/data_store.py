@@ -486,7 +486,7 @@ class DataStore:
         if val is None:
             self._scores = None
         else:
-            if ( self._measurements is None or len(self._measurements) == 0 ):
+            if ( self._measurements is None ):
                 raise RuntimeError( " Can't set DataStore scores until it has measurements" )
             if not isinstance( val, list ):
                 raise TypeError( f"Datastore.scores must be a list of scores, not a {type(val)}" )

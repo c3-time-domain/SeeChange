@@ -38,11 +38,6 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
                              parameters={},
                              upstreams=[] )
     image_prov.insert_if_needed()
-    reference_prov = Provenance( process='manual_reference',
-                                 parameters={},
-                                 upstreams=[image_prov] )
-    reference_prov.insert_if_needed()
-
 
     SCLogger.info( "Reading image" )
 
@@ -165,6 +160,11 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     # Make the reference
 
     SCLogger.info( "Creating reference entry" )
+
+    reference_prov = Provenance( process='manual_reference',
+                                 parameters={},
+                                 upstreams=[image_prov, ds.prov_tree['extraction']] )
+    reference_prov.insert_if_needed()
 
     ref = Reference( image_id=ds.image.id,
                      target=image.target,

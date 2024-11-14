@@ -314,12 +314,11 @@ seechange.Exposure = function( exposurelist, context, parentdiv, id, name, mjd, 
 seechange.Exposure.process_steps = {
     1: 'preprocessing',
     2: 'extraction',
-    3: 'astro_cal',
-    4: 'photo_cal',
     5: 'subtraction',
     6: 'detection',
     7: 'cutting',
     8: 'measuring',
+    9: 'scoring',
 };
 
 // Copy this from models/enums_and_bitflags.py
@@ -333,6 +332,7 @@ seechange.Exposure.pipeline_products = {
     8: 'detections',
     9: 'cutouts',
     10: 'measurements',
+    11: 'scores',
 }
 
 

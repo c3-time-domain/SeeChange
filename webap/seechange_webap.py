@@ -527,7 +527,7 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
         app.logger.debug( f'Got {len(subids)} subtractions.' )
 
         app.logger.debug( f"Getting cutouts files for sub images {subids}" )
-        q = ( 'SELECT c.filepath,s._id AS subimageid,sl.filepath AS sources_path '
+        q = ( 'SELECT c.filepath,s._id AS subimageid,sl.filepath AS sources_path,s.section_id '
               'FROM cutouts c '
               'INNER JOIN provenance_tags cpt ON cpt.provenance_id=c.provenance_id AND cpt.tag=%(provtag)s '
               'INNER JOIN source_lists sl ON c.sources_id=sl._id '
@@ -538,6 +538,7 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
         cursor.execute( q, { 'subids': tuple(subids), 'provtag': provtag } )
         cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
+        sectionids = { c[cols['subimageid']]: c[cols['section_id']] for c in rows }
         cutoutsfiles = { c[cols['subimageid']]: c[cols['filepath']] for c in rows }
         sourcesfiles = { c[cols['subimageid']]: c[cols['sources_path']] for c in rows }
         app.logger.debug( f"Got: {cutoutsfiles}" )
@@ -621,8 +622,8 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
         for subid in cutoutsfiles.keys():
             hdf5files[ subid ] = h5py.File( ARCHIVE_DIR / cutoutsfiles[subid], 'r' )
 
-        def append_to_retval( subid, index_in_sources, row ):
-            grp = hdf5files[ subid ][f'source_index_{row[cols["index_in_sources"]]}']
+        def append_to_retval( subid, index_in_sources, section_id, row ):
+            grp = hdf5files[ subid ][f'source_index_{index_in_sources}']
             vmin, vmax = scaler.get_limits( grp['new_data'] )
             scalednew = ( grp['new_data'] - vmin ) * 255. / ( vmax - vmin )
             # TODO : there's an assumption here that the ref is background
@@ -658,7 +659,7 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
 
             retval['cutouts']['sub_id'].append( subid )
             retval['cutouts']['image_id'].append( imageids[subid] )
-            retval['cutouts']['section_id'].append( row[cols['section_id']] )
+            retval['cutouts']['section_id'].append( section_id )
             retval['cutouts']['new_png'].append( base64.b64encode( newim.getvalue() ).decode('ascii') )
             retval['cutouts']['ref_png'].append( base64.b64encode( refim.getvalue() ).decode('ascii') )
             retval['cutouts']['sub_png'].append( base64.b64encode( subim.getvalue() ).decode('ascii') )
@@ -670,21 +671,32 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
 
-            retval['cutouts']['rb'].append( row[cols['score']] )
-            retval['cutouts']['rbcut'].append( _rb_cuts[ row[cols['_algorithm']] ] )
-            retval['cutouts']['is_bad'].append( row[cols['is_bad']] )
-            retval['cutouts']['objname'].append( row[cols['name']] )
-            retval['cutouts']['is_test'].append( row[cols['is_test']] )
-            retval['cutouts']['is_fake'].append( row[cols['is_fake']] )
-
-            if row[cols['psfflux']] is None:
-                flux = row[cols['flux']]
-                dflux = row[cols['dflux']]
-                aperrad = aperradses[subid][ row[cols['best_aperture']] ]
+            if row is None:
+                retval['cutouts']['rb'].append( None )
+                retval['cutouts']['rbcut'].append( None )
+                retval['cutouts']['is_bad'].append( True )
+                retval['cutouts']['objname'].append( None )
+                retval['cutouts']['is_test'].append( None )
+                retval['cutouts']['is_fake'].append( None )
+                flux = None
+                dflux = None
+                aperrad= 0.
             else:
-                flux = row[cols['psfflux']]
-                dflux = row[cols['dpsfflux']]
-                aperrad = 0.
+                retval['cutouts']['rb'].append( row[cols['score']] )
+                retval['cutouts']['rbcut'].append( _rb_cuts[ row[cols['_algorithm']] ] )
+                retval['cutouts']['is_bad'].append( row[cols['is_bad']] )
+                retval['cutouts']['objname'].append( row[cols['name']] )
+                retval['cutouts']['is_test'].append( row[cols['is_test']] )
+                retval['cutouts']['is_fake'].append( row[cols['is_fake']] )
+
+                if row[cols['psfflux']] is None:
+                    flux = row[cols['flux']]
+                    dflux = row[cols['dflux']]
+                    aperrad = aperradses[subid][ row[cols['best_aperture']] ]
+                else:
+                    flux = row[cols['psfflux']]
+                    dflux = row[cols['dpsfflux']]
+                    aperrad = 0.
 
             if flux is None:
                 for field in [ 'flux', 'dflux', 'aperrad', 'mag', 'dmag', 'measra', 'measdec' ]:
@@ -705,15 +717,24 @@ def png_cutouts_for_sub_image( exporsubid, provtag, issubid, nomeas, limit=None,
                 retval['cutouts']['dmag'].append( dmag )
 
         # First: put in all the measurements, in the order we got them
-
-        alredy_done = set()
+        already_done = set()
         for row in rows:
             subid = row[cols['subid']]
             index_in_sources = row[ cols['index_in_sources'] ]
-            append_to_retval( subid, index_in_sources, row )
+            section_id = row[ cols['section_id'] ]
+            append_to_retval( subid, index_in_sources, section_id, row )
+            already_done.add( index_in_sources )
 
-        # TODO : things that we don't have measurements of
-
+        # Second: if requested, put in detections that didn't pass the initial cuts
+        if nomeas:
+            for subid, section_id in sectionids.items():
+                # WORRY -- if the cutouts files ever have keys other
+                #   than one key for each detection (source_index_n keys),
+                #   then this next line will break.
+                for index_in_sources in range( len( hdf5files[subid] ) ):
+                    if not ( index_in_sources in already_done ):
+                        append_to_retval( subid, index_in_sources, section_id, None )
+                
         for f in hdf5files.values():
             f.close()
 
