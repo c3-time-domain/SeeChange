@@ -27,6 +27,7 @@ import flask_session
 import flask.views
 
 from util.config import Config
+from util.util import asUUID
 from models.user import AuthUser
 from models.deepscore import DeepScore
 from models.base import SmartSession
@@ -113,6 +114,7 @@ class ProvTagInfo( BaseView ):
         provorder = { 'download': 0,
                       'import': 0,
                       'manual_import': 0,
+                      'import_external_reference': 0,
                       'referencing': 1,
                       'preprocessing': 2,
                       'extraction': 3,
@@ -502,6 +504,7 @@ class ExposureImages( BaseView ):
 
 class PngCutoutsForSubImage( BaseView ):
     def do_the_things(  self, exporsubid, provtag, issubid, nomeas, limit=None, offset=0 ):
+        exporsubid = asUUID( exporsubid )
         data = { 'sortby': 'rbdesc_fluxdesc_chip_index' }
         if flask.request.is_json:
             data.update( flask.request.json )
@@ -566,7 +569,6 @@ class PngCutoutsForSubImage( BaseView ):
             newbkgs[exporsubid] = rows[0][cols['bkg_mean_estimate']]
             aperradses[exporsubid] = rows[0][cols['aper_cor_radii']]
             apercorses[exporsubid] = rows[0][cols['aper_cors']]
-
         else:
             q += ( 'INNER JOIN exposures e ON i.exposure_id=e._id '
                    'WHERE e._id=%(expid)s ORDER BY i.section_id  ' )
