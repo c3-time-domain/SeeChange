@@ -26,10 +26,13 @@ def test_webap_not_logged_in( webap_url ):
     assert res.status_code == 500
     assert res.text == "Not logged in"
 
-def test_webap_logged_in( webap_browser_logged_in ):
-    # If the fixtured succeeded, then we're logged in
-    pass
-
+def test_webap_admin_required( webap_rkauth_client ):
+    client = webap_rkauth_client
+    res = client.post( "provtags" )
+    assert res.status_code == 200
+    with pytest.raises( RuntimeError, match="Got response 500: Action requires admin" ):
+        res = client.post( "cloneprovtagtocurrent/foo" )
+    
 def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
     browser = webap_browser_logged_in
     import pdb; pdb.set_trace()

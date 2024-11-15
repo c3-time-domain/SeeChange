@@ -46,18 +46,18 @@ def test_force_update_uninitialized( conductor_connector ):
     assert data['updateargs'] is None
 
 def test_update_missing_args( conductor_connector ):
-    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: Error return from updater: "
+    with pytest.raises( RuntimeError, match=( r"Got response 500: Error return from updater: "
                                               r"Either both or neither of instrument and updateargs "
                                               r"must be None; instrument=no_such_instrument, updateargs=None" ) ):
         res = conductor_connector.send( "updateparameters/instrument=no_such_instrument" )
 
-    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: Error return from updater: "
+    with pytest.raises( RuntimeError, match=( r"Got response 500: Error return from updater: "
                                               r"Either both or neither of instrument and updateargs "
                                               r"must be None; instrument=None, updateargs={'thing': 1}" ) ):
         res = conductor_connector.send( "updateparameters", { "updateargs": { "thing": 1 } } )
 
 def test_update_unknown_instrument( conductor_connector ):
-    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: Error return from updater: "
+    with pytest.raises( RuntimeError, match=( r"Got response 500: Error return from updater: "
                                               r"Failed to find instrument no_such_instrument" ) ):
         res = conductor_connector.send( "updateparameters/instrument=no_such_instrument",
                                         { "updateargs": { "thing": 1 } } )
@@ -160,8 +160,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
 
 
 def test_request_knownexposure_get_none( conductor_connector ):
-    with pytest.raises( RuntimeError, match=( r"Got response 500 from conductor: "
-                                              r"cluster_id is required for RequestExposure" ) ):
+    with pytest.raises( RuntimeError, match=( r"Got response 500: cluster_id is required for RequestExposure" ) ):
         res = conductor_connector.send( "requestexposure" )
 
     data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )

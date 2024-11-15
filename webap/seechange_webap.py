@@ -15,6 +15,7 @@ import json
 import pathlib
 import logging
 import base64
+import uuid
 
 import numpy
 import h5py
@@ -67,7 +68,7 @@ class BaseView( flask.views.View ):
 
             if not self.check_auth():
                 return f"Not logged in", 500
-            if ( self._admin_required ) and ( not self.user.is_admin ):
+            if ( self._admin_required ) and ( not self.user.isadmin ):
                 return f"Action requires admin", 500
             try:
                 return self.do_the_things( *args, **kwargs )
@@ -92,8 +93,10 @@ class ProvTags( BaseView ):
     def do_the_things( self ):
         cursor = self.conn.cursor()
         cursor.execute( 'SELECT DISTINCT ON(tag) tag FROM provenance_tags ORDER BY tag' )
+        tags = [ row[0] for row in cursor.fetchall() ]
+        tags.sort( key=lambda x: ( '0' if x=='default' else 1 if x=='current' else 2, x ) )
         return { 'status': 'ok',
-                 'provenance_tags': [ row[0] for row in cursor.fetchall() ]
+                 'provenance_tags': tags
                 }
 
 # ======================================================================
@@ -136,6 +139,29 @@ class ProvTagInfo( BaseView ):
                    'tag': tag }
         retval.update( { c: [ r[columns[c]] for r in rows ] for c in columns.keys() } )
         return retval
+
+# ======================================================================
+
+class CloneProvTagToCurrent( BaseView ):
+    _admin_required = True
+
+    def do_the_things( self, tag ):
+        cursor = self.conn.cursor()
+        cursor.execute( "DELETE FROM provenance_tags WHERE tag='current'" )
+
+        # I could probably do this with a single SQL command if I were
+        #   clever enough, except that I'd need to have a server default
+        #   on provenance_tags for generating the primary key uuid, and
+        #   right now we don't have that.
+        cursor.execute( "SELECT provenance_id FROM provenance_tags WHERE tag=%(tag)s", { 'tag': tag } )
+        rows = cursor.fetchall()
+        for row in rows:
+            cursor.execute( f"INSERT INTO provenance_tags(_id,tag,provenance_id) "
+                            f"VALUES(%(id)s,%(tag)s,%(provid)s)",
+                            { 'id': uuid.uuid4(), 'tag': 'current', 'provid': row[0] } )
+        self.conn.commit()
+
+        return { 'status': 'ok' }
 
 # ======================================================================
 
@@ -867,6 +893,7 @@ urls = {
     "/": MainPage,
     "/provtags": ProvTags,
     "/provtaginfo/<tag>": ProvTagInfo,
+    "/cloneprovtagtocurrent/<tag>": CloneProvTagToCurrent,
     "/provenanceinfo/<provid>": ProvenanceInfo,
     "/projects": Projects,
     "/exposures": Exposures,

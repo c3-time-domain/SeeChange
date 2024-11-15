@@ -14,10 +14,17 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.remote.webelement import WebElement
 
 from util.config import Config
+from util.rkauth_client import rkAuthClient
 
 @pytest.fixture( scope='session' )
 def webap_url():
     return Config.get().value( 'webap.webap_url' )
+
+@pytest.fixture
+def webap_rkauth_client( webap_url, conductor_user ):
+    client = rkAuthClient( webap_url, 'test', 'test_password', verify=False )
+    client.verify_logged_in()
+    return client
 
 @pytest.fixture
 def webap_browser_logged_in( browser, conductor_user ):
@@ -58,4 +65,4 @@ def webap_browser_logged_in( browser, conductor_user ):
     logout = authdiv.find_element( By.TAG_NAME, 'span' )
     assert logout.get_attribute( "innerHTML" ) == "Log Out"
     logout.click()
-    
+

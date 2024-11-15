@@ -291,8 +291,9 @@ ADD models/ /usr/src/seechange/seechange/models/
 ADD pipeline/ /usr/src/seechange/seechange/pipeline/
 ADD util/ /usr/src/seechange/seechange/util/
 ADD share/ /usr/src/seechange/seechange/share/
-# archive.py needs special treatment because it's a symbolic link in the repo
+# archive.py and rkauth_client.py need special treatment because they're symbolic links in the repo
 ADD util/archive.py /usr/src/seechange/seechange/util/archive.py
+ADD util/rkauth_client.py /usr/src/seechange/seechange/util/rkauth_client.py
 # special treatment for share/RBbot_inference/models because of sybmolic links
 ADD share/RBbot_models/* /usr/src/seechange/seechange/share/RBbot_models/
 
