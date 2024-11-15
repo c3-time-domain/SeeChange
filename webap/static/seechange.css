@@ -30,6 +30,7 @@ body { color: var(--main-color);
 
 .italic { font-style: italic }
 .bold { font-weight: bold }
+.monospace { font-family: monospace }
 
 .bgwhite { background: var(--background-color) }
 .bgfade { background: var(--lots-faded-color) }
@@ -38,6 +39,8 @@ body { color: var(--main-color);
 
 .padhalfex { padding: 0.5ex }
 .hmargin { margin-left: 0.5ex; margin-right: 0.5ex }
+.xmargin { margin-left: 1ex; margin-right: 1ex }
+.mmargin { margin-left: 1em; margin-right: 1em }
 
 .center { text-align: center }
 .vcenter { vertical-align: middle }
@@ -78,7 +81,11 @@ table { border: 2px solid var(--full-color-border); border-spacing: 2px }
 table th { border-bottom: 2px solid var(--full-color-border); font-weight: bold }
 table td { border-bottom: 2px solid var(--half-faded-color);
            border-spacing: 2px;
-           padding: 2px; }
+           padding-left: 1ex;
+           padding-right: 1ex;
+           padding-top: 2px;
+           padding-bottom: 2px;
+         }
 table th.borderleft { border-left: 2px solid var(--half-faded-color); }
 
 table.borderedcells tr td { padding-left: 1ex;

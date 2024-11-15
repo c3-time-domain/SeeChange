@@ -801,14 +801,16 @@ class DataStore:
 
     def update_report(self, process_step, session=None):
         """Update the report object with the latest results from a processing step that just finished. """
-        self.report.scan_datastore( self, process_step=process_step )
+        if self.report is not None:
+            self.report.scan_datastore( self, process_step=process_step )
 
     def finalize_report( self ):
         """Mark the report as successful and set the finish time."""
-        self.report.scan_datastore( self, process_step='finalize' )
-        self.report.success = True
-        self.report.finish_time = datetime.datetime.now( datetime.timezone.utc )
-        self.report.upsert()
+        if self.report is not None:
+            self.report.scan_datastore( self, process_step='finalize' )
+            self.report.success = True
+            self.report.finish_time = datetime.datetime.now( datetime.timezone.utc )
+            self.report.upsert()
 
 
     def get_inputs(self):

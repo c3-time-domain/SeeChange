@@ -35,6 +35,8 @@ from models.base import SmartSession
 # ======================================================================
 
 class BaseView( flask.views.View ):
+    _admin_required = False
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
 
@@ -64,6 +66,8 @@ class BaseView( flask.views.View ):
 
             if not self.check_auth():
                 return f"Not logged in", 500
+            if ( self._admin_required ) and ( not self.user.is_admin ):
+                return f"Action requires admin", 500
             try:
                 return self.do_the_things( *args, **kwargs )
             except Exception as ex:
@@ -90,6 +94,70 @@ class ProvTags( BaseView ):
         return { 'status': 'ok',
                  'provenance_tags': [ row[0] for row in cursor.fetchall() ]
                 }
+
+# ======================================================================
+
+class ProvTagInfo( BaseView ):
+    def do_the_things( self, tag ):
+        cursor = self.conn.cursor()
+        cursor.execute( 'SELECT p._id, p.process, p.code_version_id, p.parameters, '
+                        '       p.is_bad, p.bad_comment, p.is_outdated, p.replaced_by, '
+                        '       p.is_testing '
+                        'FROM provenance_tags t '
+                        'INNER JOIN provenances p ON t.provenance_id=p._id '
+                        'WHERE t.tag=%(tag)s ',
+                        { 'tag': tag } )
+        columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+        rows = cursor.fetchall()
+
+        provorder = { 'download': 0,
+                      'import': 0,
+                      'manual_import': 0,
+                      'referencing': 1,
+                      'preprocessing': 2,
+                      'extraction': 3,
+                      'subtraction': 4,
+                      'detection': 5,
+                      'cutting': 6,
+                      'measuring': 7,
+                      'scoring': 8,
+                      'report': 9 }
+        def sorter( row ):
+            if row[columns['process']] in provorder.keys():
+                val = f'{provorder[row[columns["process"]]]:02d}_{row[columns["_id"]]}'
+            else:
+                val = f'99_{row[columns["_id"]]}'
+            return val
+
+        rows.sort( key=sorter )
+        retval = { 'status': 'ok',
+                   'tag': tag }
+        retval.update( { c: [ r[columns[c]] for r in rows ] for c in columns.keys() } )
+        return retval
+
+# ======================================================================
+
+class ProvenanceInfo( BaseView ):
+    def do_the_things( self, provid ):
+        cursor = self.conn.cursor()
+        cursor.execute( "SELECT p._id, p.process, p.code_version_id, p.parameters, "
+                        "       p.is_bad, p.bad_comment, p.is_outdated, p.replaced_by, p.is_testing "
+                        "FROM provenances p "
+                        "WHERE p._id=%(provid)s ",
+                        { 'provid': provid } );
+        columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+        row = cursor.fetchone()
+        retval = { c: row[i] for c,i in columns.items() }
+
+        cursor.execute( "SELECT p._id, p.process FROM provenances p "
+                        "INNER JOIN provenance_upstreams pu ON pu.upstream_id=p._id "
+                        "WHERE pu.downstream_id=%(provid)s",
+                        { 'provid': provid } );
+        columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+        rows = cursor.fetchall()
+        retval['upstreams'] = { c: [ row[i] for row in rows ] for c, i in columns.items() }
+        return retval
+
 
 # ======================================================================
 
@@ -796,6 +864,8 @@ app.register_blueprint( rkauth_flask.bp )
 urls = {
     "/": MainPage,
     "/provtags": ProvTags,
+    "/provtaginfo/<tag>": ProvTagInfo,
+    "/provenanceinfo/<provid>": ProvenanceInfo,
     "/projects": Projects,
     "/exposures": Exposures,
     "/exposure_images/<expid>/<provtag>": ExposureImages,
