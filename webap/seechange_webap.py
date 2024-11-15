@@ -142,23 +142,29 @@ class ProvTagInfo( BaseView ):
 
 # ======================================================================
 
-class CloneProvTagToCurrent( BaseView ):
+class CloneProvTag( BaseView ):
     _admin_required = True
 
-    def do_the_things( self, tag ):
+    def do_the_things( self, existingtag, newtag, clobber=0 ):
         cursor = self.conn.cursor()
-        cursor.execute( "DELETE FROM provenance_tags WHERE tag='current'" )
+        if clobber:
+            cursor.execute( "DELETE FROM provenance_tags WHERE tag=%(tag)s", { 'tag': newtag } )
+        else:
+            cursor.execute( "SELECT COUNT(*) FROM provenance_tags WHERE tag=%(tag)s", { 'tag': newtag } )
+            n = cursor.fetchone()[0]
+            if n != 0:
+                return f"Tag {newtag} already exists and clobber was False", 500
 
         # I could probably do this with a single SQL command if I were
         #   clever enough, except that I'd need to have a server default
         #   on provenance_tags for generating the primary key uuid, and
         #   right now we don't have that.
-        cursor.execute( "SELECT provenance_id FROM provenance_tags WHERE tag=%(tag)s", { 'tag': tag } )
+        cursor.execute( "SELECT provenance_id FROM provenance_tags WHERE tag=%(tag)s", { 'tag': existingtag } )
         rows = cursor.fetchall()
         for row in rows:
             cursor.execute( f"INSERT INTO provenance_tags(_id,tag,provenance_id) "
                             f"VALUES(%(id)s,%(tag)s,%(provid)s)",
-                            { 'id': uuid.uuid4(), 'tag': 'current', 'provid': row[0] } )
+                            { 'id': uuid.uuid4(), 'tag': newtag, 'provid': row[0] } )
         self.conn.commit()
 
         return { 'status': 'ok' }
@@ -175,7 +181,8 @@ class ProvenanceInfo( BaseView ):
                         { 'provid': provid } );
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         row = cursor.fetchone()
-        retval = { c: row[i] for c,i in columns.items() }
+        retval = { 'status': 'ok' }
+        retval.update( { c: row[i] for c,i in columns.items() } )
 
         cursor.execute( "SELECT p._id, p.process FROM provenances p "
                         "INNER JOIN provenance_upstreams pu ON pu.upstream_id=p._id "
@@ -188,6 +195,13 @@ class ProvenanceInfo( BaseView ):
 
 
 # ======================================================================
+# This only gets projects from exposures, not images.
+#
+# Of course, image and exposure both having 'project' means the database
+#   isn't normalized... except that we do want to be able to support
+#   images that have no exposure.  Or do we?  Maybe we should support
+#   the notion of a null exposure for expousre-less images?  That would
+#   be a fair bit of refactoring.
 
 class Projects( BaseView ):
     def do_the_things( self ):
@@ -775,7 +789,8 @@ class PngCutoutsForSubImage( BaseView ):
                 aperrad= 0.
             else:
                 retval['cutouts']['rb'].append( row[cols['score']] )
-                retval['cutouts']['rbcut'].append( DeepScore.get_rb_cut( row[cols['_algorithm']] ) )
+                retval['cutouts']['rbcut'].append( None if row[cols['_algorithm']] is None
+                                                   else DeepScore.get_rb_cut( row[cols['_algorithm']] ) )
                 retval['cutouts']['is_bad'].append( row[cols['is_bad']] )
                 retval['cutouts']['objname'].append( row[cols['name']] )
                 retval['cutouts']['is_test'].append( row[cols['is_test']] )
@@ -893,7 +908,8 @@ urls = {
     "/": MainPage,
     "/provtags": ProvTags,
     "/provtaginfo/<tag>": ProvTagInfo,
-    "/cloneprovtagtocurrent/<tag>": CloneProvTagToCurrent,
+    "/cloneprovtag/<existingtag>/<newtag>": CloneProvTag,
+    "/cloneprovtag/<existingtag>/<newtag>/<int:clobber>": CloneProvTag,
     "/provenanceinfo/<provid>": ProvenanceInfo,
     "/projects": Projects,
     "/exposures": Exposures,

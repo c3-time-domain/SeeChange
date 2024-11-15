@@ -21,13 +21,19 @@ def webap_url():
     return Config.get().value( 'webap.webap_url' )
 
 @pytest.fixture
-def webap_rkauth_client( webap_url, conductor_user ):
+def webap_rkauth_client( webap_url, user ):
     client = rkAuthClient( webap_url, 'test', 'test_password', verify=False )
     client.verify_logged_in()
     return client
 
 @pytest.fixture
-def webap_browser_logged_in( browser, conductor_user ):
+def webap_admin_client( webap_url, admin_user ):
+    client = rkAuthClient( webap_url, 'admin', 'admin', verify=False )
+    client.verify_logged_in()
+    return client
+
+@pytest.fixture
+def webap_browser_logged_in( browser, user ):
     cfg = Config.get()
     webap_url = cfg.value( 'webap.webap_url' )
     username = cfg.value( 'conductor.username' )
