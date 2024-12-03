@@ -389,13 +389,13 @@ class Pipeline:
                 if 'wcs' in stepstodo:
                     SCLogger.info(f"astrometor for image id {ds.image.id}")
                     ds = self.astrometor.run(ds, session)
-                    ds.update_report('astro_cal', session=None)
+                    ds.update_report('astrocal', session=None)
 
                 # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
                 if 'zp' in stepstodo:
                     SCLogger.info(f"photometor for image id {ds.image.id}")
                     ds = self.photometor.run(ds, session)
-                    ds.update_report('photo_cal', session=None)
+                    ds.update_report('photocal', session=None)
 
                 if self.pars.save_before_subtraction:
                     t_start = time.perf_counter()

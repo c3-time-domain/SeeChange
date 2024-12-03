@@ -70,7 +70,7 @@ class ParsPhotCalibrator(Parameters):
         self.override(kwargs)
 
     def get_process_name(self):
-        return 'photo_cal'
+        return 'photocal'
 
     def require_siblings(self):
         return True
@@ -317,10 +317,10 @@ class PhotCalibrator:
                     #                                                 np.sqrt(np.pi) * fwhm_pix )
                     #                             )
 
-                ds.runtimes['photo_cal'] = time.perf_counter() - t_start
+                ds.runtimes['photocal'] = time.perf_counter() - t_start
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
-                    ds.memory_usages['photo_cal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+                    ds.memory_usages['photocal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
 
             # update the bitflag with the upstreams

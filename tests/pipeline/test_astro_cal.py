@@ -216,12 +216,12 @@ def test_warnings_and_exceptions(decam_datastore, astrometor):
             astrometor.run(decam_datastore)
         assert decam_datastore.exception is None
         assert len(record) > 0
-        assert any("Warning injected by pipeline parameters in process 'astro_cal'." in str(w.message) for w in record)
+        assert any("Warning injected by pipeline parameters in process 'astrocal'." in str(w.message) for w in record)
 
     astrometor.pars.inject_warnings = 0
     astrometor.pars.inject_exceptions = 1
     with pytest.raises(Exception) as excinfo:
         ds = astrometor.run(decam_datastore)
         ds.reraise()
-    assert "Exception injected by pipeline parameters in process 'astro_cal'." in str(excinfo.value)
+    assert "Exception injected by pipeline parameters in process 'astrocal'." in str(excinfo.value)
     ds.read_exception()

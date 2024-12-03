@@ -58,7 +58,10 @@ class EnumConverter:
 
     @classmethod
     def c( cls, keyword ):
-        """Convert the key to something more compatible. """
+        """Convert the key to something more compatible.
+
+        ...compatible with _what_?  Why no underscores??
+        """
         return keyword.lower().replace(' ', '').replace('_', '')
 
     @classproperty
@@ -502,8 +505,8 @@ process_steps_dict = {
     1: 'preprocessing',  # creates an Image from a section of the Exposure
     2: 'extraction',     # creates a SourceList and a PSF from an Image
     3: 'backgrounding',  # creates a Background, may have actually been done during extractin.
-    4: 'astrocal',       # creates a WorldCoordinates from the SourceList and GAIA catalogs
-    5: 'photocal',       # creates s ZeroPoint from the SourceList and GAIA catalogs
+    4: 'astrocal',      # creates a WorldCoordinates from the SourceList and GAIA catalogs
+    5: 'photocal',      # creates s ZeroPoint from the SourceList and GAIA catalogs
     6: 'subtraction',    # creates a subtraction Image
     7: 'detection',      # creates a SourceList from a subtraction Image
     8: 'cutting',        # creates Cutouts from a subtraction Image

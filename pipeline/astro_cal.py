@@ -130,7 +130,7 @@ class ParsAstroCalibrator(Parameters):
         self.override(kwargs)
 
     def get_process_name(self):
-        return 'astro_cal'
+        return 'astrocal'
 
     def require_siblings(self):
         return True
@@ -316,10 +316,10 @@ class AstroCalibrator:
                     image.set_corners_from_header_wcs(wcs=ds.wcs.wcs, setradec=True)
                     image.astro_cal_done = True
 
-                ds.runtimes['astro_cal'] = time.perf_counter() - t_start
+                ds.runtimes['astrocal'] = time.perf_counter() - t_start
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
-                    ds.memory_usages['astro_cal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
+                    ds.memory_usages['astrocal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
             # update the bitflag with the upstreams
             sources = ds.get_sources(session=session)

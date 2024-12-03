@@ -100,7 +100,7 @@ def test_warnings_and_exceptions(decam_datastore_through_wcs):
             photometor.run( ds )
         assert ds.exception is None
         assert len(record) > 0
-        assert any("Warning injected by pipeline parameters in process 'photo_cal'." in str(w.message) for w in record)
+        assert any("Warning injected by pipeline parameters in process 'photocal'." in str(w.message) for w in record)
 
     photometor.pars.inject_warnings = 0
     photometor.pars.inject_exceptions = 1
@@ -109,5 +109,5 @@ def test_warnings_and_exceptions(decam_datastore_through_wcs):
     with pytest.raises(Exception) as excinfo:
         ds = photometor.run( ds )
         ds.reraise()
-    assert "Exception injected by pipeline parameters in process 'photo_cal'." in str(excinfo.value)
+    assert "Exception injected by pipeline parameters in process 'photocal'." in str(excinfo.value)
     ds.read_exception()

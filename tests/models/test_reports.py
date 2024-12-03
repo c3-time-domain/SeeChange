@@ -134,9 +134,8 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         runtimes.pop('reporting')
         assert runtimes == ds.runtimes
         assert rep.process_memory == ds.memory_usages
-        # should contain: 'preprocessing, extraction, subtraction, detection, cutting, measuring, scoring'
         assert rep.progress_steps == ( 'preprocessing, extraction, backgrounding, astrocal, photocal, '
-                                       'subtraction, detection, cutting, measuring, scoring, finalize' )
+                                       'subtraction, detection, cutting, measuring, scoring' )
         assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
                                       'sub_image, detections, cutouts, measurements, scores')
         assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
