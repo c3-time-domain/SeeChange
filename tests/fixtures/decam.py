@@ -228,10 +228,6 @@ def decam_raw_origin_exposures( decam_raw_origin_exposures_parameters ):
     yield decam.find_origin_exposures( **decam_raw_origin_exposures_parameters )
 
 
-# @pytest.fixture(scope="session")
-# def decam_exposure_name():
-#     return 'c4d_230702_080904_ori.fits.fz'
-
 @pytest.fixture(scope="session")
 def decam_exposure_factory(download_url, data_dir, decam_cache_dir):
     exposurestodelete = []

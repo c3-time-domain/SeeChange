@@ -28,11 +28,12 @@ from util.logger import SCLogger
 @pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
 def test_exposure_launcher( conductor_connector,
                             conductor_config_for_decam_pull,
-                            decam_elais_e1_two_references,
-                            decam_exposure_name ):
+                            decam_elais_e1_two_references ):
     # This is just a basic test that the exposure launcher runs.  It does
     # run in parallel, but only two chips.  On my desktop, it takes about 2
     # minutes.  There aren't tests of failure modes written (yet?).
+
+    decam_exposure_name = 'c4d_230702_080904_ori.fits.fz'
 
     # Hold all exposures
     data = conductor_connector.send( "getknownexposures" )

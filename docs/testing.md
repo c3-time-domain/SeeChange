@@ -82,6 +82,7 @@ where [tag] is exactly what you see in the `docker-compose.yaml` file, followed 
    docker push ghcr.io/c3-time-domain/seechange:[tag]
    docker push ghcr.io/c3-time-domain/conductor:[tag]
    docker push ghcr.io/c3-time-domain/seechange-webap:[tag]
+   docker push ghcr.io/c3-time-domain/kafka:[tag]
 ```
 
 For this push to work, you must have the requisite permissions on the `c3-time-domain` organizaton at github.
