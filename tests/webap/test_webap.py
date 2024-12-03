@@ -43,7 +43,7 @@ def test_webap_provtags( webap_rkauth_client, provenance_base, provenance_extra,
     # Figure out what's there now so we can compare the difference.
     with Psycopg2Connection() as conn:
         cursor = conn.cursor()
-        cursor.execute( "SELECT DISTINCT ON(tag) tag FROM provenenace_tags" )
+        cursor.execute( "SELECT DISTINCT ON(tag) tag FROM provenance_tags" )
         oldtags = set( [ i[0] for i in cursor.fetchall() ] )
 
     res = webap_rkauth_client.send( "provtags" )
