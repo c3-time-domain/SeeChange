@@ -41,7 +41,7 @@ def test_webap_provtags( webap_rkauth_client, provenance_base, provenance_extra,
     # There will be other provenance tags besides the two I'm about to
     #    load, as there are some session-scope fixtures that create provenance tags.
     # Figure out what's there now so we can compare the difference.
-    with conn as Psycopg2Connection():
+    with Psycopg2Connection() as conn:
         cursor = conn.cursor()
         cursor.execute( "SELECT DISTINCT ON(tag) tag FROM provenenace_tags" )
         oldtags = set( [ i[0] for i in cursor.fetchall() ] )

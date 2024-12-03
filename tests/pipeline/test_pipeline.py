@@ -638,19 +638,6 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
             'scorer': 'scoring'
         }
 
-        # obj_to_process_name = {
-        #     'preprocessor': 'preprocessing',
-        #     'extractor': 'extraction',
-        #     'backgrounder': 'backgrounding',
-        #     'astrometor': 'astro_cal',
-        #     'photometor': 'photo_cal',
-        #     'subtractor': 'subtraction',
-        #     'detector': 'detection',
-        #     'cutter': 'cutting',
-        #     'measurer': 'measuring',
-        #     'scorer': 'scoring',
-        # }
-
         for process, objects in PROCESS_OBJECTS.items():
             if isinstance(objects, str):
                 objects = [objects]
