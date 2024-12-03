@@ -5,6 +5,7 @@ import os
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
+import psycopg2.errors
 
 from models.base import SmartSession
 from models.provenance import Provenance
@@ -206,7 +207,7 @@ def test_measurements_cannot_be_saved_twice(ptf_datastore):
 
     try:
         with pytest.raises(
-                IntegrityError,
+                psycopg2.errors.UniqueViolation,
                 match='duplicate key value violates unique constraint "_measurements_cutouts_provenance_uc"'
         ):
             m2.insert()

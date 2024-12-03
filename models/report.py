@@ -352,6 +352,10 @@ class Report(Base, UUIDMixin):
 
         return ', '.join(formatted_warnings)
 
+    def get_downstreams( self, session=None, siblings=False ):
+        """Reports have no downstreams."""
+        return []
+
     # ======================================================================
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used

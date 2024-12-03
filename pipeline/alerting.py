@@ -20,6 +20,7 @@ from models.measurements import Measurements
 from models.deepscore import DeepScore
 from models.object import Object
 from util.config import Config
+from util.util import env_as_bool
 
 
 # Alerting doesn't work with the Parameters system because there's no Provenance associated with it,

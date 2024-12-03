@@ -4,6 +4,7 @@ import uuid
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
+import psycopg2.errors
 
 from astropy.time import Time
 
@@ -17,7 +18,7 @@ from models.object import Object
 def test_object_creation():
     obj = Object(ra=1.0, dec=2.0, is_test=True, is_bad=False)
 
-    with pytest.raises( IntegrityError, match='null value in column "name"' ):
+    with pytest.raises( psycopg2.errors.NotNullViolation, match='null value in column "name"' ):
         obj.insert()
 
     obj.name = "foo"

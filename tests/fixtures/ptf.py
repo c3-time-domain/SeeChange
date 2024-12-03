@@ -293,6 +293,7 @@ def ptf_images_datastore_factory(ptf_urls, ptf_downloader, datastore_factory, pt
         dses = []
         for url in urls:
             exp = ptf_downloader(url)
+            exp.insert()
             exp.instrument_object.fetch_sections()
             exp.md5sum = uuid.uuid4()  # this will save some memory as the exposures are not saved to archive
             try:

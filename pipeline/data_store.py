@@ -2107,6 +2107,22 @@ class DataStore:
 
         """
 
+        # Special case handling for report, since it was never in
+        #   products_to_save.  (Also, self.report is just a regular
+        #   property, rather than a decorated-function property that
+        #   points to self._report, as is the case with all the things
+        #   in products_to_save.)  TODO: think about whether we can put
+        #   report there.  Probably not, because it's a very different
+        #   sort of thing.  The default assumption (somewhat violated
+        #   for image) is that things are saved once to the databse, not
+        #   updated.  Report, however, is a very dynamic field.  So, it
+        #   has its own handling for saving, and we probably don't want
+        #   to try to retrofit that into the saving for all the other
+        #   objects.
+
+        if self.report is not None:
+            self.report.delete_from_disk_and_database()
+
         # Not just deleting the image and allowing it to recurse through its
         #   downstreams because it's possible that the data products weren't
         #   all added to the databse, so the downstreams wouldn't be found.

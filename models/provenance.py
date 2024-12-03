@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import UniqueConstraint
 import psycopg2.extras
+import psycopg2.errors
 
 from util.util import get_git_hash
 from util.logger import SCLogger
@@ -95,7 +96,7 @@ class CodeVersion(Base):
         hash_obj = CodeHash( _id=git_hash, code_version_id=self.id )
         try:
             hash_obj.insert( session=session )
-        except IntegrityError as ex:
+        except psycopg2.errors.UniqueViolation as ex:
             if 'duplicate key value violates unique constraint "code_hashes_pkey"' in str(ex):
                 # It's already there, so we don't care.
                 pass

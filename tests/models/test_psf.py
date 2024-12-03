@@ -9,7 +9,7 @@ import pathlib
 import subprocess
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
+import psycopg2.errors
 
 import numpy as np
 from scipy.integrate import dblquad
@@ -334,7 +334,7 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
         psf2.fwhm_pixels = psf.fwhm_pixels * 2  # make it a little different
         psf2.save( filename=uuid.uuid4().hex[:10], image=im, sources=src )
 
-        with pytest.raises( IntegrityError,
+        with pytest.raises( psycopg2.errors.UniqueViolation,
                             match='duplicate key value violates unique constraint "ix_psfs_sources_id"' ):
             psf2.insert()
 

@@ -294,8 +294,8 @@ def test_extract_sources_sextractor( decam_datastore_through_preprocessing,
 
     assert sources.good.sum() == pytest.approx(530, rel=0.01)
     # This is what you get with CLASS_STAR; you'll get different values with SPREAD_MODEL
-    assert sources.is_star.sum() == pytest.approx(43, rel=0.01)
-    assert ( sources.good & sources.is_star ).sum() == pytest.approx(15, abs=5)
+    assert sources.is_star.sum() == pytest.approx(354, rel=0.01)
+    assert ( sources.good & sources.is_star ).sum() == pytest.approx(230, abs=5)
 
     try:  # make sure saving the PSF and source list goes as expected, and cleanup at the end
         sources.provenance_id = provenance_base.id

@@ -1,7 +1,7 @@
 import pytest
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
+import psycopg2.errors
 
 from models.base import SmartSession
 from models.provenance import Provenance
@@ -42,7 +42,7 @@ def test_zeropoint_committing(ztf_datastore_uncommitted, provenance_base, proven
         zp2 = ZeroPoint(zp=20.1, dzp=0.1)
         zp2.sources_id = ds.sources.id
 
-        with pytest.raises( IntegrityError,
+        with pytest.raises( psycopg2.errors.UniqueViolation,
                             match='duplicate key value violates unique constraint "ix_zero_points_sources_id"' ):
             zp2.insert()
 

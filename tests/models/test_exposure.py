@@ -11,6 +11,7 @@ from astropy.time import Time
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
+import psycopg2.errors
 
 from models.base import SmartSession, CODE_ROOT
 from models.exposure import Exposure, SectionData
@@ -45,13 +46,13 @@ def test_exposure_insert( unloaded_exposure ):
             assert session.query( Exposure ).filter( Exposure.filepath==unloaded_exposure.filepath ).first() is not None
 
         # Verify that it yells at us if we try to insert something already there
-        with pytest.raises( IntegrityError, match="duplicate key value violates unique constraint" ):
+        with pytest.raises( psycopg2.errors.UniqueViolation, match="duplicate key value violates unique constraint" ):
             unloaded_exposure.insert()
 
         # Verfiy that it yells at us if we try to insert it under a different uuid but with
         #   the same filepath
         unloaded_exposure.id = uuid.uuid4()
-        with pytest.raises( IntegrityError, match='unique constraint "ix_exposures_filepath"' ):
+        with pytest.raises( psycopg2.errors.UniqueViolation, match='unique constraint "ix_exposures_filepath"' ):
             unloaded_exposure.insert()
 
     finally:

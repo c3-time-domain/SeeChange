@@ -262,10 +262,13 @@ preprocessing:
 #
 # Right now, "extraction" actually encompasses four steps.  Those steps
 # are all done at once and so have a single provenance associated with
-# them.  Those steps are backgrounding (i.e. finding the sky background)
-# ("bg"), extraction of sources ("sources"), doing the astrometric
-# solution ("wcs"), and doing the photometric calibration ("zp").  See
-# the pipeline documentation for the meanings of all the parmeters.
+# them.  (This is the reason that all those steps' parameters are stored
+# underneath extraction-- so that the provenance's parameters will take
+# all of them into account.)  Those steps are backgrounding
+# (i.e. finding the sky background) ("bg"), extraction of sources
+# ("sources"), doing the astrometric solution ("wcs"), and doing the
+# photometric calibration ("zp").  See the pipeline documentation for
+# the meanings of all the parmeters.
 
 extraction:
   sources:

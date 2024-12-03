@@ -6,8 +6,6 @@ from pprint import pprint
 
 import sqlalchemy as sa
 
-from pipeline.top_level import PROCESS_OBJECTS
-
 from models.base import SmartSession
 from models.provenance import Provenance
 from models.report import Report
@@ -35,7 +33,7 @@ def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrat
     assert report.progress_steps == 'preprocessing, extraction'
 
     report.append_progress('subtraction, cutting')  # append two at a time
-    assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2 + 2 ** 5 + 2 ** 7
+    assert report.progress_steps_bitflag == 2 ** 1 + 2 ** 2 + 2 ** 6 + 2 ** 8
     assert report.progress_steps == 'preprocessing, extraction, subtraction, cutting'
 
     # test that the products exist flag is working
@@ -137,7 +135,8 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert runtimes == ds.runtimes
         assert rep.process_memory == ds.memory_usages
         # should contain: 'preprocessing, extraction, subtraction, detection, cutting, measuring, scoring'
-        assert rep.progress_steps == ', '.join(PROCESS_OBJECTS.keys())
+        assert rep.progress_steps == ( 'preprocessing, extraction, backgrounding, astrocal, photocal, '
+                                       'subtraction, detection, cutting, measuring, scoring, finalize' )
         assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
                                       'sub_image, detections, cutouts, measurements, scores')
         assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save

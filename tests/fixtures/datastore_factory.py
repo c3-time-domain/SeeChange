@@ -91,6 +91,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         Parameters
         ----------
           exporim: Exposure or Image
+            If (at least) it's an Exposure, it must already be loaded into the database.
 
           section_id: str or None
             Ignored if exporim is an Image
@@ -291,7 +292,18 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         cache_base_name = output_path[:-16]  # remove the '.image.fits.json' part
                         ds.cache_base_name = output_path
                         SCLogger.debug(f'Saving image to cache at: {output_path}')
-                        # use_cache = True  # the two other conditions are true to even get to this part...
+                        # If LIMIT_CACHE_USAGE is not set and cache_dir
+                        #   exists (requirements to be in this block of
+                        #   code), then we want to be using the cache.
+                        #   It's possible that we set use_cache to false
+                        #   before because cache_base_name wasn't set
+                        #   yet, but now that we've set it, we should
+                        #   flip use_cache back to True.  (All of this
+                        #   cache stuff is very spaghettiesque.  Perhaps
+                        #   inevitable given that the cache is a hack
+                        #   put in to make tests run faster, and it's
+                        #   a kludge.)
+                        use_cache = True
 
                 # In test_astro_cal, there's a routine that needs the original
                 # image before being processed through the rest of what this
@@ -381,7 +393,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
 
             if ds.bg is None:
-                SCLogger.debug('Running background estimation')
+                SCLogger.debug('make_datastore running background estimation')
                 ds = p.backgrounder.run(ds)
                 ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
                 ds.update_report( 'backgrounding' )
@@ -406,7 +418,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.wcs.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
 
             if ds.wcs is None:
-                SCLogger.debug('Running astrometric calibration')
+                SCLogger.debug('make_datastore running astrometric calibration')
                 ds = p.astrometor.run(ds)
                 ds.wcs.save( image=ds.image, sources=ds.sources, overwrite=True )
                 ds.update_report( 'astrocal' )
@@ -429,7 +441,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.zp.sources_ids = ds.sources.id
 
             if ds.zp is None:
-                SCLogger.debug('Running photometric calibration')
+                SCLogger.debug('make_datastore running photometric calibration')
                 ds = p.photometor.run(ds)
                 ds.update_report( 'photocal' )
                 if use_cache:

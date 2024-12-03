@@ -301,7 +301,7 @@ def test_add_to_known_exposures( decam_raw_origin_exposures ):
 
 @pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_download_and_commit_exposure(
-        code_version, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive, decam_exposure_name
+        code_version, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive
 ):
     # This one does a raw exposure;
     # test_decam_download_and_commit_reduced_origin_exposures downloads one
@@ -318,30 +318,9 @@ def test_decam_download_and_commit_exposure(
             # a few minutes) and leaves big files on disk (in the
             # cache), so just test it with a single exposure.  Leave
             # this commented out here in case somebody comes back and
-            # thinks, hmm, better test this with more than on exposure.
+            # thinks, hmm, better test this with more than one exposure.
             # expdexes = [ 1, 2 ]
-            # expdexes = [ 1 ]
-
-            # ...we also want to make sure we don't test on an exposure that's
-            # the same as what the decam_exposure_name fixture returns, because
-            # when we clean up, we'll be undermining that (session-scope) fixture!
-
-            expdex = None
-            for dex in range( 1, len( decam_raw_origin_exposures ) ):
-                # Looking inside the _frame property, which you aren't supposed to do....
-                match = re.search( "([^/]+)$", decam_raw_origin_exposures._frame.iloc[dex].archive_filename )
-                if match.group(1) != decam_exposure_name:
-                    expdex = dex
-                    break
-
-            if expdex is None:
-                # Empirically, the length of decam_raw_origin_exposures
-                # is 18, so there must be 17 (or, 16 if you start with
-                # the second one as we did) that don't match
-                # decam_exposure_name!
-                raise RuntimeError( "This shouldn't happen" )
-
-            expdexes = [ expdex ]
+            expdexes = [ 1 ]
 
             # get these downloaded first, to get the filenames to check against the cache
             downloaded = decam_raw_origin_exposures.download_exposures(

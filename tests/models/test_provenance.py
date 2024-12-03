@@ -4,6 +4,7 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.exc import IntegrityError
+import psycopg2.errors
 
 from models.base import SmartSession
 from models.provenance import CodeHash, CodeVersion, Provenance, ProvenanceTag
@@ -19,7 +20,8 @@ def test_code_versions( code_version ):
     if git_hash is not None:
         # Make sure we can't update a cv that's not yet in the database
         newcv = CodeVersion( id="this_code_version_does_not_exist_v0.0.1" )
-        with pytest.raises( IntegrityError, match='insert or update on table "code_hashes" violates foreign key' ):
+        with pytest.raises( psycopg2.errors.ForeignKeyViolation,
+                            match='insert or update on table "code_hashes" violates foreign key' ):
             newcv.update()
 
         # Make sure we have a code hash associated with code_version
