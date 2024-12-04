@@ -128,9 +128,9 @@ def any_objects_in_database( dbsession ):
         # Special case handling for the 'current' Provenance Tag, which may have
         #   been added automatically by top_level.py
         if Class.__name__ == "ProvenanceTag":
+            currents = []
+            notcurrents = []
             for id in ids:
-                currents = []
-                notcurrents = []
                 obj = Class.get_by_id( id, session=dbsession )
                 if obj.tag == 'current':
                     currents.append( obj )
