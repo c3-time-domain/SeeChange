@@ -2,7 +2,7 @@
 alembic==1.12.1
 astro-datalab==2.20.1
 astropy==5.3.4
-astroquery==0.4.6
+# astroquery==0.4.6
 beautifulsoup4==4.12.2
 confluent-kafka==2.6.0
 fitsio==0.9.12
@@ -27,6 +27,7 @@ python-dateutil==2.8.2
 pytz==2022.7.1
 PyYAML==6.0.1
 requests==2.31.0
+ruff==0.8.1
 scipy==1.11.4
 scikit-image==0.22.0
 sep==1.2.1

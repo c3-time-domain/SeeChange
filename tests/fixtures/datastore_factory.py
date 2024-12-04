@@ -223,7 +223,21 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.report = copy_from_cache( Report, cache_dir, report_cache_name )
                 # The cached exposure id won't be right
                 ds.report.exposure_id = exporim.id
-                ds.report.insert()
+                # TODO -- I want this next line to be ds.report.insert().  And, indeed,
+                #   when I run all the tests on my local machine, it works.  However,
+                #   when running the tests on github actions, in two tests this was
+                #   raising an error, saying that the report id already existed.
+                #   This is of course very hard to track down, since if you can't
+                #   find it on your local machine, doing any debugging is basically
+                #   impossible.  This is almost certainly some cache handling thing,
+                #   and the cache is only used in the tests, so to get on with life
+                #   I replaced this insert with upsert.  See Issue #378 ; if we ever
+                #   care enough to track this down, and have the time to do so,
+                #   we should probably do that.  (Or, if we happen to find the solution
+                #   while doing something else, make this upsert into an insert and
+                #   close the issue.)
+                # ds.report.insert()
+                ds.report.upsert()
                 report_was_loaded_from_cache = True
             else:
                 ds.report = Report( exposure_id=exporim.id, section_id=section_id )
