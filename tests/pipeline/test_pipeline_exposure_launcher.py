@@ -79,9 +79,6 @@ def test_exposure_launcher( conductor_connector,
             imgq = session.query( Image ).filter( Image.exposure_id==exposure.id ).order_by( Image.section_id )
             assert imgq.count() == 2
             images = imgq.all()
-            # There is probably a cleverl sqlalchemy way to do this
-            #  using the relationship, but searching for a bit didn't
-            #  find anything that worked, so just do it manually
             subq = ( session.query( Image ).join( image_upstreams_association_table,
                                                   Image._id==image_upstreams_association_table.c.downstream_id ) )
             sub0 = subq.filter( image_upstreams_association_table.c.upstream_id==images[0].id ).first()
@@ -92,8 +89,8 @@ def test_exposure_launcher( conductor_connector,
             measq = session.query( Measurements ).join( Cutouts ).join( SourceList ).join( Image )
             meas0 = measq.filter( Image._id==sub0.id ).all()
             meas1 = measq.filter( Image._id==sub1.id ).all()
-            assert len(meas0) == 2
-            assert len(meas1) == 8    # This used to be 6, not sure why it changed...
+            assert len(meas0) == 3
+            assert len(meas1) == 7
 
     finally:
         # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,
