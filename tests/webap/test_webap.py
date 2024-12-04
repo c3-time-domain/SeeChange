@@ -127,7 +127,7 @@ def test_webap_clone_provtag( webap_admin_client, provenance_base, provenance_ex
             conn.commit()
 
 # This test fails because there are other session-scope (I think) fixtures that create proejcts
-#  in the databse
+#  in the database
 @pytest.mark.skip( reason="comment out this skip when running test_webap.py by itself to run this test" )
 def test_webap_empty_projects( webap_rkauth_client ):
     res = webap_rkauth_client.send( "/projects" )

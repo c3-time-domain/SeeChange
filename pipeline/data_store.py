@@ -2092,12 +2092,12 @@ class DataStore:
 
 
     def delete_everything(self):
-        """Delete everything associated with this DataStore.
+        """Delete (almost) everything associated with this DataStore.
 
         All data products in the data store are removed from the DB,
         and all files on disk and in the archive are deleted.
 
-        NOTE: does *not* delete the exposure.  (There may well be other
+        Does *not* delete the exposure.  (There may well be other
         data stores out there with different images from the same
         exposure.)
 
@@ -2108,18 +2108,12 @@ class DataStore:
         """
 
         # Special case handling for report, since it was never in
-        #   products_to_save.  (Also, self.report is just a regular
-        #   property, rather than a decorated-function property that
-        #   points to self._report, as is the case with all the things
-        #   in products_to_save.)  TODO: think about whether we can put
-        #   report there.  Probably not, because it's a very different
-        #   sort of thing.  The default assumption (somewhat violated
-        #   for image) is that things are saved once to the databse, not
-        #   updated.  Report, however, is a very dynamic field.  So, it
-        #   has its own handling for saving, and we probably don't want
-        #   to try to retrofit that into the saving for all the other
-        #   objects.
-
+        #   products_to_save.  We don't want it there, because it's
+        #   handled differently from the actual data products.  (Most
+        #   notably: although there are exceptions (image and WCS), the
+        #   default idea for our data products is that once a database
+        #   entry is written, it stays the same.  The reports database
+        #   entry is very much a "update with status" thing, though.)
         if self.report is not None:
             self.report.delete_from_disk_and_database()
 
@@ -2149,6 +2143,9 @@ class DataStore:
 
         for att in self.products_to_clear:
             setattr(self, att, None)
+
+        self.report = None
+
 
     def free( self, not_zogy_specific_products=False ):
         """Set lazy-loaded data product fields to None in an attempt to save memory.

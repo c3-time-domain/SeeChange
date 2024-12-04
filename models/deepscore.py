@@ -108,7 +108,7 @@ class DeepScore(Base, UUIDMixin, HasBitFlagBadness):
 
     @staticmethod
     def from_measurements(measurements, provenance=None, **kwargs):
-        """Create a DeepScore object from a single measurements object, using 
+        """Create a DeepScore object from a single measurements object, using
         the parameters described in the given provenance.
         """
 
@@ -126,7 +126,7 @@ class DeepScore(Base, UUIDMixin, HasBitFlagBadness):
             return session.scalars(sa.select(Measurements)
                                    .where(Measurements._id ==
                                           self.measurements_id)).all()
-        
+
     def get_downstreams(self, session=None, siblings=False):
         """Get the downstreams of this DeepScore"""
         return []

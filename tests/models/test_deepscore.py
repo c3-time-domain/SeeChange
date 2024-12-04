@@ -29,7 +29,7 @@ def test_deepscore_saving(ptf_datastore, scorer):
 
 
 def test_multiple_algorithms(decam_exposure, decam_reference, decam_default_calibrators):
-    # NOTE: decam_default_calibrators is included in this test in order to trigger proper 
+    # NOTE: decam_default_calibrators is included in this test in order to trigger proper
     # cleanup afterwards. Removing it will cause objects to be left in database
 
     exposure = decam_exposure

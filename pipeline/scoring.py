@@ -66,7 +66,7 @@ class Scorer:
         if len(ds.measurements) == 0:
             SCLogger.debug( "No measurements, returning empty score list" )
             return []
-            
+
         SCLogger.debug( "score_rbbot starting, loading cutouts data" )
 
         detections = ds.get_detections( session=session )

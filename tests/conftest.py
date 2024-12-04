@@ -116,18 +116,42 @@ def any_objects_in_database( dbsession ):
     any_objects = False
     for Class, ids in objects.items():
         # TODO: check that surviving provenances have test_parameter
+        # ...I don't think this should be a TODO.  Check this, but I
+        #    think the pipeline will automatically add provenances if
+        #    they don't exist.  As such, the tests may implicitly
+        #    add provenances they don't explicitly track.
         if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt',
                               'Provenance', 'Object', 'PasswordLink']:
             SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
-        elif len(ids) > 0:
+            continue
+
+        # Special case handling for the 'current' Provenance Tag, which may have
+        #   been added automatically by top_level.py
+        if Class.__name__ == "ProvenanceTag":
+            for id in ids:
+                currents = []
+                notcurrents = []
+                obj = Class.get_by_id( id, session=dbsession )
+                if obj.tag == 'current':
+                    currents.append( obj )
+                else:
+                    notcurrents.append( obj )
+            if len(currents) > 0:
+                SCLogger.debug( f'There are {len(currents)} {Class.__name__} "current" objects in the database. '
+                                F'These are OK to stay.' )
+            objs = notcurrents
+        else:
+            objs = [ Class.get_by_id( i, session=dbsession) for i in ids ]
+
+        if len(objs) > 0:
             any_objects = True
             strio = io.StringIO()
-            strio.write( f'There are {len(ids)} {Class.__name__} objects in the database. '
+            strio.write( f'There are {len(objs)} {Class.__name__} objects in the database. '
                          f'Please make sure to cleanup!')
-            for id in ids:
-                obj = Class.get_by_id( id, session=dbsession )
+            for obj in objs:
                 strio.write( f'\n    {obj}' )
             SCLogger.error( strio.getvalue() )
+
     return any_objects
 
 # Uncomment this fixture to run the "empty database" check after each
