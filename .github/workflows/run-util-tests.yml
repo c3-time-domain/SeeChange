@@ -49,6 +49,17 @@ jobs:
         run: |
           docker compose pull archive postgres conductor mailhog webap runtests kafka-server
 
+      # I would love to have a separate workflow that just pulls the one
+      # image needed and runs the ruff linter, and have this workflow
+      # here (plus the other test-running workflows) trigger off of that
+      # one.  That way, the slow test workflows won't even start until
+      # the linter passes.  But, I haven't figure out how to implement
+      # that with github actions in a way that will work on Pull
+      # Requests, only on the main branch.
+      - name: run ruff linter
+        run: |
+          docker compose run runruff
+
       - name: run test
         uses: ./.github/workflows/run-ruff.yml
         run: |
