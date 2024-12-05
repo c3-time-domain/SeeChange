@@ -497,6 +497,6 @@ def as_datetime( string ):
         raise ValueError( f'Error, {string} is not a valid date and time.' )
 
 
-def env_as_bool(varname):   
+def env_as_bool(varname):
     """Parse an environmental variable as a boolean."""
     return parse_bool(os.getenv(varname))
