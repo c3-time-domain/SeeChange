@@ -1545,9 +1545,9 @@ class Instrument:
                                    .filter( CalibratorFile.instrument == self.name )
                                    .filter( CalibratorFile.type == calibtype )
                                    .filter( CalibratorFile.sensor_section == section )
-                                   .filter( sa.or_( CalibratorFile.validity_start is None,
+                                   .filter( sa.or_( CalibratorFile.validity_start.is_(None),
                                                     CalibratorFile.validity_start <= expdatetime ) )
-                                   .filter( sa.or_( CalibratorFile.validity_end is None,
+                                   .filter( sa.or_( CalibratorFile.validity_end.is_(None),
                                                     CalibratorFile.validity_end >= expdatetime ) )
                                   )
                     if calibtype == 'flat':

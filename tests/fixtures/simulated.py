@@ -32,7 +32,7 @@ def make_sim_exposure():
     e = Exposure(
         filepath=f"Demo_test_{rnd_str(5)}.fits",
         section_id=0,
-        exp_time=rng.randint(1, 4) * 10,  # 10 to 40 seconds
+        exp_time=rng.integers(1, 4) * 10,  # 10 to 40 seconds
         mjd=rng.uniform(58000, 58500),
         filter=rng.choice(list('grizY')),
         ra=rng.uniform(0, 360),
@@ -203,7 +203,7 @@ def generate_image_fixture(commit=True):
         im = Image.from_exposure(exp, section_id=0)
         im.provenance_id = provenance_preprocessing.id
         im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
-        im.flags = rng.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
+        im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint32)
         im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
 
         if commit:
@@ -263,7 +263,7 @@ def sim_reference(provenance_preprocessing, provenance_extra):
         exp.update_instrument()
         im = Image.from_exposure(exp, section_id=0)
         im.data = im.raw_data - np.median(im.raw_data)
-        im.flags = rng.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
+        im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint32)
         im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
         im.provenance_id = provenance_preprocessing.id
         im.ra = ra

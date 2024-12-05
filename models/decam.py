@@ -491,7 +491,7 @@ class DECam(Instrument):
                         if ( dbsess.query( CalibratorFile )
                              .filter( CalibratorFile.type=='linearity' )
                              .filter( CalibratorFile.calibrator_set=='externally_supplied' )
-                             .filter( CalibratorFile.flat_type is None )
+                             .filter( CalibratorFile.flat_type.is_(None) )
                              .filter( CalibratorFile.instrument=='DECam' )
                              .filter( CalibratorFile.sensor_section==ssec )
                              .filter( CalibratorFile.datafile_id==datafile.id ) ).count() == 0:
@@ -508,7 +508,7 @@ class DECam(Instrument):
                     calfile = ( dbsess.query( CalibratorFile )
                                 .filter( CalibratorFile.type=='linearity' )
                                 .filter( CalibratorFile.calibrator_set=='externally_supplied' )
-                                .filter( CalibratorFile.flat_type is None )
+                                .filter( CalibratorFile.flat_type.is_(None) )
                                 .filter( CalibratorFile.instrument=='DECam' )
                                 .filter( CalibratorFile.sensor_section==section )
                                 .filter( CalibratorFile.datafile_id==datafile._id )
