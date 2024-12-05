@@ -1,10 +1,11 @@
 name: Run Util Tests
 
 on:
+  push:
+    branches:
+      - mian
+  pull_request:
   workflow_dispatch:
-  workflow_run:
-    workflows: ['Run ruff Linter']
-    types: [completed]
 
 jobs:
   tests:
@@ -49,6 +50,7 @@ jobs:
           docker compose pull archive postgres conductor mailhog webap runtests kafka-server
 
       - name: run test
+        uses: ./.github/workflows/run-ruff.yml
         run: |
           shopt -s nullglob
           TEST_SUBFOLDER=tests/util docker compose run -e SKIP_BIG_MEMORY=1 -e SKIP_NOIRLAB_DOWNLOADS=1 runtests
