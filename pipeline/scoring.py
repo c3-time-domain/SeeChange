@@ -109,8 +109,9 @@ class Scorer:
         # TODO : cache this so we don't have to reload it?  Maybe not a big deal,
         #  since in a single run of the pipeline we expet this function to
         #  only be called once.
-        SCLogger.debug( "Loading model and running inference" )
+        SCLogger.debug( f"Loading RBbot model; model={deepmodel}, model_root={self.pars.rbbot_model_dir}" )
         model = RBbot_inference.load_model.load_model( deepmodel, model_root=self.pars.rbbot_model_dir )
+        SCLogger.debug( "Mode loaded, running inference." )
 
         # Run the inference
         trips_tensor = torch.Tensor(data).to('cpu')
