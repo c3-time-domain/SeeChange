@@ -47,9 +47,9 @@ jobs:
 
       - name: pull images
         run: |
-          docker compose pull archive postgres conductor mailhog webap runtests kafka-server
+          docker compose pull runruff
 
       - name: run test
         run: |
-          ruff check
+          docker compose run runruff
 
