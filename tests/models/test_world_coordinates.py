@@ -3,14 +3,10 @@ import hashlib
 import os
 import pathlib
 
-import sqlalchemy as sa
 import psycopg2.errors
 
-from astropy.io import fits
 from astropy.wcs import WCS
 
-from models.base import SmartSession
-from models.provenance import Provenance
 from models.world_coordinates import WorldCoordinates
 
 

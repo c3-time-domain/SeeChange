@@ -3,9 +3,9 @@ import pytest
 import numpy as np
 import matplotlib.pyplot as plt
 
-from improc.photometry import iterative_cutouts_photometry, get_circle, Circle
+from improc.photometry import iterative_cutouts_photometry, get_circle
 
-#coordinates nearby a star (pix), such that it appears within the annulus
+# coordinates nearby a star (pix), such that it appears within the annulus
 clipCentX = 2391
 clipCentY = 1323
 clipHalfWidth = 12 #half-width of clipped image
@@ -13,9 +13,10 @@ clipHalfWidth = 12 #half-width of clipped image
 # uncomment this to run the plotting tests interactively
 # os.environ['INTERACTIVE'] = '1'
 
-#TODO: We should write this once we have a better soft-edge function
+# TODO: We should write this once we have a better soft-edge function
 # def test_circle_soft():
     # pass
+
 
 def test_circle_hard():
     circTst = get_circle(radius=3,imsize=7,soft=False).get_image(0,0)
@@ -27,6 +28,7 @@ def test_circle_hard():
                                              [0., 1., 1., 1., 1., 1., 0.],
                                              [0., 0., 0., 1., 0., 0., 0.]]))
 
+
 def test_background_sigma_clip(ptf_datastore):
     imgClip = ptf_datastore.image.data[     clipCentX - clipHalfWidth : clipCentX + clipHalfWidth,
                                             clipCentY - clipHalfWidth : clipCentY + clipHalfWidth]
@@ -36,6 +38,7 @@ def test_background_sigma_clip(ptf_datastore):
                                             clipCentY - clipHalfWidth : clipCentY + clipHalfWidth]
     result = iterative_cutouts_photometry(imgClip, weightClip, flagsClip)
     assert result['background'] == pytest.approx(1199.1791, rel=1e-2)
+
 
 @pytest.mark.skipif( os.getenv('INTERACTIVE') is None, reason='Set INTERACTIVE to run this test' )
 def test_plot_annulus(ptf_datastore):

@@ -7,7 +7,6 @@ import warnings
 import numpy as np
 import numpy.lib.recfunctions as rfn
 from scipy import ndimage
-import sqlalchemy as sa
 
 import astropy.table
 import sep
@@ -22,7 +21,7 @@ from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
 from models.base import FileOnDiskMixin, CODE_ROOT
-from models.image import Image
+from models.image import Image  # noqa: F401
 from models.source_list import SourceList
 from models.psf import PSF
 
@@ -311,7 +310,7 @@ class Detector:
                         raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '
                                          f'{ds.get_inputs()}')
 
-                    sources, psf, bkg, bkgsig = self.extract_sources( image, wcs=ds.wcs )
+                    sources, psf, _, _ = self.extract_sources( image, wcs=ds.wcs )
 
                     sources.image_id = image.id
                     psf.sources_id = sources.id
@@ -555,7 +554,7 @@ class Detector:
         self._tmpxml = tmpxml
 
         if image.data is None or image.weight is None or image.flags is None:
-            raise RuntimeError( f"Must have all of image data, weight, and flags" )
+            raise RuntimeError( "Must have all of image data, weight, and flags" )
 
         # Figure out where astromatic config files are:
         astromatic_dir = None
@@ -698,7 +697,7 @@ class Detector:
             if res.returncode != 0:
                 SCLogger.error( f"Got return {res.returncode} from sextractor call; stderr:\n{res.stderr}\n"
                                 f"-------\nstdout:\n{res.stdout}" )
-                raise RuntimeError( f"Error return from source-extractor call" )
+                raise RuntimeError( "Error return from source-extractor call" )
 
             # Get the background from the xml file that sextractor wrote
             sextrstat = votable.parse( tmpxml ).get_table_by_index( 1 )
@@ -846,8 +845,7 @@ class Detector:
                 psfxmlfile.unlink( missing_ok=True )
 
     def extract_sources_sep(self, image):
-        """
-        Run source-extraction (using SExtractor) on the given image.
+        """Run source-extraction (using SExtractor) on the given image.
 
         Parameters
         ----------
@@ -880,7 +878,7 @@ class Detector:
         objects = sep.extract(data_sub, self.pars.threshold, err=b.rms())
 
         # get the radius containing half the flux for each source
-        r, flags = sep.flux_radius(data_sub, objects['x'], objects['y'], 6.0 * objects['a'], 0.5, subpix=5)
+        r, _ = sep.flux_radius(data_sub, objects['x'], objects['y'], 6.0 * objects['a'], 0.5, subpix=5)
         r = np.array(r, dtype=[('rhalf', '<f4')])
         objects = rfn.merge_arrays((objects, r), flatten=True)
         sources = SourceList(image_id=image.id, data=objects, format='sepnpy')
@@ -1005,4 +1003,3 @@ class Detector:
         sources.labelled_regions = labels  # this is not saved with the SourceList, but added for debugging/testing!
 
         return sources
-

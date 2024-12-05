@@ -1,4 +1,3 @@
-import sys
 import os
 import logging
 import pathlib
@@ -165,7 +164,7 @@ class Config:
         if configfile is None:
             if Config._default is None:
                 if Config._default_default is None:
-                    raise RuntimeError( f'No default config defined yet; run Config.init(configfile)' )
+                    raise RuntimeError( 'No default config defined yet; run Config.init(configfile)' )
                 Config._default = Config._default_default
             configfile = Config._default
 

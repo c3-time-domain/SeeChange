@@ -1,8 +1,5 @@
 import os
-import sys
-import io
 import re
-import time
 import argparse
 import logging
 import multiprocessing
@@ -13,12 +10,13 @@ from util.logger import SCLogger
 from models.base import Session
 from models.reference import Reference
 from models.instrument import get_instrument_instance
-from models.decam import DECam
+from models.decam import DECam  # noqa: F401
 
 # Needed because of sqlalchemy references and imports breaking things
-import models.object
+import models.object  # noqa: F401
 
 from import_decam_reference import import_decam_reference
+
 
 class Importer:
     def __init__( self, filts, ccdnums ):
@@ -30,7 +28,7 @@ class Importer:
         try:
             me = multiprocessing.current_process()
             # (I know that the process names are going to be something like ForkPoolWorker-{number}
-            match = re.search( '(\d+)', me.name )
+            match = re.search( r'(\d+)', me.name )
             if match is not None:
                 me.name = f'{int(match.group(1)):3d}'
             else:
@@ -106,6 +104,7 @@ class Importer:
 
 # ======================================================================
 
+
 def main():
     parser = argparse.ArgumentParser( "Import DECam refs",
                                       formatter_class=argparse.ArgumentDefaultsHelpFormatter )
@@ -142,7 +141,7 @@ def main():
                                   {},
                                   importer.report )
 
-        SCLogger.info( f"Submitted all worker jobs, waiting for them to finish." )
+        SCLogger.info( "Submitted all worker jobs, waiting for them to finish." )
         pool.close()
         pool.join()
 
@@ -151,6 +150,7 @@ def main():
     SCLogger.info( f"All done.  {tot} jobs : {succ} succeeded (maybe), {fail} failed, {unk} not reported" )
 
 # ======================================================================
+
 
 if __name__ == "__main__":
     main()

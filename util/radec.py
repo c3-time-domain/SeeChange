@@ -72,9 +72,7 @@ def radec_to_gal_and_eclip( ra, dec ):
 
 
 def parse_ra_deg_to_hms(ra):
-    """
-    Convert an RA in degrees to a string in sexagesimal format (in hh:mm:ss).
-    """
+    """Convert an RA in degrees to a string in sexagesimal format (in hh:mm:ss)."""
     if ra < 0 or ra > 360:
         raise ValueError("RA out of range.")
     ra /= 15.0  # convert to hours
@@ -82,9 +80,7 @@ def parse_ra_deg_to_hms(ra):
 
 
 def parse_dec_deg_to_dms(dec):
-    """
-    Convert a Dec in degrees to a string in sexagesimal format (in dd:mm:ss).
-    """
+    """Convert a Dec in degrees to a string in sexagesimal format (in dd:mm:ss)."""
     if dec < -90 or dec > 90:
         raise ValueError("Dec out of range.")
     return (
@@ -93,10 +89,7 @@ def parse_dec_deg_to_dms(dec):
 
 
 def parse_ra_hms_to_deg(ra):
-    """
-    Convert the input right ascension from sexagesimal string (hh:mm:ss format) into a float of decimal degrees.
-
-    """
+    """Convert the input right ascension from sexagesimal string (hh:mm:ss format) into a float of decimal degrees."""
     if not isinstance(ra, str):
         raise ValueError(f"RA ({ra}) is not a string.")
     c = SkyCoord(ra=ra, dec=0, unit=(u.hourangle, u.degree))
@@ -109,9 +102,7 @@ def parse_ra_hms_to_deg(ra):
 
 
 def parse_dec_dms_to_deg(dec):
-    """
-    Convert the input declination from sexagesimal string (dd:mm:ss format) into a float of decimal degrees.
-    """
+    """Convert the input declination from sexagesimal string (dd:mm:ss format) into a float of decimal degrees."""
     if not isinstance(dec, str):
         raise ValueError(f"Dec ({dec}) is not a string.")
 
@@ -122,6 +113,7 @@ def parse_dec_dms_to_deg(dec):
         raise ValueError(f"Value of dec ({dec}) is outside range (-90 -> +90).")
 
     return dec
+
 
 def radec_to_gal_ecl( ra, dec ):
     """Convert ra and dec to galactic and ecliptic coordinates.

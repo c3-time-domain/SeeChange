@@ -32,17 +32,16 @@ class PTF(Instrument):
 
     @classmethod
     def get_section_ids(cls):
+        """Get a list of SensorSection identifiers for this instrument.
 
-        """
-        Get a list of SensorSection identifiers for this instrument.
         Includes all 12 CCDs.
         """
         return [str(sid) for sid in range(0, 12)]
 
     @classmethod
     def check_section_id(cls, section_id):
-        """
-        Check that the type and value of the section is compatible with the instrument.
+        """Check that the type and value of the section is compatible with the instrument.
+
         In this case, it must be an integer in the range [0, 11].
         """
         try:
@@ -79,8 +78,8 @@ class PTF(Instrument):
         return 0  # TODO: improve this if we ever get multiple HDUs per file
 
     def _make_new_section(self, section_id):
-        """
-        Make a single section for the PTF instrument.
+        """Make a single section for the PTF instrument.
+
         The section_id must be a valid section identifier ([0, 11]).
 
         Returns

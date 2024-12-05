@@ -8,6 +8,7 @@ from pipeline.catalog_tools import download_gaia_dr3, fetch_gaia_dr3_excerpt
 from models.base import FourCorners
 from models.image import Image
 
+
 def test_download_gaia_dr3(data_dir):
     firstfilepath = None
     secondfilepath = None
@@ -30,7 +31,7 @@ def test_download_gaia_dr3(data_dir):
         assert catexp.minmag == 17.
         assert catexp.maxmag == 19.
 
-        hdr, tbl = ldac.get_table_from_ldac( secondfilepath, imghdr_as_header=True )
+        _, tbl = ldac.get_table_from_ldac( secondfilepath, imghdr_as_header=True )
         for col in [ 'X_WORLD', 'Y_WORLD', 'ERRA_WORLD', 'ERRB_WORLD', 'PM', 'PMRA', 'PMDEC',
                      'MAG_G', 'MAGERR_G', 'MAG_BP', 'MAGERR_BP', 'MAG_RP', 'MAGERR_RP', 'STARPROB',
                      'OBSDATE', 'FLAGS' ]:
@@ -93,6 +94,7 @@ def test_gaia_dr3_excerpt( ztf_datastore_uncommitted, ztf_gaia_dr3_excerpt ):
     # Make sure we can't read the cache for something that doesn't exist
     with pytest.raises( CatalogNotFoundError, match='Failed to fetch Gaia DR3 stars' ):
         newcatexp = fetch_gaia_dr3_excerpt( ds.image, maxmags=[20.5], magrange=4.0, minstars=50, onlycached=True )
+
 
 def test_gaia_dr3_excerpt_ra_span_zero():
 

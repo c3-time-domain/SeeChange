@@ -1,5 +1,4 @@
 import os
-import time
 import pytest
 
 import numpy as np
@@ -9,7 +8,8 @@ from models.base import CODE_ROOT
 from improc.simulator import Simulator
 from improc.sky_flat import calc_sky_flat
 
-from util.logger import SCLogger
+# from util.logger import SCLogger
+
 
 @pytest.mark.flaky(max_runs=6)
 @pytest.mark.parametrize("num_images", [10, 300])
@@ -32,7 +32,6 @@ def test_simple_sky_flat(num_images):
         images = file_obj['images']
         sim.truth = file_obj['truth'][()]
     else:
-        t0 = time.time()
         images = []
         for i in range(num_images):
             sim.make_image(new_sky=True, new_stars=True)
@@ -44,7 +43,6 @@ def test_simple_sky_flat(num_images):
         np.savez(filename, images=images, truth=sim.truth)
         # SCLogger.debug(f"Generating {num_images} images took {time.time() - t0:.1f} seconds")
 
-    t0 = time.time()
     # don't use median so we can see when it fails on too few stars
     sky_flat = calc_sky_flat(images, nsigma=3.0, iterations=5, median=False)
     # SCLogger.debug(f'calc_sky_flat took {time.time() - t0:.1f} seconds')
@@ -70,4 +68,3 @@ def test_simple_sky_flat(num_images):
     else:
         assert np.nanstd(delta) < expected_noise * 5
         assert np.nanmean(delta) < expected_bias * 5
-

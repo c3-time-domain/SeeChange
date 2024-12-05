@@ -3,7 +3,6 @@
 # also got some useful ideas from the implementation here: https://github.com/pmvreeswijk/ZOGY/blob/main/zogy.py#L15721
 
 import numpy as np
-import scipy
 from scipy.stats.distributions import norm, chi2
 
 from improc.bitmask_tools import dilate_bitflag
@@ -406,8 +405,9 @@ if __name__ == "__main__":
     for i in range(10):
         B_r = 10.0
         B_n = 10.0
-        R = np.random.normal(0, np.sqrt(B_r), size=(1000, 1000))
-        N = np.random.normal(0, np.sqrt(B_n), size=(1000, 1000))
+        rng = np.random.default_rng()
+        R = rng.normal(0, np.sqrt(B_r), size=(1000, 1000))
+        N = rng.normal(0, np.sqrt(B_n), size=(1000, 1000))
         P_r = make_gaussian(2.0)
         P_r /= np.sum(P_r)
         P_n = make_gaussian(3.0)
@@ -420,4 +420,3 @@ if __name__ == "__main__":
             f'std(S)= {np.std(output["score"])}, '
             f'std(Sc)= {np.std(output["Score_corr"])}'
         )
-

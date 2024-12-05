@@ -7,7 +7,7 @@ import io
 
 from astropy.io import fits, votable
 
-from models.base import SmartSession, FileOnDiskMixin
+from models.base import FileOnDiskMixin
 from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
@@ -108,7 +108,7 @@ def ztf_datastore_uncommitted( ztf_filepaths_image_sources_psf ):
 
 @pytest.fixture
 def ztf_filepath_sources( ztf_filepaths_image_sources_psf ):
-    image, weight, flags, sources, psf, psfxml = ztf_filepaths_image_sources_psf
+    _, _, _, sources, _, _ = ztf_filepaths_image_sources_psf
     return sources
 
 

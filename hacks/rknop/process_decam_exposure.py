@@ -1,4 +1,3 @@
-import sys
 import os
 import re
 import logging
@@ -15,10 +14,8 @@ from util.logger import SCLogger
 
 from models.base import Session
 from models.exposure import Exposure
-from models.calibratorfile import CalibratorFile
-from models.datafile import DataFile
 from models.instrument import get_instrument_instance
-import models.decam
+import models.decam  # noqa: F401
 
 from pipeline.top_level import Pipeline
 
@@ -67,7 +64,7 @@ class ExposureProcessor:
         try:
             me = multiprocessing.current_process()
             # (I know that the process names are going to be something like ForkPoolWorker-{number}
-            match = re.search( '(\d+)', me.name )
+            match = re.search( r'(\d+)', me.name )
             if match is not None:
                 me.name = f'{int(match.group(1)):3d}'
             else:
@@ -86,10 +83,11 @@ class ExposureProcessor:
             return ( chip, False )
 
     def collate( self, res ):
-        chip, succ = res
+        chip, _ = res
         self.results[ chip ] = res
 
 # ======================================================================
+
 
 def main():
     parser = argparse.ArgumentParser( 'Run a DECam exposure through the pipeline',
@@ -99,7 +97,7 @@ def main():
     parser.add_argument( "-t", "--through-step", default=None,
                          help=("Process through this step (preprocessing, backgrounding, extraction, wcs, zp, "
                                "subtraction, detection, cutting, measuring, scoring") )
-    parser.add_argument( "-c", "--chips", nargs='+', default=[], help="Chips to process (default: all good)" );
+    parser.add_argument( "-c", "--chips", nargs='+', default=[], help="Chips to process (default: all good)" )
     args = parser.parse_args()
 
     ncpus = multiprocessing.cpu_count()
@@ -178,7 +176,7 @@ def main():
             for chip in chips:
                 pool.apply_async( exproc.processchip, ( chip, ), {}, exproc.collate )
 
-            SCLogger.info( f"Submitted all worker jobs, waiting for them to finish." )
+            SCLogger.info( "Submitted all worker jobs, waiting for them to finish." )
             pool.close()
             pool.join()
     else:
@@ -197,6 +195,7 @@ def main():
 
 
 # ======================================================================
+
 
 if __name__ == "__main__":
     main()

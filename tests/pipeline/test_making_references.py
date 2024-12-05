@@ -9,14 +9,13 @@ import sqlalchemy as sa
 
 from pipeline.ref_maker import RefMaker
 
-from models.base import SmartSession, FourCorners
+from models.base import SmartSession
 from models.provenance import Provenance
 from models.image import Image
 from models.reference import Reference
 from models.refset import RefSet
 
 from util.util import env_as_bool
-from util.logger import SCLogger
 
 
 def add_test_parameters(maker):
@@ -114,7 +113,7 @@ def test_finding_references( provenance_base, provenance_extra ):
         ref3.insert()
         refstodel.add( ref3.id )
 
-        #Offset, but also rotated by 45°
+        # Offset, but also rotated by 45°
         img4 = Image( ra=20.2121, dec=45.15,
                       minra=20.0121, maxra=20.4121, mindec=45.0086, maxdec=45.2914,
                       ra_corner_00=20.0121, ra_corner_01=20.2121, ra_corner_11=20.4121, ra_corner_10=20.2121,
@@ -144,7 +143,7 @@ def test_finding_references( provenance_base, provenance_extra ):
 
         # Test bad parameters
         with pytest.raises( ValueError, match="Must give one of target.*or image" ):
-            ref, img = Reference.get_references()
+            _, _ = Reference.get_references()
         for kws in [ { 'ra': 20., 'minra': 19. },
                      { 'ra': 20., 'target': 'foo' },
                      { 'minra': 19., 'target': 'foo' },
@@ -152,26 +151,26 @@ def test_finding_references( provenance_base, provenance_extra ):
                      { 'image': img5, 'target': 'foo' }
                     ]:
             with pytest.raises( ValueError, match="Specify only one of" ):
-                ref, img = Reference.get_references( **kws )
+                _, _ = Reference.get_references( **kws )
         for kws in [ { 'target': 'foo' }, { 'section_id': '1' } ]:
             with pytest.raises( ValueError, match="Must give both target and section_id" ):
-                ref, img = Reference.get_references( **kws )
+                _, _ = Reference.get_references( **kws )
         for kws in [ { 'ra': 20.}, { 'dec': 45. } ]:
             with pytest.raises( ValueError, match="Must give both ra and dec" ):
-                ref, img = Reference.get_references( **kws )
+                _, _ = Reference.get_references( **kws )
         with pytest.raises( ValueError, match="Specify either image or minra/maxra/mindec/maxdec" ):
-            ref, img = Reference.get_references( image=img5, minra=19. )
+            _, _ = Reference.get_references( image=img5, minra=19. )
         # TODO : write clever for loops to test all possibly combinations of minra/maxra/mindec/maxdec
         #   that are missing one or more.  For now, just test a few
         for kws in [ { 'minra': 19.8 },
                      { 'maxra': 20.2, 'mindec': 44.9 },
                      { 'minra': 19.8, 'mindec': 44.9, 'maxdec': 45.1 } ]:
             with pytest.raises( ValueError, match="Must give all of minra, maxra, mindec, maxdec" ):
-                ref, img = Reference.get_references( **kws )
+                _, _ = Reference.get_references( **kws )
         with pytest.raises( ValueError, match="Can't give overlapfrac with target/section_id" ):
-            ref, img = Reference.get_references( target='foo', section_id='1', overlapfrac=0.5 )
+            _, _ = Reference.get_references( target='foo', section_id='1', overlapfrac=0.5 )
         with pytest.raises( ValueError, match="Can't give overlapfrac with ra/dec" ):
-            ref, img = Reference.get_references( ra=20., dec=45., overlapfrac=0.5 )
+            _, _ = Reference.get_references( ra=20., dec=45., overlapfrac=0.5 )
 
         # Get point at center of img1, all filters, all provenances
         refs, imgs = Reference.get_references( ra=20., dec=45. )
@@ -352,6 +351,7 @@ def test_finding_references( provenance_base, provenance_extra ):
             session.execute( sa.delete( RefSet ).where( RefSet.name.in_( ( 'base', 'extra', 'both' ) ) ) )
             session.commit()
 
+
 def test_make_refset():
     provstodel = set()
     rsname = 'test_making_references.py::test_make_refset'
@@ -487,7 +487,7 @@ def test_making_refsets_in_run():
 
     with pytest.raises( RuntimeError,
                         match="RefSet .* exists, allow_append is False, and provenance .* isn't in"
-                       ) as e:
+                       ):
         new_ref = maker.run(ra=0, dec=0, filter='R')
 
     maker.pars.allow_append = True  # now it should be ok
@@ -523,6 +523,7 @@ def test_making_refsets_in_run():
     with SmartSession() as session:
         session.execute( sa.delete( RefSet ).where( RefSet.name.in_( [ name, name2 ] ) ) )
         session.commit()
+
 
 def test_identify_images_to_coadd( provenance_base ):
     refmaker = RefMaker( maker={ 'end_time': 60000.,
@@ -607,12 +608,12 @@ def test_identify_images_to_coadd( provenance_base ):
     try:
         img_base = imagemaker( 'img_base.fits', 20., 40. )
         img_rot_45 = imagemaker( 'img_rot_45.fits', 20., 40., 45. )
-        img_wrongfilter = imagemaker( 'img_wrongfilter.fits', 20., 40., filter='g' )
-        img_wronginstrument = imagemaker( 'img_wronginstrument.fits', 20., 40., instrument='DECam' )
-        img_wrongprov = imagemaker( 'img_wrongprov.fits', 20., 40., provenance_id=provenance_base.id )
-        img_toolate = imagemaker( 'img_toolate.fits', 20., 40., mjd=60001, end_mjd=60001.000694 )
-        img_badseeing = imagemaker( 'img_badseeing.fits', 20., 40., fwhm_estimate=2. )
-        img_tooshallow = imagemaker( 'img_tooshallow.fits', 20., 40., lim_mag_estimate=22. )
+        _ = imagemaker( 'img_wrongfilter.fits', 20., 40., filter='g' )
+        _ = imagemaker( 'img_wronginstrument.fits', 20., 40., instrument='DECam' )
+        _ = imagemaker( 'img_wrongprov.fits', 20., 40., provenance_id=provenance_base.id )
+        _ = imagemaker( 'img_toolate.fits', 20., 40., mjd=60001, end_mjd=60001.000694 )
+        _ = imagemaker( 'img_badseeing.fits', 20., 40., fwhm_estimate=2. )
+        _ = imagemaker( 'img_tooshallow.fits', 20., 40., lim_mag_estimate=22. )
         img_shift_up = imagemaker( 'img_shift_up.fits', 20., 40.03 )
         img_shift_upright = imagemaker( 'img_shift_upright.fits', 20 + 0.03 / np.cos( 20. * np.pi/180. ), 40.03 )
 
@@ -766,4 +767,3 @@ def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
 
     assert ref is not None
     assert ref.id == ptf_ref_offset.id
-

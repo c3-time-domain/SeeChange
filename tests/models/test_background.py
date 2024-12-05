@@ -1,4 +1,3 @@
-import os
 import time
 import uuid
 
@@ -13,6 +12,7 @@ from models.base import SmartSession
 from models.provenance import Provenance
 from models.background import Background
 from models.source_list import SourceList
+
 
 def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code_version):
     image = decam_raw_image
@@ -70,6 +70,7 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             assert bg.attrs['value'] == bg_mean
             assert bg.attrs['noise'] == np.sqrt(bg_var)
 
+        rng = np.random.default_rng()
         # make a new background with some data:
         b2 = Background(
             format='map',
@@ -77,8 +78,8 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             sources_id=sources.id,
             value=bg_mean,
             noise=np.sqrt(bg_var),
-            counts=np.random.normal(bg_mean, 1, size=(10, 10)),
-            variance=np.random.normal(bg_var, 1, size=(10, 10)),
+            counts=rng.normal(bg_mean, 1, size=(10, 10)),
+            variance=rng.normal(bg_var, 1, size=(10, 10)),
             image_shape=image.data.shape
         )
 

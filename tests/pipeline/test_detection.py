@@ -111,9 +111,9 @@ def test_detection_ptf_supernova(detector, ptf_subtraction1_datastore, blocking_
                 scores[i, j] = np.max(scipy.signal.correlate(abs(cutout), temp, mode='same'))
 
         # if the first template is the best match, it's a point source
-        score_ok = np.argmax(scores, axis=1) == 0
+        # score_ok = np.argmax(scores, axis=1) == 0
 
-        good = hist_ok & score_ok & nans_ok
+        # good = hist_ok & score_ok & nans_ok
 
         # try to find the supernova (this is PTF10cwm)
         # see: https://www.wiserep.org/object/7876

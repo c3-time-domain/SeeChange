@@ -28,6 +28,7 @@ from util.util import env_as_bool, save_fits_image_file
 from util.logger import SCLogger
 from util.exceptions import SubprocessFailure
 
+
 class ParsSubtractor(Parameters):
     def __init__(self, **kwargs):
         super().__init__()
@@ -405,7 +406,7 @@ class Subtractor:
             save_fits_image_file( refflags, ref_image.flags, ref_image.header )
 
             # hotpants needs noise images not 1/σ² weight images, so do that:
-            SCLogger.debug( f'Making noise images for hotpants' )
+            SCLogger.debug( 'Making noise images for hotpants' )
             for img, outfile in zip( [ new_image, ref_image ], [ newnoise, refnoise ] ):
                 noisedata = img.weight.copy()
                 # Set the weight to something tiny (i.e. ~infinite
@@ -526,7 +527,7 @@ class Subtractor:
             com.extend( gaussparam )
             SCLogger.debug( f"Running hotpants with command: {com}" )
             res = subprocess.run( com, shell=False, timeout=600, check=True, capture_output=True )
-            SCLogger.debug( f"...done running hotpants." )
+            SCLogger.debug( "...done running hotpants." )
             if res.returncode != 0:
                 raise SubprocessFailure( res )
 
@@ -549,7 +550,7 @@ class Subtractor:
             wt[ retval['outfl'] != 0 ] = 0.
             retval['outwt'] = wt
 
-            SCLogger.debug( f"_subtract_hotpants returning." )
+            SCLogger.debug( "_subtract_hotpants returning." )
             return retval
 
         # except Exception as ex:

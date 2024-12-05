@@ -1,9 +1,6 @@
-import os
-import uuid
 import h5py
 
 import numpy as np
-import pytest
 
 import sqlalchemy as sa
 
@@ -11,6 +8,7 @@ from models.base import SmartSession
 from models.cutouts import Cutouts
 
 from pipeline.data_store import DataStore
+
 
 def test_make_save_load_cutouts( decam_datastore, cutter ):
     try:

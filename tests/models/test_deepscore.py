@@ -1,12 +1,10 @@
-import uuid
-import pytest
-
 import sqlalchemy as sa
 
 from models.base import SmartSession
 from models.deepscore import DeepScore
 
 from pipeline.top_level import Pipeline
+
 
 def test_deepscore_saving(ptf_datastore, scorer):
     ds = ptf_datastore

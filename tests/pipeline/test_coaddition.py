@@ -19,11 +19,9 @@ from improc.tools import sigma_clipping
 
 from pipeline.data_store import DataStore
 from pipeline.coaddition import Coadder, CoaddPipeline
-from pipeline.detection import Detector
-from pipeline.astro_cal import AstroCalibrator
-from pipeline.photo_cal import PhotCalibrator
 
 from util.util import env_as_bool
+
 
 def estimate_psf_width(data, sz=7, upsampling=50, num_stars=20):
     """Extract a few bright stars and estimate their median FWHM.
@@ -201,7 +199,7 @@ def test_zogy_simulation(coadder, blocking_plots):
     assert np.all(deltas < 0.3)  # the estimator should be within 30% of the truth
 
     # now that we know the estimator is good, lets check the coadded images vs. the originals:
-    outim, outwt, outfl, outpsf, score = coadder._coadd_zogy(  # calculate the ZOGY coadd
+    outim, outwt, outfl, _, score = coadder._coadd_zogy(  # calculate the ZOGY coadd
         images,
         weights=weights,
         flags=flags,
@@ -241,7 +239,7 @@ def test_zogy_simulation(coadder, blocking_plots):
         plt.legend()
         plt.show(block=True)
 
-        fig, ax = plt.subplots(2, 2)
+        _, ax = plt.subplots(2, 2)
         ax[0, 0].imshow(images[0], vmin=0, vmax=100)
         ax[0, 0].set_title('original 0')
         ax[0, 1].imshow(images[1], vmin=0, vmax=100)
@@ -266,12 +264,12 @@ def test_zogy_vs_naive( ptf_aligned_image_datastores, coadder ):
     aligned_psfs = [ d.psf for d in ptf_aligned_image_datastores ]
     aligned_zps = [ d.zp for d in ptf_aligned_image_datastores ]
 
-    naive_im, naive_wt, naive_fl = coadder._coadd_naive( aligned_images )
+    naive_im, _, naive_fl = coadder._coadd_naive( aligned_images )
 
-    zogy_im, zogy_wt, zogy_fl, zogy_psf, zogy_score = coadder._coadd_zogy( aligned_images,
-                                                                           aligned_bgs,
-                                                                           aligned_psfs,
-                                                                           aligned_zps )
+    zogy_im, _, zogy_fl, _, _ = coadder._coadd_zogy( aligned_images,
+                                                                     aligned_bgs,
+                                                                     aligned_psfs,
+                                                                     aligned_zps )
 
     assert naive_im.shape == zogy_im.shape
 
@@ -409,7 +407,8 @@ def test_coaddition_pipeline_outputs(ptf_reference_image_datastores, ptf_aligned
         # necessary to do that.
         assert np.max(coadd_ds.image.zogy_psf) == pytest.approx(np.max(coadd_ds.psf.get_clip()), abs=0.01)
         zogy_fwhm = estimate_psf_width(coadd_ds.image.zogy_psf, num_stars=1)
-        psfex_fwhm = estimate_psf_width(np.pad(coadd_ds.psf.get_clip(), 20), num_stars=1)  # pad so extract_psf_surrogate works
+        # pad so extract_psf_surrogate works
+        psfex_fwhm = estimate_psf_width(np.pad(coadd_ds.psf.get_clip(), 20), num_stars=1)
         assert zogy_fwhm == pytest.approx(psfex_fwhm, rel=0.1)
 
         # check that the S/N is consistent with a coadd
@@ -451,7 +450,7 @@ def test_coadded_reference(ptf_ref):
     assert str(ptf_ref.section_id) == str(ref_image.section_id)
 
     ref_prov = Provenance.get( ptf_ref.provenance_id )
-    refimg_prov = Provenance.get( ref_image.provenance_id )
+    # refimg_prov = Provenance.get( ref_image.provenance_id )
 
     assert ref_image.provenance_id in [ p.id for p in ref_prov.upstreams ]
     assert ref_sources.provenance_id in [ p.id for p in ref_prov.upstreams ]
@@ -515,6 +514,7 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
     assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7950., abs=10. )
     assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 51., abs=10. )
 
+
 # This next test is very slow (9 minutes on github), and also perhaps a
 #   bit much given that it downloads and swarps together 17 images.  As
 #   such, put in two conditions to skip it; this means it won't be run
@@ -543,4 +543,3 @@ def test_coadd_17_decam_images_swarp( decam_17_offset_refs, decam_four_refs_alig
     assert img.data.shape == ( 4096, 2048 )
     assert img.flags.shape == img.data.shape
     assert img.weight.shape == img.weight.shape
-

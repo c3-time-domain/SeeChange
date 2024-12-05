@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from models.base import CODE_ROOT
-from improc.simulator import Simulator, SimGalaxies, SimStreaks, SimCosmicRays
+from improc.simulator import Simulator, SimGalaxies # , SimCosmicRays, SimStreaks
 from improc.sky_flat import sigma_clipping
 from util.logger import SCLogger
 from util.util import env_as_bool
@@ -92,7 +92,7 @@ def test_making_galaxy_in_image(exp_scale, blocking_plots):
     diff = im1 - im2
 
     if blocking_plots:
-        fig, ax = plt.subplots(1, 3)
+        _, ax = plt.subplots(1, 3)
 
         ax[0].imshow(im1)
         ax[0].set_title('make_galaxy_image')
@@ -116,7 +116,8 @@ def test_making_galaxy_in_image(exp_scale, blocking_plots):
 def test_bleeding_pixels(blocking_plots):
     s = Simulator(bleed_fraction_up=0.1, bleed_fraction_down=0.5, saturation_limit=1000)
     s.make_sensor()
-    im = np.random.normal(0, 1, (256, 256))  # no saturated pixels
+    rng = np.random.default_rng()
+    im = rng.normal(0, 1, (256, 256))  # no saturated pixels
 
     # when no saturated pixels exist, the bleeds should be a no-op
     im_bleed = s.add_bleeds_to_image(im)
@@ -162,9 +163,8 @@ def test_bleeding_pixels(blocking_plots):
 
 @pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_streak_images(blocking_plots):
-    im = SimStreaks.make_streak_image(center_x=50.3, length=25)
-
     # if blocking_plots:
+    # im = SimStreaks.make_streak_image(center_x=50.3, length=25)
     #     plt.imshow(im)
     #     plt.show(block=True)
 
@@ -178,9 +178,9 @@ def test_streak_images(blocking_plots):
 
 @pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_track_images(blocking_plots):
-    im = SimCosmicRays.make_track_image(center_x=50.3, length=25, energy=10)
 
     # if blocking_plots:
+    #     im = SimCosmicRays.make_track_image(center_x=50.3, length=25, energy=10)
     #     plt.imshow(im)
     #     plt.show(block=True)
 

@@ -22,6 +22,7 @@ nonexistent = '3f1d598431502e796c3852981d97a576'
 url1 = f'https://portal.nersc.gov/cfs/m2218/fiducial_test_files/{md5sum1}.dat'
 url_nonexistent = f'https://portal.nersc.gov/cfs/m2218/fiducial_test_files/{nonexistent}.dat'
 
+
 @pytest.fixture( scope='module' )
 def testfile1():
     p = pathlib.Path( f'{md5sum1}.dat' )
@@ -33,11 +34,13 @@ def testfile1():
 
     p.unlink()
 
+
 def checkmd5( path, md5sum ):
     md5 = hashlib.md5()
     with open( path, "rb" ) as ifp:
         md5.update( ifp.read() )
     return md5.hexdigest() == md5sum
+
 
 def test_no_overwrite_dir():
     fname = "".join( random.choices( string.ascii_lowercase, k=10 ) )
@@ -57,13 +60,16 @@ def test_no_overwrite_dir():
         fpath.rmdir()
         assert not fpath.exists()
 
+
 def test_basic_download( testfile1 ):
-    path, url, md5sum = testfile1
+    path, _, md5sum = testfile1
     assert checkmd5( path, md5sum )
+
 
 def test_404():
     with pytest.raises( RuntimeError, match='3 exceptions trying to download.*, failing.' ):
         retry_download( url_nonexistent, f'{nonexistent}.dat', retries=3, sleeptime=1, exists_ok=False )
+
 
 def test_mismatch_md5():
     fname = "".join( random.choices( string.ascii_lowercase, k=10 ) )
@@ -117,4 +123,3 @@ def test_overwrite_misc_file():
     finally:
         fpath.unlink()
         assert not fpath.exists()
-

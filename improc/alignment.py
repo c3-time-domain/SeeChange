@@ -3,7 +3,6 @@ import pathlib
 import random
 import time
 import subprocess
-import warnings
 
 import numpy as np
 
@@ -25,7 +24,6 @@ from models.source_list import SourceList
 from models.background import Background
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
-from pipeline.data_store import DataStore
 from pipeline.parameters import Parameters
 from pipeline.detection import Detector
 from improc.bitmask_tools import dilate_bitflag
@@ -442,9 +440,9 @@ class ImageAligner:
             if source_image.filepath_extensions is None:
                 raise NotImplementedError( "Only separate image/weight/flags images currently supported." )
             impaths = source_image.get_fullpath( as_list=True )
-            imdex = source_image.filepath_extensions.index( '.image.fits' )
+            # imdex = source_image.filepath_extensions.index( '.image.fits' )
             wtdex = source_image.filepath_extensions.index( '.weight.fits' )
-            fldex = source_image.filepath_extensions.index( '.flags.fits' )
+            # fldex = source_image.filepath_extensions.index( '.flags.fits' )
 
             # For swarp to work right, the header of image must have the
             # WCS we assumed it had when calculating the transformation
@@ -738,7 +736,7 @@ class ImageAligner:
             if self.pars.method == 'swarp':
                 SCLogger.debug( '...aligning with swarp' )
                 if ( source_sources.format != 'sextrfits' ) or ( target_sources.format != 'sextrfits' ):
-                    raise RuntimeError( f'swarp ImageAligner requires sextrfits sources' )
+                    raise RuntimeError( 'swarp ImageAligner requires sextrfits sources' )
                 ( warped_image, warped_sources,
                   warped_bg, warped_psf ) = self._align_swarp( source_image,
                                                                source_sources,
@@ -777,4 +775,3 @@ class ImageAligner:
         #   aren't saved to the database.)
 
         return warped_image, warped_sources, warped_bg, warped_psf
-

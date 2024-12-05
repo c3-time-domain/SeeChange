@@ -3,21 +3,15 @@ import os
 import io
 import copy
 import argparse
-import hashlib
-import uuid
 import multiprocessing
 import multiprocessing.pool
 import traceback
 
-import numpy as np
-
-from astropy.io import fits
-
 from models.base import SmartSession
 from models.instrument import get_instrument_instance
 from models.provenance import Provenance
-from models.decam import DECam
-from models.image import Image
+from models.decam import DECam  # noqa: F401
+from models.image import Image  # noqa: F401
 from models.exposure import Exposure
 
 from pipeline.data_store import DataStore
@@ -25,7 +19,6 @@ from pipeline.top_level import Pipeline
 from pipeline.preprocessing import Preprocessor
 from pipeline.ref_maker import RefMaker
 
-import util.radec
 from util.logger import SCLogger
 
 
@@ -180,7 +173,7 @@ class DECamRefFetcher:
                 # I know that sometimes this fails, so try it up
                 try:
                     identifier = origexps.exposure_origin_identifier( i )
-                except Exception as ex:
+                except Exception:
                     omitdexen.add( i )
                 else:
                     existing = sess.query( Exposure ).filter( Exposure.origin_identifier==identifier ).all()
@@ -329,6 +322,7 @@ class DECamRefFetcher:
             submitted = set()
             success = {}
             message = {}
+
             def collate( res ):
                 SCLogger.info( f"Got {res[2]} for chip {res[1]} ({res[3]})" )
                 success[ res[1] ] = res[2]
@@ -346,25 +340,25 @@ class DECamRefFetcher:
 
             if len(success) != len(submitted):
                 strio = io.StringIO()
-                strio.write( f"Exposure failure, not enough responses\n"
-                             f"************************************************************\n" )
+                strio.write( "Exposure failure, not enough responses\n"
+                             "************************************************************\n" )
                 strio.write( f"   FAILED for exposure {os.path.basename(exposure.filepath)}: "
                              f"only {len(success)} responses "
                              f"from subprocesses, expected {len(submitted)}\n" )
-                strio.write( f"************************************************************" )
+                strio.write( "************************************************************" )
                 SCLogger.error( strio.getvalue() )
 
             succeeded = set( k for k, v in success.items() if v )
             failed = set( k for k, v in success.items() if not v )
             if len(failed) > 0:
                 strio = io.StringIO()
-                strio.write( f"Exposure failure, error returns\n"
-                             f"************************************************************\n" )
+                strio.write( "Exposure failure, error returns\n"
+                             "************************************************************\n" )
                 strio.write( f"   FAILED for exposure {os.path.basename(exposure.filepath)}: "
                              f"the following sensor sections reported failure: {failed}\n" )
                 for failure in failed:
                     strio.write( f"   {failure}: {message[failure]}\n" )
-                strio.write( f"************************************************************" )
+                strio.write( "************************************************************" )
                 SCLogger.error( strio.getvalue() )
 
             SCLogger.info( f"Finished with exposure\n"
@@ -399,13 +393,13 @@ class DECamRefFetcher:
         maxseeingcache = self.max_seeing
         mindepthcache = self.min_depth
 
-        SCLogger.info( f"============ Initial identification of existing images ============" )
+        SCLogger.info( "============ Initial identification of existing images ============" )
         self.min_exptime = None
         self.identify_existing_images( )
         self.log_position_counts( ">>>>> After initial database search, " )
 
         if self.do_i_have_enough():
-            SCLogger.info( f"============ We're done! ============" )
+            SCLogger.info( "============ We're done! ============" )
         elif not self.only_local:
             done = False
             first = True
@@ -418,23 +412,23 @@ class DECamRefFetcher:
                     self.min_depth = None
 
                 if ( self.min_depth is not None ) or ( self.max_seeing is not None ):
-                    SCLogger.info( f"============ Pull NOIRLab exposures with known quality ============" )
+                    SCLogger.info( "============ Pull NOIRLab exposures with known quality ============" )
                 else:
-                    SCLogger.info( f"============ Pull whatever NOIRLab exposures and hope ============" )
+                    SCLogger.info( "============ Pull whatever NOIRLab exposures and hope ============" )
                 origexps, usefuldexen, match_counts = self.identify_useful_remote_exposures()
                 if ( ( not first ) or ( self.no_fallback ) ) and ( len( usefuldexen ) == 0 ):
-                    SCLogger.error( f"============ Ran out of NOIRLab exposures before we were done ============" )
+                    SCLogger.error( "============ Ran out of NOIRLab exposures before we were done ============" )
                     done = True
-                self.log_position_counts( f">>>>> After identifying NOIRLab exposures, expect ", match_counts )
+                self.log_position_counts( ">>>>> After identifying NOIRLab exposures, expect ", match_counts )
                 self.download_and_extract( origexps, usefuldexen )
 
                 self.min_exptime = None
                 self.max_seeing = maxseeingcache
                 self.min_depth = mindepthcache
                 self.identify_existing_images()
-                self.log_position_counts( f">>>>> After latest iteration pulling from NOIRlab: " )
+                self.log_position_counts( ">>>>> After latest iteration pulling from NOIRlab: " )
                 if self.do_i_have_enough():
-                    SCLogger.info( f"============ We're done! ============" )
+                    SCLogger.info( "============ We're done! ============" )
                     done = True
 
                 first = False
@@ -455,9 +449,9 @@ class DECamRefFetcher:
                     strio.write( f"    ============ Position {pos}: {self.match_counts[chip][pos]:2d} "
                                  f" (RA={self.match_poses[chip][pos][0]:.5f}, "
                                  f"Dec={self.match_poses[chip][pos][1]:.5f})\n" )
-                strio.write( f"    ============ Ref Images:\n" )
-                strio.write( f"        Seeing  Lim_Mag  RA         Dec        Filepath\n" )
-                strio.write( f"        ------  -------  ---------  ---------  --------\n" )
+                strio.write( "    ============ Ref Images:\n" )
+                strio.write( "        Seeing  Lim_Mag  RA         Dec        Filepath\n" )
+                strio.write( "        ------  -------  ---------  ---------  --------\n" )
                 for img in self.chipimages[chip]:
                     strio.write( f"        {img.fwhm_estimate:6.2f}  {img.lim_mag_estimate:7.2f}  "
                                  f"{img.ra:9.2f}  {img.dec:9.2f}  {img.filepath}\n" )
@@ -469,6 +463,7 @@ class DECamRefFetcher:
 class MyArgFormatter( argparse.ArgumentDefaultsHelpFormatter ): # , argparse.RawDescriptionHelpFormatter ):
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
+
 
 def main():
     SCLogger.info( f"sys.argv: {sys.argv}" )

@@ -104,7 +104,8 @@ class PSFPaletteMaker:
                         self.img[yi, xi] = self.flux * self.psfpixel( xc, yc, xi, yi )
 
         # Have to have some noise in there, or sextractor will choke on the image
-        self.img += np.random.normal( 0., self.noiselevel, self.img.shape )
+        rng = np.random.default_rng()
+        self.img += rng.normal( 0., self.noiselevel, self.img.shape )
 
         hdu = fits.PrimaryHDU( data=self.img )
         hdu.writeto( self.imagename, overwrite=True )
@@ -157,7 +158,7 @@ class PSFPaletteMaker:
         # Run psfex to get the psf and psfxml files
         command = [ 'psfex',
                     '-PSF_SIZE', '31',
-                    '-SAMPLE_FWHMRANGE', f'1.0,10.0',
+                    '-SAMPLE_FWHMRANGE', '1.0,10.0',
                     '-SAMPLE_VARIABILITY', '0.5',
                     '-CHECKPLOT_DEV', 'NULL',
                     '-CHECKPLOT_TYPE', 'NONE',
@@ -227,14 +228,14 @@ def check_example_psfex_psf_values( psf ):
 
 
 def test_read_psfex_psf( ztf_filepaths_image_sources_psf ):
-    im, wt, fl, sr, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
+    _, _, _, _, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
     psf = PSF( format='psfex' )
     psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
     check_example_psfex_psf_values( psf )
 
 
 def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
-    image, weight, flags, sourcepath, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
+    image, weight, flags, _, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
     psf = PSF( format='psfex' )
     psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
 
@@ -303,6 +304,7 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
         archive.delete(psfpath, okifmissing=True)
         archive.delete(psfxmlpath, okifmissing=True)
 
+
 def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
     try:
         im = ztf_datastore_uncommitted.image
@@ -348,6 +350,7 @@ def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra 
 
         with SmartSession() as session:
             session.execute( sa.delete( Provenance ).filter( Provenance._id.in_( [ improv.id, srcprov.id ] ) ) )
+
 
 @pytest.mark.skip(reason="This test regularly fails, even when flaky is used. See Issue #263")
 def test_free( decam_datastore ):
@@ -441,7 +444,7 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     n = 0
     for x in psf_palette.xpos:
         for y in psf_palette.ypos:
-            ix = int( np.floor( x + 0.5 ) )
+            # ix = int( np.floor( x + 0.5 ) )
             iy = int( np.floor( y + 0.5 ) )
             chisq += np.square( resid[ iy - halfwid : iy + halfwid + 1 ]
                                 * weight[ iy - halfwid : iy + halfwid + 1 ] ).sum()

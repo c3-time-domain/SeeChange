@@ -1,20 +1,16 @@
 import pytest
 import uuid
 import numpy as np
-import os
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
 import psycopg2.errors
 
 from models.base import SmartSession
 from models.provenance import Provenance
-from models.image import Image
-from models.source_list import SourceList
-from models.zero_point import ZeroPoint
-from models.cutouts import Cutouts
+from models.image import Image  # noqa: F401
 from models.measurements import Measurements
 from pipeline.data_store import DataStore
+
 
 def test_measurements_attributes(measurer, ptf_datastore, test_config):
     ds = ptf_datastore
@@ -36,8 +32,10 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     # ...these don't pass.  I see typicaly differences of 0.5".  This alarms me.
     # But, it probably has something to do with the positions found by the filter detection
     # method used with zogy.  Maybe worth understanding, but leave it be for now.
-    # assert all( m.ra == pytest.approx( ds.detections.ra[m.index_in_sources], abs=0.1/3600. ) for m in ds.measurements )
-    # assert all( m.dec == pytest.approx( ds.detections.dec[m.index_in_sources], abs=0.1/3600. ) for m in ds.measurements )
+    # assert all( m.ra == pytest.approx( ds.detections.ra[m.index_in_sources], abs=0.1/3600. )
+    #             for m in ds.measurements )
+    # assert all( m.dec == pytest.approx( ds.detections.dec[m.index_in_sources], abs=0.1/3600. )
+    #             for m in ds.measurements )
 
     # grab one example measurements object
     m = ds.measurements[0]
@@ -51,7 +49,6 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     assert m.zp.id == ds.zp.id
 
     # check some basic values
-    new_im = ds.image
     assert np.allclose(m.aper_radii, m.zp.aper_cor_radii)
     assert np.allclose( m.zp.aper_cor_radii, ds.psf.fwhm_pixels * np.array(aper_radii) )
 
@@ -101,9 +98,10 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
 
     iterations = 1000
     mags = np.zeros(iterations)
+    rng = np.random.default_rng()
     for i in range(iterations):
-        m.flux_psf = np.random.normal(fiducial_flux, fiducial_flux_err)
-        m.zp.zp = np.random.normal(fiducial_zp, fiducial_zp_err)
+        m.flux_psf = rng.normal(fiducial_flux, fiducial_flux_err)
+        m.zp.zp = rng.normal(fiducial_zp, fiducial_zp_err)
         mags[i] = m.magnitude
 
     m.flux_apertures[m.best_aperture] = fiducial_flux
@@ -273,6 +271,7 @@ def test_threshold_flagging(ptf_datastore, measurer):
     m.disqualifier_scores['negatives'] = 0.9 # a value that would fail both (earlier)
     assert measurer.compare_measurement_to_thresholds(m) == "delete"
 
+
 # This really ought to be in pipeline/test_measuring.py
 def test_deletion_thresh_is_non_critical( ptf_datastore_through_cutouts, measurer ):
 
@@ -347,6 +346,8 @@ def test_measurements_forced_photometry(ptf_datastore):
     # print(f'Flux regular, small: {m.flux_apertures[1]}+-{m.flux_apertures_err[1]} over area: {m.area_apertures[1]}')
     # print(f'Flux regular, big: {m.flux_apertures[-1]}+-{m.flux_apertures_err[-1]} over area: {m.area_apertures[-1]}')
     # print(f'Flux regular, PSF: {m.flux_psf}+-{m.flux_psf_err} over area: {m.area_psf}')
-    # print(f'Flux small aperture: {flux_small_aperture[0]}+-{flux_small_aperture[1]} over area: {flux_small_aperture[2]}')
-    # print(f'Flux big aperture: {flux_large_aperture[0]}+-{flux_large_aperture[1]} over area: {flux_large_aperture[2]}')
+    # print(f'Flux small aperture: {flux_small_aperture[0]}+-{flux_small_aperture[1]} '
+    #       f'over area: {flux_small_aperture[2]}')
+    # print(f'Flux big aperture: {flux_large_aperture[0]}+-{flux_large_aperture[1]} '
+    #       f'over area: {flux_large_aperture[2]}')
     # print(f'Flux PSF forced: {flux_psf[0]}+-{flux_psf[1]} over area: {flux_psf[2]}')

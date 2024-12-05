@@ -310,4 +310,3 @@ class Alerting:
 
         producer.flush()
         return nsent
-

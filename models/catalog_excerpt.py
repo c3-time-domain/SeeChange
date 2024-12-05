@@ -1,6 +1,3 @@
-import random
-import numpy
-import math
 import uuid
 from contextlib import contextmanager
 
@@ -41,7 +38,7 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
     __tablename__ = 'catalog_excerpts'
 
     @declared_attr
-    def __table_args__( cls ):
+    def __table_args__( cls ):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                              '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
@@ -63,7 +60,7 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
         return CatalogExcerptFormatConverter.convert(self._format)
 
     @format.expression
-    def format( cls ):
+    def format( cls ):  # noqa: N805
         return sa.case( CatalogExcerptFormatConverter.dict, value=cls._format )
 
     @format.setter
@@ -82,7 +79,7 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
         return CatalogExcerptOriginConverter.convert( self._origin )
 
     @origin.expression
-    def origin( cls ):
+    def origin( cls ):  # noqa: N805
         return sa.case( CatalogExcerptOriginConverter.dict, value=cls._origin )
 
     @origin.setter
@@ -330,7 +327,6 @@ class GaiaDR3DownloadLock(Base, UUIDMixin):
                         # Release the lock, wait, try again
                         conn.rollback()
                         SCLogger.debug( "...waiting for gaiadr3 downloadlock..." )
-                        tsleep = 0.2 + math.fabs( random.normalvariate( mu=0., sigma=1. ) )
 
                 # If we get here, we're holding a lock
                 q = ( "INSERT INTO gaiadr3_downloadlock(_id,minra,maxra,mindec,maxdec,minmag,maxmag) "

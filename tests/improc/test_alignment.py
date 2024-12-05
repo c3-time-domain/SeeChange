@@ -8,10 +8,7 @@ import subprocess
 import numpy as np
 import astropy.wcs
 
-import sqlalchemy as sa
-
 from models.base import SmartSession
-from models.provenance import Provenance
 from models.image import Image
 from models.background import Background
 from models.source_list import SourceList
@@ -21,6 +18,7 @@ from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 from improc.alignment import ImageAligner
 from pipeline.coaddition import Coadder
 from util.util import env_as_bool
+
 
 # Putting this in RUN_SLOW_TESTS because there are a couple of 60-second timeouts.
 # Good to have this test to run sometimes, but basic functionality of swarp_fodder_wcs

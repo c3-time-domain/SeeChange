@@ -13,7 +13,6 @@ from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bit
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from util.config import Config
 from util.logger import SCLogger
 from util.util import env_as_bool
 
@@ -115,8 +114,6 @@ class Preprocessor:
                 raise RuntimeError( "Preprocessing requires an exposure and a sensor section" )
 
             self.pars.do_warning_exception_hangup_injection_here()
-
-            cfg = Config.get()
 
             if ( self.instrument is None ) or ( self.instrument.name != ds.exposure.instrument ):
                 self.instrument = ds.exposure.instrument_object
@@ -228,14 +225,15 @@ class Preprocessor:
 
                     # Use the cached calibrator file for this step if it's the right one; otherwise, grab it
                     if ( stepfileid in self.stepfilesids ) and ( self.stepfilesids[step] == stepfileid ):
-                        calibfile = self.stepfiles[ calibfile ]
+                        calibfile = self.stepfiles[ stepfileid ]
                     else:
 
                         with SmartSession( session ) as session:
                             if step in [ 'zero', 'dark', 'flat', 'illumination', 'fringe' ]:
                                 calibfile = session.get( Image, stepfileid )
                                 if calibfile is None:
-                                    raise RuntimeError( f"Unable to load image id {stepfileid} for preproc step {step}" )
+                                    raise RuntimeError( f"Unable to load image id {stepfileid} "
+                                                        f"for preproc step {step}" )
                             elif step == 'linearity':
                                 calibfile = session.get( DataFile, stepfileid )
                                 if calibfile is None:

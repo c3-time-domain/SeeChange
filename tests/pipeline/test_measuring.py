@@ -1,11 +1,7 @@
-import time
-
 import pytest
 import uuid
 
 import numpy as np
-
-from models.base import SmartSession
 
 from improc.tools import make_gaussian
 
@@ -16,6 +12,7 @@ from tests.conftest import SKIP_WARNING_TESTS
 def test_measuring( decam_default_calibrators, decam_datastore_through_cutouts ):
     ds = decam_datastore_through_cutouts
     measurer = ds._pipeline.measurer
+    rng = np.random.default_rng()
 
     measurer.pars.test_parameter = uuid.uuid4().hex
     measurer.pars.bad_pixel_exclude = ['saturated']  # ignore saturated pixels
@@ -29,63 +26,68 @@ def test_measuring( decam_default_calibrators, decam_datastore_through_cutouts )
 
     # clear any flags for the fake data we are using
     for i in range(14):
-        ds.cutouts.co_dict[f"source_index_{i}"]["sub_flags"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_{i}"]["sub_flags"])
+        ds.cutouts.co_dict[f"source_index_{i}"]["sub_flags"] = (
+            np.zeros_like(ds.cutouts.co_dict[f"source_index_{i}"]["sub_flags"]) )
 
     # delta function
-    ds.cutouts.co_dict[f"source_index_0"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
-    ds.cutouts.co_dict[f"source_index_0"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
+    ds.cutouts.co_dict["source_index_0"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict["source_index_0"]["sub_data"])
+    ds.cutouts.co_dict["source_index_0"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
 
     # shifted delta function
-    ds.cutouts.co_dict[f"source_index_1"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
-    ds.cutouts.co_dict[f"source_index_1"]["sub_data"][sz[0] // 2 + 2, sz[1] // 2 + 3] = 200.0
+    ds.cutouts.co_dict["source_index_1"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict["source_index_0"]["sub_data"])
+    ds.cutouts.co_dict["source_index_1"]["sub_data"][sz[0] // 2 + 2, sz[1] // 2 + 3] = 200.0
 
     # gaussian
-    ds.cutouts.co_dict[f"source_index_2"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, norm=1) * 1000
+    ds.cutouts.co_dict["source_index_2"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, norm=1) * 1000
 
     # shifted gaussian
-    ds.cutouts.co_dict[f"source_index_3"]["sub_data"] = make_gaussian(
+    ds.cutouts.co_dict["source_index_3"]["sub_data"] = make_gaussian(
         imsize=sz[0], sigma_x=fwhm / 2.355, norm=1, offset_x=-2, offset_y=-3
     ) * 500
 
     # dipole
-    ds.cutouts.co_dict[f"source_index_4"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_4"]["sub_data"])
-    ds.cutouts.co_dict[f"source_index_4"]["sub_data"] += make_gaussian(
+    ds.cutouts.co_dict["source_index_4"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict["source_index_4"]["sub_data"])
+    ds.cutouts.co_dict["source_index_4"]["sub_data"] += make_gaussian(
         imsize=sz[0], sigma_x=fwhm / 2.355, norm=1, offset_x=-1, offset_y=-0.8
     ) * 500
-    ds.cutouts.co_dict[f"source_index_4"]["sub_data"] -= make_gaussian(
+    ds.cutouts.co_dict["source_index_4"]["sub_data"] -= make_gaussian(
         imsize=sz[0], sigma_x=fwhm / 2.355, norm=1, offset_x=1, offset_y=0.8
     ) * 500
 
     # shifted gaussian with noise
-    ds.cutouts.co_dict[f"source_index_5"]["sub_data"] = ds.cutouts.co_dict[f"source_index_3"]["sub_data"] + np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict["source_index_5"]["sub_data"] = (
+        ds.cutouts.co_dict["source_index_3"]["sub_data"] + rng.normal(0, 1, size=sz) )
 
     # dipole with noise
-    ds.cutouts.co_dict[f"source_index_6"]["sub_data"] = ds.cutouts.co_dict[f"source_index_4"]["sub_data"] + np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict["source_index_6"]["sub_data"] = (
+        ds.cutouts.co_dict["source_index_4"]["sub_data"] + rng.normal(0, 1, size=sz) )
 
     # delta function with bad pixel
-    ds.cutouts.co_dict[f"source_index_7"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
-    ds.cutouts.co_dict[f"source_index_7"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
-    ds.cutouts.co_dict[f"source_index_7"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 2] = 1  # bad pixel
+    ds.cutouts.co_dict["source_index_7"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict["source_index_0"]["sub_data"])
+    ds.cutouts.co_dict["source_index_7"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
+    ds.cutouts.co_dict["source_index_7"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 2] = 1  # bad pixel
 
     # delta function with bad pixel and saturated pixel
-    ds.cutouts.co_dict[f"source_index_8"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
-    ds.cutouts.co_dict[f"source_index_8"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
-    ds.cutouts.co_dict[f"source_index_8"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 1] = 1  #bad pixel
-    ds.cutouts.co_dict[f"source_index_8"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 + 1] = 4  #saturated should be ignored!
+    ds.cutouts.co_dict["source_index_8"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict["source_index_0"]["sub_data"])
+    ds.cutouts.co_dict["source_index_8"]["sub_data"][sz[0] // 2, sz[1] // 2] = 100.0
+    ds.cutouts.co_dict["source_index_8"]["sub_flags"][sz[0] // 2 + 2, sz[1] // 2 + 1] = 1  #bad pixel
+    ds.cutouts.co_dict["source_index_8"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 + 1] = 4  #saturated should be ignored!
 
     # delta function with offset that makes it far from the bad pixel
-    ds.cutouts.co_dict[f"source_index_9"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict[f"source_index_0"]["sub_data"])
-    ds.cutouts.co_dict[f"source_index_9"]["sub_data"][sz[0] // 2 + 3, sz[1] // 2 + 3] = 100.0
-    ds.cutouts.co_dict[f"source_index_9"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 - 2] = 1  # bad pixel
+    ds.cutouts.co_dict["source_index_9"]["sub_data"] = np.zeros_like(ds.cutouts.co_dict["source_index_0"]["sub_data"])
+    ds.cutouts.co_dict["source_index_9"]["sub_data"][sz[0] // 2 + 3, sz[1] // 2 + 3] = 100.0
+    ds.cutouts.co_dict["source_index_9"]["sub_flags"][sz[0] // 2 - 2, sz[1] // 2 - 2] = 1  # bad pixel
 
     # gaussian that is too wide
-    ds.cutouts.co_dict[f"source_index_10"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355 * 2, norm=1) * 1000
-    ds.cutouts.co_dict[f"source_index_10"]["sub_data"] += np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict["source_index_10"]["sub_data"] = (
+        make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355 * 2, norm=1) * 1000 )
+    ds.cutouts.co_dict["source_index_10"]["sub_data"] += rng.normal(0, 1, size=sz)
 
     # streak
-    ds.cutouts.co_dict[f"source_index_11"]["sub_data"] = make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, sigma_y=20, rotation=25, norm=1)
-    ds.cutouts.co_dict[f"source_index_11"]["sub_data"] *= 1000
-    ds.cutouts.co_dict[f"source_index_11"]["sub_data"] += np.random.normal(0, 1, size=sz)
+    ds.cutouts.co_dict["source_index_11"]["sub_data"] = (
+        make_gaussian(imsize=sz[0], sigma_x=fwhm / 2.355, sigma_y=20, rotation=25, norm=1) )
+    ds.cutouts.co_dict["source_index_11"]["sub_data"] *= 1000
+    ds.cutouts.co_dict["source_index_11"]["sub_data"] += rng.normal(0, 1, size=sz)
 
     # run the measurer
     ds = measurer.run( ds )
@@ -187,14 +189,14 @@ def test_measuring( decam_default_calibrators, decam_datastore_through_cutouts )
     assert m.disqualifier_scores['filter bank'] == 1
     assert m.get_filter_description( psf=ds.psf ) == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
 
-    m = [m for m in ds.all_measurements if m.index_in_sources == 8][0]  # delta function with bad pixel and saturated pixel
+    m = [m for m in ds.all_measurements if m.index_in_sources == 8][0]  # δ function with bad pixel and saturated pixel
     assert m.disqualifier_scores['negatives'] == 0
     assert m.disqualifier_scores['bad pixels'] == 1  # we set to ignore the saturated pixel!
     assert m.disqualifier_scores['offsets'] < 0.01
     assert m.disqualifier_scores['filter bank'] == 1
     assert m.get_filter_description( psf=ds.psf ) == f'PSF mismatch (FWHM= 0.25 x {fwhm:.2f})'
 
-    m = [m for m in ds.all_measurements if m.index_in_sources == 9][0]  # delta function with offset that makes it far from the bad pixel
+    m = [m for m in ds.all_measurements if m.index_in_sources == 9][0]  # δ function far from the bad pixel
     assert m.disqualifier_scores['negatives'] == 0
     assert m.disqualifier_scores['bad pixels'] == 0
     assert m.disqualifier_scores['offsets'] == pytest.approx(np.sqrt(3 ** 2 + 3 ** 2), abs=0.1)

@@ -2,8 +2,6 @@ import pytest
 
 import sqlalchemy as sa
 
-from util.logger import SCLogger
-
 from models.base import SmartSession
 
 from pipeline.preprocessing import Preprocessor
@@ -220,6 +218,7 @@ def measurer_factory(test_config):
 def measurer(measurer_factory):
     return measurer_factory()
 
+
 @pytest.fixture(scope='session')
 def scorer_factory(test_config):
 
@@ -235,9 +234,11 @@ def scorer_factory(test_config):
 
     return make_scorer
 
+
 @pytest.fixture
 def scorer(scorer_factory):
     return scorer_factory()
+
 
 @pytest.fixture(scope='session')
 def pipeline_factory(

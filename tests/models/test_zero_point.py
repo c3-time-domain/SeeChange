@@ -4,7 +4,6 @@ import sqlalchemy as sa
 import psycopg2.errors
 
 from models.base import SmartSession
-from models.provenance import Provenance
 from models.zero_point import ZeroPoint
 
 
@@ -53,8 +52,3 @@ def test_zeropoint_committing(ztf_datastore_uncommitted, provenance_base, proven
             session.commit()
 
         ds.image.delete_from_disk_and_database( remove_downstreams=True )
-
-
-
-
-

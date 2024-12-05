@@ -54,7 +54,7 @@ def calc_sky_flat(images, iterations=3, nsigma=3.0, median=True):
 
     im = images.copy() / mean_sky
 
-    mean, rms = sigma_clipping(im, nsigma=nsigma, iterations=iterations, axis=0, median=median)
+    mean, _ = sigma_clipping(im, nsigma=nsigma, iterations=iterations, axis=0, median=median)
 
     return mean
 

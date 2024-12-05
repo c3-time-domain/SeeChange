@@ -6,6 +6,7 @@ from util.util import listify, ensure_file_does_not_exist
 
 # TODO : tests other than fits file reading/saving
 
+
 def test_listify():
     assert listify( None ) is None
     assert listify( ( None, ) ) == [ None ]
@@ -20,11 +21,11 @@ def test_listify():
     assert listify( ( "a", "b", "c" ), require_string=True ) == [ "a", "b", "c" ]
 
     with pytest.raises( TypeError ):
-        l = listify( 1, require_string=True )
+        _ = listify( 1, require_string=True )
     with pytest.raises( TypeError ):
-        l = listify( [ 1, 2, 3], require_string=True )
+        _ = listify( [ 1, 2, 3], require_string=True )
     with pytest.raises( TypeError ):
-        l = listify( [ "a", 1 ], require_string=True )
+        _ = listify( [ "a", 1 ], require_string=True )
 
 
 def test_ensure_file_does_not_exist():
@@ -64,4 +65,3 @@ def test_ensure_file_does_not_exist():
                 fpath.unlink()
             else:
                 fpath.rmdir()
-

@@ -11,7 +11,7 @@ from tests.conftest import SKIP_WARNING_TESTS
 
 def test_subtraction_data_products( ptf_ref, ptf_supernova_image_datastores ):
     assert len(ptf_supernova_image_datastores) == 2
-    ds1, ds2 = ptf_supernova_image_datastores
+    ds1, _ = ptf_supernova_image_datastores
 
     assert ds1.sources is not None
     assert ds1.psf is not None
@@ -51,7 +51,7 @@ def test_subtraction_data_products( ptf_ref, ptf_supernova_image_datastores ):
 
 def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     assert len(ptf_supernova_image_datastores) == 2
-    ds1, ds2 = ptf_supernova_image_datastores
+    ds1, _ = ptf_supernova_image_datastores
     subtractor = ds1._pipeline.subtractor
 
     # run the subtraction like you'd do in the real pipeline (calls get_reference and get_subtraction internally)
@@ -103,7 +103,7 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
 
 def test_subtraction_ptf_hotpants( ptf_ref, ptf_supernova_image_datastores ):
     assert len( ptf_supernova_image_datastores ) == 2
-    ds1, ds2 = ptf_supernova_image_datastores
+    ds1, _ = ptf_supernova_image_datastores
     subtractor = ds1._pipeline.subtractor
     detector = ds1._pipeline.detector
 
@@ -156,7 +156,8 @@ def test_warnings_and_exceptions( decam_datastore_through_zp, decam_reference, d
             subtractor.run( ds )
         assert ds.exception is None
         assert len(record) > 0
-        assert any("Warning injected by pipeline parameters in process 'subtraction'." in str(w.message) for w in record)
+        assert any("Warning injected by pipeline parameters in process 'subtraction'." in str(w.message)
+                   for w in record)
 
     subtractor.pars.inject_warnings = 0
     subtractor.pars.inject_exceptions = 1

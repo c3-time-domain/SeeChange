@@ -7,8 +7,6 @@
 import os
 import shutil
 import json
-import uuid
-import datetime
 
 import sqlalchemy as sa
 
@@ -72,7 +70,7 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
                 len(FoD.filepath_extensions) > 0 and
                 not json_filepath.endswith(FoD.filepath_extensions[0])
         ):
-                json_filepath += FoD.filepath_extensions[0]  # only append this extension to the json filename
+            json_filepath += FoD.filepath_extensions[0]  # only append this extension to the json filename
 
     # attach the cache_dir and the .json extension if needed
     json_filepath = os.path.join(cache_dir, json_filepath)
@@ -288,7 +286,6 @@ def copy_list_from_cache(cls, cache_dir, filepath):
         json_list = json.load(fp)
 
     output = []
-    now = datetime.datetime.now( tz=datetime.timezone.utc )
     for obj_dict in json_list:
         newobj = cls.from_dict( obj_dict )
         output.append( newobj )
@@ -319,4 +316,3 @@ def copy_list_from_cache(cls, cache_dir, filepath):
 
 
 # ======================================================================
-

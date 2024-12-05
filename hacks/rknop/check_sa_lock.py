@@ -1,12 +1,11 @@
 import sqlalchemy as sa
 
-from models.image import Image
 from models.base import SmartSession
 
 # Verify that locks created with sess.connection().execute() get released with sess.rollback()
 
 with SmartSession() as sess:
-    sess.connection().execute( sa.text( f'LOCK TABLE images' ) )
+    sess.connection().execute( sa.text( 'LOCK TABLE images' ) )
     import pdb; pdb.set_trace()
     # Run the following query on the database, there should be a lock on table images:
     #    SELECT d.datname, c.relname, l.transactionid, l.mode, l.granted
@@ -18,4 +17,3 @@ with SmartSession() as sess:
     import pdb; pdb.set_trace()
     # Run the query again, make sure there are no locks
     pass
-

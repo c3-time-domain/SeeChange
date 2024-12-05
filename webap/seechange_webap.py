@@ -4,14 +4,11 @@ import matplotlib
 matplotlib.use( "Agg" )
 # matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 # matplotlib.rc('text', usetex=True)  #  Need LaTeX in Dockerfile, not worth it
-from matplotlib import pyplot
 
 import sys
-import traceback
 import math
 import io
 import re
-import json
 import pathlib
 import logging
 import base64
@@ -67,9 +64,9 @@ class BaseView( flask.views.View ):
             self.conn = session.bind.raw_connection()
 
             if not self.check_auth():
-                return f"Not logged in", 500
+                return "Not logged in", 500
             if ( self._admin_required ) and ( not self.user.isadmin ):
-                return f"Action requires admin", 500
+                return "Action requires admin", 500
             try:
                 return self.do_the_things( *args, **kwargs )
             except Exception as ex:
@@ -99,6 +96,7 @@ class ProvTags( BaseView ):
                  'provenance_tags': tags
                 }
 
+
 # ======================================================================
 
 class ProvTagInfo( BaseView ):
@@ -127,6 +125,7 @@ class ProvTagInfo( BaseView ):
                       'measuring': 7,
                       'scoring': 8,
                       'report': 9 }
+
         def sorter( row ):
             if row[columns['process']] in provorder.keys():
                 val = f'{provorder[row[columns["process"]]]:02d}_{row[columns["_id"]]}'
@@ -139,6 +138,7 @@ class ProvTagInfo( BaseView ):
                    'tag': tag }
         retval.update( { c: [ r[columns[c]] for r in rows ] for c in columns.keys() } )
         return retval
+
 
 # ======================================================================
 
@@ -162,12 +162,13 @@ class CloneProvTag( BaseView ):
         cursor.execute( "SELECT provenance_id FROM provenance_tags WHERE tag=%(tag)s", { 'tag': existingtag } )
         rows = cursor.fetchall()
         for row in rows:
-            cursor.execute( f"INSERT INTO provenance_tags(_id,tag,provenance_id) "
-                            f"VALUES(%(id)s,%(tag)s,%(provid)s)",
+            cursor.execute( "INSERT INTO provenance_tags(_id,tag,provenance_id) "
+                            "VALUES(%(id)s,%(tag)s,%(provid)s)",
                             { 'id': uuid.uuid4(), 'tag': newtag, 'provid': row[0] } )
         self.conn.commit()
 
         return { 'status': 'ok' }
+
 
 # ======================================================================
 
@@ -178,7 +179,7 @@ class ProvenanceInfo( BaseView ):
                         "       p.is_bad, p.bad_comment, p.is_outdated, p.replaced_by, p.is_testing "
                         "FROM provenances p "
                         "WHERE p._id=%(provid)s ",
-                        { 'provid': provid } );
+                        { 'provid': provid } )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         row = cursor.fetchone()
         retval = { 'status': 'ok' }
@@ -187,7 +188,7 @@ class ProvenanceInfo( BaseView ):
         cursor.execute( "SELECT p._id, p.process FROM provenances p "
                         "INNER JOIN provenance_upstreams pu ON pu.upstream_id=p._id "
                         "WHERE pu.downstream_id=%(provid)s",
-                        { 'provid': provid } );
+                        { 'provid': provid } )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
         retval['upstreams'] = { c: [ row[i] for row in rows ] for c, i in columns.items() }
@@ -238,7 +239,6 @@ class Exposures( BaseView ):
         #  we'll do a different query if we're doing that.  Truthfully,
         #  asking for all provenance tags is going to be a mess for the
         #  user....  perhaps we should disable it?
-        haveputinwhere = False
         subdict = {}
         if data['provenancetag'] is None:
             q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.project, e.filter, e.filter_array, e.exp_time, '
@@ -645,7 +645,7 @@ class PngCutoutsForSubImage( BaseView ):
         rows = cursor.fetchall()
         sectionids = { c[cols['subimageid']]: c[cols['section_id']] for c in rows }
         cutoutsfiles = { c[cols['subimageid']]: c[cols['filepath']] for c in rows }
-        sourcesfiles = { c[cols['subimageid']]: c[cols['sources_path']] for c in rows }
+        # sourcesfiles = { c[cols['subimageid']]: c[cols['sources_path']] for c in rows }
         app.logger.debug( f"Got: {cutoutsfiles}" )
 
         app.logger.debug( f"Getting measurements for sub images {subids}" )
@@ -685,7 +685,7 @@ class PngCutoutsForSubImage( BaseView ):
             q += 'LIMIT %(limit)s OFFSET %(offset)s'
         subdict = { 'subids': tuple(subids), 'provtag': provtag, 'limit': limit, 'offset': offset }
         app.logger.debug( f"Sending query to get measurements: {cursor.mogrify(q,subdict)}" )
-        cursor.execute( q, subdict );
+        cursor.execute( q, subdict )
         cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
         app.logger.debug( f"Got {len(cols)} columns, {len(rows)} rows" )
@@ -839,7 +839,7 @@ class PngCutoutsForSubImage( BaseView ):
                 #   than one key for each detection (source_index_n keys),
                 #   then this next line will break.
                 for index_in_sources in range( len( hdf5files[subid] ) ):
-                    if not ( index_in_sources in already_done ):
+                    if index_in_sources not in already_done:
                         append_to_retval( subid, index_in_sources, section_id, None )
 
         for f in hdf5files.values():
@@ -927,6 +927,6 @@ for url, cls in urls.items():
         name = url
     else:
         usedurls[ url ] += 1
-        name = f"url.{usedurls[usr]}"
+        name = f"url.{usedurls[url]}"
 
     app.add_url_rule( url, view_func=cls.as_view(name), methods=["GET", "POST"], strict_slashes=False )

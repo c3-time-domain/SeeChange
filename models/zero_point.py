@@ -2,14 +2,11 @@ import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 
-from models.base import Base, SmartSession, UUIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
+from models.base import Base, UUIDMixin, HasBitFlagBadness, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
-from models.world_coordinates import WorldCoordinates
-from models.image import Image
-from models.source_list import SourceList, SourceListSibling
+from models.source_list import SourceListSibling
 
 
 class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
@@ -106,34 +103,34 @@ class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
     # The fields below are things that we've deprecated; these definitions
     #   are here to catch cases in the code where they're still used
 
-    @property
-    def sources( self ):
-        raise RuntimeError( f"Don't use ZeroPoint.sources, use sources_id" )
+    # @property
+    # def sources( self ):
+    #     raise RuntimeError( f"Don't use ZeroPoint.sources, use sources_id" )
 
-    @sources.setter
-    def sources( self, val ):
-        raise RuntimeError( f"Don't use ZeroPoint.sources, use sources_id" )
+    # @sources.setter
+    # def sources( self, val ):
+    #     raise RuntimeError( f"Don't use ZeroPoint.sources, use sources_id" )
 
-    @property
-    def image( self ):
-        raise RuntimeError( f"ZeroPoint.image is deprecated, don't use it" )
+    # @property
+    # def image( self ):
+    #     raise RuntimeError( f"ZeroPoint.image is deprecated, don't use it" )
 
-    @image.setter
-    def image( self, val ):
-        raise RuntimeError( f"ZeroPoint.image is deprecated, don't use it" )
+    # @image.setter
+    # def image( self, val ):
+    #     raise RuntimeError( f"ZeroPoint.image is deprecated, don't use it" )
 
-    @property
-    def provenance_id( self ):
-        raise RuntimeError( f"ZeroPoint.provenance_id is deprecated; get provenance from sources" )
+    # @property
+    # def provenance_id( self ):
+    #     raise RuntimeError( f"ZeroPoint.provenance_id is deprecated; get provenance from sources" )
 
-    @provenance_id.setter
-    def provenance_id( self, val ):
-        raise RuntimeError( f"ZeroPoint.provenance_id is deprecated; get provenance from sources" )
+    # @provenance_id.setter
+    # def provenance_id( self, val ):
+    #     raise RuntimeError( f"ZeroPoint.provenance_id is deprecated; get provenance from sources" )
 
-    @property
-    def provenance( self ):
-        raise RuntimeError( f"ZeroPoint.provenance is deprecated; get provenance from sources" )
+    # @property
+    # def provenance( self ):
+    #     raise RuntimeError( f"ZeroPoint.provenance is deprecated; get provenance from sources" )
 
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( f"ZeroPoint.provenance is deprecated; get provenance from sources" )
+    # @provenance.setter
+    # def provenance( self, val ):
+    #     raise RuntimeError( f"ZeroPoint.provenance is deprecated; get provenance from sources" )

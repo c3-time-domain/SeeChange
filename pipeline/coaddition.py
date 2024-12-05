@@ -7,9 +7,6 @@ import subprocess
 import numpy as np
 from numpy.fft import fft2, ifft2, fftshift
 
-from astropy.time import Time
-from astropy.io import fits
-
 from sep import Background
 
 from models.base import SmartSession, FileOnDiskMixin
@@ -31,9 +28,10 @@ from improc.tools import sigma_clipping
 import improc.tools
 
 from util.config import Config
-from util.util import listify, parse_session, save_fits_image_file, read_fits_image
+from util.util import save_fits_image_file, read_fits_image
 from util.exceptions import SubprocessFailure
 from util.logger import SCLogger
+
 
 class ParsCoadd(Parameters):
     def __init__(self, **kwargs):
@@ -196,7 +194,7 @@ class Coadder:
         outfl: ndarray
             The bit flags array after coaddition.
         """
-        if not all(type(image) == type(images[0]) for image in images):
+        if not all( isinstance(image, type(images[0]) ) for image in images):
             raise ValueError('Not all images are of the same type. ')
         if isinstance(images[0], Image):
             data = [image.data for image in images]
@@ -396,7 +394,7 @@ class Coadder:
             A matched-filtered score image of the coadded image.
 
         """
-        if not all(type(image) == type(images[0]) for image in images):
+        if not all( isinstance( image, type(images[0]) ) for image in images):
             raise ValueError('Not all images are of the same type. ')
 
         if isinstance(images[0], Image):
@@ -572,10 +570,10 @@ class Coadder:
             # Write out a bunch of temporary images that are the source images with an
             #   updated wcs in the header, and all scaled to the same zeropoint.
             for imgdex, ds in enumerate(data_store_list):
-                image_paths = ds.image.get_fullpath( as_list=True )
-                imdex = ds.image.filepath_extensions.index( '.image.fits' )
-                wtdex = ds.image.filepath_extensions.index( '.weight.fits' )
-                fldex = ds.image.filepath_extensions.index( '.flags.fits' )
+                # image_paths = ds.image.get_fullpath( as_list=True )
+                # imdex = ds.image.filepath_extensions.index( '.image.fits' )
+                # wtdex = ds.image.filepath_extensions.index( '.weight.fits' )
+                # fldex = ds.image.filepath_extensions.index( '.flags.fits' )
 
                 # Get a wcs for the source image using target image's source list as the RA/Dec catalog
                 dswcs = self.aligner.get_swarp_fodder_wcs( targds.image, targds.sources, targds.wcs, targds.zp,
@@ -638,8 +636,8 @@ class Coadder:
 
             command = [ 'swarp' ]
             command.extend( sumimgs )
-            command.extend( [ '-IMAGEOUT_NAME', str( tmpdir / f'coadd.fits' ),
-                              '-WEIGHTOUT_NAME', str( tmpdir / f'coadd.weight.fits' ),
+            command.extend( [ '-IMAGEOUT_NAME', str( tmpdir / 'coadd.fits' ),
+                              '-WEIGHTOUT_NAME', str( tmpdir / 'coadd.weight.fits' ),
                               '-RESCALE_WEIGHTS', 'N',
                               '-SUBTRACT_BACK', 'N',
                               '-RESAMPLE_DIR', swarp_resample_dir,
@@ -671,8 +669,8 @@ class Coadder:
             if res.returncode != 0:
                 raise SubprocessFailure( res )
 
-            data, hdr = read_fits_image( tmpdir / f'coadd.fits', output='both' )
-            weight = read_fits_image( tmpdir / f'coadd.weight.fits' )
+            data, hdr = read_fits_image( tmpdir / 'coadd.fits', output='both' )
+            weight = read_fits_image( tmpdir / 'coadd.weight.fits' )
             flags = np.zeros( weight.shape, dtype=np.int16 )
             # TODO : should probably use BitFlagConverter 'out of bounds' if we
             #   can figure out a way.  Look into swarp, see if it gives us this
@@ -847,12 +845,12 @@ class Coadder:
             index = 0
         elif self.pars['alignment_index'] == 'other':
             if alignment_target_datastore is None:
-                raise ValueError( f"alignment_index 'other' requires alignment_target_datastore" )
+                raise ValueError( "alignment_index 'other' requires alignment_target_datastore" )
             index = -1
         else:
             try:
                 index = int( self.pars['alignment_index'] )
-            except Exception as e:
+            except Exception:
                 raise ValueError( f"alignment_index must be 'first', 'last', 'other', or an integer, not "
                                   f"\"{self.pars['alignment_index']}\"" )
             if ( index < 0 ) or ( index >= len( data_store_list ) ):
@@ -876,7 +874,7 @@ class Coadder:
         else:
             # Other methods require alignment first
             if index < 0:
-                raise ValueError( f"Only alignment method swarp supports alignment_index=other" )
+                raise ValueError( "Only alignment method swarp supports alignment_index=other" )
 
             if aligned_datastores is not None:
                 SCLogger.debug( "Coadder using passed aligned datastores" )

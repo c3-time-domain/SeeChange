@@ -56,7 +56,8 @@ def test_read_ldac( ztf_filepath_sources ):
 
 
 def test_save_ldac():
-    fname = pathlib.Path( ''.join( np.random.choice( list('abcdefghijklmnopqrstuvwxyz'), 16 ) ) + '.fits' )
+    rng = np.random.default_rng()
+    fname = pathlib.Path( ''.join( rng.choice( list('abcdefghijklmnopqrstuvwxyz'), 16 ) ) + '.fits' )
     tab = Table( { 'a': np.array(  [ 1, 2, 3 ], dtype=np.float32 ),
                    'b': np.array( [4., 5., 6.] ) } )
     hdr = fits.Header( [ ( 'HELLO', 'WORLD', 'Comment' ),

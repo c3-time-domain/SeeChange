@@ -16,7 +16,7 @@ from util import ldac
 from models.base import SmartSession, FileOnDiskMixin
 from models.catalog_excerpt import CatalogExcerpt, GaiaDR3DownloadLock
 
-from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchException
+from util.exceptions import CatalogNotFoundError
 from util.util import listify
 from util.logger import SCLogger
 from util.config import Config
@@ -120,8 +120,7 @@ class Bandpass:
 
 
 def get_bandpasses_Gaia():
-    """Get a dictionary of Bandpass objects for each filter in Gaia.
-    """
+    """Get a dictionary of Bandpass objects for each filter in Gaia."""
     return dict(G=Bandpass(400, 850), BP=Bandpass(380, 650), RP=Bandpass(620, 900))
 
 
@@ -230,7 +229,7 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
                 SCLogger.debug( f"Exception trying to download ra=({ralow}:{rahigh}), dec=({declow}:{dechigh}), "
                                 f"mag=({minmag}:{maxmag}) from custom gaia server: {ex}" )
                 if i < 4:
-                    SCLogger.debug( f"Sleeping 1s and retrying gaia query" )
+                    SCLogger.debug( "Sleeping 1s and retrying gaia query" )
                     time.sleep( 1 )
         else:
             SCLogger.error( f"Repeated failures trying to download  ra=({ralow}:{rahigh}), dec=({declow}:{dechigh}), "
@@ -244,7 +243,7 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
         # ra spanning 0.  For now, we'll hope that the custom gaia dr3 server
         # is just working....
         if False:
-            SCLogger.info( f'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
+            SCLogger.info( 'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
 
             gaia_query = (
                 f"SELECT ra, dec, ra_error, dec_error, pm, pmra, pmdec, "

@@ -2,14 +2,13 @@ import pytest
 import uuid
 
 import sqlalchemy as sa
-from sqlalchemy.orm.exc import DetachedInstanceError
-from sqlalchemy.exc import IntegrityError
 import psycopg2.errors
 
 from models.base import SmartSession
 from models.provenance import CodeHash, CodeVersion, Provenance, ProvenanceTag
 
 from util.util import get_git_hash
+
 
 def test_code_versions( code_version ):
     cv = code_version
@@ -85,8 +84,6 @@ def test_provenances(code_version):
     try:
 
         with SmartSession() as session:
-            ninitprovs = session.query( Provenance ).count()
-
             p = Provenance(
                 process="test_process",
                 code_version_id=code_version.id,
@@ -282,8 +279,8 @@ def test_provenance_tag( code_version ):
         tmpprovs[0].insert_if_needed()
         delprovids.add( tmpprovs[0].id )
         with pytest.raises( RuntimeError,
-                            match=( f"The following provenances do not match the existing provenance for tag tagtest:\n"
-                                    f".*preprocessing" ) ):
+                            match=( "The following provenances do not match the existing provenance for tag tagtest:\n"
+                                    ".*preprocessing" ) ):
             ProvenanceTag.addtag( 'tagtest', tmpprovs )
         with SmartSession() as sess:
             assert sess.query( ProvenanceTag ).filter( ProvenanceTag.tag=='tagtest' ).count() == 3

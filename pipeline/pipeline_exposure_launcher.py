@@ -1,14 +1,11 @@
 import re
 import time
-import requests
-import binascii
 import multiprocessing
 import multiprocessing.pool
 import psutil
 import logging
 import argparse
 
-from util.config import Config
 from util.conductor_connector import ConductorConnector
 from util.logger import SCLogger
 
@@ -23,9 +20,10 @@ from models.instrument import get_instrument_instance
 
 # Gotta import the instruments we might use before instrument fills up
 # its cache of known instrument instances
-import models.decam
+import models.decam  # noqa: F401
 
 from pipeline.top_level import Pipeline
+
 
 class ExposureProcessor:
     def __init__( self, instrument, identifier, params, numprocs, onlychips=None,
@@ -82,7 +80,7 @@ class ExposureProcessor:
 
         SCLogger.info( f"Downloading exposure {self.identifier}..." )
         self.exposure = self.instrument.acquire_and_commit_origin_exposure( self.identifier, self.params )
-        SCLogger.info( f"...downloaded." )
+        SCLogger.info( "...downloaded." )
         # TODO : this Exposure object is going to be copied into every processor subprocess
         #   *Ideally* no data was loaded, only headers, so the amount of memory used is
         #   not significant, but we should investigate/verify this, and deal with it if
@@ -129,13 +127,13 @@ class ExposureProcessor:
     def collate( self, res ):
         """Collect responses from the processchip() parameters (for multiprocessing)."""
         chip, succ = res
-        self.results[ chip ] = res
+        self.results[ chip ] = succ
 
     def __call__( self ):
         """Run all the pipelines for the chips in the exposure."""
 
         if self.through_step == 'exposure':
-            SCLogger.info( f"Only running through exposure, not launching any image processes" )
+            SCLogger.info( "Only running through exposure, not launching any image processes" )
             return
 
         chips = self.instrument.get_section_ids()
@@ -149,7 +147,7 @@ class ExposureProcessor:
                 for chip in chips:
                     pool.apply_async( self.processchip, ( chip, ), {}, self.collate )
 
-                SCLogger.info( f"Submitted all worker jobs, waiting for them to finish." )
+                SCLogger.info( "Submitted all worker jobs, waiting for them to finish." )
                 pool.close()
                 pool.join()
         else:
@@ -242,8 +240,8 @@ class ExposureLauncher:
         try:
             data = self.conductor.send( url )
             if data['status'] != 'worker deleted':
-                SClogger.error( "Surprising response from conductor unregistering worker: {data}" )
-        except Exception as e:
+                SCLogger.error( "Surprising response from conductor unregistering worker: {data}" )
+        except Exception:
             SCLogger.exception( "Exception unregistering worker, continuing" )
 
     def send_heartbeat( self ):
@@ -276,7 +274,6 @@ class ExposureLauncher:
         """
 
         done = False
-        req = None
         n_processed = 0
         while not done:
             try:
@@ -311,7 +308,7 @@ class ExposureLauncher:
                                                         worker_log_level=self.worker_log_level )
                 SCLogger.info( f'Downloading and loading exposure {knownexp.identifier}...' )
                 exposure_processor.download_and_load_exposure()
-                SCLogger.info( f'...downloaded.  Launching process to handle all chips.' )
+                SCLogger.info( '...downloaded.  Launching process to handle all chips.' )
 
                 with SmartSession() as session:
                     knownexp = ( session.query( KnownExposure )
@@ -327,7 +324,7 @@ class ExposureLauncher:
                     SCLogger.info( f"Hit max {n_processed} exposures, existing" )
                     done = True
 
-            except Exception as ex:
+            except Exception:
                 if die_on_exception:
                     raise
                 else:
@@ -337,9 +334,11 @@ class ExposureLauncher:
 
 # ======================================================================
 
+
 class ArgFormatter( argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter ):
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
+
 
 def main():
     parser = argparse.ArgumentParser( 'pipeline_exposure_launcher.py',
@@ -396,6 +395,7 @@ pipelines to process each of the chips in the exposure.
         elaunch.unregister_worker()
 
 # ======================================================================
+
 
 if __name__ == "__main__":
     main()
