@@ -3,7 +3,7 @@ name: Run ruff Linter
 on:
   push:
     branches:
-      - mian
+      - main
   pull_request:
   workflow_dispatch:
 

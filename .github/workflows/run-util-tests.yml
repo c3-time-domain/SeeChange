@@ -3,7 +3,7 @@ name: Run Util Tests
 on:
   push:
     branches:
-      - mian
+      - main
   pull_request:
   workflow_dispatch:
 
