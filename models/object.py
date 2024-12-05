@@ -13,7 +13,7 @@ from astropy.coordinates import SkyCoord
 from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, SpatiallyIndexed
 from models.image import Image
 from models.cutouts import Cutouts
-from models.source_list import SourceList, Sources
+from models.source_list import SourceList
 from models.measurements import Measurements
 
 
@@ -139,7 +139,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
             if ( mjd_start is not None ) or ( mjd_end is not None ):
                 q = ( q.join( Cutouts, Measurements.cutouts_id==Cutouts._id )
-                      .join( SourceList, Cutouts.sources_id==Sources._id )
+                      .join( SourceList, Cutouts.sources_id==SourceList._id )
                       .join( Image, SourceList.image_id==Image.id ) )
                 if mjd_start is not None:
                     q = q.filter( Image.mjd >= mjd_start )
