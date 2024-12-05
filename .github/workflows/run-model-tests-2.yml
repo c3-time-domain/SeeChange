@@ -1,10 +1,11 @@
 name: Run Model Tests 2
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
-  workflow_run:
-    workflows: ['Run ruff Linter']
-    types: [completed]
 
 jobs:
   tests:
