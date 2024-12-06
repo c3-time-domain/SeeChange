@@ -761,7 +761,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
             else:
                 SCLogger.warning( "Report not available!" )
 
-
         # Make sure there are no residual exceptions caught in the datastore
         assert ds.exception is None
 

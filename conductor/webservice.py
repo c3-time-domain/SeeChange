@@ -220,12 +220,12 @@ class RegisterWorker( BaseView ):
                  'node_id': newworker.node_id,
                  'nexps': newworker.nexps }
 
+
 # ======================================================================
 # /unregisterworker
 #
 # Remove a Pipeline Worker registration.  Call with /unregsiterworker/n
 # where n is the integer ID of the pipeline worker.
-
 
 class UnregisterWorker( BaseView ):
     def do_the_things( self, pipelineworker_id ):
@@ -239,11 +239,11 @@ class UnregisterWorker( BaseView ):
                 session.commit()
         return { "status": "worker deleted" }
 
+
 # ======================================================================
 # /workerheartbeat
 #
 # Call at /workerheartbeat/n where n is the uuid of the pipeline worker
-
 
 class WorkerHeartbeat( BaseView ):
     def do_the_things( self, pipelineworker_id ):
