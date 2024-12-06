@@ -192,7 +192,7 @@ def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
     rng = np.random.default_rng()
-    im.flags = rng.uniform(0, 100, size=im.raw_data.shape, dtype=np.uint16)
+    im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint16)
 
     archive_dir = archive.test_folder_path
     single_fileness = test_config.value('storage.images.single_file')
