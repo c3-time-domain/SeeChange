@@ -111,8 +111,8 @@ def test_parameter_name_matches():
     assert "object has no attribute " in str(e)
 
     rng = np.random.default_rng()
-    int_par = rng.integers(2, 10)
-    float_par = rng.uniform(2, 10)
+    int_par = int( rng.integers(2, 10) )
+    float_par = float( rng.uniform(2, 10) )
 
     p = ParsDemoSubclass(Int_Par=int_par, FLOAT_P=float_par, plot=False, null=None)
     p._remove_underscores = True

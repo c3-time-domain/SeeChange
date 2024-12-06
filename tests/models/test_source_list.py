@@ -210,11 +210,15 @@ def test_read_sextractor( ztf_filepath_sources ):
 
     # Make sure those fields get properly auto-set
     sources = SourceList( format='sextrfits', filepath=filepath )
+    # Access the data property to get the data loaded
+    _ = sources.data
     assert sources.num_sources == 112
     assert sources.aper_rads == [ 1., 2.5 ]
 
     # Make sure we can read the file with the right things in place in those fields
     sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112, aper_rads=[ 1.0, 2.5 ] )
+    # Access the data property to get the data loaded
+    _ = sources.data
     assert len(sources.data) == 112
     assert sources.num_sources == 112
     assert sources.good.sum() == 105

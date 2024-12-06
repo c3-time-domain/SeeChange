@@ -28,10 +28,10 @@ def test_to_dict(data_dir):
     target = uuid.uuid4().hex
     rng = np.random.default_rng()
     filter = rng.choice( ['g', 'r', 'i', 'z', 'y'] )
-    mjd = rng.rand() * 10000
-    ra = rng.rand() * 360
-    dec = rng.rand() * 180 - 90
-    fwhm_estimate = rng.rand() * 10
+    mjd = rng.uniform() * 10000
+    ra = rng.uniform() * 360
+    dec = rng.uniform() * 180 - 90
+    fwhm_estimate = rng.uniform() * 10
 
     im1 = Image( target=target, filter=filter, mjd=mjd, ra=ra, dec=dec, fwhm_estimate=fwhm_estimate )
     output_dict = im1.to_dict()
@@ -374,9 +374,9 @@ def diskfile( diskfiletable ):
 
 def test_fileondisk_save_failuremodes( diskfile ):
     rng = np.random.default_rng()
-    data1 = rng.rand( 32 ).tobytes()
+    data1 = rng.uniform( size=32 ).tobytes()
     # md5sum1 = hashlib.md5( data1 ).hexdigest()
-    data2 = rng.rand( 32 ).tobytes()
+    data2 = rng.uniform( size=32 ).tobytes()
     # md5sum2 = hashlib.md5( data2 ).hexdigest()
     fname = "test_diskfile.dat"
     diskfile.filepath = fname
@@ -448,11 +448,11 @@ def test_fileondisk_save_singlefile( diskfile, archive, test_config, data_dir ):
     archive_dir = archive.test_folder_path
     diskfile.filepath = 'test_fileondisk_save.dat'
     rng = np.random.default_rng()
-    data1 = rng.rand( 32 ).tobytes()
+    data1 = rng.uniform( size=32 ).tobytes()
     md5sum1 = hashlib.md5( data1 ).hexdigest()
-    data2 = rng.rand( 32 ).tobytes()
+    data2 = rng.uniform( size=32 ).tobytes()
     md5sum2 = hashlib.md5( data2 ).hexdigest()
-    data3 = rng.rand( 32 ).tobytes()
+    data3 = rng.uniform( size=32 ).tobytes()
     md5sum3 = hashlib.md5( data3 ).hexdigest()
     assert md5sum1 != md5sum2
     assert md5sum2 != md5sum3
@@ -579,7 +579,7 @@ def test_fileondisk_save_singlefile_noarchive( diskfile ):
 
     diskfile.filepath = 'test_fileondisk_save.dat'
     rng = np.random.default_rng()
-    data1 = rng.rand( 32 ).tobytes()
+    data1 = rng.uniform( size=32 ).tobytes()
     md5sum1 = hashlib.md5( data1 ).hexdigest()
 
     cfg = config.Config.get()
@@ -600,11 +600,11 @@ def test_fileondisk_save_multifile( diskfile, archive, test_config):
     try:
         diskfile.filepath = 'test_fileondisk_save'
         rng = np.random.default_rng()
-        data1 = rng.rand( 32 ).tobytes()
+        data1 = rng.uniform( size=32 ).tobytes()
         md5sum1 = hashlib.md5( data1 ).hexdigest()
-        data2 = rng.rand( 32 ).tobytes()
+        data2 = rng.uniform( size=32 ).tobytes()
         md5sum2 = hashlib.md5( data2 ).hexdigest()
-        data3 = rng.rand( 32 ).tobytes()
+        data3 = rng.uniform( size=32 ).tobytes()
         md5sum3 = hashlib.md5( data3 ).hexdigest()
         assert md5sum1 != md5sum2
         assert md5sum2 != md5sum3
@@ -730,9 +730,9 @@ def test_fileondisk_save_multifile_noarchive( diskfile ):
 
     diskfile.filepath = 'test_fileondisk_save.dat'
     rng = np.random.default_rng()
-    data1 = rng.rand( 32 ).tobytes()
+    data1 = rng.uniform( size=32 ).tobytes()
     md5sum1 = hashlib.md5( data1 ).hexdigest()
-    data2 = rng.rand( 32 ).tobytes()
+    data2 = rng.uniform( size=32 ).tobytes()
     md5sum2 = hashlib.md5( data2 ).hexdigest()
     assert md5sum1 != md5sum2
 
