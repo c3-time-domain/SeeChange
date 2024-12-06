@@ -8,7 +8,7 @@
 
 project = 'SeeChange'
 copyright = '2024, The Regents of the University of California, through Lawrence Berkeley National Laboratory.'
-author = 'Guy Nir, Robert A. Knop, William Hohensee, Dan Fyczanowski'
+author = 'Guy Nir, Robert A. Knop, William Hohensee, Dan Ryczanowski'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

@@ -401,19 +401,6 @@ o
                 return 0
             return last_obj.id
 
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def measurements( self ):
-    #     raise RuntimeError( f"Object.measurements is deprecated, don't use it" )
-
-    # @measurements.setter
-    # def measurements( self, val ):
-    #     raise RuntimeError( f"Object.measurements is deprecated, don't use it" )
-
-
 
 # Issue #347 ; we may just delete the stuff below, or modify it.
 

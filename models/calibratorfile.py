@@ -370,23 +370,3 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
             for oldlock in oldlocks:
                 sess.delete( oldlock )
             sess.commit()
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def image( self ):
-    #     raise RuntimeError( f"Don't use CalibratorFile.image, use image_id" )
-
-    # @image.setter
-    # def image( self, val ):
-    #     raise RuntimeError( f"Don't use CalibratorFile.image, use image_id" )
-
-    # @property
-    # def datafile( self ):
-    #     raise RuntimeError( f"Don't use CalibratorFile.datafile, use datafile_id" )
-
-    # @datafile.setter
-    # def datafile( self, val ):
-    #     raise RuntimeError( f"Don't use CalibratorFile.datafile, use datafile_id" )

@@ -356,15 +356,3 @@ class Report(Base, UUIDMixin):
     def get_downstreams( self, session=None, siblings=False ):
         """Reports have no downstreams."""
         return []
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def exposure( self ):
-    #     raise RuntimeError( f"Don't use Report.exposure, use exposure_id" )
-
-    # @exposure.setter
-    # def exposure( self, val ):
-    #     raise RuntimeError( f"Don't use Report.exposure, use exposure_id" )

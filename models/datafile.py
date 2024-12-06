@@ -53,15 +53,3 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
             f'filepath={self.filepath}, '
             f'>'
         )
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def provenance( self ):
-    #     raise RuntimeError( f"Datafile.provenance is deprecated, don't use it" )
-
-    # @provenance.setter
-    # def provenance( self, val ):
-    #     raise RuntimeError( f"Datafile.provenance is deprecated, don't use it" )

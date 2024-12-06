@@ -2,12 +2,15 @@
 
 Here are some guidelines for contributing to this project.
 
+### Licensing
+
+The pipeline is licensed under the LBNL variant of the BSD 3-clause open source license— see the file `LICENSE` at the top level of the project.
 
 ### Style
 
 We run the `ruff` linter to check for errors and to enforce some style before running automated tests on pull requests.  The file `ruff.toml` lists exactly which ruff rules are enforced.  Many of the rules are checking for errors (local variables used before they're defined, imports that are never used, local variables assigned but never used, deprecated numpy routines, etc.).  However, it also does enforce a handful of style rules, including (but not limited to):
 
-- 120-character width lines
+- 120-character width lines.  (If you really must have a longer line, e.g for storing a gigantic base64 encoded string literal, add `  # noqa: E501` to the end of the line.)
 - 4-character indentation steps
 - indention with spaces, not tabs (tabs are evil)
 - 2 blank lines before top-level functions or classes

@@ -873,16 +873,3 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             images = session.scalars(sa.select(Image).where(Image.exposure_id == self.id)).all()
 
         return images
-
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def provenance( self ):
-    #     raise RuntimeError( "Don't use provenance, use provenance_id" )
-
-    # @provenance.setter
-    # def provenance( self, val ):
-    #     raise RuntimeError( "Don't use provenance, use provenance_id" )

@@ -122,26 +122,6 @@ class CodeVersion(Base):
     def __repr__( self ):
         return f"<CodeVersion {self.id}>"
 
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def code_hashes( self ):
-    #     raise RuntimeError( f"CodeVersion.code_hashes is deprecated, don't use it" )
-
-    @code_hashes.setter
-    def code_hashes( self, val ):
-        raise RuntimeError( "CodeVersion.code_hashes setter is deprecated, don't use it" )
-
-    @property
-    def provenances( self ):
-        raise RuntimeError( "CodeVersion.provenances is deprecated, don't use it" )
-
-    @provenances.setter
-    def provenances( self, val ):
-        raise RuntimeError( "CodeVersion.provenances is deprecated, don't use it" )
-
 
 provenance_self_association_table = sa.Table(
     'provenance_upstreams',
@@ -498,63 +478,6 @@ class Provenance(Base):
                             .order_by( Provenance._id )
                            ).all()
         return downstreams
-
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def code_Version( self ):
-    #     raise RuntimeError( f"Don't use Provenance.code_Version, use code_Version_id" )
-
-    # @code_Version.setter
-    # def code_Version( self, val ):
-    #     raise RuntimeError( f"Don't use Provenance.code_Version, use code_Version_id" )
-
-    # @upstreams.setter
-    # def upstreams( self, val ):
-    #     raise RuntimeError( f"Provenance.upstreams is deprecated, only set it on creation." )
-
-    # @property
-    # def downstreams( self ):
-    #     raise RuntimeError( f"Provenance.downstreams is deprecated, use get_downstreams" )
-
-    # @downstreams.setter
-    # def downstreams( self, val ):
-    #     raise RuntimeError( f"Provenance.downstreams is deprecated, can't be set" )
-
-    # @property
-    # def upstream_ids( self ):
-    #     raise RuntimeError( f"Provenance.upstream_ids is deprecated, use upsterams" )
-
-    # @upstream_ids.setter
-    # def upstream_ids( self, val ):
-    #     raise RuntimeError( f"Provenance.upstream_ids is deprecated, use upstreams" )
-
-    # @property
-    # def downstream_ids( self ):
-    #     raise RuntimeError( f"Provenance.downstream_ids is deprecated, use get_downstreams" )
-
-    # @downstream_ids.setter
-    # def downstream_ids( self, val ):
-    #     raise RuntimeError( f"Provenance.downstream_ids is deprecated, use get_downstreams" )
-
-    # @property
-    # def upstream_hashes( self ):
-    #     raise RuntimeError( f"Provenance.upstream_hashes is deprecated, use upstreams" )
-
-    # @upstream_hashes.setter
-    # def upstream_hashes( self, val ):
-    #     raise RuntimeError( f"Provenance.upstream_hashes is deprecated, use upstreams" )
-
-    # @property
-    # def downstream_hashes( self ):
-    #     raise RuntimeError( f"Provenance.downstream_hashes is deprecated, use get_downstreams" )
-
-    # @downstream_hashes.setter
-    # def downstream_hashes( self, val ):
-    #     raise RuntimeError( f"Provenance.downstream_hashes is deprecated, use get_downstreams" )
 
 
 class ProvenanceTagExistsError(Exception):
