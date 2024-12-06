@@ -374,6 +374,7 @@ def provenance_base(code_version):
         session.execute( sa.delete( Provenance ).where( Provenance._id==p.id ) )
         session.commit()
 
+
 @pytest.fixture
 def provenance_extra( provenance_base ):
     p = Provenance(
@@ -390,28 +391,6 @@ def provenance_extra( provenance_base ):
     with SmartSession() as session:
         session.execute( sa.delete( Provenance ).where( Provenance._id==p.id ) )
         session.commit()
-
-@pytest.fixture
-def provenance_tags_loaded( provenance_base, provenance_extra ):
-    try:
-        with Psycopg2Connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute( "INSERT INTO provenance_tags(_id,tag,provenance_id) "
-                            "VALUES (%(id)s,%(tag)s,%(provid)s)",
-                            { 'id': uuid.uuid4(), 'tag': 'xyzzy', 'provid': provenance_base.id } )
-            cursor.execute( "INSERT INTO provenance_tags(_id,tag,provenance_id) "
-                            "VALUES (%(id)s,%(tag)s,%(provid)s)",
-                            { 'id': uuid.uuid4(), 'tag': 'plugh', 'provid': provenance_base.id } )
-            cursor.execute( "INSERT INTO provenance_tags(_id,tag,provenance_id) "
-                            "VALUES (%(id)s,%(tag)s,%(provid)s)",
-                            { 'id': uuid.uuid4(), 'tag': 'plugh', 'provid': provenance_extra.id } )
-            conn.commit()
-        yield True
-    finally:
-        with Psycopg2Connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute( "DELETE FROM provenance_tags WHERE tag IN ('xyzzy', 'plugh')" )
-            conn.commit()
 
 
 @pytest.fixture
@@ -531,84 +510,6 @@ def catexp(data_dir, cache_dir, download_url):
     if os.path.isfile(filepath):
         os.remove(filepath)
 
-@pytest.fixture
-def user():
-    # username test, password test_password
-    with SmartSession() as session:
-        user = AuthUser( id='fdc718c3-2880-4dc5-b4af-59c19757b62d',
-                         username='test',
-                         displayname='Test User',
-                         email='testuser@mailhog'
-                        )
-        user.pubkey = '''-----BEGIN PUBLIC KEY-----
-MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEArBn0QI7Z2utOz9VFCoAL
-+lWSeuxOprDba7O/7EBxbPev/MsayA+MB+ILGo2UycGHs9TPBWihC9ACWPLG0tJt
-q5FrqWaHPmvXMT5rb7ktsAfpZSZEWdrPfLCvBdrFROUwMvIaw580mNVm4PPb5diG
-pM2b8ZtAr5gHWlBH4gcni/+Jv1ZKYh0b3sUOru9+IStvFs6ijySbHFz1e/ejP0kC
-LQavMj1avBGfaEil/+NyJb0Ufdy8+IdgGJMCwFIZ15HPiIUFDRYWPsilX8ik+oYU
-QBZlFpESizjEzwlHtdnLrlisQR++4dNtaILPqefw7BYMRDaf1ggYiy5dl0+ZpxYO
-puvcLQlPqt8iO1v3IEuPCdMqhmmyNno0AQZq+Fyc21xRFdwXvFReuOXcgvZgZupI
-XtYQTStR9t7+HL5G/3yIa1utb3KRQbFkOXRXHyppUEIr8suK++pUORrAablj/Smj
-9TCCe8w5eESmQ+7E/h6M84nh3t8kSBibOlcLaNywKm3BEedQXmtu4KzLQbibZf8h
-Ll/jFHv5FKYjMBbVw3ouvMZmMU+aEcaSdB5GzQWhpHtGmp+fF0bPztgTdQZrArja
-Y94liagnjIra+NgHOzdRd09sN9QGZSHDanANm24lZHVWvTdMU+OTAFckY560IImB
-nRVct/brmHSH0KXam2bLZFECAwEAAQ==
------END PUBLIC KEY-----
-'''
-        user.privkey = {"iv": "pXz7x5YA79o+Qg4w",
-                        "salt": "aBtXrLT7ds9an38nW7EgbQ==",
-                        "privkey": "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"
-                        }
-        session.add( user )
-        session.commit()
-
-    yield True
-
-    with SmartSession() as session:
-        user = session.query( AuthUser ).filter( AuthUser.username=='test' ).all()
-        for u in user:
-            session.delete( u )
-        session.commit()
-
-@pytest.fixture
-def admin_user():
-    # In the noble tradition of routers everywhere, username admin, password admin
-    with SmartSession() as session:
-        user = AuthUser( id='684ece1d-c33a-4f80-b90e-646ae54021b7',
-                         username='admin',
-                         displayname='Admin User',
-                         email='admin@mailhog',
-                         isadmin=True
-                        )
-        user.pubkey = '''-----BEGIN PUBLIC KEY-----
- MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAw+8D5eIkY1BKHkjmiifL
- XTzpitg84xW292YWoLNd5nYCzudzZLb0wCZmIyB9Go7Qy/1vEAHctpD7u74QCevN
- eDhfryTYHwD4Cfj1756htLtT4/M6UVxBV+gpQAQjko+otM6y900Rpkq8sidvNEWO
- yZlgYU3jUDO4Xa6Pxxzfuf8W+hU1beIZosIVjqiJr4aX2ceItHJfEjKh/LtZjFsj
- 2HUjPFLuU+AIFUxVdfHqPmX25OhMmCE/TffaUZUfNIE0B+kV5m9nlhdccwlhPrO0
- 3mVS5rSOz4TE6TYEVmACaMYhMFI79tBk4/ld1p0ngW6VhAwW1GqQwOCUoXs9alUJ
- Zh7qmSZy3t7XK/IUIAJdPmwfBF5tKwmoahCjn2LxzS3OCXoRwKPL0hvHUpmvfJKk
- XTNX/gJ21mk4tncdbwy7y+TcfP38amLvC9axIm7rmXOL22K1FGsxBFxllzpYiRY2
- dSOtSY3roih06f4wcyOfrWhWCbsR3zLZQ54L+pn4r1jae+RqSBqhslvsJQopnsMK
- YTEaYDKcP9d+SsIh2N71VURYSVBEUko4QTBIxisPwgWewhKMN/vOOpiY1kXp2CQv
- YoIHDVu28bZHOry9/T7nw5iwrqymXr9P2cYPosjmPj2Mee3XhgMlaPxj2B6z4qiT
- lgq/YFNl4MiGzKRlUCURCgMCAwEAAQ==
- -----END PUBLIC KEY-----
-'''
-        user.privkey = {"iv": "P3iF0nASKzuz/9BR",
-                        "salt": "tZXnze39AoYqUsGYQoAIWw==",
-                        "privkey": "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"
-                        }
-        session.add( user )
-        session.commit()
-
-    yield True
-
-    with SmartSession() as session:
-        user = session.query( AuthUser ).filter( AuthUser.username=='admin' ).all()
-        for u in user:
-            session.delete( u )
-        session.commit()
 
 @pytest.fixture
 def user():
