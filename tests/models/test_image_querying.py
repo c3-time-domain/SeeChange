@@ -38,6 +38,7 @@ def test_image_cone_search( provenance_base ):
     image3 = None
     image4 = None
     try:
+        rng = np.random.default_rng()
         kwargs = { 'format': 'fits',
                    'exp_time': 60.48,
                    'section_id': 'x',
@@ -60,27 +61,27 @@ def test_image_cone_search( provenance_base ):
                    'maxdec': 0,
                   }
         image1 = Image(ra=120., dec=10., provenance_id=provenance_base.id, **kwargs )
-        image1.mjd = np.random.uniform(0, 1) + 60000
+        image1.mjd = rng.uniform(0, 1) + 60000
         image1.end_mjd = image1.mjd + 0.007
-        clean1 = ImageCleanup.save_image( image1 )
+        _1 = ImageCleanup.save_image( image1 )
         image1.insert()
 
         image2 = Image(ra=120.0002, dec=9.9998, provenance_id=provenance_base.id, **kwargs )
-        image2.mjd = np.random.uniform(0, 1) + 60000
+        image2.mjd = rng.uniform(0, 1) + 60000
         image2.end_mjd = image2.mjd + 0.007
-        clean2 = ImageCleanup.save_image( image2 )
+        _2 = ImageCleanup.save_image( image2 )
         image2.insert()
 
         image3 = Image(ra=120.0005, dec=10., provenance_id=provenance_base.id, **kwargs )
-        image3.mjd = np.random.uniform(0, 1) + 60000
+        image3.mjd = rng.uniform(0, 1) + 60000
         image3.end_mjd = image3.mjd + 0.007
-        clean3 = ImageCleanup.save_image( image3 )
+        _3 = ImageCleanup.save_image( image3 )
         image3.insert()
 
         image4 = Image(ra=60., dec=0., provenance_id=provenance_base.id, **kwargs )
-        image4.mjd = np.random.uniform(0, 1) + 60000
+        image4.mjd = rng.uniform(0, 1) + 60000
         image4.end_mjd = image4.mjd + 0.007
-        clean4 = ImageCleanup.save_image( image4 )
+        _4 = ImageCleanup.save_image( image4 )
         image4.insert()
 
         with SmartSession() as session:
@@ -119,6 +120,7 @@ def test_image_cone_search( provenance_base ):
         for i in [ image1, image2, image3, image4 ]:
             if i is not None:
                 i.delete_from_disk_and_database()
+
 
 # Really, we should also do some speed tests, but that
 # is outside the scope of the always-run tests.
@@ -173,7 +175,8 @@ def test_four_corners( provenance_base ):
                      project='x', target='x', instrument='DemoInstrument',
                      telescope='x', filter='r', provenance_id=provenance_base.id,
                      nofile=True )
-        img.mjd = np.random.uniform( 0, 1 ) + 60000
+        rng = np.random.default_rng()
+        img.mjd = rng.uniform( 0, 1 ) + 60000
         img.end_mjd = img.mjd + 0.007
         return img
 
@@ -187,17 +190,17 @@ def test_four_corners( provenance_base ):
             # RA numbers are made ugly from cos(dec).
             # image1: centered on ra, dec; square to the sky
             image1 = makeimage( ra0, dec0, 0. )
-            clean1 = ImageCleanup.save_image( image1 )
+            _1 = ImageCleanup.save_image( image1 )
             image1.insert()
 
             # image2: centered on ra, dec, at a 45° angle
             image2 = makeimage( ra0, dec0, 45. )
-            clean2 = ImageCleanup.save_image( image2 )
+            _2 = ImageCleanup.save_image( image2 )
             image2.insert()
 
             # image3: centered offset by (0.025, 0.025) linear degrees from ra, dec, square on sky
             image3 = makeimage( ra0+0.025/np.cos(dec0*np.pi/180.), dec0+0.025, 0. )
-            clean3 = ImageCleanup.save_image( image3 )
+            _3 = ImageCleanup.save_image( image3 )
             image3.insert()
 
             # imagepoint and imagefar are used to test Image.containing and Image.find_containing_siobj,
@@ -207,11 +210,11 @@ def test_four_corners( provenance_base ):
             rapoint = ra0 - 0.9 * dra / 2. / np.cos( decpoint * np.pi / 180. )
             rapoint = rapoint if rapoint >= 0. else rapoint + 360.
             imagepoint = makeimage( rapoint, decpoint, 0., offscale=0.01 )
-            clearpoint = ImageCleanup.save_image( imagepoint )
+            _point = ImageCleanup.save_image( imagepoint )
             imagepoint.insert()
 
             imagefar = makeimage( rafar, decfar, 0. )
-            clearfar = ImageCleanup.save_image( imagefar )
+            _far = ImageCleanup.save_image( imagefar )
             imagefar.insert()
 
             with SmartSession() as session:
@@ -292,19 +295,19 @@ def test_four_corners( provenance_base ):
         image5 = None
         try:
             image1 = makeimage( 180., 0., 0. )
-            clean1 = ImageCleanup.save_image( image1 )
+            _1 = ImageCleanup.save_image( image1 )
             # Make a couple of images offset more than half but less than the full image size
             image2 = makeimage( 180.18, 0.18, 0. )
-            clean2 = ImageCleanup.save_image( image2 )
+            _2 = ImageCleanup.save_image( image2 )
             image3 = makeimage( 179.82, -0.18, 0. )
-            clean3 = ImageCleanup.save_image( image3 )
+            _3 = ImageCleanup.save_image( image3 )
             # Also make a smaller image to test that that overlap works
             image4 = makeimage( 180., 0., 0., offscale=0.25 )
-            clean4 = ImageCleanup.save_image( image4 )
+            _4 = ImageCleanup.save_image( image4 )
             # And make an image at small angle to test that the "no corners
             #  inside" case works
             image5 = makeimage( 180., 0., 10. )
-            clean5 = ImageCleanup.save_image( image5 )
+            _5 = ImageCleanup.save_image( image5 )
 
             session.add( image1 )
             session.add( image2 )
@@ -764,4 +767,3 @@ def test_image_get_upstream_images( ptf_ref, ptf_supernova_image_datastores, ptf
             new_image2.delete_from_disk_and_database()
         if new_image3 is not None:
             new_image3.delete_from_disk_and_database()
-

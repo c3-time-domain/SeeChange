@@ -5,8 +5,7 @@ from models.enums_and_bitflags import (
     ImageFormatConverter,
     CutoutsFormatConverter,
     SourceListFormatConverter,
-    ImageTypeConverter,
-    data_badness_dict,
+    ImageTypeConverter
 )
 
 

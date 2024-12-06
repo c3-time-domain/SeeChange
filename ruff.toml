@@ -1,0 +1,39 @@
+# Ignore these directories
+exclude = [
+    "extern/**",
+    "webap/rkwebutil/**",
+    ".git",
+    ".github",
+    ".ruff_cache",
+    ".vscode",
+    "__pypackages__",
+    "alembic/**",
+    "conductor/rkauth_flask.py",
+    "util/archive.py",
+    "util/rkauth_client.py"
+]
+
+# Formatting standards
+line-length = 120
+indent-width = 4
+
+# Python 3.11 is the target version
+target-version = "py311"
+
+[lint]
+preview = true
+
+select = [ 'F', 'E101', 'E111', 'E112', 'E113', 'E115', 'E117',
+           'E204', 'E223', 'E224', 'E242', 'E265', 'E273', 'E274', 'E275',
+           'E301', 'E302', 'E305', 'E306', 'E401', 'E501', 'E502', 'E703',
+           'E711', 'E713', 'E714', 'E72', 'E74',
+           'W19', 'W29', 'W39', 'W605',
+           'N804', 'N805', 'N807',
+           'D206', 'D300', 'D301',
+           'UP010', 'UP011', 'UP012', 'UP013', 'UP014', 'UP017', 'UP018', 'UP019',
+           'UP02', 'UP030', 'UP031', 'UP033', 'UP034', 'UP035', 'UP036',
+           'UP037', 'UP039', 'UP04',
+           'PLE0100', 'PLE0101', 'PLE0116',
+           'NPY',
+           'RUF018',
+           'E301', 'E302', 'E306', 'W505', 'D200', 'D212', 'RUF021' ]

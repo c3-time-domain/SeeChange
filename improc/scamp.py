@@ -77,8 +77,8 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
     # I'm sad that there's not an option to scamp to explicitly specify this output filename.
     headfile = sourcefile.parent / f"{sourcefile.name[:-5]}.head"
 
-    sourceshdr, sources = ldac.get_table_from_ldac( sourcefile, imghdr_as_header=True )
-    cathdr, cat = ldac.get_table_from_ldac( catfile, imghdr_as_header=True )
+    _, sources = ldac.get_table_from_ldac( sourcefile, imghdr_as_header=True )
+    _, cat = ldac.get_table_from_ldac( catfile, imghdr_as_header=True )
 
     try:
         max_nmatches = [ 0 ]
@@ -144,7 +144,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                      and ( nmatch > min_matched )
                      and ( ( sig0 + sig1 ) / 2. <= max_arcsec_residual )
                     ):
-                infostr += ( f", which isn't good enough.\n" )
+                infostr += ( ", which isn't good enough.\n" )
                 # A warning not an error in case something outside is iterating
                 SCLogger.warning( infostr )
             else:

@@ -11,11 +11,10 @@ from models.source_list import SourceList
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.knownexposure import PipelineWorker
-from models.calibratorfile import CalibratorFile
-from models.datafile import DataFile
 from pipeline.pipeline_exposure_launcher import ExposureLauncher
 
 from util.logger import SCLogger
+
 
 # NOTE -- this test gets killed on github actions; googling about a bit
 # suggests that it uses too much memory.  Given that it launches two
@@ -45,7 +44,7 @@ def test_exposure_launcher( conductor_connector,
         else:
             tohold.append( ke['id'] )
     assert idtodo is not None
-    res = conductor_connector.send( f"holdexposures/", { 'knownexposure_ids': tohold } )
+    res = conductor_connector.send( "holdexposures/", { 'knownexposure_ids': tohold } )
 
     # Make sure the right things got held
     with SmartSession() as session:
@@ -141,5 +140,3 @@ def test_exposure_launcher( conductor_connector,
             for pw in pws:
                 session.delete( pw )
             session.commit()
-
-

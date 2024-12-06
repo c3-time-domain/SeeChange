@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import JSONB
 
-from models.base import Base, SeeChangeBase, UUIDMixin, SmartSession
+from models.base import Base, SeeChangeBase, UUIDMixin
 from models.enums_and_bitflags import (
     bitflag_to_string,
     string_to_bitflag,
@@ -15,6 +15,7 @@ from models.enums_and_bitflags import (
 )
 
 from util.logger import SCLogger
+
 
 class Report(Base, UUIDMixin):
     """A report on the status of analysis of one section from an Exposure.
@@ -355,15 +356,3 @@ class Report(Base, UUIDMixin):
     def get_downstreams( self, session=None, siblings=False ):
         """Reports have no downstreams."""
         return []
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def exposure( self ):
-        raise RuntimeError( f"Don't use Report.exposure, use exposure_id" )
-
-    @exposure.setter
-    def exposure( self, val ):
-        raise RuntimeError( f"Don't use Report.exposure, use exposure_id" )

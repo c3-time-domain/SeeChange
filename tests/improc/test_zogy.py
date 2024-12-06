@@ -7,7 +7,7 @@ import scipy
 import matplotlib
 import matplotlib.pyplot as plt
 
-from models.base import CODE_ROOT, safe_mkdir
+from models.base import CODE_ROOT
 from improc.simulator import Simulator
 from improc.zogy import zogy_subtract
 from util.util import env_as_bool
@@ -81,7 +81,7 @@ def test_subtraction_no_stars():
 
     assert abs(np.std(output['score_corr']) - 1) < 0.1  # the noise should be unit variance
     assert np.max(abs(output['score_corr'])) < threshold  # we should not have anything get to the high threshold
-    assert abs( np.max(abs(output['score_corr'])) - low_threshold ) < 1.5  # the peak should be close to the low threshold
+    assert abs( np.max(abs(output['score_corr'])) - low_threshold ) < 1.5  # the peak should be near the low threshold
 
 
 # @pytest.mark.skip( reason="This test frequently fails even with the flaky.  Can we use a random seed?" )
@@ -196,14 +196,15 @@ def test_subtraction_snr_histograms(blocking_plots):
     expected = np.zeros((iterations, len(fluxes)))
     measured = np.zeros((iterations, len(fluxes)))
 
+    rng = np.random.default_rng()
     for j in range(iterations):
         psf1 = sim.psf_downsampled
         bkg1 = background  # TODO: make this slightly variable?
-        im1 = np.random.normal(0, np.sqrt(bkg1), size=transients_overlay.shape)
+        im1 = rng.normal(0, np.sqrt(bkg1), size=transients_overlay.shape)
 
         psf2 = sim.psf_downsampled
         bkg2 = background  # TODO: make this slightly variable?
-        im2 = np.random.normal(transients_overlay, np.sqrt(bkg2 + transients_overlay))
+        im2 = rng.normal(transients_overlay, np.sqrt(bkg2 + transients_overlay))
 
         # need to figure out better values for this
         F1 = 1.0
@@ -230,7 +231,7 @@ def test_subtraction_snr_histograms(blocking_plots):
     # SCLogger.debug(p1)
 
     matplotlib.rcParams["font.size"] = 22
-    fig, axes = plt.subplots(2, 2, figsize=[14, 10], )
+    _, axes = plt.subplots(2, 2, figsize=[14, 10], )
     for i, ax in enumerate(axes.flatten()):
         ax.hist(measured[:, i], bins=20, label='measured')
         ylim = ax.get_ylim()

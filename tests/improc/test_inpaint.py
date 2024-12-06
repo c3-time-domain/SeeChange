@@ -94,7 +94,7 @@ def test_inpaint_aligned_images(ptf_aligned_image_datastores, blocking_plots):
 
     if blocking_plots:
         import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(1, 3)
+        _, ax = plt.subplots(1, 3)
         ax[0].imshow(imcube[0][0:160, 0:150], vmin=1500, vmax=3500)
         ax[0].set_title('original')
         ax[1].imshow(im2[0][0:160, 0:150], vmin=1500, vmax=3500)

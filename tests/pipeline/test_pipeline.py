@@ -4,7 +4,6 @@ import shutil
 import datetime
 
 import sqlalchemy as sa
-import numpy as np
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import Provenance, ProvenanceTag
@@ -28,9 +27,9 @@ from tests.conftest import SKIP_WARNING_TESTS
 
 
 def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, ds):
-    """
-    Check that all the required objects are saved on the database
-    and in the datastore, after running the entire pipeline.
+    """Check that all the required objects are saved on the database and in the datastore.
+
+    (After running the entire pipeline.)
 
     Parameters
     ----------
@@ -141,7 +140,7 @@ def test_parameters( test_config ):
     # Verify that we _enforce_no_new_attrs works
     kwargs = { 'pipeline': { 'keyword_does_not_exist': 'testing' } }
     with pytest.raises( AttributeError, match='object has no attribute' ):
-        failed = Pipeline( **kwargs )
+        _ = Pipeline( **kwargs )
 
     # Verify that we can override from the yaml config file
     pipeline = Pipeline()
@@ -214,13 +213,14 @@ def test_running_without_reference(decam_exposure, decam_refset, decam_default_c
         cfs = ( session.query( CalibratorFile )
                 .filter( CalibratorFile.instrument == 'DECam' )
                 .filter( CalibratorFile.sensor_section == 'N1' )
-                .filter( CalibratorFile.image_id != None ) )
+                .filter( CalibratorFile.image_id is not None ) )
         imdel = [ c.image_id for c in cfs ]
         imgtodel = session.query( Image ).filter( Image._id.in_( imdel ) )
         for i in imgtodel:
             i.delete_from_disk_and_database()
 
         session.commit()
+
 
 def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
     """Test that the pipeline runs end-to-end.
@@ -247,7 +247,8 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             provs = session.scalars(sa.select(Provenance)).all()
             assert len(provs) > 0
             prov_processes = [p.process for p in provs]
-            expected_processes = ['preprocessing', 'extraction', 'subtraction', 'detection', 'cutting', 'measuring', 'scoring']
+            expected_processes = ['preprocessing', 'extraction', 'subtraction', 'detection',
+                                  'cutting', 'measuring', 'scoring']
             for process in expected_processes:
                 assert process in prov_processes
 
@@ -297,8 +298,8 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
 
 
 def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
-    """
-    Test that adding a bitflag to the exposure propagates to all downstreams as they are created
+    """Test that adding a bitflag to the exposure propagates to all downstreams as they are created.
+
     Does not check measurements, as they do not have the HasBitflagBadness Mixin.
     """
     exposure = decam_exposure
@@ -427,9 +428,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
 
 
 def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_default_calibrators, archive):
-    """
-    Test that get_upstreams() and get_downstreams() return the proper objects.
-    """
+    """Test that get_upstreams() and get_downstreams() return the proper objects."""
     exposure = decam_exposure
     ref = decam_reference
     sec_id = ref.section_id
@@ -594,6 +593,7 @@ def test_provenance_tree(pipeline_for_tests, decam_refset, decam_exposure, decam
                                 'for tag pipeline_for_tests' ) ):
         newp.make_provenance_tree( decam_exposure )
 
+
 # This test is really slow because it runs the pipeline repeatedly to test
 #   warnings and exceptions at each step.
 @pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
@@ -711,6 +711,7 @@ def test_multiprocessing_make_provenances_and_exposure(decam_exposure, decam_ref
     from multiprocessing import SimpleQueue, Process
     process_list = []
     pipeline_for_tests.subtractor.pars.refset = 'test_refset_decam'
+
     def make_provenances(exposure, pipeline, queue):
         provs = pipeline.make_provenance_tree(exposure)
         queue.put(provs)

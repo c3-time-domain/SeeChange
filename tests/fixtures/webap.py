@@ -5,20 +5,17 @@ import requests
 #  given that we're using a self-signed cert for the server in the test environment
 requests.packages.urllib3.disable_warnings()
 
-import selenium
-import selenium.webdriver
-from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.remote.webelement import WebElement
 
 from util.config import Config
 from util.rkauth_client import rkAuthClient
 
+
 @pytest.fixture( scope='session' )
 def webap_url():
     return Config.get().value( 'webap.webap_url' )
+
 
 @pytest.fixture
 def webap_rkauth_client( webap_url, user ):
@@ -26,11 +23,13 @@ def webap_rkauth_client( webap_url, user ):
     client.verify_logged_in()
     return client
 
+
 @pytest.fixture
 def webap_admin_client( webap_url, admin_user ):
     client = rkAuthClient( webap_url, 'admin', 'admin', verify=False )
     client.verify_logged_in()
     return client
+
 
 @pytest.fixture
 def webap_browser_logged_in( browser, user ):
@@ -71,4 +70,3 @@ def webap_browser_logged_in( browser, user ):
     logout = authdiv.find_element( By.TAG_NAME, 'span' )
     assert logout.get_attribute( "innerHTML" ) == "Log Out"
     logout.click()
-

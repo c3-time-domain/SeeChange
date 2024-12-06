@@ -1,11 +1,9 @@
 import re
 import os
 import math
-import time
 import copy
 import pathlib
 import requests
-import json
 import collections.abc
 
 import numpy as np
@@ -136,9 +134,8 @@ class DECam(Instrument):
 
     @classmethod
     def get_section_ids(cls):
+        """Get a list of SensorSection identifiers for this instrument.
 
-        """
-        Get a list of SensorSection identifiers for this instrument.
         We are using the names of the FITS extensions (e.g., N12, S22, etc.).
         See ref: https://noirlab.edu/science/sites/default/files/media/archives/images/DECamOrientation.png
         """
@@ -150,8 +147,8 @@ class DECam(Instrument):
 
     @classmethod
     def check_section_id(cls, section_id):
-        """
-        Check that the type and value of the section is compatible with the instrument.
+        """Check that the type and value of the section is compatible with the instrument.
+
         In this case, it must be a string starting with 'N' or 'S' and a number between 1 and 31.
         """
         if not isinstance(section_id, str):
@@ -210,8 +207,8 @@ class DECam(Instrument):
                  self._chip_radec_off[section_id]['dra'] * 3600. / self.pixel_scale )
 
     def _make_new_section(self, section_id):
-        """
-        Make a single section for the DECam instrument.
+        """Make a single section for the DECam instrument.
+
         The section_id must be a valid section identifier (Si or Ni, where i is an int in [1,31])
 
         Returns
@@ -312,8 +309,8 @@ class DECam(Instrument):
 
     @classmethod
     def _get_fits_hdu_index_from_section_id(cls, section_id):
-        """
-        Return the index of the HDU in the FITS file for the DECam files.
+        """Return the index of the HDU in the FITS file for the DECam files.
+
         Since the HDUs have extension names, we can use the section_id directly
         to index into the HDU list.
         """
@@ -326,15 +323,13 @@ class DECam(Instrument):
 
     @classmethod
     def get_short_instrument_name(cls):
-        """
-        Get a short name used for e.g., making filenames.
-        """
+        """Get a short name used for e.g., making filenames."""
         return 'c4d'
 
     @classmethod
     def get_short_filter_name(cls, filter):
-        """
-        Return the short version of each filter used by DECam.
+        """Return the short version of each filter used by DECam.
+
         In this case we just return the first character of the filter name,
         e.g., shortening "g DECam SDSS c0001 4720.0 1520.0" to "g".
         """
@@ -468,7 +463,7 @@ class DECam(Instrument):
                                                           calibset='externally_supplied',
                                                           calibtype='linearity',
                                                           session=session
-                                                         ) as calibfile_lockid:
+                                                         ):
                 SCLogger.debug( "decam._get_default_calibrator: received lock on all chips for linearity file" )
 
                 with SmartSession( session ) as dbsess:
@@ -496,7 +491,7 @@ class DECam(Instrument):
                         if ( dbsess.query( CalibratorFile )
                              .filter( CalibratorFile.type=='linearity' )
                              .filter( CalibratorFile.calibrator_set=='externally_supplied' )
-                             .filter( CalibratorFile.flat_type==None )
+                             .filter( CalibratorFile.flat_type.is_(None) )
                              .filter( CalibratorFile.instrument=='DECam' )
                              .filter( CalibratorFile.sensor_section==ssec )
                              .filter( CalibratorFile.datafile_id==datafile.id ) ).count() == 0:
@@ -513,14 +508,14 @@ class DECam(Instrument):
                     calfile = ( dbsess.query( CalibratorFile )
                                 .filter( CalibratorFile.type=='linearity' )
                                 .filter( CalibratorFile.calibrator_set=='externally_supplied' )
-                                .filter( CalibratorFile.flat_type==None )
+                                .filter( CalibratorFile.flat_type.is_(None) )
                                 .filter( CalibratorFile.instrument=='DECam' )
                                 .filter( CalibratorFile.sensor_section==section )
                                 .filter( CalibratorFile.datafile_id==datafile._id )
                                ).first()
                     if calfile is None:
-                        raise RuntimeError( f"Failed to get default calibrator file for DECam linearity; "
-                                            f"you should never see this error." )
+                        raise RuntimeError( "Failed to get default calibrator file for DECam linearity; "
+                                            "you should never see this error." )
             SCLogger.debug( f"decam_get_default_calibrator: releasing lock for {self.name} on all chips "
                             f"for linearity file {os.path.basename(filepath)}" )
         else:
@@ -563,7 +558,7 @@ class DECam(Instrument):
 
     def linearity_correct( self, *args, linearitydata=None ):
         if not isinstance( linearitydata, DataFile ):
-            raise TypeError( f'DECam.linearity_correct: linearitydata must be a DataFile' )
+            raise TypeError( 'DECam.linearity_correct: linearitydata must be a DataFile' )
 
         if len(args) == 1:
             if not isinstance( args[0], Image ):
@@ -655,7 +650,7 @@ class DECam(Instrument):
         Exposure, which has been saved to the disk and archive, and loaded into the database
 
         """
-        outdir = pathlib.Path( FileOnDiskMixin.local_path )
+        # outdir = pathlib.Path( FileOnDiskMixin.local_path )
 
         # This import is here rather than at the top of the file
         #  because Exposure imports Instrument, so we've got
@@ -671,10 +666,8 @@ class DECam(Instrument):
                       }
 
         if preproc_bitflag == 0:
-            proc_type = 'raw'
             exts = None
         else:
-            proc_type = 'instcal'
             if ( wtfile is None ) or ( flgfile is None ):
                 raise RuntimeError( "Committing a DECam exposure with non-0 preproc_bitflag requires "
                                     "a weight and a flags file." )
@@ -733,7 +726,7 @@ class DECam(Instrument):
                                instrument='DECam', origin_identifier=origin_identifier, header=hdr,
                                preproc_bitflag=preproc_bitflag, filepath_extensions=exts,
                                **exphdrinfo )
-            dbpath = outdir / expobj.filepath
+            # dbpath = outdir / expobj.filepath
             if preproc_bitflag == 0:
                 expobj.save( expfile )
             else:
@@ -744,7 +737,9 @@ class DECam(Instrument):
 
 
     def acquire_and_commit_origin_exposure( self, identifier, params ):
-        """Download exposure from NOIRLab, add it to the database; see Instrument.acquire_and_commit_origin_exposure.
+        """Download exposure from NOIRLab, add it to the database.
+
+        See Instrument.acquire_and_commit_origin_exposure.
 
         """
         downloaded = self.acquire_origin_exposure( identifier, params )
@@ -813,7 +808,7 @@ class DECam(Instrument):
                                 "or (3) or a minmjd to find DECam exposures." )
 
         if containing_ra is not None:
-            raise NotImplementedError( f"containing_(ra|dec) is not implemented yet for DECam" )
+            raise NotImplementedError( "containing_(ra|dec) is not implemented yet for DECam" )
 
         if minmjd is None:
             minmjd = 51544.0    # 2000-01-01, before DECam existed
@@ -871,7 +866,7 @@ class DECam(Instrument):
 
         # TODO : implement the ability to log in via a configured username and password
         # For now, will only get exposures that are public
-        apiurl = f'https://astroarchive.noirlab.edu/api/adv_search/find/?format=json&limit=0'
+        apiurl = 'https://astroarchive.noirlab.edu/api/adv_search/find/?format=json&limit=0'
 
         def getoneresponse( json ):
             SCLogger.debug( f"Sending NOIRLab search query to {apiurl} with json={json}" )
@@ -897,7 +892,7 @@ class DECam(Instrument):
                     files = newfiles if files is None else pandas.concat( [files, newfiles] )
 
         if files.empty or files is None:
-            SCLogger.warning( f"DECam exposure search found no files." )
+            SCLogger.warning( "DECam exposure search found no files." )
             return None
 
         if minexptime is not None:
@@ -1245,7 +1240,7 @@ class DECamOriginExposures:
             expfile = expfiledict[ 'exposure' ]
             origin_identifier = pathlib.Path( self._frame.loc[dex,'image'].archive_filename ).name
             obs_type = self._frame.loc[dex,'image'].obs_type
-            proc_type = self._frame.loc[dex,'image'].proc_type
+            # proc_type = self._frame.loc[dex,'image'].proc_type
             expobj = self.decam._commit_exposure( origin_identifier, expfile, obs_type=obs_type,
                                                   preproc_bitflag=preproc_bitflag, wtfile=wtfile, flgfile=flgfile,
                                                   session=session )

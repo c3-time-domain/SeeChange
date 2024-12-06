@@ -21,7 +21,7 @@ def test_image_upstreams_downstreams(sim_image1, sim_reference, provenance_extra
     diff_image.provenance_id = provenance_extra.id
 
     # save and delete at the end
-    cleanup = ImageCleanup.save_image( diff_image )
+    _ = ImageCleanup.save_image( diff_image )
     diff_image.insert()
 
     # Reload the image from the database to make sure all the upstreams and downstreams
@@ -49,7 +49,7 @@ def test_image_upstreams_downstreams(sim_image1, sim_reference, provenance_extra
     upstream_images = sim_reference_image.get_upstreams( only_images=True )
     assert len(upstream_images) == 5  # was made of five images
     assert all( [ isinstance(u, Image) for u in upstream_images ] )
-    source_images_ids = [ im.id for im in upstream_images ]
+    # source_images_ids = [ im.id for im in upstream_images ]
     downstream_ids = [d.id for d in sim_reference_image.get_downstreams()]
     assert [new.id] == downstream_ids  # should be the only downstream
 
@@ -74,7 +74,7 @@ def test_image_upstreams_downstreams(sim_image1, sim_reference, provenance_extra
     new2.mjd += 1  # make sure this image has a later MJD, so it comes out later on the downstream list!
 
     # save and delete at the end
-    cleanup2 = ImageCleanup.save_image( new2 )
+    _2 = ImageCleanup.save_image( new2 )
     new2.insert()
 
     assert len( refupstrim.get_downstreams() ) == 2

@@ -2,13 +2,7 @@ import copy
 import random
 import warnings
 
-import sqlalchemy as sa
-
-from util.util import get_git_hash
 from util.logger import SCLogger
-
-from models.base import SmartSession
-from models.provenance import CodeHash, CodeVersion, Provenance
 
 # parameters that are propagated from one Parameters object
 # to the next when adding embedded objects.
@@ -17,8 +11,8 @@ from models.provenance import CodeHash, CodeVersion, Provenance
 
 
 class Parameters:
-    """
-    Keep track of parameters for any of the pipeline classes.
+    """Keep track of parameters for any of the pipeline classes.
+
     You can access the parameters as attributes, but also
     as dictionary items (using "in" and "pars[key]").
 
@@ -96,8 +90,8 @@ class Parameters:
     """
 
     def __init__(self, **kwargs):
-        """
-        Set up a Parameters object.
+        """Set up a Parameters object.
+
         After setting up, the parameters can be set
         either by hard-coded values or by a YAML file,
         using the load() method,
@@ -216,9 +210,9 @@ class Parameters:
         self.override(kwargs)
 
     def _get_real_par_name(self, key):
-        """
-        Get the real parameter name from a partial string,
-        ignoring case, and following the alias dictionary.
+        """Get the real parameter name from a partial string.
+
+        Ignores case, and follows the alias dictionary.
         """
         if key in self.__dict__:
             return key
@@ -299,8 +293,8 @@ class Parameters:
         return super().__getattribute__(real_key)
 
     def __setattr__(self, key, value):
-        """
-        Set an attribute of this object.
+        """Set an attribute of this object.
+
         There are some limitations on what can be set:
         1) if this class has allow_adding_new_attributes=False,
            no new attributes can be added by the user
@@ -347,8 +341,8 @@ class Parameters:
         setattr(self, key, value)
 
     def add_par(self, name, default, par_types, docstring, critical=True):
-        """
-        Add a parameter to the list of allowed parameters.
+        """Add a parameter to the list of allowed parameters.
+
         To add a value in one line (in the __init__ method):
         self.new_var = self.add_par('new_var', (bool, NoneType), False, "Description of new_var.")
 
@@ -392,8 +386,8 @@ class Parameters:
         return default
 
     def add_alias(self, alias, name):
-        """
-        Add an alias for a parameter.
+        """Add an alias for a parameter.
+
         Whenever the alias is used, either for get or set,
         the call will be re-routed to the original parameter.
 
@@ -411,8 +405,8 @@ class Parameters:
         self.__aliases__[alias] = name
 
     def override(self, dictionary, ignore_addons=False):
-        """
-        Read parameters from a dictionary.
+        """Read parameters from a dictionary.
+
         If any parameters were already defined,
         they will be overridden by the values in the dictionary.
 
@@ -435,8 +429,8 @@ class Parameters:
                     raise e
 
     def augment(self, dictionary, ignore_addons=False):
-        """
-        Update parameters from a dictionary.
+        """Update parameters from a dictionary.
+
         Any dict or set parameters already defined
         will be updated by the values in the dictionary,
         otherwise values are replaced by the input values.
@@ -493,8 +487,7 @@ class Parameters:
         return False
 
     def get_critical_pars(self, ignore_siblings=False):
-        """
-        Get a dictionary of the critical parameters.
+        """Get a dictionary of the critical parameters.
 
         Parameters
         ----------
@@ -521,8 +514,8 @@ class Parameters:
             }
 
     def to_dict(self, critical=False, hidden=False):
-        """
-        Convert parameters to a dictionary.
+        """Convert parameters to a dictionary.
+
         Only get the parameters that were defined
         using the add_par method.
 
@@ -548,22 +541,21 @@ class Parameters:
         return output
 
     def copy(self):
-        """
-        Create a copy of the parameters.
-        """
+        """Create a copy of the parameters."""
         return copy.deepcopy(self)
 
     @staticmethod
     def propagated_keys():
-        """
+        """Which parameters are propagated.
+
         Parameter values that are propagated from one Parameters object
         to the next when adding embedded objects.
         """
         return ['verbose']
 
     def add_defaults_to_dict(self, inputs):
-        """
-        Add some default keywords to the inputs dictionary.
+        """Add some default keywords to the inputs dictionary.
+
         If these keys already exist in the dictionary,
         they will not be overriden (they're given explicitly by the user).
         This is useful to automatically propagate parameter values that
@@ -577,8 +569,7 @@ class Parameters:
                 inputs[k] = self[k]
 
     def show_pars(self, owner_pars=None):
-        """
-        Print the parameters.
+        """Print the parameters.
 
         If given an owner_pars input,
         will not print any of the propagated_keys
@@ -610,9 +601,7 @@ class Parameters:
                 print(f" {n:>{max_length}}{d}")
 
     def vprint(self, text, threshold=1):
-        """
-        Print the text to standard output, but only
-        if the verbose level is above a given threshold.
+        """Print the text to standard output if the verbose level is above a given threshold.
 
         Parameters
         ----------
@@ -628,12 +617,11 @@ class Parameters:
             SCLogger.debug(text)
 
     def compare(self, other, hidden=False, critical=False, ignore=None, verbose=False):
-        """
-        Check that all parameters are the same between
-        two Parameter objects. Will only check those parameters
-        that were added using the add_par() method.
-        By default, ignores hidden parameters even if they were
-        added using add_par().
+        """Check that all parameters are the same between two Parameter objects.
+
+        Will only check those parameters that were added using the
+        add_par() method.  By default, ignores hidden parameters even if
+        they were added using add_par().
 
         Parameters
         ----------
@@ -665,17 +653,15 @@ class Parameters:
             if k in ignore:
                 continue
             if (hidden or not k.startswith("_")) and (not critical or self.__critical__[k]) and self[k] != other[k]:
-                    same = False
-                    if not verbose:
-                        break
-                    SCLogger.debug(f'Par "{k}" is different: {self[k]} vs {other[k]}')
+                same = False
+                if not verbose:
+                    break
+                SCLogger.debug(f'Par "{k}" is different: {self[k]} vs {other[k]}')
 
         return same
 
     def _get_par_string(self, name):
-        """
-        Get the value, docstring and default of a parameter.
-        """
+        """Get the value, docstring and default of a parameter."""
 
         desc = default = types = critical = ""
         value = self[name]
@@ -709,15 +695,15 @@ class Parameters:
         return s
 
     def get_process_name(self):
-        """
-        Get the name of the process (pipeline phase) that
-        is relevant for this Parameter object.
+        """Get the name of the process (pipeline phase) that is relevant for this Parameter object.
+
         Should be implemented in each subclass.
         """
         raise NotImplementedError("Must be implemented in subclass.")
 
     def do_warning_exception_hangup_injection_here(self):
         """When called, will check if any of the inject_ parameters are set to non-zero value.
+
         If they are, will raise a warning, exception or hangup, depending on the value.
         If any of the values is a float between 0 and 1, will compare it to a uniform random number,
         and if that random number is lower than the value, will inject the warning, exception or hangup.

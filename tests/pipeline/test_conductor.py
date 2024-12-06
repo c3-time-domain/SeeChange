@@ -1,7 +1,6 @@
 import pytest
 import time
 
-import datetime
 import dateutil.parser
 import requests
 # Disable warnings from urllib, since there will be lots about insecure connections
@@ -10,23 +9,20 @@ requests.packages.urllib3.disable_warnings()
 
 import sqlalchemy as sa
 
-import selenium
-import selenium.webdriver
-from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.remote.webelement import WebElement
 
 from models.base import SmartSession
 from models.knownexposure import KnownExposure, PipelineWorker
 
 # TODO : write tests for hold/release
 
+
 def test_conductor_not_logged_in( conductor_url ):
     res = requests.post( f"{conductor_url}/status", verify=False )
     assert res.status_code == 500
     assert res.text == "Not logged in"
+
 
 def test_conductor_uninitialized( conductor_connector ):
     data = conductor_connector.send( 'status' )
@@ -34,6 +30,7 @@ def test_conductor_uninitialized( conductor_connector ):
     assert data['instrument'] is None
     assert data['timeout'] == 120
     assert data['updateargs'] is None
+
 
 def test_force_update_uninitialized( conductor_connector ):
     data = conductor_connector.send( 'forceupdate' )
@@ -45,22 +42,24 @@ def test_force_update_uninitialized( conductor_connector ):
     assert data['timeout'] == 120
     assert data['updateargs'] is None
 
+
 def test_update_missing_args( conductor_connector ):
     with pytest.raises( RuntimeError, match=( r"Got response 500: Error return from updater: "
                                               r"Either both or neither of instrument and updateargs "
                                               r"must be None; instrument=no_such_instrument, updateargs=None" ) ):
-        res = conductor_connector.send( "updateparameters/instrument=no_such_instrument" )
+        conductor_connector.send( "updateparameters/instrument=no_such_instrument" )
 
     with pytest.raises( RuntimeError, match=( r"Got response 500: Error return from updater: "
                                               r"Either both or neither of instrument and updateargs "
                                               r"must be None; instrument=None, updateargs={'thing': 1}" ) ):
-        res = conductor_connector.send( "updateparameters", { "updateargs": { "thing": 1 } } )
+        conductor_connector.send( "updateparameters", { "updateargs": { "thing": 1 } } )
+
 
 def test_update_unknown_instrument( conductor_connector ):
     with pytest.raises( RuntimeError, match=( r"Got response 500: Error return from updater: "
                                               r"Failed to find instrument no_such_instrument" ) ):
-        res = conductor_connector.send( "updateparameters/instrument=no_such_instrument",
-                                        { "updateargs": { "thing": 1 } } )
+        conductor_connector.send( "updateparameters/instrument=no_such_instrument",
+                                  { "updateargs": { "thing": 1 } } )
 
     data = conductor_connector.send( "status" )
     assert data['status'] == 'status'
@@ -69,9 +68,8 @@ def test_update_unknown_instrument( conductor_connector ):
     assert data['updateargs'] is None
     assert data['hold'] == 0
 
-def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
-    req = conductor_config_for_decam_pull
 
+def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
     mjd0 = 60127.33819
     mjd1 = 60127.36319
 
@@ -161,7 +159,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
 
 def test_request_knownexposure_get_none( conductor_connector ):
     with pytest.raises( RuntimeError, match=( r"Got response 500: cluster_id is required for RequestExposure" ) ):
-        res = conductor_connector.send( "requestexposure" )
+        conductor_connector.send( "requestexposure" )
 
     data = conductor_connector.send( 'requestexposure/cluster_id=test_cluster' )
     assert data['status'] == 'not available'
@@ -242,13 +240,16 @@ def test_main_page( browser, conductor_url ):
     el = browser.find_element( By.TAG_NAME, 'h1' )
     assert el.text == "SeeChange Conductor"
     authdiv = browser.find_element( By.ID, 'authdiv' )
+    assert authdiv is not None
     el = browser.find_element( By.CLASS_NAME, 'link' )
     assert el.text == 'Request Password Reset'
 
+
 def test_log_in( conductor_browser_logged_in ):
-    browser = conductor_browser_logged_in
+    _ = conductor_browser_logged_in
     # The fixture effectively has all the necessary tests.
     # Perhaps rename this test to something else and
     # do something else with it.
+
 
 # TODO : more UI tests

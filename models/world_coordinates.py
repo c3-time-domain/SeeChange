@@ -4,7 +4,7 @@ import os
 
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.schema import UniqueConstraint, CheckConstraint
+from sqlalchemy.schema import CheckConstraint
 from sqlalchemy.ext.declarative import declared_attr
 
 from astropy.wcs import WCS
@@ -21,7 +21,7 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
     __tablename__ = 'world_coordinates'
 
     @declared_attr
-    def __table_args__(cls):
+    def __table_args__(cls):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
@@ -170,39 +170,3 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
         references to those objects, the memory won't actually be freed.
         """
         self._wcs = None
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def sources( self ):
-        raise RuntimeError( f"Don't use WorldCoordinates.sources, use sources_id" )
-
-    @sources.setter
-    def sources( self, val ):
-        raise RuntimeError( f"Don't use WorldCoordinates.sources, use sources_id" )
-
-    @property
-    def image( self ):
-        raise RuntimeError( f"WorldCoordinates.image is deprecated, don't use it" )
-
-    @image.setter
-    def image( self, val ):
-        raise RuntimeError( f"WorldCoordinates.image is deprecated, don't use it" )
-
-    @property
-    def provenance_id( self ):
-        raise RuntimeError( f"WorldCoordinates.provenance_id is deprecated; get provenance from sources" )
-
-    @provenance_id.setter
-    def provenance_id( self, val ):
-        raise RuntimeError( f"WorldCoordinates.provenance_id is deprecated; get provenance from sources" )
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( f"WorldCoordinates.provenance is deprecated; get provenance from sources" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( f"WorldCoordinates.provenance is deprecated; get provenance from sources" )

@@ -3,10 +3,9 @@ import pathlib
 import numpy as np
 
 import sqlalchemy as sa
-import sqlalchemy.orm as orm
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.schema import UniqueConstraint, CheckConstraint
+from sqlalchemy.schema import CheckConstraint
 
 from astropy.io import fits
 
@@ -34,7 +33,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
     __tablename__ = 'psfs'
 
     @declared_attr
-    def __table_args__(cls):
+    def __table_args__(cls):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
@@ -226,12 +225,12 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         psfpath = pathlib.Path( self.local_path ) / f'{self.filepath}.fits'
         psfxmlpath = pathlib.Path( self.local_path ) / f'{self.filepath}.xml'
 
-        header0 = fits.Header( [ fits.Card( 'SIMPLE', 'T', 'This is a FITS file' ),
-                                 fits.Card( 'BITPIX', 8 ),
-                                 fits.Card( 'NAXIS', 0 ),
-                                 fits.Card( 'EXTEND', 'T', 'This file may contain FITS extensions' ),
-                                ] )
-        hdu0 = fits.PrimaryHDU( header=header0 )
+        # header0 = fits.Header( [ fits.Card( 'SIMPLE', 'T', 'This is a FITS file' ),
+        #                          fits.Card( 'BITPIX', 8 ),
+        #                          fits.Card( 'NAXIS', 0 ),
+        #                          fits.Card( 'EXTEND', 'T', 'This file may contain FITS extensions' ),
+        #                         ] )
+        # hdu0 = fits.PrimaryHDU( header=header0 )
         # The PSFEx format is a bit byzantine
         fitsshape = list( self._data.shape )
         fitsshape.reverse()
@@ -416,7 +415,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 
         psfbase = self.get_resampled_psf( x, y, dtype=np.float64 )
 
-        psfwid, psfsamp, stampwid, psfdex1d = self._get_clip_info()
+        _, psfsamp, stampwid, psfdex1d = self._get_clip_info()
 
         xc = int( np.round(x) )
         yc = int( np.round(y) )
@@ -513,42 +512,3 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
                                                       ( clip[ y0:y1, x0:x1 ] / gain )
                                                      )
                                               )
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-
-    @property
-    def provenance_id( self ):
-        raise RuntimeError( f"PSF.provenance_id is deprecated; get provenance from sources" )
-
-    @provenance_id.setter
-    def provenance_id( self, val ):
-        raise RuntimeError( f"PSF.provenance_id is deprecated; get provenance from sources" )
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( f"PSF.provenance is deprecated; get provenance from sources" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( f"PSF.provenance is deprecated; get provenance from sources" )
-
-    @property
-    def image( self ):
-        raise RuntimeError( f"PSF.image is deprecated, don't use it" )
-
-    @image.setter
-    def image( self, val ):
-        raise RuntimeError( f"PSF.image is deprecated, don't use it" )
-
-    @property
-    def image_id( self ):
-        raise RuntimeError( f"PSF.image_id is deprecated, don't use it" )
-
-    @image_id.setter
-    def image_id( self, val ):
-        raise RuntimeError( f"PSF.image_id is deprecated, don't use it" )
-
-

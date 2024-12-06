@@ -39,5 +39,3 @@ def test_object_ras_decs( catexp ):
     assert catexp.object_decs[0] == pytest.approx( 1.751641, abs=0.1/3600. )
     assert catexp.object_ras[21] == pytest.approx( 151.066776, abs=0.1/3600. )
     assert catexp.object_decs[21] == pytest.approx( 1.793652, abs=0.1/3600. )
-
-

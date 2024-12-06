@@ -1,11 +1,8 @@
 import os
 import base64
 import hashlib
-import itertools
 
 import numpy as np
-
-import shapely.geometry
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -23,7 +20,7 @@ from astropy.io import fits
 import astropy.coordinates
 import astropy.units as u
 
-from util.util import read_fits_image, save_fits_image_file, parse_dateobs, listify, asUUID
+from util.util import read_fits_image, save_fits_image_file, parse_dateobs, listify
 from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
 from util.logger import SCLogger
 
@@ -75,7 +72,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     __tablename__ = 'images'
 
     @declared_attr
-    def __table_args__( cls ):
+    def __table_args__( cls ):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
@@ -689,7 +686,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         #  (and more reliable than the function call above), so try that:
         try:
             new.set_corners_from_header_wcs( setradec=True )
-        except:
+        except Exception:
             # If the WCS didn't work, and there was no special instrument method, then try other things
 
             # try to get the RA/Dec from the section header
@@ -2068,8 +2065,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nanscore = value
 
     def show(self, **kwargs):
-        """
-        Display the image using the matplotlib imshow function.
+        """Display the image using the matplotlib imshow function.
 
         Parameters
         ----------
@@ -2087,156 +2083,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         defaults.update(kwargs)
         plt.imshow(self.nandata, **defaults)
 
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( "Don't use provenance, use provenance_id" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( "Don't use provenance, use provenance_id" )
-
-    @property
-    def exposure( self ):
-        raise RuntimeError( "Don't use exposure, use exposure_id" )
-
-    @exposure.setter
-    def exposure( self, val ):
-        raise RuntimeError( "Don't use exposure, use exposure_id" )
-
-    @property
-    def upstream_images( self ):
-        raise RuntimeError( "Don't use upstream_images, use get_upstreams" )
-
-    @upstream_images.setter
-    def upstream_images( self, val ):
-        raise RuntimeError( "Don't use upstream_images, create image with from_images or from_ref_and_new" )
-
-    @property
-    def downstream_images( self ):
-        raise RuntimeError( "Don't use downstream_images, use get_downstreams()" )
-
-    @downstream_images.setter
-    def downstream_images( self, val ):
-        raise RuntimeError( "Can't set downstream images." )
-
-    @property
-    def ref_image( self ):
-        raise RuntimeError( "Don't use ref_image, use ref_image_id" )
-
-    @ref_image.setter
-    def ref_image( self, val ):
-        raise RuntimeError( "Don't use ref_image, use ref_image_id" )
-
-    @property
-    def new_image( self ):
-        raise RuntimeError( "Don't use new_image, use new_image_id" )
-
-    @new_image.setter
-    def new_image( self, val ):
-        raise RuntimeError( "Don't use new_image, use new_image_id" )
-
-    @property
-    def new_aligned_image( self ):
-        raise RuntimeError( "aligned images as Image properties are deprecated" )
-
-    @new_aligned_image.setter
-    def new_aligned_image( self ):
-        raise RuntimeError( "aligned images as Image properties are deprecated" )
-
-    @property
-    def ref_aligned_image( self ):
-        raise RuntimeError( "aligned images as Image properties are deprecated" )
-
-    @ref_aligned_image.setter
-    def ref_aligned_image( self, val ):
-        raise RuntimeError( "aligned images as Image properties are deprecated" )
-
-    @property
-    def sources( self ):
-        raise RuntimeError( f"Image.sources is deprecated, don't use it" )
-
-    @sources.setter
-    def sources( self, val ):
-        raise RuntimeError( f"Image.sources is deprecated, don't use it" )
-
-    @property
-    def psf( self ):
-        raise RuntimeError( f"Image.psf is deprecated, don't use it" )
-
-    @psf.setter
-    def psf( self, val ):
-        raise RuntimeError( f"Image.psf is deprecated, don't use it" )
-
-    @property
-    def bg( self ):
-        raise RuntimeError( f"Image.bg is deprecated, don't use it" )
-
-    @bg.setter
-    def bg( self, val ):
-        raise RuntimeError( f"Image.bg is deprecated, don't use it" )
-
-    @property
-    def wcs( self ):
-        raise RuntimeError( f"Image.wcs is deprecated, don't use it" )
-
-    @wcs.setter
-    def wcs( self, val ):
-        raise RuntimeError( f"Image.wcs is deprecated, don't use it" )
-
-    @property
-    def zp( self ):
-        raise RuntimeError( f"Image.zp is deprecated, don't use it" )
-
-    @zp.setter
-    def zp( self, val ):
-        raise RuntimeError( f"Image.zp is deprecated, don't use it" )
-
-    @property
-    def _aligner( self ):
-        raise RuntimeError( f"Image._aligner is deprecated, don't use it" )
-
-    @_aligner.setter
-    def _aligner( self, val ):
-        raise RuntimeError( f"Image._aligner is deprecated, don't use it" )
-
-    @property
-    def _aligned_images( self ):
-        raise RuntimeError( f"Image._aligned_images is deprecated, don't use it" )
-
-    @_aligned_images.setter
-    def _aligned_images( self, val ):
-        raise RuntimeError( f"Image._aligned_images is deprecated, don't use it" )
-
-    @property
-    def aligned_images( self ):
-        raise RuntimeError( f"Image.aligned_images is deprecated, don't use it" )
-
-    @aligned_images.setter
-    def aligned_images( self, val ):
-        raise RuntimeError( f"Image.aligned_images is deprecated, don't use it" )
-
-    @property
-    def get_psf( self ):
-        raise RuntimeError( f"Image.get_psf is deprecated, don't use it" )
-
-    @get_psf.setter
-    def get_psf( self, val ):
-        raise RuntimeError( f"Image.get_psf is deprecated, don't use it" )
-
-    @property
-    def get_wcs( self ):
-        raise RuntimeError( f"Image.get_wcs is deprecated, don't use it" )
-
-    @get_wcs.setter
-    def get_wcs( self, val ):
-        raise RuntimeError( f"Image.get_wcs is deprecated, don't use it" )
-
-
 
 if __name__ == '__main__':
     SCLogger.warning( "Running image.py doesn't actually do anything." )
-

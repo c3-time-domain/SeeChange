@@ -1,6 +1,6 @@
 import pytest
 import os
-import psutil
+# import psutil
 import gc
 import pathlib
 import numpy as np
@@ -17,6 +17,7 @@ from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
 from util.util import env_as_bool
+
 
 def test_source_list_bitflag(sim_sources):
     # all these data products should have bitflag zero
@@ -190,31 +191,34 @@ def test_read_sextractor( ztf_filepath_sources ):
     # num_sources or aper_rads
     with pytest.raises( ValueError, match='self.num_sources=10 but the sextractor file had' ):
         sources = SourceList( format='sextrfits', filepath=filepath, num_sources=10 )
-        data = sources.data
+        _ = sources.data
     with pytest.raises( ValueError, match="self.aper_rads.*doesn't match the number of apertures found in" ):
         sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112, aper_rads=[1., 2., 3.] )
-        data = sources.data
+        _ = sources.data
     with pytest.raises( ValueError, match="self.aper_rads.*doesn't match sextractor file" ):
         sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112,
                               aper_rads=[ 2., 5. ] )
-        data = sources.data
+        _ = sources.data
     with pytest.raises( ValueError, match="self.aper_rads.*doesn't match sextractor file" ):
         sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112,
                               aper_rads=[ 1., 2. ] )
-        data = sources.data
+        _ = sources.data
     with pytest.raises( ValueError, match="self.aper_rads.*doesn't match the number of apertures found in" ):
         sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112,
                               aper_rads=[ 1. ] )
-        data = sources.data
+        _ = sources.data
 
     # Make sure those fields get properly auto-set
     sources = SourceList( format='sextrfits', filepath=filepath )
-    data = sources.data
+    # Access the data property to get the data loaded
+    _ = sources.data
     assert sources.num_sources == 112
     assert sources.aper_rads == [ 1., 2.5 ]
 
     # Make sure we can read the file with the right things in place in those fields
     sources = SourceList( format='sextrfits', filepath=filepath, num_sources=112, aper_rads=[ 1.0, 2.5 ] )
+    # Access the data property to get the data loaded
+    _ = sources.data
     assert len(sources.data) == 112
     assert sources.num_sources == 112
     assert sources.good.sum() == 105
@@ -268,7 +272,8 @@ def test_read_sextractor( ztf_filepath_sources ):
 
 
 def test_write_sextractor(archive):
-    fname = ''.join( np.random.choice( list('abcdefghijklmnopqrstuvwxyz'), 16 ) )
+    rng = np.random.default_rng()
+    fname = ''.join( rng.choice( list('abcdefghijklmnopqrstuvwxyz'), 16 ) )
     sources = SourceList( format='sextrfits', filepath=f"{fname}.sources.fits" )
     assert sources.aper_rads is None
     if pathlib.Path( sources.get_fullpath() ).is_file():
@@ -300,6 +305,7 @@ def test_write_sextractor(archive):
     finally:
         pathlib.Path( sources.get_fullpath() ).unlink( missing_ok=True )
         archive.delete(sources.filepath, okifmissing=True)
+
 
 # ROB TODO : check this test once you've updated DataStore and the associated fixtures
 def test_calc_apercor( decam_datastore ):
@@ -343,7 +349,7 @@ def test_lim_mag_estimate( ptf_datastore_through_zp ):
     else:
         limMagEst = ds.sources.estimate_lim_mag( aperture=1, zp=ds.zp )
 
-    #check the limiting magnitude is consistent with previous runs
+    # check the limiting magnitude is consistent with previous runs
     assert limMagEst == pytest.approx(20.04, abs=0.05)
 
     # Make sure that it can auto-get the zp if you don't pass one
@@ -356,7 +362,7 @@ def test_lim_mag_estimate( ptf_datastore_through_zp ):
 def test_free( decam_datastore ):
     ds = decam_datastore
     ds.get_sources()
-    proc = psutil.Process()
+    # proc = psutil.Process()
 
     sleeptime = 0.5 # in seconds
 
@@ -369,14 +375,14 @@ def test_free( decam_datastore ):
     assert ds.image._data is not None
     assert ds.sources._data is not None
     assert ds.sources._info is not None
-    origmem = proc.memory_info()
+    # origmem = proc.memory_info()
 
     ds.sources.free()
     time.sleep(sleeptime)
     assert ds.sources._data is None
     assert ds.sources._info is None
     gc.collect()
-    freemem = proc.memory_info()
+    # freemem = proc.memory_info()
 
     # Empirically, ds.sources._data.nbytes is about 10MiB That sounds
     #   like a lot for ~6000 sources, but oh well.  Right now, no memory
@@ -409,7 +415,7 @@ def test_free( decam_datastore ):
     _ = ds.image.data
     _ = ds.sources.data
     _ = None
-    origmem = proc.memory_info()
+    # origmem = proc.memory_info()
 
     ds.image.free( free_derived_products=True )
     time.sleep(sleeptime)
@@ -419,11 +425,9 @@ def test_free( decam_datastore ):
     assert ds.sources._data is None
     assert ds.sources._info is None
     gc.collect()
-    freemem = proc.memory_info()
+    # freemem = proc.memory_info()
 
     # Grr... last time I tried this on github actions, it didn't
     #   release any memory.  Further thought required.
     # assert ( origmem.rss - freemem.rss ) > ( 64 * 1024 * 1024 )
     # assert ( origmem.rss - freemem.rss ) > ( 30 * 1024 * 1024 )
-
-

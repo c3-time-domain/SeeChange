@@ -3,8 +3,6 @@ import os
 import numpy as np
 import pandas as pd
 
-from collections import defaultdict
-
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -42,7 +40,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'source_lists'
 
     @declared_attr
-    def __table_args__( cls ):
+    def __table_args__( cls ):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
@@ -63,7 +61,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         return SourceListFormatConverter.convert(self._format)
 
     @format.expression
-    def format(cls):
+    def format(cls):  # noqa: N805
         # ref: https://stackoverflow.com/a/25272425
         return sa.case(SourceListFormatConverter.dict, value=cls._format)
 
@@ -353,7 +351,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             return self._is_star
 
         if self.format != 'sextrfits':
-            raise NotImplementedError( f'is_star is only implemented for format sextrfits' )
+            raise NotImplementedError( 'is_star is only implemented for format sextrfits' )
 
         # epsilon_2 = 5e-3 ** 2
         # kappa_2 = 4 ** 2
@@ -451,7 +449,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         if inf_aper_num is None:
             inf_aper_num = self.inf_aper_num
         if inf_aper_num is None:
-            raise RuntimeError( f"Can't determine which aperture to use as the \"infinite\" aperture" )
+            raise RuntimeError( "Can't determine which aperture to use as the \"infinite\" aperture" )
         if inf_aper_num >= len(self.aper_rads):
             raise ValueError( f"inf_aper_num {inf_aper_num} is outside available list of {len(self.aper_rads)}" )
 
@@ -513,7 +511,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             with SmartSession() as session:
                 zp = session.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
 
-        if zp != None:
+        if zp is not None:
             aperture = aperture if aperture is not None else self.best_aper_num
             if ( aperture is None ) or not ( ( ( aperture >=0 ) and ( aperture < len(self.aper_rads) ) )
                                              or
@@ -522,7 +520,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
             aperCorr = 0. if aperture == -1 else self.calc_aper_cor(aperture)
             zeroPoint = zp.zp
-            flux, fluxerr = psffluxadu() if aperture == -1 else self.apfluxadu(aperture)
+            flux, fluxerr = self.psffluxadu() if aperture == -1 else self.apfluxadu(aperture)
             mags = -2.5 * np.log10(flux) + zeroPoint + aperCorr
             snr = flux/fluxerr
             mask = (snr >= 3) & (snr <= 20) #only fitting for sources 3 < SNR < 20
@@ -532,7 +530,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             m,c = np.polyfit(snrMasked,magsMasked,1) #calculate slope and intercept of fitted line
             limMagEst = m * np.log(5) + c #limiting magnitude estimate at SNR = 5
 
-            if savePlot != None:
+            if savePlot is not None:
                 xdata = np.linspace(np.log(3),np.log(20),1000)
                 plt.plot(snrMasked,magsMasked,linewidth=0,marker='o',c='midnightblue')
                 plt.plot(xdata, m * xdata + c, color='firebrick')
@@ -576,7 +574,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         if self.format in ['sepnpy', 'filter']:
             if self.aper_rads is not None:
-                raise ValueError( f"self.aper_rads is not None for a sepnpy format file" )
+                raise ValueError( "self.aper_rads is not None for a sepnpy format file" )
             self._info = []
             data = np.load( filepath )
             if self.num_sources is None:
@@ -644,9 +642,9 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
 
         if ( image is None ) and ( self.image_id is None ):
-            raise RuntimeError( f"Can't invent a filepath for sources without an image" )
+            raise RuntimeError( "Can't invent a filepath for sources without an image" )
         if self.provenance_id is None:
-            raise RuntimeError( f"Can't invent a filepath for sources without a provenance" )
+            raise RuntimeError( "Can't invent a filepath for sources without a provenance" )
 
         if image is None:
             image = Image.get_by_id( self.image_id )
@@ -840,7 +838,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
         from models.cutouts import Cutouts
-        from models.provenance import Provenance, provenance_self_association_table
+        from models.provenance import provenance_self_association_table
         from models.image import image_upstreams_association_table
 
         output = []
@@ -850,7 +848,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             if siblings:
                 bkg = sess.query( Background ).filter( Background.sources_id==self.id ).first()
                 psf = sess.query( PSF ).filter( PSF.sources_id==self.id ).first()
-                wcs = sess.query( WordCoordinates ).filter( WorldCoordinates.sources_id==self.id ).first()
+                wcs = sess.query( WorldCoordinates ).filter( WorldCoordinates.sources_id==self.id ).first()
                 zp = sess.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
                 for thing in [ bkg, psf, wcs, zp ]:
                     if thing is not None:
@@ -898,74 +896,6 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             raise ValueError("Can't show source list without an image")
         self.image.show(**kwargs)
         plt.plot(self.x, self.y, 'ro', markersize=5, fillstyle='none')
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( f"SourceList.provenance is deprecated, don't use it" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( f"SourceList.provenance is deprecated, don't use it" )
-
-    @property
-    def image( self ):
-        raise RuntimeError( f"Don't use SourceList.image, use image_id" )
-
-    @image.setter
-    def image( self, val ):
-        raise RuntimeError( f"Don't use SourceList.image, use image_id" )
-
-    @property
-    def is_sub( self ):
-        raise RuntimeError( f"SourceList.is_sub is deprecated, don't use it" )
-
-    @is_sub.setter
-    def is_sub( self, val ):
-        raise RuntimeError( f"SourceList.is_sub is deprecated, don't use it" )
-
-    @property
-    def is_coadd( self ):
-        raise RuntimeError( f"SourceList.is_coadd is deprecated, don't use it" )
-
-    @is_coadd.setter
-    def is_coadd( self, val ):
-        raise RuntimeError( f"SourceList.is_coadd is deprecated, don't use it" )
-
-    @property
-    def wcs( self ):
-        raise RuntimeError( f"SourceList.wcs is deprecated, don't use it" )
-
-    @wcs.setter
-    def wcs( self, val ):
-        raise RuntimeError( f"SourceList.wcs is deprecated, don't use it" )
-
-    @property
-    def zp( self ):
-        raise RuntimeError( f"SourceList.zp is deprecated, don't use it" )
-
-    @zp.setter
-    def zp( self, val ):
-        raise RuntimeError( f"SourceList.zp is deprecated, don't use it" )
-
-    @property
-    def cutouts( self ):
-        raise RuntimeError( f"SourceList.cutouts is deprecated, don't use it" )
-
-    @cutouts.setter
-    def cutouts( self, val ):
-        raise RuntimeError( f"SourceList.cutouts is deprecated, don't use it" )
-
-    @property
-    def measurements( self ):
-        raise RuntimeError( f"SourceList.measurements is deprecated, don't use it" )
-
-    @measurements.setter
-    def measurements( self, val ):
-        raise RuntimeError( f"SourceList.measurements is deprecated, don't use it" )
 
 
 # Mixin for Background, PSF, WorldCoordinates, and ZeroPoint

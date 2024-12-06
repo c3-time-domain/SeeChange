@@ -1,7 +1,7 @@
-import logging
 from mpi4py import MPI
 
 from util.logger import SCLogger
+
 
 class Runner:
     def __init__( self, comm, controller_callback, worker_callback, dieonerror=False ):
@@ -64,7 +64,7 @@ class Runner:
                 success[i] = True
             except Exception as e:
                 if self.dieonerror:
-                    raise(e)
+                    raise e
                 else:
                     SCLogger.exception( f'Error running task {i}; results are missing or incomplete!' )
         return success
@@ -80,7 +80,7 @@ class Runner:
         # Wait for all workers to check in
         status = MPI.Status()
         while ncheckedin < self.size-1:
-            SCLogger.debug( f'Waiting for a worker to check in' )
+            SCLogger.debug( 'Waiting for a worker to check in' )
             msg = self.comm.recv( source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status )
             rank = status.Get_source()
             SCLogger.debug( f'Rank {rank} just checked in' )
@@ -105,7 +105,7 @@ class Runner:
                 sentdex += 1
 
             # Wait for responses
-            SCLogger.debug( f'Waiting for responses from workers' )
+            SCLogger.debug( 'Waiting for responses from workers' )
             msg = self.comm.recv( source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status )
             rank = status.Get_source()
 
@@ -128,17 +128,17 @@ class Runner:
             SCLogger.info( f'{ndone} of {len(datalist)} jobs finished' )
 
         # Tell everybody to die
-        SCLogger.info( f'All jobs complete, closing down' )
+        SCLogger.info( 'All jobs complete, closing down' )
         for rank in range(1, self.size):
             SCLogger.debug( f'Sending "die" to rank {rank}' )
             self.comm.send( { "message": "die" }, dest=rank )
-        SCLogger.debug( f'Done telling workers to die.' )
+        SCLogger.debug( 'Done telling workers to die.' )
 
         return success
 
     def _worker( self ):
         # Check in with home base
-        SCLogger.debug( f'Checking in with controller' )
+        SCLogger.debug( 'Checking in with controller' )
         self.comm.send( { "message": "Hello" }, dest=0 )
 
         # Wait to be commanded

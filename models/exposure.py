@@ -1,15 +1,12 @@
-import time
 import pathlib
 from collections import defaultdict
 
 import sqlalchemy as sa
-from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.schema import CheckConstraint
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.exc import IntegrityError
 
 from astropy.time import Time
 from astropy.io import fits
@@ -17,7 +14,6 @@ from astropy.io import fits
 from util.config import Config
 from util.util import read_fits_image
 from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
-from util.logger import SCLogger
 
 from models.base import (
     Base,
@@ -29,7 +25,6 @@ from models.base import (
     HasBitFlagBadness,
 )
 from models.instrument import guess_instrument, get_instrument_instance
-from models.provenance import Provenance
 
 from models.enums_and_bitflags import (
     ImageFormatConverter,
@@ -63,7 +58,8 @@ class SectionData:
     To clear the memory cache, call the clear_cache() method.
     """
     def __init__(self, filepath, instrument):
-        """
+        """Create a SectionData.
+
         Must initialize this object with a filepath
         (or list of filepaths) and an instrument object.
         These two things will control how data is loaded
@@ -104,7 +100,8 @@ class SectionHeaders:
     To clear the memory cache, call the clear_cache() method.
     """
     def __init__(self, filepath, instrument):
-        """
+        """Create a SectionHeaders.
+
         Must initialize this object with a filepath
         (or list of filepaths) and an instrument object.
         These two things will control how data is loaded
@@ -163,7 +160,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     __tablename__ = "exposures"
 
     @declared_attr
-    def __table_args__( cls ):
+    def __table_args__( cls ):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
@@ -192,7 +189,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         return ImageTypeConverter.convert(self._type)
 
     @type.expression
-    def type(cls):
+    def type(cls):  # noqa: N805
         return sa.case(ImageTypeConverter.dict, value=cls._type)
 
     @type.setter
@@ -223,7 +220,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         return ImageFormatConverter.convert(self._format)
 
     @format.expression
-    def format(cls):
+    def format(cls):  # noqa: N805
         # ref: https://stackoverflow.com/a/25272425
         return sa.case(ImageFormatConverter.dict, value=cls._format)
 
@@ -440,8 +437,8 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         super().__setattr__(key, value)
 
     def use_instrument_to_read_header_data(self, fromfile=None):
-        """
-        Use the instrument object to read the header data from the file.
+        """Use the instrument object to read the header data from the file.
+
         This will set the column attributes from these values.
         Additional header values will be stored in the header JSONB column.
         """
@@ -731,7 +728,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             try:
                 extdex = self.filepath_extensions.index( whichtotry )
                 break
-            except ValueError as ex:
+            except ValueError:
                 continue
         if extdex is None:
             raise ValueError( f"Failed to find filepath extentions for {which} in {self.filepath_extensions}" )
@@ -827,8 +824,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         self._header = value
 
     def update_instrument(self, session=None):
-        """
-        Make sure the instrument object is up-to-date with the current database session.
+        """Make sure the instrument object is up-to-date with the current database session.
 
         This will call the instrument's fetch_sections() method,
         using the given session and the exposure's MJD as dateobs.
@@ -855,7 +851,8 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
     @staticmethod
     def _do_not_require_file_to_exist():
-        """
+        """Modify default behavior from FileOnDiskMixin.
+
         By default, new Exposure objects are generated
         with nofile=False, which means the file must exist
         at the time the Exposure object is created.
@@ -876,24 +873,3 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             images = session.scalars(sa.select(Image).where(Image.exposure_id == self.id)).all()
 
         return images
-
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( "Don't use provenance, use provenance_id" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( "Don't use provenance, use provenance_id" )
-
-
-# if __name__ == '__main__':
-#     import os
-#     ROOT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-#     filepath = os.path.join(ROOT_FOLDER, 'data/DECam_examples/c4d_221104_074232_ori.fits.fz')
-#     e = Exposure(filepath)
-#     SCLogger.debug(e)

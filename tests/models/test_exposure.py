@@ -13,9 +13,9 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 import psycopg2.errors
 
-from models.base import SmartSession, CODE_ROOT
+from models.base import SmartSession
 from models.exposure import Exposure, SectionData
-from models.instrument import Instrument, DemoInstrument
+from models.instrument import DemoInstrument
 from models.provenance import Provenance
 from models.decam import DECam
 
@@ -69,13 +69,14 @@ def test_exposure_no_null_values():
     with pytest.raises(ValueError, match='Exposure.__init__: must give at least a filepath or an instrument'):
         _ = Exposure()
 
+    rng = np.random.default_rng()
     required = {
         'mjd': 58392.1,
         'exp_time': 30,
         'filter': 'r',
         'md5sum': uuid.UUID('00000000-0000-0000-0000-000000000000'),
-        'ra': np.random.uniform(0, 360),
-        'dec': np.random.uniform(-90, 90),
+        'ra': rng.uniform(0, 360),
+        'dec': rng.uniform(-90, 90),
         'instrument': 'DemoInstrument',
         'project': 'foo',
         'target': 'bar',

@@ -132,7 +132,7 @@ class Inpainter:
         elif self.pars.rescale_method == 'sigma_clipping':
             scaling = np.zeros((self.images_nan.shape[0], 1, 1))
             for i in range(self.images_nan.shape[0]):
-                mu, sig = sigma_clipping(self.images_nan[i])
+                mu, _ = sigma_clipping(self.images_nan[i])
                 scaling[i] = mu
         else:
             raise ValueError(f"Unknown rescaling method: {self.pars.rescale_method}")
@@ -193,8 +193,8 @@ class Inpainter:
                 )
 
     def run(self, images, flags, weights):
-        """
-        Run inpainting to fix any missing/bad pixels in the input images.
+        """Run inpainting to fix any missing/bad pixels in the input images.
+
         The returned image will be the same shape as the input images.
         Bad pixels are replaced using interpolation between images in the
         data cube (if given a 3D data cube) and then any remaining missing/bad
@@ -268,4 +268,3 @@ class Inpainter:
             raise RuntimeError('NaNs found in the output image. Something went wrong!')
 
         return np.reshape(self.images_output.copy(), self.images.shape)
-

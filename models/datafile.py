@@ -12,7 +12,7 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
     __tablename__ = "data_files"
 
     @declared_attr
-    def __table_args__(cls):
+    def __table_args__(cls):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                              '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
@@ -53,16 +53,3 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
             f'filepath={self.filepath}, '
             f'>'
         )
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( f"Datafile.provenance is deprecated, don't use it" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( f"Datafile.provenance is deprecated, don't use it" )
-

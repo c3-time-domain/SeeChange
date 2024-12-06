@@ -84,7 +84,6 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
         countdown -= 1
         try:
             starttime = time.perf_counter()
-            renew = False
             response = requests.get( url )
             response.raise_for_status()
             midtime = time.perf_counter()
@@ -112,7 +111,7 @@ def retry_download( url, fpath, md5sum=None, retries=5, sleeptime=5, exists_ok=T
                     success = False
                     raise ValueError( f"Downloaded {fname} md5sum {md5.hexdigest()} doesn't match "
                                       f"expected {md5sum}, retrying." )
-        except Exception as e:
+        except Exception:
             strio = io.StringIO("")
             traceback.print_exc( file=strio )
             logger.warning( f"Exception downloading from {url}:\n{strio.getvalue()}" )

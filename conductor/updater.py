@@ -4,23 +4,21 @@ import socket
 import select
 import time
 import datetime
-import pathlib
 import logging
 import json
-import multiprocessing
 
 # Have to manually import any instrument modules
 #  we want to be able to find.  (Otherwise, they
 #  won't be found when models.instrument  is
 #  initialized.)
-import models.decam
+import models.decam   # noqa: F401
 from models.instrument import get_instrument_instance
 
 _logger = logging.getLogger("main")
 if not _logger.hasHandlers():
     _logout = logging.StreamHandler( sys.stderr )
     _logger.addHandler( _logout )
-    _formatter = logging.Formatter( f'[%(asctime)s - UPDATER - %(levelname)s] - %(message)s',
+    _formatter = logging.Formatter( '[%(asctime)s - UPDATER - %(levelname)s] - %(message)s',
                                     datefmt='%Y-%m-%d %H:%M:%S' )
     _logout.setFormatter( _formatter )
 _logger.propagate = False
@@ -29,10 +27,12 @@ _logger.setLevel( logging.DEBUG )
 
 _max_message_size = 16384     # This should be way more than enough, unless updateargs gets out of hand
 
-def now():
-    return datetime.datetime.now( tz=datetime.timezone.utc ).strftime( '%Y-%m-%d %H:%M:%S %Z' )
 
-class Updater():
+def now():
+    return datetime.datetime.now( tz=datetime.UTC ).strftime( '%Y-%m-%d %H:%M:%S %Z' )
+
+
+class Updater:
     def __init__( self ):
         self.instrument_name = None
         self.instrument = None
@@ -55,7 +55,7 @@ class Updater():
                 exps.add_to_known_exposures( hold=self.hold )
                 _logger.info( f"Got {len(exps)} exposures to possibly add" )
             else:
-                _logger.info( f"No exposures found." )
+                _logger.info( "No exposures found." )
         else:
             _logger.warning( "No instrument defined, not updating" )
 
@@ -99,18 +99,18 @@ class Updater():
                 res = poller.poll( 1000 * waittime )
                 if len(res) == 0:
                     # Didn't get a message, must have timed out
-                    self.lasttimeout = time.perf_counter();
+                    self.lasttimeout = time.perf_counter()
                     if self.pause:
                         _logger.warning( "Paused, not updating." )
                     else:
                         self.run_update()
                 else:
                     # Got a message, parse it
-                    conn, address = sock.accept()
+                    conn, _ = sock.accept()
                     bdata = conn.recv( _max_message_size )
                     try:
                         msg = json.loads( bdata )
-                    except Exception as ex:
+                    except Exception:
                         _logger.error( f"Failed to parse json: {bdata}" )
                         conn.send( json.dumps( {'status': 'error',
                                                 'error': 'Error parsing message as json' } ) )
@@ -122,7 +122,7 @@ class Updater():
                                                  'error': "Don't understand message {msg}" } ).encode( 'utf-8' ) )
 
                     elif msg['command'] == 'die':
-                        _logger.info( f"Got die, dying." )
+                        _logger.info( "Got die, dying." )
                         conn.send( json.dumps( { 'status': 'dying' } ).encode( 'utf-8' ) )
                         done = True
 
@@ -133,7 +133,7 @@ class Updater():
                         conn.send( json.dumps( { 'status': 'forced update' } ).encode( 'utf-8' ) )
 
                     elif msg['command'] == 'updateparameters':
-                        _logger.info( f"Updating poll parameters" )
+                        _logger.info( "Updating poll parameters" )
                         if 'timeout' in msg.keys():
                             self.timeout = float( msg['timeout'] )
 
@@ -165,7 +165,7 @@ class Updater():
                                     self.instrument = get_instrument_instance( self.instrument_name )
                                     if self.instrument is None:
                                         raise RuntimeError( "Unknown instrument" )
-                            except Exception as ex:
+                            except Exception:
                                 conn.send( json.dumps( { 'status': 'error',
                                                          'error': f'Failed to find instrument {self.instrument_name}' }
                                                       ).encode( 'utf-8' ) )
@@ -196,8 +196,9 @@ class Updater():
                         conn.send( json.dumps( { 'status': 'error',
                                                  'error': f"Unrecognized command {msg['command']}" }
                                               ).encode( 'utf-8' ) )
-            except Exception as ex:
+            except Exception:
                 _logger.exception( "Exception in poll loop; continuing" )
+
 
 # ======================================================================
 

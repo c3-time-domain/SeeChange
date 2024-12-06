@@ -4,31 +4,26 @@ import requests
 #  given that we're using a self-signed cert for the server in the test environment
 requests.packages.urllib3.disable_warnings()
 import re
-import binascii
 
-from Crypto.Protocol.KDF import PBKDF2
-from Crypto.Hash import SHA256
-from Crypto.Cipher import AES, PKCS1_OAEP
-from Crypto.PublicKey import RSA
-
-import selenium.webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 
-from models.user import AuthUser
 from models.base import SmartSession
 from models.knownexposure import KnownExposure
 
 from util.conductor_connector import ConductorConnector
 from util.config import Config
 
+
 @pytest.fixture
 def conductor_url():
     return Config.get().value( 'conductor.conductor_url' )
 
+
 @pytest.fixture
 def conductor_user( user ):
     return user
+
 
 @pytest.fixture
 def conductor_browser_logged_in( browser, conductor_user ):
@@ -78,6 +73,7 @@ def conductor_browser_logged_in( browser, conductor_user ):
     assert logout.get_attribute( "innerHTML" ) == "Log Out"
     logout.click()
 
+
 @pytest.fixture
 def conductor_connector( conductor_user ):
     conductcon = ConductorConnector( verify=False )
@@ -85,6 +81,7 @@ def conductor_connector( conductor_user ):
     yield conductcon
 
     conductcon.send( 'auth/logout' )
+
 
 @pytest.fixture
 def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_exposures_parameters ):

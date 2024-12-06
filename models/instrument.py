@@ -3,9 +3,8 @@ import re
 import copy
 import pathlib
 import pytz
-import time
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import numpy as np
 
@@ -48,9 +47,7 @@ class InstrumentOrientation(Enum):
 
 
 def register_all_instruments():
-    """
-    Go over all subclasses of Instrument and register them in the global dictionaries.
-    """
+    """Go over all subclasses of Instrument and register them in the global dictionaries."""
     global INSTRUMENT_FILENAME_REGEX, INSTRUMENT_CLASSNAME_TO_CLASS
 
     if INSTRUMENT_FILENAME_REGEX is None:
@@ -67,8 +64,8 @@ def register_all_instruments():
 
 
 def guess_instrument(filename):
-    """
-    Find the name of the instrument from the filename.
+    """Find the name of the instrument from the filename.
+
     Uses the regex of each instrument (if it exists)
     to try to match the filename with the expected
     instrument's file name convention.
@@ -106,8 +103,8 @@ def guess_instrument(filename):
 
 
 def get_instrument_instance(instrument_name):
-    """
-    Get an instance of the instrument class, given the name of the instrument.
+    """Get an instance of the instrument class, given the name of the instrument.
+
     Will store that instance in the INSTRUMENT_INSTANCE_CACHE dictionary,
     so the instruments can be re-used for e.g., loading multiple exposures.
     """
@@ -125,8 +122,8 @@ def get_instrument_instance(instrument_name):
 
 
 class SensorSection(Base, UUIDMixin):
-    """
-    A class to represent a section of a sensor.
+    """A class to represent a section of a sensor.
+
     This is most often associated with a CCD chip, but could be any
     section of a sensor. For example, a section of a CCD chip that
     is read out independently, or different channels in a dichroic imager.
@@ -258,8 +255,8 @@ class SensorSection(Base, UUIDMixin):
     )
 
     def __init__(self, identifier, instrument, **kwargs):
-        """
-        Create a new SensorSection object.
+        """Create a new SensorSection object.
+
         Some parameters must be filled out for this object.
         Others (e.g., offsets) can be left at the default value.
 
@@ -286,8 +283,8 @@ class SensorSection(Base, UUIDMixin):
         return f"<SensorSection {self.identifier} ({self.size_x}x{self.size_y})>"
 
     def __eq__(self, other):
-        """
-        Check if the sensor section is identical to the other one.
+        """Check if the sensor section is identical to the other one.
+
         Returns True if all attributes are the same,
         not including database level attributes like id, created_at, etc.
         """
@@ -300,10 +297,10 @@ class SensorSection(Base, UUIDMixin):
 
 
 class Instrument:
-    """
-    Base class for an instrument.
+    """Base class for an instrument.
     Instruments contain all the information about the instrument and telescope,
     that were used to produce an exposure.
+
 
     Subclass this base class to add methods that are unique to each instrument,
     e.g., loading files, reading headers, etc.
@@ -325,13 +322,14 @@ class Instrument:
 
     """
     def __init__(self, **kwargs):
-        """
-        Create a new Instrument. This should only be called
-        at the end of the __init__() method of a subclass.
-        Any attributes that do not have any definitions in the
-        subclass __init__ will be set to None (or the default value).
-        In general, kwargs will be passed into the attributes
+        """Create a new Instrument.
+
+        This should only be called at the end of the __init__() method
+        of a subclass.  Any attributes that do not have any definitions
+        in the subclass __init__ will be set to None (or the default
+        value).  In general, kwargs will be passed into the attributes
         of the object.
+
         """
         self.name = getattr(self, 'name', None)  # name of the instrument (e.g., DECam)
 
@@ -443,8 +441,8 @@ class Instrument:
             raise ValueError(f"The section_id must be an integer or string. Got {type(section_id)}. ")
 
     def _make_new_section(self, identifier):
-        """
-        Make a new SensorSection object for this instrument.
+        """Make a new SensorSection object for this instrument.
+
         The new sections can be generated with hard-coded values,
         including the most up-to-date information about the instrument.
         If that information changes, a new section should be added,
@@ -479,8 +477,7 @@ class Instrument:
         raise NotImplementedError("Subclass this base class to add methods that are unique to each instrument.")
 
     def get_section(self, section_id):
-        """
-        Get a section from the sections dictionary.
+        """Get a section from the sections dictionary.
 
         The section_id is first checked for type and value compatibility,
         and then the section is loaded from the dictionary of sections.
@@ -497,8 +494,7 @@ class Instrument:
         return self.sections.get( str(section_id) )
 
     def fetch_sections(self, session=None, dateobs=None):
-        """
-        Get the sensor section objects associated with this instrument.
+        """Get the sensor section objects associated with this instrument.
 
         Will try to get sections that are valid during the given date.
         If any sections are missing, they will be created using the
@@ -567,8 +563,8 @@ class Instrument:
         return self.sections
 
     def commit_sections(self, session=None, validity_start=None, validity_end=None):
-        """
-        Commit the sensor sections associated with this instrument to the database.
+        """Commit the sensor sections associated with this instrument to the database.
+
         This is used to update or add missing sections that were created from
         hard-coded values (i.e., using the _make_new_section() method).
 
@@ -598,8 +594,8 @@ class Instrument:
             session.commit()
 
     def get_property(self, section_id, prop):
-        """
-        Get the value of a property for a given section of the instrument.
+        """Get the value of a property for a given section of the instrument.
+
         If that property is not defined on the sensor section
         (e.g., if it is None) then the global value from the Instrument is used.
 
@@ -637,8 +633,8 @@ class Instrument:
             return getattr(self, prop)
 
     def get_section_offsets(self, section_id):
-        """
-        Get the offset of the given section from the origin of the detector.
+        """Get the offset of the given section from the origin of the detector.
+
         This can be used if the SensorSection object itself does not have
         values for offset_x and offset_y. Use this function in subclasses
         to hard-code the offsets.
@@ -667,8 +663,8 @@ class Instrument:
         return offset_x, offset_y
 
     def get_section_filter_array_index(self, section_id):
-        """
-        Get the index in the filter array under which this section is placed.
+        """Get the index in the filter array under which this section is placed.
+
         This can be used if the SensorSection object itself does not have
         a value for filter_array_index. Use this function in subclasses
         to hard-code the array index.
@@ -693,8 +689,8 @@ class Instrument:
         return idx
 
     def load(self, filepath, section_ids=None):
-        """
-        Load a part of an exposure file, based on the section identifier.
+        """Load a part of an exposure file, based on the section identifier.
+
         If the instrument does not have multiple sections, set section_ids=0.
 
         THIS FUNCTION SHOULD GENERALLY NOT BE OVERRIDEN BY SUBCLASSES.
@@ -732,8 +728,8 @@ class Instrument:
             )
 
     def load_section_image(self, filepath, section_id):
-        """
-        Load one section of an exposure file.
+        """Load one section of an exposure file.
+
         The default loader uses the util.util.read_fits_image function,
         which is a basic FITS reader utility. More advanced instruments should
         override this function to use more complex file reading code.
@@ -759,8 +755,8 @@ class Instrument:
 
     @classmethod
     def get_filename_regex(cls):
-        """
-        Get the regular expressions used to match filenames for this instrument.
+        """Get the regular expressions used to match filenames for this instrument.
+
         This is used to guess the correct instrument class to load the file
         based only on the filename. Must return a list of regular expressions.
 
@@ -770,8 +766,7 @@ class Instrument:
         raise NotImplementedError("This method must be implemented by the subclass.")
 
     def read_header(self, filepath, section_id=None):
-        """
-        Load the header from file.
+        """Load the header from file.
 
         By default, instruments use a "standard" FITS header that is read
         out using util.util.read_fits_image.
@@ -820,9 +815,7 @@ class Instrument:
 
     @staticmethod
     def normalize_keyword(key):
-        """
-        Normalize the header keyword to be all uppercase and
-        remove spaces and underscores.
+        """Normalize the header keyword to be all uppercase and remove spaces and underscores.
 
         THIS FUNCTION MAY BE OVERRIDEN BY SUBCLASSES IN RARE CASES.
         """
@@ -830,8 +823,8 @@ class Instrument:
 
     @classmethod
     def extract_header_info(cls, header, names):
-        """
-        Get information from the raw header into common column names.
+        """Get information from the raw header into common column names.
+
         This includes keywords that are required for non-nullable columns (like MJD),
         or optional header keywords that can be included but are not critical.
         Will only extract keywords that have a translation
@@ -873,13 +866,14 @@ class Instrument:
 
     @classmethod
     def get_auxiliary_exposure_header_keys(cls):
-        """
-        Additional header keys that can be useful to have on the
-        Exposure header. This could include instrument specific
-        items that are saved to the global exposure header,
-        in addition to the keys in Exposure.EXPOSURE_HEADER_KEYS.
+        """Additional header keys that can be useful to have on the Exposure header.
+
+        This could include instrument specific items that are saved to
+        the global exposure header, in addition to the keys in
+        Exposure.EXPOSURE_HEADER_KEYS.
 
         THIS METHOD SHOULD BE OVERRIDEN BY SUBCLASSES, TO ADD MORE ITEMS
+
         """
 
         return []
@@ -934,7 +928,7 @@ class Instrument:
            dict, 10 keys: (ra|dec)_corner_(0|1)(0|1), (min|max)(ra|dec)
 
         """
-        raise NotImplementedError( f"{cls.__name__} needs to implement get_ra_dec_corners_for_section" )
+        raise NotImplementedError( f"{self.__class__.__name__} needs to implement get_ra_dec_corners_for_section" )
 
 
     def get_ra_dec_for_section_of_exposure(self, exposure, section_id):
@@ -1084,8 +1078,8 @@ class Instrument:
 
     @classmethod
     def _get_header_keyword_translations(cls):
-        """
-        Get a dictionary that translates the header keywords into normalized column names.
+        """Get a dictionary that translates the header keywords into normalized column names.
+
         Each column name has a list of possible header keywords that can be used to populate it.
         When parsing the header, look for each one of these keywords, and use the first one that is found.
 
@@ -1111,7 +1105,8 @@ class Instrument:
 
     @classmethod
     def _get_header_values_converters(cls):
-        """
+        """Get a dictionary with information needed to turn raw header values into values with correct units.
+
         Get a dictionary with some keywords
         and the conversion functions needed to turn the
         raw header values into the correct units.
@@ -1163,8 +1158,8 @@ class Instrument:
 
     @classmethod
     def _get_file_index_from_section_id(cls, section_id):
-        """
-        Translate the section_id into the file index in an array of filenames.
+        """Translate the section_id into the file index in an array of filenames.
+
         For example, if we have an instrument with 10 CCDs, numbered 0 to 9,
         then we would probably have 10 filenames in some list.
         In this case the function should return the section_id.
@@ -1188,16 +1183,16 @@ class Instrument:
 
     @classmethod
     def get_short_instrument_name(cls):
-        """
-        Get a short name used for e.g., making filenames.
+        """Get a short name used for e.g., making filenames.
+
         The default instrument just spits out the instrument class name.
         """
         return cls.__name__
 
     @classmethod
     def get_short_filter_name(cls, filter):
-        """
-        Translate the full filter name into a shorter version,
+        """Translate the full filter name into a shorter version,
+
         e.g., for using in filenames.
         The default is to just return the filter name,
         but instruments that have very long filter names
@@ -1383,8 +1378,8 @@ class Instrument:
 
     @classmethod
     def get_filter_bandpasses(cls):
-        """
-        Get a dictionary of filter name -> Bandpass object for a list of common filters.
+        """Get a dictionary of filter name -> Bandpass object for a list of common filters.
+
         The default Instrument just gives some generic filters and their bandpasses,
         but subclasses should override (or update) this dictionary with their own
         filters and bandpasses.
@@ -1543,16 +1538,16 @@ class Instrument:
             calib = None
             with CalibratorFileDownloadLock.acquire_lock(
                     self.name, section, calibset, calibtype, flattype, session=session
-            ) as calibfile_lockid:
+            ):
                 with SmartSession(session) as dbsess:
                     calibquery = ( dbsess.query( CalibratorFile )
                                    .filter( CalibratorFile.calibrator_set == calibset )
                                    .filter( CalibratorFile.instrument == self.name )
                                    .filter( CalibratorFile.type == calibtype )
                                    .filter( CalibratorFile.sensor_section == section )
-                                   .filter( sa.or_( CalibratorFile.validity_start == None,
+                                   .filter( sa.or_( CalibratorFile.validity_start.is_(None),
                                                     CalibratorFile.validity_start <= expdatetime ) )
-                                   .filter( sa.or_( CalibratorFile.validity_end == None,
+                                   .filter( sa.or_( CalibratorFile.validity_end.is_(None),
                                                     CalibratorFile.validity_end >= expdatetime ) )
                                   )
                     if calibtype == 'flat':
@@ -1698,7 +1693,7 @@ class Instrument:
                 if ( ( ( x0 > xr[0] ) and ( x0 < xr[1] ) )
                      or
                      ( ( x1 > xr[0] ) and ( x1 < xr[1] ) ) ):
-                    raise ValueError( f"Error, data sections aren't in a grid" )
+                    raise ValueError( "Error, data sections aren't in a grid" )
             if not foundx:
                 xranges.append( [ x0, x1 ] )
             foundy = False
@@ -1709,7 +1704,7 @@ class Instrument:
                 if ( ( ( y0 > yr[0] ) and ( y0 < yr[1] ) )
                      or
                      ( ( y1 > yr[0] ) and ( y1 < yr[1] ) ) ):
-                    raise ValueError( f"Error, data sections aren't in a grid" )
+                    raise ValueError( "Error, data sections aren't in a grid" )
             if not foundy:
                 yranges.append( [ y0, y1 ] )
 
@@ -1969,16 +1964,16 @@ class DemoInstrument(Instrument):
 
     @classmethod
     def check_section_id(cls, section_id):
-        """
-        Check if the section_id is valid for this instrument.
+        """Check if the section_id is valid for this instrument.
+
         The demo instrument only has one section, so the section_id must be 0.
         """
         if ( not isinstance(section_id, (str, int)) ) or ( int(section_id) != 0 ):
             raise ValueError(f"section_id must be 0 for this instrument. Got {section_id} instead.")
 
     def _make_new_section(self, identifier):
-        """
-        Make a single section for the DEMO instrument.
+        """Make a single section for the DEMO instrument.
+
         The identifier must be a valid section identifier.
 
         Returns
@@ -1989,8 +1984,8 @@ class DemoInstrument(Instrument):
         return SensorSection(identifier, self.name, size_x=self.fake_image_size_x, size_y=self.fake_image_size_y)
 
     def load_section_image(self, filepath, section_id):
-        """
-        A spoof load method for this demo instrument.
+        """A spoof load method for this demo instrument.
+
         The data is just a random array.
         The instrument only has one section,
         so the section_id must be 0.
@@ -2014,21 +2009,23 @@ class DemoInstrument(Instrument):
 
         section = self.get_section(section_id)
 
-        return np.array( np.random.poisson(10., (section.size_y, section.size_x)), dtype='=f4' )
+        rng = np.random.default_rng()
+        return np.array( rng.poisson(10., (section.size_y, section.size_x)), dtype='=f4' )
 
     def read_header(self, filepath, section_id=None):
         # return a spoof header
+        rng = np.random.default_rng()
         return fits.Header( {
-            'RA': np.random.uniform(0, 360),
-            'DEC': np.random.uniform(-90, 90),
+            'RA': rng.uniform(0, 360),
+            'DEC': rng.uniform(-90, 90),
             'EXPTIME': 30.0,
-            'FILTER': np.random.choice(self.allowed_filters),
-            'MJD': np.random.uniform(50000, 60000),
+            'FILTER': rng.choice(self.allowed_filters),
+            'MJD': rng.uniform(50000, 60000),
             'PROPID': '2020A-0001',
             'OBJECT': 'crab nebula',
             'TELESCOP': self.telescope,
             'INSTRUME': self.name,
-            'GAIN': np.random.normal(self.gain, 0.01),
+            'GAIN': rng.normal(self.gain, 0.01),
         } )
 
     def get_gain_at_pixel( self, image, x, y, section_id=None ):
@@ -2040,12 +2037,10 @@ class DemoInstrument(Instrument):
 
     @classmethod
     def get_short_instrument_name(cls):
-        """
-        Get a short name used for e.g., making filenames.
-        """
+        """Get a short name used for e.g., making filenames."""
         return 'Demo'
 
-    def acquire_origin_exposure( cls, identifier, params, outdir=None ):
+    def acquire_origin_exposure( self, identifier, params, outdir=None ):
         """Does the same thing as InstrumentOriginExposures.download_exposures.
 
         Works outside of the context of find_origin exposures.
@@ -2073,7 +2068,7 @@ class DemoInstrument(Instrument):
         raise NotImplementedError( f"Instrument class {self.__class__.__name__} hasn't "
                                    f"implemented acquire_origin_exposure" )
 
-    def acquire_and_commit_origin_exposure( cls, identifier, params ):
+    def acquire_and_commit_origin_exposure( self, identifier, params ):
         """Call acquire_origin_exposure and add the exposure to the database.
 
         Parameters

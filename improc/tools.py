@@ -85,8 +85,7 @@ def sigma_clipping(values, nsigma=3.0, iterations=5, axis=None, median=False):
 
 
 def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotation=0.0, norm=1, imsize=None):
-    """
-    Create a small image of a Gaussian centered around the middle of the image.
+    """Create a small image of a Gaussian centered around the middle of the image.
 
     Parameters
     ----------

@@ -12,6 +12,7 @@ from improc.sextrsky import sextrsky
 from util.logger import SCLogger
 from util.util import env_as_bool
 
+
 # TODO: This test fails right now, look into it
 @pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
 def test_compare_sextr_photutils( decam_datastore ):
@@ -31,9 +32,9 @@ def test_compare_sextr_photutils( decam_datastore ):
 
     # Run some photutils aperture photometry
 
-    sky, skysig = sextrsky( image.data, image.flags,
-                            boxsize=image.instrument_object.background_box_size,
-                            filtsize=image.instrument_object.background_filt_size )
+    sky, _ = sextrsky( image.data, image.flags,
+                       boxsize=image.instrument_object.background_box_size,
+                       filtsize=image.instrument_object.background_filt_size )
     skysubdata = image.data - sky
 
     pos = np.empty( ( sources.num_sources, 2 ) )
@@ -54,9 +55,9 @@ def test_compare_sextr_photutils( decam_datastore ):
 
     # Futz around a whole lot doing comparisons
 
-    sextr0, dsextr0 = sources.apfluxadu( apnum=0 )
+    sextr0, _ = sources.apfluxadu( apnum=0 )
     pu0 = phot[ :, 0 ]
-    dpu0 = dphot[ :, 0 ]
+    # dpu0 = dphot[ :, 0 ]
 
     wbig = pu0 > 200000
 
@@ -150,7 +151,7 @@ def test_compare_sextr_photutils( decam_datastore ):
         dpu_6_0 = np.sqrt( ( dp6 / p0 ) **2 + ( dp0 * p6 / (p0**2) ) **2 )
 
         wgood = sources.good & ( dphot[ :, big ] > 0 ) & ( dphot[ :, 0 ] > 0 )
-        smallerr = dpu_6_0 < 0.05
+        # smallerr = dpu_6_0 < 0.05
         # wuse = wgood & smallerr
         wuse = wgood
 
@@ -201,4 +202,3 @@ def test_compare_sextr_photutils( decam_datastore ):
 
         fig.savefig( f'{plot_dir}/twoaperratio_sexvsphot_ap{big}.svg' )
         pyplot.close( fig )
-

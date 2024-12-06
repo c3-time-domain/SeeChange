@@ -4,7 +4,6 @@ import os
 import re
 import pathlib
 import git
-import numpy as np
 from datetime import datetime
 import dateutil.parser
 import uuid
@@ -16,6 +15,7 @@ from astropy.io import fits
 from astropy.time import Time
 
 from util.logger import SCLogger
+
 
 def asUUID( id ):
     """Pass either a UUID or a string representation of one, get a UUID back."""
@@ -82,7 +82,7 @@ def listify( val, require_string=False ):
             return [ val ]
         else:
             if require_string and ( not all( [ isinstance( i, str ) for i in val ] ) ):
-                raise TypeError( f'listify: all elements of passed sequence must be strings.' )
+                raise TypeError( 'listify: all elements of passed sequence must be strings.' )
             return list( val )
     else:
         if require_string and ( not isinstance( val, str ) ):
@@ -159,8 +159,8 @@ def get_git_hash():
 
 
 def parse_dateobs(dateobs=None, output='datetime'):
-    """
-    Parse the dateobs, that can be a float, string, datetime or Time object.
+    """Parse the dateobs, that can be a float, string, datetime or Time object.
+
     The output is datetime by default, but can be any of the above types.
     If the dateobs is None, the current time will be returned.
     If int or float, will assume MJD (or JD if bigger than 2400000).
@@ -207,8 +207,8 @@ def parse_dateobs(dateobs=None, output='datetime'):
 
 
 def parse_session(*args, **kwargs):
-    """
-    Parse the arguments and keyword arguments to find a SmartSession or SQLAlchemy session.
+    """Parse the arguments and keyword arguments to find a SmartSession or SQLAlchemy session.
+
     If one of the kwargs is called "session" that value will be returned.
     Otherwise, if any of the unnamed arguments is a session, the last one will be returned.
     If neither of those are found, None will be returned.
@@ -410,6 +410,7 @@ def parse_bool(text):
     else:
         raise ValueError(f'Cannot parse boolean value from "{text}"')
 
+
 # from: https://stackoverflow.com/a/5883218
 def get_inheritors(klass):
     """Get all classes that inherit from klass. """
@@ -425,7 +426,7 @@ def get_inheritors(klass):
 
 
 def as_UUID( val, canbenone=True ):
-    """Convert a string or None to a uuid.UUID
+    r"""Convert a string or None to a uuid.UUID
 
     Parameters
     ----------
@@ -456,7 +457,7 @@ def as_UUID( val, canbenone=True ):
 
 
 def as_datetime( string ):
-    """Convert a string to datetime.date with some error checking, allowing a null op.
+    r"""Convert a string to datetime.date with some error checking, allowing a null op.
 
     Doesn't do anything to take care of timezone aware vs. timezone
     unaware dates.  It probably should.  Dealing with that is always a
@@ -494,6 +495,7 @@ def as_datetime( string ):
         else:
             SCLogger.error( f'Exception in asDateTime: {e}\n' )
         raise ValueError( f'Error, {string} is not a valid date and time.' )
+
 
 def env_as_bool(varname):
     """Parse an environmental variable as a boolean."""

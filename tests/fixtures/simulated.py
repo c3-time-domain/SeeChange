@@ -1,6 +1,5 @@
 import pytest
 import os
-import warnings
 import uuid
 
 import numpy as np
@@ -8,7 +7,6 @@ import numpy as np
 import sqlalchemy as sa
 
 from astropy.io import fits
-from astropy.time import Time
 from astropy.wcs import WCS
 
 from models.base import SmartSession
@@ -20,8 +18,9 @@ from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
-from models.cutouts import Cutouts
 from models.instrument import DemoInstrument
+
+from pipeline.data_store import DataStore
 
 from improc.tools import make_gaussian
 
@@ -29,14 +28,15 @@ from tests.conftest import rnd_str
 
 
 def make_sim_exposure():
+    rng = np.random.default_rng()
     e = Exposure(
         filepath=f"Demo_test_{rnd_str(5)}.fits",
         section_id=0,
-        exp_time=np.random.randint(1, 4) * 10,  # 10 to 40 seconds
-        mjd=np.random.uniform(58000, 58500),
-        filter=np.random.choice(list('grizY')),
-        ra=np.random.uniform(0, 360),
-        dec=np.random.uniform(-90, 90),
+        exp_time=rng.integers(1, 4) * 10,  # 10 to 40 seconds
+        mjd=rng.uniform(58000, 58500),
+        filter=rng.choice(list('grizY')),
+        ra=rng.uniform(0, 360),
+        dec=rng.uniform(-90, 90),
         project='foo',
         target=rnd_str(6),
         nofile=True,
@@ -82,6 +82,7 @@ def generate_exposure_fixture():
 
     return new_exposure
 
+
 # this will inject 9 exposures named sim_exposure1, sim_exposure2, etc.
 for i in range(1, 10):
     globals()[f'sim_exposure{i}'] = generate_exposure_fixture()
@@ -90,8 +91,8 @@ for i in range(1, 10):
 @pytest.fixture
 def unloaded_exposure():
     e = make_sim_exposure()
-
     return e
+
 
 @pytest.fixture
 def sim_exposure_filter_array():
@@ -116,15 +117,15 @@ def sim_exposure_filter_array():
 
 # tools for making Image fixtures
 class ImageCleanup:
-    """
-    Helper function that allows you to take an Image object
-    with fake data (for testing) and save it to disk,
-    while also making sure that the data is removed from disk
-    when the object goes out of scope.
+    """Helper function that allows you to take an Image object with fake data and save it to disk.
+
+    Also makes sure that the data is removed from disk when the object
+    goes out of scope.
 
     Usage:
     >> im_clean = ImageCleanup.save_image(image)
     at end of test the im_clean goes out of scope and removes the file
+
     """
 
     @classmethod
@@ -148,7 +149,8 @@ class ImageCleanup:
         """
         if image.data is None:
             if image.raw_data is None:
-                image.raw_data = np.random.uniform(0, 100, size=(100, 100))
+                rng = np.random.default_rng()
+                image.raw_data = rng.uniform(0, 100, size=(100, 100))
             image.data = np.float32(image.raw_data)
 
         if image.instrument is None:
@@ -197,10 +199,11 @@ def generate_image_fixture(commit=True):
         exp = commit_exposure(exp)
         exp.update_instrument()
 
+        rng = np.random.default_rng()
         im = Image.from_exposure(exp, section_id=0)
         im.provenance_id = provenance_preprocessing.id
         im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
-        im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
+        im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint32)
         im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
 
         if commit:
@@ -238,10 +241,11 @@ sim_image_uncommitted = generate_image_fixture(commit=False)
 
 @pytest.fixture
 def sim_reference(provenance_preprocessing, provenance_extra):
-    filter = np.random.choice(list('grizY'))
+    rng = np.random.default_rng()
+    filter = rng.choice(list('grizY'))
     target = rnd_str(6)
-    ra = np.random.uniform(0, 360)
-    dec = np.random.uniform(-90, 90)
+    ra = rng.uniform(0, 360)
+    dec = rng.uniform(-90, 90)
     images = []
     exposures = []
 
@@ -259,7 +263,7 @@ def sim_reference(provenance_preprocessing, provenance_extra):
         exp.update_instrument()
         im = Image.from_exposure(exp, section_id=0)
         im.data = im.raw_data - np.median(im.raw_data)
-        im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
+        im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint32)
         im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
         im.provenance_id = provenance_preprocessing.id
         im.ra = ra
@@ -319,11 +323,12 @@ def sim_reference(provenance_preprocessing, provenance_extra):
 @pytest.fixture
 def sim_sources(sim_image1):
     num = 100
-    x = np.random.uniform(0, sim_image1.raw_data.shape[1], num)
-    y = np.random.uniform(0, sim_image1.raw_data.shape[0], num)
-    flux = np.random.uniform(0, 1000, num)
-    flux_err = np.random.uniform(0, 100, num)
-    rhalf = np.abs(np.random.normal(0, 3, num))
+    rng = np.random.default_rng()
+    x = rng.uniform(0, sim_image1.raw_data.shape[1], num)
+    y = rng.uniform(0, sim_image1.raw_data.shape[0], num)
+    flux = rng.uniform(0, 1000, num)
+    flux_err = rng.uniform(0, 100, num)
+    rhalf = np.abs(rng.normal(0, 3, num))
 
     data = np.array(
         [x, y, flux, flux_err, rhalf],
@@ -359,8 +364,9 @@ def sim_image_list_datastores(
         fake_sources_data,
         ztf_filepaths_image_sources_psf
 ):
-    ra = np.random.uniform(30, 330)
-    dec = np.random.uniform(-30, 30)
+    rng = np.random.default_rng()
+    ra = rng.uniform(30, 330)
+    dec = rng.uniform(-30, 30)
     num = 5
     width = 1.0
     # use the ZTF files to generate a legitimate PSF (that has get_clip())
@@ -380,7 +386,7 @@ def sim_image_list_datastores(
 
         im = Image.from_exposure(exp, section_id=0)
         im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
-        im.flags = np.random.uniform(0, 1.01, size=im.raw_data.shape)  # 1% bad pixels
+        im.flags = rng.uniform(0, 1.01, size=im.raw_data.shape)  # 1% bad pixels
         im.flags = np.floor(im.flags).astype(np.uint16)
         im.weight = np.full(im.raw_data.shape, 4., dtype=np.float32)
         # TODO: remove ZTF depenedence and make a simpler PSF model (issue #242)
@@ -391,14 +397,14 @@ def sim_image_list_datastores(
         # add some additional products we may need down the line
         ds.sources = SourceList(format='filter', data=fake_sources_data)
         # must randomize the sources data to get different MD5sum
-        ds.sources.data['x'] += np.random.normal(0, .1, len(fake_sources_data))
-        ds.sources.data['y'] += np.random.normal(0, .1, len(fake_sources_data))
+        ds.sources.data['x'] += rng.normal(0, .1, len(fake_sources_data))
+        ds.sources.data['y'] += rng.normal(0, .1, len(fake_sources_data))
 
         for j in range(len(ds.sources.data)):
             dx = ds.sources.data['x'][j] - ds.raw_data.shape[1] / 2
             dy = ds.sources.data['y'][j] - ds.raw_data.shape[0] / 2
             gaussian = make_gaussian(imsize=im.raw_data.shape, offset_x=dx, offset_y=dy, norm=1, sigma_x=width)
-            gaussian *= np.random.normal(ds.sources.data['flux'][j], ds.sources.data['flux_err'][j])
+            gaussian *= rng.normal(ds.sources.data['flux'][j], ds.sources.data['flux_err'][j])
             im.data += gaussian
 
         im.save()
@@ -410,7 +416,7 @@ def sim_image_list_datastores(
         ds.psf = PSF(filepath=str(psf.relative_to(im.local_path)), format='psfex')
         im.psf.load(download=False, psfpath=psf, psfxmlpath=psfxml)
         # must randomize to get different MD5sum
-        ds.psf.data += np.random.normal(0, 0.001, im.psf.data.shape)
+        ds.psf.data += rng.normal(0, 0.001, im.psf.data.shape)
         ds.psf.info = im.psf.info.replace('Emmanuel Bertin', uuid.uuid4().hex)
 
         ds.psf.fwhm_pixels = width * 2.3  # this is a fake value, but we need it to be there
@@ -418,10 +424,10 @@ def sim_image_list_datastores(
         ds.psf.sources_id = ds.sources.id
         im.psf.save()
         ds.zp = ZeroPoint()
-        ds.zp.zp = np.random.uniform(25, 30)
-        ds.zp.dzp = np.random.uniform(0.01, 0.1)
+        ds.zp.zp = rng.uniform(25, 30)
+        ds.zp.dzp = rng.uniform(0.01, 0.1)
         ds.zp.aper_cor_radii = [1.0, 2.0, 3.0, 5.0]
-        ds.zp.aper_cors = np.random.normal(0, 0.1, len(im.zp.aper_cor_radii))
+        ds.zp.aper_cors = rng.normal(0, 0.1, len(im.zp.aper_cor_radii))
         ds.zp.provenance_id = provenance_extra.id
         ds.zp.sources_id = provenance_extra.id
         ds.wcs = WorldCoordinates()
@@ -543,14 +549,15 @@ def fake_sources_data():
     x_list = np.linspace(size_x * 0.2, size_x * 0.8, num_x)
     y_list = np.linspace(size_y * 0.2, size_y * 0.8, num_y)
 
-    xx = np.array([np.random.normal(x, 1) for x in x_list for _ in y_list]).flatten()
-    yy = np.array([np.random.normal(y, 1) for _ in x_list for y in y_list]).flatten()
-    ra = np.random.uniform(0, 360)
+    rng = np.random.default_rng()
+    xx = np.array([rng.normal(x, 1) for x in x_list for _ in y_list]).flatten()
+    yy = np.array([rng.normal(y, 1) for _ in x_list for y in y_list]).flatten()
+    ra = rng.uniform(0, 360)
     ra = [x / 3600 + ra for x in xx]  # assume pixel scale is 1"/pixel
-    dec = np.random.uniform(-10, 10)  # make it close to the equator to avoid having to consider cos(dec)
+    dec = rng.uniform(-10, 10)  # make it close to the equator to avoid having to consider cos(dec)
     dec = [y / 3600 + dec for y in yy]  # assume pixel scale is 1"/pixel
-    flux = np.random.uniform(1000, 2000, num_x * num_y)
-    flux_err = np.random.uniform(100, 200, num_x * num_y)
+    flux = rng.uniform(1000, 2000, num_x * num_y)
+    flux_err = rng.uniform(100, 200, num_x * num_y)
     dtype = [('x', 'f4'), ('y', 'f4'), ('ra', 'f4'), ('dec', 'f4'), ('flux', 'f4'), ('flux_err', 'f4')]
     data = np.empty(len(xx), dtype=dtype)
     data['x'] = xx
@@ -578,26 +585,27 @@ def sim_sub_image_list_datastores(
         provenance_measuring,
 ):
     sub_dses = []
-    for ds in sub_image_list_datastores:
+    for ds in sim_image_list_datastores:
         ds.reference = sim_reference
         ds.image.filter = ds.ref_image.filter
         ds.image.target = ds.ref_image.target
         ds.image.upsert()
         ds.sub_image = Image.from_ref_and_new( ds.ref_image, ds.image)
-        assert sub.is_sub == True
+        assert ds.sub.is_sub == True
         # we are not actually doing any subtraction here, just copying the data
         # TODO: if we ever make the simulations more realistic we may want to actually do subtraction here
-        ds.sub_image.data = im.data.copy()
-        ds.sub_image.flags = im.flags.copy()
-        ds.sub_image.weight = im.weight.copy()
+        ds.sub_image.data = ds.image.data.copy()
+        ds.sub_image.flags = ds.image.flags.copy()
+        ds.sub_image.weight = ds.image.weight.copy()
         ds.sub_image.insert()
 
         ds.detections = SourceList(format='filter', num_sources=len(fake_sources_data))
         ds.detections.provenance_id = provenance_detection.id
         ds.detections.image_id = ds.sub_image.id
         # must randomize the sources data to get different MD5sum
-        fake_sources_data['x'] += np.random.normal(0, 1, len(fake_sources_data))
-        fake_sources_data['y'] += np.random.normal(0, 1, len(fake_sources_data))
+        rng = np.random.default_rng()
+        fake_sources_data['x'] += rng.normal(0, 1, len(fake_sources_data))
+        fake_sources_data['y'] += rng.normal(0, 1, len(fake_sources_data))
         ds.detections.data = fake_sources_data
         ds.detections.save()
         ds.detections.insert()
@@ -623,26 +631,25 @@ def sim_sub_image_list_datastores(
 
 
 # This fixture is broken until we do Issue #346
-@pytest.fixture
-def sim_lightcurves(sim_sub_image_list_datastores, measurer):
-    # a nested list of measurements, each one for a different part of the images,
-    # for each image contains a list of measurements for the same source
-    measurer.pars.thresholds['bad pixels'] = 100  # avoid losing measurements to random bad pixels
-    measurer.pars.deletion_thresholds['bad pixels'] = 100
-    measurer.pars.thresholds['offsets'] = 10  # avoid losing measurements to random offsets
-    measurer.pars.deletion_thresholds['offsets'] = 10
-    measurer.pars.association_radius = 5.0  # make it harder for random offsets to dis-associate the measurements
-    lightcurves = []
+# @pytest.fixture
+# def sim_lightcurves(sim_sub_image_list_datastores, measurer):
+#     # a nested list of measurements, each one for a different part of the images,
+#     # for each image contains a list of measurements for the same source
+#     measurer.pars.thresholds['bad pixels'] = 100  # avoid losing measurements to random bad pixels
+#     measurer.pars.deletion_thresholds['bad pixels'] = 100
+#     measurer.pars.thresholds['offsets'] = 10  # avoid losing measurements to random offsets
+#     measurer.pars.deletion_thresholds['offsets'] = 10
+#     measurer.pars.association_radius = 5.0  # make it harder for random offsets to dis-associate the measurements
+#     lightcurves = []
 
-    for ds in sim_sub_image_list_datastores:
-        ds = measurer.run( ds )
-        ds.save_and_commit()
+#     for ds in sim_sub_image_list_datastores:
+#         ds = measurer.run( ds )
+#         ds.save_and_commit()
 
-        # grab all the measurements associated with each Object
-        for m in ds.measurements:
-            m = session.merge(m)
-            lightcurves.append(m.object.measurements)  # <--- need to update with obejct measurement list
+#         # grab all the measurements associated with each Object
+#         for m in ds.measurements:
+#             m = session.merge(m)
+#             lightcurves.append(m.object.measurements)  # <--- need to update with obejct measurement list
 
-    # sim_sub_image_list_datastores cleanup will clean up our mess too
-    return lightcurves
-
+#     # sim_sub_image_list_datastores cleanup will clean up our mess too
+#     return lightcurves

@@ -2,7 +2,6 @@ import warnings
 import os
 import time
 import math
-import copy
 import types
 import hashlib
 import pathlib
@@ -18,7 +17,6 @@ import shapely
 from astropy.coordinates import SkyCoord
 
 import psycopg2
-from psycopg2.errors import UniqueViolation
 
 import sqlalchemy as sa
 import sqlalchemy.dialects.postgresql
@@ -26,13 +24,10 @@ from sqlalchemy import func, orm
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
-from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.dialects.postgresql import array as sqlarray
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.exc import IntegrityError, OperationalError
-
-from sqlalchemy.schema import CheckConstraint
+from sqlalchemy.exc import OperationalError
 
 from models.enums_and_bitflags import (
     data_badness_dict,
@@ -49,12 +44,28 @@ from util.util import asUUID, UUIDJsonEncoder
 
 # Postgres adapters to allow insertion of some numpy types
 import psycopg2.extensions
+
+
 def _adapt_numpy_float64_psycopg2( val ):
     return psycopg2.extensions.AsIs( val )
+
+
 def _adapt_numpy_float32_psycopg2( val ):
     return psycopg2.extensions.AsIs( val )
+
+
+def _adapt_numpy_int64_psycopg2( val ):
+    return psycopg2.extensions.AsIs( val )
+
+
+def _adapt_numpy_int32_psycopg2( val ):
+    return psycopg2.extensions.AsIs( val )
+
+
 psycopg2.extensions.register_adapter( np.float64, _adapt_numpy_float64_psycopg2 )
 psycopg2.extensions.register_adapter( np.float32, _adapt_numpy_float32_psycopg2 )
+psycopg2.extensions.register_adapter( np.int64, _adapt_numpy_int64_psycopg2 )
+psycopg2.extensions.register_adapter( np.int32, _adapt_numpy_int32_psycopg2 )
 
 
 # this is the root SeeChange folder
@@ -110,6 +121,7 @@ setup_warning_filters()  # need to call this here and also call it explicitly wh
 _engine = None
 _Session = None
 _psycopg2params = None
+
 
 def Session():
     """Make a session if it doesn't already exist.
@@ -248,6 +260,7 @@ def SmartSession(*args):
             session.close()
             session.invalidate()
 
+
 @contextmanager
 def Psycopg2Connection( current=None ):
     """Get a direct psycopg2 connection to the database; use this in a with statement.
@@ -276,7 +289,7 @@ def Psycopg2Connection( current=None ):
 
     if current is not None:
         if not isinstance( current, psycopg2.extensions.connection ):
-            raise TypeError( f"Must pass a psycopg2.extensions.connection or None to Pyscopg2Conection" )
+            raise TypeError( "Must pass a psycopg2.extensions.connection or None to Pyscopg2Conection" )
         yield current
         # Don't roll back or close, because whoever created it in the
         #   first place is responsible for that.
@@ -428,10 +441,11 @@ class SeeChangeBase:
         self.from_db = True  # let users know this object was loaded from the database
 
     def get_attribute_list(self):
-        """
-        Get a list of all attributes of this object,
-        not including internal SQLAlchemy attributes,
-        and database level attributes like id, created_at, etc.
+        """Get a list of all attributes of this object.
+
+        Does not including internal SQLAlchemy attributes, and database
+        level attributes like id, created_at, etc.
+
         """
         attrs = [
             a for a in self.__dict__.keys()
@@ -457,7 +471,7 @@ class SeeChangeBase:
         """
         for key, value in dictionary.items():
             if hasattr(self, key):
-                if type( getattr( self, key ) ) != types.MethodType:
+                if not isinstance( getattr( self, key ), types.MethodType ):
                     setattr(self, key, value)
 
 
@@ -501,7 +515,7 @@ class SeeChangeBase:
                 session.connection().execute( sa.text( "SET lock_timeout TO '1s'" ) )
                 session.connection().execute( sa.text( f'LOCK TABLE {tablename}' ) )
                 break
-            except OperationalError as e:
+            except OperationalError:
                 sleeptime *= 2
                 if sleeptime >= 16:
                     failed = True
@@ -525,7 +539,7 @@ class SeeChangeBase:
             if col.name == 'created_at':
                 continue
             elif col.name == 'modified':
-                val = datetime.datetime.now( tz=datetime.timezone.utc )
+                val = datetime.datetime.now( tz=datetime.UTC )
 
             if isinstance( col.type, sqlalchemy.dialects.postgresql.json.JSONB ) and ( val is not None ):
                 val = json.dumps( val )
@@ -576,7 +590,7 @@ class SeeChangeBase:
 
         """
 
-        myid = self.id    # Make sure id is generated
+        _ = self.id    # Make sure id is generated
 
         # Doing this manually for a few reasons.  First, doing a
         #  Session.add wasn't always just doing an insert, but was doing
@@ -674,8 +688,7 @@ class SeeChangeBase:
         #   sqlalchemy "add" and "merge" statements, so we don't have to
         #   worry about whatever other side effects those things have.)
 
-        # Make sure that self._id is generated
-        myid = self.id
+        _ = self.id   # Make sure that self._id is generated
         cols, values = self._get_cols_and_vals_for_insert()
         notmod = [ c for c in cols if c != 'modified' ]
         q = ( f'INSERT INTO {self.__tablename__}({",".join(notmod)}) VALUES (:{",:".join(notmod)}) '
@@ -720,7 +733,7 @@ class SeeChangeBase:
 
         with SmartSession( session ) as sess:
             for obj in objects:
-                myid = obj.id                 #  Make sure _id is generated
+                _ = obj.id                 #  Make sure _id is generated
                 cols, values = obj._get_cols_and_vals_for_insert()
                 notmod = [ c for c in cols if c != 'modified' ]
                 q = ( f'INSERT INTO {cls.__tablename__}({",".join(notmod)}) VALUES (:{",:".join(notmod)}) '
@@ -1163,7 +1176,7 @@ class FileOnDiskMixin:
         os.makedirs(path, exist_ok=True)
 
     @declared_attr
-    def filepath(cls):
+    def filepath(cls):  # noqa: N805
         return sa.Column(
             sa.Text,
             nullable=False,
@@ -1245,8 +1258,8 @@ class FileOnDiskMixin:
 
     @staticmethod
     def _do_not_require_file_to_exist():
-        """
-        The default value for the nofile property of new objects.
+        """The default value for the nofile property of new objects.
+
         Generally it is ok to make new FileOnDiskMixin derived objects
         without first having a file (the file is created by the app and
         saved to disk before the object is committed).
@@ -1264,8 +1277,8 @@ class FileOnDiskMixin:
         super().__setattr__(key, value)
 
     def _validate_filepath(self, filepath):
-        """
-        Make sure the filepath is legitimate.
+        """Make sure the filepath is legitimate.
+
         If the filepath starts with the local path
         (i.e., an absolute path is given) then
         the local path is removed from the filepath,
@@ -1385,7 +1398,6 @@ class FileOnDiskMixin:
         if ext is None:
             md5sum = self.md5sum.hex if self.md5sum is not None else None
         else:
-            found = False
             try:
                 extdex = self.filepath_extensions.index( ext )
             except ValueError:
@@ -1588,7 +1600,7 @@ class FileOnDiskMixin:
                 raise RuntimeError( f"{localpath} exists but is not a file!  Can't save." )
             if localpath == path:
                 alreadyinplace = True
-                # SCLogger.debug( f"FileOnDiskMixin.save: local file store path and original path are the same: {path}" )
+                # SCLogger.debug( f"FileOnDiskMixin.save: local file store path & original path are the same: {path}" )
             else:
                 if ( not overwrite ) and ( not exists_ok ):
                     raise FileExistsError( f"{localpath} already exists, cannot save." )
@@ -2337,7 +2349,7 @@ class HasBitFlagBadness:
     )
 
     @declared_attr
-    def _upstream_bitflag(cls):
+    def _upstream_bitflag(cls):  # noqa: N805
         if cls.__name__ != 'Exposure':
             return sa.Column(
                 sa.BIGINT,

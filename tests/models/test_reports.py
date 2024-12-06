@@ -1,4 +1,3 @@
-import os
 import time
 import uuid
 
@@ -161,5 +160,3 @@ def test_inject_warnings():
 # def test_inject_exceptions(decam_datastore, decam_reference, pipeline_for_tests):
 def test_inject_exceptions():
     pass
-
-

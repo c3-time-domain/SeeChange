@@ -4,10 +4,10 @@ import pathlib
 import pytest
 
 _rundir = pathlib.Path(__file__).parent
-if not str(_rundir.parent) in sys.path:
+if str(_rundir.parent) not in sys.path:
     sys.path.insert(0, str(_rundir.parent ) )
 from util import config
-from util.logger import SCLogger
+# from util.logger import SCLogger
 
 # A note about pytest: Things aren't completely sandboxed.  When I call
 # config.Config.get(), it sets Config._default, and that carries over
@@ -152,7 +152,3 @@ class TestConfig:
         assert cfg.value('clonetest2') == 'orig'
         assert newconfig.value('clonetest1') == 'orig'
         assert newconfig.value('clonetest2') == 'manuallyset'
-
-if __name__ == '__main__':
-    unittest.main()
-

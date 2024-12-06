@@ -110,8 +110,9 @@ def test_parameter_name_matches():
         ParsDemoSubclass(wrong_key="test")
     assert "object has no attribute " in str(e)
 
-    int_par = np.random.randint(2, 10)
-    float_par = np.random.uniform(2, 10)
+    rng = np.random.default_rng()
+    int_par = int( rng.integers(2, 10) )
+    float_par = float( rng.uniform(2, 10) )
 
     p = ParsDemoSubclass(Int_Par=int_par, FLOAT_P=float_par, plot=False, null=None)
     p._remove_underscores = True

@@ -9,9 +9,7 @@ import torch
 
 import RBbot_inference
 
-from models.measurements import Measurements
 from models.deepscore import DeepScore
-from models.provenance import Provenance
 from models.enums_and_bitflags import DeepscoreAlgorithmConverter
 
 from util.config import Config
@@ -46,6 +44,7 @@ class ParsScorer(Parameters):
     def get_process_name(self):
         return 'scoring'
 
+
 class Scorer:
     def __init__(self, **kwargs):
         self.config = Config.get()
@@ -77,7 +76,7 @@ class Scorer:
         # Current RBbot models assume 41×41 cutouts
         if ( cutouts.co_dict[f'source_index_{ds.measurements[0].index_in_sources}']['sub_data'].shape
              != (41,41) ):
-            raise ValueError( f"RBbot currently requires cutouts to be 41×41" )
+            raise ValueError( "RBbot currently requires cutouts to be 41×41" )
         data = np.empty( ( len(ds.measurements), 3, 41, 41 ) )
         tmpdata = np.empty( ( 3, 41, 41 ) )
         tmpmask = np.empty( ( 3, 41, 41 ), dtype=bool )
@@ -131,7 +130,8 @@ class Scorer:
 
 
     def run(self, *args, **kwargs):
-        """
+        """Assign deepscores to measurements.
+
         Look at the measurements and assign scores based
         on the chosen ML/DL model. Potentially will include an R/B
         score in addition to other scores.

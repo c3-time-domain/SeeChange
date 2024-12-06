@@ -1,6 +1,4 @@
 import datetime
-import time
-import collections.abc
 
 import numpy as np
 import sqlalchemy as sa
@@ -20,8 +18,7 @@ from models.refset import RefSet, refset_provenance_association_table
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import parse_session, listify, parse_dateobs, asUUID
-from util.radec import parse_sexigesimal_degrees
+from util.util import parse_dateobs
 
 
 class ParsRefMaker(Parameters):
@@ -228,8 +225,7 @@ class ParsRefMaker(Parameters):
 
 class RefMaker:
     def __init__(self, **kwargs):
-        """
-        Initialize a reference maker object.
+        """Initialize a reference maker object.
 
         The possible keywords that can be given are: maker, pipeline, coaddition. Each should be a dictionary.
 
@@ -415,7 +411,7 @@ class RefMaker:
                     if upstrhash != upstr0hash:
                         session.rollback()
                         raise RuntimeError( f"Database integrity error: upstream provenances for "
-                                            r"RefSet {self.pars.name} aren't all the same!" )
+                                            f"RefSet {self.pars.name} aren't all the same!" )
                 upstrs = self.ref_prov.get_upstreams( session=session )
                 upstrhash = Provenance.combined_upstream_hash( upstrs )
                 if upstrhash != upstr0hash:
@@ -632,7 +628,8 @@ class RefMaker:
         kwargs['instrument' ] = self.pars.instruments
         kwargs['project'] = self.pars.projects
         kwargs['filter'] = self.filter
-        kwargs['min_mjd'] = None if self.pars.start_time is None else parse_dateobs( self.pars.start_time, output='mjd' )
+        kwargs['min_mjd'] = ( None if self.pars.start_time is None
+                              else parse_dateobs( self.pars.start_time, output='mjd' ) )
         kwargs['max_mjd'] = None if self.pars.end_time is None else parse_dateobs( self.pars.end_time, output='mjd' )
         kwargs['max_seeing'] = self.pars.max_seeing
         kwargs['min_lim_mag'] = self.pars.min_lim_mag
@@ -688,7 +685,7 @@ class RefMaker:
             provenance_ids=self.ref_prov.id,
         )
 
-        refs, imgs = refsandimgs
+        refs, _ = refsandimgs
 
         # if found a reference, can skip the next part of the code!
         if len(refs) == 1:
@@ -702,7 +699,7 @@ class RefMaker:
 
         ############### no reference found, need to build one! ################
 
-        images, match_pos, match_count = self.identify_reference_images_to_coadd( _do_not_parse_arguments=True )
+        images, _, match_count = self.identify_reference_images_to_coadd( _do_not_parse_arguments=True )
 
         # Make sure we got enough
 

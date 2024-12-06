@@ -10,12 +10,11 @@ import sqlalchemy as sa
 import numpy as np
 
 from astropy.io import fits
-from astropy.time import Time
 
 from models.base import SmartSession
 from models.instrument import Instrument, get_instrument_instance
 from models.decam import DECam  # need this import to make sure DECam is added to the Instrument list
-from models.provenance import Provenance, ProvenanceTag
+from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.datafile import DataFile
@@ -182,6 +181,7 @@ def decam_reduced_origin_exposure_files( download_url, data_dir ):
         if os.path.isfile( f ):
             os.remove( f )
 
+
 @pytest.fixture
 def decam_reduced_origin_exposure_loaded_in_db( decam_reduced_origin_exposure_files, provenance_base ):
     expfile, wtfile, flgfile = decam_reduced_origin_exposure_files
@@ -221,6 +221,7 @@ def decam_raw_origin_exposures_parameters():
              'maxmjd': 60127.36319,
              'projects': [ '2023A-716082' ] ,
              'proc_type': 'raw' }
+
 
 @pytest.fixture(scope='module')
 def decam_raw_origin_exposures( decam_raw_origin_exposures_parameters ):
@@ -280,8 +281,7 @@ def decam_exposure_factory(download_url, data_dir, decam_cache_dir):
 
         exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
         exposure.save()  # save to archive and get an MD5 sum
-        with SmartSession() as session:
-            exposure.insert()
+        exposure.insert()
 
         exposurestodelete.append( exposure )
         exposure.data.clear_cache()
@@ -291,6 +291,7 @@ def decam_exposure_factory(download_url, data_dir, decam_cache_dir):
 
     for exposure in exposurestodelete:
         exposure.delete_from_disk_and_database()
+
 
 # All three of the exposures are r-band, and
 #   of the same field (the field that goes with
@@ -304,9 +305,11 @@ def decam_exposure_factory(download_url, data_dir, decam_cache_dir):
 def decam_exposure( decam_exposure_factory ):
     return decam_exposure_factory( 'c4d_230702_080904_ori.fits.fz' )
 
+
 @pytest.fixture
 def decam_raw_image_provenance( provenance_base ):
     return provenance_base
+
 
 @pytest.fixture
 def decam_raw_image( decam_exposure, provenance_base ):
@@ -342,6 +345,7 @@ def decam_refset():
     with SmartSession() as session:
         session.execute( sa.delete( RefSet ).where( RefSet.name=='test_refset_decam' ) )
         session.commit()
+
 
 # Don't use the decam_datastore and decam_datastore_through_* fixtures in the same test.
 @pytest.fixture
@@ -405,6 +409,7 @@ def decam_datastore(
     with SmartSession() as session:
         session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'decam_datastore' } )
         session.commit()
+
 
 # This next fixture returns a factory that's
 # not general; it will only work for DECam
@@ -523,7 +528,7 @@ def decam_fits_image_filename(download_url, decam_cache_dir):
     filepath = os.path.join(decam_cache_dir, filename)
     if not os.path.isfile(filepath):
         url = os.path.join(download_url, filename)
-        response = wget.download(url=url, out=filepath)
+        wget.download(url=url, out=filepath)
 
     yield filename
 
@@ -542,7 +547,7 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
     filepath = os.path.join(decam_cache_dir, filename)
     if not os.path.isfile(filepath):
         url = os.path.join(download_url, filename)
-        response = wget.download(url=url, out=filepath)
+        wget.download(url=url, out=filepath)
 
     yield filename
 
@@ -643,9 +648,11 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
 
     ImageAligner.cleanup_temp_images()
 
+
 @pytest.fixture
 def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
+
 
 @pytest.fixture
 def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
@@ -692,9 +699,6 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
 def decam_reference( decam_elais_e1_two_references ):
     return decam_elais_e1_two_references[0]
 
-@pytest.fixture
-def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
-    return decam_elais_e1_two_refs_datastore[0]
 
 @pytest.fixture(scope='session')
 def get_cached_decam_image( code_version, decam_cache_dir, download_url, datastore_factory ):
@@ -793,11 +797,13 @@ def decam_four_offset_refs( get_cached_decam_image ):
     for ds in dses:
         ds.delete_everything()
 
+
 @pytest.fixture
 def decam_four_refs_alignment_target( get_cached_decam_image ):
     ds = get_cached_decam_image( pathlib.Path( '030/c4d_20240924_061837_S4_r_Sci' ) )
     yield ds
     ds.delete_everything()
+
 
 # This fixture takes minutes and minutes to run; any tests that
 #    use it should probably be marked for skipping unles

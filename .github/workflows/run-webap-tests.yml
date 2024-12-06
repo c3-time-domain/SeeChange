@@ -49,6 +49,11 @@ jobs:
         run: |
           docker compose pull archive postgres conductor mailhog webap runtests kafka-server
 
+      # See comment before this step in run-improc-tests.yml
+      - name: run ruff linter
+        run: |
+          docker compose run runruff
+
       - name: run test
         run: |
           shopt -s nullglob

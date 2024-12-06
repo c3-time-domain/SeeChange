@@ -212,6 +212,7 @@ def test_make_sub_prov_upstreams():
         sess.execute( sa.delete( Provenance ).where( Provenance._id.in_( idstodel ) ) )
         sess.commit()
 
+
 # The fixture gets us a datastore with everything saved and committed
 # The fixture takes some time to build (even from cache), so glom
 # all the tests together in one function.
@@ -233,7 +234,7 @@ def test_data_store( decam_datastore ):
     assert ds._exposure_id == tmpuuid
     assert ds.exposure_id == tmpuuid
 
-    with pytest.raises( Exception ) as ex:
+    with pytest.raises( Exception ):
         ds.exposure_id = 'this is not a valid uuid'
 
     ds.exposure_id = origexp
@@ -246,7 +247,7 @@ def test_data_store( decam_datastore ):
     assert ds._image_id == tmpuuid
     assert ds.image_id == tmpuuid
 
-    with pytest.raises( Exception ) as ex:
+    with pytest.raises( Exception ):
         ds.image_id = 'this is not a valud uuid'
 
     ds.image_id = origimg
@@ -386,4 +387,3 @@ def test_datastore_delete_everything(decam_datastore):
             ).first() is None
         if len(scores_list) > 0:
             assert session.scalars( sa.select(DeepScore).where(DeepScore._id == scores_list[0].id) ).first() is None
-

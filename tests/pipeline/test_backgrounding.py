@@ -1,5 +1,4 @@
 import pytest
-import uuid
 
 import numpy as np
 
@@ -7,7 +6,6 @@ from models.base import SmartSession
 from models.background import Background
 
 from improc.tools import sigma_clipping
-from pipeline.data_store import DataStore
 
 from tests.conftest import SKIP_WARNING_TESTS
 
@@ -85,7 +83,8 @@ def test_warnings_and_exceptions( decam_datastore_through_extraction ):
             backgrounder.run( ds )
         assert ds.exception is None
         assert len(record) > 0
-        assert any("Warning injected by pipeline parameters in process 'backgrounding'." in str(w.message) for w in record)
+        assert any("Warning injected by pipeline parameters in process 'backgrounding'." in str(w.message)
+                   for w in record)
 
     backgrounder.pars.inject_warnings = 0
     backgrounder.pars.inject_exceptions = 1

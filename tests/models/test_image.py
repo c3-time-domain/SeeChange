@@ -31,13 +31,13 @@ from tests.fixtures.simulated import ImageCleanup
 
 
 def test_image_no_null_values(provenance_base):
-
+    rng = np.random.default_rng()
     required = {
         'mjd': 58392.1,
         'end_mjd': 58392.1 + 30 / 86400,
         'exp_time': 30,
-        'ra': np.random.uniform(0., 360.),
-        'dec': np.random.uniform(-90., 90.),
+        'ra': rng.uniform(0., 360.),
+        'dec': rng.uniform(-90., 90.),
         'ra_corner_00': 0.,
         'ra_corner_01': 0.,
         'ra_corner_10': 0.,
@@ -98,6 +98,7 @@ def test_image_no_null_values(provenance_base):
             session.execute( sa.delete( Image ).where( Image._id == im_id ) )
             session.commit()
 
+
 def test_image_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted, provenance_base ):
     # FileOnDiskMixin.test_insert() is tested in test_exposure.py::test_insert
 
@@ -120,7 +121,7 @@ def test_image_insert( sim_image1, sim_image2, sim_image3, sim_image_uncommitted
         assert set( [ i.upstream_id for i in upstrs ] ) == set( upstreamids )
 
     # Make sure that we get the upstream ids from the database if necessary
-    im._upstream_ids == None
+    im._upstream_ids = None
     assert im.upstream_image_ids == upstreamids
     assert im._upstream_ids == upstreamids
 
@@ -190,7 +191,8 @@ def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
 def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
-    im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint16)
+    rng = np.random.default_rng()
+    im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint16)
 
     archive_dir = archive.test_folder_path
     single_fileness = test_config.value('storage.images.single_file')
@@ -225,7 +227,6 @@ def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
             assert isinstance( im.get_fullpath( nofile=True ), str )
             ifp = open( im.get_fullpath( nofile=True ), "rb" )
             ifp.close()
-        p = im.get_fullpath( nofile=False )
         localmd5 = hashlib.md5()
         with open( im.get_fullpath( nofile=False ), 'rb' ) as ifp:
             localmd5.update( ifp.read() )
@@ -254,7 +255,8 @@ def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
 def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
-    im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint16)
+    rng = np.random.default_rng()
+    im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint16)
     im.weight = None
 
     archive_dir = archive.test_folder_path
@@ -330,12 +332,13 @@ def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
 def test_image_save_justheader( sim_image1 ):
     try:
         sim_image1.data = np.full( (64, 32), 0.125, dtype=np.float32 )
-        sim_image1.flags = np.random.randint(0, 100, size=sim_image1.data.shape, dtype=np.uint16)
+        rng = np.random.default_rng()
+        sim_image1.flags = rng.integers(0, 100, size=sim_image1.data.shape, dtype=np.uint16)
         sim_image1.weight = np.full( (64, 32), 4., dtype=np.float32 )
 
         archive = sim_image1.archive
 
-        icl = ImageCleanup.save_image( sim_image1, archive=True )
+        _ = ImageCleanup.save_image( sim_image1, archive=True )
         names = sim_image1.get_fullpath( download=False )
         assert names[0].endswith('.image.fits')
         assert names[1].endswith('.flags.fits')
@@ -373,12 +376,14 @@ def test_image_save_justheader( sim_image1 ):
         # The fixtures should do all the necessary deleting
         pass
 
+
 def test_image_save_onlyimage( sim_image1 ):
     sim_image1.data = np.full( (64, 32), 0.125, dtype=np.float32 )
-    sim_image1.flags = np.random.randint(0, 100, size=sim_image1.data.shape, dtype=np.uint16)
+    rng = np.random.default_rng()
+    sim_image1.flags = rng.integers(0, 100, size=sim_image1.data.shape, dtype=np.uint16)
     sim_image1.weight = np.full( (64, 32), 4., dtype=np.float32 )
 
-    icl = ImageCleanup.save_image( sim_image1, archive=False )
+    _ = ImageCleanup.save_image( sim_image1, archive=False )
     names = sim_image1.get_fullpath( download=False )
     assert names[0].endswith('.image.fits')
     assert names[1].endswith('.flags.fits')
@@ -580,6 +585,7 @@ def test_image_from_exposure( provenance_base, sim_exposure1 ):
         # (The sim_exposure1 fixture will delete images derived from it)
         pass
 
+
 def test_image_from_exposure_filter_array(sim_exposure_filter_array):
     sim_exposure_filter_array.update_instrument()
     im = Image.from_exposure(sim_exposure_filter_array, section_id=0)
@@ -697,7 +703,8 @@ def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_
         im.filepath = im.invent_filepath()
 
         # It should object if we haven't saved the upstreams first
-        with pytest.raises( IntegrityError, match='insert or update on table "images" violates foreign key constraint' ):
+        with pytest.raises( IntegrityError,
+                            match='insert or update on table "images" violates foreign key constraint' ):
             im.insert()
 
         # So try to do it right
@@ -844,7 +851,8 @@ def test_image_filename_conventions(sim_image1, test_config):
 def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
     im = sim_image_uncommitted
     im.data = np.float32(im.raw_data)
-    im.flags = np.random.randint(0, 100, size=im.raw_data.shape, dtype=np.uint32)
+    rng = np.random.default_rng()
+    im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint32)
     im.weight = None
     im.provenance_id = provenance_base.id
 
@@ -903,6 +911,7 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
 
     finally:
         test_config.set_value('storage.images.single_file', single_fileness)
+
 
 # Note: ptf_datastore is a pretty heavyweight fixture, since it has to
 #   build the ptf reference.  Perhaps this isn't a big deal, because
@@ -1021,6 +1030,7 @@ def test_free( decam_exposure, decam_raw_image, ptf_ref ):
     # the free_derived_products parameter is tested in test_source_list.py
     # and test_psf.py
 
+
 # There are other tests of badness elsewhere that do upstreams and downstreams
 # See: test_sources.py::test_source_list_bitflag ; test_pipeline.py::test_bitflag_propagation
 def test_badness_basic( sim_image_uncommitted, provenance_base ):
@@ -1089,7 +1099,3 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
 
     # No need to clean up, the exposure from which sim_image_uncommitted was generated
     #  will clean up all its downstreams.
-
-
-
-

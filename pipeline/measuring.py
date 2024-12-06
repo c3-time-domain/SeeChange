@@ -4,8 +4,6 @@ import numpy as np
 
 from scipy import signal
 
-from astropy.table import Table
-
 from improc.photometry import iterative_cutouts_photometry
 from improc.tools import make_gaussian
 
@@ -17,8 +15,9 @@ from models.enums_and_bitflags import BitFlagConverter, BadnessConverter
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from util.util import parse_session, env_as_bool
+from util.util import env_as_bool
 from util.logger import SCLogger
+
 
 class ParsMeasurer(Parameters):
     def __init__(self, **kwargs):
@@ -207,7 +206,8 @@ class Measurer:
 
             # sub_image = ds.get_subtraction( session=session )
             # if sub_image is None:
-            #     raise ValueError(f"Can't find a subtraction image corresponding to datastore inputs: {ds.get_inputs()}" )
+            #     raise ValueError(f"Can't find a subtraction image corresponding to "
+            #                      f"datastore inputs: {ds.get_inputs()}" )
             new_zp = ds.get_zp( session=session )
             if new_zp is None:
                 raise ValueError(f"Can't find a zp corresponding to the datastore inputs: {ds.get_inputs()}")

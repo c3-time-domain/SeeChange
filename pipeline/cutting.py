@@ -2,14 +2,14 @@ import time
 
 from improc.tools import make_cutouts
 
-from models.image import Image
+from models.image import Image  # noqa: F401
 from models.source_list import SourceList
 from models.cutouts import Cutouts
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from util.util import parse_session, env_as_bool
+from util.util import env_as_bool
 
 
 class ParsCutter(Parameters):
@@ -40,7 +40,8 @@ class Cutter:
         self.has_recalculated = False
 
     def run(self, *args, **kwargs):
-        """
+        """Create a Cutouts objects for a list of sources.
+
         Go over a list of sources and for each source position,
         cut out a postage stamp image from the new,
         reference and subtraction images.
@@ -50,7 +51,7 @@ class Cutter:
         """
         self.has_recalculated = False
         try:  # first make sure we get back a datastore, even an empty one
-            # if isinstance(args[0], SourceList) and args[0].is_sub:  # most likely to get a SourceList detections object
+            # if isinstance(args[0], SourceList) and args[0].is_sub:  # most likely gets a SourceList detections object
             if isinstance( args[0], SourceList ):
                 raise RuntimeError( "Need to update the code for creating a Cutter from a detections list" )
                 # args, kwargs, session = parse_session(*args, **kwargs)

@@ -1,4 +1,3 @@
-import io
 import datetime
 import time
 import warnings
@@ -18,7 +17,7 @@ from pipeline.measuring import Measurer
 from pipeline.scoring import Scorer
 
 from models.base import SmartSession
-from models.provenance import CodeVersion, Provenance, ProvenanceTag, ProvenanceTagExistsError
+from models.provenance import CodeVersion, Provenance, ProvenanceTag
 from models.refset import RefSet
 from models.exposure import Exposure
 from models.image import Image
@@ -288,7 +287,7 @@ class Pipeline:
 
         try:  # must make sure the report is on the DB
             report = Report( exposure_id=ds.exposure.id, section_id=ds.section_id )
-            report.start_time = datetime.datetime.now( tz=datetime.timezone.utc )
+            report.start_time = datetime.datetime.now( tz=datetime.UTC )
             report.provenance_id = provs['report'].id
             with SmartSession(session) as dbsession:
                 # check how many times this report was generated before
@@ -368,7 +367,7 @@ class Pipeline:
                 # run dark/flat preprocessing, cut out a specific section of the sensor
 
                 if 'preprocessing' in stepstodo:
-                    SCLogger.info(f"preprocessor")
+                    SCLogger.info("preprocessor")
                     ds = self.preprocessor.run(ds, session)
                     ds.update_report('preprocessing', session=None)
                     SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
@@ -465,15 +464,6 @@ class Pipeline:
         finally:
             # make sure the DataStore is returned in case the calling scope want to debug the pipeline run
             return ds
-
-    def run_with_session(self):
-        """
-        Run the entire pipeline using one session that is opened
-        at the beginning and closed at the end of the session,
-        just to see if that causes any problems with too many open sessions.
-        """
-        with SmartSession() as session:
-            self.run(session=session)
 
     def make_provenance_tree( self,
                               exposure,
@@ -677,5 +667,3 @@ class Pipeline:
                                   add_missing_processes_to_provtag=add_missing_processes_to_provtag )
 
         return provs
-
-

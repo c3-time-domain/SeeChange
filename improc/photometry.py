@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from improc.tools import make_gaussian, sigma_clipping
+from improc.tools import sigma_clipping
 
 # caching the soft-edge circles for faster calculations
 CACHED_CIRCLES = []
@@ -238,7 +238,7 @@ def iterative_cutouts_photometry(
         cxy = np.nansum((xgrid - cx) * (ygrid - cy) * (nandata - bkg_estimate)) / denominator
 
     # get some very rough estimates just so we have something in case of immediate failure of the loop
-    fluxes = [np.nansum((nandata - bkg_estimate))] * len(radii)
+    fluxes = [np.nansum(nandata - bkg_estimate)] * len(radii)
     areas = [float(np.nansum(~np.isnan(nandata)))] * len(radii)
     norms = [float(np.nansum(~np.isnan(nandata)))] * len(radii)
 

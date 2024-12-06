@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.dialects.postgresql import JSONB
 from models.base import Base, SmartSession
 
+
 class AuthUser(Base):
     __tablename__ = "authuser"
 
@@ -19,6 +20,7 @@ class AuthUser(Base):
     def get_by_id( cls, uuid, session=None ):
         with SmartSession( session ) as sess:
             return sess.query( cls ).filter( cls.id==uuid ).first()
+
 
 class PasswordLink(Base):
     __tablename__ = "passwordlink"

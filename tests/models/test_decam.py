@@ -7,8 +7,6 @@ import pytest
 
 import numpy as np
 
-from astropy.io import fits
-
 from models.base import SmartSession, FileOnDiskMixin
 from models.exposure import Exposure
 from models.knownexposure import KnownExposure
@@ -16,10 +14,8 @@ from models.instrument import get_instrument_instance
 from models.datafile import DataFile
 from models.calibratorfile import CalibratorFile
 from models.image import Image
-from models.instrument import Instrument
-from models.decam import DECam
+from models.decam import DECam  # noqa: F401
 
-import util.radec
 from util.logger import SCLogger
 from util.util import env_as_bool
 
@@ -234,6 +230,7 @@ def test_decam_download_reduced_origin_exposure( decam_reduced_origin_exposures,
                 if os.path.isfile( path ):
                     os.unlink( path )
 
+
 @pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_download_and_commit_reduced_origin_exposure( decam_reduced_origin_exposures ):
     # See test_decam_download_and_commit_exposure for downloading a raw
@@ -387,11 +384,12 @@ def test_decam_download_and_commit_exposure(
                 if os.path.isfile(d['exposure']):
                     os.unlink(d['exposure'])
 
+
 # This test really isn't *that* slow.  Not compared to so many others nowadays.
 # @pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
 def test_get_default_calibrators( decam_default_calibrators ):
     sections, filters = decam_default_calibrators
-    decam = get_instrument_instance( 'DECam' )
+    # decam = get_instrument_instance( 'DECam' )
 
     with SmartSession() as session:
         for sec in sections:
@@ -527,6 +525,7 @@ def test_overscan_and_data_sections( decam_raw_image, data_dir ):
                          'datasec' : { 'x0': 56, 'x1': 1080, 'y0': 50, 'y1': 4146 },
                          'destsec' : { 'x0': 0, 'x1': 1024, 'y0': 0, 'y1': 4096 }
                         } ]
+
 
 def test_overscan( decam_raw_image, data_dir ):
     decam = get_instrument_instance( "DECam" )

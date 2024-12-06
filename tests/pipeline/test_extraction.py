@@ -14,12 +14,13 @@ import numpy as np
 
 from astropy.io import votable
 
-from models.base import SmartSession, FileOnDiskMixin, get_archive_object, CODE_ROOT
+from models.base import FileOnDiskMixin, CODE_ROOT
 from models.provenance import Provenance
 
 from tests.conftest import SKIP_WARNING_TESTS
 
-from util.logger import SCLogger
+# from util.logger import SCLogger
+
 
 def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_plots):
     det = extractor
@@ -44,7 +45,7 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
 
         obj = sources.data
 
-        fig, ax = plt.subplots()
+        _, ax = plt.subplots()
         ax.imshow(data, interpolation='nearest', cmap='gray', vmin=m-s, vmax=m+s, origin='lower')
         for i in range(len(obj)):
             e = Ellipse(xy=(obj['x'][i], obj['y'][i]), width=6 * obj['a'][i], height=6 * obj['b'][i],

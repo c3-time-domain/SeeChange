@@ -1,26 +1,22 @@
-import sys
-import logging
 import argparse
 
 import numpy
 
-import astropy
 import astropy.units as u
 from astropy.io import fits
 from astropy.wcs import WCS
 
-from util.config import Config
 from util.logger import SCLogger
 
 import models.instrument
 import models.decam
 from models.image import Image
 from models.reference import Reference
-from models.provenance import Provenance, CodeVersion
+from models.provenance import Provenance
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
 # Needed to avoid errors about missing classes later
-import models.object
+import models.object  # noqa: F401
 
 from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
@@ -31,9 +27,6 @@ codeversion_id = '0.0.1'
 
 
 def import_decam_reference( image, weight, mask, target, hdu, section_id ):
-    config = Config.get()
-
-    code_ver = CodeVersion.get_by_id( codeversion_id )
     image_prov = Provenance( process='import_image',
                              parameters={},
                              upstreams=[] )
@@ -44,9 +37,9 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     with fits.open( image ) as img, fits.open( weight ) as wgt, fits.open( mask) as msk:
         img_hdr = img[ hdu ].header
         img_data = img[ hdu ].data
-        wgt_hdr = wgt[ hdu ].header
+        # wgt_hdr = wgt[ hdu ].header
         wgt_data = wgt[ hdu ].data
-        msk_hdr = msk[ hdu ].header
+        # msk_hdr = msk[ hdu ].header
         msk_data = msk[ hdu ].data
         wcs = WCS( img_hdr )
 
@@ -56,7 +49,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
     radec = wcs.pixel_to_world( img_data.shape[1] / 2., img_data.shape[0] / 2. )
     ra = radec.ra.to(u.deg).value
     dec = radec.dec.to(u.deg).value
-    l = radec.galactic.l.to(u.deg).value
+    lat = radec.galactic.l.to(u.deg).value
     b = radec.galactic.b.to(u.deg).value
     ecl = radec.transform_to( 'geocentricmeanecliptic' )
     ecl_lat = ecl.lat.to(u.deg).value
@@ -101,7 +94,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
                    ra=ra,
                    dec=dec,
                    gallat=b,
-                   gallon=l,
+                   gallon=lat,
                    ecllat=ecl_lat,
                    ecllon=ecl_lon,
                    ra_corner_00=ra_corner_00,
@@ -193,5 +186,7 @@ def main():
     import_decam_reference( args.image, args.weight, args.mask, args.target, args.hdu, args.section_id )
 
 # ======================================================================
+
+
 if __name__ == "__main__":
     main()

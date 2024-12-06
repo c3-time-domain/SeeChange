@@ -5,23 +5,23 @@ import numpy as np
 from collections import defaultdict
 
 import sqlalchemy as sa
-from sqlalchemy import orm
 from sqlalchemy.ext.declarative import declared_attr
 
 from astropy.time import Time
 from astropy.coordinates import SkyCoord
 
 from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, SpatiallyIndexed
+from models.image import Image
+from models.cutouts import Cutouts
+from models.source_list import SourceList
 from models.measurements import Measurements
-
-import util.config as config
 
 
 class Object(Base, UUIDMixin, SpatiallyIndexed):
     __tablename__ = 'objects'
 
     @declared_attr
-    def __table_args__(cls):
+    def __table_args__(cls):  # noqa: N805
         return (
             sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
         )
@@ -139,7 +139,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
             if ( mjd_start is not None ) or ( mjd_end is not None ):
                 q = ( q.join( Cutouts, Measurements.cutouts_id==Cutouts._id )
-                      .join( SourceList, Cutouts.sources_id==Sources._id )
+                      .join( SourceList, Cutouts.sources_id==SourceList._id )
                       .join( Image, SourceList.image_id==Image.id ) )
                 if mjd_start is not None:
                     q = q.filter( Image.mjd >= mjd_start )
@@ -154,7 +154,6 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             if prov_hash_list is not None:
                 q = q.filter( Measurements.provenance_id.in_( prov_hash_list ) )
 
-            bigbank = measurements.all()
 
         # Further filtering based on thresholds
 
@@ -401,19 +400,6 @@ o
             if last_obj is None:
                 return 0
             return last_obj.id
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def measurements( self ):
-        raise RuntimeError( f"Object.measurements is deprecated, don't use it" )
-
-    @measurements.setter
-    def measurements( self, val ):
-        raise RuntimeError( f"Object.measurements is deprecated, don't use it" )
-
 
 
 # Issue #347 ; we may just delete the stuff below, or modify it.

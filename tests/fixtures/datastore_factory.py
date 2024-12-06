@@ -11,7 +11,7 @@ import numpy as np
 import sqlalchemy as sa
 
 from models.base import SmartSession
-from models.provenance import Provenance, CodeVersion
+from models.provenance import Provenance
 from models.enums_and_bitflags import BitFlagConverter
 from models.report import Report
 from models.exposure import Exposure
@@ -241,7 +241,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 report_was_loaded_from_cache = True
             else:
                 ds.report = Report( exposure_id=exporim.id, section_id=section_id )
-                ds.report.start_time = datetime.datetime.now( tz=datetime.timezone.utc )
+                ds.report.start_time = datetime.datetime.now( tz=datetime.UTC )
                 ds.report.provenance_id = ds.prov_tree['report'].id
 
         # Remove all steps past subtraction if there's no referencing provenance
@@ -759,8 +759,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 if output_path != report_cache_path:
                     warnings.warn( f'report cache path {report_cache_path} does not match output path {output_path}' )
             else:
-                SCLogger.warning( f"Report not available!" )
-
+                SCLogger.warning( "Report not available!" )
 
         # Make sure there are no residual exceptions caught in the datastore
         assert ds.exception is None

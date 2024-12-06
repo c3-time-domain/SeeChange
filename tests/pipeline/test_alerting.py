@@ -10,6 +10,7 @@ from models.object import Object
 from models.deepscore import DeepScore
 from pipeline.alerting import Alerting
 
+
 def test_build_avro_alert_structures( test_config, decam_datastore_through_scoring ):
     ds = decam_datastore_through_scoring
     fluxscale = 10** ( ( ds.zp.zp - 27.5 ) / -2.5 )
@@ -127,7 +128,8 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
         assert alert['diaObject']['diaObjectId'] == str( ds.measurements[dex].object_id )
 
         assert alert['diaSource']['rbtype'] == ds.scores[dex].algorithm
-        assert alert['diaSource']['rbcut'] == pytest.approx( DeepScore.get_rb_cut( ds.scores[dex].algorithm ), rel=1e-6 )
+        assert alert['diaSource']['rbcut'] == pytest.approx( DeepScore.get_rb_cut( ds.scores[dex].algorithm ),
+                                                             rel=1e-6 )
         assert alert['diaSource']['rb'] == pytest.approx( ds.scores[dex].score, rel=0.001 )
 
         assert len(alert['cutoutScience']) == 41 * 41 * 4
@@ -165,11 +167,11 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
 #   cutouts files, but not bothering with all the image processing.
 @pytest.mark.skip( reason="See Issue #365" )
 def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partial_datastore_factory ):
-    exp1 = decam_exposure_factory( "c4d_210322_030920_ori.fits.fz" )
-    exp2 = decam_exposure_factory( "c4d_230714_081145_ori.fits.fz" )
+    # exp1 = decam_exposure_factory( "c4d_210322_030920_ori.fits.fz" )
+    # exp2 = decam_exposure_factory( "c4d_230714_081145_ori.fits.fz" )
     exp3 = decam_exposure_factory( "c4d_230726_091313_ori.fits.fz" )
-    ds1 = decam_partial_datastore_factory( exp1, 'scoring' )
-    ds2 = decam_partial_datastore_factory( exp2, 'scoring' )
+    # ds1 = decam_partial_datastore_factory( exp1, 'scoring' )
+    # ds2 = decam_partial_datastore_factory( exp2, 'scoring' )
     ds3 = decam_partial_datastore_factory( exp3, 'scoring' )
 
     fluxscale = 10**( ( ds3.zp.zp - 27.5 ) / -2.5 )

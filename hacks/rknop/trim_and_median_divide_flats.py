@@ -4,8 +4,8 @@ from astropy.io import fits
 import re
 import numpy
 
-secparse = re.compile( "^\[(?P<x0>\d+):(?P<x1>\d+),(?P<y0>\d+):(?P<y1>\d+)\]$" )
-fnamere = re.compile( "^(.*)\.fits$" )
+secparse = re.compile( r"^\[(?P<x0>\d+):(?P<x1>\d+),(?P<y0>\d+):(?P<y1>\d+)\]$" )
+fnamere = re.compile( r"^(.*)\.fits$" )
 
 direc = pathlib.Path( '/DECam_domeflat' )
 for origflat in direc.glob( "*.fits" ):

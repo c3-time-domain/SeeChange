@@ -227,6 +227,24 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
     entrypoint: "pytest -v /seechange/tests"
 
+  runruff:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20241204}
+    build:
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
+      target: test_bindmount
+    volumes:
+      - type: bind
+        source: ..
+        target: /seechange
+      - type: volume
+        source: archive-storage
+        target: /archive_storage
+    working_dir: /seechange
+    user: ${USERID:-0}:${GROUPID:-0}
+    entrypoint: [ "ruff", "check" ]
+
+
   shell:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20241204}
     build:

@@ -3,8 +3,6 @@ import numpy as np
 
 import astropy.units as u
 
-import pipeline.catalog_tools
-
 from models.zero_point import ZeroPoint
 
 import pipeline.catalog_tools
@@ -162,7 +160,7 @@ class PhotCalibrator:
         # Match catalog excerpt RA/Dec to source RA/Dec
         # ref https://docs.astropy.org/en/stable/coordinates/matchsep.html#matching-catalogs
         max_sep = match_radius * u.arcsec
-        idx, d2d, d3d = skycoords.match_to_catalog_sky(catcoords)
+        idx, d2d, _ = skycoords.match_to_catalog_sky(catcoords)
         sep_constraint = d2d < max_sep
         skycoords = skycoords[sep_constraint]
         sourceflux = sourceflux[sep_constraint]

@@ -148,7 +148,7 @@ class SCLogger:
         self.datefmt = datefmt
 
         logout = logging.StreamHandler( sys.stderr )
-        fmtstr = f"[%(asctime)s"
+        fmtstr = "[%(asctime)s"
         if show_millisec:
             fmtstr += ".%(msecs)03d"
         fmtstr += " - "

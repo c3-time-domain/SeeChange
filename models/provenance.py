@@ -1,14 +1,11 @@
-import time
-import re
 import io
 import json
 import base64
 import hashlib
 import uuid
-from collections import defaultdict
+
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
-from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declared_attr
@@ -19,7 +16,6 @@ import psycopg2.errors
 from util.util import get_git_hash
 from util.logger import SCLogger
 
-import models.base
 from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession, Psycopg2Connection
 
 
@@ -44,11 +40,11 @@ class CodeHash(Base):
 
     @property
     def code_version( self ):
-        raise RuntimeError( f"CodeHash.code_version is deprecated, don't use it" )
+        raise RuntimeError( "CodeHash.code_version is deprecated, don't use it" )
 
     @code_version.setter
     def code_version( self, val ):
-        raise RuntimeError( f"CodeHash.code_version is deprecated, don't use it" )
+        raise RuntimeError( "CodeHash.code_version is deprecated, don't use it" )
 
 
 
@@ -125,26 +121,6 @@ class CodeVersion(Base):
 
     def __repr__( self ):
         return f"<CodeVersion {self.id}>"
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    # @property
-    # def code_hashes( self ):
-    #     raise RuntimeError( f"CodeVersion.code_hashes is deprecated, don't use it" )
-
-    @code_hashes.setter
-    def code_hashes( self, val ):
-        raise RuntimeError( f"CodeVersion.code_hashes setter is deprecated, don't use it" )
-
-    @property
-    def provenances( self ):
-        raise RuntimeError( f"CodeVersion.provenances is deprecated, don't use it" )
-
-    @provenances.setter
-    def provenances( self, val ):
-        raise RuntimeError( f"CodeVersion.provenances is deprecated, don't use it" )
 
 
 provenance_self_association_table = sa.Table(
@@ -364,8 +340,7 @@ class Provenance(Base):
             return sess.query( Provenance ).filter( Provenance._id.in_( provids ) ).all()
 
     def update_id(self):
-        """Update the id using the code_version, process, parameters and upstream_hashes.
-        """
+        """Update the id using the code_version, process, parameters and upstream_hashes."""
         if self.process is None or self.parameters is None or self.code_version_id is None:
             raise ValueError('Provenance must have process, code_version_id, and parameters defined. ')
 
@@ -380,13 +355,14 @@ class Provenance(Base):
         self._id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
     @classmethod
-    def combined_upstream_hash( self, upstreams ):
+    def combined_upstream_hash( cls, upstreams ):
         json_string = json.dumps( [ u.id for u in upstreams ], sort_keys=True)
         return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
 
     def get_combined_upstream_hash(self):
         """Make a single hash from the hashes of the upstreams.
+
         This is useful for identifying RefSets.
         """
         return self.__class__.combined_upstream_hash( self.upsterams )
@@ -504,65 +480,9 @@ class Provenance(Base):
         return downstreams
 
 
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def code_Version( self ):
-        raise RuntimeError( f"Don't use Provenance.code_Version, use code_Version_id" )
-
-    @code_Version.setter
-    def code_Version( self, val ):
-        raise RuntimeError( f"Don't use Provenance.code_Version, use code_Version_id" )
-
-    @upstreams.setter
-    def upstreams( self, val ):
-        raise RuntimeError( f"Provenance.upstreams is deprecated, only set it on creation." )
-
-    @property
-    def downstreams( self ):
-        raise RuntimeError( f"Provenance.downstreams is deprecated, use get_downstreams" )
-
-    @downstreams.setter
-    def downstreams( self, val ):
-        raise RuntimeError( f"Provenance.downstreams is deprecated, can't be set" )
-
-    @property
-    def upstream_ids( self ):
-        raise RuntimeError( f"Provenance.upstream_ids is deprecated, use upsterams" )
-
-    @upstream_ids.setter
-    def upstream_ids( self, val ):
-        raise RuntimeError( f"Provenance.upstream_ids is deprecated, use upstreams" )
-
-    @property
-    def downstream_ids( self ):
-        raise RuntimeError( f"Provenance.downstream_ids is deprecated, use get_downstreams" )
-
-    @downstream_ids.setter
-    def downstream_ids( self, val ):
-        raise RuntimeError( f"Provenance.downstream_ids is deprecated, use get_downstreams" )
-
-    @property
-    def upstream_hashes( self ):
-        raise RuntimeError( f"Provenance.upstream_hashes is deprecated, use upstreams" )
-
-    @upstream_hashes.setter
-    def upstream_hashes( self, val ):
-        raise RuntimeError( f"Provenance.upstream_hashes is deprecated, use upstreams" )
-
-    @property
-    def downstream_hashes( self ):
-        raise RuntimeError( f"Provenance.downstream_hashes is deprecated, use get_downstreams" )
-
-    @downstream_hashes.setter
-    def downstream_hashes( self, val ):
-        raise RuntimeError( f"Provenance.downstream_hashes is deprecated, use get_downstreams" )
-
-
 class ProvenanceTagExistsError(Exception):
     pass
+
 
 class ProvenanceTag(Base, UUIDMixin):
     """A human-readable tag to associate with provenances.
@@ -576,7 +496,7 @@ class ProvenanceTag(Base, UUIDMixin):
     __tablename__ = "provenance_tags"
 
     @declared_attr
-    def __table_args__(cls):
+    def __table_args__(cls):  # noqa: N805
         return ( UniqueConstraint( 'tag', 'provenance_id', name='_provenancetag_prov_tag_uc' ), )
 
     tag = sa.Column(
@@ -667,7 +587,7 @@ class ProvenanceTag(Base, UUIDMixin):
             if len(known) == 0:
                 # If the provenance tag didn't exist at all, then create it even
                 # if add_missing_process_to_provtag is False
-                add_missing_process_to_provtag = True
+                add_missing_processes_to_provtag = True
 
             addedsome = False
             for prov in provs:

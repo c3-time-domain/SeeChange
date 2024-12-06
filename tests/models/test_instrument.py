@@ -1,19 +1,14 @@
 import pytest
-import time
 import uuid
 import datetime
 
 import numpy as np
 
-from astropy.io import fits
-
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
 
-from models.base import SmartSession, FileOnDiskMixin
-from models.image import Image
-from models.datafile import DataFile
-from models.instrument import SensorSection, Instrument, DemoInstrument, get_instrument_instance
+from models.base import SmartSession
+from models.image import Image  # noqa: F401
+from models.instrument import SensorSection, Instrument, DemoInstrument
 from models.decam import DECam
 from models.exposure import Exposure
 
@@ -166,9 +161,10 @@ def test_instrument_inheritance_full_example():
         def __init__(self, **kwargs):
             self.name = 'TestInstrument' + uuid.uuid4().hex
             self.telescope = 'TestTelescope'
-            self.focal_ratio = np.random.uniform(1.5, 2.5)
-            self.aperture = np.random.uniform(0.5, 1.5)
-            self.pixel_scale = np.random.uniform(0.1, 0.2)
+            rng = np.random.default_rng()
+            self.focal_ratio = rng.uniform(1.5, 2.5)
+            self.aperture = rng.uniform(0.5, 1.5)
+            self.pixel_scale = rng.uniform(0.1, 0.2)
             self.square_degree_fov = 0.5
             self.read_noise = 1.5
             self.dark_current = 0.1
@@ -186,16 +182,15 @@ def test_instrument_inheritance_full_example():
 
         @classmethod
         def get_section_ids(cls):
-            """
-            Get a list of SensorSection identifiers for this instrument.
-            """
+            """Get a list of SensorSection identifiers for this instrument."""
             return [ str(i) for i in range(10) ]  # let's assume this instrument has 10 sections
 
         @classmethod
         def check_section_id(cls, section_id):
-            """
-            Check if the section_id is valid for this instrument.
+            """Check if the section_id is valid for this instrument.
+
             The section identifier must be between 0 and 9.
+
             """
             try:
                 section_id = int( section_id )
@@ -216,22 +211,24 @@ def test_instrument_inheritance_full_example():
         def load_section_image(self, filepath, section_id):
             size_x = self.get_property(section_id, 'size_x')
             size_y = self.get_property(section_id, 'size_y')
-            return np.random.poisson(10, (size_y, size_x))
+            rng = np.random.default_rng()
+            return rng.poisson(10, (size_y, size_x))
 
         def read_header(self, filepath):
             # return a spoof header
+            rng = np.random.default_rng()
             return {
-                'RA': np.random.uniform(0, 360),
-                'DEC': np.random.uniform(-90, 90),
+                'RA': rng.uniform(0, 360),
+                'DEC': rng.uniform(-90, 90),
                 'EXPTIME': 25.0,  # milliseconds!!!
                 'FILTER': 'r',
-                'MJD': np.random.uniform(50000, 60000),
+                'MJD': rng.uniform(50000, 60000),
                 'PROPID': '2020A-0001',
                 'OBJECT': 'crab nebula',
                 'TELESCOP': 'TestTelescope',
                 'INSTRUME': 'TestInstrument',
                 'SHUTMODE': 'ROLLING',
-                'GAIN': np.random.normal(self.gain, 0.01),
+                'GAIN': rng.normal(self.gain, 0.01),
             }
 
         @classmethod

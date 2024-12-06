@@ -1,7 +1,6 @@
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import orm
 
 from models.base import Base, FourCorners, UUIDMixin, SmartSession
 from models.provenance import Provenance
@@ -12,13 +11,10 @@ from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 
-from util.util import listify
-
 
 class Reference(Base, UUIDMixin):
-    """
-    A table that refers to each reference Image object,
-    based on the object/field it is targeting.
+    """A table that refers to each reference Image object.
+
     The provenance of this table (tagged with the "reference" process)
     will have as its upstream IDs the provenance IDs of the image,
     the source list, the PSF, the WCS, and the zero point.
@@ -465,65 +461,3 @@ class Reference(Base, UUIDMixin):
         # Done!
 
         return references, images
-
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def image( self ):
-        raise RuntimeError( f"Don't use Reference.image, use image_id" )
-
-    @image.setter
-    def image( self, val ):
-        raise RuntimeError( f"Don't use Reference.image, use image_id" )
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( f"Don't use Reference.provenance, use provenance_id" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( f"Don't use Reference.provenance, use provenance_id" )
-
-    @property
-    def sources( self ):
-        raise RuntimeError( f"Reference.sources is deprecated, don't use it" )
-
-    @sources.setter
-    def sources( self, val ):
-        raise RuntimeError( f"Reference.sources is deprecated, don't use it" )
-
-    @property
-    def psf( self ):
-        raise RuntimeError( f"Reference.psf is deprecated, don't use it" )
-
-    @psf.setter
-    def psf( self, val ):
-        raise RuntimeError( f"Reference.psf is deprecated, don't use it" )
-
-    @property
-    def bg( self ):
-        raise RuntimeError( f"Reference.bg is deprecated, don't use it" )
-
-    @bg.setter
-    def bg( self, val ):
-        raise RuntimeError( f"Reference.bg is deprecated, don't use it" )
-
-    @property
-    def wcs( self ):
-        raise RuntimeError( f"Reference.wcs is deprecated, don't use it" )
-
-    @wcs.setter
-    def wcs( self, val ):
-        raise RuntimeError( f"Reference.wcs is deprecated, don't use it" )
-
-    @property
-    def zp( self ):
-        raise RuntimeError( f"Reference.zp is deprecated, don't use it" )
-
-    @zp.setter
-    def zp( self, val ):
-        raise RuntimeError( f"Reference.zp is deprecated, don't use it" )
-

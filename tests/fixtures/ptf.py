@@ -1,5 +1,4 @@
 import pytest
-import warnings
 import uuid
 import os
 import re
@@ -16,7 +15,7 @@ from datetime import datetime
 from astropy.io import fits
 
 from models.base import SmartSession
-from models.ptf import PTF  # need this import to make sure PTF is added to the Instrument list
+from models.ptf import PTF  # noqa: F401  # need this import to make sure PTF is added to the Instrument list
 from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
@@ -155,6 +154,7 @@ def ptf_exposure(ptf_downloader):
 
     exposure.delete_from_disk_and_database()
 
+
 @pytest.fixture
 def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map ):
     ptf_exposure.instrument_object.fetch_sections()
@@ -162,7 +162,7 @@ def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf
         ptf_exposure,
         11,
         cache_dir=ptf_cache_dir,
-        cache_base_name='187/PTF_20110429_040004_11_R_Sci_EM7WTT',
+        cache_base_name='187/PTF_20110429_040004_11_R_Sci_LYQY3W',
         overrides={'extraction': {'threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
         bad_pixel_map=ptf_bad_pixel_map,
         provtag='ptf_datastore',
@@ -183,6 +183,7 @@ def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf
     with SmartSession() as session:
         session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
         session.commit()
+
 
 @pytest.fixture
 def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_bad_pixel_map ):
@@ -605,13 +606,12 @@ def ptf_ref(
     #   to create the reference set and tag the reference we built.
     # (Not bothering with locking here because we know our tests are single-threaded.)
     must_delete_refset = False
-    with SmartSession() as sess:
-        refset = RefSet.get_by_name( 'test_refset_ptf' )
-        if refset is None:
-            refset = RefSet( name='test_refset_ptf' )
-            refset.insert()
-            must_delete_refset = True
-        refset.append_provenance( refprov )
+    refset = RefSet.get_by_name( 'test_refset_ptf' )
+    if refset is None:
+        refset = RefSet( name='test_refset_ptf' )
+        refset.insert()
+        must_delete_refset = True
+    refset.append_provenance( refprov )
 
     yield ref
 
@@ -711,7 +711,7 @@ def ptf_subtraction1_datastore( ptf_ref, ptf_supernova_image_datastores, subtrac
     if ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_path) ):  # try to load this from cache
         im = copy_from_cache( Image, ptf_cache_dir, cache_path )
         refim = Image.get_by_id( ptf_ref.image_id )
-        im._upstream_ids = [ refim.id, ptf_supernova_images[0].id ]
+        im._upstream_ids = [ refim.id, ptf_supernova_image_datastores[0].image.id ]
         im.ref_image_id = ptf_ref.image.id
         im.provenance_id = prov.id
         ds.sub_image = im

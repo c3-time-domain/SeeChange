@@ -20,7 +20,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.io.fits.hdu.table import BinTableHDU
 from astropy.io.fits.header import Header
-from astropy.table import Table
+
 
 def convert_hdu_to_ldac(hdu, imghdr=None, imghdr_as_header=False):
     """Convert an hdu table to a fits_ldac table (format used by astromatic suite)
@@ -162,10 +162,10 @@ def convert_table_to_ldac(tbl, imghdr=None):
         FITS_LDAC 3-HDU hdulist that can be read by astromatic software
 
     """
-    #...it seems like it ought to be easier to construct a BinTableHDU
-    #from a Table, but the only way I've figured out how to do it is to
-    #write with Table.write and then read back the thing that was
-    #written.
+    # ...it seems like it ought to be easier to construct a BinTableHDU
+    # from a Table, but the only way I've figured out how to do it is to
+    # write with Table.write and then read back the thing that was
+    # written.
 
     f = io.BytesIO()
     tbl.write(f, format="fits")
@@ -178,8 +178,7 @@ def convert_table_to_ldac(tbl, imghdr=None):
 
 
 def save_table_as_ldac(tbl, filename, imghdr=None, **kwargs):
-    """
-    Save a table as a fits LDAC file
+    """Save a table as a fits LDAC file
 
     Parameters
     ----------

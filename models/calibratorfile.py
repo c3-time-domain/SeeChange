@@ -6,18 +6,16 @@ import contextlib
 import random
 
 import sqlalchemy as sa
-from sqlalchemy import orm
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.exc import IntegrityError
 
 from models.base import Base, UUIDMixin, SmartSession
-from models.image import Image
-from models.datafile import DataFile
 from models.enums_and_bitflags import CalibratorTypeConverter, CalibratorSetConverter, FlatTypeConverter
 
-from util.logger import SCLogger
+# from util.logger import SCLogger
+
 
 class CalibratorFile(Base, UUIDMixin):
     __tablename__ = 'calibrator_files'
@@ -35,7 +33,7 @@ class CalibratorFile(Base, UUIDMixin):
         return CalibratorTypeConverter.convert( self._type )
 
     @type.expression
-    def type( cls ):
+    def type( cls ):  # noqa: N805
         return sa.case( CalibratorTypeConverter.dict, value=cls._type )
 
     @type.setter
@@ -55,7 +53,7 @@ class CalibratorFile(Base, UUIDMixin):
         return CalibratorSetConverter.convert( self._calibrator_set )
 
     @calibrator_set.expression
-    def calibrator_set( cls ):
+    def calibrator_set( cls ):  # noqa: N805
         return sa.case( CalibratorSetConverter.dict, value=cls._calibrator_set )
 
     @calibrator_set.setter
@@ -140,6 +138,7 @@ class CalibratorFile(Base, UUIDMixin):
             f'>'
         )
 
+
 # This next table is kind of an ugly hack put in place
 #   to deal with race conditions; see Instrument.preprocessing_calibrator_files
 
@@ -147,7 +146,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
     __tablename__ = 'calibfile_downloadlock'
 
     @declared_attr
-    def __table_args__( cls ):
+    def __table_args__( cls ):  # noqa: N805
         return (
             UniqueConstraint( '_type', '_calibrator_set', '_flat_type', 'instrument', 'sensor_section',
                               name='calibfile_downloadlock_unique',
@@ -169,7 +168,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
         return CalibratorTypeConverter.convert( self._type )
 
     @type.expression
-    def type( cls ):
+    def type( cls ):  # noqa: N805
         return sa.case( CalibratorTypeConverter.dict, value=cls._type )
 
     @type.setter
@@ -189,7 +188,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
         return CalibratorSetConverter.convert( self._calibrator_set )
 
     @calibrator_set.expression
-    def calibrator_set( cls ):
+    def calibrator_set( cls ):  # noqa: N805
         return sa.case( CalibratorSetConverter.dict, value=cls._calibrator_set )
 
     @calibrator_set.setter
@@ -315,7 +314,7 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
                         sess.commit()
                         sess.refresh( caliblock )
                         lockid = caliblock.id
-                    except IntegrityError as ex:
+                    except IntegrityError:
                         sess.rollback()
                         lockid = None
                 if lockid is None:
@@ -371,24 +370,3 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
             for oldlock in oldlocks:
                 sess.delete( oldlock )
             sess.commit()
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def image( self ):
-        raise RuntimeError( f"Don't use CalibratorFile.image, use image_id" )
-
-    @image.setter
-    def image( self, val ):
-        raise RuntimeError( f"Don't use CalibratorFile.image, use image_id" )
-
-    @property
-    def datafile( self ):
-        raise RuntimeError( f"Don't use CalibratorFile.datafile, use datafile_id" )
-
-    @datafile.setter
-    def datafile( self, val ):
-        raise RuntimeError( f"Don't use CalibratorFile.datafile, use datafile_id" )
-

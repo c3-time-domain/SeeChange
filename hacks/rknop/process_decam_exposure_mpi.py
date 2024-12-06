@@ -1,3 +1,7 @@
+# ruff: noqa
+
+raise RuntimeError( "Deprecated, don't use this." )
+
 import sys
 import os
 import re

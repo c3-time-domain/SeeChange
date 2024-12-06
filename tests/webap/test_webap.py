@@ -2,30 +2,27 @@ import re
 import time
 import pytest
 import requests
-import uuid
 # Disable warnings from urllib, since there will be lots about insecure connections
 #  given that we're using a self-signed cert for the server in the test environment
 requests.packages.urllib3.disable_warnings()
 
 import sqlalchemy as sa
 
-import selenium
-import selenium.webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support.ui import Select
-from selenium.webdriver.remote.webelement import WebElement
 
 from models.base import SmartSession, Psycopg2Connection
-from models.provenance import CodeVersion, Provenance, ProvenanceTag
+from models.provenance import Provenance, ProvenanceTag
 
 from util.logger import SCLogger
+
 
 def test_webap_not_logged_in( webap_url ):
     res = requests.post( f"{webap_url}/provtags", verify=False )
     assert res.status_code == 500
     assert res.text == "Not logged in"
+
 
 def test_webap_admin_required( webap_rkauth_client ):
     # SUGGESTION : whenever adding *any* endpoint to
@@ -36,6 +33,7 @@ def test_webap_admin_required( webap_rkauth_client ):
     assert res.status_code == 200
     with pytest.raises( RuntimeError, match="Got response 500: Action requires admin" ):
         res = client.post( "cloneprovtag/foo/bar" )
+
 
 def test_webap_provtags( webap_rkauth_client, provenance_base, provenance_extra, provenance_tags_loaded ):
     res = webap_rkauth_client.send( "provtags" )
@@ -125,6 +123,8 @@ def test_webap_clone_provtag( webap_admin_client, provenance_base, provenance_ex
             cursor = conn.cursor()
             cursor.execute( "DELETE FROM provenance_tags WHERE tag='current'" )
             conn.commit()
+
+
 
 # This test fails because there are other session-scope (I think) fixtures that create proejcts
 #  in the database
@@ -340,5 +340,3 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
             if junkprov is not None:
                 session.execute( sa.text( "DELETE FROM provenances WHERE _id=:id" ), { 'id': junkprov.id } )
             session.commit()
-
-

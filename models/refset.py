@@ -95,7 +95,7 @@ class RefSet(Base, UUIDMixin):
                              'VALUES(:provid,:refsetid)' ),
                     { 'provid': prov.id, 'refsetid': self.id } )
                 sess.commit()
-            except IntegrityError as ex:
+            except IntegrityError:
                 # It was already there, so we're good
                 sess.rollback()
 

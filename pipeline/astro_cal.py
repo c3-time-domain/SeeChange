@@ -7,7 +7,6 @@ from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchExc
 from util.logger import SCLogger
 from util.util import env_as_bool
 
-from models.catalog_excerpt import CatalogExcerpt
 from models.world_coordinates import WorldCoordinates
 
 from pipeline.parameters import Parameters
@@ -342,4 +341,3 @@ class AstroCalibrator:
         finally:
             # make sure datastore is returned to be used in the next step
             return ds
-

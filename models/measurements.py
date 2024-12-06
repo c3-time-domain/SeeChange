@@ -1,7 +1,5 @@
 import numpy as np
 
-from collections import defaultdict
-
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.schema import UniqueConstraint
@@ -18,7 +16,7 @@ from models.source_list import SourceList
 from models.zero_point import ZeroPoint
 from models.enums_and_bitflags import measurements_badness_inverse
 
-from util.logger import SCLogger
+# from util.logger import SCLogger
 
 from improc.photometry import get_circle
 
@@ -28,7 +26,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     __tablename__ = 'measurements'
 
     @declared_attr
-    def __table_args__( cls ):
+    def __table_args__( cls ):  # noqa: N805
         return (
             sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
             UniqueConstraint('cutouts_id', 'index_in_sources', 'provenance_id',
@@ -148,7 +146,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     #  so nasty, put this here for efficiency
     @zp.setter
     def zp( self, val ):
-        if not isinstance( zp, ZeroPoint ):
+        if not isinstance( val, ZeroPoint ):
             raise TypeError( "Measurements.zp must be a ZeroPoint" )
         self._zp = val
 
@@ -815,8 +813,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     @classmethod
     def delete_list(cls, measurements_list):
-        """
-        Remove a list of Measurements objects from the database.
+        """Remove a list of Measurements objects from the database.
 
         Parameters
         ----------
@@ -825,64 +822,3 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         """
         for m in measurements_list:
             m.delete_from_disk_and_database()
-
-    # ======================================================================
-    # The fields below are things that we've deprecated; these definitions
-    #   are here to catch cases in the code where they're still used
-
-    @property
-    def provenance( self ):
-        raise RuntimeError( f"Don't use Measurements.provenance, use provenance_id" )
-
-    @provenance.setter
-    def provenance( self, val ):
-        raise RuntimeError( f"Don't use Measurements.provenance, use provenance_id" )
-
-    @property
-    def cutouts( self ):
-        raise RuntimeError( f"Don't use Measurements.cutouts, use cutouts_id" )
-
-    @cutouts.setter
-    def cutouts( self, val ):
-        raise RuntimeError( f"Don't use Measurements.cutouts, use cutouts_id" )
-
-    @property
-    def sources( self ):
-        raise RuntimeError( f"Don't use Measurements.sources, use cutouts.id and deal with it" )
-
-    @sources.setter
-    def sources( self, val ):
-        raise RuntimeError( f"Don't use Measurements.sources, use cutouts_id and deal with it" )
-
-    @property
-    def object( self ):
-        raise RuntimeError( f"Don't use Measurements.object, use object_id" )
-
-    @object.setter
-    def object( self, val ):
-        raise RuntimeError( f"Don't use Measurements.object, use object_id" )
-
-    @property
-    def mjd( self ):
-        raise RuntimeError( f"Measurements.mjd is deprecated, don't use it" )
-
-    @mjd.setter
-    def mjd( self, val ):
-        raise RuntimeError( f"Measurements.mjd is deprecated, don't use it" )
-
-    @property
-    def exp_time( self ):
-        raise RuntimeError( f"Measurements.exp_time is deprecated, don't use it" )
-
-    @exp_time.setter
-    def exp_time( self, val ):
-        raise RuntimeError( f"Measurements.exp_time is deprecated, don't use it" )
-
-    @property
-    def filter( self ):
-        raise RuntimeError( f"Measurements.filter is deprecated, don't use it" )
-
-    @filter.setter
-    def filter( self, val ):
-        raise RuntimeError( f"Measurements.filter is deprecated, don't use it" )
-

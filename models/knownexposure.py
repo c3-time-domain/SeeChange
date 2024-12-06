@@ -3,13 +3,9 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
-from astropy.coordinates import SkyCoord
+from models.base import Base, UUIDMixin
+from util.radec import radec_to_gal_ecl
 
-from models.base import (
-    Base,
-    UUIDMixin,
-    SpatiallyIndexed,
-)
 
 class KnownExposure(Base, UUIDMixin):
     """A table of exposures we know about that we need to grab and process through the pipeline.
@@ -63,7 +59,7 @@ class KnownExposure(Base, UUIDMixin):
     ecllon = sa.Column(sa.Double, nullable=True, index=False, doc="Ecliptic longitude of the target. ")
 
     @declared_attr
-    def __table_args__(cls):
+    def __table_args__(cls):  # noqa: N805
         tn = cls.__tablename__
         return (
             sa.Index(f"{tn}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
@@ -79,9 +75,7 @@ class KnownExposure(Base, UUIDMixin):
 
 
 class PipelineWorker(Base, UUIDMixin):
-    """A table of currently active pipeline launchers that the conductor knows about.
-
-    """
+    """A table of currently active pipeline launchers that the conductor knows about."""
 
     __tablename__ = "pipelineworkers"
 

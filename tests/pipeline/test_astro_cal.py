@@ -26,7 +26,7 @@ def test_solve_wcs_scamp_failures( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitt
     astrometor.pars.max_resid = 0.01
 
     with pytest.raises( BadMatchException, match="which isn.*t good enough" ):
-        wcs = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp )
+        _ = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp )
 
     # Make sure it fails if we give it too small of a crossid radius.
     # Note that this one is passed directly to _solve_wcs_scamp.
@@ -36,15 +36,15 @@ def test_solve_wcs_scamp_failures( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitt
     # iteration happens outside _solve_wcs_scamp.)
 
     with pytest.raises( BadMatchException, match="which isn.*t good enough" ):
-        wcs = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp, crossid_radius=0.01 )
+        _ = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp, crossid_radius=0.01 )
 
     astrometor.pars.min_frac_matched = 0.8
     with pytest.raises( BadMatchException, match="which isn.*t good enough" ):
-        wcs = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp )
+        _ = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp )
 
     astrometor.pars.min_matched_stars = 50
     with pytest.raises( BadMatchException, match="which isn.*t good enough" ):
-        wcs = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp )
+        _ = astrometor._solve_wcs_scamp( ds.image, ds.sources, catexp )
 
 
 def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astrometor, blocking_plots ):
@@ -74,7 +74,7 @@ def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astro
                 break
     assert not allsame
 
-    #...but check that they are close
+    # ...but check that they are close
     wcsold = WCS( orighdr )
     scolds = wcsold.pixel_to_world( [ 0, 0, 1024, 1024 ], [ 0, 1024, 0, 1024 ] )
     wcsnew = WCS( ds.image._header )
@@ -189,7 +189,7 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
         # Make sure the new WCS got written to the FITS file
         with fits.open( foundim.get_fullpath()[0] ) as hdul:
             imhdr = hdul[0].header
-        imwcs = WCS( hdul[0].header )
+        imwcs = WCS( imhdr )
         imscs = imwcs.pixel_to_world( xvals, yvals )
         for newsc, imsc in zip( newscs, imscs ):
             assert newsc.ra.value == pytest.approx( imsc.ra.value, abs=0.05/3600. )

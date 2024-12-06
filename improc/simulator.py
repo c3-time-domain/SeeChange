@@ -234,9 +234,8 @@ class SimPars(Parameters):
 
     @property
     def imsize(self):
-        """
-        Return the image size as a tuple (x, y).
-        """
+        """Return the image size as a tuple (x, y)."""
+
         if self.image_size_y is None:
             return self.image_size_x, self.image_size_x
         else:
@@ -244,12 +243,14 @@ class SimPars(Parameters):
 
 
 class SimTruth:
-    """
-    Contains the truth values for a simulated image.
+    """Contains the truth values for a simulated image.
+
     This object should be generated for each image,
     and saved along with it, to compare the analysis
     results to the ground truth values.
+
     """
+
     def __init__(self):
         # things involving the image sensor
         self.imsize = None  # the size of the image (y, x)
@@ -335,9 +336,8 @@ class SimTruth:
 
 
 class SimSensor:
-    """
-    Container for the properties of a simulated sensor.
-    """
+    """Container for the properties of a simulated sensor."""
+
     def __init__(self):
         self.bias_mean = None  # the mean counts for each pixel (e.g., 100)
         self.pixel_bias_std = None  # variations between pixels (the square of this is the var of a Poisson process)
@@ -359,25 +359,21 @@ class SimSensor:
         self.bleed_vertical = None  # if True, bleed vertically (up and down). If False, horizontally (left and right).
 
     def show_bias(self):
-        """
-        Show the bias map.
-        """
+        """Show the bias map."""
         pass
 
     def show_pixel_qe(self):
-        """
-        Show the pixel quantum efficiency map.
-        """
+        """Show the pixel quantum efficiency map."""
         pass
 
     def show_gain(self):
-        """
-        Show the gain map.
-        """
+        """Show the gain map."""
+
         pass
 
     def show_saturated_stars(self):
-        """
+        """Produce an image with some saturated stars.
+
         Produce an image with some stars that
         have x1, x2, x4 and so on times the
         saturation limit and see how their shape
@@ -388,9 +384,8 @@ class SimSensor:
 
 
 class SimCamera:
-    """
-    Container for the properties of a simulated camera.
-    """
+    """Container for the properties of a simulated camera."""
+
     def __init__(self):
         self.vignette_amplitude = None  # intensity of the vignette
         self.vignette_radius = None  # inside this radius the vignette is ignored
@@ -405,8 +400,8 @@ class SimCamera:
         self.optic_psf_fwhm = None  # e.g., the total effect of optical aberrations on the width
 
     def make_optic_psf(self):
-        """
-        Make the optical PSF.
+        """Make the optical PSF.
+
         Uses the optic_psf_mode to generate the PSF map
         and calculate the width (FWHM).
 
@@ -420,8 +415,8 @@ class SimCamera:
             raise ValueError(f'PSF mode not recognized: {self.optic_psf_mode}')
 
     def make_vignette(self, imsize):
-        """
-        Make an image of the vignette part of the flat field.
+        """Make an image of the vignette part of the flat field.
+
         Input the imsize as a tuple of (imsize_x, imsize_y).
         """
 
@@ -436,9 +431,8 @@ class SimCamera:
 
 
 class SimSky:
-    """
-    Container for the properties of a simulated sky.
-    """
+    """Container for the properties of a simulated sky."""
+
     def __init__(self):
         self.background_mean = None  # mean sky+dark current across image
         self.background_std = None  # variation between images
@@ -462,7 +456,8 @@ class SimSky:
         self.atmos_psf_fwhm = None  # e.g., the seeing
 
     def make_atmos_psf(self):
-        """
+        """Make atmospheric PSF.
+
         Use the psf mode, pars and the seeing_instance
         to produce an atmospheric PSF.
         This PSF is used to convolve the optical PSF to get the total PSF.
@@ -476,9 +471,8 @@ class SimSky:
 
 
 class SimStars:
-    """
-    Container for the properties of a simulated star field.
-    """
+    """Container for the properties of a simulated star field."""
+
     def __init__(self):
         self.star_number = None  # average number of stars in each field
         self.star_min_flux = None  # minimal flux for the star power law
@@ -489,11 +483,12 @@ class SimStars:
         self.star_position_std = None  # for each star, the variation in position (in both x and y)
 
     def make_star_list(self, imsize):
-        """
-        Make a field of stars.
+        """Make a field of stars.
+
         Uses the power law to draw random mean fluxes,
         and uniform positions for each star on the sensor.
         The input, imsize, is a tuple of (imsize_x, imsize_y).
+
         """
         rng = np.random.default_rng()
         alpha = abs(self.star_flux_power_law) - 1
@@ -549,35 +544,37 @@ class SimStars:
             self.star_mean_y_pos = self.star_mean_y_pos[:-number]
 
     def get_star_x_values(self):
-        """
-        Return the positions of the stars (in pixel coordinates)
-        after possibly applying small astrometric shifts (e.g., scintillations)
+        """Return the positions of the stars (in pixel coordinates).
+
+        Possibly applies small astrometric shifts (e.g., scintillations)
         to the mean star positions.
 
         """
         x = self.star_mean_x_pos.copy()
+        rng = np.random.default_rng()
         if self.star_position_std is not None:
-            x += np.random.normal(0, self.star_position_std, len(x))
+            x += rng.normal(0, self.star_position_std, len(x))
 
         return x
 
     def get_star_y_values(self):
-        """
-        Return the positions of the stars (in pixel coordinates)
-        after possibly applying small astrometric shifts (e.g., scintillations)
+        """Return the positions of the stars (in pixel coordinates).
+
+        Possibly applies small astrometric shifts (e.g., scintillations)
         to the mean star positions.
 
         """
         y = self.star_mean_y_pos.copy()
+        rng = np.random.default_rng()
         if self.star_position_std is not None:
-            y += np.random.normal(0, self.star_position_std, len(y))
+            y += rng.normal(0, self.star_position_std, len(y))
 
         return y
 
     def get_star_flux_values(self):
-        """
-        Return the fluxes of the stars (in photons per total exposure time)
-        after possibly applying a flux change due to e.g., occultations/flares,
+        """Return the fluxes of the stars (in photons per total exposure time).
+
+        Possibly applies a flux change due to e.g., occultations/flares,
         or due to scintillation noise.
         (TODO: this is not yet implemented!)
 
@@ -586,8 +583,7 @@ class SimStars:
 
 
 class SimGalaxies:
-    """
-    Container for the properties of a set of simulated galaxies.
+    """Container for the properties of a set of simulated galaxies.
 
     Galaxies here are a very simple object,
     a bulge with a Sersic profile, and a disk with an exponential profile.
@@ -626,8 +622,8 @@ class SimGalaxies:
         self.galaxy_exp_scale_ratios = None  # the length scale of the exponential profile relative to width, per galaxy
 
     def make_galaxy_list(self, imsize):
-        """
-        Make a field of galaxies.
+        """Make a field of galaxies.
+
         Uses the power law to draw random mean fluxes
         and widths, and uniform orientations (both in inclination
         and in position angle) and positions.
@@ -787,6 +783,7 @@ class SimGalaxies:
 
     def remove_galaxies(self, number=1):
         """Remove the latest few galaxies (default is only one) from the galaxy field. """
+
         if number > 0:
             self.galaxy_mean_fluxes = self.galaxy_mean_fluxes[:-number]
             self.galaxy_mean_x_pos = self.galaxy_mean_x_pos[:-number]
@@ -799,35 +796,36 @@ class SimGalaxies:
             self.galaxy_exp_scale_ratios = self.galaxy_exp_scale_ratios[:-number]
 
     def get_galaxy_x_values(self):
-        """
-        Return the positions of the galaxies (in pixel coordinates)
-        after possibly applying small astrometric shifts (e.g., scintillations)
+        """Return the positions of the galaxies (in pixel coordinates).
+
+        Possibly applies small astrometric shifts (e.g., scintillations)
         to the mean galaxy positions.
 
         """
         x = self.galaxy_mean_x_pos.copy()
+        rng = np.random.default_rng()
         if self.galaxy_position_std is not None:
-            x += np.random.normal(0, self.galaxy_position_std, len(x))
+            x += rng.ormal(0, self.galaxy_position_std, len(x))
 
         return x
 
     def get_galaxy_y_values(self):
-        """
-        Return the positions of the galaxies (in pixel coordinates)
-        after possibly applying small astrometric shifts (e.g., scintillations)
+        """Return the positions of the galaxies (in pixel coordinates)
+
+        Possibly applies small astrometric shifts (e.g., scintillations)
         to the mean galaxy positions.
 
         """
         y = self.galaxy_mean_y_pos.copy()
+        rng = np.random.default_rng()
         if self.galaxy_position_std is not None:
-            y += np.random.normal(0, self.galaxy_position_std, len(y))
+            y += rng.normal(0, self.galaxy_position_std, len(y))
 
         return y
 
     def get_galaxy_flux_values(self):
-        """
-        Return the fluxes of the galaxies (in photons per total exposure time).
-        """
+        """ Return the fluxes of the galaxies (in photons per total exposure time)."""
+
         return self.galaxy_mean_fluxes  # do we ever need to add noise to this?
 
     @classmethod
@@ -884,14 +882,15 @@ class SimGalaxies:
         galaxy_image: np.ndarray
             The image of the galaxy, normalized to total_flux.
         """
+        rng = np.random.default_rng()
         if center_x is None:
             center_x = imsize[1] // 2
         if center_y is None:
             center_y = imsize[0] // 2
         if cos_i is None:
-            cos_i = np.random.uniform(0.1, 1)
+            cos_i = rng.uniform(0.1, 1)
         if rotation is None:
-            rotation = np.random.uniform(0, 360)
+            rotation = rng.uniform(0, 360)
 
         rotation = np.deg2rad(rotation)
 
@@ -987,10 +986,11 @@ class SimGalaxies:
             that adds an exponential multiplier with a short scale length
             to all pixels outside the cutoff scale.
         """
+        rng = np.random.default_rng()
         if center_x is None:
-            center_x = np.random.uniform(0, image.shape[1])
+            center_x = rng.uniform(0, image.shape[1])
         if center_y is None:
-            center_y = np.random.uniform(0, image.shape[0])
+            center_y = rng.uniform(0, image.shape[0])
 
         # the sub-pixel shift of this galaxy
         offset_x = center_x - int(center_x)
@@ -998,9 +998,9 @@ class SimGalaxies:
 
         # make sure we have all the parameters set to something
         if cos_i is None:
-            cos_i = np.random.uniform(0.1, 1)
+            cos_i = rng.uniform(0.1, 1)
         if rotation is None:
-            rotation = np.random.uniform(0, 360)
+            rotation = rng.uniform(0, 360)
 
         # estimate the size of the image needed to make this galaxy
         imsize = int(np.ceil(12 * max(exp_scale, sersic_scale))) + 1
@@ -1068,6 +1068,7 @@ class SimGalaxies:
 
 class SimStreaks:
     """A container for the properties of a set of simulated streaks
+
     (e.g., from low Earth orbit satellites).
     Keeps track of the positions and brightness of the streaks,
     as well as the length and orientation of each streak.
@@ -1087,6 +1088,7 @@ class SimStreaks:
 
     def make_streak_list(self, imsize):
         """Make a list of all the required properties for a set of streaks.
+
         The given imsize is a tuple that helps determine the x/y positions.
         """
         rng = np.random.default_rng()
@@ -1131,7 +1133,8 @@ class SimStreaks:
         if center_y is None:
             center_y = imsize[0] // 2
         if rotation is None:
-            rotation = np.random.uniform(0, 360)
+            rng = np.random.default_rng()
+            rotation = rng.uniform(0, 360)
 
         rotation = np.deg2rad(rotation)
 
@@ -1183,17 +1186,18 @@ class SimStreaks:
             towards East.
             If not given, will choose a uniform rotation in range [0,360].
         """
+        rng = np.random.default_rng()
         if center_x is None:
-            center_x = np.random.uniform(0, image.shape[1])
+            center_x = rng.uniform(0, image.shape[1])
         if center_y is None:
-            center_y = np.random.uniform(0, image.shape[0])
+            center_y = rng.uniform(0, image.shape[0])
 
         # the sub-pixel shift of this galaxy
         offset_x = center_x - int(center_x)
         offset_y = center_y - int(center_y)
 
         if rotation is None:
-            rotation = np.random.uniform(0, 360)
+            rotation = rng.uniform(0, 360)
 
         # estimate the size of the image needed to make this streak
         width = int(abs(length * np.sin(np.deg2rad(rotation)))) + 1
@@ -1258,6 +1262,7 @@ class SimStreaks:
 
 class SimCosmicRays:
     """A container for the properties of a set of simulated cosmic rays.
+
     This includes both muon tracks and worms from high energy electrons.
     """
     _landau = None
@@ -1265,11 +1270,12 @@ class SimCosmicRays:
 
     @classmethod
     def get_landau_dist(cls):
-        if cls._x is None or cls._landau is None:
-            cls._x = np.arange(-5, 20, 0.01)
-            cls._landau = pylandau.langau(cls._x)
-            cls._landau /= np.sum(cls._landau)
-        return cls._x, cls._landau
+        raise NotImplementedError( "See comment on pylandau import at top of file." )
+        # if cls._x is None or cls._landau is None:
+        #     cls._x = np.arange(-5, 20, 0.01)
+        #     cls._landau = pylandau.langau(cls._x)
+        #     cls._landau /= np.sum(cls._landau)
+        # return cls._x, cls._landau
 
     def __init__(self):
         self.track_number = None  # average number of muon tracks in each field
@@ -1289,16 +1295,17 @@ class SimCosmicRays:
         self.track_energies = None  # the most probable value in the landau distribution for this track
 
     def make_track_list(self, imsize):
-        self.track_rotations = np.random.uniform(0, 360, self.track_number)
-        self.track_entry_angles = np.random.normal(0, 50, self.track_number)  # should this be parametrizable?
-        self.track_mid_x = np.random.uniform(-0.01, 1.01, self.track_number) * imsize[1]
-        self.track_mid_y = np.random.uniform(-0.01, 1.01, self.track_number) * imsize[0]
+        rng = np.random.default_rng()
+        self.track_rotations = rng.uniform(0, 360, self.track_number)
+        self.track_entry_angles = rng.normal(0, 50, self.track_number)  # should this be parametrizable?
+        self.track_mid_x = rng.uniform(-0.01, 1.01, self.track_number) * imsize[1]
+        self.track_mid_y = rng.uniform(-0.01, 1.01, self.track_number) * imsize[0]
 
         rng = np.random.default_rng()
         alpha = abs(self.tracks_energy_power_law) - 1
         self.track_energies = self.tracks_min_energy / rng.power(alpha, self.track_number)
 
-        self.track_entry_angles = np.random.normal(0, 50, self.track_number)  # should this be parametrizable?
+        self.track_entry_angles = rng.normal(0, 50, self.track_number)  # should this be parametrizable?
         self.track_lengths = self.tracks_pixel_ratio * np.tan(np.deg2rad(self.track_entry_angles))
 
     def make_worm_list(self, imsize):
@@ -1340,12 +1347,13 @@ class SimCosmicRays:
         track_image: np.ndarray
             The image of the track, in units of electrons.
         """
+        rng = np.random.default_rng()
         if center_x is None:
             center_x = imsize[1] // 2
         if center_y is None:
             center_y = imsize[0] // 2
         if rotation is None:
-            rotation = np.random.uniform(0, 360)
+            rotation = rng.uniform(0, 360)
 
         rotation = np.deg2rad(rotation)
 
@@ -1361,7 +1369,7 @@ class SimCosmicRays:
         num_pixels = np.sum(track_positions)
         track_image = np.zeros(imsize)
         x, landau = cls.get_landau_dist()
-        track_image[track_positions] = np.random.choice(x, size=num_pixels, p=landau) + energy
+        track_image[track_positions] = rng.choice(x, size=num_pixels, p=landau) + energy
 
         # convolve with a narrow gaussian
         track_image = gaussian_filter(track_image, sigma=0.5)
@@ -1400,17 +1408,18 @@ class SimCosmicRays:
             The phi angle of rotation of the track in the sensor plane.
             If not given, will choose a uniform rotation in range [0,360].
         """
+        rng = np.random.default_rng()
         if center_x is None:
-            center_x = np.random.uniform(0, image.shape[1])
+            center_x = rng.uniform(0, image.shape[1])
         if center_y is None:
-            center_y = np.random.uniform(0, image.shape[0])
+            center_y = rng.uniform(0, image.shape[0])
 
         # the sub-pixel shift of this galaxy
         offset_x = center_x - int(center_x)
         offset_y = center_y - int(center_y)
 
         if rotation is None:
-            rotation = np.random.uniform(0, 360)
+            rotation = rng.uniform(0, 360)
 
         # estimate the size of the image needed to make this track
         width = int(abs(length * np.sin(np.deg2rad(rotation)))) + 1
@@ -1474,9 +1483,7 @@ class SimCosmicRays:
 
 
 class Simulator:
-    """
-    Make simulated images for testing image processing techniques.
-    """
+    """Make simulated images for testing image processing techniques."""
 
     def __init__(self, **kwargs):
         self.pars = SimPars(**kwargs)
@@ -1524,20 +1531,23 @@ class Simulator:
         self.image = None
 
     def make_sensor(self):
-        """
-        Generate a sensor and save it to the simulator.
+        """Generate a sensor and save it to the simulator.
+
         This includes all the properties of the pixels
         and amplifiers and readout electronics.
 
         Usually this does not change between images
         from the same survey.
         """
+
         self.sensor = SimSensor()
 
         self.sensor.bias_mean = self.pars.bias_mean
         self.sensor.pixel_bias_std = self.pars.bias_std
 
-        self.sensor.pixel_bias_map = np.random.normal(
+        rng = np.random.default_rng()
+
+        self.sensor.pixel_bias_map = rng.normal(
             self.sensor.bias_mean,
             self.sensor.pixel_bias_std,
             size=self.pars.imsize
@@ -1545,7 +1555,7 @@ class Simulator:
 
         self.sensor.gain_mean = self.pars.gain_mean
         self.sensor.pixel_gain_std = self.pars.gain_std
-        self.sensor.pixel_gain_map = np.random.normal(
+        self.sensor.pixel_gain_map = rng.normal(
             self.sensor.gain_mean,
             self.sensor.pixel_gain_std,
             size=self.pars.imsize
@@ -1553,7 +1563,7 @@ class Simulator:
         self.sensor.pixel_gain_map[self.sensor.pixel_gain_map < 0] = 0.0
 
         self.sensor.pixel_qe_std = self.pars.pixel_qe_std
-        self.sensor.pixel_qe_map = np.random.normal(1.0, self.sensor.pixel_qe_std, size=self.pars.imsize)
+        self.sensor.pixel_qe_map = rng.normal(1.0, self.sensor.pixel_qe_std, size=self.pars.imsize)
         self.sensor.pixel_qe_map[self.sensor.pixel_qe_map < 0] = 0.0
 
         self.sensor.dark_current = self.pars.dark_current
@@ -1564,8 +1574,8 @@ class Simulator:
         self.sensor.bleed_vertical = self.pars.bleed_vertical
 
     def make_camera(self):
-        """
-        Generate a camera and save it to the simulator.
+        """Generate a camera and save it to the simulator.
+
         This includes all the properties of the optics
         like the optical PSF (not including atmospheric seeing)
         and the flat field (vignetting).
@@ -1582,14 +1592,15 @@ class Simulator:
         self.camera.optic_psf_pars = self.pars.optic_psf_pars
 
     def make_sky(self):
-        """
-        Generate an instance of a sky. This will usually stay the same
-        when taking a series of images at the same pointing.
-        We will assume that if the pointing changes, the sky changes
-        values like seeing and background.
+        """Generate an instance of a sky.
+
+        This will usually stay the same when taking a series of images
+        at the same pointing.  We will assume that if the pointing
+        changes, the sky changes values like seeing and background.
 
         """
         self.sky = SimSky()
+        rng = np.random.default_rng()
         self.sky.background_mean = self.pars.background_mean
         self.sky.background_std = self.pars.background_std
         self.sky.background_minimum = self.pars.background_minimum
@@ -1597,7 +1608,7 @@ class Simulator:
             raise ValueError('background_minimum must be less than background_mean')
 
         for i in range(100):
-            self.sky.background_instance = np.random.normal(self.sky.background_mean, self.sky.background_std)
+            self.sky.background_instance = rng.normal(self.sky.background_mean, self.sky.background_std)
             if self.sky.background_instance >= self.sky.background_minimum:
                 break
         else:
@@ -1610,7 +1621,7 @@ class Simulator:
             raise ValueError('transmission_minimum must be less than transmission_mean')
 
         for i in range(100):
-            self.sky.transmission_instance = np.random.normal(self.sky.transmission_mean, self.sky.transmission_std)
+            self.sky.transmission_instance = rng.normal(self.sky.transmission_mean, self.sky.transmission_std)
             if self.sky.transmission_instance >= self.sky.transmission_minimum:
                 break
         else:
@@ -1623,7 +1634,7 @@ class Simulator:
             raise ValueError('seeing_minimum must be less than seeing_mean')
 
         for i in range(100):
-            self.sky.seeing_instance = np.random.normal(self.sky.seeing_mean, self.sky.seeing_std)
+            self.sky.seeing_instance = rng.normal(self.sky.seeing_mean, self.sky.seeing_std)
             if self.sky.seeing_instance >= self.sky.seeing_minimum:
                 break
         else:
@@ -1637,16 +1648,18 @@ class Simulator:
             self.sky.atmos_psf_pars['sigma'] = self.sky.seeing_instance / 2.355
 
     def make_stars(self):
-        """
-        Generate a star field. This will usually stay the same
-        when taking a series of images at the same pointing.
+        """Generate a star field.
+
+        This will usually stay the same when taking a series of images
+        at the same pointing.
 
         """
         self.stars = SimStars()
+        rng = np.random.default_rng()
         if self.pars.exact_star_number:
             self.stars.star_number = self.pars.star_number
         else:
-            self.stars.star_number = np.random.poisson(self.pars.star_number)
+            self.stars.star_number = rng.poisson(self.pars.star_number)
 
         self.stars.star_min_flux = self.pars.star_min_flux
         self.stars.star_flux_power_law = self.pars.star_flux_power_law
@@ -1655,16 +1668,18 @@ class Simulator:
         self.stars.make_star_list(self.pars.imsize)
 
     def make_galaxies(self):
-        """
-        Generate a galaxy field. This will usually stay the same
-        when taking a series of images at the same pointing.
+        """Generate a galaxy field.
+
+        This will usually stay the same when taking a series of images
+        at the same pointing.
 
         """
         self.galaxies = SimGalaxies()
+        rng = np.random.default_rng()
         if self.pars.exact_galaxy_number:
             self.galaxies.galaxy_number = self.pars.galaxy_number
         else:
-            self.galaxies.galaxy_number = np.random.poisson(self.pars.galaxy_number)
+            self.galaxies.galaxy_number = rng.poisson(self.pars.galaxy_number)
 
         self.galaxies.galaxy_min_flux = self.pars.galaxy_min_flux
         self.galaxies.galaxy_flux_power_law = self.pars.galaxy_flux_power_law
@@ -1675,14 +1690,13 @@ class Simulator:
         self.galaxies.make_galaxy_list(self.pars.imsize)
 
     def make_streaks(self):
-        """
-        Generate a set of streaks from LEO satellites.
-        """
+        """Generate a set of streaks from LEO satellites."""
         self.streaks = SimStreaks()
+        rng = np.random.default_rng()
         if self.pars.exact_streak_number:
             self.streaks.streak_number = self.pars.streak_number
         else:
-            self.streaks.streak_number = np.random.poisson(self.pars.streak_number)
+            self.streaks.streak_number = rng.poisson(self.pars.streak_number)
 
         self.streaks.streak_min_flux = self.pars.streak_min_flux
         self.streaks.streak_flux_power_law = self.pars.streak_flux_power_law
@@ -1692,13 +1706,13 @@ class Simulator:
         self.streaks.make_streak_list(self.pars.imsize)
 
     def make_cosmic_rays(self):
-        """Make a set of cosmic rays (muon tracks and worms from high energy electrons).
-        """
+        """Make a set of cosmic rays (muon tracks and worms from high energy electrons)."""
         self.cosmic_rays = SimCosmicRays()
+        rng = np.random.default_rng()
         if self.pars.exact_cosmic_ray_number:
             self.cosmic_rays.track_number = self.pars.track_number
         else:
-            self.cosmic_rays.track_number = np.random.poisson(self.pars.track_number)
+            self.cosmic_rays.track_number = rng.poisson(self.pars.track_number)
 
         self.cosmic_rays.tracks_min_energy = self.pars.tracks_min_energy
         self.cosmic_rays.tracks_energy_power_law = self.pars.tracks_energy_power_law
@@ -1738,8 +1752,7 @@ class Simulator:
             cos_is=None,
             rotations=None,
     ):
-        """
-        Add a galaxy (or multiple galaxies) to the list of galaxies
+        """Add a galaxy (or multiple galaxies) to the list of galaxies
 
         Parameters
         ----------
@@ -1790,8 +1803,8 @@ class Simulator:
             new_streaks=True,
             new_cosmic_rays=True,
     ):
-        """
-        Generate a single image.
+        """Generate a single image.
+
         Will add new instance of noise, and possibly shift the stars' positions
         (if given star_position_std which is non-zero).
         To simulate a new pointing in the sky (e.g., taken at a different time),
@@ -1907,7 +1920,8 @@ class Simulator:
         self.save_truth()
 
     def make_raw_star_flux_map(self):
-        """
+        """Place stars and galaxies on  image.
+
         Take the star/galaxy positions and fluxes and place them,
         including the effects of the combined atmospheric and
         instrumental PSF, on the image plane.
@@ -1987,22 +2001,19 @@ class Simulator:
             self.psf_downsampled = self.psf.copy()
 
     def add_atmosphere(self):
-        """
-        Add the effects of the atmosphere, namely the sky background and transmission.
-        """
+        """Add the effects of the atmosphere, namely the sky background and transmission."""
         self.flux_with_sky = self.flux_top * self.sky.transmission_instance + self.sky.background_instance
 
     def add_camera(self):
-        """
-        Add the effects of the camera, namely the vignette.
-        """
+        """Add the effects of the camera, namely the vignette."""
         self.flux_vignette = self.flux_with_sky * self.camera.vignette_map
 
     def flux_to_electrons(self):
-        """
-        Calculate the number of electrons in each pixel,
-        accounting for the total QE and the pixel QE,
-        and adding the dark current.
+        """Calculate the number of electrons in each pixel.
+
+        Accounts for the total QE and the pixel QE, and adds the dark
+        current.
+
         """
         self.electrons = self.flux_vignette * self.sensor.pixel_qe_map
         self.electrons += self.sensor.dark_current * self.pars.exposure_time
@@ -2061,9 +2072,7 @@ class Simulator:
         return new_image
 
     def add_cosmic_rays(self):
-        """
-        Add cosmic rays, both tracks and worms.
-        """
+        """Add cosmic rays, both tracks and worms."""
 
         for i in range(self.cosmic_rays.track_number):
             self.cosmic_rays.add_track_to_image(
@@ -2076,7 +2085,8 @@ class Simulator:
             )  # add in place
 
     def electrons_to_adu(self):
-        """
+        """Convert electrons to ADU in each pixel.
+
         Convert the number of electrons in each pixel
         to the number of ADU (analog to digital units)
         that will be read out.
@@ -2090,12 +2100,14 @@ class Simulator:
         self.total_bkg_var += self.sky.background_instance
 
     def add_noise(self):
-        """
+        """Add noise.
+
         Combine the noise variance map and the counts without noise to make
         an image of the counts, including also the bias map.
         """
         # read noise is included in the variance, but should not add to the baseline (bias)
-        self.image = self.sensor.pixel_bias_map - self.sensor.read_noise ** 2 + np.random.poisson(
+        rng = np.random.default_rng()
+        self.image = self.sensor.pixel_bias_map - self.sensor.read_noise ** 2 + rng.poisson(
             self.noise_var_map, size=self.pars.imsize
         )
         self.image *= self.sensor.pixel_gain_map
@@ -2104,23 +2116,19 @@ class Simulator:
         self.image = np.round(self.image).astype(int)
 
     def apply_bias_correction(self, image):
-        """
-        Apply the bias correction to an image.
-        """
+        """Apply the bias correction to an image."""
         return image - self.sensor.pixel_bias_map
 
     def apply_dark_correction(self, image):
-        """
-        Apply the dark current correction to an image.
-        """
+        """Apply the dark current correction to an image."""
         return image - self.sensor.dark_current * self.pars.exposure_time
 
     # TODO: apply flat
 
     def save_truth(self):
-        """
-        Save the parameters from the different steps of the simulation
-        into one object that can be saved with the image.
+        """Save the parameters from the different steps of the simulation.
+
+        Puts it all into one object that can be saved with the image.
 
         """
         t = SimTruth()

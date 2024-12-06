@@ -1,4 +1,3 @@
-import sys
 import math
 import argparse
 import logging
@@ -216,11 +215,11 @@ def main():
             bpmdata = hdu[args.hdunum].data
 
     if args.boxwid == 0:
-        sky, sig = single_sextrsky( imagedata, bpmdata, sigcut=args.sigcut, logger=logger )
+        sky, sig = single_sextrsky( imagedata, bpmdata, sigcut=args.sigcut )
         skyim = np.full_like( imagedata, sky )
     else:
         skyim, sig = sextrsky( imagedata, bpmdata, sigcut=args.sigcut,
-                               filtsize=args.filtsize, boxsize=args.boxwid, logger=logger )
+                               filtsize=args.filtsize, boxsize=args.boxwid )
         sky = np.median( skyim )
     SCLogger.debug( f'Sky: {sky}; σ: {sig}' )
 
@@ -244,5 +243,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
