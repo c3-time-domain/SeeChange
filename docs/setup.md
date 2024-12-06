@@ -2,18 +2,16 @@
 
 ### Installing using Docker
 
-At the moment, some of the things below will not work if you install Docker Desktop.  
-It has to do with permissions and bind-mounting system volumes; 
-because of how Docker Desktop works, the files inside the container all end up owned as root, 
-not as you, even if they are owned by you on your own filesystem.  Hopefully there's a way to fix this, 
-but in the meantime, install Docker Engine instead of Docker Desktop; instructions are here:
+At the moment, some of the things below will not work if you install Docker Desktop.  It has to do with permissions and bind-mounting system volumes; because of how Docker Desktop works, the files inside the container all end up owned as root, not as you, even if they are owned by you on your own filesystem.  Hopefully there's a way to fix this, but in the meantime, install Docker Engine instead of Docker Desktop; instructions are here:
 
 - Installing Docker Engine : https://docs.docker.com/engine/install/
-- Setting up rootless mode (so you don't have to sudo everything) : https://docs.docker.com/engine/security/rootless/
+
+- Setting up rootless mode (so you don't have to sudo everything) : https://docs.docker.com/engine/security/rootless/ (There is some indication that this is difficult to get working; you may be happier just installing docker engine and adding yourself to the `docker` group in `/etc/group`.)
 
 .. _dev_shell_local_database:
+#### Development shell — local transient database
 
-#### Development shell — local database
+*Warning: we don't always keep the devshell docker compose file up to date.  The docker compose file in tests will always be up to date.  You can often just use that as a dev environment.  Basically everything in this section will work as is if you start in the tests directory rahter than the devshell directory.*
 
 The `devshell` directory has a docker compose file that can create a development environment for you.  To set it up, you need to set three environment variables.  You can either manually set these with each and every `docker compose` command, you can set them ahead of time with `export` commands, or, recommended, you can create a file `.env` in the `devshell` directory with contents:
 ```
@@ -101,10 +99,7 @@ then run
    docker compose run runtests
 ```
 
-At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  
-(The output you see to the screen should tell you the same information.)  
-This will take a long time the first time you do it, as it has to build the docker images, 
-but after that, it should be fast (unless the Dockerfile has changed for either image).  
+At the end, `echo $?`; if 0, that's a pass, if 1 (or anything else not 0), that's a fail.  (The output you see to the screen should tell you the same information.)  This will take a long time the first time you do it, as it has to build the docker images, but after that, it should be fast (unless the Dockerfile has changed for either image).
 
 After the test is complete, run
 ```

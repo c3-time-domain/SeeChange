@@ -22,6 +22,9 @@ from models.measurements import Measurements
 from models.deepscore import DeepScore
 
 # for each process step, list the steps that go into its upstream
+# backgrounding, astrocal, photocal don't appear in this list because
+# they share a provenance with 'extraction', so where you see 'extraction',
+# treat it as the union of (extraction, bbackgrounding, astrocal, photocal).
 UPSTREAM_STEPS = {
     'exposure': [],  # no upstreams
     'preprocessing': ['exposure'],

@@ -1,5 +1,7 @@
 ## Coaddition and Reference Pipeline
 
+*Note: this documentation file may not be completely up to date.*
+
 Besides the regular pipeline that processes new images, we also have deep-coadd making and reference making pipelines. 
 
 ### Coaddition Pipeline
