@@ -1,20 +1,34 @@
 ## Testing
 
-Tests are an integral part of the development process. 
-We run mostly unit tests that test specific parts of the code, 
-but a few integration tests are also included (end-to-end tests). 
-We plan to add some regression tests that verify the results 
-of the pipeline are consistent with previous code versions. 
+Tests are an integral part of the development process.  We have a large number of tests that mostly are testing one or a few related functions (something approximating unit tests), but also some end-to-end tests, and some things that would probably be considered regression tests.
+
+### Writing tests
+
+All tests are found in the `tests` subdirectory.  That subdirectory includes several configuration files (including test fixtures in the standard pytest `conftest.py` file), and additional pytest fixtures in the `fixtures` subdirectory.  The actual tests are found in the other subdirectories, which (mostly) correspond to the subdirectories underneath the top level of the project where the actual code is found.
 
 ### Running tests
 
-If you are in an environment that has all of the SeeChange prerequisites, you can run the tests by simply running the following command from the root directory of the project:
+If you are in an environment that has all of the SeeChange prerequisites, you can run the tests by simply running the following command from the `tests` subdirectory of the project:
 
-```bash
-pytest
+```
+pytest -v
 ```
 
-The tests have a lot of infrastructure necessary to run, however.  If you really know what you're doing, you may be able to set up the full environment.  However, most users will find it easier to use the dockerized environment designed to run with our tests.  See "Setting up a SeeChange instance" for more information.
+The tests have a lot of infrastructure necessary to run, however.  If you really know what you're doing, you may be able to set up the full environment.  However, most users will find it easier to use the dockerized environment designed to run with our tests.  See "Setting up a SeeChange instance" for more information.  This will also make your test environment (ideally) close to the environment in which automated tests will be run on github.
+
+### Linting
+
+We've also set up to use the `ruff` python linter, with a bunch of rules (enforcing a 120-character line width, demanding two blank lines before the start of a class or top-level function, looking for unused imports, looking for unused local variables, looking for deprecated numpy calls, looking for f-strings that don't need to be f-strings, and a bunch of other stuff like that).  The automated tests on github run this before the actual tests, and if any of the rules fail, the whole test will fail.  By and large, fixing these is fast and slightly annoying.
+
+You can run the linter in your own checkout by just running:
+
+```ruff check```
+
+in the top level directory of the checkout; it will use the configuration in the `ruff.toml` file there.  You can pip install ruff yourself, or you can run in our testing Docker Compose environment (where ruff is installed).
+
+**Note**: Be careful doing automated fixes of things ruff finds!  Sometimes what ruff suggests for a fix is *wrong*.  For instance, it will sometimes suggest you remove a line that does an assignment to a variable that is never used later.  However, it may well be that the rest of the code is depending on side effects of that assignment, such as filling in a lazy-loaded class variable.  Try and figure out if this is the case. (One exmaple: some of the tests call `ImageCleanup`, and the returned variable is never used again.  The tests are dependent on that variable going out of scope when the test ends.  So, in this case, if you leave the line in, but just not capture the return value (i.e. replacing `val=ImageCleanup(...)` with just `ImageCleanup(...)`, it will break, because the return values goes out of scope immediately.)  If so, you can just assign to the variable `_` (a single underscore), or any other variable name starting with `_`, and ruff won't object that it's never used again later.
+
+Occsionally we need to import modules that are never formally used later in a function.  For instance, the way the Instrument module works, you need to have imported the modules for any specific instruments before you call certain functions in Instrument; otherwise, those ionstruments will never be found later.  Ruff will object to the `import models.decam` (or whatever) call, because the module's not used, but we need it there.  In this case, you can add `# noqa: F401` at the end of the `import` line; this flags ruff that you know that this violates rule F401 (the "no unused imports") rule, and you intend to violate it; ruff then lets you get away with it.
 
 ### Testing tips
 
@@ -57,6 +71,7 @@ Finally, the working directory for local storage, which is referenced by the `Fi
 In the https://github.com/c3-time-domain/SeeChange repository, we have set up some github actions to automatically run tests upon pushes to main (which should never happen) and upon pull requests.  These tests run from the files in `tests/docker-compose.yaml`.  For them to run, some docker images must exist in the github repository at `ghcr.io/c3-time-domain`.  As of this writing, the images needed are:
 * `ghcr.io/c3-time-domain/upload-connector:[tag]`
 * `ghcr.io/c3-time-domain/postgres:[tag]`
+* `ghcr.io/c3-time-domain/kafka:[tag]`
 * `ghcr.io/c3-time-domain/seechange:[tag]`
 * `ghcr.io/c3-time-domain/conductor:[tag]`
 * `ghcr.io/c3-time-domain/seechange-webap:[tag]`
@@ -96,3 +111,7 @@ This set of docker images depend on the following files:
 * `requirements.txt`
 
 If you change any of those files, you will need to build and push new docker images.  Before doing that, edit `tests/docker-compose.yaml` and bump the date part of the tag for _every_ image (search and replace is your friend), so that your changed images will only get used for your branch while you're still finalizing your pull request, and so that the updated images will get used by everybody else once your branch has been merged to main.
+
+### Updating the webap image
+
+Even if you haven't changed the files mentioned in the previous section, if you make any edits to the webap, or if you make any changes to the code that change the behavior of the webap, you will need to update the webap's image.  This will often not be necessary.  However, if you see all the webap tests passing on your local machine but some of them failing on github actions, it may be because the webap image that github is using needs to be updated.  When this happens, do the steps described in "Running tests on github actions" above (bump the test version, `docker compose build`, and a bunch of `docker push`), or contact Rob to ask him to help you do that if you aren't able to do it all yourself.

@@ -3,38 +3,28 @@
 Data is stored in three main places: 
  - The database
  - The local filesystem
- - The data archive (e.g., NERSC)
+ - The data archive
 
 ### Database
 
-We use `postgres` as the database backend,
-which allows us to use the `q3c` extension for fast spatial queries, 
-as well as types like JSONB for storing dictionaries.
-This needs to be set up as a service on the local machine,
-or as a separate container in a docker-compose environment.
-See the `docs/setup.md` file for more details.
+We use `postgres` as the database backend, which allows us to use the `q3c` extension for fast spatial queries, as well as types like JSONB for storing dictionaries.  This needs to be set up as a service on the local machine, or as a separate container in a docker-compose environment.  See the `docs/setup.md` file for more details.
 
-Database communications is done using SQLAlchemy, 
-by opening and closing sessions that talk to the database, 
-and by defining classes that map to database tables.
+Database models are defined using SQLAlchemy, and database migrations are tracked with Alembic.  Database communication is done using a combination of SQLALchmey and direct SQL using `psycopg2`.
 
-The database communications is defined in `models/base.py`, 
-where we define a `Base` class for all database mapped objects. 
-Each class that inherits from it can have columns and relationships
-mapped to object attributes.
-The `base` module also defines session opening functions
-for database communications. 
-See the documentation for SQLAlchemy for more details.
+The database communications is defined in `models/base.py`, where we define a `Base` class for all database mapped objects.  Each class that inherits from it can have columns and relationships mapped to object attributes.
 
-#### Sessions and smart sessions
+Unless you're writing one-off code that you expect to run by itself (i.e. not as part of a pipline that is mass-processing data), do not hold database connections open for a long time.  Sometimes you do want to have a connection open for several operations, either because they're linked, or because they're happening fast enough that the inefficiency of opening a new connection between the operations isn't worth it.  However, if code that runs in a pipeline designed to run many times concurrently hold open database connections for extended periods of time, we run the risk of exhausting database connection resources.  See "SQLAlchemy sessions" and "Psycopg2 connections" below.
 
-The `base` module also defines two types of session
-starting functions, `Session()` and `SmartSession()`. 
-To open a regular session, use the `Session()` function, 
-and make sure to close it when you are done. 
-This is useful mainly for interactive use, 
-and highly discouraged for using in the code base. 
-The session is a `sqlalchemy.orm.session.Session` object. 
+Database communcation should usually be done inside `with SmartSession(...) as session:` or `with Psycopg2Connection(...) as conn:` blocks, where these two functions are defined in `models/base.py`.  See "SQLAlchemy sessions" and "Psycopg2 connections" below.
+
+Many of our basic database functions take either a SQLAlchemy `Session` object, or a psycopg2 `connection` object, as an optional argument.  If you are inside a `with` block that holds a database connection, pass that connection to the function, and the function will use the same session or connection that you're already using.  (Otherwise, the function will open a new connection.)  For example, see `test.py::SeeChangeBase.insert()`.  (`SeeChangeBase` is a class that most (all?) of our database model objects inherit from, so `insert` (and others) are defined for all models.)  Often, however, you will not want to open your own session, but just let these functions open sessions themselves.  This is usually the case when you are doing any non-trivial computation between database calls, as the overhead of establishing a new database connection will become small compared to the computation you're doing.
+
+
+#### SQLAlchemy sessions
+
+If you want to communicate with the databse using SQLAlchemy constructions, this section describes how to get a connection.  Often, this is the best way to communicate with the databse, as the models are set up to work with those.  However, for some operations, it's either impossible to get SQLAlchemy to work the way you want (e.g. if you want to do something in multiple steps using temporary tables), or (if you already know SQL) it's very difficult to figure out the byzantine SA syntax to do what you already know how to do with byzantine SQL syntax.  In that case, see "Psycopg2 connections" below.
+
+The `base` defines two SQLAlchemy session starting functions, `Session()` and `SmartSession()`.  To open a regular session, use the `Session()` function, and make sure to close it when you are done.  This is useful mainly for interactive use, and highly discouraged for using in the code base.  The session is a `sqlalchemy.orm.session.Session` object.
 
 ```python
 from models.base import Session
@@ -48,8 +38,7 @@ session.commit()
 session.close()
 ```
 
-The `Session()` function can also be used in a context manager,
-which will automatically close the session at the end of the block.
+The `Session()` function can also be used in a context manager, which will automatically close the session at the end of the block.
 
 ```python
 from models.base import Session
@@ -60,15 +49,7 @@ with Session() as session:
     session.commit()
 ```
 
-However, we encourage developers to use the `SmartSession()` function 
-for such uses. The main difference is that a smart session accepts inputs
-that can be either another session object or None. 
-If the input is None, it will open a new session,
-which will close at the end of the context. 
-If the input given to it is a session object, 
-it will not close it at the end of the context, 
-rather it will depend on the external context that 
-made the session to close it when done. 
+However, we encourage developers to use the `SmartSession()` function for such uses. The main difference is that a `SmartSession` accepts inputs that can be either another session object or None.  If the input is None, it will open a new session, which will close at the end of the context.  If the input given to it is a session object, it will not close it at the end of the context, rather it will depend on the external context that made the session to close it when done.
 
 This is particularly useful in nested functions:
 ```python
@@ -90,26 +71,39 @@ with SmartSession() as session:
     # session will be closed here, not in the function 
 ```
 
+(Be careful, however, about passing a session nested functions that do substantial computation, as they may hold the database connection open for a long time and risk exhausting that resource; see above.)
+
+
+#### Psycopg2 connections
+
+While it's possible to do direct SQL with SQLAlchemy sessions, either with the session itself, or by (painfully) extracting the underlying database connection, if what you really need to do is direct SQL, you're probably better off with a simple psycopg2 connection.  If you are going to do anything that locks tables, you must do it this way.  Empirically, SQLAlchemy does not seem to actually close the underlying databse connection when you call the `close` method of a session, but rather markes it for closing sometime later during garbage collection.  The result is that if you lock a table using SQL passed to an SQLAlchemy session, most of the time it will work, but rarely the table will not unlock when you close the session (or exist the relevantg `with` block).  If you really need control over your database, use an actual database connection and save yourself the complication of another opininated layer between you and the database.
+
+`models/base.py` provides a function `Psycopg2connection()` that must be used as a context manager (i.e. in a `with` block).  It takes one optional argument, and returns a standard `psycopg2.connection` object..  If that argument is `None`, it opens a new connection to the databse, and then calls `rollback` and closes that connection when the context exits.  (This means that if you want any changes you made to presist, you must make sure to call `commit` on the connection.)  If that argument is an existing psycopg2 connection, it just immediately returns that, and does not automatically rollback or close it.  (In that case, whatever created the connection in the first place is responsible for doing that.)  This latter use is analgous to passing an existing SQLAlchemy session to `SmartSession`, as described above.
+
+As a trivial example:
+```
+with Psycopg2Connection() as conn:
+    cursor = conn.cursor()
+    cursor.execute( "SELECT _id FROM images WHERE mjd>60000. AND Mjd<60001." )
+    foundids = [ row[0] for row in cursor.fetchall() ]
+```
+
+For a less trivial example, see `models/provenance.py::ProvenanceTag.addtag()` (which locks a table).
+
+
 #### Defining mapped classes
 
-The `models` folder contains a module for each database table,
-which defines a mapped class for that table.
-Each mapped class inherits from the `Base` class defined in `models/base.py`,
-and has a `__tablename__` attribute that defines the table name.
+The `models` folder contains a module for each database table, which defines a mapped class for that table.  Each mapped class inherits from the `Base` class defined in `models/base.py`, and has a `__tablename__` attribute that defines the table name.
 
-The class definition of each mapped class includes columns and relationships
-that map to the database table columns and relationships.
-For example, a SourceList will have a `num_sources` column attribute 
-that corresponds to a column in the database table.
-It also has a relationship attribute to the `images` table, 
-such that it has an `Image` type attribute loaded from the database.
+The class definition of each mapped class includes columns and relationships that map to the database table columns and relationships.  For example, a SourceList will have a `num_sources` column attribute that corresponds to a column in the database table.
 
-The `__init__()` method of each mapped class can define other attributes
-that are not mapped to the database. 
-Also, the `init_on_load()` function should be defined 
-to initialize any such attributes when an object is loaded, 
-rather than created from scratch.
-Use the `orm.reconstructor` decorator to define this function.
+**Do not use SQLAlchemy relationships**.  Previously, the code defined things like a `image` field of the SourceList table that use SQLAlchemy lazy loading to load the `Image` record associated with the source list when you accessed it.  This led to a constant stream of painful debugging of detached instances and other mysterious and hard-to-debug errors that were the result of SQLAlchemy's design assuming that you were holding a connection open throughout your entire computation (which, while reasonable for a webap that completes its computations in less than a second, is not reasonable for a data analysis pipeline that will run for two minutes).  Instead, code relationships with standard SQL foreign keys.  For example, SourceList has the `image_id` field, which is a foreign key pointing at the `_id` column of the `images` table (the table behind the Images model).  If you want to get the actual image data, just run
+```
+image = Image.get_by_id( sources.image_id )
+```
+(This method is defined in `models/base.py::UUIDMixin.get_by_id`.)
+
+The `__init__()` method of each mapped class can define other attributes that are not mapped to the database.  Also, the `init_on_load()` function should be defined to initialize any such attributes when an object is loaded, rather than created from scratch.  Use the `orm.reconstructor` decorator to define this function.
 
 ```python   
 from sqlalchemy.orm import reconstructor
@@ -123,31 +117,20 @@ class MyObject:
         self.my_attribute = None
 ```
 
-This makes sure those properties are defined and initialized
-even when an object is not created with its `__init__()` function.
+This makes sure those properties are defined and initialized even when an object is not created with its `__init__()` function.
+
+If you change a mapped class, or define a new mapped class, make sure also to update the database migrations.  See "Database migrations" in "Setting up a SeeChange instance".
+
 
 ### Files on disk
 
-Some of the data products are too large to keep fully in the database. 
-For example, the image data itself is stored in FITS files on disk. 
-Each such resource must also be mapped to a database object, 
-so it can be queried and loaded when needed. 
+Some of the data products are too large to keep fully in the database.  For example, the image data itself is stored in FITS files on disk.  Each such resource must also be mapped to a database object, so it can be queried and loaded when needed.
 
-In `models/base.py`, we define a `FileOnDisk` mixin class,
-that allows a database row to also store a file (or multiple files)
-on disk in a local directory. The mixin class will also have the ability
-to save and load the data from a remote archive. 
+In `models/base.py`, we define a `FileOnDisk` mixin class, that allows a database row to also store a file (or multiple files) on disk in a local directory. The mixin class will also have the ability to save and load the data from a remote archive.
 
-The `FileOnDisk` class defines a `filepath` attribute,
-which is relative to some base directory, defined by `FileOnDisk.local_path`. 
-Changing the `local_path` allows the same database entries to correspond
-to different filesystems, but with similar relative paths.
-The relative `filepath` can include subfolders. 
+The `FileOnDisk` class defines a `filepath` attribute, which is relative to some base directory, defined by `FileOnDisk.local_path`.  Changing the `local_path` allows the same database entries to correspond to different filesystems, but with similar relative paths.  The relative `filepath` can include subdirectories.
 
-If the `FileOnDisk` subclass needs to store multiple files, 
-it should have a `filepath` that includes the first part of the filename,
-and `filepath_extensions` that is an array of strings with the ends
-of the filenames, which are different for each file.
+If the `FileOnDisk` subclass needs to store multiple files, it should have a `filepath` that includes the first part of the filename, and `filepath_extensions` that is an array of strings with the ends of the filenames, which are different for each file.  (`Image` is an example of a class that does this.
 
 ```python
 from models.image import Image
@@ -156,33 +139,11 @@ image.filepath = 'images/2020-01-01/some_image'
 image.filepath_extensions = ['image.fits', 'weight.fits', 'flags.fits']
 ```
 
-To save the file to disk, use the `save()` method of the object.
-Most of the time, the subclass will implement a `save()` method, 
-which will call the `save()` method of the `FileOnDisk` class
-after it has actually done the saving of the data
-(which is specific to each subclass and the data it contains).
-The `FileOnDisk` class will make sure the file is in the right place, 
-will check the MD5 checksum, and will push the file to the archive
-(see below). 
-The object will generally not be saved to the database until after
-it has a legal `filepath` and MD5 checksum. 
-This makes sure database objects are mapping to actual files on disk. 
-It should be noted that those files could later be removed without
-the database knowing about it. 
+To save the file to disk, use the `save()` method of the object.  Most of the time, the subclass will implement a `save()` method, which will call the `save()` method of the `FileOnDisk` class after it has actually done the saving of the data (which is specific to each subclass and the data it contains).  The `FileOnDisk` class will make sure the file is in the right place, will check the MD5 checksum, and will push the file to the archive (see below).  The object will generally not be saved to the database until after it has a legal `filepath` and MD5 checksum.  This makes sure database objects are mapping to actual files on disk.  It should be noted that those files could later be removed without the database knowing about it.
 
-To remove the file from local storage only, use `remove_data_from_disk()`. 
-To remove the file from local disk, archive and database, use
-`delete_from_disk_and_database()`. 
+To remove the file from local storage only, use `remove_data_from_disk()`.  To remove the file from local disk, archive and database, use `delete_from_disk_and_database()`.
 
-Note that loading of the data is not done in the `FileOnDisk` mixin, 
-as that is specific to each subclass. 
-In general, we add a private `_data` attribute to the subclass,
-which is `None` when the object is initialized or loaded from the database. 
-Then a public `data` property will cause a lazy load of the data from disk
-when it is first accessed, putting it into `_data`. 
-To get the full path of the file stored on disk (e.g., for loading it)
-use the `FileOnDisk.get_fullpath()` method, which attaches the `local_path`
-to the `filepath` attribute, and includes extensions if they exist. 
+Note that loading of the data is not done in the `FileOnDisk` mixin, as that is specific to each subclass.  In general, we add a private `_data` attribute to the subclass, which is `None` when the object is initialized or loaded from the database.  Then a public `data` property will cause a lazy load of the data from disk when it is first accessed, putting it into `_data`.  To get the full path of the file stored on disk (e.g., for loading it) use the `FileOnDisk.get_fullpath()` method, which attaches the `local_path` to the `filepath` attribute, and includes extensions if they exist.
 
 
 #### Exposures and data files
