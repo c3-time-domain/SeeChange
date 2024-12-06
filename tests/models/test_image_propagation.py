@@ -21,7 +21,7 @@ def test_image_upstreams_downstreams(sim_image1, sim_reference, provenance_extra
     diff_image.provenance_id = provenance_extra.id
 
     # save and delete at the end
-    _ ImageCleanup.save_image( diff_image )
+    _ = ImageCleanup.save_image( diff_image )
     diff_image.insert()
 
     # Reload the image from the database to make sure all the upstreams and downstreams
