@@ -42,12 +42,14 @@ class Cutter:
     def run(self, *args, **kwargs):
         """Create a Cutouts objects for a list of sources.
 
-        Go over a list of sources and for each source position,
-        cut out a postage stamp image from the new,
-        reference and subtraction images.
-        The results are saved in a Cutouts object for each source.
+        Go over a list of sources and for each source position, cut out
+        a postage stamp image from the new, reference and subtraction
+        images.  Background subtractions new and ref before extracting
+        the cutout. The results are saved in a Cutouts object for each
+        source.
 
         Returns a DataStore object with the products of the processing.
+
         """
         self.has_recalculated = False
         try:  # first make sure we get back a datastore, even an empty one

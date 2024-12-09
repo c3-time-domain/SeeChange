@@ -914,6 +914,7 @@ seechange.Exposure = class
                 td.classList.add( 'bad' )
             else td.classList.add( 'good' );
             let textblob = ( "<b>chip:</b> " + data.cutouts.section_id[i] + "<br>" +
+                             "<b>source index:</b> " + data.cutouts.source_index[i] + "<br>" +
                              // "<b>cutout (α, δ):</b> (" + data.cutouts['ra'][i].toFixed(5) + " , "
                              // + data.cutouts['dec'][i].toFixed(5) + ")<br>" +
                              "<b>(α, δ):</b> (" + seechange.nullorfixed( data.cutouts['measra'][i], 5 ) + " , "
