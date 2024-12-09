@@ -147,10 +147,10 @@ class Backgrounder:
 
             sources = ds.get_sources(session=session)
             if sources is None:
-                raise ValueError(f'Cannot find a SourceList corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a SourceList corresponding to the datastore inputs: {ds.inputs_str}')
             psf = ds.get_psf(session=session)
             if psf is None:
-                raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.inputs_str}')
 
             bg._upstream_bitflag = 0
             bg._upstream_bitflag |= ds.image.bitflag

@@ -80,7 +80,10 @@ def pytest_sessionstart(session):
     warnings.filterwarnings('ignore', message=r'.*Background mean=.*, std=.*, normalization skipped!.*')
 
     # make sure to load the test config
-    test_config_file = str((pathlib.Path(__file__).parent.parent / 'tests' / 'seechange_config_test.yaml').resolve())
+    test_config_file = os.getenv( "SEECHANGE_CONFIG", None )
+    if test_config_file is None:
+        test_config_file = str((pathlib.Path(__file__).parent.parent
+                                / 'tests' / 'seechange_config_test.yaml').resolve())
     Config.get(configfile=test_config_file, setdefault=True)
     FileOnDiskMixin.configure_paths()
     # SCLogger.setLevel( logging.INFO )

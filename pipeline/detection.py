@@ -308,7 +308,7 @@ class Detector:
 
                     if image is None:
                         raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '
-                                         f'{ds.get_inputs()}')
+                                         f'{ds.inputs_str}')
 
                     sources, psf, _, _ = self.extract_sources( image, wcs=ds.wcs )
 

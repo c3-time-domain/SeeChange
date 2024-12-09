@@ -157,29 +157,56 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
     return output
 
 
-def make_cutouts(data, x, y, size=15, fillvalue=np.nan):
+def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None):
     """Make square cutouts around the given positions in the data.
 
     Parameters
     ----------
     data: numpy.ndarray
         The image to make the cutouts from.
+
     x: numpy.ndarray or list
         The x positions of the cutouts.
+
     y: numpy.ndarray or list
         The y positions of the cutouts.
+
     size: int
-        The size of the cutouts. Default is 15.
-    fillvalue: float
-        The value to fill the cutouts with if they are partially off the edge of the data.
-        Default is np.nan, but also 0 could be useful for integer arrays.
+        The size along one edge of the cutouts. Default is 15.
+
+    fillvalue: float or int
+        The value to fill the cutouts with if they are partially off the
+        edge of the data.  Default is np.nan, for floats, 0 for integers.
+
+    dtype: numpy datatype or None
+        The datatype for the returned cutouts.  If None, will use the
+        datatype of the passed data.  WARNING: you may get perverse
+        results for some combinations of data and cutout datatypes.
+        For instance, converting floats with negative values to
+        unsigned ints will create large positive integers where the
+        floats are negative.  Use with care.
 
     Returns
     -------
     cutouts: 3D np.ndarray
         The cutouts, with shape (len(x), size, size).
+
     """
-    cutouts = np.full((len(x), size, size), fillvalue, dtype=data.dtype)  # preallocate!
+    if dtype is None:
+        dtype = data.dtype
+    else:
+        dtype = np.dtype( dtype )
+
+    if dtype.kind not in ( 'f', 'i', 'u' ):
+        raise TypeError( "make_cutouts: can only make float or integer cutouts" )
+
+    if fillvalue is None:
+        if dtype.kind == 'f':
+            fillvalue = np.nan
+        else:
+            fillvalue = 0
+
+    cutouts = np.full((len(x), size, size), fillvalue, dtype=dtype)
     down = int(np.floor((size - 1) / 2))
     up = int(np.ceil((size - 1) / 2))
 
