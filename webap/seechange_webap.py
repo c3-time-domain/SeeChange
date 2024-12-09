@@ -745,7 +745,7 @@ class PngCutoutsForSubImage( BaseView ):
             #   the host galaxy, so if we use the same scaling we used
             #   for the new, then the transient won't be visible (all of
             #   the transient data will get mapped to near-sky-level
-            #   pixels).
+            #   greys.)
             vmin, vmax = scaler.get_limits( grp['sub_data'] )
             scaledsub = ( grp['sub_data'] - vmin ) * 255. / ( vmax - vmin )
 

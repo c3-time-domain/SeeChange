@@ -44,7 +44,7 @@ class Cutter:
 
         Go over a list of sources and for each source position, cut out
         a postage stamp image from the new, reference and subtraction
-        images.  Background subtractions new and ref before extracting
+        images.  Background subtract new and ref before extracting
         the cutout. The results are saved in a Cutouts object for each
         source.
 
