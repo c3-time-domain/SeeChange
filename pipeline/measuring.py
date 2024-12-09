@@ -207,22 +207,22 @@ class Measurer:
             # sub_image = ds.get_subtraction( session=session )
             # if sub_image is None:
             #     raise ValueError(f"Can't find a subtraction image corresponding to "
-            #                      f"datastore inputs: {ds.get_inputs()}" )
+            #                      f"datastore inputs: {ds.inputs_str}" )
             new_zp = ds.get_zp( session=session )
             if new_zp is None:
-                raise ValueError(f"Can't find a zp corresponding to the datastore inputs: {ds.get_inputs()}")
+                raise ValueError(f"Can't find a zp corresponding to the datastore inputs: {ds.inputs_str}")
 
             new_wcs = ds.get_wcs( session=session )
             if new_wcs is None:
-                raise ValueError(f"Can't find a wcs corresponding to the datastore inputs: {ds.get_inputs()}")
+                raise ValueError(f"Can't find a wcs corresponding to the datastore inputs: {ds.inputs_str}")
 
             detections = ds.get_detections(session=session)
             if detections is None:
-                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.inputs_str}')
 
             cutouts = ds.get_cutouts(session=session)
             if cutouts is None:
-                raise ValueError(f'Cannot find cutouts corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find cutouts corresponding to the datastore inputs: {ds.inputs_str}')
             else:
                 cutouts.load_all_co_data( sources=detections )
 

@@ -601,7 +601,7 @@ class Subtractor:
                 ref = ds.get_reference(provenances=refset.provenances, session=session)
                 if ref is None:
                     raise ValueError(
-                        f'Cannot find a reference image corresponding to the datastore inputs: {ds.get_inputs()}; '
+                        f'Cannot find a reference image corresponding to the datastore inputs: {ds.inputs_str}; '
                         f'referencing provs = {[ p._id for p in ds.prov_tree["referencing"] ]}'
                     )
 
@@ -616,7 +616,7 @@ class Subtractor:
                     image = ds.get_image(session=session)
                     if image is None:
                         raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '
-                                         f'{ds.get_inputs()}')
+                                         f'{ds.inputs_str}')
 
                     SCLogger.debug( f"Making new subtraction from image {image.id} path {image.filepath} , "
                                     f"reference {ds.ref_image.id} path {ds.ref_image.filepath}" )

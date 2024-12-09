@@ -1,5 +1,6 @@
 # Ignore these directories
 exclude = [
+    "temp/**",
     "extern/**",
     "webap/rkwebutil/**",
     ".git",

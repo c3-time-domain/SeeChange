@@ -620,20 +620,25 @@ class DataStore:
             del kwargs[key]
 
         # parse the args list
+        self.inputs_str = "(unknown)"
         arg_types = [type(arg) for arg in args]
         if arg_types == []:   # no arguments, quietly skip
-            pass
+            self.inputs_str = "(no inputs)"
         elif ( ( arg_types == [ uuid.UUID, int ] ) or
                ( arg_types == [ uuid.UUID, str ] ) or
                ( arg_types == [ str, int ] ) or
                ( arg_types == [ str, str ] ) ):  #exposure_id, section_id
             self.exposure_id, self.section_id = args
+            self.inputs_str = f"exposure_id={self.exposure_id}, section_id={self.section_id}"
         elif arg_types == [ Exposure, int ] or arg_types == [ Exposure, str ]:
             self.exposure, self.section_id = args
+            self.inputs_str = f"exposure={self.exposure}, section_id={self.section_id}"
         elif ( arg_types == [ uuid.UUID ] ) or ( arg_types == [ str ] ):     # image_id
             self.image_id = args[0]
+            self.inputs_str = f"image_id={self.image_id}"
         elif arg_types == [ Image ]:
             self.image = args[0]
+            self.inputs_str = f"image={self.image}"
         # TODO: add more options here?
         #  example: get a string filename to parse a specific file on disk
         else:
@@ -816,22 +821,6 @@ class DataStore:
             self.report.finish_time = datetime.datetime.now( datetime.UTC )
             self.report.upsert()
 
-
-    def get_inputs(self):
-        """Get a string with the relevant inputs. """
-
-        # Think about whether the order here actually makes sense given refactoring.  (Issue #349.)
-
-        if self.image_id is not None:
-            return f'image_id={self.image_id}'
-        if self.image is not None:
-            return f'image={self.image}'
-        elif self.exposure_id is not None and self.section_id is not None:
-            return f'exposure_id={self.exposure_id}, section_id={self.section_id}'
-        elif self.exposure is not None and self.section_id is not None:
-            return f'exposure={self.exposure}, section_id={self.section_id}'
-        else:
-            raise ValueError('Could not get inputs for DataStore.')
 
     def set_prov_tree( self, provdict, wipe_tree=False ):
         """Update the DataStore's provenance tree.

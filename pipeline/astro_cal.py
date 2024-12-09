@@ -214,7 +214,7 @@ class AstroCalibrator:
 
         sources = ds.get_sources( session=session )
         if sources is None:
-            raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+            raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.inputs_str}')
 
         success = False
         exceptions = []
@@ -323,13 +323,13 @@ class AstroCalibrator:
             # update the bitflag with the upstreams
             sources = ds.get_sources(session=session)
             if sources is None:
-                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.inputs_str}')
             psf = ds.get_psf(session=session)
             if psf is None:
-                raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.inputs_str}')
             bg = ds.get_background(session=session)
             if bg is None:
-                raise ValueError(f'Cannot find a background corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a background corresponding to the datastore inputs: {ds.inputs_str}')
 
             ds.wcs._upstream_bitflag = 0
             ds.wcs._upstream_bitflag |= sources.bitflag  # includes badness from Image as well

@@ -159,7 +159,7 @@ class Scorer:
             if measurements is None:
                 raise ValueError(
                     f'Cannot find a measurements corresponding to '
-                    f'the datastore inputs: {ds.get_inputs()}'
+                    f'the datastore inputs: {ds.inputs_str}'
                 )
 
             # find if these deepscores have already been made

@@ -255,10 +255,10 @@ class PhotCalibrator:
                 raise ValueError('Cannot find the image corresponding to the datastore inputs')
             sources = ds.get_sources(session=session)
             if sources is None:
-                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.inputs_str}')
             psf = ds.get_psf(session=session)
             if psf is None:
-                raise ValueError(f'Cannot find a psf corresponding to the datastore inputs: {ds.get_inputs()}')
+                raise ValueError(f'Cannot find a psf corresponding to the datastore inputs: {ds.inputs_str}')
             wcs = ds.get_wcs(session=session)
             if wcs is None:
                 raise ValueError(f'Cannot find a wcs for image {image.filepath}')
