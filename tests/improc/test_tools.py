@@ -4,6 +4,7 @@ from numpy.testing import assert_allclose
 from astropy.io import fits
 from improc.tools import strip_wcs_keywords, make_cutouts
 
+
 def test_strip_wcs_keywords():
     hdr = fits.Header()
 
