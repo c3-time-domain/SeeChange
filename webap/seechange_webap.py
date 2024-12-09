@@ -731,11 +731,12 @@ class PngCutoutsForSubImage( BaseView ):
         def append_to_retval( subid, index_in_sources, section_id, row ):
             retval['cutouts']['source_index'].append( index_in_sources )
             grp = hdf5files[ subid ][f'source_index_{index_in_sources}']
-            # In our subtractions, we scale the ref image to the new image
-            #   so they share the same zeropoint.  When making cutouts,
-            #   we subtract both the ref and the new.  So, we want to
-            #   share the flux-to-greyscale mapping for ref and new as
-            #   that way they can be meaningfully compared visually.
+            # In our subtractions, we scale the ref image to the new
+            #   image so they share the same zeropoint.  When making
+            #   cutouts, we background-subtract both the ref and the
+            #   new.  So, we want to share the flux-to-greyscale mapping
+            #   for ref and new as that way they can be meaningfully
+            #   compared visually.
             vmin, vmax = scaler.get_limits( grp['new_data'] )
             scalednew = ( grp['new_data'] - vmin ) * 255. / ( vmax - vmin )
             scaledref = ( grp['ref_data'] - vmin ) * 255. / ( vmax - vmin )
