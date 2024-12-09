@@ -740,6 +740,12 @@ class PngCutoutsForSubImage( BaseView ):
             vmin, vmax = scaler.get_limits( grp['new_data'] )
             scalednew = ( grp['new_data'] - vmin ) * 255. / ( vmax - vmin )
             scaledref = ( grp['ref_data'] - vmin ) * 255. / ( vmax - vmin )
+            # However, use a different mapping for the sub image.  It's
+            #   possible that the transient will be a lot dimmer than
+            #   the host galaxy, so if we use the same scaling we used
+            #   for the new, then the transient won't be visible (all of
+            #   the transient data will get mapped to near-sky-level
+            #   pixels).
             vmin, vmax = scaler.get_limits( grp['sub_data'] )
             scaledsub = ( grp['sub_data'] - vmin ) * 255. / ( vmax - vmin )
 
