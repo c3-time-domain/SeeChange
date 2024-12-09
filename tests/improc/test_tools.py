@@ -64,7 +64,7 @@ def test_strip_wcs_keywords():
         assert hdr[kw] == val
 
 
-def test_make_cuotuts():
+def test_make_cutouts():
     rng = np.random.default_rng( seed=42 )
     imsize = 64
     image = rng.uniform( -100., 100., size=(imsize, imsize) )
@@ -78,7 +78,7 @@ def test_make_cuotuts():
     #   2^24 = 1.68×10⁷ , there are ~7 sig figs.
     #   For numbers up to 100 (which is what we did random
     #   above), we should expect better than an absolute
-    #   tolerance of 1e-4 (as that's 6 sig fix), so use that.
+    #   tolerance of 1e-4 (as that's 6 sig figs), so use that.
     atol = 1e-4
 
     def check_cuts( cuts, xs, ys, size, imshape, dtype, atol ):
@@ -104,7 +104,7 @@ def test_make_cuotuts():
             cy0 = halfsize + bottom
             cy1 = halfsize + top + 1
 
-            assert_allclose( image[y0:y1, x0:x1] , cuts[i][cy0:cy1, cx0:cx1] , atol=atol, rtol=1e6 )
+            assert_allclose( image[y0:y1, x0:x1] , cuts[i][cy0:cy1, cx0:cx1] , atol=atol, rtol=0. )
             if dtype.kind == 'f':
                 if left > -halfsize:
                     assert np.all( np.isnan( cuts[i][:, 0:halfsize+left] ) )

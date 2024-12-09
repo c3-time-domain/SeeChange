@@ -157,7 +157,7 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
     return output
 
 
-def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None):
+def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None, yes_i_know_my_size_is_even=False ):
     """Make square cutouts around the given positions in the data.
 
     Parameters
@@ -186,6 +186,11 @@ def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None):
         unsigned ints will create large positive integers where the
         floats are negative.  Use with care.
 
+    yes_i_know_my_size_is_even: bool, default False
+        Normally, make_cutouts will object if size is even.  (Odd size
+        means there is a center pixel.)  If you really know you want
+        cutouts that have an even size, set this to True.
+
     Returns
     -------
     cutouts: 3D np.ndarray
@@ -205,6 +210,10 @@ def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None):
             fillvalue = np.nan
         else:
             fillvalue = 0
+
+    size = int( size )
+    if ( size % 2 != 1 ) and ( not yes_i_know_my_size_is_even ):
+        raise ValueError( f"cutouts size must be even, and {size} is not." )
 
     cutouts = np.full((len(x), size, size), fillvalue, dtype=dtype)
     down = int(np.floor((size - 1) / 2))

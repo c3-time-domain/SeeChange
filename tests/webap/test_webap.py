@@ -154,7 +154,6 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
     ds = decam_datastore
     junkprov = None
 
-    import pdb; pdb.set_trace()
     try:
 
         # ======================================================================

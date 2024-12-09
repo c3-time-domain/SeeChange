@@ -1,5 +1,6 @@
 # some specific files we don't want in the repo
 .pytest.ini
+temp/*
 local_config.yaml
 ./local_overrides.yaml
 ./local_augments.yaml
