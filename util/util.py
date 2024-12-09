@@ -426,7 +426,7 @@ def get_inheritors(klass):
 
 
 def as_UUID( val, canbenone=True ):
-    r"""Convert a string or None to a uuid.UUID
+    """Convert a string or None to a uuid.UUID
 
     Parameters
     ----------
