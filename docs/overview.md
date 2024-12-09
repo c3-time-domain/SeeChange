@@ -70,7 +70,7 @@ Here is a list of the processes and their data products (including the object cl
    for astrometric and photometric calibration.
    This process takes an `Image` object and produces a `SourceList` and a 'PSF'.
 
- - astrocal: create a solution from pixel position to RA/Dec on the sky by matching objects in the image to the Gaia DR3 catalog.  This process takes a `SourceList` and produces a `WorldCoordiantes.`
+ - astrocal: create a solution from pixel position to RA/Dec on the sky by matching objects in the image to the Gaia DR3 catalog.  This process takes a `SourceList` and produces a `WorldCoordinates.`
 
  - photocal: Use `SourceList` and the Gaia DR3 catalog to find a zeropoint so that `m=-2.5*log10(flux)`, where `flux` is the full-psf flux of a star in ADU in the image.  As this is a discovery pipeline, not a lightcurve-building pipeline, we don't do really careful photmetric calibration, and you shouldn't expect this to be better than a couple of percent.  Produces a `ZeroPoint` object.
 

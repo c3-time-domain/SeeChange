@@ -17,7 +17,7 @@ We run the `ruff` linter to check for errors and to enforce some style before ru
 - no whitespace at the end of a line
 - must have a space after the commas that separate function arguments
 - semicolons at the end of lines because you are going back and forth between JavaScript and python and forget which language you're currently in.  (Mixing up `for...in` and `for...of` in JavaScript is a more serious consequence of this coding mode.)
-- Using an f-string where there are no actual substitutions.
+- Not using an f-string where there are no actual substitutions.
 - Docstrings must start with a single summary line in the same line as the opening """ of the docstring.
 
 

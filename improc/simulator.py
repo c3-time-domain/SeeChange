@@ -805,7 +805,7 @@ class SimGalaxies:
         x = self.galaxy_mean_x_pos.copy()
         rng = np.random.default_rng()
         if self.galaxy_position_std is not None:
-            x += rng.ormal(0, self.galaxy_position_std, len(x))
+            x += rng.normal(0, self.galaxy_position_std, len(x))
 
         return x
 

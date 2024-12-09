@@ -22,7 +22,7 @@ Many of our basic database functions take either a SQLAlchemy `Session` object, 
 
 #### SQLAlchemy sessions
 
-If you want to communicate with the databse using SQLAlchemy constructions, this section describes how to get a connection.  Often, this is the best way to communicate with the databse, as the models are set up to work with those.  However, for some operations, it's either impossible to get SQLAlchemy to work the way you want (e.g. if you want to do something in multiple steps using temporary tables), or (if you already know SQL) it's very difficult to figure out the byzantine SA syntax to do what you already know how to do with byzantine SQL syntax.  In that case, see "Psycopg2 connections" below.
+If you want to communicate with the databse using SQLAlchemy constructions, this section describes how to get a connection.  Often, this is the best way to communicate with the database, as the models are set up to work with those.  However, for some operations, it's either impossible to get SQLAlchemy to work the way you want (e.g. if you want to do something in multiple steps using temporary tables), or (if you already know SQL) it's very difficult to figure out the byzantine SA syntax to do what you already know how to do with byzantine SQL syntax.  In that case, see "Psycopg2 connections" below.
 
 The `base` defines two SQLAlchemy session starting functions, `Session()` and `SmartSession()`.  To open a regular session, use the `Session()` function, and make sure to close it when you are done.  This is useful mainly for interactive use, and highly discouraged for using in the code base.  The session is a `sqlalchemy.orm.session.Session` object.
 
