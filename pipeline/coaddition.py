@@ -28,7 +28,7 @@ from improc.tools import sigma_clipping
 import improc.tools
 
 from util.config import Config
-from util.util import save_fits_image_file, read_fits_image
+from util.fits import save_fits_image_file, read_fits_image
 from util.exceptions import SubprocessFailure
 from util.logger import SCLogger
 

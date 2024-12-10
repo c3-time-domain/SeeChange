@@ -4,7 +4,7 @@ import random
 
 from util.util import listify, ensure_file_does_not_exist
 
-# TODO : tests other than fits file reading/saving
+# TODO : tests of most of the stuff in util...!  (Issue #384)
 
 
 def test_listify():

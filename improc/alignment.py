@@ -11,7 +11,7 @@ import astropy.wcs.utils
 
 from util import ldac
 from util.exceptions import SubprocessFailure
-from util.util import read_fits_image, save_fits_image_file
+from util.fits import read_fits_image, save_fits_image_file
 from util.logger import SCLogger
 from util.exceptions import BadMatchException
 import improc.scamp

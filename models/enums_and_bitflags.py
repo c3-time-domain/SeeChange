@@ -136,6 +136,7 @@ class FormatConverter( EnumConverter ):
         14: 'png',
         15: 'pdf',
         16: 'fitsldac',
+        17: 'fitsfz',
     }
     _allowed_values = None
     _dict_filtered = None
@@ -143,7 +144,7 @@ class FormatConverter( EnumConverter ):
 
 
 class ImageFormatConverter( FormatConverter ):
-    _allowed_values = ['fits', 'hdf5']
+    _allowed_values = ['fits', 'fitsfz', 'hdf5']
     _dict_filtered = None
     _dict_inverse = None
 
@@ -290,9 +291,9 @@ class DeepscoreAlgorithmConverter( EnumConverter ):
 def bitflag_to_string(value, dictionary):
     """Convert 64-bit bitflag into a comma separated string.
 
-    Takes a 64-bit integer bit-flag and converts it to a comma separated string,
-    using the given dictionary.
-    If any of the bits are not recognized, will raise a ValueError.
+    Takes a 64-bit integer bit-flag and converts it to a comma separated
+    string, using the given dictionary.  If any of the bits are not
+    recognized, will raise a ValueError.
 
     To use this function, you must first define a dictionary with the bit-flag values as keys,
     and the corresponding strings as values. This should include all the possible bits that could
@@ -301,12 +302,18 @@ def bitflag_to_string(value, dictionary):
 
     If given None, will return None.
 
+    NOTE : flags images are stored as 16-bit unsigned integers.  To be
+    safe, only use the first 15 bits, and then there won't be issues if
+    there are signed/unsigned conversions.
+
     Parameters
     ----------
     value: int or None.
         64-bit integer bit-flag.
+
     dictionary: dict
-        Dictionary with the bit-flag values as keys, and the corresponding strings as values.
+        Dictionary with the bit-flag values as keys, and the
+        corresponding strings as values.
 
     Returns
     -------
@@ -314,6 +321,7 @@ def bitflag_to_string(value, dictionary):
         Comma separated string with all the different ways the data is bad.
         If given None, will return None.
         If given zero, will return an empty string.
+
     """
     if value is None:
         return None
@@ -334,23 +342,32 @@ def bitflag_to_string(value, dictionary):
 def string_to_bitflag(value, dictionary):
     """Takes a comma separated string, and converts it to a 64-bit integer bit-flag.
 
-    Uses the given dictionary (the inverse dictionary).
-    If any of the keywords are not recognized, will raise a ValueError.
+    Uses the given dictionary (the inverse dictionary).  If any of the
+    keywords are not recognized, will raise a ValueError.
 
-    To use this function, you must first define a dictionary with the keywords as keys,
-    and the corresponding bit-flag values as values. This should include all the possible keywords that could
-    be appended to this specific data model. For example, the badness bitflag for cutouts will not include
-    the keywords for images, as those will be set on the image model, not on the cutouts model.
+    To use this function, you must first define a dictionary with the
+    keywords as keys, and the corresponding bit-flag values as
+    values. This should include all the possible keywords that could be
+    appended to this specific data model. For example, the badness
+    bitflag for cutouts will not include the keywords for images, as
+    those will be set on the image model, not on the cutouts model.
 
-    If given an empty string, will return zero.
-    If given None, will return None.
+    If given an empty string, will return zero.  If given None, will
+    return None.
+
+    NOTE : flags images are stored as 16-bit unsigned integers.  To be
+    safe, only use the first 15 bits, and then there won't be issues if
+    there are signed/unsigned conversions.
 
     Parameters
     ----------
     value: str or None
-        Comma separated string with all the different ways the data is bad.
+        Comma separated string with all the different ways the data is
+        bad.
+
     dictionary: dict
-        Dictionary with the keywords as keys, and the corresponding bit-flag values as values.
+        Dictionary with the keywords as keys, and the corresponding
+        bit-flag values as values.
 
     Returns
     -------
@@ -358,6 +375,7 @@ def string_to_bitflag(value, dictionary):
         64-bit integer bit-flag.
         If given None, will return None.
         If given zero, will return an empty string.
+
     """
 
     if isinstance(value, str):
@@ -484,6 +502,7 @@ image_preprocessing_inverse = {EnumConverter.c(v):k for k, v in image_preprocess
 
 
 # bitflag used in flag images
+# Stored as 16-bit integers, only use bits 0 through 14
 flag_image_bits = {
     0: 'bad pixel',        # Bad pixel flagged by the instrument
     1: 'zero weight',

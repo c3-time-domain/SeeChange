@@ -24,7 +24,8 @@ from improc.inpainting import Inpainter
 from improc.alignment import ImageAligner
 from improc.tools import sigma_clipping
 
-from util.util import env_as_bool, save_fits_image_file
+from util.util import env_as_bool
+from util.fits import save_fits_image_file
 from util.logger import SCLogger
 from util.exceptions import SubprocessFailure
 
