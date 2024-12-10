@@ -15,7 +15,7 @@ class DataFile( Base, UUIDMixin, FileOnDiskMixin ):
     def __table_args__(cls):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
-                             '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                             '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                              name=f'{cls.__tablename__}_md5sum_check' ),
 
         )

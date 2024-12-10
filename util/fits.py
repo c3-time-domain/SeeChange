@@ -82,10 +82,6 @@ def save_fits_image_file( filename,
     including all the information (not just the minimal subset saved
     into the DB).
 
-    When single_file=False (default) the extname parameter will be
-    appended to the filename, and the file will contain only the primary
-    HDU.
-
     Using the single_file=True option means that the pipeline is saving
     multiple data arrays for one data product (e.g. image data, weight,
     and flags for an Image object) to different extensions of a single
@@ -100,12 +96,11 @@ def save_fits_image_file( filename,
     Parameters
     ----------
     filename: str
-        The full path to the file to write... almost.  If
-        single_file=False, you probably don't want to include the
-        `.fits` or `.fits.fz` at the end, because that would lead to
-        files being written like
-        '<direc>/<something>.fits.fz.<extension>.fits.fz', which has too much
-        .fits.fz in it.  Just pass the '<direc>/<something>'.
+        The full path to the file to write.  The actual written file
+        will end in .<extname>.fits or .<extname>.fits.fz.  If the
+        passed filename ends in '.fits' or '.fits.fz', that will be
+        stripped off, and one will be re-appended based on whether
+        fpack is set.
 
     data: np.ndarray
         The image data. Can also supply the weight, flags, etc.
@@ -116,8 +111,8 @@ def save_fits_image_file( filename,
     extname: str, default None
         The name of the extension to save the data into.  If writing
         individual files (default) will just append this string to the
-        filename.  If writing a single file, will use this as the
-        extension name.
+        filename after a . and before '.fits' or '.fits.fz'.  If writing
+        a single file, will use this as the extension name.
 
     overwrite: bool, default True
         Whether to overwrite the file if it already exists.  Ignored if
@@ -138,10 +133,11 @@ def save_fits_image_file( filename,
        -g2").
 
     fpackq: int, default None
-       The q-factor to pass to fpack.  If None, will use fpack's default
-       (which is 4).  See
+       Ignored if fpack is false or lossless is True.  The q-factor to
+       pass to fpack.  If None, will use fpack's default (which is 4).
+       See
        https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/docs/fpackguide.pdf
-       for more information.  Ignored if lossless=True or fpack=False.
+       for more information.
 
     just_update_header: bool, default False
        Only works if single_file is False.  If this is True, and
@@ -165,22 +161,18 @@ def save_fits_image_file( filename,
     filepath = pathlib.Path( filename ).resolve()
     direc = filepath.parent
     filename = filepath.name
+    filebase = ( filename[:-5] if filename.endswith(".fits")
+                 else filename[:-8] if filename.endswith(".fits.fz")
+                 else filename )
 
     # Figure out output filename
     if single_file:
         if fpack:
             raise NotImplementedError( "fpacking of multi-HDU files not currently supported" )
-        if not filename.endswith( '.fits' ):
-            filepath = filepath.parent / f'{filename}.fits'
-        finalfilepath = filepath
+        finalfilepath = filepath.parent / f'{filebase}.fits'
     else:
-        filename = filename if extname is None else filename + '.' + extname
-        if filename.endswith( '.fits.fz' ):
-            if not fpack:
-                raise ValueError( f"Filename {filename} ends with .fz but fpack is False" )
-            filename = filename[:-3]
-        elif not filename.endswith( '.fits' ):
-            filename += '.fits'
+        filename = filebase if extname is None else filebase + '.' + extname
+        filename += '.fits'
         finalfilename = filename + '.fz' if fpack else filename
         intermedfilepath = direc / filename
         finalfilepath = direc / finalfilename
@@ -208,9 +200,15 @@ def save_fits_image_file( filename,
             # filehdu[ext].header = header
 
             del filehdu[ext].header[0:len(filehdu[ext].header)]
+            # ....aaaaand, a hack, because there needs to be a SIMPLE header,
+            # but for some reason sometimes that wasn't there.
+            filehdu[ext].header['SIMPLE'] = True
             # Some FITS keywords are perverse -- COMMENT and HISTORY (at least),
             #   as they aren't unique.  astropy's handling of them is a bit
             #   perverse too, at least for trying to do what I'm doing here.
+            #   I'm a little nervous using an underscored class name from
+            #   astropy, but you gotta do what you gotta do.  (I haven't
+            #   found a way to do this in the astroyp documentation.)
             dedup = set()
             for kw in header:
                 if kw in dedup:
@@ -222,31 +220,25 @@ def save_fits_image_file( filename,
                 else:
                     filehdu[ext].header[kw] = ( header[kw], header.comments[kw] )
 
-
         return str( finalfilepath )
 
     # Make sure the directory exists and is in a legal place
     safe_mkdir( direc )
 
-    # Create the image
+    # Create the image we're gonna write
     hdu = fits.ImageHDU( data, header, name=extname ) if single_file else fits.PrimaryHDU( data, header )
 
     # Write
     if single_file:
-        # TODO : I don't think this sets the extension name!  Also,
-        #   perhaps check to see if the extension name already exists?
-        #   We haven't used single_file yet anywhere except some tests,
-        #   so more thought is required to really implement this right.
-        # (And we really want fpacking to work with single images before
-        #   we actually use them.)
+        # TODO: what happens if there already is an extension in an existinf file with name extname?
         with fits.open( finalfilepath, memmap=False, mode='append' ) as hdul:
             if len(hdul) == 0:
                 hdul.append( fits.PrimaryHDU() )
             hdul.append( hdu )
-        return str( filepath )
+        return str( finalfilepath )
 
     else:
-        # Single image FITS file in the case where an object uses a different file for each extension
+        # Single-HDU FITS file in the case where an object uses a different file for each extension
         hdul = fits.HDUList( [hdu] )
 
         if finalfilepath.exists():
@@ -261,6 +253,7 @@ def save_fits_image_file( filename,
                 intermedfilepath.unlink()
 
         hdul.writeto( intermedfilepath )
+        # If fpack is false, intermedfilepath and finalfilepath are the same
 
         if fpack:
             com = [ 'fpack' ]
@@ -279,6 +272,9 @@ def save_fits_image_file( filename,
                 strio.write( f"    stdout:\n{ex.stdout}\n-----------\nstderr:\n{ex.stderr}\n" )
                 SCLogger.debug( strio.getvalue() )
                 raise RuntimeError( "FITS writing failed: timed out on fpack" )
+            except Exception as ex:
+                SCLogger.error( f"fpack subprocess raised exception: {ex}" )
+                raise
             finally:
                 intermedfilepath.unlink()
             if res.returncode != 0:

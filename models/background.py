@@ -26,7 +26,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
     def __table_args__(cls):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
-                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
         )
 
@@ -340,7 +340,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
         # Save the file to the archive and update the database record
         # (From what we did above, the files are already in the right place in the local filestore.)
-        FileOnDiskMixin.save( self, h5path, extension=None, **kwargs )
+        FileOnDiskMixin.save( self, h5path, component=None, **kwargs )
 
     def load(self, download=True, always_verify_md5=False, filepath=None):
         """Load the data from the files into the _counts_data, _var_data and _image_shape fields.

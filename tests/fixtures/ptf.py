@@ -137,7 +137,9 @@ def ptf_downloader(provenance_preprocessing, download_url, data_dir, ptf_cache_d
         md5sum = hashlib.md5()
         with open( destination, "rb" ) as ifp:
             md5sum.update( ifp.read() )
-        exposure = Exposure( filepath=filename, md5sum=uuid.UUID(md5sum.hexdigest()) )
+        exposure = Exposure( filepath=filename,
+                             md5sum=uuid.UUID(md5sum.hexdigest()),
+                             format='fits' )
 
         return exposure
 

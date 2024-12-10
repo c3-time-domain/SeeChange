@@ -110,7 +110,7 @@ def test_exposure_no_null_values():
                     # the constraint on the filter is either filter or filter array must be not-null
                     colname = 'filter'
                 elif 'check constraint "exposures_md5sum_check"' in str(exc.value):
-                    # the constraint on the md5sum is that it must be not-null or md5sum_extensions must be non-null
+                    # the constraint on the md5sum is that it must be not-null or md5sum_component must be non-null
                     colname = 'md5sum'
                 else:
                     # a constraint on a column being not-null was violated

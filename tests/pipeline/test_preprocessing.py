@@ -77,11 +77,11 @@ def test_preprocessing(
             q = session.query( Image ).filter( Image.filepath == ds.image.filepath )
             assert q.count() == 1
             imobj = q.first()
-            assert imobj.filepath_extensions == [ '.image.fits', '.flags.fits', '.weight.fits' ]
+            assert imobj.components == [ 'image', 'flags', 'weight' ]
             assert imobj.md5sum is None
-            assert len( imobj.md5sum_extensions ) == 3
+            assert len( imobj.md5sum_components ) == 3
             for i in range(3):
-                assert imobj.md5sum_extensions[i] is not None
+                assert imobj.md5sum_components[i] is not None
 
     finally:
         ds.delete_everything()

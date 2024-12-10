@@ -581,8 +581,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
                     image_aligned_ref.info['alignment_parameters'] = ds.prov_tree['subtraction'].parameters['alignment']
                     # TODO FIGURE OUT WHAT'S GOING ON HERE
-                    # Not sure why the md5sum_extensions was [], but it was
-                    image_aligned_ref.md5sum_extensions = [ None, None, None ]
+                    # Not sure why the md5sum_components was [], but it was
+                    image_aligned_ref.md5sum_components = [ None, None, None ]
                     image_aligned_ref.save(verify_md5=False, no_archive=True)
                     # TODO: should we also load the aligned images' sources and PSF?
                     #  (We've added bg and zp because specific tests need them.)

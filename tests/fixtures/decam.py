@@ -202,7 +202,7 @@ def decam_reduced_origin_exposure_loaded_in_db( decam_reduced_origin_exposure_fi
 
         expobj = Exposure( current_file=expfile, invent_filepath=True, type='Sci', origin_identifier='foo',
                            instrument='DECam', header=hdr, ra=ra, dec=dec, preproc_bitflag=127, format='fits',
-                           filepath_extensions=['.image.fits.fz', '.weight.fits.fz', '.flags.fits.fz'],
+                           components=['image', 'weight', 'flags'],
                            **exphdrinfo )
         expobj.save( expfile, wtfile, flgfile )
         provenance_base.insert_if_needed()

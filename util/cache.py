@@ -38,8 +38,10 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
     ----------
     FoD: FileOnDiskMixin or another object that implements to_json()
         The object to cache.
+
     cache_dir: str or path
         The path to the cache directory.
+
     filepath: str or path (optional)
         Must be given if the FoD is None.
         If it is a FileOnDiskMixin, it will be used to name
@@ -65,17 +67,9 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
         if filepath is None:
             filepath = FoD.filepath  # use this filepath for the data files
             json_filepath = FoD.filepath  # use the same filepath for the json file too
-        if (
-                FoD.filepath_extensions is not None and
-                len(FoD.filepath_extensions) > 0 and
-                not json_filepath.endswith(FoD.filepath_extensions[0])
-        ):
-            json_filepath += FoD.filepath_extensions[0]  # only append this extension to the json filename
 
-    # attach the cache_dir and the .json extension if needed
-    json_filepath = os.path.join(cache_dir, json_filepath)
-    if not json_filepath.endswith('.json'):
-        json_filepath += '.json'
+    # json file in the cache
+    json_filepath = os.path.join(cache_dir, f'{json_filepath}.json')
 
     if dont_actually_copy_just_return_json_filepath:
         return json_filepath
@@ -86,8 +80,8 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
             if source_f is None:
                 continue
             target_f = os.path.join(cache_dir, filepath)
-            if FoD.filepath_extensions is not None and i < len(FoD.filepath_extensions):
-                target_f += FoD.filepath_extensions[i]
+            if FoD.components is not None and i < len(FoD.components):
+                target_f += "." + FoD.components[i] + FoD._file_suffix()
             SCLogger.debug(f"Copying {source_f} to {target_f}")
             os.makedirs(os.path.dirname(target_f), exist_ok=True)
             shutil.copy2(source_f, target_f)
@@ -119,8 +113,10 @@ def copy_list_to_cache(obj_list, cache_dir, filepath=None):
     ----------
     obj_list: list
         A list of objects to save to the cache directory.
+
     cache_dir: str or path
         The path to the cache directory.
+
     filepath: str or path (optional)
         Must be given if the objects are not FileOnDiskMixin.
         If it is a FileOnDiskMixin, it will be used to name
@@ -134,7 +130,7 @@ def copy_list_to_cache(obj_list, cache_dir, filepath=None):
     """
     if len(obj_list) == 0:
         if filepath is None:
-            return  # can't do anything without a filepath
+            raise RuntimeError( "Can't do anything" )
         json_filepath = os.path.join(cache_dir, filepath)
         if not json_filepath.endswith('.json'):
             json_filepath += '.json'
@@ -227,20 +223,12 @@ def copy_from_cache( cls, cache_dir, filepath, add_to_dict=None ):
 
     # copy any associated files
     if isinstance(output, FileOnDiskMixin):
-        # if fullpath ends in filepath_extensions[0]
-        if (
-                output.filepath_extensions is not None and
-                output.filepath_extensions[0] is not None and
-                full_path.endswith(output.filepath_extensions[0])
-        ):
-            full_path = full_path[:-len(output.filepath_extensions[0])]
-
         for i, target_f in enumerate(output.get_fullpath(as_list=True)):
             if target_f is None:
                 continue
             source_f = os.path.join(cache_dir, full_path)
-            if output.filepath_extensions is not None and i < len(output.filepath_extensions):
-                source_f += output.filepath_extensions[i]
+            if output.components is not None and i < len(output.components):
+                source_f += '.' + output.components[i] + output._file_suffix()
             SCLogger.debug(f"Copying {source_f} to {target_f}")
             os.makedirs(os.path.dirname(target_f), exist_ok=True)
             shutil.copyfile(source_f, target_f)
@@ -294,20 +282,12 @@ def copy_list_from_cache(cls, cache_dir, filepath):
         return []
 
     if isinstance(output[0], FileOnDiskMixin):
-        # if fullpath ends in filepath_extensions[0]
-        if (
-                output[0].filepath_extensions is not None and
-                output[0].filepath_extensions[0] is not None and
-                full_path.endswith(output[0].filepath_extensions[0])
-        ):
-            full_path = full_path[:-len(output[0].filepath_extensions[0])]
-
         for i, target_f in enumerate(output[0].get_fullpath(as_list=True)):
             if target_f is None:
                 continue
             source_f = os.path.join(cache_dir, full_path)
-            if output[0].filepath_extensions is not None and i < len(output[0].filepath_extensions):
-                source_f += output[0].filepath_extensions[i]
+            if output[0].components is not None and i < len(output[0].components):
+                source_f += "." + output[0].components[i] + output._file_suffix()
             SCLogger.debug(f"Copying {source_f} to {target_f}")
             os.makedirs(os.path.dirname(target_f), exist_ok=True)
             shutil.copyfile(source_f, target_f)

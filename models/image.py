@@ -76,7 +76,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def __table_args__( cls ):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
-                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
             sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
         )
@@ -85,7 +85,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         sa.SMALLINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( str(ImageFormatConverter.convert('fits')) ),
-        doc="Format of the file on disk. Should be fits or hdf5. "
+        doc="Format of the file on disk. Should be fits, fitsfz, or hdf5. "
     )
 
     @hybrid_property
@@ -400,7 +400,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         """Get a dict with the allowed values of badness that can be assigned to this object"""
         return image_badness_inverse
 
-    saved_extensions = [
+    # These are all the data arrays that (might) get saved for an image
+    saved_components = [
         'data',
         'flags',
         'weight',
@@ -408,6 +409,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         'psfflux',  # the PSF-fitted equivalent flux of the image (e.g., from ZOGY)
         'psffluxerr', # the error in the PSF-fitted equivalent flux of the image (e.g., from ZOGY)
     ]
+
+    # In the case of saving fits.fz files, the following components should be
+    #   saved loselessly
+    lossless_components = [ 'flags' ]
 
     def __init__(self, *args, **kwargs):
         FileOnDiskMixin.__init__(self, *args, **kwargs)
@@ -417,7 +422,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self.raw_data = None  # the raw exposure pixels (2D float or uint16 or whatever) not saved to disk!
         self._header = None  # the header data taken directly from the FITS file
 
-        # these properties must be added to the saved_extensions list of the Image
+        # these properties must be added to the saved_components list of the Image
         self._data = None  # the underlying pixel data array (2D float array)
         self._flags = None  # the bit-flag array (2D int array)
         self._weight = None  # the inverse-variance array (2D float array)
@@ -455,7 +460,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self.raw_data = None
         self._header = None
 
-        for att in self.saved_extensions:
+        for att in self.saved_components:
             setattr(self, f'_{att}', None)
 
         self._nandata = None
@@ -621,6 +626,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if exposure.id is None:
             raise RuntimeError( "Exposure id can't be none to use Image.from_exposure" )
 
+
         new = cls()
 
         new.exposure_id = exposure.id
@@ -738,7 +744,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         The filepath is set to None and should be manually set to a new (unique)
         value so as not to overwrite the original.
         """
-        copy_attributes = cls.saved_extensions + [
+        copy_attributes = cls.saved_components + [
             'header',
             'info',
         ]
@@ -908,6 +914,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         #   really need to worry about it.)
         output.header = images[index].header
 
+        output.format = config.Config.get().value( 'storage.images.format' )
+
         base_type = images[index].type
         if not base_type.startswith('Com'):
             output.type = 'Com' + base_type
@@ -968,7 +976,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         ref_image_id = ref_image.id
         new_image_id = new_image.id
 
-        output = Image(nofile=True)
+        output = Image( nofile=True )
 
         # for each attribute, check the two images have the same value
         for att in ['instrument', 'telescope', 'project', 'section_id', 'filter', 'target']:
@@ -1020,6 +1028,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                     'minra', 'maxra', 'mindec', 'maxdec' ]:
             output.__setattr__(att, getattr(new_image, att))
 
+        output.format = config.Config.get().value( 'storage.images.format' )
         output.type = 'Diff'
         if new_image.type.startswith('Com'):
             output.type = 'ComDiff'
@@ -1175,15 +1184,22 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         return filepath
 
+
+    def _file_suffix( self ):
+        if self.format == 'fits':
+            return ".fits"
+        elif self.format == 'fitsfz':
+            return ".fits.fz"
+        raise ValueError( f"Don't know suffix for image format {self.format}" )
+
+
     def save(self, filename=None, only_image=False, just_update_header=True, **kwargs ):
         """Save the data (along with flags, weights, etc.) to disk.
+
         The format to save is determined by the config file.
         Use the filename to override the default naming convention.
 
         Will save the standard image extensions : image, weight, mask.
-        Does not save the source list or psf or other things that have
-        their own objects; those need to be saved separately.  (Also see
-        pipeline.datastore.)
 
         Parameters
         ----------
@@ -1215,15 +1231,15 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             no_archive - bool, set to True to save only to local disk, otherwise also saves to the archive
             exists_ok, verify_md5 - complicated, see documentation on FileOnDiskMixin
 
-        For images being saved to the database, you probably want to use
-        overwrite=True, verify_md5=True, or perhaps overwrite=False,
-        exists_ok=True, verify_md5=True.  For temporary images being
-        saved as part of local processing, you probably want to use
-        verify_md5=False and either overwrite=True (if you're modifying
-        and writing the file multiple times), or overwrite=False,
-        exists_ok=True (if you might call the save() method more than
-        once on the same image, and you want to trust the filesystem to
-        have saved it right).
+        For images that will be saved to the database, you probably want
+        to use overwrite=True, verify_md5=True, or perhaps
+        overwrite=False, exists_ok=True, verify_md5=True.  For temporary
+        images being saved as part of local processing, you probably
+        want to use verify_md5=False and either overwrite=True (if
+        you're modifying and writing the file multiple times), or
+        overwrite=False, exists_ok=True (if you might call the save()
+        method more than once on the same image, and you want to trust
+        the filesystem to have saved it right).
 
         """
         if self.data is None:
@@ -1250,20 +1266,18 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         full_path = os.path.join(self.local_path, self.filepath)
 
-        if format == 'fits':
+        if ( format == 'fits' ) or ( format == 'fitsfz' ):
+            fpack = ( format == 'fitsfz' )
             # save the imaging data
-            extensions.append('.image.fits')
-            imgpath = save_fits_image_file(full_path, self.data, self.header,
-                                           extname='image', single_file=single_file,
-                                           just_update_header=just_update_header)
-            files_written['.image.fits'] = imgpath
-            # TODO: we can have extensions at the end of the self.filepath (e.g., foo.fits.flags)
-            #  or we can have the extension name carry the file extension (e.g., foo.flags.fits)
-            #  this should be configurable and will affect how we make the self.filepath and extensions.
+            extensions.append('image')
+            imgpath = save_fits_image_file( full_path, self.data, self.header,
+                                            extname='image', single_file=single_file, fpack=fpack,
+                                            just_update_header=just_update_header )
+            files_written['image'] = imgpath
 
             # save the other extensions
             if single_file or ( not only_image ):
-                for array_name in self.saved_extensions:
+                for array_name in self.saved_components:
                     if array_name == 'data':
                         continue
                     array = getattr(self, array_name)
@@ -1273,17 +1287,18 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                             array,
                             self.header,
                             extname=array_name,
-                            single_file=single_file
+                            single_file=single_file,
+                            fpack=fpack,
+                            lossless=(array_name in self.lossless_components)
                         )
-                        array_name = '.' + array_name
-                        if not array_name.endswith('.fits'):
-                            array_name += '.fits'
                         extensions.append(array_name)
                         if not single_file:
                             files_written[array_name] = extpath
 
             if single_file:
-                files_written = files_written['.image.fits']
+                if fpack:
+                    raise NotImplementedError( "single_file doesn't currently support fpack" )
+                files_written = files_written['image']
                 if not self.filepath.endswith('.fits'):
                     self.filepath += '.fits'
 
@@ -1293,23 +1308,24 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         else:
             raise ValueError(f"Unknown image format: {format}. Use 'fits' or 'hdf5'.")
 
-        # Save the file to the archive and update the database record
-        # (as well as self.filepath, self.filepath_extensions, self.md5sum, self.md5sum_extensions)
+        # Save the file to the archive and update the fields of the Image object accordingly.
+        # (as well as self.filepath, self.components, self.md5sum, self.md5sum_components)
         # (From what we did above, it's already in the right place in the local filestore.)
         if single_file:
             FileOnDiskMixin.save( self, files_written, **kwargs )
         else:
             if just_update_header:
-                FileOnDiskMixin.save( self, files_written['.image.fits'], '.image.fits', **kwargs )
+                FileOnDiskMixin.save( self, files_written['image'], 'image', **kwargs )
             else:
                 for ext in extensions:
                     FileOnDiskMixin.save( self, files_written[ext], ext, **kwargs )
 
     def load(self):
-        """Load the image data from disk.
-        This includes the _data property,
-        but can also load the _flags, _weight,
-        _background, _score, _psfflux and _psffluxerr properties.
+        """Load the image data from disk, including weight, flags, etc.
+
+        Will always load the _data property.  If there is data on disk
+        for _flags, _weight, or other extensions, will laod those as
+        well.  Does *not* load the image header.
 
         """
 
@@ -1324,42 +1340,33 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             if not os.path.isfile(filename):
                 raise FileNotFoundError(f"Could not find the image file: {filename}")
             self._data, self._header = read_fits_image(filename, ext='image', output='both')
-            for att in self.saved_extensions:
+            for att in self.saved_components:
                 if att == 'data':
                     continue
                 array = read_fits_image(filename, ext=att)
                 setattr(self, f'_{att}', array)
 
         else:  # load each data array from a separate file
-            if self.filepath_extensions is None:
+            if self.components is None:
                 self._data, self._header = read_fits_image( self.get_fullpath(), output='both' )
             else:
                 gotim = False
                 gotweight = False
                 gotflags = False
-                for extension, filename in zip( self.filepath_extensions, self.get_fullpath(as_list=True) ):
+                for extension, filename in zip( self.components, self.get_fullpath(as_list=True) ):
                     if not os.path.isfile(filename):
                         raise FileNotFoundError(f"Could not find the image extension file: {filename}")
-                    if extension in ( '.image.fits', '.image.fits.fz' ):
-                        self._data, self._header = read_fits_image(filename, output='both')
+                    att = '_data' if extension == 'image' else f'_{att}'
+                    setattr( self, att, read_fits_image( filename, output='data' ) )
+
+                    if extension == 'image':
                         gotim = True
-                    elif extension in ( '.weight.fits', '.weight.fits.fz' ):
-                        self._weight = read_fits_image(filename, output='data')
+                    if extension == 'weight':
                         gotweight = True
-                    elif extension in ( '.flags.fits', '.flags.fits.fz' ):
-                        self._flags = read_fits_image(filename, output='data')
+                    if extension == 'flags':
                         gotflags = True
-                    else:  # other extensions like score and psfflux
-                        stripped_ext = extension
-                        if stripped_ext.startswith('.'):
-                            stripped_ext = stripped_ext[1:]
-                        if stripped_ext.endswith('.fits'):
-                            stripped_ext = stripped_ext[:-5]
-                        if stripped_ext in self.saved_extensions:
-                            # e.g., for extension .score.fits, self._score = read_fits_image(filename, output='data')
-                            setattr(self, f'_{stripped_ext}', read_fits_image(filename, output='data'))
-                        else:
-                            raise ValueError( f'Unknown image extension {extension}' )
+                    elif extension not in self.saved_components:
+                        raise ValueError( f'Unknown image extension {extension}' )
 
                 if not ( gotim and gotweight and gotflags ):
                     raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )
@@ -1387,7 +1394,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
              psfflux, psffluxerr, nandata, and nanscore.
 
         """
-        allfree = set( Image.saved_extensions )
+        allfree = set( Image.saved_components )
         allfree.add( "raw_data" )
         tofree = set( only_free ) if only_free is not None else allfree
 

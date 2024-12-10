@@ -36,7 +36,7 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
     def __table_args__(cls):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
-                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
         )
 
@@ -201,8 +201,8 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         if self.format != 'psfex':
             raise NotImplementedError( "Only know how to save psfex PSF files" )
 
-        if ( self.data is None ) or ( self.header is None ) or ( self.info is None ):
-            raise RuntimeError( "data, header, and info must all be non-None" )
+        if ( self._data is None ) or ( self._header is None ) or ( self._info is None ):
+            raise RuntimeError( "_data, _header, and _info must all be non-None" )
 
         if filename is not None:
             if not filename.endswith('.psf'):
@@ -246,8 +246,8 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 
         # Save the file to the archive and update the database record
         # (From what we did above, the files are already in the right place in the local filestore.)
-        FileOnDiskMixin.save( self, psfpath, '.fits', **kwargs )
-        FileOnDiskMixin.save( self, psfxmlpath, '.xml', **kwargs )
+        FileOnDiskMixin.save( self, psfpath, 'fits', **kwargs )
+        FileOnDiskMixin.save( self, psfxmlpath, 'xml', **kwargs )
 
     def load( self, download=True, always_verify_md5=False, psfpath=None, psfxmlpath=None ):
         """Load the data from the files into the _data, _header, and _info fields.
@@ -285,9 +285,9 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
             raise ValueError( "Either both or neither of psfpath and psfxmlpath must be None" )
 
         if psfpath is None:
-            if self.filepath_extensions != [ '.fits', '.xml' ]:
-                raise ValueError( f"Can't load psfex file; filepath_extensions is {self.filepath_extensions}, "
-                                  f"but expected ['.fits', '.xml']." )
+            if self.components != [ 'fits', 'xml' ]:
+                raise ValueError( f"Can't load psfex file; components is {self.components}, "
+                                  f"but expected ['fits', 'xml']." )
             psfpath, psfxmlpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5 )
 
         with fits.open( psfpath, memmap=False ) as hdul:

@@ -240,7 +240,7 @@ def test_decam_download_and_commit_reduced_origin_exposure( decam_reduced_origin
         exps = decam_reduced_origin_exposures.download_and_commit_exposures( indexes=[0] )
         assert len(exps) == 1
         assert isinstance( exps[0], Exposure )
-        assert exps[0].filepath_extensions == [ '.image.fits.fz', '.weight.fits.fz', '.flags.fits.fz' ]
+        assert exps[0].components == [ 'image', 'weight', 'flags' ]
         fpaths = exps[0].get_fullpath()
         assert all( os.path.isfile(p) for p in fpaths )
         # Make sure it's actually in the database

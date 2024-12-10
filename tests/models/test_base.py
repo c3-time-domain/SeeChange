@@ -381,9 +381,9 @@ def test_fileondisk_save_failuremodes( diskfile ):
     fname = "test_diskfile.dat"
     diskfile.filepath = fname
 
-    # Verify failure of filepath_extensions, md5sum_extensions, and extension= are inconsistent
-    diskfile.filepath_extensions = [ '1', '2' ]
-    with pytest.raises( RuntimeError, match='Tried to save a non-extension file, but this file has extensions' ):
+    # Verify failure of components, md5sum_components, and component= are inconsistent
+    diskfile.components = [ '1', '2' ]
+    with pytest.raises( RuntimeError, match='Tried to save a non-component file, but this file has components' ):
         diskfile.save( data1 )
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath()[0], 'rb' )
@@ -391,33 +391,33 @@ def test_fileondisk_save_failuremodes( diskfile ):
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath()[1], 'rb' )
         ifp.close()
-    diskfile.filepath_extensions = None
-    diskfile.md5sum_extensions = [ uuid.uuid4(), uuid.uuid4() ]
-    with pytest.raises( RuntimeError, match='Data integrity error; filepath_extensions is null.*' ):
+    diskfile.components = None
+    diskfile.md5sum_components = [ uuid.uuid4(), uuid.uuid4() ]
+    with pytest.raises( RuntimeError, match='Data integrity error; components is null.*' ):
         diskfile.save( data1 )
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath(), 'rb' )
         ifp.close()
-    diskfile.filepath_extensions = [ '1', '2', '3' ]
-    with pytest.raises( RuntimeError, match=r'Data integrity error; len\(md5sum_extensions\).*' ):
-        diskfile.save( data1, extension='1' )
+    diskfile.components = [ '1', '2', '3' ]
+    with pytest.raises( RuntimeError, match=r'Data integrity error; len\(md5sum_components\).*' ):
+        diskfile.save( data1, component='1' )
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath()[0], 'rb' )
         ifp.close()
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath()[1], 'rb' )
         ifp.close()
-    diskfile.md5sum_extensions = None
-    diskfile.filepath_extensions = [ '1', '2' ]
-    with pytest.raises( RuntimeError, match='Data integrity error; filepath_extensions is not null.*' ):
-        diskfile.save( data1, extension='1' )
+    diskfile.md5sum_components = None
+    diskfile.components = [ '1', '2' ]
+    with pytest.raises( RuntimeError, match='Data integrity error; components is not null.*' ):
+        diskfile.save( data1, component='1' )
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath()[0], 'rb' )
         ifp.close()
     with pytest.raises( FileNotFoundError ):
         ifp = open( diskfile.get_fullpath()[1], 'rb' )
         ifp.close()
-    diskfile.filepath_extensions = None
+    diskfile.components = None
 
     # Should fail if we pass something that's not bytes, string, or Path
     with pytest.raises( TypeError, match='data must be bytes, str, or Path.*' ):
@@ -462,8 +462,8 @@ def test_fileondisk_save_singlefile( diskfile, archive, test_config, data_dir ):
     if os.path.isfile(os.path.join(archive_dir, diskfile.filepath)):
         os.remove(os.path.join(archive_dir, diskfile.filepath))
     diskfile.save( data1, no_archive=True )
-    assert diskfile.filepath_extensions is None
-    assert diskfile.md5sum_extensions is None
+    assert diskfile.components is None
+    assert diskfile.md5sum_components is None
     assert diskfile.md5sum is None
     with open( diskfile.get_fullpath(), 'rb' ) as ifp:
         assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
@@ -483,7 +483,7 @@ def test_fileondisk_save_singlefile( diskfile, archive, test_config, data_dir ):
     # First save, verify it goes to the disk and to the archive
     diskfile.save( data1 )
     assert diskfile.md5sum.hex == md5sum1
-    assert diskfile.md5sum_extensions is None
+    assert diskfile.md5sum_components is None
     with open( diskfile.get_fullpath(), 'rb' ) as ifp:
         assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
     with open( os.path.join(archive_dir, diskfile.filepath), 'rb' ) as ifp:
@@ -610,29 +610,29 @@ def test_fileondisk_save_multifile( diskfile, archive, test_config):
         assert md5sum2 != md5sum3
         assert md5sum1 != md5sum3
 
-        # Save an extension but not to archive
-        diskfile.save( data1, extension='_1.dat', no_archive=True )
-        assert diskfile.filepath_extensions == [ '_1.dat' ]
-        assert diskfile.md5sum_extensions == [ None ]
+        # Save an component but not to archive
+        diskfile.save( data1, component='_1.dat', no_archive=True )
+        assert diskfile.components == [ '_1.dat' ]
+        assert diskfile.md5sum_components == [ None ]
         paths = diskfile.get_fullpath()
-        assert paths == [ f'{diskfile.local_path}/{diskfile.filepath}_1.dat' ]
+        assert paths == [ f'{diskfile.local_path}/{diskfile.filepath}._1.dat' ]
         with open( paths[0], 'rb' ) as ifp:
             assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
         with pytest.raises( FileNotFoundError ):
-            ifp = open( f'{archive_dir}{diskfile.filepath}_1.dat', 'rb')
+            ifp = open( f'{archive_dir}{diskfile.filepath}._1.dat', 'rb')
             ifp.close()
 
-        # Save a second extensions, this time to the archive
-        diskfile.save( data2, extension='_2.dat' )
-        assert diskfile.filepath_extensions == [ '_1.dat', '_2.dat' ]
-        assert diskfile.md5sum_extensions == [ None, uuid.UUID(md5sum2) ]
+        # Save a second component, this time to the archive
+        diskfile.save( data2, component='_2.dat' )
+        assert diskfile.components == [ '_1.dat', '_2.dat' ]
+        assert diskfile.md5sum_components == [ None, uuid.UUID(md5sum2) ]
         assert diskfile.md5sum is None
         paths = diskfile.get_fullpath()
-        assert paths == [ f'{diskfile.local_path}/{diskfile.filepath}_1.dat',
-                          f'{diskfile.local_path}/{diskfile.filepath}_2.dat' ]
+        assert paths == [ f'{diskfile.local_path}/{diskfile.filepath}._1.dat',
+                          f'{diskfile.local_path}/{diskfile.filepath}._2.dat' ]
 
-        archive_path1 = os.path.join(archive_dir, diskfile.filepath) + '_1.dat'
-        archive_path2 = os.path.join(archive_dir, diskfile.filepath) + '_2.dat'
+        archive_path1 = os.path.join(archive_dir, diskfile.filepath) + '._1.dat'
+        archive_path2 = os.path.join(archive_dir, diskfile.filepath) + '._2.dat'
 
         with open( paths[0], 'rb' ) as ifp:
             assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
@@ -644,16 +644,16 @@ def test_fileondisk_save_multifile( diskfile, archive, test_config):
         with open( archive_path2, 'rb' ) as ifp:
             assert md5sum2 == hashlib.md5( ifp.read() ).hexdigest()
 
-        # Verify that if we save the first extension again, but without noarchive,
+        # Verify that if we save the first component again, but without noarchive,
         # that it goes up to the archive
-        diskfile.save( data1, extension='_1.dat' )
-        assert diskfile.filepath_extensions == [ '_1.dat', '_2.dat' ]
-        assert diskfile.md5sum_extensions == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
+        diskfile.save( data1, component='_1.dat' )
+        assert diskfile.components == [ '_1.dat', '_2.dat' ]
+        assert diskfile.md5sum_components == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
         assert diskfile.md5sum is None
         paths = diskfile.get_fullpath()
         assert paths == [
-            os.path.join(diskfile.local_path, diskfile.filepath) + '_1.dat',
-            os.path.join(diskfile.local_path, diskfile.filepath) + '_2.dat',
+            os.path.join(diskfile.local_path, diskfile.filepath) + '._1.dat',
+            os.path.join(diskfile.local_path, diskfile.filepath) + '._2.dat',
         ]
         with open( paths[0], 'rb' ) as ifp:
             assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
@@ -666,13 +666,13 @@ def test_fileondisk_save_multifile( diskfile, archive, test_config):
 
         # Make sure we can delete without purging the archive
         diskfile.remove_data_from_disk()
-        assert diskfile.filepath_extensions == [ '_1.dat', '_2.dat' ]
-        assert diskfile.md5sum_extensions == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
+        assert diskfile.components == [ '_1.dat', '_2.dat' ]
+        assert diskfile.md5sum_components == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
         assert diskfile.md5sum is None
         paths = diskfile.get_fullpath()
         assert paths == [
-            os.path.join(diskfile.local_path, diskfile.filepath) + '_1.dat',
-            os.path.join(diskfile.local_path, diskfile.filepath) + '_2.dat',
+            os.path.join(diskfile.local_path, diskfile.filepath) + '._1.dat',
+            os.path.join(diskfile.local_path, diskfile.filepath) + '._2.dat',
         ]
 
         with pytest.raises( FileNotFoundError ):
@@ -689,8 +689,8 @@ def test_fileondisk_save_multifile( diskfile, archive, test_config):
         # Make sure we can get the file back from the archive
         paths = diskfile.get_fullpath( nofile=False )
         assert paths == [
-            os.path.join(diskfile.local_path, diskfile.filepath) + '_1.dat',
-            os.path.join(diskfile.local_path, diskfile.filepath) + '_2.dat',
+            os.path.join(diskfile.local_path, diskfile.filepath) + '._1.dat',
+            os.path.join(diskfile.local_path, diskfile.filepath) + '._2.dat',
         ]
         with open( paths[0], 'rb' ) as ifp:
             assert md5sum1 == hashlib.md5( ifp.read() ).hexdigest()
@@ -701,8 +701,8 @@ def test_fileondisk_save_multifile( diskfile, archive, test_config):
         # Delete it all
         paths = diskfile.get_fullpath()
         diskfile.delete_from_disk_and_database()
-        assert diskfile.filepath_extensions is None
-        assert diskfile.md5sum_extensions is None
+        assert diskfile.components is None
+        assert diskfile.md5sum_components is None
         assert diskfile.md5sum is None
         assert diskfile.get_fullpath() is None
         with pytest.raises( FileNotFoundError ):
@@ -742,10 +742,10 @@ def test_fileondisk_save_multifile_noarchive( diskfile ):
     try:
         cfg.set_value( 'archive', None )
         models.base.ARCHIVE = None
-        diskfile.save( data1, extension="_1.dat", overwrite=False, exists_ok=False )
-        diskfile.save( data2, extension="_2.dat", overwrite=False, exists_ok=False )
+        diskfile.save( data1, component="_1.dat", overwrite=False, exists_ok=False )
+        diskfile.save( data2, component="_2.dat", overwrite=False, exists_ok=False )
         assert diskfile.md5sum is None
-        assert diskfile.md5sum_extensions == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
+        assert diskfile.md5sum_components == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
     finally:
         cfg.set_value( 'archive', origcfgarchive )
         models.base.ARCHIVE = origarchive

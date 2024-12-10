@@ -332,9 +332,6 @@ def test_things_that_should_not_work():
         rng = np.random.default_rng( seed=42 )
         data = rng.random( (64, 64), dtype='f4' ) * 200. - 100.
 
-        with pytest.raises( ValueError, match="Filename .* ends with .fz but fpack is False" ):
-            save_fits_image_file( fzpath, data, {} )
-
         with pytest.raises( NotImplementedError, match="fpacking of multi-HDU files not currently supported" ):
             save_fits_image_file( basepath, data, {}, fpack=True, single_file=True )
 

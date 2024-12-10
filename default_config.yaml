@@ -35,9 +35,9 @@ db:
 # Local file storage
 #
 # format: string
-#   Format for image files.  Currently only "fits" is supported.  We
-#   have vague ambitions to support HDF5 files.  ASDF has only
-#   very vaguely been considered by one person.
+#   Format for image files.  Currently only "fits" and "fitsfz" are
+#   supported.  We have vague ambitions to support HDF5 files.  ASDF has
+#   only very vaguely been considered by one person.
 #
 # single_file: bool
 #   If True, then weight, flags will be stored in the same file with the

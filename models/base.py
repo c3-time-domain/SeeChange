@@ -845,16 +845,16 @@ class SeeChangeBase:
 
         if archive and hasattr( self, "filepath" ):
             if self.filepath is not None:
-                if self.filepath_extensions is None:
+                if self.components is None:
                     self.archive.delete( self.filepath, okifmissing=True )
                 else:
-                    for ext in self.filepath_extensions:
-                        self.archive.delete( f"{self.filepath}{ext}", okifmissing=True )
+                    for comp in self.components:
+                        self.archive.delete( f"{self.filepath}.{comp}{self._file_suffix()}", okifmissing=True )
 
             # make sure these are set to null just in case we fail
             # to commit later on, we will at least know something is wrong
             self.md5sum = None
-            self.md5sum_extensions = None
+            self.md5sum_components = None
 
         # Remove data from disk
 
@@ -862,7 +862,7 @@ class SeeChangeBase:
             self.remove_data_from_disk( remove_folders=remove_folders )
             # make sure these are set to null just in case we fail
             # to commit later on, we will at least know something is wrong
-            self.filepath_extensions = None
+            self.components = None
             self.filepath = None
 
         # Finally, after everything is cleaned up, remove the database record
@@ -907,7 +907,7 @@ class SeeChangeBase:
             if key == 'md5sum' and value is not None:
                 if isinstance(value, UUID):
                     value = value.hex
-            if key == 'md5sum_extensions' and value is not None:
+            if key == 'md5sum_components' and value is not None:
                 if isinstance(value, list):
                     value = [v.hex if isinstance(v, UUID) else v for v in value]
 
@@ -958,10 +958,10 @@ class SeeChangeBase:
         if md5sum is not None:
             dictionary['md5sum'] = UUID(md5sum)
 
-        md5sum_extensions = dictionary.get('md5sum_extensions', None)
-        if md5sum_extensions is not None:
-            new_extensions = [UUID(md5) for md5 in md5sum_extensions if md5 is not None]
-            dictionary['md5sum_extensions'] = new_extensions
+        md5sum_components = dictionary.get('md5sum_components', None)
+        if md5sum_components is not None:
+            new_components = [UUID(md5) for md5 in md5sum_components if md5 is not None]
+            dictionary['md5sum_components'] = new_components
 
         aper_rads = dictionary.get('aper_rads', None)
         if aper_rads is not None:
@@ -1036,24 +1036,25 @@ class FileOnDiskMixin:
     has the name of that file.  md5sum holds a checksum for the file,
     *if* it has been correctly saved to the archive.  If the file has
     not been saved to the archive, md5sum is null.  In this case,
-    filepath_extensions and md5sum_extensions will be null.  (Exception:
-    if you are configured with a null archive (config parameter archive
-    in the yaml config file is null), then md5sum will be set when the
-    image is saved to disk, instead of when it's saved to the archive.)
+    components and md5sum_components will be null.  (Exception: if you
+    are configured with a null archive (config parameter archive in the
+    yaml config file is null), then md5sum will be set when the image is
+    saved to disk, instead of when it's saved to the archive.)
 
     If there are multiple files associated with this entry, then
-    filepath is the beginning of the names of all the files.  Each entry
-    in filepath_extensions is then appended to filepath to get the
-    actual path of the file.  For example, if an image file has the
+    filepath is the beginning of the names of all the files.  The full
+    filenames are constrcuted by appending ".", the component name
+    (stored in self.components), and the file suffix (returned by
+    self._file_suffix()) to filepath.  For example, if an image file has the
     image itself, an associated weight, and an associated mask, then
-    filepath might be "image" and filepath_extensions might be
-    [".fits.fz", ".mask.fits.fz", ".weight.fits.fz"] to indicate that
-    the three files image.fits.fz, image.mask.fits.fz, and
-    image.weight.fz are all associated with this entry.  When
-    filepath_extensions is non-null, md5sum should be null, and
-    md5sum_extensions is an array with the same length as
-    filepath_extensions.  (For extension files that have not yet been
-    saved to the archive, that element of the md5sum_etensions array is
+    filepath might be "image" and components might be
+    ["image", "mask", "weight"] to indicate that
+    the three files image.image.fits, image.mask.fits, and
+    image.weight.fits are all associated with this entry.  When
+    components is non-null, md5sum should be null, and
+    md5sum_components is an array with the same length as
+    components.  (For extension files that have not yet been
+    saved to the archive, that element of the md5sum_components array is
     null.)
 
     Saving data:
@@ -1063,9 +1064,9 @@ class FileOnDiskMixin:
     super() if the subclass has to do custom things.)  The save method
     of this class will save to the local filestore (underneath
     path.data_root), and also save it to the archive.  Once a file is
-    saved on the archive, the md5sum (or md5sum_extensions) field in the
+    saved on the archive, the md5sum (or md5sum_copmonents) field in the
     database record is updated.  (If the file has not been saved to the
-    archive, then the md5sum and md5sum_extensions fields will be null.)
+    archive, then the md5sum and md5sum_components fields will be null.)
 
     Loading data:
 
@@ -1075,7 +1076,7 @@ class FileOnDiskMixin:
     get_fullpath(download=False) or get_fullpath(nofile=True).  (The
     latter case won't even try to find the file on the local disk, it
     will just tell you what the path should be.)  If you want to always
-    get a list of filepaths (even if filepath_extensions=None) use
+    get a list of filepaths (even if components=None) use
     get_fullpath(as_list=True).  If the file is missing locally, and
     downloading cannot proceed (because no archive is defined, or
     because the download=False flag is used, or because the file is
@@ -1105,14 +1106,14 @@ class FileOnDiskMixin:
     #     return (
     #         CheckConstraint(
     #             sqltext='NOT(md5sum IS NULL AND '
-    #                     '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+    #                     '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
     #             name=f'{cls.__tablename__}_md5sum_check'
     #         ),
     #     )
 
     # Subclasses of this class must include the following in __table_args__:
     #   CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
-    #                    '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+    #                    '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
     #                    name=f'{cls.__tablename__}_md5sum_check' )
 
 
@@ -1185,10 +1186,11 @@ class FileOnDiskMixin:
             doc="Base path (relative to the data root) for a stored file"
         )
 
-    filepath_extensions = sa.Column(
+    components = sa.Column(
         ARRAY(sa.Text, zero_indexes=True),
         nullable=True,
-        doc="If non-null, array of text appended to filepath to get actual saved filenames."
+        doc=( "If non-null, an array of strings identifying components that are saved to "
+              "separate files on disk." )
     )
 
     md5sum = sa.Column(
@@ -1198,11 +1200,11 @@ class FileOnDiskMixin:
         doc="md5sum of the file, provided by the archive server"
     )
 
-    md5sum_extensions = sa.Column(
+    md5sum_components = sa.Column(
         ARRAY(sqlUUID(as_uuid=True), zero_indexes=True),
         nullable=True,
         server_default=None,
-        doc="md5sum of extension files; must have same number of elements as filepath_extensions"
+        doc="md5sum of components files; must have same number of elements as components"
     )
 
     def __init__(self, *args, **kwargs):
@@ -1299,8 +1301,42 @@ class FileOnDiskMixin:
 
         return filepath
 
-    def get_fullpath(self, download=True, as_list=False, nofile=None, always_verify_md5=False):
-        """Get the full path of the file, or list of full paths of files if filepath_extensions is not None.
+    def _file_suffix( self ):
+        """Returns the suffix on saved files.  Used by get_relpath and get_fullpath.
+
+        Subclasses should override this if they are going to use
+        multiple componentss.  See Image._file_suffix for an example.
+
+        """
+
+        return ""
+
+    def get_relpath( self, as_list=False ):
+        """Get path of the file, or list of paths of files, relative to the local data storage root.
+
+        Does not do any downloading or verification; for that, call get_fullpath.
+
+        Parameters
+        ----------
+          as_list: bool, default False
+             Return a (single-element) list even if there is only a
+             single file (i.e. there are no components).
+
+        Returns
+        -------
+          str or list of str
+             Will return the filepath if there are no components, or a
+             list of filepaths if there are copmonents.
+
+        """
+
+        if self.components is None:
+            return [ self.filepath ] if as_list else self.filepath
+        return [ f'{self.filepath}.{comp}{self._file_suffix()}' for comp in self.components ]
+
+
+    def get_fullpath( self, download=True, as_list=False, nofile=None, always_verify_md5=False ):
+        """Get the full path of the file, or list of full paths of files if components is not None.
 
         If the archive is defined, and download=True (default),
         the file will be downloaded from the server if missing.
@@ -1316,22 +1352,25 @@ class FileOnDiskMixin:
         The application is then responsible for loading the content
         of the file.
 
-        When the filepath_extensions is None, will return a single string.
-        When the filepath_extensions is an array, will return a list of strings.
+        When the components is None, will return a single string.
+        When the components is an array, will return a list of strings.
         If as_list=False, will always return a list of strings,
-        even if filepath_extensions is None.
+        even if components is None.
 
         Parameters
         ----------
         download: bool
             Whether to download the file from server if missing.
             Must have archive defined. Default is True.
+
         as_list: bool
-            Whether to return a list of filepaths, even if filepath_extensions=None.
+            Whether to return a list of filepaths, even if components=None.
             Default is False.
+
         nofile: bool
             Whether to check if the file exists on local disk.
             Default is None, which means use the value of self.nofile.
+
         always_verify_md5: bool
             Set True to verify that the file's md5sum matches what's
             in the database (if there is one in the database), and
@@ -1341,8 +1380,9 @@ class FileOnDiskMixin:
         -------
         str or list of str
             Full path to the file(s) on local disk.
+
         """
-        if self.filepath_extensions is None:
+        if self.components is None:
             if as_list:
                 return [self._get_fullpath_single(download=download, nofile=nofile,
                                                   always_verify_md5=always_verify_md5)]
@@ -1351,13 +1391,15 @@ class FileOnDiskMixin:
                                                  always_verify_md5=always_verify_md5)
         else:
             return [
-                self._get_fullpath_single(download=download, ext=ext, nofile=nofile,
+                self._get_fullpath_single(download=download, comp=comp, nofile=nofile,
                                           always_verify_md5=always_verify_md5)
-                for ext in self.filepath_extensions
+                for comp in self.components
             ]
 
-    def _get_fullpath_single(self, download=True, ext=None, nofile=None, always_verify_md5=False):
+
+    def _get_fullpath_single(self, download=True, comp=None, nofile=None, always_verify_md5=False):
         """Get the full path of a single file.
+
         Will follow the same logic as get_fullpath(),
         of checking and downloading the file from the server
         if it is not on local disk.
@@ -1367,12 +1409,15 @@ class FileOnDiskMixin:
         download: bool
             Whether to download the file from server if missing.
             Must have archive defined. Default is True.
-        ext: str
-            Extension to add to the filepath. Default is None
-            (indicating that this object is stored in a single file).
+
+        comp: str or None
+            The component file whose path we want, or None if
+            the object is stored in a single file.
+
         nofile: bool
             Whether to check if the file exists on local disk.
             Default is None, which means use the value of self.nofile.
+
         always_verify_md5: bool
             Set True to verify that the file's md5sum matches what's
             in the database (if there is one in the database), and
@@ -1395,19 +1440,19 @@ class FileOnDiskMixin:
 
         fname = self.filepath
         md5sum = None
-        if ext is None:
+        if comp is None:
             md5sum = self.md5sum.hex if self.md5sum is not None else None
         else:
             try:
-                extdex = self.filepath_extensions.index( ext )
+                compdex = self.components.index( comp )
             except ValueError:
-                raise ValueError(f"Unknown extension {ext} for {fname}" )
-            if (self.md5sum_extensions is None ) or ( extdex >= len(self.md5sum_extensions) ):
+                raise ValueError(f"Unknown component {comp} for {fname}" )
+            if (self.md5sum_components is None ) or ( compdex >= len(self.md5sum_components) ):
                 md5sum = None
             else:
-                md5sum = self.md5sum_extensions[extdex]
+                md5sum = self.md5sum_components[compdex]
                 md5sum = None if md5sum is None else md5sum.hex
-            fname += ext
+            fname += f'.{comp}' + self._file_suffix()
 
         downloaded = False
         fullname = os.path.join(self.local_path, fname)
@@ -1433,7 +1478,7 @@ class FileOnDiskMixin:
         return fullname
 
 
-    def save(self, data, extension=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
+    def save(self, data, component=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
         """Save a file to disk, and to the archive.
 
         Does not write anything to the database.  (At least, it's not supposed to....)
@@ -1443,8 +1488,8 @@ class FileOnDiskMixin:
         data: bytes, string, or Path
           The data to be saved
 
-        extension: string or None
-          The file extension
+        component: string or None
+          The file component.  SHould be None if this object is saved to a single file.
 
         overwrite: bool
           True to overwrite existing files (locally and on the archive).
@@ -1466,12 +1511,12 @@ class FileOnDiskMixin:
                       if exists_ok = True, assume existing file is right
             ARCHIVE
                If self.md5sum (or the appropriate entry in
-               md5sum_extensions) is null, then always upload to the
+               md5sum_components) is null, then always upload to the
                archive as long as no_archive is False). Otherwise,
                verify_md5 modifies the behavior;
                verify_md5 = True
                  If self.md5sum (or the appropriate entry in
-                 md5sum_extensions) matches the md5sum of the passed data,
+                 md5sum_components) matches the md5sum of the passed data,
                  do not upload to the archive.  Otherwise, if overwrite
                  is true, upload to the archive; if overwrite is false,
                  raise an exception.
@@ -1498,8 +1543,8 @@ class FileOnDiskMixin:
         it's uploaded to the archive, the object's md5sum is set (or
         updated, if overwrite is True and it wasn't null to start with).
 
-        If extension is not None, and it isn't already in the list of
-        filepath_extensions, it will be added.
+        If component is not None, and it isn't already in the list of
+        components, it will be added.
 
         Performance notes: if you call this with anything other than
         overwrite=False, exists_ok=True, verify_md5=False, you may well
@@ -1518,65 +1563,66 @@ class FileOnDiskMixin:
         # or writing files when not necessary since I/O tends to be much
         # more expensive than processing.)
 
-        # First : figure out if this is an extension or not,
+        # First : figure out if this is an component or not,
         #   and make sure that's consistent with the object.
         # If it is:
-        #   Find the index into the extensions array for
-        #   this extension, or append to the array if
-        #   it's a new extension that doesn't already exist.
-        #   Set the variables curextensions and extmd5s to lists with
-        #   extensions and md5sums of extension files,
-        #   initially copied from self.filepath_extensions and
-        #   self.md5sum_extensions, and modified if necessary
-        #   with the saved file.  extensiondex holds the index
-        #   into both of these arrays for the current extension.
+        #   Find the index into the components array for
+        #   this component, or append to the array if
+        #   it's a new component that doesn't already exist.
+        #   Set the variables curcomponents and compmd5s to lists with
+        #   components and md5sums of component files,
+        #   initially copied from self.components and
+        #   self.md5sum_components, and modified if necessary
+        #   with the saved file.  compdex holds the index
+        #   into both of these arrays for the current components.
         # else:
-        #   Set curextions, extmd5s, and extensiondex to None.
+        #   Set curcomponents, compmd5s, and compdex to None
 
         # We will either replace these two variables with empty lists,
         #  or make a copy (using list()).  The reason for this: we don't
         #  want to directly modify the lists in self until the saving is
         #  done.  That way, self doesn't get mucked up if this function
         #  exceptions out.
-        curextensions = self.filepath_extensions
-        extmd5s = self.md5sum_extensions
+        curcomponents = self.components
+        compmd5s = self.md5sum_components
 
-        extensiondex = None
-        if extension is None:
-            if curextensions is not None:
-                raise RuntimeError( "Tried to save a non-extension file, but this file has extensions" )
-            if extmd5s is not None:
-                raise RuntimeError( "Data integrity error; filepath_extensions is null, "
-                                    "but md5sum_extensions isn't." )
+        compdex = None
+        if component is None:
+            if curcomponents is not None:
+                raise RuntimeError( "Tried to save a non-component file, but this file has components." )
+            if compmd5s is not None:
+                raise RuntimeError( "Data integrity error; components is null, "
+                                    "but md5sum_components isn't." )
         else:
-            if curextensions is None:
-                if extmd5s is not None:
-                    raise RuntimeError( "Data integrity error; filepath_extensions is null, "
-                                        "but md5sum_extensions isn't." )
-                curextensions = []
-                extmd5s = []
+            if curcomponents is None:
+                if compmd5s is not None:
+                    raise RuntimeError( "Data integrity error; components is null, "
+                                        "but md5sum_components isn't." )
+                curcomponents = []
+                compmd5s = []
             else:
-                if extmd5s is None:
-                    raise RuntimeError( "Data integrity error; filepath_extensions is not null, "
-                                        "but md5sum_extensions is" )
-                curextensions = list(curextensions)
-                extmd5s = list(extmd5s)
-            if len(curextensions) != len(extmd5s):
-                raise RuntimeError( f"Data integrity error; len(md5sum_extensions)={len(extmd5s)}, "
-                                    f"but len(filepath_extensions)={len(curextensions)}" )
+                if compmd5s is None:
+                    raise RuntimeError( "Data integrity error; components is not null, "
+                                        "but md5sum_components is" )
+                curcomponents = list( curcomponents )
+                compmd5s = list( compmd5s )
+            if len(curcomponents) != len(compmd5s):
+                raise RuntimeError( f"Data integrity error; len(md5sum_components)={len(compmd5s)}, "
+                                    f"but len(components)={len(curcomponents)}" )
             try:
-                extensiondex = curextensions.index( extension )
+                compdex = curcomponents.index( component )
             except ValueError:
-                curextensions.append( extension )
-                extmd5s.append( None )
-                extensiondex = len(curextensions) - 1
+                curcomponents.append( component )
+                compmd5s.append( None )
+                compdex = len(curcomponents) - 1
 
         # relpath holds the path of the file relative to the data store root
         # origmd5 holds the md5sum (hashlib.hash object) of the original file,
         #   *unless* the original file is already the right file in the local file store
         #   (in which case it's None)
         # localpath holds the absolute path of where the file should be written in the local file store
-        relpath = pathlib.Path( self.filepath if extension is None else self.filepath + extension )
+        relpath = pathlib.Path( self.filepath if component is None else
+                                self.filepath + '.' + component + self._file_suffix() )
         localpath = pathlib.Path( self.local_path ) / relpath
         if isinstance( data, bytes ):
             path = "passed data"
@@ -1654,25 +1700,25 @@ class FileOnDiskMixin:
                 origmd5 = hashlib.md5()
                 with open( localpath, "rb" ) as ifp:
                     origmd5.update( ifp.read() )
-            if curextensions is not None:
-                extmd5s[ extensiondex ] = UUID( origmd5.hexdigest() )
-                self.filepath_extensions = curextensions
-                self.md5sum_extensions = extmd5s
+            if curcomponents is not None:
+                compmd5s[ compdex ] = UUID( origmd5.hexdigest() )
+                self.components = curcomponents
+                self.md5sum_components = compmd5s
             else:
                 self.md5sum = UUID( origmd5.hexdigest() )
             return
 
         # This is the case where there *is* an archive, but the no_archive option was passed
         if no_archive:
-            if curextensions is not None:
-                self.filepath_extensions = curextensions
-                self.md5sum_extensions = extmd5s
+            if curcomponents is not None:
+                self.components = curcomponents
+                self.md5sum_components = compmd5s
             return
 
         # The rest of this deals with the archive
 
-        archivemd5 = self.md5sum if extension is None else extmd5s[extensiondex]
-        logfilepath = self.filepath if extension is None else f'{self.filepath}{extension}'
+        archivemd5 = self.md5sum if component is None else compmd5s[compdex]
+        logfilepath = self.filepath if component is None else f'{self.filepath}.{component}{self._file_suffix()}'
 
         mustupload = False
         if archivemd5 is None:
@@ -1710,11 +1756,11 @@ class FileOnDiskMixin:
                 md5=origmd5
             )
             remmd5 = UUID( remmd5 )
-            if curextensions is not None:
-                extmd5s[extensiondex] = remmd5
+            if curcomponents is not None:
+                compmd5s[compdex] = remmd5
                 self.md5sum = None
-                self.filepath_extensions = curextensions
-                self.md5sum_extensions = extmd5s
+                self.components = curcomponents
+                self.md5sum_components = compmd5s
             else:
                 self.md5sum = remmd5
 

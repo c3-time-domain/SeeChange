@@ -167,12 +167,12 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
         q = session.query( Image ).filter( Image._id == ds.image.id )
         assert q.count() == 1
         foundim = q.first()
-        assert foundim.md5sum_extensions[0] == ds.image.md5sum_extensions[0]
-        assert foundim.md5sum_extensions[0] != origmd5
+        assert foundim.md5sum_components[0] == ds.image.md5sum_components[0]
+        assert foundim.md5sum_components[0] != origmd5
         with open( foundim.get_fullpath()[0], 'rb' ) as ifp:
             md5 = hashlib.md5()
             md5.update( ifp.read() )
-            assert uuid.UUID( md5.hexdigest() ) == foundim.md5sum_extensions[0]
+            assert uuid.UUID( md5.hexdigest() ) == foundim.md5sum_components[0]
         # This is probably redundant given the md5sum test we just did....
         ds.image._header = None
         for kw in foundim.header:
@@ -198,7 +198,7 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
         # Make sure the archive has the right md5sum
         info = foundim.archive.get_info( f'{foundim.filepath}.image.fits' )
         assert info is not None
-        assert uuid.UUID( info['md5sum'] ) == foundim.md5sum_extensions[0]
+        assert uuid.UUID( info['md5sum'] ) == foundim.md5sum_components[0]
 
 
 # TODO : test that it fails when it's supposed to

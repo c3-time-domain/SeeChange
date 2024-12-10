@@ -724,7 +724,7 @@ class DECam(Instrument):
             expobj = Exposure( current_file=expfile, invent_filepath=True,
                                type=obs_type, format='fits', provenance_id=provenance.id, ra=ra, dec=dec,
                                instrument='DECam', origin_identifier=origin_identifier, header=hdr,
-                               preproc_bitflag=preproc_bitflag, filepath_extensions=exts,
+                               preproc_bitflag=preproc_bitflag, components=exts,
                                **exphdrinfo )
             # dbpath = outdir / expobj.filepath
             if preproc_bitflag == 0:

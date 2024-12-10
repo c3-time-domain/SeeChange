@@ -437,12 +437,12 @@ class ImageAligner:
             #  (I hope swarp is smart enough that you could do
             #  imagepat[1] to get HDU 1, but I don't know if that's the
             #  case.)
-            if source_image.filepath_extensions is None:
+            if source_image.components is None:
                 raise NotImplementedError( "Only separate image/weight/flags images currently supported." )
             impaths = source_image.get_fullpath( as_list=True )
-            # imdex = source_image.filepath_extensions.index( '.image.fits' )
-            wtdex = source_image.filepath_extensions.index( '.weight.fits' )
-            # fldex = source_image.filepath_extensions.index( '.flags.fits' )
+            # imdex = source_image.components.index( '.image' )
+            wtdex = source_image.components.index( '.weight' )
+            # fldex = source_image.components.index( '.flags' )
 
             # For swarp to work right, the header of image must have the
             # WCS we assumed it had when calculating the transformation
@@ -516,8 +516,8 @@ class ImageAligner:
             warpedim.flags = np.rint(warpedim.flags).astype(np.uint16)  # convert back to integers
 
             warpedim.md5sum = None
-            # warpedim.md5sum_extensions = [ None, None, None ]
-            warpedim.md5sum_extensions = None
+            # warpedim.md5sum_components = [ None, None, None ]
+            warpedim.md5sum_components = None
 
             # warp the background noise image:
             warpedbg = Background(
@@ -690,8 +690,8 @@ class ImageAligner:
                 raise RuntimeError( "ImageAligner.run: source image weight and flags missing!  I can't cope!" )
             warped_image.filepath = None
             warped_image.md5sum = None
-            warped_image.md5sum_extensions = None             # Which is the right thing to do with extensions???
-            # warped_image.md5sum_extensions = [ None, None, None ]
+            warped_image.md5sum_components = None             # Which is the right thing to do with extensions???
+            # warped_image.md5sum_components = [ None, None, None ]
 
             warped_sources = source_sources.copy()
             warped_sources.provenance_id = warped_sources_prov.id

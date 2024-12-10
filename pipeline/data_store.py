@@ -1839,16 +1839,16 @@ class DataStore:
         """Go over all the data products, saving them to disk if necessary, saving them to the database as necessary.
 
         In general, it will *not* save data products that have a
-        non-null md5sum (or md5sum_extensions) line in the database.
+        non-null md5sum (or md5sum_components) line in the database.
         Reason: once that line is written, it means that that data
         product is "done" and will not change again.  As such, this
         routine assumes that it's all happily saved at least to the
         archive, so nothing needs to be written.
 
         There is one exception: the "image" (as opposed to weight or
-        flags) extension of an Image.  If "update_image_header" is true,
+        flags) component of an Image.  If "update_image_header" is true,
         then the DataStore will save and overwrite just the image
-        extension (not the weight or flags extensions) both to disk and
+        component (not the weight or flags components) both to disk and
         to the archive, and will update the database md5sum line
         accordingly.  The *only* change that should have been made to
         the image file is in the header; the WCS and zeropoint keywords
@@ -1893,9 +1893,9 @@ class DataStore:
 
         update_image_header: bool, default False
             See above.  If this is true, then the if there is an Image
-            object in the data store, its "image" extension will be
+            object in the data store, its "image" component will be
             overwritten both on the local store and on the archive, and
-            appropriate entry in the md5sum_extensions array of the
+            appropriate entry in the md5sum_components array of the
             Image object (and in row in the database) will be updated.
             THIS OPTION SHOULD BE USED WITH CARE.  It's an exception to
             the basic design of the pipeline, and adds redundant I/O
@@ -1934,16 +1934,16 @@ class DataStore:
 
             if isinstance(obj, FileOnDiskMixin):
                 mustsave = True
-                # TODO : if some extensions have a None md5sum and others don't,
+                # TODO : if some components have a None md5sum and others don't,
                 #  right now we'll re-save everything.  Improve this to only
-                #  save the necessary extensions.  (In practice, this should
+                #  save the necessary components.  (In practice, this should
                 #  hardly ever come up.)
                 if ( ( not force_save_everything )
                      and
                      ( ( obj.md5sum is not None )
-                       or ( ( obj.md5sum_extensions is not None )
+                       or ( ( obj.md5sum_components is not None )
                             and
-                            ( all( [ i is not None for i in obj.md5sum_extensions ] ) )
+                            ( all( [ i is not None for i in obj.md5sum_components ] ) )
                            )
                       ) ):
                     mustsave = False

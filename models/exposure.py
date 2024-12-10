@@ -163,7 +163,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     def __table_args__( cls ):  # noqa: N805
         return (
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
-                               '(md5sum_extensions IS NULL OR array_position(md5sum_extensions, NULL) IS NOT NULL))',
+                               '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
             sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
             CheckConstraint( sqltext='NOT(filter IS NULL AND filter_array IS NULL)',
@@ -305,7 +305,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         doc=( 'Bitflag specifying which preprocessing steps have been completed for the images in the '
               'exposure.  Useful for things like the NOIRlab archive where we can download preprocessed '
               'images.  If this is anything other than 0, the code might assume that the exposure also '
-              'has weight and flags extensions.' )
+              'has weight and flags components.' )
     )
 
     origin_identifier = sa.Column(
@@ -615,13 +615,22 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             prov_hash=prov_hash,
         )
 
-        if self.filepath_extensions is None:
+        if self.components is None:
             if self.format == 'fits':
                 filepath += ".fits"
             else:
                 raise ValueError( f"Unknown format for exposures: {self.format}" )
 
         return filepath
+
+
+    def _file_suffix( self ):
+        if self.format == 'fits':
+            return ".fits"
+        elif self.format == 'fitsfz':
+            return ".fits.fz"
+        raise ValueError( f"Don't know suffix for exposure format {self.format}" )
+
 
     def save( self, *args, **kwargs ):
         """Save an exposure to the local file store and the archive.
@@ -630,8 +639,8 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
           - one or more positional parameters.  The number of positional
             parameters must match the length of
-            self.filepath_extensions, or be one if
-            self.filepath_extensions is None.  Each parameter is either
+            self.components, or be one if
+            self.components is None.  Each parameter is either
             a binary blob with what should be written to the file, or a
             Path or str pointing to where the file currently exists on
             disk.
@@ -642,34 +651,35 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             self.get_fullpath(nofile=True) to find them.
 
         Keyword parameters are passed on to FileOnDiskMixin.save().  Do *not*
-        include an "extension" keyword in **kwargs; that is handled internally.
+        include an "component" keyword in **kwargs; that is handled internally.
 
         """
 
         data = None
         datas = None
         if len(args) > 0:
-            if self.filepath_extensions is None:
+            if self.components is None:
                 if len(args) != 1:
-                    raise ValueError( f"filepath_extensions is None but {len(args)}>1 positional parameters supplied" )
+                    raise ValueError( f"components is None but {len(args)}>1 positional parameters supplied" )
                 data = args[0]
             else:
-                if len(args) != len( self.filepath_extensions ):
-                    raise ValueError( f"filepath_extensions has length {len(self.filepath_extensions)}, but "
+                if len(args) != len( self.components ):
+                    raise ValueError( f"components has length {len(self.components)}, but "
                                       f"{len(args)} positional parameters were supplied" )
                 datas = args
         else:
-            if self.filepath_extensions is None:
+            if self.components is None:
                 data = self.get_fullpath( nofile=True )
             else:
-                datas = [ self.get_fullpath( nofile=True, extension=e ) for e in self.filepath_extensions ]
+                datas = self.get_fullpath( nofile=True )
+                # datas = [ self.get_fullpath( nofile=True, extension=e ) for e in self.components ]
 
-        if self.filepath_extensions is None:
+        if self.components is None:
             FileOnDiskMixin.save( self, data, **kwargs )
         else:
-            self.md5sum_extensions = [ None ] * len( self.filepath_extensions )
-            for ext, data in zip( self.filepath_extensions, datas ):
-                FileOnDiskMixin.save( self, data, extension=ext, **kwargs )
+            self.md5sum_components = [ None ] * len( self.components )
+            for comp, data in zip( self.components, datas ):
+                FileOnDiskMixin.save( self, data, component=comp, **kwargs )
 
 
     def load(self, section_ids=None):
@@ -699,47 +709,31 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         else:
             raise ValueError("Cannot load data from database without a filepath! ")
 
-    def _ext_filepath( self, which='image' ):
+    def _comp_filepath( self, which='image' ):
         if which not in [ 'image', 'weight', 'flags' ]:
-            raise ValueError( f"Unknown exposure file extension type {which}" )
+            raise ValueError( f"Unknown exposure file component {which}" )
         if self.instrument is None:
             raise ValueError("Cannot load data without an instrument! ")
 
         paths = self.get_fullpath( as_list=True )
 
-        if self.filepath_extensions is None:
+        if self.components is None:
             if which == 'image':
                 return paths[0]
             else:
-                raise ValueError( f"Exposure has no filepath_extensions, so won't have a {which} file" )
+                raise ValueError( f"Exposure has no components, so won't have a {which} file" )
 
-        if self.format != 'fits':
-            raise ValueError( f"Don't know how to read data from {self.format} exposures" )
+        compdex = self.components.index( which )
+        if compdex is None:
+            raise ValueError( f"Failed to find {which} in {self.components}" )
 
-        if which == 'image':
-            totry = ( '.image.fits', '.image.fits.fz' )
-        elif which == 'weight':
-            totry = ( '.weight.fits', '.weight.fits.fz' )
-        elif which == 'flags':
-            totry = ( '.flags.fits', '.flags.fits.fz' )
-
-            extdex = None
-        for whichtotry in totry:
-            try:
-                extdex = self.filepath_extensions.index( whichtotry )
-                break
-            except ValueError:
-                continue
-        if extdex is None:
-            raise ValueError( f"Failed to find filepath extentions for {which} in {self.filepath_extensions}" )
-
-        return paths[ extdex ]
+        return paths[ compdex ]
 
 
     @property
     def data(self):
         if self._data is None:
-            self._data = SectionData( self._ext_filepath('image'), self.instrument_object )
+            self._data = SectionData( self._comp_filepath('image'), self.instrument_object )
         return self._data
 
     @data.setter
@@ -751,7 +745,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     @property
     def section_headers(self):
         if self._section_headers is None:
-            self._section_headers = SectionHeaders( self._ext_filepath('image'), self.instrument_object )
+            self._section_headers = SectionHeaders( self._comp_filepath('image'), self.instrument_object )
         return self._section_headers
 
     @section_headers.setter
@@ -763,7 +757,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     @property
     def weight(self):
         if self._weight is None:
-            self._weight = SectionData( self._ext_filepath('weight'), self.instrument_object )
+            self._weight = SectionData( self._comp_filepath('weight'), self.instrument_object )
         return self._weight
 
     @weight.setter
@@ -775,7 +769,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     @property
     def weight_section_headers(self):
         if self._weight_section_headers is None:
-            self._weight_section_headers = SectionHeaders( self._ext_filepath('weight'), self.instrument_object )
+            self._weight_section_headers = SectionHeaders( self._comp_filepath('weight'), self.instrument_object )
         return self._weight_section_headers
 
     @weight_section_headers.setter
@@ -787,7 +781,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     @property
     def flags(self):
         if self._flags is None:
-            self._flags = SectionData( self._ext_filepath('flags'), self.instrument_object )
+            self._flags = SectionData( self._comp_filepath('flags'), self.instrument_object )
         return self._flags
 
     @flags.setter
@@ -799,7 +793,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
     @property
     def flags_section_headers(self):
         if self._flags_section_headers is None:
-            self._flags_section_headers = SectionHeaders( self._ext_filepath('flags'), self.instrument_object )
+            self._flags_section_headers = SectionHeaders( self._comp_filepath('flags'), self.instrument_object )
         return self._flags_section_headers
 
     @flags_section_headers.setter

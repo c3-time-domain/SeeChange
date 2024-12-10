@@ -25,6 +25,7 @@ from models.psf import PSF
 from models.source_list import SourceList
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
+# from util.config import Config
 
 from tests.conftest import rnd_str
 from tests.fixtures.simulated import ImageCleanup
@@ -170,7 +171,7 @@ def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
     try:
         im = sim_image_uncommitted
         assert im.md5sum is None
-        assert im.md5sum_extensions is None
+        assert im.md5sum_components is None
 
         im.provenance_id = provenance_base.id
         _ = ImageCleanup.save_image(im, archive=False)
@@ -275,21 +276,21 @@ def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
             with open(fullpath, "rb") as ifp:
                 localmd5s[fullpath].update(ifp.read())
         assert im.md5sum is None
-        assert im.md5sum_extensions == [None, None]
+        assert im.md5sum_components == [None, None]
         im.remove_data_from_disk()
 
         # Save to the archive
         im.save()
-        for ext, fullpath, md5sum in zip(im.filepath_extensions,
+        for ext, fullpath, md5sum in zip(im.components,
                                          im.get_fullpath(nofile=True),
-                                         im.md5sum_extensions):
+                                         im.md5sum_components):
             assert localmd5s[fullpath].hexdigest() == md5sum.hex
 
             with open( fullpath, "rb" ) as ifp:
                 m = hashlib.md5()
                 m.update( ifp.read() )
                 assert m.hexdigest() == localmd5s[fullpath].hexdigest()
-            with open( os.path.join(archive_dir, im.filepath) + ext, 'rb' ) as ifp:
+            with open( os.path.join(archive_dir, im.filepath) + f".{ext}.fits", 'rb' ) as ifp:
                 m = hashlib.md5()
                 m.update( ifp.read() )
                 assert m.hexdigest() == localmd5s[fullpath].hexdigest()
@@ -321,7 +322,7 @@ def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
             dbimage = session.scalars(sa.select(Image).where(Image._id == im.id)).first()
         assert dbimage.md5sum is None
         filenames = dbimage.get_fullpath( nofile=True )
-        for fullpath, md5sum in zip(filenames, dbimage.md5sum_extensions):
+        for fullpath, md5sum in zip(filenames, dbimage.md5sum_components):
             assert localmd5s[fullpath].hexdigest() == md5sum.hex
 
     finally:
@@ -347,23 +348,23 @@ def test_image_save_justheader( sim_image1 ):
         # This is tested elsewhere, but for completeness make sure the
         # md5sum of the file on the archive is what's expected
         info = archive.get_info( pathlib.Path( names[0] ).relative_to( FileOnDiskMixin.local_path ) )
-        assert uuid.UUID( info['md5sum'] ) == sim_image1.md5sum_extensions[0]
+        assert uuid.UUID( info['md5sum'] ) == sim_image1.md5sum_components[0]
 
         sim_image1._header['ADDEDKW'] = 'This keyword was added'
         sim_image1.data = np.full( (64, 32), 0.5, dtype=np.float32 )
         sim_image1.weight = np.full( (64, 32), 2., dtype=np.float32 )
 
-        origimmd5sum = sim_image1.md5sum_extensions[0]
-        origwtmd5sum = sim_image1.md5sum_extensions[1]
+        origimmd5sum = sim_image1.md5sum_components[0]
+        origwtmd5sum = sim_image1.md5sum_components[1]
         sim_image1.save( only_image=True, just_update_header=True )
 
         # Make sure the md5sum is different since the image is different, but that the weight is the same
-        assert sim_image1.md5sum_extensions[0] != origimmd5sum
-        assert sim_image1.md5sum_extensions[1] == origwtmd5sum
+        assert sim_image1.md5sum_components[0] != origimmd5sum
+        assert sim_image1.md5sum_components[1] == origwtmd5sum
 
         # Make sure the archive has the new image
         info = archive.get_info( pathlib.Path( names[0] ).relative_to( FileOnDiskMixin.local_path ) )
-        assert uuid.UUID( info['md5sum'] ) == sim_image1.md5sum_extensions[0]
+        assert uuid.UUID( info['md5sum'] ) == sim_image1.md5sum_components[0]
 
         with fits.open( names[0] ) as hdul:
             assert hdul[0].header['ADDEDKW'] == 'This keyword was added'
@@ -402,6 +403,19 @@ def test_image_save_onlyimage( sim_image1 ):
 
     with open( names[1], "r" ) as ifp:
         assert ifp.read() == "Hello, world."
+
+
+# ROB YOU ARE IN PROGRESS HERE
+# def test_image_save_fpack( sim_image1 ):
+#     saved_images = []
+#     imageid = None
+#     cfg = Config.get()
+#     origfmt = cfg.value( 'storage.images.format' )
+#     try:
+#         cfg.set_value( 'storage.images.format', 'fitsfz' )
+#         sim_image1.save()
+
+
 
 
 def test_image_enum_values( sim_image_uncommitted ):

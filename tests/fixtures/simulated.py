@@ -40,6 +40,7 @@ def make_sim_exposure():
         project='foo',
         target=rnd_str(6),
         nofile=True,
+        format='fits',
         md5sum=uuid.uuid4(),  # this should be done when we clean up the exposure factory a little more
     )
     return e
@@ -205,6 +206,7 @@ def generate_image_fixture(commit=True):
         im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
         im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint32)
         im.weight = np.full(im.raw_data.shape, 1.0, dtype=np.float32)
+        im.format = 'fits'
 
         if commit:
             im.save()
