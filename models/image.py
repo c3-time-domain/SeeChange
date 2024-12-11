@@ -402,7 +402,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     # These are all the data arrays that (might) get saved for an image
     saved_components = [
-        'data',
+        'image',
         'flags',
         'weight',
         'score',  # the matched-filter score of the image (e.g., from ZOGY)
@@ -461,7 +461,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._header = None
 
         for att in self.saved_components:
-            setattr(self, f'_{att}', None)
+            if att == 'image':
+                self._data = None
+            else:
+                setattr(self, f'_{att}', None)
 
         self._nandata = None
         self._nanscore = None
@@ -1278,7 +1281,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             # save the other extensions
             if single_file or ( not only_image ):
                 for array_name in self.saved_components:
-                    if array_name == 'data':
+                    if array_name == 'image':
                         continue
                     array = getattr(self, array_name)
                     if array is not None:
@@ -1341,7 +1344,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 raise FileNotFoundError(f"Could not find the image file: {filename}")
             self._data, self._header = read_fits_image(filename, ext='image', output='both')
             for att in self.saved_components:
-                if att == 'data':
+                if att == 'image':
                     continue
                 array = read_fits_image(filename, ext=att)
                 setattr(self, f'_{att}', array)

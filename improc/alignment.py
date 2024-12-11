@@ -440,9 +440,9 @@ class ImageAligner:
             if source_image.components is None:
                 raise NotImplementedError( "Only separate image/weight/flags images currently supported." )
             impaths = source_image.get_fullpath( as_list=True )
-            # imdex = source_image.components.index( '.image' )
-            wtdex = source_image.components.index( '.weight' )
-            # fldex = source_image.components.index( '.flags' )
+            # imdex = source_image.components.index( 'image' )
+            wtdex = source_image.components.index( 'weight' )
+            # fldex = source_image.components.index( 'flags' )
 
             # For swarp to work right, the header of image must have the
             # WCS we assumed it had when calculating the transformation
