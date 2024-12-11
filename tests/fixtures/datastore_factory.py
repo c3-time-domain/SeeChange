@@ -299,10 +299,10 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                     # Copy the original image from the cache if requested
                     if save_original_image:
-                        p = pathlib.Path( ds.image.get_fullpath()[0] )
-                        ds.path_to_original_image = p.parent / f'{p.name}.image.fits.original'
-                        p = cache_dir / ds.image.filepath
-                        image_cache_path_original = p.parent / f'{p.name}.image.fits.orignal'
+                        pth = pathlib.Path( ds.image.get_fullpath()[0] )
+                        ds.path_to_original_image = pth.parent / f'{pth.name}.image.fits.original'
+                        pth = cache_dir / ds.image.filepath
+                        image_cache_path_original = pth.parent / f'{pth.name}.image.fits.original'
                         shutil.copy2( image_cache_path_original, ds.path_to_original_image )
 
                     ds.image.provenance_id = ds.prov_tree['preprocessing'].id
@@ -371,9 +371,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     shutil.copy2( ds.image.get_fullpath()[0], ds.path_to_original_image )
                     if use_cache:
                         ( cache_dir / ds.image.filepath ).parent.mkdir( exist_ok=True, parents=True )
-                        p = pathlib.Path( ds.image.filepath )
+                        pth = pathlib.Path( ds.image.filepath )
                         shutil.copy2( ds.image.get_fullpath()[0],
-                                      cache_dir / p.parent / f'{p.name}.image.fits.original' )
+                                      cache_dir / pth.parent / f'{pth.name}.image.fits.original' )
 
 
         ############# extraction to create sources / PSF  #############

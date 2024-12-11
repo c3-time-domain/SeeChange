@@ -330,9 +330,17 @@ class DECam(Instrument):
     def average_saturation_limit( self, image, section_id=None ):
         if image is None:
             return Instrument.average_saturation_limit( self, image, section_id=section_id )
-        # Although the method name is "average...", return the lower saturation
-        #  limit to be conservative
-        return min( float( image.header['SATURATA'] ), float( image.header['SATURATB'] ) )
+        if ( 'SATURATA' in image.header ) and ( 'SATURATB' in image.header ):
+            # Although the method name is "average...", return the lower saturation
+            #  limit to be conservative
+            return min( float( image.header['SATURATA'] ), float( image.header['SATURATB'] ) )
+        elif 'SATURATE' in image.header:
+            # At least some of the pre-reduced refs (produced by the lensgrinder pipeline)
+            #  have the keyword "SATURATE" in the header instead of the DECam standard
+            #  SATURATA and SATURATB.
+            return float( image.header['SATURATE'] )
+        else:
+            raise ValueError( "Unable to find saturation level in header" )
 
     @classmethod
     def _get_fits_hdu_index_from_section_id(cls, section_id):
