@@ -6,7 +6,7 @@ from astropy.io import fits
 from util.logger import SCLogger
 
 
-def read_fits_image(filename, ext=0, output='data'):
+def read_fits_image(filename, ext=None, output='data'):
     """Read a standard FITS file's image data and header.
 
     Assumes this file doesn't have any complicated data structure.
@@ -18,8 +18,12 @@ def read_fits_image(filename, ext=0, output='data'):
     filename: str or Path
         The full path to the file.
 
-    ext: int or str
-        The extension number or name to read.  For files with a single
+    ext: int or str or None
+        The extension number or name to read.  If None (default), will
+        find the first image extension (defined here as something with
+        NAXIS=2 and NAXIS1 and NAXIS2 both positive).
+
+    For files with a single
         extension, the default 0 is fine.  For .fz FITS files, if this
         is an integer, will actually read one plus this number (i.e. the
         extension of the FITS file if it were funpacked first).
@@ -39,12 +43,17 @@ def read_fits_image(filename, ext=0, output='data'):
 
     """
 
-    filepath = filename if isinstance( filename, pathlib.Path ) else pathlib.Path( filename ).resolve()
-    isfz = ( filepath.name[-3:] == '.fz' )
-    if isfz and ( isinstance( ext, int ) ):
-        ext += 1
-
     with fits.open(filename, memmap=False) as hdul:
+        if ext is None:
+            ext = 0
+            while ext < len(hdul):
+                hdr = hdul[ext].header
+                if ( hdr['NAXIS'] == 2) and ( hdr['NAXIS1'] > 0 ) and ( hdr['NAXIS2'] > 0 ):
+                    break
+                ext += 1
+            if ext >= len(hdul):
+                raise RuntimeError( f"Failed to find an image HDU in {filename}" )
+
         if output in ['data', 'both']:
             data = hdul[ext].data
             # astropy will read FITS files as big-endian

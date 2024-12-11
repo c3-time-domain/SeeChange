@@ -298,7 +298,7 @@ def test_add_to_known_exposures( decam_raw_origin_exposures ):
 
 @pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_download_and_commit_exposure(
-        code_version, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive
+        decam_exposure, code_version, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive
 ):
     # This one does a raw exposure;
     # test_decam_download_and_commit_reduced_origin_exposures downloads one
@@ -316,8 +316,21 @@ def test_decam_download_and_commit_exposure(
             # cache), so just test it with a single exposure.  Leave
             # this commented out here in case somebody comes back and
             # thinks, hmm, better test this with more than one exposure.
-            # expdexes = [ 1, 2 ]
-            expdexes = [ 1 ]
+            # nexps = 2
+            nexps = 1
+            dex = 0
+            expdexes = []
+            while ( len(expdexes) < nexps ) and ( dex < len(decam_raw_origin_exposures) ):
+                # Have to make sure we don't download something that's going to
+                #   overlap the decam_exposure session fixture, or when we clean up
+                #   at the end of this test, we'll undermine that fixture.
+                if ( pathlib.Path( decam_exposure.get_fullpath() ).name !=
+                     pathlib.Path( decam_raw_origin_exposures._frame['archive_filename'].values[dex] ).name
+                    ):
+                    expdexes.append( dex )
+                dex += 1
+            if len( expdexes ) < nexps:
+                raise RuntimeError( "Failed to idnetify enough exposures to download for test." )
 
             # get these downloaded first, to get the filenames to check against the cache
             downloaded = decam_raw_origin_exposures.download_exposures(

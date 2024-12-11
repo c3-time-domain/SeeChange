@@ -645,12 +645,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             'filter',
             'project',
             'target',
-            'format',
         ]
 
         # copy all the columns that are the same
         for column in same_columns:
             setattr(new, column, getattr(exposure, column))
+
+        new.format = config.Config.get().value( 'storage.images.format' )
 
         if exposure.filter_array is not None:
             idx = exposure.instrument_object.get_section_filter_array_index(section_id)
