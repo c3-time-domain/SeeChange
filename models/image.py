@@ -786,9 +786,15 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         ]
         new = cls()
         for att in copy_attributes:
-            value = getattr(image, att)
-            if value is not None:
-                setattr(new, att, value.copy())
+            if att == 'image':
+                if image.data is not None:
+                    new.data = image.data.copy()
+                else:
+                    new.data = None
+            else:
+                value = getattr(image, att)
+                if value is not None:
+                    setattr(new, att, value.copy())
 
         for att in simple_attributes:
             setattr(new, att, getattr(image, att))
@@ -1188,7 +1194,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return filepath
 
 
-    def _file_suffix( self ):
+    def _file_suffix( self, comp=None ):
         if self.format == 'fits':
             return ".fits"
         elif self.format == 'fitsfz':
@@ -1326,9 +1332,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def load(self):
         """Load the image data from disk, including weight, flags, etc.
 
-        Will always load the _data property.  If there is data on disk
-        for _flags, _weight, or other extensions, will laod those as
-        well.  Does *not* load the image header.
+        Will always load the _data property for the image component.  If
+        there is data on disk for flags, weight, or other components,
+        will load the relevant "_{comp}" properties as well.  Does *not*
+        load the image header.
 
         """
 
@@ -1356,20 +1363,20 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 gotim = False
                 gotweight = False
                 gotflags = False
-                for extension, filename in zip( self.components, self.get_fullpath(as_list=True) ):
+                for comp, filename in zip( self.components, self.get_fullpath(as_list=True) ):
                     if not os.path.isfile(filename):
-                        raise FileNotFoundError(f"Could not find the image extension file: {filename}")
-                    att = '_data' if extension == 'image' else f'_{att}'
+                        raise FileNotFoundError(f"Could not find the image component file: {filename}")
+                    att = '_data' if comp == 'image' else f'_{comp}'
                     setattr( self, att, read_fits_image( filename, output='data' ) )
 
-                    if extension == 'image':
+                    if comp == 'image':
                         gotim = True
-                    if extension == 'weight':
+                    if comp == 'weight':
                         gotweight = True
-                    if extension == 'flags':
+                    if comp == 'flags':
                         gotflags = True
-                    elif extension not in self.saved_components:
-                        raise ValueError( f'Unknown image extension {extension}' )
+                    elif comp not in self.saved_components:
+                        raise ValueError( f'Unknown image component {comp}' )
 
                 if not ( gotim and gotweight and gotflags ):
                     raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )

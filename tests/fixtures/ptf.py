@@ -1,6 +1,7 @@
 import pytest
 import uuid
 import os
+import io
 import re
 import shutil
 import base64
@@ -268,17 +269,6 @@ def ptf_images_datastore_factory(ptf_urls, ptf_downloader, datastore_factory, pt
     def factory( start_date='2009-04-04', end_date='2013-03-03',
                  max_images=None, provtag='ptf_images_factory',
                  overrides={'extraction': {'threshold': 5}} ):
-        # see if any of the cache names were saved to a manifest file
-        cache_names = {}
-        if (   ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and
-               ( os.path.isfile(os.path.join(ptf_cache_dir, 'manifest.txt')) )
-            ):
-            with open(os.path.join(ptf_cache_dir, 'manifest.txt')) as f:
-                text = f.read().splitlines()
-            for line in text:
-                filename, cache_name = line.split()
-                cache_names[filename] = cache_name
-
         # translate the strings into datetime objects
         start_time = datetime.strptime(start_date, '%Y-%m-%d') if start_date is not None else datetime(1, 1, 1)
         end_time = datetime.strptime(end_date, '%Y-%m-%d') if end_date is not None else datetime(3000, 1, 1)
@@ -305,28 +295,11 @@ def ptf_images_datastore_factory(ptf_urls, ptf_downloader, datastore_factory, pt
                     exp,
                     11,
                     cache_dir=ptf_cache_dir,
-                    cache_base_name=cache_names.get(url, None),
                     overrides=overrides,
                     bad_pixel_map=ptf_bad_pixel_map,
                     provtag=provtag,
                     skip_sub=True
                 )
-
-                if (
-                        not env_as_bool( "LIMIT_CACHE_USAGE" ) and
-                        hasattr(ds, 'cache_base_name') and ds.cache_base_name is not None
-                ):
-                    cache_name = ds.cache_base_name
-                    if cache_name.startswith(ptf_cache_dir):
-                        cache_name = cache_name[len(ptf_cache_dir) + 1:]
-                    if cache_name.endswith('.image.fits.json'):
-                        cache_name = cache_name[:-len('.image.fits.json')]
-                    cache_names[url] = cache_name
-
-                    # save the manifest file (save each iteration in case of failure)
-                    with open(os.path.join(ptf_cache_dir, 'manifest.txt'), 'w') as f:
-                        for key, value in cache_names.items():
-                            f.write(f'{key} {value}\n')
 
             except Exception as e:
                 # I think we should fix this along with issue #150
@@ -415,13 +388,13 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         output_dses = []
         for filename in filenames:
             imfile, sourcesfile, bgfile, psffile, wcsfile = filename.split()
-            image = copy_from_cache( Image, cache_dir, imfile + '.image.fits' )
+            image = copy_from_cache( Image, cache_dir, imfile )
             image.provenance_id = warped_prov.id
             ds = DataStore( image )
             ds.sources = copy_from_cache( SourceList, cache_dir, sourcesfile )
             ds.sources.provenance_id = warped_sources_prov.id
             ds.bg = copy_from_cache( Background, cache_dir, bgfile, add_to_dict={ 'image_shape': ds.image.data.shape } )
-            ds.psf = copy_from_cache( PSF, cache_dir, psffile + '.fits' )
+            ds.psf = copy_from_cache( PSF, cache_dir, psffile )
             ds.wcs = copy_from_cache( WorldCoordinates, cache_dir, wcsfile )
             ds.zp = copy_from_cache( ZeroPoint, cache_dir, imfile + '.zp' )
 
@@ -475,6 +448,7 @@ def ptf_ref(
         data_dir,
         code_version
 ):
+    SCLogger.debug( f"Making ptf_ref from {[i.image.filepath for i in ptf_reference_image_datastores]}" )
     refmaker = refmaker_factory('test_ref_ptf', 'PTF', provtag='ptf_ref')
     pipe = refmaker.coadd_pipeline
 
@@ -494,6 +468,8 @@ def ptf_ref(
     # Copying code from Image.invent_filepath so that
     #   we know what the filenames will be
     utag = hashlib.sha256()
+    SCLogger.debug( f"ptf_reference_image_datastores image ids: "
+                    f"{[d.image.id for d in ptf_reference_image_datastores]}" )
     for id in [ d.image.id for d in ptf_reference_image_datastores ]:
         utag.update( str(id).encode('utf-8') )
     utag = base64.b32encode(utag.digest()).decode().lower()
@@ -512,60 +488,73 @@ def ptf_ref(
     sources_prov.insert_if_needed()
 
     extensions = [
-        'image.fits',
-        f'sources_{sources_prov.id[:6]}.fits',
-        f'psf_{sources_prov.id[:6]}.fits',
-        f'bg_{sources_prov.id[:6]}.h5',
-        f'wcs_{sources_prov.id[:6]}.txt',
-        'zp'
+        '',
+        f'.sources_{sources_prov.id[:6]}.fits',
+        f'.psf_{sources_prov.id[:6]}',
+        f'.bg_{sources_prov.id[:6]}.h5',
+        f'.wcs_{sources_prov.id[:6]}.txt',
+        '.zp'
     ]
-    filenames = [os.path.join(ptf_cache_dir, cache_base_name) + f'.{ext}.json' for ext in extensions]
+    filenames = [os.path.join(ptf_cache_dir, cache_base_name) + f'{ext}.json' for ext in extensions]
 
-    if not env_as_bool( "LIMIT_CACHE_USAGE" ) and all( [ os.path.isfile(filename) for filename in filenames ] ):
-        # can load from cache
+    must_run_coadd = True
 
-        # get the image:
-        coadd_image = copy_from_cache(Image, ptf_cache_dir, cache_base_name + '.image.fits')
-        # We're supposed to load this property by running Image.from_images(), but directly
-        # access the underscore variable here as a hack since we loaded from the cache.
-        coadd_image._upstream_ids = [ d.image.id for d in ptf_reference_image_datastores ]
-        coadd_image.provenance_id = im_prov.id
-        coadd_image.ref_image_id = ptf_reference_image_datastores[-1].image.id
+    if not env_as_bool( "LIMIT_CACHE_USAGE" ):
+        founds = [ os.path.isfile(filename) for filename in filenames ]
+        if not all(founds):
+            strio = io.StringIO()
+            strio.write( "Did not find all files for ptf ref in cache:\n" )
+            for filename, found in zip( filenames, founds ):
+                strio.write( f"   {filename} {'found' if found else 'NOT FOUND'}\n" )
+            SCLogger.debug( strio.getvalue() )
 
-        coadd_datastore = DataStore( coadd_image )
+        else:
+            SCLogger.debug( f"ptf_ref loading reference from cache (cache_base_name={cache_base_name})" )
+            must_run_coadd = False
 
-        # get the source list:
-        coadd_datastore.sources = copy_from_cache(
-            SourceList, ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
-        )
-        coadd_datastore.sources.image_id = coadd_image.id
-        coadd_datastore.sources.provenance_id = sources_prov.id
 
-        # get the PSF:
-        coadd_datastore.psf = copy_from_cache( PSF, ptf_cache_dir,
-                                               cache_base_name + f'.psf_{sources_prov.id[:6]}.fits' )
-        coadd_datastore.psf.sources_id = coadd_datastore.sources.id
+            # get the image:
+            coadd_image = copy_from_cache(Image, ptf_cache_dir, cache_base_name)
+            # We're supposed to load this property by running Image.from_images(), but directly
+            # access the underscore variable here as a hack since we loaded from the cache.
+            coadd_image._upstream_ids = [ d.image.id for d in ptf_reference_image_datastores ]
+            coadd_image.provenance_id = im_prov.id
+            coadd_image.ref_image_id = ptf_reference_image_datastores[-1].image.id
 
-        # get the background:
-        coadd_datastore.bg = copy_from_cache( Background, ptf_cache_dir,
-                                              cache_base_name + f'.bg_{sources_prov.id[:6]}.h5',
-                                              add_to_dict={ 'image_shape': coadd_datastore.image.data.shape } )
-        coadd_datastore.bg.sources_id = coadd_datastore.sources.id
+            coadd_datastore = DataStore( coadd_image )
 
-        # get the WCS:
-        coadd_datastore.wcs = copy_from_cache( WorldCoordinates, ptf_cache_dir,
-                                               cache_base_name + f'.wcs_{sources_prov.id[:6]}.txt' )
-        coadd_datastore.wcs.sources_id = coadd_datastore.sources.id
+            # get the source list:
+            coadd_datastore.sources = copy_from_cache(
+                SourceList, ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
+            )
+            coadd_datastore.sources.image_id = coadd_image.id
+            coadd_datastore.sources.provenance_id = sources_prov.id
 
-        # get the zero point:
-        coadd_datastore.zp = copy_from_cache( ZeroPoint, ptf_cache_dir, cache_base_name + '.zp' )
-        coadd_datastore.zp.sources_id = coadd_datastore.sources.id
+            # get the PSF:
+            coadd_datastore.psf = copy_from_cache( PSF, ptf_cache_dir,
+                                                   cache_base_name + f'.psf_{sources_prov.id[:6]}' )
+            coadd_datastore.psf.sources_id = coadd_datastore.sources.id
 
-        # Make sure it's all in the database
-        coadd_datastore.save_and_commit()
+            # get the background:
+            coadd_datastore.bg = copy_from_cache( Background, ptf_cache_dir,
+                                                  cache_base_name + f'.bg_{sources_prov.id[:6]}.h5',
+                                                  add_to_dict={ 'image_shape': coadd_datastore.image.data.shape } )
+            coadd_datastore.bg.sources_id = coadd_datastore.sources.id
 
-    else:  # make a new reference image
+            # get the WCS:
+            coadd_datastore.wcs = copy_from_cache( WorldCoordinates, ptf_cache_dir,
+                                                   cache_base_name + f'.wcs_{sources_prov.id[:6]}.txt' )
+            coadd_datastore.wcs.sources_id = coadd_datastore.sources.id
 
+            # get the zero point:
+            coadd_datastore.zp = copy_from_cache( ZeroPoint, ptf_cache_dir, cache_base_name + '.zp' )
+            coadd_datastore.zp.sources_id = coadd_datastore.sources.id
+
+            # Make sure it's all in the database
+            coadd_datastore.save_and_commit()
+
+    if must_run_coadd:
+        SCLogger.debug( "Running coadd for ptf_ref" )
         coadd_datastore = pipe.run( ptf_reference_image_datastores, aligned_datastores=ptf_aligned_image_datastores )
         coadd_datastore.save_and_commit()
 

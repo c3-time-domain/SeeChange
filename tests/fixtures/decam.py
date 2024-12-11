@@ -151,27 +151,27 @@ def decam_reduced_origin_exposures():
 
 
 @pytest.fixture(scope='module')
-def decam_reduced_origin_exposure_files( download_url, data_dir ):
+def decam_reduced_origin_exposure_files( decam_cache_dir, download_url, data_dir ):
     fnames = []
     for which in [ 'i', 'w', 'd' ]:
-        f = f'c4d_170925_083024_oo{which}_r_v1.fits.fz'
-        outpath = os.path.join( data_dir, f )
+        outname = f'c4d_170925_083024_oo{which}_r_v1.fits.fz'
+        outpath = os.path.join( data_dir, outname )
         fnames.append( outpath )
-        url = os.path.join( download_url, 'DECAM', f )
+        url = os.path.join( download_url, 'DECAM', outname )
 
         if not os.path.isfile( outpath ):
-            if not env_as_bool( 'LIMIT_CACHE_USAGE' ):
-                SCLogger.debug( f"Downloading {f}" )
+            if env_as_bool( 'LIMIT_CACHE_USAGE' ):
+                SCLogger.debug( f"Downloading {outname}" )
                 wget.download( url=url, out=outpath )
             else:
-                cachedpath = os.path.join( decam_cache_dir, outpath )
-                os.mkdirs( os.path.dirname( cachedpath ), exist_ok=True )
+                cachedpath = os.path.join( decam_cache_dir, outname )
+                os.makedirs( os.path.dirname( cachedpath ), exist_ok=True )
                 if not os.path.isfile( cachedpath ):
-                    SCLogger.debug( f"Downloading {f}" )
+                    SCLogger.debug( f"Downloading {outname}" )
                     response = wget.download( url=url, out=cachedpath )
                     assert response == cachedpath
                 else:
-                    SCLogger.debug( f"Cached file {f} exists, not redownloading." )
+                    SCLogger.debug( f"Cached file {outname} exists, not redownloading." )
 
                 shutil.copy2( cachedpath, outpath )
 

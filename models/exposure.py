@@ -624,7 +624,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         return filepath
 
 
-    def _file_suffix( self ):
+    def _file_suffix( self, comp=None ):
         if self.format == 'fits':
             return ".fits"
         elif self.format == 'fitsfz':

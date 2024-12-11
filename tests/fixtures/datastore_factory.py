@@ -1,4 +1,3 @@
-import os
 import io
 import pathlib
 import warnings
@@ -96,9 +95,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
           section_id: str or None
             Ignored if exporim is an Image
 
-          cache_dir: str, default None
+          cache_dir: str or Path, default None
+            The top-level directory of the cache.
 
           cache_base_name: str, default None
+            The filepath of the Image that will be created; this is used
+            to search the cache for the desired object.  This should
+            *not* include the ".image.fits" suffix, or the ".json"
+            suffix.  It should be relative to cache_dir, not an
+            absolute path.
 
           overrides: dict, default None
             If passed, overrides parameters sent to pipeline_factory
@@ -144,6 +149,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
             import tracemalloc
             tracemalloc.start()
 
+        cache_dir = pathlib.Path( cache_dir ) if cache_dir is not None else None
+
         stepstodo = [ 'preprocessing', 'extraction', 'bg', 'wcs', 'zp',
                       'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ]
         if through_step is None:
@@ -163,14 +170,16 @@ def datastore_factory(data_dir, pipeline_factory, request):
             raise RuntimeError( "Error, datastory_factory must start from either an exposure or an image." )
 
         # Set up the cache if appropriate
+        # cache_base_path is the path of the image cache file, minus .json, relative to cache_dir
+        # ds.cache_base_path is the absolute equivalent
         use_cache = cache_dir is not None and cache_base_name is not None and not env_as_bool( "LIMIT_CACHE_USAGE" )
+        image_was_loaded_from_cache = False
         if cache_base_name is not None:
-            cache_name = cache_base_name + '.image.fits.json'
-            image_cache_path = os.path.join(cache_dir, cache_name)
+            cache_base_path = pathlib.Path( cache_base_name )
         else:
-            image_cache_path = None
+            cache_base_path = None
         if use_cache:
-            ds.cache_base_name = os.path.join(cache_dir, cache_base_name)  # save this for testing purposes
+            ds.cache_base_path = cache_dir / cache_base_path
 
         # This fixture uses a standard refset.  Update the pipline parameters accordingly.
         refset_name = None
@@ -206,6 +215,23 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ds.prov_tree = p.make_provenance_tree( ds.exposure if ds.exposure is not None else ds.image,
                                                ok_no_ref_provs=True )
 
+        if isinstance( exporim, Exposure ) and ( not env_as_bool("LIMIT_CACHE_USAGE") ) and cache_dir.is_dir():
+            # If we didn't know the cache base path before, we should
+            #   figure it out from the exposure and section id.
+            # (OMG all this cache stuff is tangled.)
+            im = Image.from_exposure( exporim, section_id )
+            im.provenance_id = ds.prov_tree['preprocessing'].id
+            new_cache_base_path = pathlib.Path( im.invent_filepath() )
+            use_cache = True
+            if cache_base_path is None:
+                cache_base_path = new_cache_base_path
+                report_cache_path = cache_dir / cache_base_path.parent / f'{cache_base_path.name}.report.json'
+                ds.cache_base_path = cache_dir / cache_base_path
+            elif new_cache_base_path != cache_base_path:
+                warnings.warn( f'Determined cache_base_path {new_cache_base_path} '
+                               f'from exposure/section_id, but it does not match the '
+                               f'pre-existing cache_base_path {cache_base_path}' )
+
         # Try to read the report from the cache.  If it's there, then _hopefully_ everything
         # else is there.  (Report cache is written at the end, but it's possible that there
         # will be provenance mismatches.  If that happens, then the report read from the cache
@@ -214,13 +240,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
         # (We can only make reports if given an exposure, so skip all report stuff if we
         # were given an image.)
         if isinstance( exporim, Exposure ):
-            report_cache_name = f'{cache_base_name}.report.json'
-            report_cache_path = os.path.join( cache_dir, report_cache_name )
             report_was_loaded_from_cache = False
-            SCLogger.debug( f'make_datastore searching cache for report {report_cache_path}' )
-            if use_cache and os.path.isfile( report_cache_path ):
+            report_cache_path = None
+            if cache_base_path is not None:
+                report_cache_path = cache_dir / cache_base_path.parent / f'{cache_base_path.name}.report.json'
+                SCLogger.debug( f'make_datastore searching cache for report {report_cache_path}' )
+            if use_cache and ( report_cache_path is not None ) and report_cache_path.is_file():
                 SCLogger.debug( 'make_datastore loading report from cache' )
-                ds.report = copy_from_cache( Report, cache_dir, report_cache_name )
+                ds.report = copy_from_cache( Report, cache_dir, report_cache_path, symlink=True )
                 # The cached exposure id won't be right
                 ds.report.exposure_id = exporim.id
                 # TODO -- I want this next line to be ds.report.insert().  And, indeed,
@@ -256,11 +283,13 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         if 'preprocessing' in stepstodo:
 
+            image_cache_path = None
             if ds.image is None and use_cache:  # check if preprocessed image is in cache
-                SCLogger.debug( f'make_datastore searching cache for {cache_name}' )
-                if os.path.isfile(image_cache_path):
+                image_cache_path = cache_base_path.parent / f'{cache_base_path.name}.json'
+                SCLogger.debug( f'make_datastore searching cache for {image_cache_path}' )
+                if ( cache_dir / image_cache_path).is_file():
                     SCLogger.debug('make_datastore loading image from cache')
-                    img = copy_from_cache(Image, cache_dir, cache_name)
+                    img = copy_from_cache(Image, cache_dir, image_cache_path, symlink=True)
                     # assign the correct exposure to the object loaded from cache
                     if ds.exposure_id is not None:
                         img.exposure_id = ds.exposure_id
@@ -270,14 +299,17 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                     # Copy the original image from the cache if requested
                     if save_original_image:
-                        ds.path_to_original_image = ds.image.get_fullpath()[0] + '.image.fits.original'
-                        image_cache_path_original = os.path.join(cache_dir, ds.image.filepath + '.image.fits.original')
+                        p = pathlib.Path( ds.image.get_fullpath()[0] )
+                        ds.path_to_original_image = p.parent / f'{p.name}.image.fits.original'
+                        p = cache_dir / ds.image.filepath
+                        image_cache_path_original = p.parent / f'{p.name}.image.fits.orignal'
                         shutil.copy2( image_cache_path_original, ds.path_to_original_image )
 
                     ds.image.provenance_id = ds.prov_tree['preprocessing'].id
 
                     # make sure this is saved to the archive as well
                     ds.image.save(verify_md5=False)
+                    image_was_loaded_from_cache = True
 
             if ds.image is None:  # make the preprocessed image
                 SCLogger.debug('make_datastore making preprocessed image')
@@ -293,19 +325,31 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.image.flags |= (mask * 2 ** BitFlagConverter.convert('saturated')).astype(np.uint16)
 
                 ds.image.save()
-                # even if cache_base_name is None, we still need to make the manifest file, so we will get it next time!
-                if not env_as_bool( "LIMIT_CACHE_USAGE" ) and os.path.isdir(cache_dir):
+
+                if not env_as_bool( "LIMIT_CACHE_USAGE" ) and cache_dir.is_dir():
                     # Don't copy the image to the cache -- the image database record
                     #  is going to get further modified in subsequent setps.  We don't
                     #  want an incomplete cache if those steps aren't done.
                     # Image copying to cache happens after the zp step.
-                    output_path = copy_to_cache(ds.image, cache_dir, dont_actually_copy_just_return_json_filepath=True)
-                    if image_cache_path is not None and output_path != image_cache_path:
+                    # However, verify that the thing we will copy to the cache matches
+                    #   what was expected.
+                    output_path = copy_to_cache( ds.image, cache_dir,
+                                                 dont_actually_copy_just_return_json_filepath=True )
+                    if ( ( image_cache_path is not None ) and
+                         ( output_path.resolve() != ( cache_dir / image_cache_path ).resolve() )
+                        ):
                         warnings.warn(f'cache path {image_cache_path} does not match output path {output_path}')
                     else:
-                        cache_base_name = output_path[:-16]  # remove the '.image.fits.json' part
-                        ds.cache_base_name = output_path
-                        SCLogger.debug(f'Saving image to cache at: {output_path}')
+                        # Update some of the cache paths.  These may
+                        #   have been None before, because they weren't
+                        #   passed, and we didn't have enough
+                        #   infiromation to figure them out.  Now that
+                        #   we do, unNoneify these variables.
+                        cache_base_path = output_path.parent / output_path.name[:-5]    # Strip the .json
+                        report_cache_path = cache_base_path.parent / f'{cache_base_path.name}.report.json'
+                        ds.cache_base_path = cache_base_path
+                        cache_base_path = cache_base_path.relative_to( cache_dir )
+                        SCLogger.debug( f'Later, will save image to cache at: {output_path}' )
                         # If LIMIT_CACHE_USAGE is not set and cache_dir
                         #   exists (requirements to be in this block of
                         #   code), then we want to be using the cache.
@@ -323,16 +367,18 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # image before being processed through the rest of what this
                 # factory function does, so save it if requested
                 if save_original_image:
-                    ds.path_to_original_image = ds.image.get_fullpath()[0] + '.image.fits.original'
+                    ds.path_to_original_image = str(ds.image.get_fullpath()[0]) + '.image.fits.original'
                     shutil.copy2( ds.image.get_fullpath()[0], ds.path_to_original_image )
                     if use_cache:
-                        ( pathlib.Path( cache_dir ) / ds.image.filepath ).parent.mkdir( exist_ok=True, parents=True )
+                        ( cache_dir / ds.image.filepath ).parent.mkdir( exist_ok=True, parents=True )
+                        p = pathlib.Path( ds.image.filepath )
                         shutil.copy2( ds.image.get_fullpath()[0],
-                                      os.path.join(cache_dir, ds.image.filepath + '.image.fits.original') )
+                                      cache_dir / p.parent / f'{p.name}.image.fits.original' )
 
 
         ############# extraction to create sources / PSF  #############
 
+        # this filename_barf is used by all of sources, psf, bg, wcs, zp
         filename_barf = ds.prov_tree['extraction'].id[:6]
 
         if 'extraction' in stepstodo:
@@ -340,12 +386,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
             found_sources_in_cache = False
             if use_cache:
                 # try to get the source list from cache
-                cache_name = f'{cache_base_name}.sources_{filename_barf}.fits.json'
-                sources_cache_path = os.path.join(cache_dir, cache_name)
-                SCLogger.debug( f'make_datastore searching cache for source list {cache_name}' )
-                if os.path.isfile(sources_cache_path):
+                sources_cache_path = ( cache_dir / cache_base_path.parent /
+                                       f'{cache_base_path.name}.sources_{filename_barf}.fits.json' )
+                SCLogger.debug( f'make_datastore searching cache for source list {sources_cache_path}' )
+                if sources_cache_path.is_file():
                     SCLogger.debug('make_datastore loading source list from cache')
-                    ds.sources = copy_from_cache(SourceList, cache_dir, cache_name)
+                    ds.sources = copy_from_cache(SourceList, cache_dir, sources_cache_path, symlink=True)
                     ds.sources.provenance_id = ds.prov_tree['extraction'].id
                     ds.sources.image_id = ds.image.id
                     # make sure this is saved to the archive as well
@@ -353,14 +399,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     found_sources_in_cache = True
 
                 # try to get the PSF from cache
-                cache_name = f'{cache_base_name}.psf_{filename_barf}.fits.json'
-                psf_cache_path = os.path.join(cache_dir, cache_name)
-                SCLogger.debug( f'make_datastore searching cache for psf {cache_name}' )
-                if os.path.isfile(psf_cache_path):
+                psf_cache_path = ( cache_dir / cache_base_path.parent /
+                                   f'{cache_base_path.name}.psf_{filename_barf}.json' )
+                SCLogger.debug( f'make_datastore searching cache for psf {psf_cache_path}' )
+                if psf_cache_path.is_file():
                     SCLogger.debug('make_datastore loading PSF from cache')
-                    ds.psf = copy_from_cache(PSF, cache_dir, cache_name)
+                    ds.psf = copy_from_cache(PSF, cache_dir, psf_cache_path, symlink=True)
                     ds.psf.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
+                    ds.psf.load()
                     ds.psf.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
                 else:
                     found_sources_in_cache = False
@@ -381,26 +428,26 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                 if use_cache:
                     output_path = copy_to_cache(ds.sources, cache_dir)
-                    if output_path != sources_cache_path:
+                    if output_path.resolve() != sources_cache_path.resolve():
                         warnings.warn(f'cache path {sources_cache_path} does not match output path {output_path}')
 
-                if use_cache:
                     output_path = copy_to_cache(ds.psf, cache_dir)
-                    if output_path != psf_cache_path:
+                    if output_path.resolve() != psf_cache_path.resolve():
                         warnings.warn(f'cache path {psf_cache_path} does not match output path {output_path}')
 
         ########## Background ##########
 
         if 'bg' in stepstodo:
-            cache_name = f'{cache_base_name}.bg_{filename_barf}.h5.json'
-            bg_cache_path = os.path.join(cache_dir, cache_name)
+            bg_cache_path = ( cache_dir / cache_base_path.parent /
+                              f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
             if use_cache and found_sources_in_cache:
                 # try to get the background from cache
-                SCLogger.debug( f'make_datastore searching cache for background {cache_name}' )
-                if os.path.isfile(bg_cache_path):
+                SCLogger.debug( f'make_datastore searching cache for background {bg_cache_path}' )
+                if bg_cache_path.is_file():
                     SCLogger.debug('make_datastore loading background from cache. ')
-                    ds.bg = copy_from_cache( Background, cache_dir, cache_name,
-                                             add_to_dict={ 'image_shape': ds.image.data.shape } )
+                    ds.bg = copy_from_cache( Background, cache_dir, bg_cache_path,
+                                             add_to_dict={ 'image_shape': ds.image.data.shape },
+                                             symlink=True )
                     ds.bg.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
                     ds.bg.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
@@ -413,20 +460,20 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.update_report( 'backgrounding' )
                 if use_cache:
                     output_path = copy_to_cache(ds.bg, cache_dir)
-                    if output_path != bg_cache_path:
+                    if output_path.resolve() != bg_cache_path.resolve():
                         warnings.warn(f'cache path {bg_cache_path} does not match output path {output_path}')
 
         ########## Astrometric calibration ##########
 
         if 'wcs' in stepstodo:
-            cache_name = f'{cache_base_name}.wcs_{filename_barf}.txt.json'
-            wcs_cache_path = os.path.join(cache_dir, cache_name)
+            wcs_cache_path = ( cache_dir / cache_base_path.parent /
+                               f'{cache_base_path.name}.wcs_{filename_barf}.txt.json' )
             if use_cache and found_sources_in_cache:
                 # try to get the WCS from cache
-                SCLogger.debug( f'make_datastore searching cache for wcs {cache_name}' )
-                if os.path.isfile(wcs_cache_path):
+                SCLogger.debug( f'make_datastore searching cache for wcs {wcs_cache_path}' )
+                if wcs_cache_path.is_file():
                     SCLogger.debug('make_datastore loading WCS from cache. ')
-                    ds.wcs = copy_from_cache(WorldCoordinates, cache_dir, cache_name)
+                    ds.wcs = copy_from_cache(WorldCoordinates, cache_dir, wcs_cache_path, symlink=True)
                     ds.wcs.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
                     ds.wcs.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
@@ -438,20 +485,20 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.update_report( 'astrocal' )
                 if use_cache:
                     output_path = copy_to_cache(ds.wcs, cache_dir)
-                    if output_path != wcs_cache_path:
+                    if output_path.resolve() != wcs_cache_path.resolve():
                         warnings.warn(f'cache path {wcs_cache_path} does not match output path {output_path}')
 
         ########## Photometric calibration ##########
 
         if 'zp' in stepstodo:
-            cache_name = cache_base_name + '.zp.json'
-            zp_cache_path = os.path.join(cache_dir, cache_name)
+            zp_cache_path = ( cache_dir / cache_base_path.parent /
+                              f'{cache_base_path.name}.zp.json' )
             if use_cache and found_sources_in_cache:
                 # try to get the ZP from cache
-                SCLogger.debug( f'make_datastore searching cache for zero point {cache_name}' )
-                if os.path.isfile(zp_cache_path):
+                SCLogger.debug( f'make_datastore searching cache for zero point {zp_cache_path}' )
+                if zp_cache_path.is_file():
                     SCLogger.debug('make_datastore loading zero point from cache. ')
-                    ds.zp = copy_from_cache(ZeroPoint, cache_dir, cache_name)
+                    ds.zp = copy_from_cache(ZeroPoint, cache_dir, zp_cache_path, symlink=True)
                     ds.zp.sources_ids = ds.sources.id
 
             if ds.zp is None:
@@ -459,9 +506,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds = p.photometor.run(ds)
                 ds.update_report( 'photocal' )
                 if use_cache:
-                    cache_name = cache_base_name + '.zp.json'
-                    output_path = copy_to_cache(ds.zp, cache_dir, cache_name)
-                    if output_path != zp_cache_path:
+                    output_path = copy_to_cache(ds.zp, cache_dir, zp_cache_path)
+                    if output_path.resolve() != zp_cache_path.resolve():
                         warnings.warn(f'cache path {zp_cache_path} does not match output path {output_path}')
 
         ########### Done with image and image data products; save and commit #############
@@ -470,7 +516,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ds.save_and_commit()
 
         # *Now* copy the image to cache, including the estimates for lim_mag, fwhm, etc.
-        if not env_as_bool("LIMIT_CACHE_USAGE"):
+        if ( not env_as_bool("LIMIT_CACHE_USAGE") ) and ( not image_was_loaded_from_cache ):
             output_path = copy_to_cache(ds.image, cache_dir)
 
         # Make sure there are no residual errors in the datastore
@@ -508,17 +554,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                 sub_im = Image.from_new_and_ref( ds.image, ds.ref_image )
                 sub_im.provenance_id = ds.prov_tree['subtraction'].id
-                cache_sub_name = sub_im.invent_filepath()
-                cache_name = cache_sub_name + '.image.fits.json'
-                sub_cache_path = os.path.join(cache_dir, cache_name)
-                zogy_score_cache_path = sub_cache_path.replace( ".image.fits.json", ".zogy_score.npy" )
-                zogy_alpha_cache_path = sub_cache_path.replace( ".image.fits.json", ".zogy_alpha.npy" )
+                cache_sub_name = pathlib.Path( sub_im.invent_filepath() )
 
+                sub_cache_path = cache_dir / cache_sub_name.parent / f'{cache_sub_name.name}.json'
+                zogy_score_cache_path = cache_dir / cache_sub_name.parent / f'{cache_sub_name.name}.zogy_score.npy'
+                zogy_alpha_cache_path = cache_dir / cache_sub_name.parent / f'{cache_sub_name.name}.zogy_alpha.npy'
                 alignupstrprovs = Provenance.get_batch( [ ds.image.provenance_id,
                                                           ds.sources.provenance_id,
                                                           ds.ref_image.provenance_id,
                                                           ds.ref_sources.provenance_id ] )
-
                 prov_aligned_ref = Provenance(
                     code_version_id=ds.prov_tree['subtraction'].code_version_id,
                     parameters=ds.prov_tree['subtraction'].parameters['alignment'],
@@ -530,14 +574,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 f = f.replace('ComSci', 'Warped')  # not sure if this or 'Sci' will be in the filename
                 f = f.replace('Sci', 'Warped')     # in any case, replace it with 'Warped'
                 f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
-                filename_aligned_ref = f
-                filename_aligned_ref_bg = f'{f}_bg'
-                cache_name_aligned_ref = filename_aligned_ref + '.image.fits.json'
-                cache_name_aligned_ref_bg = filename_aligned_ref_bg + '.h5.json'
-                cache_name_aligned_ref_zp = filename_aligned_ref + '.zp.json'
-                aligned_ref_cache_path = os.path.join( cache_dir, cache_name_aligned_ref )
-                aligned_ref_bg_cache_path = os.path.join( cache_dir, cache_name_aligned_ref_bg )
-                aligned_ref_zp_cache_path = os.path.join( cache_dir, cache_name_aligned_ref_zp )
+                filename_aligned_ref = pathlib.Path( f )
+                filename_aligned_ref_bg = pathlib.Path( f'{f}_bg' )
+
+                aligned_ref_cache_path = ( cache_dir / filename_aligned_ref.parent /
+                                           f'{filename_aligned_ref.name}.json' )
+                aligned_ref_bg_cache_path = ( cache_dir / filename_aligned_ref_bg.parent /
+                                              f'{filename_aligned_ref_bg.name}.h5.json' )
+                aligned_ref_zp_cache_path = ( cache_dir / filename_aligned_ref.parent /
+                                              f'{filename_aligned_ref.name}.zp.json' )
 
                 # Commenting this out -- we know that we're aligning to new,
                 #   do don't waste cache on aligned_new
@@ -560,9 +605,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 if p.subtractor.pars.method == 'zogy':
                     files_needed.extend( [ zogy_score_cache_path, zogy_alpha_cache_path ] )
 
-                if all( os.path.isfile(f) for f in files_needed ):
+                if all( f.is_file() for f in files_needed ):
                     SCLogger.debug('make_datastore loading subtraction image from cache: {sub_cache_path}" ')
-                    tmpsubim =  copy_from_cache(Image, cache_dir, cache_name)
+                    tmpsubim =  copy_from_cache(Image, cache_dir, sub_cache_path, symlink=True)
                     tmpsubim.provenance_id = ds.prov_tree['subtraction'].id
                     tmpsubim._upstream_ids = sub_im._upstream_ids
                     tmpsubim.ref_image_id = ref.image_id
@@ -575,7 +620,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.aligned_new_image = ds.image
 
                     SCLogger.debug('loading aligned reference image from cache. ')
-                    image_aligned_ref = copy_from_cache( Image, cache_dir, cache_name_aligned_ref )
+                    image_aligned_ref = copy_from_cache( Image, cache_dir, aligned_ref_cache_path, symlink=True )
                     image_aligned_ref.provenance_id = prov_aligned_ref.id
                     image_aligned_ref.info['original_image_id'] = ds.ref_image.id
                     image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
@@ -588,8 +633,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     #  (We've added bg and zp because specific tests need them.)
                     ds.aligned_ref_image = image_aligned_ref
 
-                    ds.aligned_ref_bg = copy_from_cache( Background, cache_dir, cache_name_aligned_ref_bg )
-                    ds.aligned_ref_zp = copy_from_cache( ZeroPoint, cache_dir, cache_name_aligned_ref_zp )
+                    ds.aligned_ref_bg = copy_from_cache( Background, cache_dir, aligned_ref_bg_cache_path,
+                                                         symlink=True )
+                    ds.aligned_ref_zp = copy_from_cache( ZeroPoint, cache_dir, aligned_ref_zp_cache_path, symlink=True )
                     ds.aligned_new_image = ds.image
                     ds.aligned_new_bg = ds.bg
                     ds.aligned_new_zp = ds.zp
@@ -598,7 +644,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     strio = io.StringIO()
                     strio.write( "make_datastore didn't find subtraction image in cache\n" )
                     for f in files_needed:
-                        strio.write( f"   ... {f} : {'found' if os.path.isfile(f) else 'NOT FOUND'}\n" )
+                        strio.write( f"   ... {f} : {'found' if f.is_file() else 'NOT FOUND'}\n" )
                     SCLogger.debug( strio.getvalue() )
 
             if ds.sub_image is None:  # no hit in the cache
@@ -608,7 +654,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.update_report( 'subtraction' )
                 if use_cache:
                     output_path = copy_to_cache(ds.sub_image, cache_dir)
-                    if output_path != sub_cache_path:
+                    if output_path.resolve() != sub_cache_path.resolve():
                         raise ValueError( f'cache path {sub_cache_path} does not match output path {output_path}' )
                         # warnings.warn(f'cache path {sub_cache_path} does not match output path {output_path}')
                     if p.subtractor.pars.method == 'zogy':
@@ -624,70 +670,85 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     #  we should be saving it.)
                     SCLogger.debug( "make_datastore saving aligned ref image to cache" )
                     ds.aligned_ref_image.save( no_archive=True )
-                    copy_to_cache( ds.aligned_ref_image, cache_dir )
-                    copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=cache_name_aligned_ref_zp )
+                    outpath = copy_to_cache( ds.aligned_ref_image, cache_dir )
+                    if outpath.resolve() != aligned_ref_cache_path.resolve():
+                        warnings.warn( f"Aligned ref cache path {outpath} "
+                                       f"doesn't match expected {aligned_ref_cache_path}" )
+                    outpath = copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=aligned_ref_zp_cache_path )
+                    if outpath.resolve() != aligned_ref_zp_cache_path.resolve():
+                        warnings.warn( f"Aligned ref zp cache path {outpath} "
+                                       f"doesn't match expected {aligned_ref_zp_cache_path}" )
                     ds.aligned_ref_bg.save( no_archive=True, filename=f'{ds.aligned_ref_image.filepath}_bg.h5' )
-                    copy_to_cache( ds.aligned_ref_bg, cache_dir )
+                    outpath = copy_to_cache( ds.aligned_ref_bg, cache_dir )
+                    if outpath.resolve() != aligned_ref_bg_cache_path.resolve():
+                        warnings.warn( f"Aligned ref bg cache path {outpath} "
+                                       f"doesn't match expected {aligned_ref_bg_cache_path}" )
 
         ############ detecting to create a source list ############
 
         if 'detection' in stepstodo:
-            cache_name = os.path.join(cache_dir, cache_sub_name +
-                                      f'.sources_{ds.prov_tree["detection"].id[:6]}.npy.json')
+            detection_cache_path = ( cache_dir / cache_sub_name.parent /
+                                     f'{cache_sub_name.name}.sources_{ds.prov_tree["detection"].id[:6]}.npy.json' )
             if use_cache:
-                SCLogger.debug( f'make_datastore searching cache for detections {cache_name}' )
-            if use_cache and os.path.isfile(cache_name):
-                SCLogger.debug( "make_datastore loading detections from cache." )
-                ds.detections = copy_from_cache(SourceList, cache_dir, cache_name)
-                ds.detections.provenance_id = ds.prov_tree['detection'].id
-                ds.detections.image_id = ds.sub_image.id
-                ds.detections.save(verify_md5=False)
-            else:  # cannot find detections on cache
+                SCLogger.debug( f'make_datastore searching cache for detections {detection_cache_path}' )
+                if detection_cache_path.is_file():
+                    SCLogger.debug( "make_datastore loading detections from cache." )
+                    ds.detections = copy_from_cache(SourceList, cache_dir, detection_cache_path, symlink=True)
+                    ds.detections.provenance_id = ds.prov_tree['detection'].id
+                    ds.detections.image_id = ds.sub_image.id
+                    ds.detections.save(verify_md5=False)
+
+            if ds.detections is None:
                 SCLogger.debug( "make_datastore running detector to find detections" )
                 ds = p.detector.run(ds)
                 ds.detections.save( image=ds.sub_image, verify_md5=False )
                 ds.update_report( 'detection' )
                 if use_cache:
-                    copy_to_cache( ds.detections, cache_dir, cache_name )
+                    outpath = copy_to_cache( ds.detections, cache_dir, detection_cache_path )
+                    if outpath.resolve() != detection_cache_path.resolve():
+                        warnings.warn( f"Detection cache path {outpath} "
+                                       f"doesn't match expected {detection_cache_path}" )
 
         ############ cutting to create cutouts ############
 
         if 'cutting' in stepstodo:
-            cache_name = os.path.join(cache_dir, cache_sub_name +
-                                      f'.cutouts_{ds.prov_tree["cutting"].id[:6]}.h5')
-            SCLogger.debug( f'make_datastore searching cache for cutouts {cache_name}' )
-            if use_cache and ( os.path.isfile(cache_name) ):
-                SCLogger.debug( 'make_datastore loading cutouts from cache.' )
-                ds.cutouts = copy_from_cache(Cutouts, cache_dir, cache_name)
-                ds.cutouts.provenance_id = ds.prov_tree['cutting'].id
-                ds.cutouts.sources_id = ds.detections.id
-                ds.cutouts.load_all_co_data( sources=ds.detections )
-                ds.cutouts.save( image=ds.sub_image, sources=ds.detections )  # make sure to save to archive as well
-            else:  # cannot find cutouts on cache
+            cutouts_cache_path = ( cache_dir / cache_sub_name.parent /
+                                   f'{cache_sub_name.name}.cutouts_{ds.prov_tree["cutting"].id[:6]}.h5' )
+            if use_cache:
+                SCLogger.debug( f'make_datastore searching cache for cutouts {cutouts_cache_path}' )
+                if cutouts_cache_path.is_file():
+                    SCLogger.debug( 'make_datastore loading cutouts from cache.' )
+                    ds.cutouts = copy_from_cache(Cutouts, cache_dir, cutouts_cache_path, symlink=True)
+                    ds.cutouts.provenance_id = ds.prov_tree['cutting'].id
+                    ds.cutouts.sources_id = ds.detections.id
+                    ds.cutouts.load_all_co_data( sources=ds.detections )
+                    ds.cutouts.save( image=ds.sub_image, sources=ds.detections )  # make sure to save to archive as well
+
+            if ds.cutouts is None:
                 SCLogger.debug( "make_datastore running cutter to create cutouts" )
                 ds = p.cutter.run(ds)
                 ds.cutouts.save( image=ds.sub_image, sources=ds.detections )
                 ds.update_report( 'cutting' )
                 if use_cache:
-                    copy_to_cache(ds.cutouts, cache_dir)
+                    outpath = copy_to_cache(ds.cutouts, cache_dir)
+                    if outpath.resolve() != cutouts_cache_path.resolve():
+                        warnings.warn( f"Cutouts cache path {outpath} "
+                                       f"doesn't match expected {cutouts_cache_path}" )
 
         ############ measuring to create measurements ############
 
         if 'measuring' in stepstodo:
-            all_measurements_cache_name = os.path.join( cache_dir,
-                                                        cache_sub_name +
-                                                        f'.all_measurements_{ds.prov_tree["measuring"].id[:6]}.json')
-            measurements_cache_name = os.path.join(cache_dir, cache_sub_name +
-                                                   f'.measurements_{ds.prov_tree["measuring"].id[:6]}.json')
+            all_measurements_cache_path = ( cache_dir / cache_sub_name.parent /
+                                            ( f'{cache_sub_name.name}.all_measurements_'
+                                              f'{ds.prov_tree["measuring"].id[:6]}.json' ) )
+            measurements_cache_path = ( cache_dir / cache_sub_name.parent /
+                                        f'{cache_sub_name.name}.measurements_{ds.prov_tree["measuring"].id[:6]}.json' )
 
-            SCLogger.debug( f'make_datastore searching cache for all measurements {all_measurements_cache_name} '
-                            f'and measurements {measurements_cache_name}' )
-            if ( use_cache and
-                 os.path.isfile(measurements_cache_name) and
-                 os.path.isfile(all_measurements_cache_name)
-                ):
+            SCLogger.debug( f'make_datastore searching cache for all measurements {all_measurements_cache_path} '
+                            f'and measurements {measurements_cache_path}' )
+            if use_cache and measurements_cache_path.is_file() and all_measurements_cache_path.is_file():
                 SCLogger.debug( 'make_datastore loading measurements from cache.' )
-                ds.measurements = copy_list_from_cache(Measurements, cache_dir, measurements_cache_name)
+                ds.measurements = copy_list_from_cache(Measurements, cache_dir, measurements_cache_path)
                 [ setattr(m, 'provenance_id', ds.prov_tree['measuring'].id) for m in ds.measurements ]
                 [ setattr(m, 'cutouts_id', ds.cutouts.id) for m in ds.measurements ]
 
@@ -697,7 +758,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # I think they're the same objects.  As long as we're
                 # treating measurements as read-only, except for a bit of
                 # memory usage this shouldn't matter.
-                ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, all_measurements_cache_name)
+                ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, all_measurements_cache_path)
                 [ setattr(m, 'provenance_id', ds.prov_tree['measuring'].id) for m in ds.all_measurements ]
                 [ setattr(m, 'cutouts_id', ds.cutouts.id) for m in ds.all_measurements ]
 
@@ -708,29 +769,29 @@ def datastore_factory(data_dir, pipeline_factory, request):
                                             is_testing=ds.prov_tree['measuring'].is_testing,
                                             session=sess )
 
-            else:  # cannot find measurements on cache
+            if ds.measurements is None:
                 SCLogger.debug( "make_datastore running measurer to create measurements" )
                 ds = p.measurer.run(ds)
                 ds.update_report( 'measuring' )
                 # assign each measurements an ID to be saved in cache - needed for scores cache
                 [m.id for m in ds.measurements]
                 if use_cache:
-                    copy_list_to_cache(ds.all_measurements, cache_dir, all_measurements_cache_name)
-                    copy_list_to_cache(ds.measurements, cache_dir, measurements_cache_name)
+                    copy_list_to_cache(ds.all_measurements, cache_dir, all_measurements_cache_path)
+                    copy_list_to_cache(ds.measurements, cache_dir, measurements_cache_path)
 
         if 'scoring' in stepstodo:
-            deepscores_cache_name = os.path.join(cache_dir, cache_sub_name +
-                                                   f'.deepscores_{ds.prov_tree["scoring"].id[:6]}.json')
+            deepscores_cache_path = ( cache_dir / cache_sub_name.parent /
+                                      f'{cache_sub_name.name}.deepscores_{ds.prov_tree["scoring"].id[:6]}.json' )
 
-            SCLogger.debug( f'make_datastore searching cache for deepscores {deepscores_cache_name}' )
+            SCLogger.debug( f'make_datastore searching cache for deepscores {deepscores_cache_path}' )
             needs_rerun = True
-            if use_cache and os.path.isfile(deepscores_cache_name):
+            if use_cache and deepscores_cache_path.is_file():
                 # In order to load from cache, we must have the ability to point each score to
                 # the proper measurements. Currently, the only way I have to do this is using the
                 # score.measurements_id attribute, which requires that the measurements were also
                 # loaded from cache and have the same id as when the scores were saved.
                 SCLogger.debug( 'make_datastore checking measurement ids before loading scores from cache')
-                scores = copy_list_from_cache(DeepScore, cache_dir, deepscores_cache_name)
+                scores = copy_list_from_cache(DeepScore, cache_dir, deepscores_cache_path)
                 if ( set([str(score.measurements_id) for score in scores])
                     .issubset(set([str(m.id) for m in ds.measurements])) ):
                     SCLogger.debug( 'make_datastore loading scores from cache')
@@ -749,14 +810,14 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # assign each score an ID to be saved in cache
                 [sc.id for sc in ds.scores]
                 if use_cache:
-                    copy_list_to_cache(ds.scores, cache_dir, deepscores_cache_name)
+                    copy_list_to_cache(ds.scores, cache_dir, deepscores_cache_path)
 
         # If necessary, save the report to the cache
         if isinstance( exporim, Exposure ) and use_cache and ( not report_was_loaded_from_cache ):
             ds.finalize_report()
             if ds.report is not None:
-                output_path = copy_to_cache( ds.report, cache_dir, report_cache_name )
-                if output_path != report_cache_path:
+                output_path = copy_to_cache( ds.report, cache_dir, report_cache_path )
+                if output_path.resolve() != report_cache_path.resolve():
                     warnings.warn( f'report cache path {report_cache_path} does not match output path {output_path}' )
             else:
                 SCLogger.warning( "Report not available!" )
@@ -764,7 +825,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         # Make sure there are no residual exceptions caught in the datastore
         assert ds.exception is None
 
-        SCLogger.debug( "make_datastore running ds.save_and_commit after subtraction/etc" )
+        SCLogger.debug( "make_datastore running final ds.save_and_commit" )
         ds.save_and_commit()
 
         return ds

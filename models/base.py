@@ -849,7 +849,7 @@ class SeeChangeBase:
                     self.archive.delete( self.filepath, okifmissing=True )
                 else:
                     for comp in self.components:
-                        self.archive.delete( f"{self.filepath}.{comp}{self._file_suffix()}", okifmissing=True )
+                        self.archive.delete( f"{self.filepath}.{comp}{self._file_suffix(comp)}", okifmissing=True )
 
             # make sure these are set to null just in case we fail
             # to commit later on, we will at least know something is wrong
@@ -1045,17 +1045,15 @@ class FileOnDiskMixin:
     filepath is the beginning of the names of all the files.  The full
     filenames are constrcuted by appending ".", the component name
     (stored in self.components), and the file suffix (returned by
-    self._file_suffix()) to filepath.  For example, if an image file has the
-    image itself, an associated weight, and an associated mask, then
-    filepath might be "image" and components might be
-    ["image", "mask", "weight"] to indicate that
-    the three files image.image.fits, image.mask.fits, and
-    image.weight.fits are all associated with this entry.  When
-    components is non-null, md5sum should be null, and
-    md5sum_components is an array with the same length as
-    components.  (For extension files that have not yet been
-    saved to the archive, that element of the md5sum_components array is
-    null.)
+    self._file_suffix(comp)) to filepath.  For example, if an image file
+    has the image itself, an associated weight, and an associated mask,
+    then filepath might be "image" and components might be ["image",
+    "mask", "weight"] to indicate that the three files image.image.fits,
+    image.mask.fits, and image.weight.fits are all associated with this
+    entry.  When components is non-null, md5sum should be null, and
+    md5sum_components is an array with the same length as components.
+    (For extension files that have not yet been saved to the archive,
+    that element of the md5sum_components array is null.)
 
     Saving data:
 
@@ -1301,11 +1299,16 @@ class FileOnDiskMixin:
 
         return filepath
 
-    def _file_suffix( self ):
+    def _file_suffix( self, comp=None ):
         """Returns the suffix on saved files.  Used by get_relpath and get_fullpath.
 
         Subclasses should override this if they are going to use
         multiple componentss.  See Image._file_suffix for an example.
+
+        Parameters
+        ----------
+          comp: str or None
+            The component whose suffix we want.
 
         """
 
@@ -1332,7 +1335,7 @@ class FileOnDiskMixin:
 
         if self.components is None:
             return [ self.filepath ] if as_list else self.filepath
-        return [ f'{self.filepath}.{comp}{self._file_suffix()}' for comp in self.components ]
+        return [ f'{self.filepath}.{comp}{self._file_suffix(comp)}' for comp in self.components ]
 
 
     def get_fullpath( self, download=True, as_list=False, nofile=None, always_verify_md5=False ):
@@ -1379,7 +1382,7 @@ class FileOnDiskMixin:
         Returns
         -------
         str or list of str
-            Full path to the file(s) on local disk.
+            Absolute path to the file(s) on local disk.
 
         """
         if self.components is None:
@@ -1452,7 +1455,7 @@ class FileOnDiskMixin:
             else:
                 md5sum = self.md5sum_components[compdex]
                 md5sum = None if md5sum is None else md5sum.hex
-            fname += f'.{comp}' + self._file_suffix()
+            fname += f'.{comp}' + self._file_suffix(comp)
 
         downloaded = False
         fullname = os.path.join(self.local_path, fname)
@@ -1622,7 +1625,7 @@ class FileOnDiskMixin:
         #   (in which case it's None)
         # localpath holds the absolute path of where the file should be written in the local file store
         relpath = pathlib.Path( self.filepath if component is None else
-                                self.filepath + '.' + component + self._file_suffix() )
+                                self.filepath + '.' + component + self._file_suffix(component) )
         localpath = pathlib.Path( self.local_path ) / relpath
         if isinstance( data, bytes ):
             path = "passed data"
@@ -1718,7 +1721,8 @@ class FileOnDiskMixin:
         # The rest of this deals with the archive
 
         archivemd5 = self.md5sum if component is None else compmd5s[compdex]
-        logfilepath = self.filepath if component is None else f'{self.filepath}.{component}{self._file_suffix()}'
+        logfilepath = ( self.filepath if component is None
+                        else f'{self.filepath}.{component}{self._file_suffix(component)}' )
 
         mustupload = False
         if archivemd5 is None:
