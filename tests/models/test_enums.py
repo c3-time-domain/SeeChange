@@ -55,8 +55,9 @@ def test_converter_dict():
         14: 'png',
         15: 'pdf',
         16: 'fitsldac',
+        17: 'fitsfz'
     }
-    assert ImageFormatConverter.dict == { 1: 'fits', 2: 'hdf5' }
+    assert ImageFormatConverter.dict == { 1: 'fits', 2: 'hdf5', 17: 'fitsfz' }
 
 
 def test_converter_convert():

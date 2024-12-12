@@ -18,6 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from models.base import SmartSession, FileOnDiskMixin
+from models.provenance import Provenance
 from models.instrument import get_instrument_instance
 from models.image import Image, image_upstreams_association_table
 from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag, image_badness_inverse
@@ -25,7 +26,9 @@ from models.psf import PSF
 from models.source_list import SourceList
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
-# from util.config import Config
+import improc.tools
+from util.config import Config
+from util.fits import read_fits_image
 
 from tests.conftest import rnd_str
 from tests.fixtures.simulated import ImageCleanup
@@ -405,15 +408,128 @@ def test_image_save_onlyimage( sim_image1 ):
         assert ifp.read() == "Hello, world."
 
 
-# ROB YOU ARE IN PROGRESS HERE
-# def test_image_save_fpack( sim_image1 ):
-#     saved_images = []
-#     imageid = None
-#     cfg = Config.get()
-#     origfmt = cfg.value( 'storage.images.format' )
-#     try:
-#         cfg.set_value( 'storage.images.format', 'fitsfz' )
-#         sim_image1.save()
+def test_image_save_fpack( code_version ):
+    saved_images = []
+    prov = None
+    rng = np.random.default_rng( 42 )
+    cfg = Config.get()
+    origfmt = cfg.value( 'storage.images.format' )
+    try:
+        prov = Provenance( process="test", code_version_id=code_version.id, is_testing=True,
+                           parameters={"gratuitous": rng.normal() } )
+        prov.insert()
+        # Unfortunately, the sim_image fixtures don't have high enough pixel
+        #   values to give a good test of the fpacking.  (It manages to save
+        #   perfectly even with lossy compression.)
+        im = Image( type="Sci", format="fitsfz", provenance_id=prov.id,
+                    instrument="DemoInstrument", telescope="DemoTelescope",
+                    mjd=60000., endmjd=60000.02083, exp_time=180., project="Test",
+                    target="Test", ra=120., dec=0.,
+                    ra_corner_00=119.9, ra_corner_01=119.9, ra_corner_10=120.1, ra_corner_11=120.1,
+                    dec_corner_00=-0.1, dec_corner_01=0.1, dec_corner_10=-0.1, dec_corner_11=0.1 )
+        im.calculate_coordinates()
+
+        # Sky level 1000., noise 20.
+        im.data = rng.normal( 1000., 20., size=(2048,1024) )
+        im.weight = np.full_like( im.data, 0.0025 )
+        # For sky mean=1000, sky sig=200, poissonnoise means gain = 2.5 e-/adu
+        gain = 2.5
+        # Plop in some fake stars
+        sig = 2.2
+        wid = int( np.floor( 4*sig ) )
+        xs = np.arange( -wid, wid+1 )
+        xs, ys = np.meshgrid( xs, xs )
+        for n in range( 200 ):
+            flux = 5000. * ( 1. - rng.power(3) )
+            star = ( flux / np.sqrt( 2. * np.pi * sig**2 ) ) * np.exp( -( xs**2 + ys**2 ) / ( 2 * sig**2 ) )
+            # poisson noise
+            star += rng.normal( size=star.shape ) * np.sqrt( star / gain )
+            x = int( np.floor( rng.uniform( wid+1, im.data.shape[1]-wid-1 ) ) )
+            y = int( np.floor( rng.uniform( wid+1, im.data.shape[0]-wid-1 ) ) )
+            im.data[ y-wid:y+wid+1, x-wid:x+wid+1 ] += star
+            im.weight[ y-wid:y+wid+1, x-wid:x+wid+1 ] = 1. / ( ( 1. / im.weight[ y-wid:y+wid+1, x-wid:x+wid+1 ] ) +
+                                                               ( np.maximum( star, 0. ) / gain ) )
+        # Randomly flag 0.2% of pixels for no adequately explained reason
+        im.flags = np.floor( rng.uniform( 0., 1.002, size=im.data.shape ) ).astype( '>u2' )
+
+        # Make a header
+        tsthdrvals = { 'TEST1': 4, 'TEST2': 8, 'TEST3': 15, 'TEST4': 16, 'TEST5': 23, 'TEST6': 42 }
+        im.header = fits.Header( tsthdrvals )
+
+        sky, skysig = improc.tools.sigma_clipping( im.data )
+        # Just make sure sigma_clipping found the right thing
+        assert sky == pytest.approx( 1000., abs=1. )
+        assert skysig == pytest.approx( 20., abs=1. )
+
+        assert im.filepath is None
+        im.save()
+        saved_images.append( im )
+        assert im.filepath is not None
+
+        nonfzim = Image.copy_image( im )
+        nonfzim.provenance_id = prov.id
+        nonfzim.format = 'fits'
+        # Need to give it a different (say) mjd so that they aren't
+        # (from the point of view of the database) the same image.
+        nonfzim.mjd = 60000.1
+        nonfzim.ned_mjd = 60001.12083
+        nonfzim.save()
+        saved_images.append( nonfzim )
+        assert nonfzim.filepath is not None
+
+        assert len( im.get_fullpath() ) == 3
+        for fname in im.get_fullpath():
+            assert fname[-3:] == '.fz'
+            # Make sure that the non-fz file didn't get left behind
+            p = pathlib.Path( fname )
+            p = p.parent / p.name[:-3]
+            assert p.name[-5:] == '.fits'
+            assert not p.exists()
+        filepath = pathlib.Path( im.get_fullpath()[0] )
+        nonfzfilepath = pathlib.Path( nonfzim.get_fullpath()[0] )
+        # Make sure it really compressed
+        assert filepath.stat().st_size / nonfzfilepath.stat().st_size < 0.2
+
+        newdata, newhdr = read_fits_image( filepath, output='both' )
+        assert all( newhdr[k] == v for k, v in tsthdrvals.items() )
+        diff = newdata - im.data
+        # Make sure the lossy compression did lose something...
+        assert np.abs(diff).max() > 0
+        # ...but not too much.  Fpack claims to quantize to sky rms/4
+        # (for q=4).  It seems to be doing better than that here as
+        # compared to what's in tests/util/test_fits_operations.py, but
+        # that may be because this image is so bloody simplistic.
+        assert np.abs(diff).max() < skysig / 4.
+
+        # Finally,  make sure that we save .fits.fz files if the config
+        #   is set to do so
+        cfg.set_value( 'storage.images.format', 'fitsfz' )
+        anotherim =Image.copy_image( im )
+        anotherim.provenance_id = prov.id
+        anotherim._format = None
+        assert anotherim.format is None
+        anotherim.mjd = 60000.2
+        anotherim.end_mjd = 60000.22083
+        anotherim.save()
+        saved_images.append( anotherim )
+        assert anotherim.format == 'fitsfz'
+        assert len( anotherim.get_fullpath() ) == 3
+        for fname in anotherim.get_fullpath():
+            p = pathlib.Path( fname )
+            assert p.name[-3:] == '.fz'
+            assert p.is_file()
+            p = p.parent / p.name[:-3]
+            assert p.name[-5:] == '.fits'
+            assert not p.exists()
+        filepath = pathlib.Path( anotherim.get_fullpath()[0] )
+        assert filepath.stat().st_size / nonfzfilepath.stat().st_size < 0.2
+
+    finally:
+        cfg.set_value( 'storage.images.format', origfmt )
+        for i in saved_images:
+            i.delete_from_disk_and_database()
+        if prov is not None:
+            prov.delete_from_disk_and_database()
 
 
 

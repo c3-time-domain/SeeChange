@@ -1264,8 +1264,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             self.filepath = self.invent_filepath()
 
         cfg = config.Config.get()
+        if self.format is None:
+            self.format = cfg.value('storage.images.format', default='fits')
+
         single_file = cfg.value('storage.images.single_file', default=False)
-        format = cfg.value('storage.images.format', default='fits')
         extensions = []
         files_written = {}
 
@@ -1276,8 +1278,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         full_path = os.path.join(self.local_path, self.filepath)
 
-        if ( format == 'fits' ) or ( format == 'fitsfz' ):
-            fpack = ( format == 'fitsfz' )
+        if ( self.format == 'fits' ) or ( self.format == 'fitsfz' ):
+            fpack = ( self.format == 'fitsfz' )
             # save the imaging data
             extensions.append('image')
             imgpath = save_fits_image_file( full_path, self.data, self.header,
@@ -1312,11 +1314,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 if not self.filepath.endswith('.fits'):
                     self.filepath += '.fits'
 
-        elif format == 'hdf5':
-            # TODO: consider writing a more generic utility to save_image_file that handles either fits or hdf5, etc.
+        elif self.format == 'hdf5':
             raise NotImplementedError("HDF5 format is not yet supported.")
+
         else:
-            raise ValueError(f"Unknown image format: {format}. Use 'fits' or 'hdf5'.")
+            raise ValueError(f"Unknown image format: {self.format}. Use 'fits' or 'fitsfz'.")
 
         # Save the file to the archive and update the fields of the Image object accordingly.
         # (as well as self.filepath, self.components, self.md5sum, self.md5sum_components)

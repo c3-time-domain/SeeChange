@@ -43,6 +43,9 @@ db:
 #   If True, then weight, flags will be stored in the same file with the
 #   image data (as different HDU extensions for FITS files).  If False,
 #   then image, weight, flags are three separate FITS files.
+#   single_file=True is not really fully supported at the moment, and
+#   would need some development and a bunch of thought before one should
+#   trust using it.
 #
 # name_convention: string
 #   Use any of the following: inst_name, date, time, section_id, filter,
