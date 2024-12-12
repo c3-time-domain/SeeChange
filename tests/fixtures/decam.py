@@ -602,6 +602,8 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
         if not env_as_bool( "LIMIT_CACHE_USAGE" ) and os.path.isfile( json_path ):
             image = copy_from_cache(Image, decam_cache_dir, json_path)
             image.provenance_id = prov.id
+            # This is a bit gratuitous; it's going to overwrite the file on idks that
+            #  we just copied from cache.
             image.save(verify_md5=False)  # make sure to upload to archive as well
         else:  # no cache, must create a new image object
             yaml_path = os.path.join(decam_cache_dir, f'007/{filebase}.{chip:02d}.image.yaml')

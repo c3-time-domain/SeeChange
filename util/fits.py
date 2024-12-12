@@ -189,8 +189,9 @@ def save_fits_image_file( filename,
     # Build the header if necessary
     if not isinstance( header, fits.Header ):
         tmp = fits.Header()
-        for k, v in header.items():
-            tmp.header[k] = v
+        if header is not None:
+            for k, v in header.items():
+                tmp.header[k] = v
         header = tmp
 
     # If we're just updating the header, do that and be done

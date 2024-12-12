@@ -308,6 +308,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.image.provenance_id = ds.prov_tree['preprocessing'].id
 
                     # make sure this is saved to the archive as well
+                    # this is inefficient, because it's going to overwrite the
+                    # (presumably identical) image files we just copied from the cache!
                     ds.image.save(verify_md5=False)
                     image_was_loaded_from_cache = True
 

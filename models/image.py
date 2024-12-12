@@ -1369,8 +1369,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 for comp, filename in zip( self.components, self.get_fullpath(as_list=True) ):
                     if not os.path.isfile(filename):
                         raise FileNotFoundError(f"Could not find the image component file: {filename}")
-                    att = '_data' if comp == 'image' else f'_{comp}'
-                    setattr( self, att, read_fits_image( filename, output='data' ) )
+                    if comp == 'image':
+                        self._data, self._header = read_fits_image( filename, output='both' )
+                    else:
+                        setattr( self, f'_{comp}', read_fits_image( filename, output='data' ) )
 
                     if comp == 'image':
                         gotim = True
@@ -1994,10 +1996,16 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     @property
     def header(self):
-        if self._header is None and self.filepath is not None:
+        if ( self._header is None ) and ( self.filepath is not None ):
             self.load()
-        if self._header is None:
-            self._header = fits.Header()
+        # These next two lines are troublesome.  If we later set
+        #   a filepath, intending to hook this image up to it, but
+        #   we've already accessed the header property, then it won't
+        #   load the header from the filepath.  Removing them... and
+        #   we'll see if there are things that depend on finding
+        #   an empty header if there isn't one set already.
+        # if self._header is None:
+        #     self._header = fits.Header()
         return self._header
 
     @header.setter
