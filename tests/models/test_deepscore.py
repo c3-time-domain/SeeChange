@@ -39,6 +39,7 @@ def test_multiple_algorithms(decam_exposure, decam_reference, decam_default_cali
         p1.subtractor.pars.refset = 'test_refset_decam'
         p1.scorer.pars.algorithm = "random"
         ds1 = p1.run(exposure, sec_id)
+        assert ds1.exception is None
 
         with SmartSession() as session:
             ds1.save_and_commit(session=session)
@@ -54,6 +55,7 @@ def test_multiple_algorithms(decam_exposure, decam_reference, decam_default_cali
         p2.subtractor.pars.refset = 'test_refset_decam'
         p2.scorer.pars.algorithm = "allperfect"
         ds2 = p2.run(exposure, sec_id)
+        assert ds2.exception is None
 
         with SmartSession() as session:
             # commit and check the proper number of scores are saved to db

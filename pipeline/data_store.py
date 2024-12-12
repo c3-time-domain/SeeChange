@@ -676,12 +676,22 @@ class DataStore:
     def catch_exception(self, exception):
         """Store the exception into the datastore for later use. """
 
-        strio = io.StringIO( "DataStore catching exception:\n ")
-        traceback.print_exception( exception, file=strio )
-        SCLogger.error( strio.getvalue() )
+        # This is a nigtmare for debugging.  Errors don't show up where they
+        #   really happen, but sometime later when we actually see if the
+        #   datastore had an exception.
+        # strio = io.StringIO( "DataStore catching exception:\n ")
+        # traceback.print_exception( exception, file=strio )
+        # SCLogger.error( strio.getvalue() )
 
-        self.exception = exception
-        # This is a trivial function now, but we may want to do more complicated stuff down the road
+        # self.exception = exception
+        # # This is a trivial function now, but we may want to do more complicated stuff down the road
+
+        # Try to remove the nightmare by just raising an exception when
+        # there's an exception instead of hiding it.  Unless we decide we want to
+        # go back to catching exceptions, we should probably remove this method
+        # and thes that read DataStore.exception, and find all the places they're
+        # used and just put in real exception handling.
+        raise exception
 
     def read_exception(self):
         """Return the stored exception and clear it from the datastore. """

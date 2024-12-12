@@ -713,7 +713,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         if 'cutting' in stepstodo:
             cutouts_cache_path = ( cache_dir / cache_sub_name.parent /
-                                   f'{cache_sub_name.name}.cutouts_{ds.prov_tree["cutting"].id[:6]}.h5' )
+                                   f'{cache_sub_name.name}.cutouts_{ds.prov_tree["cutting"].id[:6]}.h5.json' )
             if use_cache:
                 SCLogger.debug( f'make_datastore searching cache for cutouts {cutouts_cache_path}' )
                 if cutouts_cache_path.is_file():

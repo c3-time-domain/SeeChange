@@ -80,7 +80,7 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
             fullpath = pathlib.Path( fullpath )
             if fullpath.is_symlink():
                 # ...is this actually a problem?  Maybe not.
-                raise RuntimeError( "Trying to copy a simlink to cache: {fullpath}" )
+                raise RuntimeError( f"Trying to copy a simlink to cache: {fullpath}" )
             cachepath = cache_dir / relpath
             SCLogger.debug(f"Copying {fullpath} to {cachepath}")
             cachepath.parent.mkdir( exist_ok=True, parents=True )
