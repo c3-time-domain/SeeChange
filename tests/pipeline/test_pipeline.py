@@ -703,7 +703,6 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
 
     finally:
         if 'ds' in locals():
-            ds.read_exception()
             ds.delete_everything()
 
 

@@ -244,8 +244,5 @@ def test_warnings_and_exceptions( decam_datastore_through_cutouts ):
     measurer.pars.inject_warnings = 0
     ds.measurements = None
     ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'measuring'."):
         ds = measurer.run( ds )
-        ds.reraise()
-    assert "Exception injected by pipeline parameters in process 'measuring'." in str(excinfo.value)
-    ds.read_exception()

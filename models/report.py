@@ -300,9 +300,6 @@ class Report(Base, UUIDMixin):
         if 'reporting' not in self.process_runtime:
             self.process_runtime['reporting'] = 0.0
 
-        # parse the error, if it exists, so we can get to other data products without raising
-        exception = ds.read_exception()
-
         # check which objects exist on the datastore, and which have been committed
         for prod in pipeline_products_dict.values():
             if getattr(ds, prod) is not None:
@@ -327,17 +324,25 @@ class Report(Base, UUIDMixin):
                 else:
                     self.warnings += '\n***|***|***\n' + new_string
 
-            if exception is not None:
-                self.error_type = exception.__class__.__name__
-                self.error_message = str(exception)
-                self.error_step = process_step
+        if ( ds.exceptions is not None ) and ( len(ds.exceptions) > 0 ):
+            # The first exception is going to be the reported error type
+            if self.error_step is None:
+                self.error_step = process_step if process_step is not None else "(unknown)"
+                self.error_type = ds.exceptions[0].__class__.__name__
+            if self.error_message is None:
+                self.error_message = ''
+            else:
+                self.error_message += '\n***|***|***\n'
+            for e in ds.exceptions:
+                self.error_message += ( f"Exception {f'in step {process_step}' if process_step is not None else ''}: "
+                                        f"{str(e)}\n" )
+
+            # Now that we've reported them, clear out the exceptions
+            ds.exceptions = []
 
         self.upsert()
 
         self.process_runtime['reporting'] += time.perf_counter() - t0
-
-        if exception is not None:
-            raise exception
 
 
     @staticmethod

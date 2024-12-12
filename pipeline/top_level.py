@@ -454,20 +454,12 @@ class Pipeline:
                 return ds
 
         except Exception as e:
-            # if self.pars.save_on_exception:
-            #     SCLogger.error( "DataStore saving data products on pipeline exception" )
-            #     ds.save_and_commit()
-            # ds.catch_exception(e)
-            # ds.catch_exception(e)
-            # TODO: remove the try block above and just let exceptions be exceptions.
-            # This is here as a temporary measure so that we don't have lots of
-            # gratuitous diffs in a PR that's about other things simply as a result
-            # of indentation changes.
+            if self.pars.save_on_exception:
+                SCLogger.error( "DataStore saving data products on pipeline exception" )
+                ds.save_and_commit()
             SCLogger.exception( f"Exception in Pipeline.run: {e}" )
+            ds.exception.append( e )
             raise
-        # finally:
-        #     # make sure the DataStore is returned in case the calling scope want to debug the pipeline run
-        #     return ds
 
     def make_provenance_tree( self,
                               exposure,

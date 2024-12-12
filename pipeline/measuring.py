@@ -435,15 +435,9 @@ class Measurer:
             return ds
 
         except Exception as e:
-            # ds.catch_exception(e)
-            # TODO: remove the try block above and just let exceptions be exceptions.
-            # This is here as a temporary measure so that we don't have lots of
-            # gratuitous diffs in a PR that's about other things simply as a result
-            # of indentation changes.
             SCLogger.exception( f"Exception in Measurer.run: {e}" )
+            ds.exceptions.append( e )
             raise
-        # finally:  # make sure datastore is returned to be used in the next step
-        #     return ds
 
     def make_filter_bank(self, imsize, psf_fwhm):
         """Make a filter bank matching the PSF width.

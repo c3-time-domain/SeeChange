@@ -86,8 +86,5 @@ def test_warnings_and_exceptions( decam_datastore_through_extraction ):
 
     backgrounder.pars.inject_warnings = 0
     backgrounder.pars.inject_exceptions = 1
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'backgrounding'."):
         ds = backgrounder.run( ds )
-        ds.reraise()
-    assert "Exception injected by pipeline parameters in process 'backgrounding'." in str(excinfo.value)
-    ds.read_exception()

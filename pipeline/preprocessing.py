@@ -330,12 +330,6 @@ class Preprocessor:
             return ds
 
         except Exception as e:
-            # ds.catch_exception(e)
-            # TODO: remove the try block above and just let exceptions be exceptions.
-            # This is here as a temporary measure so that we don't have lots of
-            # gratuitous diffs in a PR that's about other things simply as a result
-            # of indentation changes.
             SCLogger.exception( f"Exception in Preprocessor.run: {e}" )
+            ds.exceptions.append( e )
             raise
-        # finally:
-        #     return ds

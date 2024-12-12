@@ -275,15 +275,9 @@ class Detector:
                 return ds
 
             except Exception as e:
-                # ds.catch_exception(e)
-                # TODO: remove the try block above and just let exceptions be exceptions.
-                # This is here as a temporary measure so that we don't have lots of
-                # gratuitous diffs in a PR that's about other things simply as a result
-                # of indentation changes.
                 SCLogger.exception( f"Exception in Detector.run: {e}" )
+                ds.exceptions.append( e )
                 raise
-            # finally:  # make sure datastore is returned to be used in the next step
-            #     return ds
 
         else:  # regular image
             try:
@@ -342,15 +336,9 @@ class Detector:
                 return ds
 
             except Exception as e:
-                # ds.catch_exception(e)
-                # TODO: remove the try block above and just let exceptions be exceptions.
-                # This is here as a temporary measure so that we don't have lots of
-                # gratuitous diffs in a PR that's about other things simply as a result
-                # of indentation changes.
                 SCLogger.exception( f"Exception in Detector.run: {e}" )
+                ds.exceptions.append(e)
                 raise
-            # finally:  # make sure datastore is returned to be used in the next step
-            #     return ds
 
     def extract_sources(self, image, wcs=None, score=None, zogy_alpha=None):
         """Calls one of the extraction methods, based on self.pars.method.

@@ -170,8 +170,5 @@ def test_warnings_and_exceptions( decam_datastore_through_subtraction ):
     detector.pars.inject_warnings = 0
     detector.pars.inject_exceptions = 1
     ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'detection'."):
         ds = detector.run( ds )
-        ds.reraise()
-    assert "Exception injected by pipeline parameters in process 'detection'." in str(excinfo.value)
-    ds.read_exception()
