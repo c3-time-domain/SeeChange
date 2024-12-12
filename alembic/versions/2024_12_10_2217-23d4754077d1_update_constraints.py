@@ -54,7 +54,7 @@ def upgrade() -> None:
                            "ADD CONSTRAINT world_coordinates_md5sum_check "
                            "CHECK( NOT(md5sum IS NULL AND md5sum_components IS NULL "
                            "           OR array_position(md5sum_components, NULL) IS NOT NULL))" ) )
-    
+
 
 def downgrade() -> None:
     conn = op.get_bind()
