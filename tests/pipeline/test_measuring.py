@@ -237,7 +237,6 @@ def test_warnings_and_exceptions( decam_datastore_through_cutouts ):
 
         with pytest.warns(UserWarning) as record:
             measurer.run( ds )
-        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'measuring'." in str(w.message) for w in record)
 

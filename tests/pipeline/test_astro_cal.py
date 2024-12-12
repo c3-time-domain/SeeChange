@@ -111,11 +111,9 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
 
     # The datastore should object when it tries to get the provenance for astrometor
     # params that don't match what we started with
-    ds = astrometor.run(ds)
-    exc = ds.read_exception()
-    assert exc is not None
-    assert str(exc) == ( "DataStore getting provenance for extraction whose parameters don't match "
-                         "the parameters of the same process in the prov_tree" )
+    with pytest.raises( ValueError, match=( "DataStore getting provenance for extraction whose parameters "
+                                            "don't match the parameters of the same process in the prov_tree" ) ):
+        ds = astrometor.run(ds)
 
     # Wipe the datastore prov_tree so that we can
     #   run something with paramaters that are
@@ -214,7 +212,6 @@ def test_warnings_and_exceptions(decam_datastore, astrometor):
         astrometor.pars.inject_warnings = 1
         with pytest.warns(UserWarning) as record:
             astrometor.run(decam_datastore)
-        assert decam_datastore.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'astrocal'." in str(w.message) for w in record)
 

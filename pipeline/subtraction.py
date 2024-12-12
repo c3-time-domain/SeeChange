@@ -575,12 +575,9 @@ class Subtractor:
         Returns a DataStore object with the products of the processing.
         """
         self.has_recalculated = False
-        try:  # first make sure we get back a datastore, even an empty one
-            ds, session = DataStore.from_args(*args, **kwargs)
-        except Exception as e:
-            return DataStore.catch_failure_to_parse(e, *args)
 
         try:
+            ds, session = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -777,7 +774,15 @@ class Subtractor:
                 import tracemalloc
                 ds.memory_usages['subtraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
-        except Exception as e:
-            ds.catch_exception(e)
-        finally:  # make sure datastore is returned to be used in the next step
             return ds
+
+        except Exception as e:
+            # ds.catch_exception(e)
+            # TODO: remove the try block above and just let exceptions be exceptions.
+            # This is here as a temporary measure so that we don't have lots of
+            # gratuitous diffs in a PR that's about other things simply as a result
+            # of indentation changes.
+            SCLogger.exception( f"Exception in Subtractor.run: {e}" )
+            raise
+        # finally:  # make sure datastore is returned to be used in the next step
+        #     return ds

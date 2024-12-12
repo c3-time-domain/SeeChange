@@ -330,15 +330,12 @@ class Pipeline:
             The DataStore object that includes all the data products.
 
         """
-        try:  # first make sure we get back a datastore, even an empty one
-            ds, session = self.setup_datastore(*args, **kwargs)
-        except Exception as e:
-            return DataStore.catch_failure_to_parse(e, *args)
-
-        if session is not None:
-            raise RuntimeError( "You have a persistent session in Pipeline.run; don't do that." )
 
         try:
+            ds, session = self.setup_datastore(*args, **kwargs)
+            if session is not None:
+                raise RuntimeError( "You have a persistent session in Pipeline.run; don't do that." )
+
             stepstodo = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp', 'subtraction',
                           'detection', 'cutting', 'measuring', 'scoring', ]
             if self.pars.through_step is not None:
@@ -457,13 +454,20 @@ class Pipeline:
                 return ds
 
         except Exception as e:
-            if self.pars.save_on_exception:
-                SCLogger.error( "DataStore saving data products on pipeline exception" )
-                ds.save_and_commit()
-            ds.catch_exception(e)
-        finally:
-            # make sure the DataStore is returned in case the calling scope want to debug the pipeline run
-            return ds
+            # if self.pars.save_on_exception:
+            #     SCLogger.error( "DataStore saving data products on pipeline exception" )
+            #     ds.save_and_commit()
+            # ds.catch_exception(e)
+            # ds.catch_exception(e)
+            # TODO: remove the try block above and just let exceptions be exceptions.
+            # This is here as a temporary measure so that we don't have lots of
+            # gratuitous diffs in a PR that's about other things simply as a result
+            # of indentation changes.
+            SCLogger.exception( f"Exception in Pipeline.run: {e}" )
+            raise
+        # finally:
+        #     # make sure the DataStore is returned in case the calling scope want to debug the pipeline run
+        #     return ds
 
     def make_provenance_tree( self,
                               exposure,

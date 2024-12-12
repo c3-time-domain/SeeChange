@@ -519,9 +519,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if ( not env_as_bool("LIMIT_CACHE_USAGE") ) and ( not image_was_loaded_from_cache ):
             output_path = copy_to_cache(ds.image, cache_dir)
 
-        # Make sure there are no residual errors in the datastore
-        assert ds.exception is None
-
         ############ Now do subtraction / detection / measurement / etc. ##############
 
         ########## subtraction ##########
@@ -821,9 +818,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     warnings.warn( f'report cache path {report_cache_path} does not match output path {output_path}' )
             else:
                 SCLogger.warning( "Report not available!" )
-
-        # Make sure there are no residual exceptions caught in the datastore
-        assert ds.exception is None
 
         SCLogger.debug( "make_datastore running final ds.save_and_commit" )
         ds.save_and_commit()

@@ -26,7 +26,6 @@ def test_measuring_background( decam_datastore_through_extraction ):
 
     backgrounder = ds._pipeline.backgrounder
     ds = backgrounder.run( ds )
-    assert ds.exception is None
 
     # check that the background is statistically similar to the image stats
     mu, sig = sigma_clipping(ds.image.nandata)
@@ -81,7 +80,6 @@ def test_warnings_and_exceptions( decam_datastore_through_extraction ):
 
         with pytest.warns(UserWarning) as record:
             backgrounder.run( ds )
-        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'backgrounding'." in str(w.message)
                    for w in record)

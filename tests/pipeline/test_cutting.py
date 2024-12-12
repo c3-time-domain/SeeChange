@@ -13,7 +13,6 @@ def test_warnings_and_exceptions( decam_datastore_through_detection ):
 
         with pytest.warns(UserWarning) as record:
             cutter.run( ds )
-        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'cutting'." in str(w.message) for w in record)
 

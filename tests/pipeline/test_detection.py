@@ -163,7 +163,6 @@ def test_warnings_and_exceptions( decam_datastore_through_subtraction ):
 
         with pytest.warns(UserWarning) as record:
             detector.run( ds )
-        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'detection'." in str(w.message) for w in record)
 

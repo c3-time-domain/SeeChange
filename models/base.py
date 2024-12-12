@@ -1566,7 +1566,7 @@ class FileOnDiskMixin:
         # or writing files when not necessary since I/O tends to be much
         # more expensive than processing.)
 
-        # First : figure out if this is an component or not,
+        # First : figure out if this is a component or not,
         #   and make sure that's consistent with the object.
         # If it is:
         #   Find the index into the components array for

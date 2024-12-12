@@ -656,54 +656,54 @@ class DataStore:
                                 "Don't pass sessions to DataStore constructors." )
         return output_session
 
-    @staticmethod
-    def catch_failure_to_parse(exception, *args):
-        """Call this when the from_args() function fails.
-        It is gaurenteed to return a DataStore object,
-        and will set the error attribute to the exception message.
-        """
+    # @staticmethod
+    # def catch_failure_to_parse(exception, *args):
+    #     """Call this when the from_args() function fails.
+    #     It is gaurenteed to return a DataStore object,
+    #     and will set the error attribute to the exception message.
+    #     """
 
-        datastores = [a for a in args if isinstance(a, DataStore)]
-        if len(datastores) > 0:
-            ds = datastores[0]
-        else:
-            ds = DataStore()  # return an empty datastore, as we cannot create it and cannot find one in args
+    #     datastores = [a for a in args if isinstance(a, DataStore)]
+    #     if len(datastores) > 0:
+    #         ds = datastores[0]
+    #     else:
+    #         ds = DataStore()  # return an empty datastore, as we cannot create it and cannot find one in args
 
-        ds.exception = exception
+    #     ds.exception = exception
 
-        return ds
+    #     return ds
 
-    def catch_exception(self, exception):
-        """Store the exception into the datastore for later use. """
+    # def catch_exception(self, exception):
+    #     """Store the exception into the datastore for later use. """
 
-        # This is a nigtmare for debugging.  Errors don't show up where they
-        #   really happen, but sometime later when we actually see if the
-        #   datastore had an exception.
-        # strio = io.StringIO( "DataStore catching exception:\n ")
-        # traceback.print_exception( exception, file=strio )
-        # SCLogger.error( strio.getvalue() )
+    #     # This is a nigtmare for debugging.  Errors don't show up where they
+    #     #   really happen, but sometime later when we actually see if the
+    #     #   datastore had an exception.
+    #     # strio = io.StringIO( "DataStore catching exception:\n ")
+    #     # traceback.print_exception( exception, file=strio )
+    #     # SCLogger.error( strio.getvalue() )
 
-        # self.exception = exception
-        # # This is a trivial function now, but we may want to do more complicated stuff down the road
+    #     # self.exception = exception
+    #     # # This is a trivial function now, but we may want to do more complicated stuff down the road
 
-        # Try to remove the nightmare by just raising an exception when
-        # there's an exception instead of hiding it.  Unless we decide we want to
-        # go back to catching exceptions, we should probably remove this method
-        # and thes that read DataStore.exception, and find all the places they're
-        # used and just put in real exception handling.
-        raise exception
+    #     # Try to remove the nightmare by just raising an exception when
+    #     # there's an exception instead of hiding it.  Unless we decide we want to
+    #     # go back to catching exceptions, we should probably remove this method
+    #     # and thes that read DataStore.exception, and find all the places they're
+    #     # used and just put in real exception handling.
+    #     raise exception
 
-    def read_exception(self):
-        """Return the stored exception and clear it from the datastore. """
-        output = self.exception
-        self.exception = None
-        return output
+    # def read_exception(self):
+    #     """Return the stored exception and clear it from the datastore. """
+    #     output = self.exception
+    #     self.exception = None
+    #     return output
 
-    def reraise(self):
-        """If an exception is logged to the datastore, raise it. Otherwise pass. """
-        if self.exception is not None:
-            e = self.read_exception()
-            raise e
+    # def reraise(self):
+    #     """If an exception is logged to the datastore, raise it. Otherwise pass. """
+    #     if self.exception is not None:
+    #         e = self.read_exception()
+    #         raise e
 
     def __init__(self, *args, **kwargs):
         """Make a DataStore.
@@ -759,7 +759,7 @@ class DataStore:
         self._image_id = None  # use this to specify an image already in the database
 
         self.warnings_list = None  # will be replaced by a list of warning objects in top_level.Pipeline.run()
-        self.exception = None  # the exception object (so we can re-raise it if needed)
+        # self.exception = None  # the exception object (so we can re-raise it if needed)
         self.runtimes = {}  # for each process step, the total runtime in seconds
         self.memory_usages = {}  # for each process step, the peak memory usage in MB
         self.products_committed = ''  # a comma separated list of object names (e.g., "image, sources") saved to DB
@@ -770,20 +770,20 @@ class DataStore:
         self.parse_args(*args, **kwargs)
 
 
-    def __getattribute__(self, key):
-        # if this datastore has a pending error, will raise it as soon as any other data is used
-        if (
-                key not in ['exception', 'read_exception', 'update_report', 'reraise', 'report'] and
-                not key.startswith('__') and hasattr(self, 'exception') and self.exception is not None
-        ):
-            SCLogger.warning('DataStore has a pending exception. Call read_exception() to get it, '
-                             'or reraise() to raise it.')
-            SCLogger.warning(f'Exception was triggered by trying to access attribute {key}.')
-            raise self.exception
+    # def __getattribute__(self, key):
+    #     # if this datastore has a pending error, will raise it as soon as any other data is used
+    #     if (
+    #             key not in ['exception', 'read_exception', 'update_report', 'reraise', 'report'] and
+    #             not key.startswith('__') and hasattr(self, 'exception') and self.exception is not None
+    #     ):
+    #         SCLogger.warning('DataStore has a pending exception. Call read_exception() to get it, '
+    #                          'or reraise() to raise it.')
+    #         SCLogger.warning(f'Exception was triggered by trying to access attribute {key}.')
+    #         raise self.exception
 
-        value = super().__getattribute__(key)
+    #     value = super().__getattribute__(key)
 
-        return value
+    #     return value
 
     def __setattr__(self, key, value):
         """Check some of the inputs before saving them.

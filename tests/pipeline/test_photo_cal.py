@@ -97,7 +97,6 @@ def test_warnings_and_exceptions(decam_datastore_through_wcs):
 
         with pytest.warns(UserWarning) as record:
             photometor.run( ds )
-        assert ds.exception is None
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'photocal'." in str(w.message) for w in record)
 
