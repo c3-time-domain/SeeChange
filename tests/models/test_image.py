@@ -449,8 +449,18 @@ def test_image_save_fpack( code_version ):
             im.data[ y-wid:y+wid+1, x-wid:x+wid+1 ] += star
             im.weight[ y-wid:y+wid+1, x-wid:x+wid+1 ] = 1. / ( ( 1. / im.weight[ y-wid:y+wid+1, x-wid:x+wid+1 ] ) +
                                                                ( np.maximum( star, 0. ) / gain ) )
-        # Randomly flag 0.2% of pixels for no adequately explained reason
-        im.flags = np.floor( rng.uniform( 0., 1.002, size=im.data.shape ) ).astype( '>u2' )
+        # We're not actually using the flags image as a flags image, so
+        #   instead fill it with values that will really test the
+        #   lossless compression.  (The image class is supposed to save
+        #   the flags image losslessly, since usually it's a 16-bit
+        #   integer and will compress very well with lossless
+        #   gzip... and we don't want mask values slightly deviating
+        #   from their true values, since they're treated as bitmasks!)
+        #   (However, I suspect with 16-bit integers even if we told it
+        #   to do lossy compression, it would end up saving with full
+        #   fidelity.  Here, we're trying to test that the explicit
+        #   "save losslessly" functionality is working.)
+        im.flags = rng.uniform( 0, 1e5, size=im.data.shape ).astype( '>f4' )
 
         # Make a header
         tsthdrvals = { 'TEST1': 4, 'TEST2': 8, 'TEST3': 15, 'TEST4': 16, 'TEST5': 23, 'TEST6': 42 }
@@ -500,6 +510,11 @@ def test_image_save_fpack( code_version ):
         # compared to what's in tests/util/test_fits_operations.py, but
         # that may be because this image is so bloody simplistic.
         assert np.abs(diff).max() < skysig / 4.
+
+        # Make sure the flags didn't lose anything, since it was supposedly saved
+        #   losslessly
+        maskdata = read_fits_image( im.get_fullpath()[ im.components.index('flags') ] )
+        assert np.all( maskdata == im.flags )
 
         # Finally,  make sure that we save .fits.fz files if the config
         #   is set to do so

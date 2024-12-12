@@ -1384,6 +1384,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 if not ( gotim and gotweight and gotflags ):
                     raise FileNotFoundError( "Failed to load at least one of image, weight, flags" )
 
+        # Just in case weight value got fiddled during lossy compression, explicitly set all
+        #   weights for flagged pixels exactly to 0
+        self.weight[ self.flags != 0 ] = 0.
+
     def free( self, only_free=None ):
         """Free loaded image memory.  Does not delete anything from disk.
 

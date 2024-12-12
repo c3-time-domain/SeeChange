@@ -327,8 +327,8 @@ class DECam(Instrument):
             return Instrument.average_again( self, None, section_id=section_id )
         if ( 'GAINA' in image.header ) and ( 'GAINB' in image.header ):
             return ( float( image.header['GAINA'] ) + float( image.header['GAINB'] ) ) / 2.
-        # elif 'GAIN' in image.header:
-        #     return float( image.header['GAIN'] )
+        elif 'GAIN' in image.header:
+            return float( image.header['GAIN'] )
         else:
             raise ValueError( "Unable to find gain level in header" )
 
@@ -339,11 +339,11 @@ class DECam(Instrument):
             # Although the method name is "average...", return the lower saturation
             #  limit to be conservative
             return min( float( image.header['SATURATA'] ), float( image.header['SATURATB'] ) )
-        # elif 'SATURATE' in image.header:
-        #     # At least some of the pre-reduced refs (produced by the lensgrinder pipeline)
-        #     #  have the keyword "SATURATE" in the header instead of the DECam standard
-        #     #  SATURATA and SATURATB.
-        #     return float( image.header['SATURATE'] )
+        elif 'SATURATE' in image.header:
+            # At least some of the pre-reduced refs (produced by the lensgrinder pipeline)
+            #  have the keyword "SATURATE" in the header instead of the DECam standard
+            #  SATURATA and SATURATB.
+            return float( image.header['SATURATE'] )
         else:
             raise ValueError( "Unable to find saturation level in header" )
 
