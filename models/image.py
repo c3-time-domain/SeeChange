@@ -1386,7 +1386,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         # Just in case weight value got fiddled during lossy compression, explicitly set all
         #   weights for flagged pixels exactly to 0
-        self.weight[ self.flags != 0 ] = 0.
+        if ( self._weight is not None ) and ( self._flags is not None ):
+            self._weight[ self._flags != 0 ] = 0.
 
     def free( self, only_free=None ):
         """Free loaded image memory.  Does not delete anything from disk.

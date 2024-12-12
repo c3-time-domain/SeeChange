@@ -547,8 +547,6 @@ def test_image_save_fpack( code_version ):
             prov.delete_from_disk_and_database()
 
 
-
-
 def test_image_enum_values( sim_image_uncommitted ):
     im = sim_image_uncommitted
     im.filepath = im.invent_filepath()
