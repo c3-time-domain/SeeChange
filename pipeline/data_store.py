@@ -2,7 +2,7 @@ import io
 import datetime
 import sqlalchemy as sa
 import uuid
-import traceback
+# import traceback
 
 from util.util import parse_session, listify, asUUID
 from util.logger import SCLogger
