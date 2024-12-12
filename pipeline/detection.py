@@ -286,9 +286,10 @@ class Detector:
             #     return ds
 
         else:  # regular image
-            prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
             try:
                 ds, session = DataStore.from_args(*args, **kwargs)
+                prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
+
                 t_start = time.perf_counter()
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
