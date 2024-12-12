@@ -577,7 +577,6 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
     dses = []
     delete_list = []
     for dsindex, chip in enumerate( [ 27, 47 ] ):
-        import pdb; pdb.set_trace()
         for ext in [ 'image.fits', 'weight.fits', 'flags.fits', 'image.yaml' ]:
             cache_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.{ext}' )
             if os.path.isfile( cache_path ):
