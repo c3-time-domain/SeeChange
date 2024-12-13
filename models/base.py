@@ -1303,7 +1303,7 @@ class FileOnDiskMixin:
         """Returns the suffix on saved files.  Used by get_relpath and get_fullpath.
 
         Subclasses should override this if they are going to use
-        multiple componentss.  See Image._file_suffix for an example.
+        multiple components.  See Image._file_suffix for an example.
 
         Parameters
         ----------
@@ -1455,7 +1455,7 @@ class FileOnDiskMixin:
             else:
                 md5sum = self.md5sum_components[compdex]
                 md5sum = None if md5sum is None else md5sum.hex
-            fname += f'.{comp}' + self._file_suffix(comp)
+            fname += f'.{comp}{self._file_suffix(comp)}'
 
         downloaded = False
         fullname = os.path.join(self.local_path, fname)

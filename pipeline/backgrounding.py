@@ -119,7 +119,7 @@ class Backgrounder:
                     fmask = np.array(image._flags, dtype=np.float32)
                     sep_bg_obj = sep.Background(image.data.copy(), mask=fmask,
                                                   bw=boxsize, bh=boxsize, fw=filtsize, fh=filtsize)
-                    fmask = None
+                    del fmask
                     bg = Background(
                         value=float(np.nanmedian(sep_bg_obj.back())),
                         noise=float(np.nanmedian(sep_bg_obj.rms())),

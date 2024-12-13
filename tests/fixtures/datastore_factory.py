@@ -373,7 +373,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         # Update some of the cache paths.  These may
                         #   have been None before, because they weren't
                         #   passed, and we didn't have enough
-                        #   infiromation to figure them out.  Now that
+                        #   information to figure them out.  Now that
                         #   we do, unNoneify these variables.
                         cache_base_path = output_path.parent / output_path.name[:-5]    # Strip the .json
                         report_cache_path = cache_base_path.parent / f'{cache_base_path.name}.report.json'
