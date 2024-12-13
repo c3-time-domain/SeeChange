@@ -350,7 +350,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                                                iterations=2, no_really_i_know_i_want_to_run_this=True)
                     ds.image.flags |= (mask * 2 ** BitFlagConverter.convert('saturated')).astype(np.uint16)
                     # This is what I'd rather be doing, and is what's done in preprocessing already
-                    #   (so probably it doesn't have to be done here).
+                    #   (so it doesn't have to be done here).
                     # wsat = image.data >= ds.image.instrument_object.average_saturation_limit( ds.image )
                     # ds.image.flags[wsat] |= string_to_bitflag( "saturated", flag_image_bits_inverse )
 

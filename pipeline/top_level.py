@@ -331,6 +331,7 @@ class Pipeline:
 
         """
 
+        ds = None
         try:
             ds, session = self.setup_datastore(*args, **kwargs)
             if session is not None:
@@ -454,11 +455,12 @@ class Pipeline:
                 return ds
 
         except Exception as e:
-            if self.pars.save_on_exception:
+            if self.pars.save_on_exception and ( ds is not None ):
                 SCLogger.error( "DataStore saving data products on pipeline exception" )
                 ds.save_and_commit()
             SCLogger.exception( f"Exception in Pipeline.run: {e}" )
-            ds.exception.append( e )
+            if ds is not None:
+                ds.exceptions.append( e )
             raise
 
     def make_provenance_tree( self,

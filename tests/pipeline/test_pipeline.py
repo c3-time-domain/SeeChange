@@ -197,10 +197,7 @@ def test_running_without_reference(decam_exposure, decam_refset, decam_default_c
         # Use the 'N1' sensor section since that's not one of the ones used in the regular
         #  DECam fixtures, so we don't have to worry about any session scope fixtures that
         #  load refererences.  (Though I don't think there are any.)
-        ds = p.run(decam_exposure, 'N1')
-        ds.reraise()
-
-    ds.delete_everything()
+        _ = p.run(decam_exposure, 'N1')
 
     with SmartSession() as session:
         # The N1 decam calibrator files will have been automatically added
@@ -683,9 +680,9 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
                 with pytest.raises( RuntimeError,
                                     match=f"Exception injected by pipeline parameters in process '{process_name}'" ):
                     ds = p.run(decam_datastore)
-                    ds.reraise()
 
                 # fetch the report object
+                ds.update_report( process_step )
                 with SmartSession() as session:
                     reports = session.scalars(
                         sa.select(Report).where(

@@ -26,7 +26,7 @@ def test_subtraction_data_products( ptf_ref, ptf_supernova_image_datastores ):
     assert subtractor.pars['alignment_index'] == 'new'  # make sure alignment is configured to new, not latest image
     ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
     ds = subtractor.run( ds1 )
-    ds.reraise()  # make sure there are no exceptions from run()
+    assert len( ds.exceptions ) == 0      # Make sure no exceptions from subtractor run
 
     # check that we don't lazy load a subtracted image, but recalculate it
     assert subtractor.has_recalculated
@@ -61,7 +61,7 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     assert subtractor.pars['alignment_index'] == 'new'  # make sure alignment is configured to new, not latest image
     ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
     ds = subtractor.run( ds1 )
-    ds.reraise()  # make sure there are no exceptions from run()
+    assert len( ds.exceptions ) == 0      # Make sure no exceptions from subtractor run
 
     assert ds.sub_image is not None
     assert ds.sub_image.data is not None
@@ -112,7 +112,7 @@ def test_subtraction_ptf_hotpants( ptf_ref, ptf_supernova_image_datastores ):
     detector.pars.method = 'sextractor'
     ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
     ds = subtractor.run( ds1 )
-    ds.reraise()          # Make sure the DataStore didn't catch any subtractions during subtractor.run()
+    assert len( ds.exceptions ) == 0      # Make sure no exceptions from subtractor run
 
     assert ds.sub_image is not None
     assert ds.sub_image.data is not None
