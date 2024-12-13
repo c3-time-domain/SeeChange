@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from models.base import SmartSession
 from models.provenance import Provenance
-from models.enums_and_bitflags import BitFlagConverter, string_to_bitflag, flag_image_bits_inverse
+from models.enums_and_bitflags import BitFlagConverter #, string_to_bitflag, flag_image_bits_inverse
 from models.report import Report
 from models.exposure import Exposure
 from models.image import Image
@@ -29,6 +29,8 @@ from pipeline.data_store import DataStore
 from util.logger import SCLogger
 from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 from util.util import env_as_bool
+
+from improc.bitmask_tools import make_saturated_flag
 
 
 @pytest.fixture(scope='session')
