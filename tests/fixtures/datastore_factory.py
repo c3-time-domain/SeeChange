@@ -318,7 +318,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds = p.preprocessor.run(ds)
                 ds.update_report( 'preprocessing' )
                 if bad_pixel_map is not None:
-                    raise RuntimeError( "bad_pixel_map was not None in datastore_factory" )
                     # AUGH.  Don't want to be doing processing here
                     #   that's not normally done in the pipeline.  The
                     #   DECam instrument has the concept of a standard
