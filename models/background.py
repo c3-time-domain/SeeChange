@@ -9,10 +9,10 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import CheckConstraint
 
+from improc.tools import find_and_apply_bscale
 from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.image import Image
 from models.source_list import SourceList, SourceListSibling
-
 from models.enums_and_bitflags import BackgroundFormatConverter, BackgroundMethodConverter, bg_badness_inverse
 
 # from util.logger import SCLogger
@@ -127,7 +127,18 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
     @property
     def variance(self):
-        """The background variance data for this object.
+        if self.rms is None:
+            return None
+        else:
+            return self.rms ** 2
+
+    @variance.setter
+    def variance(self, value):
+        self.rms = np.sqrt( value )
+
+    @property
+    def rms(self):
+        """The background sky noise for this object.
 
         This will either be a map that is loaded directly from file,
         or an interpolated map based on the polynomial or scalar value
@@ -137,23 +148,13 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         possible the sources in the sky, and looking only at the smoothed
         background variability.
         """
-        if self._var_data is None and self.filepath is not None:
+        if self._rms_data is None and self.filepath is not None:
             self.load()
-        return self._var_data
-
-    @variance.setter
-    def variance(self, value):
-        self._var_data = value
-
-    @property
-    def rms(self):
-        if self.variance is None:
-            return None
-        return np.sqrt(self.variance)
+        return self._rms_data
 
     @rms.setter
     def rms(self, value):
-        self.variance = value ** 2
+        self._rms_data = value
 
     def _get_inverse_badness(self):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
@@ -165,7 +166,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         SeeChangeBase.__init__( self )
         self._image_shape = None
         self._counts_data = None
-        self._var_data = None
+        self._rms_data = None
 
         if 'image_shape' in kwargs:
             self._image_shape = kwargs['image_shape']
@@ -204,7 +205,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         FileOnDiskMixin.init_on_load( self )
         self._image_shape = None
         self._counts_data = None
-        self._var_data = None
+        self._rms_data = None
 
 
     def subtract_me( self, image ):
@@ -236,8 +237,8 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         This saves an HDF5 file that contains a single group called "/background".
         It will have a few attributes, notably: "format", "value", "noise" and "image_shape".
 
-        If the format is "map", there are two datasets under this group: "background/counts" and "background/variance".
-        Counts represents the background counts at each location in the image, while the variance represents the noise
+        If the format is "map", there are two datasets under this group: "background/counts" and "background/rms".
+        Counts represents the background counts at each location in the image, while the rms represents the noise
         variability that comes from the sky, ignoring the sources (as much as possible).
 
         If the format is "polynomial", there are three datasets:
@@ -280,8 +281,8 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         if self.value is None or self.noise is None:
             raise RuntimeError( "Both value and noise must be non-None" )
 
-        if self.format == 'map' and (self.counts is None or self.variance is None):
-            raise RuntimeError( "Both counts and variance must be non-None" )
+        if self.format == 'map' and (self.counts is None or self.rms is None):
+            raise RuntimeError( "Both counts and rms must be non-None" )
 
         # TODO: add some checks for the polynomial format
 
@@ -314,27 +315,50 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
             bggrp.attrs['image_shape'] = self.image_shape
 
             if self.format == 'map':
-                if self.counts is None or self.variance is None:
-                    raise RuntimeError("Both counts and variance must be non-None")
+                if self.counts is None or self.rms is None:
+                    raise RuntimeError("Both counts and rms must be non-None")
                 if self.counts.shape != self.image_shape:
                     raise RuntimeError(
                         f"Counts shape {self.counts.shape} does not match image shape {self.image_shape}"
                     )
-                if self.variance.shape != self.image_shape:
+                if self.rms.shape != self.image_shape:
                     raise RuntimeError(
-                        f"Variance shape {self.variance.shape} does not match image shape {self.image_shape}"
+                        f"RMS shape {self.rms.shape} does not match image shape {self.image_shape}"
                     )
 
-                opts = dict(compression='gzip', compression_opts=1, chunks=(128, 128))
-                bggrp.create_dataset( 'counts', data=self.counts, **opts )
-                bggrp.create_dataset( 'variance', data=self.variance, **opts )
+                try:
+                    counts_bscale, counts_bzero, qcounts = find_and_apply_bscale( self.counts, self.noise/10. )
+                except Exception:
+                    counts_bscale = 1.
+                    counts_bzero = 0.
+                    qcounts = self.counts
+                try:
+                    rms_bscale, rms_bzero, qrms = find_and_apply_bscale( self.rms, self.rms.std()/5. )
+                except Exception:
+                    rms_bscale = 1.
+                    rms_bzero = 0.
+                    qrms = self.rms
+
+                # Write the scaling and the scaled arrays
+                bggrp.attrs['counts_bzero'] = counts_bzero
+                bggrp.attrs['counts_bscale'] = counts_bscale
+                bggrp.attrs['rms_bzero'] = rms_bzero
+                bggrp.attrs['rms_bscale'] = rms_bscale
+                opts = dict(compression='gzip', chunks=(128, 128))
+                bggrp.create_dataset( 'counts', data=qcounts, **opts )
+                bggrp.create_dataset( 'rms', data=qrms, **opts )
+                del qcounts
+                del qrms
+
             elif self.format == 'polynomial':
                 raise NotImplementedError('Currently we do not support a polynomial background model. ')
                 bggrp.create_dataset( 'coeffs', data=self.counts )
                 bggrp.create_dataset( 'x_degree', data=self.x_degree )
                 bggrp.create_dataset( 'y_degree', data=self.y_degree )
+
             elif self.format == 'scalar':
                 pass  # no datasets to create
+
             else:
                 raise ValueError( f'Unknown background format "{self.format}".' )
 
@@ -343,7 +367,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         FileOnDiskMixin.save( self, h5path, component=None, **kwargs )
 
     def load(self, download=True, always_verify_md5=False, filepath=None):
-        """Load the data from the files into the _counts_data, _var_data and _image_shape fields.
+        """Load the data from the files into the _counts_data, _rms_data and _image_shape fields.
 
         Parameters
         ----------
@@ -375,28 +399,36 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
             self.image_shape = tuple(h5f['background'].attrs['image_shape'])
 
             if loaded_format == 'map':
-                self._counts_data = h5f['background/counts'][:]
-                self._var_data = h5f['background/variance'][:]
+                counts_bscale = np.float32( h5f['background'].attrs['counts_bscale'] )
+                counts_bzero = np.float32( h5f['background'].attrs['counts_bzero'] )
+                rms_bscale = np.float32( h5f['background'].attrs['rms_bscale'] )
+                rms_bzero = np.float32( h5f['background'].attrs['rms_bzero'] )
+                self._counts_data = counts_bzero + counts_bscale * h5f['background/counts'][:]
+                self._rms_data = rms_bzero + rms_bscale * h5f['background/rms'][:]
+
             elif loaded_format == 'polynomial':
                 raise NotImplementedError('Currently we do not support a polynomial background model. ')
                 self._counts_data = h5f['background/coeffs'][:]
                 self._x_degree = h5f['background/x_degree'][:]
                 self._y_degree = h5f['background/y_degree'][:]
+
             elif loaded_format == 'scalar':
-                pass
+                self._counts_data = None
+                self._rms_data = None
+
             else:
                 raise ValueError( f'Unknown background format "{loaded_format}".' )
 
     def free( self ):
-        """Free loaded world coordinates memory.
+        """Free loaded background memory.
 
-        Wipe out the _counts_data and _var_data fields, freeing memory.
+        Wipe out the _counts_data and _rms_data fields, freeing memory.
         Depends on python garbage collection, so if there are other
         references to those objects, the memory won't actually be freed.
 
         """
         self._counts_data = None
-        self._var_data = None
+        self._rms_data = None
 
     @classmethod
     def copy_bg( cls, bg ):
@@ -417,7 +449,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
                            )
         if bg.format == 'map':
             newbg.counts = bg.counts.copy()
-            newbg.variance = bg.counts.copy()
+            newbg.rms = bg.rms.copy()
         elif bg.format == 'polynomnial':
             newbg.coeffs = bg.coeffs.copy()
             newbg.x_degree = bg.coeffs.copy()

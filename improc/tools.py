@@ -84,7 +84,63 @@ def sigma_clipping(values, nsigma=3.0, iterations=5, axis=None, median=False):
     return mean, rms
 
 
+def find_bscale( arr, rescut ):
+    """Find a scaling to 16-bit or 8-bit integers that preserves enough resolution.
+
+    Bscaling is a transformation that from data (d) to quantized data (q), defined by
+
+      d = bzero + q * bscale
+
+    which, of course, has inverse
+
+      q = ( d - bzero ) / bscale
+
+    Parameters
+    ----------
+    arr : ndarray
+        The array to find the bscaling for.
+
+    rescut : float
+        The resolution cut; make sure that one step in the quantized data is at most
+        this much in the data.
+
+    Returns
+    -------
+    bscale, bzero, i1
+
+       bscale,bzero : float
+
+       i1 : bool ; if True, then scale to an 8-bit signed integer.  If
+       False, scale to a 16-bit signed integer.
+
+    """
+
+    i1 = False
+    qmin = -32767
+    bscale = ( arr.max() - arr.min() ) / 65534.
+    # Make sure we aren't going to lose too much precision.  bscale is
+    # the step in data values you get for +1 in quantized values (which
+    # is the resolution of q).  We want this resolution to be smaller
+    # than our resolution cutoff.
+    if bscale > rescut:
+        raise RuntimeError( "Overquantizing" )
+    # In fact, it may be that we can get away with quantizing to 8-bit integers!
+    if bscale < rescut / 258.:
+        i1 = True
+        bscale = ( arr.max() - arr.min() ) / 254.
+        qmin = -127
+    bzero = arr.min() - qmin * bscale
+    return bscale, bzero, i1
+
+
+def find_and_apply_bscale( arr, rescut ):
+    bscale, bzero, i1 = find_bscale( arr, rescut )
+    quant = np.round( ( arr - bzero ) / bscale ).astype( 'i1' if i1 else 'i2' )
+    return bscale, bzero, quant
+
+
 def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotation=0.0, norm=1, imsize=None):
+
     """Create a small image of a Gaussian centered around the middle of the image.
 
     Parameters

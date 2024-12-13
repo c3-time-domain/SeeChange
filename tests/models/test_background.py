@@ -111,9 +111,11 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             assert bg.attrs['value'] == bg_mean
             assert bg.attrs['noise'] == np.sqrt(bg_var)
 
-            # check the data:
-            assert np.allclose(bg['counts'], b2.counts)
-            assert np.allclose(bg['variance'], b2.variance)
+        # Check that if we load this background back in, we get consistent data
+        b3 = Background( filepath=b2.filepath, image_shape=b2.image_shape, format=b2.format )
+        b3.load()
+        assert np.allclose( b3.counts, b2.counts, atol=np.sqrt(bg_var)/10., rtol=0.004 )
+        assert np.allclose( b3.rms, b2.rms, atol=b2.rms.std()/5., rtol=0.004 )
 
         # Check that we can get the right image_shape from a SourceList and Image saved in the
         #   database
