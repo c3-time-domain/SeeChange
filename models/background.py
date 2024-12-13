@@ -134,7 +134,10 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
     @variance.setter
     def variance(self, value):
-        self.rms = np.sqrt( value )
+        if value is None:
+            self.rms = None
+        else:
+            self.rms = np.sqrt( value )
 
     @property
     def rms(self):
