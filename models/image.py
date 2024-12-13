@@ -1288,6 +1288,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             files_written['image'] = imgpath
 
             # save the other extensions
+            # Write them with an empty header to avoid confusion.  (We're later going
+            # to update the image header, but won't update the headers of the
+            # associated files, so better just to have nothing in associated files.)
             if single_file or ( not only_image ):
                 for array_name in self.saved_components:
                     if array_name == 'image':
@@ -1297,7 +1300,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                         extpath = save_fits_image_file(
                             full_path,
                             array,
-                            self.header,
+                            fits.Header(),
                             extname=array_name,
                             single_file=single_file,
                             fpack=fpack,

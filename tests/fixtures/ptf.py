@@ -48,6 +48,9 @@ def ptf_cache_dir(cache_dir):
     yield output
 
 
+# This does not belong as a test fixture, but should
+#   be models/ptf.py::PTF.get_standard_flags_image()
+#   (see the equivalent in DECam). → Issue #386
 @pytest.fixture(scope='session')
 def ptf_bad_pixel_map(download_url, data_dir, ptf_cache_dir):
     filename = 'C11/masktot.fits'  # TODO: add more CCDs if needed

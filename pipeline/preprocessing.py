@@ -265,8 +265,9 @@ class Preprocessor:
 
                     image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
 
-            # Get the Instrument standard bad pixel mask for this image
+            # Build the weight and flags images (if necessary)
             if image._flags is None or image._weight is None:
+                # Start with the Instrument standard bad pixel mask for this image
                 image._flags = self.instrument.get_standard_flags_image( ds.section_id )
 
                 # Estimate the background rms with sep
@@ -280,7 +281,7 @@ class Preprocessor:
                 fmask = np.array( image._flags, dtype=np.float32 )
                 backgrounder = sep.Background( image.data, mask=fmask,
                                                bw=boxsize, bh=boxsize, fw=filtsize, fh=filtsize )
-                fmask = None
+                del fmask
                 rms = backgrounder.rms()
                 sky = backgrounder.back()
                 subim = image.data - sky

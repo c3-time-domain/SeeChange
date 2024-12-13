@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from models.base import SmartSession
 from models.provenance import Provenance
-from models.enums_and_bitflags import BitFlagConverter
+from models.enums_and_bitflags import BitFlagConverter, string_to_bitflag, flag_image_bits_inverse
 from models.report import Report
 from models.exposure import Exposure
 from models.image import Image
@@ -29,8 +29,6 @@ from pipeline.data_store import DataStore
 from util.logger import SCLogger
 from util.cache import copy_to_cache, copy_list_to_cache, copy_from_cache, copy_list_from_cache
 from util.util import env_as_bool
-
-from improc.bitmask_tools import make_saturated_flag
 
 
 @pytest.fixture(scope='session')
@@ -318,13 +316,42 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds = p.preprocessor.run(ds)
                 ds.update_report( 'preprocessing' )
                 if bad_pixel_map is not None:
+                    raise RuntimeError( "bad_pixel_map was not None in datastore_factory" )
+                    # AUGH.  Don't want to be doing processing here
+                    #   that's not normally done in the pipeline.  The
+                    #   DECam instrument has the concept of a standard
+                    #   instrument bad pixel flag; could we add that to
+                    #   PTF, and remove the explicitly bad pixel map
+                    #   setting from the ptf fixtures?  Will take some
+                    #   work.  (See comment on ptf_bad_pixel_map fixture
+                    #   in tests/fixtures.ptf.py) → Issue #386
+                    SCLogger.warning( "datastore_factory adding to bad_pixel_map; this should "
+                                      "be refactored so that it's part of preprocessing, not "
+                                      "something bespoke in datastore_factory" )
                     ds.image.flags |= bad_pixel_map
                     if ds.image.weight is not None:
                         ds.image.weight[ds.image.flags.astype(bool)] = 0.0
 
-                # flag saturated pixels, too (TODO: is there a better way to get the saturation limit? )
-                mask = make_saturated_flag(ds.image.data, ds.image.instrument_object.saturation_limit, iterations=2)
-                ds.image.flags |= (mask * 2 ** BitFlagConverter.convert('saturated')).astype(np.uint16)
+                    # I don't know that we really want to be dilating
+                    #   these masked pixels, but it's been done for a
+                    #   bunch of ptf fixtures, and changing it now would
+                    #   change test results, leading to pain of updating
+                    #   it all.  Leave this here for now, but think
+                    #   about changing it (ideally as part of the AUGH
+                    #   change above, which will require some changes to
+                    #   preprocessing and probably to the PTF
+                    #   instrument), and then probably a bunch of test
+                    #   result numbers are going to change too.  Fix
+                    #   this when we fix Issue #386.  flag saturated
+                    #   pixels, too (TODO: is there a better way to get
+                    #   the saturation limit? )
+                    mask = make_saturated_flag(ds.image.data, ds.image.instrument_object.saturation_limit,
+                                               iterations=2, no_really_i_know_i_want_to_run_this=True)
+                    ds.image.flags |= (mask * 2 ** BitFlagConverter.convert('saturated')).astype(np.uint16)
+                    # This is what I'd rather be doing, and is what's done in preprocessing already
+                    #   (so probably it doesn't have to be done here).
+                    # wsat = image.data >= ds.image.instrument_object.average_saturation_limit( ds.image )
+                    # ds.image.flags[wsat] |= string_to_bitflag( "saturated", flag_image_bits_inverse )
 
                 ds.image.save()
 
@@ -376,7 +403,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         pth = pathlib.Path( ds.image.filepath )
                         shutil.copy2( ds.image.get_fullpath()[0],
                                       cache_dir / pth.parent / f'{pth.name}.image.fits.original' )
-
 
         ############# extraction to create sources / PSF  #############
 

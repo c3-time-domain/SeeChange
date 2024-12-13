@@ -37,7 +37,8 @@ def dilate_bitflag(array, iterations=1, structure=None):
     return output
 
 
-def make_saturated_flag(imdata, saturation=50000, iterations=2, structure=None):
+def make_saturated_flag(imdata, saturation=50000, iterations=2, structure=None,
+                        no_really_i_know_i_want_to_run_this=False):
     """Create a flag mask around saturated pixels.
 
     Will dilate the array by the given number of iterations, using the given structure (use the scipy default if None).
@@ -59,6 +60,10 @@ def make_saturated_flag(imdata, saturation=50000, iterations=2, structure=None):
     -------
     boolean flag mask
     """
+
+    if not no_really_i_know_i_want_to_run_this:
+        raise RuntimeError( "Don't use this." )
+
     mask = imdata >= saturation
 
     if structure is None:
