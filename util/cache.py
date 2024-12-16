@@ -7,6 +7,7 @@
 import shutil
 import json
 import pathlib
+import hashlib
 
 import sqlalchemy as sa
 
@@ -78,13 +79,46 @@ def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_
             if fullpath is None:
                 continue
             fullpath = pathlib.Path( fullpath )
+            cachepath = cache_dir / relpath
             if fullpath.is_symlink():
                 # ...is this actually a problem?  Maybe not.
-                raise RuntimeError( f"Trying to copy a simlink to cache: {fullpath}" )
-            cachepath = cache_dir / relpath
-            SCLogger.debug(f"Copying {fullpath} to {cachepath}")
-            cachepath.parent.mkdir( exist_ok=True, parents=True )
-            shutil.copy2( fullpath, cachepath )
+                # raise RuntimeError( f"Trying to copy a simlink to cache: {fullpath}" )
+
+                # OK, I'd *like* it to be a problem.  It indicates that
+                # we're copying back to the cache something which was
+                # copied from the cache.  Not *actually* a problem from
+                # a result point of view, but an indication that we're
+                # doing a gratuitous extra copy.  However, there are a
+                # few things we have to clean up first.  Right now,
+                # datastore_factory leaves behind some things in the
+                # local data store (e.g. warped images and associated
+                # products) that we use in the tests but that aren't
+                # normally saved, so the DataStore delete_everything
+                # isn't cleaning them up.  We'd need to augment the test
+                # fixtures to clean these things up if we really want to
+                # make copying a symlink to the cache an error.  For
+                # now, just issue a warning.
+                SCLogger.warning( f"Copying simlink to cache: {fullpath}" )
+
+                # ...of course, it *is* an error, becasue when you try
+                # to copy the symlink to the source of the simlink,
+                # Linux says you're trying to copy the same file over itself.
+                # So... get even slower and make sure that the two files
+                # are the same.  Be happy if they are, issue an error if
+                # they aren't.
+                cachemd5 = hashlib.md5()
+                with open( cachepath, "rb" ) as ifp:
+                    cachemd5.update( ifp.read() )
+                datamd5 = hashlib.md5()
+                with open( fullpath, "rb" ) as ifp:
+                    datamd5.update( ifp.read() )
+                if datamd5.digest() != cachemd5.digest():
+                    raise RuntimeError( f"Trying to copy {fullpath} to cache {cachepath}, but "
+                                        f"the first is a symlink whose contents don't match the second." )
+            else:
+                SCLogger.debug(f"Copying {fullpath} to {cachepath}")
+                cachepath.parent.mkdir( exist_ok=True, parents=True )
+                shutil.copy2( fullpath, cachepath )
 
     jsonpath.parent.mkdir( exist_ok=True, parents=True )
     FoD.to_json( jsonpath )
