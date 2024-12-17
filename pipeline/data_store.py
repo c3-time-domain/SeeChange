@@ -798,7 +798,7 @@ class DataStore:
            wipe_tree: bool, default False
               If True, will wipe out the provenance tree before setting
               the provenances for the processes in provdict.
-              Otherwisel, will only wipe out provenances downstream from
+              Otherwise, will only wipe out provenances downstream from
               the provenances in provdict.
 
         """

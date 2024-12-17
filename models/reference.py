@@ -33,39 +33,46 @@ class Reference(Base, UUIDMixin):
         doc="ID of the reference image that this object is referring to. "
     )
 
-    # TODO: some of the targets below are redundant with image, and searches should probably
-    #   be replaced with joins to image.
-    target = sa.Column(
-        sa.Text,
+    sources_id = sa.Column(
+        sa.ForeignKey('sources._id', ondelete='CASCADE', name='references_sources_id_fkey'),
         nullable=False,
         index=True,
-        doc=(
-            'Name of the target object or field id. '
-            'This string is used to match the reference to new images, '
-            'e.g., by matching the field ID on a pre-defined grid of fields. '
-        )
+        doc="ID of the source list that goes with the image for this reference"
     )
 
-    instrument = sa.Column(
-        sa.Text,
-        nullable=False,
-        index=True,
-        doc="Name of the instrument used to make the images for this reference image. "
-    )
+    # # TODO: some of the targets below are redundant with image, and searches should probably
+    # #   be replaced with joins to image.
+    # target = sa.Column(
+    #     sa.Text,
+    #     nullable=False,
+    #     index=True,
+    #     doc=(
+    #         'Name of the target object or field id. '
+    #         'This string is used to match the reference to new images, '
+    #         'e.g., by matching the field ID on a pre-defined grid of fields. '
+    #     )
+    # )
 
-    filter = sa.Column(
-        sa.Text,
-        nullable=False,
-        index=True,
-        doc="Filter used to make the images for this reference image. "
-    )
+    # instrument = sa.Column(
+    #     sa.Text,
+    #     nullable=False,
+    #     index=True,
+    #     doc="Name of the instrument used to make the images for this reference image. "
+    # )
 
-    section_id = sa.Column(
-        sa.Text,
-        nullable=False,
-        index=True,
-        doc="Section ID of the reference image. "
-    )
+    # filter = sa.Column(
+    #     sa.Text,
+    #     nullable=False,
+    #     index=True,
+    #     doc="Filter used to make the images for this reference image. "
+    # )
+
+    # section_id = sa.Column(
+    #     sa.Text,
+    #     nullable=False,
+    #     index=True,
+    #     doc="Section ID of the reference image. "
+    # )
 
     # this badness is in addition to the regular bitflag of the underlying products
     # it can be used to manually kill a reference and replace it with another one
@@ -102,18 +109,6 @@ class Reference(Base, UUIDMixin):
         )
     )
 
-    def get_upstream_provenances(self):
-        """Collect the provenances for all upstream objects.
-        Assumes all the objects are already committed to the DB
-        (or that at least they have provenances with IDs).
-
-        Returns
-        -------
-        list of Provenance objects:
-            a list of unique provenances, one for each data type.
-        """
-        raise RuntimeError( "Deprecated" )
-
 
     def get_ref_data_products(self, session=None):
         """Get the (SourceList, Background, PSF, WorldCoordiantes, Zeropoint) assocated with self.image_id
@@ -130,21 +125,11 @@ class Reference(Base, UUIDMixin):
 
         with SmartSession( session ) as sess:
             prov = Provenance.get( self.provenance_id, session=sess )
-            upstrs = prov.get_upstreams( session=sess )
-            upids = [ p.id for p in upstrs ]
-            srcs = ( sess.query( SourceList )
-                     .filter( SourceList.image_id == self.image_id )
-                     .filter( SourceList.provenance_id.in_( upids ) )
-                    ).all()
-
-            if len( srcs ) > 1:
-                raise RuntimeError( "Reference found more than one matching SourceList; this shouldn't happen" )
-            if len( srcs ) == 0:
-                raise RuntimeError( f"Sources not in database for Reference {self.id}" )
-            sources = srcs[0]
-
-            # For the rest, we're just going to assume that there aren't multiples in the database.
-            # By construction, there shouldn't be....
+            srcs = Sources.get_by_id( self.sources_id, session=sess )
+            # Going to assume that there's only one bg, psf, wcs, zp
+            #   associated with these sources.  By construction, there
+            #   should only be one, so unless the databse has gotten
+            #   mucked up, this is a good assumption.
             bg = sess.query( Background ).filter( Background.sources_id == sources.id ).first()
             psf = sess.query( PSF ).filter( PSF.sources_id == sources.id ).first()
             wcs = ( sess.query( WorldCoordinates )
@@ -262,7 +247,8 @@ class Reference(Base, UUIDMixin):
              ( areagiven and ( radecgiven or targetgiven ) ) or
              ( targetgiven and ( radecgiven or areagiven ) )
             ):
-            raise ValueError( "Specify only one of ( target/section_id, ra/dec, minra/maxra/mindec/maxdec, or image )" )
+            raise ValueError( "Specify only one of ( target/section_id, "
+                              "ra/dec, minra/maxra/mindec/maxdec, or image )" )
 
         if ( provenance_ids is not None ) and ( refset is not None ):
             raise ValueError( "Specify at most one of provenance_ids or refset" )
@@ -278,7 +264,8 @@ class Reference(Base, UUIDMixin):
                 if overlapfrac is not None:
                     raise ValueError( "Can't give overlapfrac with target/section_id" )
 
-                q = "SELECT r.* FROM refs r WHERE target=:target AND section_id=:section_id "
+                q = ( "SELECT r.* FROM refs r INNER JOIN images i ON r.image_id=i._id "
+                      "WHERE i.target=:target AND i.section_id=:section_id "
                 subdict = { 'target': target, 'section_id': section_id }
 
             # Mode 2 : ra/dec
@@ -322,6 +309,7 @@ class Reference(Base, UUIDMixin):
                 sess.execute( sa.text(q), subdict )
 
                 q = ( "SELECT r.* FROM refs r INNER JOIN temp_find_containing_ref t ON r._id=t._id "
+                      "INNER JOIN images i ON r.image_id=i._id "
                       "WHERE q3c_poly_query( :ra, :dec, ARRAY[ t.ra_corner_00, t.dec_corner_00, "
                       "                                        t.ra_corner_01, t.dec_corner_01, "
                       "                                        t.ra_corner_11, t.dec_corner_11, "
@@ -392,9 +380,7 @@ class Reference(Base, UUIDMixin):
 
             if refset is not None:
                 q += " AND r.provenance_id IN "
-                q += " ( SELECT DISTINCT ON(rpa.provenance_id) rpa.provenance_id "
-                q += "   FROM refset_provenance_association rpa "
-                q +=  "     INNER JOIN refsets rs ON rpa.refset_id=rs._id "
+                q += " ( SELECT rs.provenance_id FROM refsets rs "
                 # TODO : be fancier with collections.abc.Sequence or something
                 if isinstance( refset, list ):
                     q += "  WHERE rs.name IN :refsets ) "
@@ -419,11 +405,11 @@ class Reference(Base, UUIDMixin):
                     subdict['provs'] = tuple( subdict['provs'] )
 
             if instrument is not None:
-                q += " AND r.instrument=:instrument "
+                q += " AND i.instrument=:instrument "
                 subdict['instrument'] = instrument
 
             if filter is not None:
-                q += " AND r.filter=:filter "
+                q += " AND i.filter=:filter "
                 subdict['filter'] = filter
 
             if skip_bad:

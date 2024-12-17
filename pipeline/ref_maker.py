@@ -3,13 +3,14 @@ import datetime
 import numpy as np
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
+import psycopg2.extras
 
 from pipeline.parameters import Parameters
 from pipeline.coaddition import CoaddPipeline
 from pipeline.top_level import Pipeline
 from pipeline.data_store import DataStore
 
-from models.base import SmartSession
+from models.base import SmartSession, Psycopg2Connection
 from models.provenance import Provenance, CodeVersion
 from models.reference import Reference
 from models.exposure import Exposure
@@ -109,14 +110,12 @@ class ParsRefMaker(Parameters):
             None,
             (None, list),
             'Only use images from these instruments. If None, will use all instruments. '
-            'If given as a list, will use any of the instruments in the list. '
-            'In both these cases, cross-instrument references will be made. '
-            'To make sure single-instrument references are made, make a different refset '
-            'with a single item on this list, one for each instrument. '
-            'This does not have a default value, but you MUST supply a list with at least one instrument '
-            'in order to get a reference provenance and create a reference set. '
+            'If None, or if more than one instrument is given, will (possibly) construct a '
+            'cross-instrument reference.  If you are (rightfully) leery of this, make sure '
+            'to specify a single instrument in this list. '
             '(NOTE: it\'s not clear that building a multi-instrument ref actually works right now '
-            '(because of provenance handling)). ',
+            '(because of provenance handling).  As such, an attempt to build a multi-instrument '
+            'ref currently raises a NotImplementedError exception.)',
             critical=True,
         )
 
@@ -227,17 +226,18 @@ class RefMaker:
     def __init__(self, **kwargs):
         """Initialize a reference maker object.
 
-        The possible keywords that can be given are: maker, pipeline, coaddition. Each should be a dictionary.
+        The possible keywords that can be given are: maker, pipeline,
+        coaddition. Each should be a dictionary.  maker keys are defined
+        by ParsRefMaker above.  pipeline keys are defined as described
+        pipeline/top_level.py::Pipeline, and may have subdictionaries
+        pipeline, preprocessing, and extraction (which in turn has
+        subdictionaries sources, bg, wcs, and zp).  coaddition keys are
+        defined by pipeline/coaddition.py::ParsCoadd.
 
-        The object will load the config file and use the following hierarchy to set the parameters:
-        - first loads up the regular pipeline parameters, namely those for preprocessing and extraction.
-        - override those with the parameters given by the "referencing" dictionary in the config file.
-        - override those with kwargs['pipeline'] that can have "preprocessing" or "extraction" keys.
-        - parameters for the coaddition step, and the extraction done on the coadd image are taken from "coaddition"
-        - those are overriden by the "referencing.coaddition" dictionary in the config file
-        - those are overriden by the kwargs['coaddition'] dictionary, if it exists.
-        - the parameters to the reference maker its (e.g., how to choose images) are given from the
-          config['referencing.maker'] dictionary and are overriden by the kwargs['maker'] dictionary.
+        Parameters are set by first looking at the referencing.pipeline,
+        referencing.coaddition, and referncing.maker trees from the
+        config file.  They are then overridden by anything passed to the
+        constructor.
 
         The maker contains a pipeline object, that doesn't do any work, but is instantiated so it can build up the
         provenances of the images and their products, that go into the coaddition.
@@ -252,6 +252,7 @@ class RefMaker:
         The choice of which images are loaded into the reference coadd is determined by the parameters object of the
         maker itself (and the provenances of the images and their products).
         To set these parameters, use the "referencing.maker" dictionary in the config, or pass them in kwargs['maker'].
+
         """
         # first break off some pieces of the kwargs dict
         maker_overrides = kwargs.pop('maker', {})  # to set the parameters of the reference maker itself
@@ -281,9 +282,12 @@ class RefMaker:
             raise ValueError( "Configuration error; for RefMaker, must have a float for both of "
                               "corner_distance and overlap_fraction, or both must be None." )
 
+        if ( self.pars.instruments is None ) or ( len(self.pars.instruments) > 1 ):
+            raise NotImplementedError( f"Cross-instrument references not supported.  Specify one instrument." )
+
         # first, make sure we can assemble the provenances up to extraction:
         self.im_provs = None  # the provenances used to make images going into the reference (these are coadds!)
-        self.ex_provs = None  # the provenances used to make other products like SourceLists, that go into the reference
+        self.ex_provs = None  # the provenances used to make extraction, bg, wcs, zp from the images
         self.coadd_im_prov = None  # the provenance used to make the coadd image
         self.coadd_ex_prov = None  # the provenance used to make the products of the coadd image
         self.ref_prov = None  # the provenance of the reference itself
@@ -317,6 +321,7 @@ class RefMaker:
         These are used both to establish the provenance of the reference itself,
         and to look for images and associated products (like SourceLists) when
         building the reference.
+
         """
         if self.pars.instruments is None or len(self.pars.instruments) == 0:
             raise ValueError('No instruments given to RefMaker!')
@@ -364,7 +369,7 @@ class RefMaker:
             self.im_provs[ inst ] = preprocessing
             self.ex_provs[ inst ] = extraction
 
-        # all the provenances that go into the coadd
+        # all the provenances that (could) go into the coadd
         upstreams = list( self.im_provs.values() ) + list( self.ex_provs.values() )
         # TODO: allow different code_versions for each process
         coadd_provs = self.coadd_pipeline.make_provenance_tree( None, upstream_provs=upstreams )
@@ -384,102 +389,44 @@ class RefMaker:
 
     # ======================================================================
 
-    def _append_provenance_to_refset_if_appropriate( self, existing, session ):
-        """Used internally by make_refset."""
-
-        if any( [ self.ref_prov.id == e[1].id for e in existing if e is not None ] ):
-            # RefSet and Provenance is already there, we're good
-            self.refset = existing[0][0]
-            return
-
-        else:
-            # RefSet is there, but Provenance isn't
-            if not self.pars.allow_append:
-                raise RuntimeError( f"RefSet {self.pars.name} exists, allow_append is False, "
-                                    f"and provenance {self.ref_prov.id} isn't in that RefSet" )
-
-            # Make sure that the upstreams of the existings are all consistent and
-            # that they are consistent with self.ref_prov.
-            # (TODO : think about this, think about what we really want to require
-            # to be the same for all provenances associated with a refset.)
-            if existing[0][1] is not None:
-                upstrs0 = existing[0][1].get_upstreams( session=session )
-                upstr0hash = Provenance.combined_upstream_hash( upstrs0 )
-                for i in range(1, len(existing) ):
-                    upstrs = existing[i][1].get_upstreams( session=session )
-                    upstrhash = Provenance.combined_upstream_hash( upstrs )
-                    if upstrhash != upstr0hash:
-                        session.rollback()
-                        raise RuntimeError( f"Database integrity error: upstream provenances for "
-                                            f"RefSet {self.pars.name} aren't all the same!" )
-                upstrs = self.ref_prov.get_upstreams( session=session )
-                upstrhash = Provenance.combined_upstream_hash( upstrs )
-                if upstrhash != upstr0hash:
-                    raise RuntimeError( f"Can't append, reference provenance upstreams are not consistent "
-                                        f"with existing provenances in RefSet {self.pars.name}" )
-
-            # Insert the association between the refset and the provenance.  If we get an
-            #   IntegrityError, it just means that there was a race condition and somebody
-            #   else already did what we meant to do, so just be happy and go on with life.
-            try:
-                self.refset = existing[0][0]
-                session.execute( sa.text( "INSERT INTO refset_provenance_association"
-                                            "(provenance_id,refset_id) VALUES(:provid,:refsetid)" ),
-                                   { "provid": self.ref_prov.id, "refsetid": self.refset.id } )
-                session.commit()
-            except IntegrityError:
-                pass
-            except Exception:
-                self.refset = None
-                raise
-
-    # ======================================================================
-
     def make_refset(self, session=None):
         """Create or load an existing RefSet with the required name.
 
-        Will also make all the required provenances (using the config) and
-        possibly append the reference provenance to the list of provenances
-        on the RefSet.
+        Sets self.refset.  Will also make all the required provenances
+        (using the config) and load them into the database.
+
         """
-        self.setup_provenances( session=session )
+        with Smartsession( session ) as dbsession:
+            # make sure all the sundry component provenances are in the database
+            self.setup_provenances( session=session )
 
-        # first make sure the ref_prov is in the database
-        self.ref_prov.insert_if_needed( session=session )
+            # make sure the ref_prov is in the database
+            self.ref_prov.insert_if_needed( session=session )
 
-        # Just in case we error out, make sure we don't have a misleading refset in there
-        self.refset = None
-
-        # Search the database for an existing provenance
-        assoc = sa.orm.aliased( refset_provenance_association_table )
-        with SmartSession( session ) as dbsession:
-            existing = ( dbsession.query( RefSet, Provenance )
-                         .select_from( RefSet )
-                         .join( assoc, RefSet._id==assoc.c.refset_id, isouter=True )
-                         .join( Provenance, Provenance._id==assoc.c.provenance_id, isouter=True )
-                         .filter( RefSet.name==self.pars.name ) ).all()
-            if len(existing) > 0:
-                # The refset already exists
-                self._append_provenance_to_refset_if_appropriate( existing, dbsession )
-
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor( cursor_factor=psycopg2.extras.RealDictCursor )
+            # Lock the refset table so we don't have a race condition
+            cursor.execute( "LOCK TABLE refsets" )
+            # Check to see if the refset already exists
+            cursor.execute( "SELECT * FROM refsets WHERE name=%(name)s", { 'name': self.pars.name } )
+            rows = cursor.fetchall()
+            if len( rows > 0 ):
+                # refset already exists, make sure the provenance is right
+                if rows[0]['provenance_id'] != self.ref_prov.id:
+                    raise ValueError( f"Refset {self.pars.name} already exists with provenance "
+                                      f"{rows[0]['provenance_id']}, which does not match the "
+                                      f"ref provenance we're using: {self.ref_prov.id}" )
+                self.refset = RefSet()
+                self.refset.set_attributes_from_dict( rows[0] )
             else:
-                # The refset does not exist, so make it
-                self.refset = RefSet( name=self.pars.name )
-                try:
-                    self.refset.insert( session=dbsession, nocommit=True )
-                    dbsession.execute( sa.text( "INSERT INTO refset_provenance_association"
-                                                "(provenance_id,refset_id) VALUES(:provid,:refsetid)" ),
-                                       { "provid": self.ref_prov.id, "refsetid": self.refset.id } )
-                    dbsession.commit()
-                except IntegrityError:
-                    # Race condition; somebody else inserted this refset between when we searched for it
-                    #   and now, so fall back to code for dealing with an already-existing refset
-                    existing = ( dbsession.query( RefSet, Provenance )
-                                 .select_from( RefSet )
-                                 .join( assoc, RefSet._id==assoc.c.refset_id, isouter=True )
-                                 .join( Provenance, Provenance._id==assoc.c.provenance_id, isouter=True )
-                                 .filter( RefSet.name==self.pars.name ) ).all()
-                    self._append_provenance_to_refset_if_appropriate( existing, dbsession )
+                # refset doesn't exist, make it
+                self.refset = RefSet( name=self.pars.name, description=self.pars.descrption,
+                                      provenance_id=self.ref_prov.id )
+                cursor.execute( "INSERT INTO refsets(_id,name,description,provenanceid) "
+                                "VALUES (%(id)s,%(name)s,%(desc)s,%(prov)s",
+                                { 'id': self.refset.id, 'name': self.refset.name,
+                                  'desc': self.refset.description, 'prov': self.refset.provenance_id } )
+                cursor.commit()
 
 
     # ======================================================================
@@ -747,10 +694,7 @@ class RefMaker:
 
         ref = Reference(
             image_id = coadd_ds.image.id,
-            target = coadd_ds.image.target,
-            instrument = coadd_ds.image.instrument,
-            filter = coadd_ds.image.filter,
-            section_id = coadd_ds.image.section_id,
+            sources_id = coadd_ds.sources.id,
             provenance_id = self.ref_prov.id
         )
 

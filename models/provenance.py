@@ -434,6 +434,7 @@ class Provenance(Base):
 
                 upstreams = self._upstreams if self._upstreams is not None else self.get_upstreams( session=sess )
                 if len(upstreams) > 0:
+                    SCLogger.debug( f"Inserting upstreams of {self.id}: {[p.id for p in upstreams]}" )
                     for upstream in upstreams:
                         sess.execute( sa.text( "INSERT INTO provenance_upstreams(upstream_id,downstream_id) "
                                                "VALUES (:upstream,:me)" ),

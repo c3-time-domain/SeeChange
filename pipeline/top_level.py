@@ -111,12 +111,26 @@ class ParsPipeline(Parameters):
             critical=False
         )
 
+        self.generate_report = self.add_par(
+            'generate_report',
+            True,
+            bool,
+            "If True, generate a report object if the pipeline starts from an Exposure.  "
+            "(Reports are linked to exposures, so it's not possible to generate a report "
+            "when starting from an image.)  If False, don't generate a report or a report "
+            "provenance.",
+            critical=False
+        )
+
         self._enforce_no_new_attrs = True  # lock against new parameters
 
         self.override(kwargs)
 
 
 class Pipeline:
+    ALL_STEPS = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp', 'subtraction',
+                  'detection', 'cutting', 'measuring', 'scoring', ]
+
     def __init__(self, **kwargs):
         config = Config.get()
 
@@ -197,6 +211,9 @@ class Pipeline:
         scoring_config.update(kwargs.get('scoring', {}))
         self.pars.add_defaults_to_dict(scoring_config)
         self.scorer = Scorer(**scoring_config)
+
+        # Other initializationj
+        self._generate_report = self.pars.generate_report
 
     def override_parameters(self, **kwargs):
         """Override some of the parameters for this object and its sub-objects, using Parameters.override(). """
@@ -310,6 +327,16 @@ class Pipeline:
 
         return ds, session
 
+
+    def _get_stepstodo( self ):
+        stepstodo = self.ALL_STEPS
+        if self.pars.through_step is not None:
+            if self.pars.through_step not in stepstodo:
+                raise ValueError( f"Unknown through_step: \"{self.parse.through_step}\"" )
+            stepstodo = stepstodo[ :stepstodo.index(self.pars.through_step)+1 ]
+        return stepstodo
+
+
     def run(self, *args, **kwargs):
         """Run the entire pipeline on a specific CCD in a specific exposure.
 
@@ -337,12 +364,7 @@ class Pipeline:
             if session is not None:
                 raise RuntimeError( "You have a persistent session in Pipeline.run; don't do that." )
 
-            stepstodo = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp', 'subtraction',
-                          'detection', 'cutting', 'measuring', 'scoring', ]
-            if self.pars.through_step is not None:
-                if self.pars.through_step not in stepstodo:
-                    raise ValueError( f"Unknown through_step: \"{self.parse.through_step}\"" )
-                stepstodo = stepstodo[ :stepstodo.index(self.pars.through_step)+1 ]
+            stepstodo = self._get_stepstodo()
 
             if ds.image is not None:
                 SCLogger.info(f"Pipeline starting for image {ds.image.id} ({ds.image.filepath}), "
@@ -475,14 +497,19 @@ class Pipeline:
         objects it has to generate the provenances for all the
         processing steps.
 
-        This will conclude with the reporting step, which simply has an
-        upstreams list of provenances to the measuring provenance and to
-        the machine learning score provenances. From those, a user can
-        recreate the entire tree of provenances.  (Note: if
-        ok_no_ref_provs is True, and no referencing provenances are
-        found, then the report provenance will have the extraction
-        provenance as its upstream, as there will be no measuring
-        provenance.)
+        If self.pars.generate_report is False, will not generate a
+        reporting provenance.  In this case, will also only generate
+        provenances for steps through self.pars.through_step.  If
+        self.pars.generate_report is True, will generate a provenance
+        for all steps regardless of self.parse.through_step (as they're
+        all needed for upstreams for the report).
+
+        Even if self.pars.generate_report is True, if ok_no_ref_provs is
+        True and no reference provenances are found, still will not
+        generate a report provenance, and reporting won't work.  (Again,
+        this is so we don't generate a report provenance that's wrong,
+        i.e. that doesn't include the reference step.)  Flags this
+        internally by setting self._generate_report to False.
 
         Start from either an Exposure or an Image; the provenance for
         the starting object must already be in the database.
@@ -544,10 +571,16 @@ class Pipeline:
         if overrides is None:
             overrides = {}
 
-        provs = {}
+        self._generate_report = self.pars.generate_report
+        if not self._generate_report:
+            stepstogenerateprov = self._get_stepstodo()
+        else:
+            stepstogenerateprov = self.ALL_STEPS
 
         code_version = None
         is_testing = None
+
+        provs = {}
 
         # Get started with the passed Exposure (usual case) or Image
         if isinstance( exposure, Exposure ):
@@ -558,6 +591,7 @@ class Pipeline:
             is_testing  = exp_prov.is_testing
         elif isinstance( exposure, Image ):
             exp_prov = None
+            self._generate_report = False
             with SmartSession() as session:
                 passed_image_provenance = Provenance.get( exposure.provenance_id, session=session )
                 code_version = CodeVersion.get_by_id( passed_image_provenance.code_version_id, session=session )
@@ -567,101 +601,88 @@ class Pipeline:
                              f"not a {exposure.__class__.__name__}" )
 
         # Get the reference
-        ref_provs = None  # allow multiple reference provenances for each refset
+        ref_prov = None
         refset_name = self.subtractor.pars.refset
-        # If refset is None, we will just fail to produce a subtraction, but everything else works...
-        # Note that the upstreams for the subtraction provenance will be wrong, because we don't have
-        # any reference provenances to link to. But this is what you get when putting refset=None.
-        # Just know that the "output provenance" (e.g., of the Measurements) will never actually exist,
-        # even though you can use it to make the Report provenance (just so you have something to refer to).
-        if refset_name is not None:
+        if refset_name is None:
+            if not ok_no_ref_provs:
+                raise ValueError( f"refset_name is None but ok_no_ref_provs is False; this is inconsistent." )
+            # If no refset is given, then don't try to generate provenances for
+            #   subtraction or anything later.
+            self._generate_report = False
+            stepstogenerateprov = self._get_stepstodo()
+            if 'subtraction' in stepstogenerateprov:
+                stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subtraction') ]
+        else:
             refset = RefSet.get_by_name( refset_name )
             if refset is None:
                 if not ok_no_ref_provs:
                     raise ValueError(f'No reference set with name {refset_name} found in the database!')
                 else:
-                    ref_provs = None
+                    # No reference, can't do subtraction or later
+                    self._generate_report = False
+                    stepstogenerateprov = self._get_stepstodo()
+                    if 'subtraction' in stepstogenerateprov:
+                        stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subraction') ]
             else:
-                ref_provs = refset.provenances
-                if ref_provs is None or len(ref_provs) == 0:
-                    if not ok_no_ref_provs:
-                        raise ValueError(f'No provenances found for reference set {refset_name}!')
-                    ref_provs = None
+                ref_prov = Provenance.get_by_id( refset.provenance_id )
 
-        if ref_provs is not None:
-            provs['referencing'] = ref_provs  # notice that this is a list, not a single provenance!
+        if ref_prov is not None:
+            provs['referencing'] = ref_prov
 
-        for step in PROCESS_OBJECTS:
-            if ( ref_provs is None ) and ( step == 'subtraction' ):
-                # If we don't have reference provenances, we can't build the rest
-                break
-
+        for step in stepstogenerateprov:
             if step in overrides:
-                # accept explicit provenances specified by the user as overrides
-                # TODO: worry if step is preprocessing and an Image was passed;
-                #   there could be an inconsistency!
+                # Accept explicit provenances specified by the user as overrides,
+                # even if these are totally screwy and inconsistent.  Users be users.
                 provs[step] = overrides[step]
             else:
                 # special case handling for 'preprocessing' if we don't have an exposure
                 if ( step == 'preprocessing' ) and exp_prov is None:
                     provs[step] = passed_image_provenance
                 else:
-                    # load the parameters from the objects on the pipeline
-                    obj_name = PROCESS_OBJECTS[step]  # translate the step to the object name
-                    if isinstance(obj_name, dict):
-                        # sub-objects, e.g., extraction.sources, extraction.wcs, etc.
-                        # get the first item of the dictionary and hope its pars object has siblings defined correctly:
-                        obj_name = obj_name.get(list(obj_name.keys())[0])
-                    parameters = getattr(self, obj_name).pars.get_critical_pars()
+                    # Because backgrounding, extraction, wcs, and zp all share
+                    #  a provenance with extraction, don't try to generate
+                    #  provenaces for those steps.
+                    if step in PROCESS_OBJECTS:
+                        # load the parameters from the objects on the pipeline
+                        obj_name = PROCESS_OBJECTS[step]  # translate the step to the object name
+                        if isinstance(obj_name, dict):
+                            # sub-objects, e.g., extraction.sources,
+                            # extraction.wcs, etc.  get the first item
+                            # of the dictionary and hope its pars object
+                            # has siblings defined correctly:
+                            obj_name = obj_name.get( list(obj_name.keys())[0] )
+                        parameters = getattr(self, obj_name).pars.get_critical_pars()
 
-                    # figure out which provenances go into the upstreams for this step
-                    up_steps = UPSTREAM_STEPS[step]
-                    if isinstance(up_steps, str):
-                        up_steps = [up_steps]
-                    upstream_provs = []
-                    for upstream in up_steps:
-                        if upstream == 'referencing':  # this is an externally supplied provenance upstream
-                            if ref_provs is not None:
-                                # We never put the Reference object's provenance into the upstreams of the subtraction
-                                # instead, put the provenances of the coadd image and its extraction products
-                                # this is so the subtraction provenance has the (preprocessing+extraction) provenance
-                                # for each one of its upstream_images (in this case, ref+new).
-                                # By construction all references on the refset SHOULD have the same upstreams.
-                                upstream_provs += ref_provs[0].upstreams
-                        else:  # just grab the provenance of what is upstream of this step from the existing tree
-                            upstream_provs.append(provs[upstream])
+                        # figure out which provenances go into the upstreams for this step
+                        up_steps = UPSTREAM_STEPS[step]
+                        if isinstance(up_steps, str):
+                            up_steps = [up_steps]
+                        upstream_provs = [ provs[u] for u in up_steps ]
 
-                    provs[step] = Provenance(
-                        code_version_id=code_version.id,
-                        process=step,
-                        parameters=parameters,
-                        upstreams=upstream_provs,
-                        is_testing=is_testing,
-                    )
-                    provs[step].insert_if_needed()
+                        provs[step] = Provenance(
+                            code_version_id=code_version.id,
+                            process=step,
+                            parameters=parameters,
+                            upstreams=upstream_provs,
+                            is_testing=is_testing,
+                        )
+                        provs[step].insert_if_needed()
 
         # Make the report provenance
-        if ( 'measuring' not in provs ) and ( not ok_no_ref_provs ):
-            raise RuntimeError( "Something has gone wrong; we didn't create a measuring provenance, but "
-                                "ok_no_ref_provs is False.  We should have errored out before this message." )
-        rptupstr = provs['measuring'] if 'measuring' in provs else provs['extraction']
-        provs['report'] = Provenance(
-            process='report',
-            code_version_id=code_version.id,
-            parameters={},
-            upstreams=[rptupstr],
-            is_testing=is_testing
-        )
-        provs['report'].insert_if_needed()
+        if self._generate_report:
+            provs['report'] = Provenance(
+                process='report',
+                code_version_id=code_version.id,
+                parameters={},
+                upstreams=[ prov[ self.ALL_STEPS[-1] ] ],
+                is_testing=is_testing
+            )
+            provs['report'].insert_if_needed()
 
+        # Set the provenance tag if requested.
+        # (Chances are it's already set, but somebody will be first.)
         if not no_provtag:
-            # Gotta package up the provenances for what
-            # ProvenanceTag.addtag wants (i.e. just a single list)
-            allprovs = [ p for p in provs.values() if not isinstance( p, list ) ]
-            for p in provs.values():
-                if isinstance( p, list ):
-                    allprovs.extend( p )
-            ProvenanceTag.addtag( self.pars.provenance_tag, allprovs,
+            ProvenanceTag.addtag( self.pars.provenance_tag, provs,
                                   add_missing_processes_to_provtag=add_missing_processes_to_provtag )
 
         return provs

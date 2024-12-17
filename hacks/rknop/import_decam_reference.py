@@ -1,4 +1,5 @@
 import argparse
+import uuid
 
 import numpy
 
@@ -10,6 +11,7 @@ from util.logger import SCLogger
 
 import models.instrument
 import models.decam
+from models.base import Psycopg2Connection
 from models.image import Image
 from models.reference import Reference
 from models.provenance import Provenance
@@ -26,7 +28,7 @@ from pipeline.top_level import Pipeline
 codeversion_id = '0.0.1'
 
 
-def import_decam_reference( image, weight, mask, target, hdu, section_id ):
+def import_decam_reference( image, weight, mask, target, hdu, section_id, refset ):
     image_prov = Provenance( process='import_image',
                              parameters={},
                              upstreams=[] )
@@ -133,21 +135,18 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
 
     SCLogger.info( "Extracting" )
     pipeline.extractor.run( ds )
-    ds.reraise()
 
     SCLogger.info( "Backgrounding" )
     pipeline.backgrounder.run( ds )
-    ds.reraise()
 
     SCLogger.info( "Astrometric" )
     pipeline.astrometor.run( ds )
-    ds.reraise()
 
     SCLogger.info( "Photometric" )
     pipeline.photometor.run( ds )
-    ds.reraise()
 
     SCLogger.info( "Saving data products" )
+    import pdb; pdb.set_trace()
     ds.save_and_commit()
 
     # Make the reference
@@ -158,6 +157,26 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
                                  parameters={},
                                  upstreams=[image_prov, ds.prov_tree['extraction']] )
     reference_prov.insert_if_needed()
+
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute( "LOCK TABLE refsets" )
+        cursor.execute( "SELECT _id FROM refsets WHERE name=%(name)s", { 'name': refset } )
+        row = cursor.fetchone()
+        if row is None:
+            refsetid = uuid.uuid4()
+            cursor.execute( "INSERT INTO refsets(name,description,_id) "
+                            "VALUES (%(name)s,'Manually imported DECam Reference', %(id)s)",
+                            { 'name': refset, 'id': refsetid } )
+            conn.commit()
+        else:
+            refsetid = row[0]
+        conn.rollback()
+
+        cursor.execute( "INSERT INTO refset_provenance_association(provenance_id,refset_id) "
+                        "VALUES (%(provid)s,%(refsetid)s) ON CONFLICT DO NOTHING",
+                        { 'provid': reference_prov.id, 'refsetid': refsetid  } )
+        conn.commit()
 
     ref = Reference( image_id=ds.image.id,
                      target=image.target,
@@ -171,7 +190,9 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id ):
 
 
 def main():
-    parser = argparse.ArgumentParser( 'Import a DECam image as a reference' )
+    parser = argparse.ArgumentParser( 'python import_decam_reference.py',
+                                      description='Import a DECam image as a reference',
+                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter )
     parser.add_argument( "image", help="FITS file with the reference" )
     parser.add_argument( "weight", help="FITS file with the weight" )
     parser.add_argument( "mask", help="FITS file with the mask" )
@@ -181,9 +202,12 @@ def main():
                          help="Which HDU has the image (default 0, make 1 for a .fits.fz file)" )
     parser.add_argument( "-s", "--section-id", required=True,
                          help="The section_id (chip, using N1, S1, etc. notation)" )
+    parser.add_argument( "-r", "--refset", default="decam_manual",
+                         help="Create and add reference provenance to this refset if necessary" )
     args = parser.parse_args()
 
-    import_decam_reference( args.image, args.weight, args.mask, args.target, args.hdu, args.section_id )
+    import_decam_reference( args.image, args.weight, args.mask,
+                            args.target, args.hdu, args.section_id, args.refset )
 
 # ======================================================================
 
