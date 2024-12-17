@@ -302,28 +302,31 @@ class Pipeline:
             raise RuntimeError( f'Failed to create the provenance tree: {str(e)}' ) from e
 
 
-        try:  # must make sure the report is on the DB
-            report = Report( exposure_id=ds.exposure.id, section_id=ds.section_id )
-            report.start_time = datetime.datetime.now( tz=datetime.UTC )
-            report.provenance_id = provs['report'].id
-            with SmartSession(session) as dbsession:
-                # check how many times this report was generated before
-                prev_rep = dbsession.scalars(
-                    sa.select(Report).where(
-                        Report.exposure_id == ds.exposure.id,
-                        Report.section_id == ds.section_id,
-                        Report.provenance_id == provs['report'].id,
-                    )
-                ).all()
-                report.num_prev_reports = len(prev_rep)
-                report.insert( session=dbsession )
+        if self._generate_report:
+            try:  # must make sure the report is on the DB
+                report = Report( exposure_id=ds.exposure.id, section_id=ds.section_id )
+                report.start_time = datetime.datetime.now( tz=datetime.UTC )
+                report.provenance_id = provs['report'].id
+                with SmartSession(session) as dbsession:
+                    # check how many times this report was generated before
+                    prev_rep = dbsession.scalars(
+                        sa.select(Report).where(
+                            Report.exposure_id == ds.exposure.id,
+                            Report.section_id == ds.section_id,
+                            Report.provenance_id == provs['report'].id,
+                        )
+                    ).all()
+                    report.num_prev_reports = len(prev_rep)
+                    report.insert( session=dbsession )
 
-            if report.exposure_id is None:
-                raise RuntimeError('Report did not get a valid exposure_id!')
-        except Exception as e:
-            raise RuntimeError('Failed to create or merge a report for the exposure!') from e
+                if report.exposure_id is None:
+                    raise RuntimeError('Report did not get a valid exposure_id!')
+            except Exception as e:
+                raise RuntimeError('Failed to create or merge a report for the exposure!') from e
 
-        ds.report = report
+            ds.report = report
+        else:
+            ds.report = None
 
         return ds, session
 
@@ -605,7 +608,7 @@ class Pipeline:
         refset_name = self.subtractor.pars.refset
         if refset_name is None:
             if not ok_no_ref_provs:
-                raise ValueError( f"refset_name is None but ok_no_ref_provs is False; this is inconsistent." )
+                raise ValueError( "refset_name is None but ok_no_ref_provs is False; this is inconsistent." )
             # If no refset is given, then don't try to generate provenances for
             #   subtraction or anything later.
             self._generate_report = False
@@ -622,9 +625,9 @@ class Pipeline:
                     self._generate_report = False
                     stepstogenerateprov = self._get_stepstodo()
                     if 'subtraction' in stepstogenerateprov:
-                        stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subraction') ]
+                        stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subtraction') ]
             else:
-                ref_prov = Provenance.get_by_id( refset.provenance_id )
+                ref_prov = Provenance.get( refset.provenance_id )
 
         if ref_prov is not None:
             provs['referencing'] = ref_prov
@@ -638,6 +641,7 @@ class Pipeline:
                 # special case handling for 'preprocessing' if we don't have an exposure
                 if ( step == 'preprocessing' ) and exp_prov is None:
                     provs[step] = passed_image_provenance
+                    passed_image_provenance.insert_if_needed()
                 else:
                     # Because backgrounding, extraction, wcs, and zp all share
                     #  a provenance with extraction, don't try to generate
@@ -674,7 +678,7 @@ class Pipeline:
                 process='report',
                 code_version_id=code_version.id,
                 parameters={},
-                upstreams=[ prov[ self.ALL_STEPS[-1] ] ],
+                upstreams=[ provs[ self.ALL_STEPS[-1] ] ],
                 is_testing=is_testing
             )
             provs['report'].insert_if_needed()
@@ -682,7 +686,7 @@ class Pipeline:
         # Set the provenance tag if requested.
         # (Chances are it's already set, but somebody will be first.)
         if not no_provtag:
-            ProvenanceTag.addtag( self.pars.provenance_tag, provs,
+            ProvenanceTag.addtag( self.pars.provenance_tag, provs.values(),
                                   add_missing_processes_to_provtag=add_missing_processes_to_provtag )
 
         return provs

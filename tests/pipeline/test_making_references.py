@@ -6,16 +6,18 @@ import uuid
 import numpy as np
 
 import sqlalchemy as sa
+import psycopg2.errors
 
 from pipeline.ref_maker import RefMaker
 
 from models.base import SmartSession
 from models.provenance import Provenance
 from models.image import Image
+from models.source_list import SourceList
 from models.reference import Reference
 from models.refset import RefSet
 
-from util.util import env_as_bool
+from util.util import env_as_bool, asUUID
 
 
 def add_test_parameters(maker):
@@ -31,15 +33,42 @@ def add_test_parameters(maker):
                 obj.pars._enforce_no_new_attrs = True
 
 
-def test_finding_references( provenance_base, provenance_extra ):
+def test_finding_references( code_version, provenance_base, provenance_extra ):
     refstodel = set()
     imgstodel = set()
+    srcstodel = set()
+    basesrcprov = None
+    baserefprov = None
+    extrasrcprov = None
+    extrarefprov = None
 
     try:
+        # Need some additional provenances
+        with SmartSession() as session:
+            basesrcprov = Provenance( code_version_id=code_version.id,
+                                      process='extraction',
+                                      upstreams=[provenance_base],
+                                      parameters={ 'kaglorky': 42 } )
+            basesrcprov.insert_if_needed( session=session )
+            extrasrcprov = Provenance( code_version_id=code_version.id,
+                                       process='extraction',
+                                       upstreams=[provenance_extra],
+                                       parameters={ 'kaglorky': 23 } )
+            extrasrcprov.insert_if_needed( session=session )
+            baserefprov = Provenance( code_version_id=code_version.id,
+                                      process='referencing',
+                                      upstreams=[provenance_base, basesrcprov],
+                                      parameters={ 'which': 'base' } )
+            baserefprov.insert_if_needed( session=session )
+            extrarefprov = Provenance( code_version_id=code_version.id,
+                                       process='referencing',
+                                       upstreams=[provenance_extra,extrasrcprov],
+                                       parameters={ 'which': 'extra' } )
+            extrarefprov.insert_if_needed( session=session )
+
         # Create ourselves some fake images and references to use as test fodder
 
-        reuseimgkw = { 'provenance_id': provenance_base.id,
-                       'mjd': 60000.,
+        reuseimgkw = { 'mjd': 60000.,
                        'end_mjd': 60000.000694,
                        'exp_time': 60.,
                        'fwhm_estimate': 1.1,
@@ -53,22 +82,25 @@ def test_finding_references( provenance_base, provenance_extra ):
                        'project': 'Mercator'
                       }
 
-        # Make a couple of refsets
-        refset_base = RefSet( name="base", description="provenance_base" )
+        reusesrckw = { 'format': 'sextrfits',
+                       'num_sources': 5,
+                       'md5sum': uuid.uuid4(),
+                      }
+
+        # Make refsets
+        refset_base = RefSet( name="base", description="provenance_base", provenance_id=baserefprov.id )
         refset_base.insert()
-        refset_extra = RefSet( name="extra", description="provenance_extra" )
+        refset_extra = RefSet( name="extra", description="provenance_extra", provenance_id=extrarefprov.id )
         refset_extra.insert()
-        refset_both = RefSet( name="both", description="provenance_both" )
-        refset_both.insert()
-        with SmartSession() as session:
-            for pid, rsid in zip( [ provenance_base.id, provenance_extra.id, provenance_base.id, provenance_extra.id ],
-                                  [ refset_base.id,     refset_extra.id,     refset_both.id,     refset_both.id   ] ):
-                q = "INSERT INTO refset_provenance_association(provenance_id,refset_id) VALUES (:pid,:rsid)"
-                session.execute( sa.text(q), { 'pid': pid, 'rsid': rsid } )
-            session.commit()
+
+        # Make sure we can't create a duplicate refset
+        with pytest.raises( psycopg2.errors.UniqueViolation,
+                            match='duplicate key value violates unique constraint "ix_refsets_name"' ):
+            oops = RefSet( name="base", description="wrong", provenance_id=extrarefprov.id )
+            oops.insert()
 
         # Something somewhere, 0.2° on a side, in r and g, and one with a different provenance
-        img1 = Image( ra=20., dec=45.,
+        img1 = Image( provenance_id=provenance_base.id, ra=20., dec=45.,
                       minra=19.8586, maxra=20.1414, mindec=44.9, maxdec=45.1,
                       ra_corner_00=19.8586, ra_corner_01=19.8586, ra_corner_10=20.1414, ra_corner_11=20.1414,
                       dec_corner_00=44.9, dec_corner_10=44.9, dec_corner_01=45.1, dec_corner_11=45.1,
@@ -76,12 +108,14 @@ def test_finding_references( provenance_base, provenance_extra ):
         img1.calculate_coordinates()
         img1.insert()
         imgstodel.add( img1.id )
-        ref1 = Reference( provenance_id=provenance_base.id, image_id=img1.id, target=img1.target,
-                          filter=img1.filter, section_id=img1.section_id, instrument=img1.instrument )
+        src1 = SourceList( image_id=img1.id, provenance_id=basesrcprov.id, filepath='1.fits', **reusesrckw )
+        src1.insert()
+        srcstodel.add( src1.id )
+        ref1 = Reference( provenance_id=baserefprov.id, image_id=img1.id, sources_id=src1.id, )
         ref1.insert()
         refstodel.add( ref1.id )
 
-        img2 = Image( ra=20., dec=45.,
+        img2 = Image( provenance_id=provenance_base.id, ra=20., dec=45.,
                       minra=19.8586, maxra=20.1414, mindec=44.9, maxdec=45.1,
                       ra_corner_00=19.8586, ra_corner_01=19.8586, ra_corner_10=20.1414, ra_corner_11=20.1414,
                       dec_corner_00=44.9, dec_corner_10=44.9, dec_corner_01=45.1, dec_corner_11=45.1,
@@ -89,18 +123,30 @@ def test_finding_references( provenance_base, provenance_extra ):
         img2.calculate_coordinates()
         img2.insert()
         imgstodel.add( img2.id )
-        ref2 = Reference( provenance_id=provenance_base.id, image_id=img2.id, target=img2.target,
-                          filter=img2.filter, section_id=img2.section_id, instrument=img2.instrument )
+        src2 = SourceList( image_id=img2.id, provenance_id=basesrcprov.id, filepath='2.fits', **reusesrckw )
+        src2.insert()
+        srcstodel.add( src2.id )
+        ref2 = Reference( provenance_id=baserefprov.id, image_id=img2.id, sources_id=src2.id )
         ref2.insert()
         refstodel.add( ref2.id )
 
-        refp = Reference( provenance_id=provenance_extra.id, image_id=img1.id, target=img1.target,
-                          filter=img1.filter, section_id=img1.section_id, instrument=img1.instrument )
+        imgp = Image( provenance_id=provenance_extra.id, ra=20., dec=45.,
+                      minra=19.8586, maxra=20.1414, mindec=44.9, maxdec=45.1,
+                      ra_corner_00=19.8586, ra_corner_01=19.8586, ra_corner_10=20.1414, ra_corner_11=20.1414,
+                      dec_corner_00=44.9, dec_corner_10=44.9, dec_corner_01=45.1, dec_corner_11=45.1,
+                      target='target1', section_id='1', filter='r', filepath='testimagep.fits', **reuseimgkw )
+        imgp.calculate_coordinates()
+        imgp.insert()
+        imgstodel.add( imgp.id )
+        srcp = SourceList( image_id=imgp.id, provenance_id=extrasrcprov.id, filepath='p.fits', **reusesrckw )
+        srcp.insert()
+        srcstodel.add( srcp.id )
+        refp = Reference( provenance_id=extrarefprov.id, image_id=imgp.id, sources_id=srcp.id )
         refp.insert()
         refstodel.add( refp.id )
 
         # Offset by 0.15° in both ra and dec
-        img3 = Image( ra=20.2121, dec=45.15,
+        img3 = Image( provenance_id=provenance_base.id, ra=20.2121, dec=45.15,
                       minra=20.0707, maxra=20.3536, mindec=45.05, maxdec=45.25,
                       ra_corner_00=20.0707, ra_corner_01=20.0707, ra_corner_10=20.3536, ra_corner_11=20.3536,
                       dec_corner_00=45.05, dec_corner_10=45.05, dec_corner_01=45.25, dec_corner_11=45.25,
@@ -108,13 +154,15 @@ def test_finding_references( provenance_base, provenance_extra ):
         img3.calculate_coordinates()
         img3.insert()
         imgstodel.add( img3.id )
-        ref3 = Reference( provenance_id=provenance_base.id, image_id=img3.id, target=img3.target,
-                          filter=img3.filter, section_id=img3.section_id, instrument=img3.instrument )
+        src3 = SourceList( image_id=img3.id, provenance_id=basesrcprov.id, filepath='3.fits', **reusesrckw )
+        src3.insert()
+        srcstodel.add( src3.id )
+        ref3 = Reference( provenance_id=baserefprov.id, image_id=img3.id, sources_id=src3.id )
         ref3.insert()
         refstodel.add( ref3.id )
 
         # Offset, but also rotated by 45°
-        img4 = Image( ra=20.2121, dec=45.15,
+        img4 = Image( provenance_id=provenance_base.id, ra=20.2121, dec=45.15,
                       minra=20.0121, maxra=20.4121, mindec=45.0086, maxdec=45.2914,
                       ra_corner_00=20.0121, ra_corner_01=20.2121, ra_corner_11=20.4121, ra_corner_10=20.2121,
                       dec_corner_00=45.15, dec_corner_01=45.2914, dec_corner_11=45.15, dec_corner_10=45.0086,
@@ -122,13 +170,15 @@ def test_finding_references( provenance_base, provenance_extra ):
         img4.calculate_coordinates()
         img4.insert()
         imgstodel.add( img4.id )
-        ref4 = Reference( provenance_id=provenance_base.id, image_id=img4.id, target=img4.target,
-                          filter=img4.filter, section_id=img4.section_id, instrument=img4.instrument )
+        src4 = SourceList( image_id=img4.id, provenance_id=basesrcprov.id, filepath='4.fits', **reusesrckw )
+        src4.insert()
+        srcstodel.add( src4.id )
+        ref4 = Reference( provenance_id=baserefprov.id, image_id=img4.id, sources_id=src4.id )
         ref4.insert()
         refstodel.add( ref4.id )
 
         # At 0 ra
-        img5 = Image( ra=0.02, dec=0.,
+        img5 = Image( provenance_id=provenance_base.id, ra=0.02, dec=0.,
                       minra=359.92, maxra=0.12, mindec=-0.1, maxdec=0.1,
                       ra_corner_00=359.92, ra_corner_01=359.92, ra_corner_10=0.12, ra_corner_11=0.12,
                       dec_corner_00=-0.1, dec_corner_10=-0.1, dec_corner_01=0.1, dec_corner_11=0.1,
@@ -136,8 +186,10 @@ def test_finding_references( provenance_base, provenance_extra ):
         img5.calculate_coordinates()
         img5.insert()
         imgstodel.add( img5.id )
-        ref5 = Reference( provenance_id=provenance_base.id, image_id=img5.id, target=img5.target,
-                          filter=img5.filter, section_id=img5.section_id, instrument=img5.instrument )
+        src5 = SourceList( image_id=img5.id, provenance_id=basesrcprov.id, filepath='5.fits', **reusesrckw )
+        src5.insert()
+        srcstodel.add( src5.id )
+        ref5 = Reference( provenance_id=baserefprov.id, image_id=img5.id, sources_id=src5.id )
         ref5.insert()
         refstodel.add( ref5.id )
 
@@ -178,10 +230,10 @@ def test_finding_references( provenance_base, provenance_extra ):
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
         assert set( r.id for r in refs ) == { ref1.id, ref2.id, refp.id }
-        assert set( i.id for i in imgs ) == { img1.id, img2.id }
+        assert set( i.id for i in imgs ) == { img1.id, img2.id, imgp.id }
 
         # Get point at center of img1, all filters, only one provenance
-        for provarg in [ provenance_base.id, provenance_base, [ provenance_base.id ], [ provenance_base ] ]:
+        for provarg in [ baserefprov.id, baserefprov, [ baserefprov.id ], [ baserefprov ] ]:
             refs, imgs = Reference.get_references( ra=20., dec=45., provenance_ids=provarg )
             assert len(imgs) == len(refs)
             assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
@@ -195,17 +247,17 @@ def test_finding_references( provenance_base, provenance_extra ):
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
         assert set( r.id for r in refs ) == { ref1.id, refp.id }
-        assert set( i.id for i in imgs ) == { img1.id }
+        assert set( i.id for i in imgs ) == { img1.id, imgp.id }
 
         # Get point at center of img1, one provenance, one filter
-        refs, imgs = Reference.get_references( ra=20., dec=45., filter='r', provenance_ids=provenance_base.id )
+        refs, imgs = Reference.get_references( ra=20., dec=45., filter='r', provenance_ids=baserefprov.id )
         assert len(imgs) == len(refs)
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 1
         assert refs[0].id == ref1.id
         assert imgs[0].id == img1.id
 
-        refs, imgs = Reference.get_references( ra=20., dec=45., filter='g', provenance_ids=provenance_extra.id )
+        refs, imgs = Reference.get_references( ra=20., dec=45., filter='g', provenance_ids=extrarefprov.id )
         assert len(refs) == 0
         assert len(imgs) == 0
 
@@ -223,20 +275,12 @@ def test_finding_references( provenance_base, provenance_extra ):
         assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 1
         assert refs[0].id == refp.id
-        assert imgs[0].id == img1.id
-
-        # Get point at center of img1, refset both
-        refs, imgs = Reference.get_references( ra=20., dec=45., refset='both' )
-        assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
-        assert len(refs) == 3
-        assert set( r.id for r in refs ) == { ref1.id, ref2.id, refp.id }
-        assert set( i.id for i in imgs ) == { img1.id, img2.id }
+        assert imgs[0].id == imgp.id
 
         # TODO : test limiting on other things like instrument, skip_bad
 
-        # For the rest of the tests, we're going to do filter r and provenance provenance_base
-        kwargs = { 'filter': 'r', 'provenance_ids': provenance_base.id }
+        # For the rest of the tests, we're going to do filter r and provenance baserefprov
+        kwargs = { 'filter': 'r', 'provenance_ids': baserefprov.id }
 
         # Get point at upper-left of img1
         refs, imgs = Reference.get_references( ra=20.1273, dec=45.09, **kwargs )
@@ -346,9 +390,10 @@ def test_finding_references( provenance_base, provenance_extra ):
     finally:
         # Clean up images, refs, and refsets we made
         with SmartSession() as session:
+            session.execute( sa.delete( RefSet ).where( RefSet.name.in_( ( 'base', 'extra', ) ) ) )
             session.execute( sa.delete( Reference ).where( Reference._id.in_( refstodel ) ) )
+            session.execute( sa.delete( SourceList ).where( SourceList._id.in_( srcstodel ) ) )
             session.execute( sa.delete( Image ).where( Image._id.in_( imgstodel ) ) )
-            session.execute( sa.delete( RefSet ).where( RefSet.name.in_( ( 'base', 'extra', 'both' ) ) ) )
             session.commit()
 
 
@@ -377,68 +422,17 @@ def test_make_refset():
         assert maker.coadd_im_prov is not None
         assert maker.coadd_ex_prov is not None
         rs = RefSet.get_by_name( rsname )
-        assert rs is not None
-        assert len( rs.provenances ) == 1
-        assert rs.provenances[0].id == maker.ref_prov.id
+        assert isinstance( rs, RefSet )
 
         # Make sure that all is well if we try to make the same RefSet all over again
         newmaker = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] }, coaddition={ 'method': 'zogy' } )
         assert newmaker.refset is None
         newmaker.make_refset()
-        assert newmaker.refset.id == maker.refset.id
+        assert asUUID(newmaker.refset.id) == asUUID(maker.refset.id)
         assert newmaker.ref_prov.id == maker.ref_prov.id
         rs = RefSet.get_by_name( rsname )
-        assert len( rs.provenances ) == 1
+        assert isinstance( rs, RefSet )
 
-        # Make sure that all is well if we try to make the same RefSet all over again even if allow_append is false
-        donothingmaker = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'], 'allow_append': False },
-                                   coaddition={ 'method': 'zogy' } )
-        assert donothingmaker.refset is None
-        donothingmaker.make_refset()
-        assert donothingmaker.refset.id == maker.refset.id
-        assert donothingmaker.ref_prov.id == maker.ref_prov.id
-        rs = RefSet.get_by_name( rsname )
-        assert len( rs.provenances ) == 1
-
-        # Make sure we can't append a new provenance to an existing RefSet if allow_append is False
-        failmaker = RefMaker( maker={ 'name': rsname, 'max_number': 5, 'instruments': ['PTF'], 'allow_append': False },
-                              coaddition={ 'method': 'zogy' } )
-        assert failmaker.refset is None
-        with pytest.raises( RuntimeError, match="RefSet .* exists, allow_append is False, and provenance .* isn't in" ):
-            failmaker.make_refset()
-
-        # Make sure that we can append a new provenance to the same RefSet as long
-        #   as the upstream thingies are consistent.
-        newmaker2 = RefMaker( maker={ 'name': rsname, 'max_number': 5, 'instruments': ['PTF'] },
-                              coaddition={ 'method': 'zogy' } )
-        newmaker2.make_refset()
-        assert newmaker2.refset.id == maker.refset.id
-        assert newmaker2.ref_prov.id != maker.ref_prov.id
-        provstodel.add( newmaker2.ref_prov )
-        assert len( newmaker2.refset.provenances ) == 2
-        rs = RefSet.get_by_name( rsname )
-        assert len( rs.provenances ) == 2
-
-        # Make sure we can't append a new provenance to the same RefSet
-        #   if the upstream thingies are not consistent
-        newmaker3 = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] },
-                              coaddition= { 'coaddition': { 'method': 'naive' } } )
-        with pytest.raises( RuntimeError, match="Can't append, reference provenance upstreams are not consistent" ):
-            newmaker3.make_refset()
-        provstodel.add( newmaker3.ref_prov )
-
-        newmaker4 = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] }, coaddition={ 'method': 'zogy' } )
-        newmaker4.pipeline.extractor.pars.threshold = maker.pipeline.extractor.pars.threshold + 1.
-        with pytest.raises( RuntimeError, match="Can't append, reference provenance upstreams are not consistent" ):
-            newmaker4.make_refset()
-        provstodel.add( newmaker4.ref_prov )
-
-        # TODO : figure out how to test that the race conditions we work
-        #  around in test_make_refset aren't causing problems.  (How to
-        #  do that... I really hate to put contitional 'wait here' code
-        #  in the actual production code for purposes of tests.  Perhaps
-        #  test it repeatedly with multiprocessing to make sure that
-        #  that works?)
 
     finally:
         # Clean up the provenances and refset we made
@@ -463,7 +457,6 @@ def test_making_refsets_in_run():
     assert maker.coadd_ex_prov is None
 
     # Make sure we can create a fresh refset
-    maker.pars.allow_append = False
     new_ref = maker.run(ra=0, dec=0, filter='R')
     assert new_ref is None  # cannot find a specific reference here
     refset = maker.refset
@@ -476,31 +469,16 @@ def test_making_refsets_in_run():
     assert isinstance(maker.coadd_im_prov, Provenance)
     assert isinstance(maker.coadd_ex_prov, Provenance)
 
-    assert refset.provenances[0].parameters['min_number'] == min_number
-    assert refset.provenances[0].parameters['max_number'] == max_number
-    assert 'name' not in refset.provenances[0].parameters  # not a critical parameter!
-    assert 'description' not in refset.provenances[0].parameters  # not a critical parameter!
+    assert refset.provenance.parameters['min_number'] == min_number
+    assert refset.provenance.parameters['max_number'] == max_number
+    assert 'name' not in refset.provenance.parameters  # not a critical parameter!
+    assert 'description' not in refset.provenance.parameters  # not a critical parameter!
 
     # now make a change to the maker's parameters (not the data production parameters)
     maker.pars.min_number = min_number + 5
-    maker.pars.allow_append = False  # this should prevent us from appending to the existing ref-set
 
-    with pytest.raises( RuntimeError,
-                        match="RefSet .* exists, allow_append is False, and provenance .* isn't in"
-                       ):
+    with pytest.raises( ValueError, match="Refset .* already exists with provenance .*, which does not match" ):
         new_ref = maker.run(ra=0, dec=0, filter='R')
-
-    maker.pars.allow_append = True  # now it should be ok
-    new_ref = maker.run(ra=0, dec=0, filter='R')
-    # Make sure it finds the same refset we're expecting
-    assert maker.refset.id == refset.id
-    assert new_ref is None  # still can't find images there
-
-    assert len( maker.refset.provenances ) == 2
-    assert set( i.parameters['min_number'] for i in maker.refset.provenances ) == { min_number, min_number+5 }
-    assert set( i.parameters['max_number'] for i in maker.refset.provenances ) == { max_number }
-
-    refset = maker.refset
 
     # now try to make a new ref-set with a different name
     name2 = uuid.uuid4().hex
@@ -508,15 +486,10 @@ def test_making_refsets_in_run():
     new_ref = maker.run(ra=0, dec=0, filter='R')
     assert new_ref is None  # still can't find images there
 
-    refset2 = maker.refset
-    assert len(refset2.provenances) == 1
-    # This refset has a provnenace that was also in th eone we made before
-    assert refset2.provenances[0].id in [ i.id for i in refset.provenances ]
-
     # now try to append with different data parameters:
     maker.pipeline.extractor.pars['threshold'] = 3.14
 
-    with pytest.raises( RuntimeError, match="Can't append, reference provenance upstreams are not consistent" ):
+    with pytest.raises( ValueError, match="Refset .* already exists with provenance .*, which does not match" ):
         new_ref = maker.run(ra=0, dec=0, filter='R')
 
     # Clean up
@@ -744,12 +717,9 @@ def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
         refset = session.scalars(sa.select(RefSet).where(RefSet.name == 'test_refset_ptf')).first()
 
     assert refset is not None
-    assert len(refset.provenances) == 1
-    assert refset.provenances[0].id == ptf_ref.provenance_id
+    assert refset.provenance_id == ptf_ref.provenance_id
 
-    refset.append_provenance( Provenance.get( ptf_ref_offset.provenance_id ) )
-
-    ref = ptf_datastore.get_reference(provenances=refset.provenances)
+    ref = ptf_datastore.get_reference(provenances=refset.provenance)
 
     assert ref is not None
     assert ref.id == ptf_ref.id
@@ -763,7 +733,7 @@ def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
     ptf_datastore.image.maxra -= 0.5
     ptf_datastore.image.ra -= 0.5
 
-    ref = ptf_datastore.get_reference(provenances=refset.provenances)
+    ref = ptf_datastore.get_reference(provenances=refset.provenance)
 
     assert ref is not None
     assert ref.id == ptf_ref_offset.id

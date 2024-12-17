@@ -1,8 +1,9 @@
 from uuid import UUID
 
 import sqlalchemy as sa
+from sqlalchemy import orm
 
-from models.base import Base, FourCorners, UUIDMixin, SmartSession
+from models.base import Base, SeeChangeBase, FourCorners, UUIDMixin, SmartSession
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
@@ -34,45 +35,11 @@ class Reference(Base, UUIDMixin):
     )
 
     sources_id = sa.Column(
-        sa.ForeignKey('sources._id', ondelete='CASCADE', name='references_sources_id_fkey'),
+        sa.ForeignKey('source_lists._id', ondelete='CASCADE', name='references_sources_id_fkey'),
         nullable=False,
         index=True,
         doc="ID of the source list that goes with the image for this reference"
     )
-
-    # # TODO: some of the targets below are redundant with image, and searches should probably
-    # #   be replaced with joins to image.
-    # target = sa.Column(
-    #     sa.Text,
-    #     nullable=False,
-    #     index=True,
-    #     doc=(
-    #         'Name of the target object or field id. '
-    #         'This string is used to match the reference to new images, '
-    #         'e.g., by matching the field ID on a pre-defined grid of fields. '
-    #     )
-    # )
-
-    # instrument = sa.Column(
-    #     sa.Text,
-    #     nullable=False,
-    #     index=True,
-    #     doc="Name of the instrument used to make the images for this reference image. "
-    # )
-
-    # filter = sa.Column(
-    #     sa.Text,
-    #     nullable=False,
-    #     index=True,
-    #     doc="Filter used to make the images for this reference image. "
-    # )
-
-    # section_id = sa.Column(
-    #     sa.Text,
-    #     nullable=False,
-    #     index=True,
-    #     doc="Section ID of the reference image. "
-    # )
 
     # this badness is in addition to the regular bitflag of the underlying products
     # it can be used to manually kill a reference and replace it with another one
@@ -110,6 +77,23 @@ class Reference(Base, UUIDMixin):
     )
 
 
+    @property
+    def image( self ):
+        if self._image is None:
+            self._image = Image.get_by_id( self.image_id )
+        return self._image
+
+
+    def __init__( self, *args, **kwargs ):
+        SeeChangeBase.__init__( self, *args, **kwargs )
+        self._image = None
+
+    @orm.reconstructor
+    def init_on_load( self ):
+        SeeChangeBase.init_on_load( self )
+        self._image = None
+
+
     def get_ref_data_products(self, session=None):
         """Get the (SourceList, Background, PSF, WorldCoordiantes, Zeropoint) assocated with self.image_id
 
@@ -124,8 +108,7 @@ class Reference(Base, UUIDMixin):
         """
 
         with SmartSession( session ) as sess:
-            prov = Provenance.get( self.provenance_id, session=sess )
-            srcs = Sources.get_by_id( self.sources_id, session=sess )
+            sources = SourceList.get_by_id( self.sources_id, session=sess )
             # Going to assume that there's only one bg, psf, wcs, zp
             #   associated with these sources.  By construction, there
             #   should only be one, so unless the databse has gotten
@@ -265,7 +248,7 @@ class Reference(Base, UUIDMixin):
                     raise ValueError( "Can't give overlapfrac with target/section_id" )
 
                 q = ( "SELECT r.* FROM refs r INNER JOIN images i ON r.image_id=i._id "
-                      "WHERE i.target=:target AND i.section_id=:section_id "
+                      "WHERE i.target=:target AND i.section_id=:section_id " )
                 subdict = { 'target': target, 'section_id': section_id }
 
             # Mode 2 : ra/dec

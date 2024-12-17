@@ -1439,14 +1439,15 @@ class DataStore:
             elif skip_bad and self.reference.is_bad:
                 self.reference = None
 
-            elif match_filter and self.reference.filter != image.filter:
+            elif match_filter and self.reference.image.filter != image.filter:
                 self.reference = None
 
-            elif match_instrument and self.reference.instrument != image.instrument:
+            elif match_instrument and self.reference.image.instrument != image.instrument:
                 self.reference = None
 
             elif ( ( search_by in [ 'target/section', 'target/section_id' ] ) and
-                   ( ( self.reference.target != image.target ) or ( self.reference.section_id != image.section_id ) )
+                   ( ( self.reference.imagetarget != image.target ) or
+                     ( self.reference.imagesection_id != image.section_id ) )
                   ):
                 self.reference = None
 

@@ -187,13 +187,13 @@ def test_parameters( test_config ):
 # TODO : This really tests that there are no reference provenances defined for the refet
 # Also write a test where provenances exist but no reference exists, and then one where
 # a reference exists for a different field but not for this field.
-def test_running_without_reference(decam_exposure, decam_refset, decam_default_calibrators, pipeline_for_tests):
+def test_running_without_reference(decam_exposure, decam_default_calibrators, pipeline_for_tests):
     p = pipeline_for_tests
     p.subtractor.pars.refset = 'test_refset_decam'  # choosing ref set doesn't mean we have an actual reference
     p.pars.save_before_subtraction = True  # need this so images get saved even though it crashes on "no reference"
 
-    with pytest.raises( RuntimeError, match=( "Failed to create the provenance tree: No provenances found "
-                                              "for reference set test_refset_decam!" ) ):
+    with pytest.raises( RuntimeError, match=( "Failed to create the provenance tree: No reference set "
+                                              "with name test_refset_decam found in the database!" ) ):
         # Use the 'N1' sensor section since that's not one of the ones used in the regular
         #  DECam fixtures, so we don't have to worry about any session scope fixtures that
         #  load refererences.  (Though I don't think there are any.)
@@ -229,7 +229,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
     exposure = decam_exposure
 
     ref = decam_reference
-    sec_id = ref.section_id
+    sec_id = ref.image.section_id
     try:  # cleanup the file at the end
         p = pipeline_for_tests
         p.subtractor.pars.refset = 'test_refset_decam'
@@ -301,7 +301,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
     """
     exposure = decam_exposure
     ref = decam_reference
-    sec_id = ref.section_id
+    sec_id = ref.image.section_id
 
     try:  # cleanup the file at the end
         p = Pipeline( pipeline={'provenance_tag': 'test_bitflag_propagation'} )
@@ -428,7 +428,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
     """Test that get_upstreams() and get_downstreams() return the proper objects."""
     exposure = decam_exposure
     ref = decam_reference
-    sec_id = ref.section_id
+    sec_id = ref.image.section_id
 
     try:  # cleanup the file at the end
         p = Pipeline( pipeline={'provenance_tag': 'test_get_upstreams_and_downstreams'} )
@@ -446,6 +446,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.sources.id]
+            import pdb; pdb.set_trace()
             assert set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ]) == set([
                 ds.ref_image.id,
                 ds.ref_sources.id,
@@ -518,7 +519,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
         shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
 
 
-def test_provenance_tree(pipeline_for_tests, decam_refset, decam_exposure, decam_datastore, decam_reference):
+def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, decam_reference):
     p = pipeline_for_tests
     p.subtractor.pars.refset = 'test_refset_decam'
 

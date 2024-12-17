@@ -513,7 +513,7 @@ coaddition:
 referencing:
   maker:  # these handles the top level configuration (e.g., how to choose images that go into the reference maker)
     name: best_references  # the name of the reference set that you want to make references for
-    allow_append: true  # can we add different image load criteria to an existing reference set with this name?
+    description: "The Best References"   # Description of the reference set
     start_time: null  # only grab images after this time
     end_time: null  # only grab images before this time
     instrument: null  # only grab images from this instrument (if list, will make cross-instrument references)

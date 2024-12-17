@@ -587,10 +587,7 @@ def ptf_ref(
     refprov.insert_if_needed()
     ref = Reference(
         image_id=coadd_datastore.image.id,
-        target=coadd_datastore.image.target,
-        instrument=coadd_datastore.image.instrument,
-        filter=coadd_datastore.image.filter,
-        section_id=coadd_datastore.image.section_id,
+        sources_id=coadd_datastore.sources.id,
         provenance_id=refprov.id
     )
     ref.provenance_id=refprov.id
@@ -602,10 +599,9 @@ def ptf_ref(
     must_delete_refset = False
     refset = RefSet.get_by_name( 'test_refset_ptf' )
     if refset is None:
-        refset = RefSet( name='test_refset_ptf' )
+        refset = RefSet( name='test_refset_ptf', provenance_id=refprov.id )
         refset.insert()
         must_delete_refset = True
-    refset.append_provenance( refprov )
 
     yield ref
 
@@ -635,27 +631,16 @@ def ptf_ref_offset(ptf_ref):
     offset_image.filepath = ptf_ref_image.filepath + '_offset'
     offset_image.provenance_id = ptf_ref_image.provenance_id
     offset_image.md5sum = uuid.uuid4()  # spoof this so we don't have to save to archive
+    ptf_ref_sources = SourceList.get_by_id( ptf_ref.sources_id )
+    offset_sources = ptf_ref_sources.copy()
+    offset_sources.filepath = ptf_ref_image.filepath + '_offset_sources'
+    offset_sources.m5dsum = uuid.uuid4()
+    offset_sources.image_id = offset_image.id
 
-    new_ref = Reference( target=ptf_ref.target,
-                         filter=ptf_ref.filter,
-                         instrument=ptf_ref.instrument,
-                         section_id=ptf_ref.section_id,
-                         image_id=offset_image.id
+    new_ref = Reference( image_id=offset_image.id,
+                         sources_id=offset_sources.id,
+                         provenance_id=ptf_ref.provenance_id
                         )
-    refprov = Provenance.get( ptf_ref.provenance_id )
-    pars = refprov.parameters.copy()
-    pars['test_parameter'] = uuid.uuid4().hex
-    refprov = Provenance.get( ptf_ref.provenance_id )
-    prov = Provenance(
-        process='referencing',
-        parameters=pars,
-        upstreams=refprov.upstreams,
-        code_version_id=refprov.code_version_id,
-        is_testing=True,
-    )
-    prov.insert_if_needed()
-    new_ref.provenance_id = prov.id
-
     offset_image.insert()
     new_ref.insert()
 
@@ -676,10 +661,11 @@ def ptf_refset(refmaker_factory):
 
     # delete all the references and the refset
     with SmartSession() as session:
-        for prov in refmaker.refset.provenances:
-            refs = session.scalars(sa.select(Reference).where(Reference.provenance_id == prov.id)).all()
-            for ref in refs:
-                session.delete(ref)
+        refs = session.scalars(sa.select(Reference)
+                               .where(Reference.provenance_id == refmaker.refset.provenance_id)
+                               ).all()
+        for ref in refs:
+            session.delete(ref)
 
         session.execute( sa.delete( RefSet ).where( RefSet.name == refmaker.refset.name ) )
 

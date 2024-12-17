@@ -596,7 +596,7 @@ class Subtractor:
 
                 # TODO: we can add additional parameters of get_reference() that come from
                 #  the subtraction config, such as skip_bad, match_filter, ignore_target_and_section, min_overlap
-                ref = ds.get_reference(provenances=refset.provenances, session=session)
+                ref = ds.get_reference(provenances=refset.provenance, session=session)
                 if ref is None:
                     raise ValueError(
                         f'Cannot find a reference image corresponding to the datastore inputs: {ds.inputs_str}; '

@@ -337,18 +337,6 @@ def decam_small_image(decam_raw_image):
     yield image
 
 
-@pytest.fixture(scope='session')
-def decam_refset():
-    refset = RefSet( name='test_refset_decam' )
-    refset.insert()
-
-    yield refset
-
-    with SmartSession() as session:
-        session.execute( sa.delete( RefSet ).where( RefSet.name=='test_refset_decam' ) )
-        session.commit()
-
-
 # Don't use the decam_datastore and decam_datastore_through_* fixtures in the same test.
 @pytest.fixture
 def decam_datastore(
@@ -561,8 +549,7 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 
 
 @pytest.fixture
-def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir,
-                                       datastore_factory, decam_refset ):
+def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
     SCLogger.debug( "Starting decam_elais_e1_two_refs_datastore fixture" )
 
     filebase = 'ELAIS-E1-r-templ'
@@ -691,26 +678,26 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
         parameters={},
     )
     refprov.insert_if_needed()
-    refset = RefSet.get_by_name( 'test_refset_decam' )
-    refset.append_provenance( refprov )
 
     for ds in decam_elais_e1_two_refs_datastore:
         ref = Reference(
             image_id = ds.image.id,
-            provenance_id = refprov.id,
-            instrument = ds.image.instrument,
-            section_id = ds.image.section_id,
-            filter = ds.image.filter,
-            target = ds.image.target,
+            sources_id = ds.sources.id,
+            provenance_id = refprov.id
         )
         ref.insert()
         refs.append( ref )
+
+    # Create the test_refset_decam reference set
+    refset = RefSet( name='test_refset_decam', provenance_id=refprov.id )
+    refset.insert()
 
     yield refs
 
     with SmartSession() as session:
         session.execute( sa.delete( Reference ).where( Reference._id.in_( [ r.id for r in refs ] ) ) )
         session.execute( sa.delete( Provenance ).where( Provenance._id==refprov.id ) )
+        session.execute( sa.delete( RefSet ).where( RefSet.name=='test_refset_decam' ) )
         session.commit()
 
 

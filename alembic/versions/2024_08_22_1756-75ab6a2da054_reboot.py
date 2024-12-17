@@ -485,7 +485,7 @@ def upgrade() -> None:
     sa.Column('modified', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('_id', sa.UUID(), nullable=False),
     sa.ForeignKeyConstraint(['exposure_id'], ['exposures._id'], name='reports_exposure_id_fkey', ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='images_provenance_id_fkey', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['provenance_id'], ['provenances._id'], name='reports_provenance_id_fkey', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('_id')
     )
     op.create_index(op.f('ix_reports__id'), 'reports', ['_id'], unique=False)

@@ -1507,6 +1507,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             upstrprov = myprov.get_upstreams()
             upstrprovids = [ i.id for i in upstrprov ]
 
+            # If a subtraction, we have to go a step further with the referencing upstream
+            if self.is_sub:
+                for prov in upstrprov:
+                    if prov.process in ( 'referencing', 'manual_reference' ):
+                        upstrprovids += [ p.id for p in prov.get_upstreams() ]
+
             # Upstream images first
             upstrimages = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
             # Sort by mjd

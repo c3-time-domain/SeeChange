@@ -1,7 +1,5 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.dialects.postgresql import UUID as sqlUUID
-from sqlalchemy.exc import IntegrityError
 
 from models.base import Base, SeeChangeBase, UUIDMixin, SmartSession
 from models.provenance import Provenance
@@ -38,15 +36,15 @@ class RefSet(Base, UUIDMixin):
             return refset
 
     @property
-    def provenances( self ):
+    def provenance( self ):
         if self._provenance is None:
-            self._provenance = Provenacne.get_by_id( self.provenance_id )
+            self._provenance = Provenance.get( self.provenance_id )
         return self._provenance
 
 
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # don't pass kwargs as they could contain non-column key-values
-        self._provenances = None
+        self._provenance = None
 
         # manually set all properties (columns or not)
         for key, value in kwargs.items():

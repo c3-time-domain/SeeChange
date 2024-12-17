@@ -1,8 +1,6 @@
 import datetime
 
 import numpy as np
-import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
 import psycopg2.extras
 
 from pipeline.parameters import Parameters
@@ -15,7 +13,7 @@ from models.provenance import Provenance, CodeVersion
 from models.reference import Reference
 from models.exposure import Exposure
 from models.image import Image
-from models.refset import RefSet, refset_provenance_association_table
+from models.refset import RefSet
 
 from util.config import Config
 from util.logger import SCLogger
@@ -41,16 +39,6 @@ class ParsRefMaker(Parameters):
             str,
             'Description of the reference set. ',
             critical=False,
-        )
-
-        self.allow_append = self.add_par(
-            'allow_append',
-            True,
-            bool,
-            'If True, will append new provenances to an existing reference set with the same name. '
-            'If False, will raise an error if a reference set with the same name '
-            'and a different provenance already exists',
-            critical=False,  # can decide to turn this option on or off as an administrative decision
         )
 
         self.start_time = self.add_par(
@@ -283,7 +271,7 @@ class RefMaker:
                               "corner_distance and overlap_fraction, or both must be None." )
 
         if ( self.pars.instruments is None ) or ( len(self.pars.instruments) > 1 ):
-            raise NotImplementedError( f"Cross-instrument references not supported.  Specify one instrument." )
+            raise NotImplementedError( "Cross-instrument references not supported.  Specify one instrument." )
 
         # first, make sure we can assemble the provenances up to extraction:
         self.im_provs = None  # the provenances used to make images going into the reference (these are coadds!)
@@ -396,21 +384,21 @@ class RefMaker:
         (using the config) and load them into the database.
 
         """
-        with Smartsession( session ) as dbsession:
+        with SmartSession( session ) as dbsession:
             # make sure all the sundry component provenances are in the database
-            self.setup_provenances( session=session )
+            self.setup_provenances( session=dbsession )
 
             # make sure the ref_prov is in the database
-            self.ref_prov.insert_if_needed( session=session )
+            self.ref_prov.insert_if_needed( session=dbsession )
 
         with Psycopg2Connection() as conn:
-            cursor = conn.cursor( cursor_factor=psycopg2.extras.RealDictCursor )
+            cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
             # Lock the refset table so we don't have a race condition
             cursor.execute( "LOCK TABLE refsets" )
             # Check to see if the refset already exists
             cursor.execute( "SELECT * FROM refsets WHERE name=%(name)s", { 'name': self.pars.name } )
             rows = cursor.fetchall()
-            if len( rows > 0 ):
+            if len(rows) > 0:
                 # refset already exists, make sure the provenance is right
                 if rows[0]['provenance_id'] != self.ref_prov.id:
                     raise ValueError( f"Refset {self.pars.name} already exists with provenance "
@@ -420,13 +408,13 @@ class RefMaker:
                 self.refset.set_attributes_from_dict( rows[0] )
             else:
                 # refset doesn't exist, make it
-                self.refset = RefSet( name=self.pars.name, description=self.pars.descrption,
+                self.refset = RefSet( name=self.pars.name, description=self.pars.description,
                                       provenance_id=self.ref_prov.id )
-                cursor.execute( "INSERT INTO refsets(_id,name,description,provenanceid) "
-                                "VALUES (%(id)s,%(name)s,%(desc)s,%(prov)s",
+                cursor.execute( "INSERT INTO refsets(_id,name,description,provenance_id) "
+                                "VALUES (%(id)s,%(name)s,%(desc)s,%(prov)s)",
                                 { 'id': self.refset.id, 'name': self.refset.name,
                                   'desc': self.refset.description, 'prov': self.refset.provenance_id } )
-                cursor.commit()
+                conn.commit()
 
 
     # ======================================================================
