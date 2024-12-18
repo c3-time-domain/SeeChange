@@ -418,9 +418,9 @@ RUN chmod 755 run_webap.sh
 RUN mkdir /sessions
 RUN chmod 777 /sessions
 
-ADD webap/seechange_webap.yaml /seechange/seechange_webap.yaml
-ADD webap/local_overrides.yaml /seechange/local_overrides.yaml
-ADD webap/local_augments.yaml /seechange/local_augments.yaml
+COPY webap/seechange_webap.yaml /seechange/seechange_webap.yaml
+COPY webap/local_overrides.yaml /seechange/local_overrides.yaml
+COPY webap/local_augments.yaml /seechange/local_augments.yaml
 
 # Copy in the self-signed certificate we need to use in tests.
 # This should *not* be used in production, even though it's
