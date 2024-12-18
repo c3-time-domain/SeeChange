@@ -82,7 +82,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
     maxdec = max( dec_corner_01, dec_corner_11 )
 
     image = Image( provenance_id=image_prov.id,
-                   format='fits',
+                   format='fitsfz',
                    type='ComSci',       # Not really right, but we don't currently have a definition
                    mjd=img_hdr['MJD-OBS'],      # Won't really be right (sum across days), but oh well
                    end_mjd=img_hdr['MJD-END'],  # (same comment)
@@ -127,7 +127,9 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
     SCLogger.info( "Running pipeline for sources / background / wcs / zp" )
 
     ds = DataStore( image )
-    pipeline = Pipeline( provenance_tag='DECam_manual_refs', through_step='zp' )
+    pipeline = Pipeline( pipeline={ 'provenance_tag': 'DECam_manual_refs',
+                                    'through_step': 'zp',
+                                    'generate_report': False } )
     ds.prov_tree = pipeline.make_provenance_tree( image, ok_no_ref_provs=True )
 
     # Have to manually run the pipeline steps because pipeline.run()
@@ -146,7 +148,6 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
     pipeline.photometor.run( ds )
 
     SCLogger.info( "Saving data products" )
-    import pdb; pdb.set_trace()
     ds.save_and_commit()
 
     # Make the reference
@@ -161,28 +162,22 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
     with Psycopg2Connection() as conn:
         cursor = conn.cursor()
         cursor.execute( "LOCK TABLE refsets" )
-        cursor.execute( "SELECT _id FROM refsets WHERE name=%(name)s", { 'name': refset } )
+        cursor.execute( "SELECT _id,provenance_id FROM refsets WHERE name=%(name)s", { 'name': refset } )
         row = cursor.fetchone()
         if row is None:
             refsetid = uuid.uuid4()
-            cursor.execute( "INSERT INTO refsets(name,description,_id) "
-                            "VALUES (%(name)s,'Manually imported DECam Reference', %(id)s)",
-                            { 'name': refset, 'id': refsetid } )
+            cursor.execute( "INSERT INTO refsets(_id,name,description,provenance_id) "
+                            "VALUES (%(id)s,%(name)s,'Manually imported DECam Reference', %(provid)s)",
+                            { 'id': refsetid, 'name': refset, 'provid': reference_prov.id } )
             conn.commit()
         else:
             refsetid = row[0]
-        conn.rollback()
-
-        cursor.execute( "INSERT INTO refset_provenance_association(provenance_id,refset_id) "
-                        "VALUES (%(provid)s,%(refsetid)s) ON CONFLICT DO NOTHING",
-                        { 'provid': reference_prov.id, 'refsetid': refsetid  } )
-        conn.commit()
+            if reference_prov.id != row[1]:
+                raise ValueError( f"Refset {refset} provenance {row[1]} doesn't match "
+                                  f"reference_prov.id {ref_prov.id}" )
 
     ref = Reference( image_id=ds.image.id,
-                     target=image.target,
-                     instrument=image.instrument_object.name,
-                     filter=image.filter,
-                     section_id=image.section_id,
+                     sources_id=ds.sources.id,
                      provenance_id=reference_prov.id )
     ref.insert()
 
