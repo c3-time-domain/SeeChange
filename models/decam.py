@@ -625,7 +625,7 @@ class DECam(Instrument):
         newdata = np.zeros_like( data )
         ccdnum = header[ 'CCDNUM' ]
 
-        with fits.open( linearitydata.get_fullpath(), memmap=False ) as linhdu:
+        with fits.open( linearitydata.get_fullpath( nofile=False ), memmap=False ) as linhdu:
             for amp in ["A", "B"]:
                 ampdex = f'ADU_LINEAR_{amp}'
                 x0 = secs[amp]['destsec']['x0']
