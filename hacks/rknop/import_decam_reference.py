@@ -174,7 +174,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
             refsetid = row[0]
             if reference_prov.id != row[1]:
                 raise ValueError( f"Refset {refset} provenance {row[1]} doesn't match "
-                                  f"reference_prov.id {ref_prov.id}" )
+                                  f"reference_prov.id {reference_prov.id}" )
 
     ref = Reference( image_id=ds.image.id,
                      sources_id=ds.sources.id,

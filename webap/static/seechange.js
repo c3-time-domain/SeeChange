@@ -919,9 +919,12 @@ seechange.Exposure = class
                              // + data.cutouts['dec'][i].toFixed(5) + ")<br>" +
                              "<b>(α, δ):</b> (" + seechange.nullorfixed( data.cutouts['measra'][i], 5 ) + " , "
                              + seechange.nullorfixed( data.cutouts['measdec'][i],5 ) + ")<br>" +
-                             // TODO : put x, y back if the server ever starts returning it again! -- Issue #340
-                             // "<b>(x, y):</b> (" + data.cutouts['x'][i].toFixed(2) + " , "
-                             // + data.cutouts['y'][i].toFixed(2) + ")<br>" +
+                             "<b>(x, y):</b> (" + seechange.nullorfixed( data.cutouts['x'][i], 2 ) + " , "
+                             + seechange.nullorfixed( data.cutouts['y'][i], 2 ) + ")<br>" +
+                             // ****
+                             "<b>(x, y):</b> (" + seechange.nullorfixed( data.cutouts['meas_x'][i], 2 ) + " , "
+                             + seechange.nullorfixed( data.cutouts['meas_y'][i], 2 ) + ")<br>" +
+                             // ****
                              "<b>Flux:</b> " + seechange.nullorfixed( data.cutouts['flux'][i], 0 )
                              + " ± " + seechange.nullorfixed( data.cutouts['dflux'][i], 0 )
                            );

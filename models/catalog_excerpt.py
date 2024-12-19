@@ -92,7 +92,7 @@ class CatalogExcerpt(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCor
         if self._data is None:
             if self.format != 'fitsldac':
                 raise ValueError( f"Don't know how to read a CatalogExcerpt of type {self.format}" )
-            self._hdr, self._data = util.ldac.get_table_from_ldac( self.get_fullpath() )
+            self._hdr, self._data = util.ldac.get_table_from_ldac( self.get_fullpath( nofile=False ) )
         return self._data
 
     num_items = sa.Column(

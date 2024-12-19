@@ -1352,7 +1352,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         single_file = cfg.value('storage.images.single_file')
 
         if single_file:
-            filename = self.get_fullpath()
+            filename = self.get_fullpath( nofile=False )
             if not os.path.isfile(filename):
                 raise FileNotFoundError(f"Could not find the image file: {filename}")
             self._data, self._header = read_fits_image(filename, ext='image', output='both')
@@ -1364,12 +1364,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         else:  # load each data array from a separate file
             if self.components is None:
-                self._data, self._header = read_fits_image( self.get_fullpath(), output='both' )
+                self._data, self._header = read_fits_image( self.get_fullpath(nofile=False), output='both' )
             else:
                 gotim = False
                 gotweight = False
                 gotflags = False
-                for comp, filename in zip( self.components, self.get_fullpath(as_list=True) ):
+                for comp, filename in zip( self.components, self.get_fullpath(as_list=True, nofile=False) ):
                     if not os.path.isfile(filename):
                         raise FileNotFoundError(f"Could not find the image component file: {filename}")
                     if comp == 'image':

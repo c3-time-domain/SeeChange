@@ -359,13 +359,16 @@ class ImageAligner:
         tmpname = ''.join( random.choices( 'abcdefghijlkmnopqrstuvwxyz', k=10 ) )
 
         tmpim = tmppath / f'{tmpname}_image.fits'
+        tmpwt = tmppath / f'{tmpname}_weight.fits'
         tmpflags = tmppath / f'{tmpname}_flags.fits'
         tmpbg = tmppath / f'{tmpname}_bg.fits'
 
         outim = tmppath / f'{tmpname}_warped.image.fits'
         outwt = tmppath / f'{tmpname}_warped.weight.fits'
         outfl = tmppath / f'{tmpname}_warped.flags.fits'
+        outflwt = tmppath / f'{tmpname}_warped.flags.weight.fits'
         outbg = tmppath / f'{tmpname}_warped.bg.fits'
+        outbgwt = tmppath / f'{tmpname}_warped.bg.weight.fits'
         outimhead = tmppath / f'{tmpname}_warped.image.head'
         outflhead = tmppath / f'{tmpname}_warped.flags.head'
         outbghead = tmppath / f'{tmpname}_warped.bg.head'
@@ -439,9 +442,9 @@ class ImageAligner:
             #  case.)
             if source_image.components is None:
                 raise NotImplementedError( "Only separate image/weight/flags images currently supported." )
-            impaths = source_image.get_fullpath( as_list=True )
+            # impaths = source_image.get_fullpath( as_list=True )
             # imdex = source_image.components.index( 'image' )
-            wtdex = source_image.components.index( 'weight' )
+            # wtdex = source_image.components.index( 'weight' )
             # fldex = source_image.components.index( 'flags' )
 
             # For swarp to work right, the header of image must have the
@@ -450,6 +453,9 @@ class ImageAligner:
             # (TODO: I think I can get away with writing a head file and
             # putting in a symbolic link for the full FITS, instead of
             # copying the FITS data as here.  Look into that.)
+            # Also, swarp doesn't seem to be able to handle .fits.fz
+            # files, so just to amke sure we can cope, write out the
+            # weights to a temp file too.
 
             hdr = source_image.header.copy()
             improc.tools.strip_wcs_keywords(hdr)
@@ -457,6 +463,7 @@ class ImageAligner:
             data = source_bg.subtract_me( source_image.data )
 
             save_fits_image_file(tmpim, data, hdr, extname=None, single_file=False)
+            save_fits_image_file(tmpwt, source_image.weight, hdr, extname=None, single_file=False)
             save_fits_image_file(tmpflags, source_image.flags, hdr, extname=None, single_file=False)
 
             swarp_vmem_dir.mkdir( exist_ok=True, parents=True )
@@ -468,7 +475,7 @@ class ImageAligner:
                         '-RESAMPLE_DIR', FileOnDiskMixin.temp_path,
                         '-VMEM_DIR', swarp_vmem_dir,
                         '-WEIGHT_TYPE', 'MAP_WEIGHT',
-                        '-WEIGHT_IMAGE', impaths[wtdex],
+                        '-WEIGHT_IMAGE', tmpwt,
                         '-RESCALE_WEIGHTS', 'N',
                         '-VMEM_MAX', '1024',
                         '-MEM_MAX', '1024',
@@ -484,6 +491,7 @@ class ImageAligner:
             # do the same for flags
             command = ['swarp', tmpflags,
                        '-IMAGEOUT_NAME', outfl,
+                       '-WEIGHTOUT_NAME', outflwt,
                        '-RESAMPLING_TYPE', 'NEAREST',
                        '-SUBTRACT_BACK', 'N',
                        '-RESAMPLE_DIR', FileOnDiskMixin.temp_path,
@@ -534,6 +542,7 @@ class ImageAligner:
                 save_fits_image_file(tmpbg, source_bg.variance, hdr, extname=None, single_file=False)
                 command = ['swarp', tmpbg,
                            '-IMAGEOUT_NAME', outbg,
+                           '-WEIGHTOUT_NAME', outbgwt,
                            '-SUBTRACT_BACK', 'N',
                            '-RESAMPLE_DIR', FileOnDiskMixin.temp_path,
                            '-VMEM_DIR', swarp_vmem_dir,
@@ -597,12 +606,15 @@ class ImageAligner:
 
         finally:
             tmpim.unlink( missing_ok=True )
+            tmpwt.unlink( missing_ok=True )
             tmpflags.unlink( missing_ok=True )
             tmpbg.unlink( missing_ok=True )
             outim.unlink( missing_ok=True )
             outwt.unlink( missing_ok=True )
             outfl.unlink( missing_ok=True )
+            outflwt.unlink( missing_ok=True )
             outbg.unlink( missing_ok=True )
+            outbgwt.unlink( missing_ok=True )
             outimhead.unlink( missing_ok=True )
             outflhead.unlink( missing_ok=True )
             outbghead.unlink( missing_ok=True )

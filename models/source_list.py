@@ -570,7 +570,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
 
         if filepath is None:
-            filepath = self.get_fullpath()
+            filepath = self.get_fullpath( nofile=False )
 
         if self.format in ['sepnpy', 'filter']:
             if self.aper_rads is not None:

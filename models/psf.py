@@ -288,7 +288,9 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
             if self.components != [ 'fits', 'xml' ]:
                 raise ValueError( f"Can't load psfex file; components is {self.components}, "
                                   f"but expected ['fits', 'xml']." )
-            psfpath, psfxmlpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5 )
+            psfpath, psfxmlpath = self.get_fullpath( download=download,
+                                                     always_verify_md5=always_verify_md5,
+                                                     nofile=False )
 
         with fits.open( psfpath, memmap=False ) as hdul:
             self._header = hdul[1].header

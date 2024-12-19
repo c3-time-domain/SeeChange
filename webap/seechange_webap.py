@@ -648,19 +648,22 @@ class PngCutoutsForSubImage( BaseView ):
         # sourcesfiles = { c[cols['subimageid']]: c[cols['sources_path']] for c in rows }
         app.logger.debug( f"Got: {cutoutsfiles}" )
 
-        app.logger.debug( f"Getting measurements for sub images {subids}" )
+        # app.logger.debug( f"Getting measurements for sub images {subids}" )
+        app.logger.debug( f"Getting measurements for {len(subids)} sub images" )
         q = ( 'SELECT m.ra AS measra, m.dec AS measdec, m.index_in_sources, m.best_aperture, '
               '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, m.is_fake, '
-              '       m.score, m._algorithm, s._id AS subid, s.section_id '
+              '       m.score, m._algorithm, m.center_x_pixel, m.center_y_pixel, m.offset_x, m.offset_y, '
+              '       s._id AS subid, s.section_id '
               'FROM cutouts c '
               'INNER JOIN provenance_tags cpt ON cpt.provenance_id=c.provenance_id AND cpt.tag=%(provtag)s '
               'INNER JOIN source_lists sl ON c.sources_id=sl._id '
               'INNER JOIN images s ON sl.image_id=s._id '
-              'LEFT JOIN '
+              'INNER JOIN '
               '  ( SELECT meas.cutouts_id AS meascutid, meas.index_in_sources, meas.ra, meas.dec, meas.is_bad, '
               '           meas.best_aperture, meas.flux_apertures[meas.best_aperture+1] AS flux, '
               '           meas.flux_apertures_err[meas.best_aperture+1] AS dflux, '
               '           meas.flux_psf AS psfflux, meas.flux_psf_err AS dpsfflux, '
+              '           meas.center_x_pixel, meas.center_y_pixel, meas.offset_x, meas.offset_y, '
               '           obj.name, obj.is_test, obj.is_fake, score.score, score._algorithm '
               '    FROM measurements meas '
               '    INNER JOIN provenance_tags mpt ON meas.provenance_id=mpt.provenance_id AND mpt.tag=%(provtag)s '
@@ -684,7 +687,7 @@ class PngCutoutsForSubImage( BaseView ):
         if limit is not None:
             q += 'LIMIT %(limit)s OFFSET %(offset)s'
         subdict = { 'subids': tuple(subids), 'provtag': provtag, 'limit': limit, 'offset': offset }
-        app.logger.debug( f"Sending query to get measurements: {cursor.mogrify(q,subdict)}" )
+        # app.logger.debug( f"Sending query to get measurements: {cursor.mogrify(q,subdict)}" )
         cursor.execute( q, subdict )
         cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
@@ -711,6 +714,8 @@ class PngCutoutsForSubImage( BaseView ):
                        'is_fake': [],
                        'x': [],
                        'y': [],
+                       'meas_x': [],
+                       'meas_y': [],
                        'w': [],
                        'h': [],
                        'new_png': [],
@@ -719,7 +724,7 @@ class PngCutoutsForSubImage( BaseView ):
                    }
                   }
 
-        scaler = astropy.visualization.ZScaleInterval()
+        scaler = astropy.visualization.ZScaleInterval( contrast=0.02 )
 
         # Open all the hdf5 files
 
@@ -777,15 +782,14 @@ class PngCutoutsForSubImage( BaseView ):
             retval['cutouts']['new_png'].append( base64.b64encode( newim.getvalue() ).decode('ascii') )
             retval['cutouts']['ref_png'].append( base64.b64encode( refim.getvalue() ).decode('ascii') )
             retval['cutouts']['sub_png'].append( base64.b64encode( subim.getvalue() ).decode('ascii') )
-            # TODO : if we want to return x and y, we also have
-            #   to read the source list file...
-            # We could also copy them to the cutouts file as attributes
-            # retval['cutouts']['x'].append( row[cols['x']] )
-            # retval['cutouts']['y'].append( row[cols['y']] )
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
+            retval['cutouts']['x'].append( grp.attrs( 'new_x' ) )
+            retval['cutouts']['y'].append( grp.attrs( 'new_y' ) )
 
             if row is None:
+                retval['cutouts']['meas_x'].append( None )
+                retval['cutouts']['meas_y'].append( None )
                 retval['cutouts']['rb'].append( None )
                 retval['cutouts']['rbcut'].append( None )
                 retval['cutouts']['is_bad'].append( True )
@@ -796,6 +800,8 @@ class PngCutoutsForSubImage( BaseView ):
                 dflux = None
                 aperrad= 0.
             else:
+                retval['cutouts']['meas_x'].append( row[cols['center_x_pixel']] + row[cols['offset_x']] )
+                retval['cutouts']['meas_y'].append( row[cols['center_y_pixel']] + row[cols['offset_y']] )
                 retval['cutouts']['rb'].append( row[cols['score']] )
                 retval['cutouts']['rbcut'].append( None if row[cols['_algorithm']] is None
                                                    else DeepScore.get_rb_cut( row[cols['_algorithm']] ) )

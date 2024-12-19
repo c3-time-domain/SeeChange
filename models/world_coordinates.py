@@ -145,7 +145,9 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
 
     def load( self, download=True, always_verify_md5=False, txtpath=None ):
         """Load this wcs from the file.
+
         updates self.wcs.
+
         Parameters
         ----------
         txtpath: str, Path, or None
@@ -153,7 +155,7 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
         """
 
         if txtpath is None:
-            txtpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5)
+            txtpath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5, nofile=False )
 
         if not os.path.isfile(txtpath):
             raise OSError(f'WCS file is missing at {txtpath}')

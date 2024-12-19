@@ -385,7 +385,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
 
         """
         if filepath is None:
-            filepath = self.get_fullpath(download=download, always_verify_md5=always_verify_md5)
+            filepath = self.get_fullpath(download=download, always_verify_md5=always_verify_md5, nofile=False)
 
         with h5py.File(filepath, 'r') as h5f:
             if 'background' not in h5f:

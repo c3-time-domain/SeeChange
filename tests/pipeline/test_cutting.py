@@ -3,6 +3,8 @@ import pytest
 from tests.conftest import SKIP_WARNING_TESTS
 
 
+# The actual operation of cutting is tested in models/test_cutouts.py
+
 def test_warnings_and_exceptions( decam_datastore_through_detection ):
     ds = decam_datastore_through_detection
     cutter = ds._pipeline.cutter

@@ -41,6 +41,8 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
         assert isinstance(co_subdict["new_data"], np.ndarray)
         assert isinstance(co_subdict["new_weight"], np.ndarray)
         assert isinstance(co_subdict["new_flags"], np.ndarray)
+        assert isinstance(co_subdict["new_x"], float)
+        assert isinstance(co_subdict["new_y"], float)
         assert ds.cutouts.bitflag is not None
 
         # set the bitflag just to see if it is loaded or not
@@ -56,6 +58,9 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
                     assert f'{im}_{att}' in file[subdict_key]
                     assert np.array_equal(co_subdict.get(f'{im}_{att}'),
                                           file[subdict_key][f'{im}_{att}'])
+            for att in [ 'new_x', 'new_y' ]:
+                assert att in file[subdict_key].attrs
+                assert file[subdict_key].attrs[att] == co_subdict[att]
 
         # load a cutouts from file and compare
         c2 = Cutouts()
@@ -67,8 +72,9 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
 
         for im in ['sub', 'ref', 'new']:
             for att in ['data', 'weight', 'flags']:
-                assert np.array_equal(co_subdict.get(f'{im}_{att}'),
-                                        co_subdict2.get(f'{im}_{att}'))
+                assert np.array_equal(co_subdict.get(f'{im}_{att}'), co_subdict2.get(f'{im}_{att}'))
+        for att in [ 'new_x', 'new_y' ]:
+            assert co_subdict.get(att) == co_subdict2.get(att)
 
         assert c2.bitflag == 0  # should not load all column data from file
 
@@ -111,6 +117,8 @@ def test_make_save_load_cutouts( decam_datastore, cutter ):
                 for att in ['data', 'weight', 'flags']:
                     assert np.array_equal(co_subdict.get(f'{im}_{att}'),
                                             co_subdict2.get(f'{im}_{att}'))
+            for att in [ 'new_x', 'new_y' ]:
+                assert co_subdict.get(att) == co_subdict2.get(att)
 
     finally:
         # (This probably shouldn't be necessary, as the fixture cleanup

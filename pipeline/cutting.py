@@ -146,6 +146,9 @@ class Cutter:
                     data_dict["new_data"] = new_stamps_data[i]
                     data_dict["new_weight"] = new_stamps_weight[i]
                     data_dict["new_flags"] = new_stamps_flags[i]
+                    data_dict["new_x"] = x[i]
+                    data_dict["new_y"] = y[i]
+
                     cutouts.co_dict[f"source_index_{i}"] = data_dict
 
             # regardless of whether we loaded or calculated the cutouts, we need to update the bitflag

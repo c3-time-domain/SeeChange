@@ -530,7 +530,9 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         co_data_dict = cutouts.co_dict[groupname] # get just the subdict with data for this
 
-        for att in Cutouts.get_data_dict_attributes():
+        for att in Cutouts.get_data_array_attributes():
+            setattr( self, f"_{att}", co_data_dict.get(att) )
+        for att in Cutouts.get_data_scalar_attributes():
             setattr( self, f"_{att}", co_data_dict.get(att) )
 
 

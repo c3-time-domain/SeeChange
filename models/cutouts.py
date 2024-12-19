@@ -159,7 +159,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         )
 
     @staticmethod
-    def get_data_dict_attributes(include_optional=True):
+    def get_data_array_attributes(include_optional=True):
         names = []
         for im in ['sub', 'ref', 'new']:
             for att in ['data', 'weight', 'flags']:
@@ -169,6 +169,10 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             names += ['sub_psfflux', 'sub_psffluxerr']
 
         return names
+
+    @staticmethod
+    def get_data_scalar_attributes( include_optional=True ):
+        return [ 'new_x', 'new_y' ]
 
     def load_all_co_data( self, sources=None ):
         """Intended method for a Cutouts object to ensure that the data for all
@@ -280,7 +284,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         if groupname in file:
             del file[groupname]
 
-        for key in self.get_data_dict_attributes():
+        for key in self.get_data_array_attributes():
             data = co_subdict.get(key)
 
             if data is not None:
@@ -291,6 +295,12 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     dtype=data.dtype,
                     compression='gzip'
                 )
+
+        for key in self.get_data_scalar_attributes():
+            data = co_subdict.get(key)
+            if data is not None:
+                file[groupname].attrs[ key ] = data
+
 
     def save(self, filename=None, image=None, sources=None, overwrite=True, **kwargs):
         """Save the data of this Cutouts object into a file.
@@ -359,10 +369,13 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         co_subdict = {}
         found_data = False
-        for att in self.get_data_dict_attributes(): # remove source index for dict soon
+        for att in self.get_data_array_attributes(): # remove source index for dict soon [?]
             if att in file[groupname]:
                 found_data = True
                 co_subdict[att] = np.array(file[f'{groupname}/{att}'])
+        for att in self.get_data_scalar_attributes():
+            if att in file[groupname].attrs:
+                co_subdict[att] = file[groupname].attrs[att]
         if found_data:
             return co_subdict
 
@@ -392,7 +405,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
 
         if filepath is None:
-            filepath = self.get_fullpath()
+            filepath = self.get_fullpath( nofile=False )
 
         if filepath is None:
             raise ValueError("Could not find filepath to load")

@@ -78,9 +78,9 @@ class ExposureProcessor:
     def download_and_load_exposure( self ):
         """Download the exposure and load it into the database (and archive)."""
 
-        SCLogger.info( f"Downloading exposure {self.identifier}..." )
+        SCLogger.info( f"Securing exposure {self.identifier}..." )
         self.exposure = self.instrument.acquire_and_commit_origin_exposure( self.identifier, self.params )
-        SCLogger.info( "...downloaded." )
+        SCLogger.info( "...secured." )
         # TODO : this Exposure object is going to be copied into every processor subprocess
         #   *Ideally* no data was loaded, only headers, so the amount of memory used is
         #   not significant, but we should investigate/verify this, and deal with it if
