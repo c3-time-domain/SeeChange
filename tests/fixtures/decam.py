@@ -599,6 +599,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
                 refyaml = yaml.safe_load( ifp )
 
             image = Image(**refyaml)
+            image.filter = image.filter_short
             image.provenance_id = prov.id
             image.filepath = f'007/{filebase}.{chip:02d}'
             image.is_coadd = True

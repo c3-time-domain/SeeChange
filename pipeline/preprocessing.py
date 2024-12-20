@@ -131,7 +131,7 @@ class Preprocessor:
             preprocparam = self.instrument.preprocessing_calibrator_files( self.pars.calibset,
                                                                            self.pars.flattype,
                                                                            ds.section_id,
-                                                                           ds.exposure.filter_short,
+                                                                           ds.exposure.filter,
                                                                            ds.exposure.mjd,
                                                                            session=session )
 
@@ -157,9 +157,9 @@ class Preprocessor:
             # Needed steps started above at set(self.pars.steps_required).
             # Subtract off what is *always* done by this instrument.
             needed_steps -= set(self.instrument.preprocessing_steps_done)
-            filter_skips = self.instrument.preprocessing_step_skip_by_filter.get(ds.exposure.filter_short, [])
+            filter_skips = self.instrument.preprocessing_step_skip_by_filter.get(ds.exposure.filter, [])
             if not isinstance(filter_skips, list):
-                raise ValueError(f'Filter skips parameter for {ds.exposure.filter_short} must be a list')
+                raise ValueError(f'Filter skips parameter for {ds.exposure.filter} must be a list')
             filter_skips = set(filter_skips)
             needed_steps -= filter_skips
 
@@ -214,7 +214,7 @@ class Preprocessor:
                         raise RuntimeError( f"Can't find calibration file for preprocessing step {step}" )
 
                     if stepfileid is None:
-                        SCLogger.info(f"Skipping step {step} for filter {ds.exposure.filter_short} "
+                        SCLogger.info(f"Skipping step {step} for filter {ds.exposure.filter} "
                                          f"because there is no calibration file (this may be normal)")
                         # should we also mark it as having "done" this step? otherwise it will not know it's done
                         image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
@@ -264,6 +264,15 @@ class Preprocessor:
                         raise ValueError( f"Unknown preprocessing step {step}" )
 
                     image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
+
+                # After all steps are done (so we won't be undermining
+                # any steps by doing this), and so that things look
+                # right in DS9 with the annoying "image" vs. "physical"
+                # coordinates, strip out the stuff from the header that
+                # told us how to trim now that we have trimmed.
+                for yeet in self.instrument.overscan_trim_keywords_to_strip():
+                    if yeet in image.header:
+                        del image.header[yeet]
 
             # Build the weight and flags images (if necessary)
             if image._flags is None or image._weight is None:

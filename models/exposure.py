@@ -166,7 +166,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
                                '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
             sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
-            CheckConstraint( sqltext='NOT(filter IS NULL AND filter_array IS NULL)',
+            CheckConstraint( sqltext='NOT(_filter IS NULL AND filter_array IS NULL)',
                              name='exposures_filter_or_array_check' )
         )
 
@@ -250,21 +250,42 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
     exp_time = sa.Column(sa.REAL, nullable=False, index=True, doc="Exposure time in seconds. ")
 
-    filter = sa.Column(sa.Text, nullable=True, index=True, doc="Name of the filter used to make this exposure. ")
+    _filter = sa.Column(sa.Text,
+                        nullable=True, #nullable because a constraint checks _filter or filter_array
+                        index=True,
+                        doc=("Name of the filter used to make this exposure. "
+                             "This is the short filter name - conversion "
+                             "to the proper name for each instrument happens in its code."))
 
     airmass = sa.Column(sa.REAL, nullable=True, index=True, doc="Airmass taken from the header of the exposure. ")
 
     @property
-    def filter_short(self):
-        if self.filter is None:
+    def filter( self ):
+        if self._filter is None:
             return None
-        return self.instrument_object.get_short_filter_name(self.filter)
+        else:
+            return self._filter
+
+    @filter.setter
+    def filter( self, val ):
+        # Once instrument can only be a valid instrument, should add
+        # a check here which says "IF there is an instrument, only
+        # allow a valid filter for that instrument". Leaving the
+        # ability to set any filter at the moment for tests.
+        self._filter = val
+
+    @property
+    def filter_full(self):
+        if self.instrument_object is None:
+            raise ValueError( "Exposure must have an instrument to determine full filter.")
+        return self.instrument_object.get_full_filter_name( self._filter )
 
     filter_array = sa.Column(
         ARRAY(sa.Text, zero_indexes=True),
         nullable=True,
         index=True,
-        doc="Array of filter names, if multiple filters were used. "
+        doc=( "Array of filter names, if multiple filters were used. "
+              "Should be short filter names - instruments can convert to full. ")
     )
 
     instrument = sa.Column(
@@ -366,6 +387,10 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         # We will run this exact code again later so that the keywords
         # can override what's detected from the header.
         self.set_attributes_from_dict( kwargs )
+        # NOTE: since above reads directly from header, it will often set
+        # a full filter name without an instrument, which must be detected
+        # and fixed below before making anything permanent (filepaths,
+        # provenances etc).
 
         # must have Instrument to invent a filename (and initialize Provenance)
         # but if not given, it can be guessed from the filepath
@@ -374,6 +399,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         if self.filepath is None:
             # in this case, the instrument must have been given
+            self.filter = self.instrument_object.get_short_filter_name( self.filter )
             if self.provenance_id is None:
                 prov = self.make_provenance(self.instrument)  # a default provenance for exposures
                 self.provenance_id = prov.id
@@ -385,6 +411,9 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         if self.instrument is None:
             self.instrument = guess_instrument(self.filepath)
+
+        # ensure we are working with short filter from here and below
+        self.filter = self.instrument_object.get_short_filter_name( self.filter )
 
         # this can happen if the instrument is not given, but the filepath is
         if self.provenance_id is None:
@@ -400,6 +429,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
 
         # Allow passed keywords to override what's detected from the header
         self.set_attributes_from_dict( kwargs )
+        self.filter = self.instrument_object.get_short_filter_name( self.filter )
 
         self.calculate_coordinates()  # galactic and ecliptic coordinates
 
@@ -464,9 +494,9 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
                         f"Header telescope {v} does not match Exposure telescope {self.telescope}"
                     )
             elif k == 'filter' and isinstance(v, list):
-                self.filter_array = v
+                self.filter_array = self.instrument_object.get_short_filter_name( v )
             elif k == 'filter' and isinstance(v, str):
-                self.filter = v
+                self.filter = self.instrument_object.get_short_filter_name( v )
             else:
                 setattr(self, k, v)
 
@@ -578,7 +608,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         date = t.strftime('%Y%m%d')
         time = t.strftime('%H%M%S')
 
-        filter = self.instrument_object.get_short_filter_name(self.filter)
+        filter = self.filter
 
         ra = self.ra
         ra_int, ra_frac = str(float(ra)).split('.')

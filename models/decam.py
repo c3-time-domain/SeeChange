@@ -27,6 +27,13 @@ from util.logger import SCLogger
 from util.radec import radec_to_gal_ecl
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse, image_preprocessing_inverse
 
+FILTER_NAME_CONVERSIONS = {
+    'r' : 'r DECam SDSS c0002 6415.0 1480.0',
+    'g' : 'g DECam SDSS c0001 4720.0 1520.0',
+    'i' : 'i DECam SDSS c0003 7835.0 1470.0',
+    'z' : 'z DECam SDSS c0004 9260.0 1520.0',
+}
+
 
 class DECam(Instrument):
 
@@ -276,6 +283,14 @@ class DECam(Instrument):
         )
         return t
 
+    def overscan_trim_keywords_to_strip( self ):
+        yanklist = [ 'DETSIZE' ]
+        for base in [ 'TRIMSEC', 'DATASEC', 'DETSEC', 'CCDSEC', 'PRESEC', 'POSTSEC', 'BAISSEC', 'AMPSEC' ]:
+            for suffix in [ '', 'A', 'B' ]:
+                yanklist.append( f"{base}{suffix}" )
+        return yanklist
+
+
     def get_standard_flags_image( self, section_id ):
         # NOTE : there's a race condition here; multiple
         # processes might try to locally cache the
@@ -373,7 +388,26 @@ class DECam(Instrument):
         In this case we just return the first character of the filter name,
         e.g., shortening "g DECam SDSS c0001 4720.0 1520.0" to "g".
         """
-        return filter[0:1]
+        longnames = list(FILTER_NAME_CONVERSIONS.values())
+        shortnames = list(FILTER_NAME_CONVERSIONS.keys())
+
+        if filter in shortnames:
+            return filter
+
+        try:
+            shortname_index = longnames.index(filter)
+            return shortnames[shortname_index]
+        except Exception as e:
+            raise KeyError( f"No shortname for filter name: {filter} ") from e
+
+    @classmethod
+    def get_full_filter_name(cls, shortfilter):
+        """Return the full version of each filter used by DECam from the shortname.
+
+        e.g., returning "g" to "g DECam SDSS c0001 4720.0 1520.0".
+        """
+        return FILTER_NAME_CONVERSIONS[shortfilter]
+
 
     @classmethod
     def gaia_dr3_to_instrument_mag( cls, filter, catdata ):

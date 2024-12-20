@@ -53,7 +53,7 @@ def load_exposure( decam, exposurefile ):
         if exposure is None:
             SCLogger.info( f"Loading exposure {relpath} into database" )
             exposure = Exposure( filepath=relpath, instrument='DECam', **exphdrinfo )
-            xposure.save()
+            exposure.save()
 
             exposure.provenance = sess.merge( exposure.provenance )
             sess.merge( exposure )
