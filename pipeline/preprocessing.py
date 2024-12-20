@@ -265,6 +265,15 @@ class Preprocessor:
 
                     image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
 
+                # After all steps are done (so we won't be undermining
+                # any steps by doing this), and so that things look
+                # right in DS9 with the annoying "image" vs. "physical"
+                # coordinates, strip out the stuff from the header that
+                # told us how to trim now that we have trimmed.
+                for yeet in self.instrument.overscan_trim_keywords_to_strip():
+                    if yeet in image.header:
+                        del image.header[yeet]
+
             # Build the weight and flags images (if necessary)
             if image._flags is None or image._weight is None:
                 # Start with the Instrument standard bad pixel mask for this image

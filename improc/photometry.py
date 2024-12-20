@@ -378,7 +378,9 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
         well subtracted before sending the cutout into this function,
         the results will be a little more accurate with this set to False.
         If the area in the annulus is very crowded,
-        it's better to set this to False as well.
+        it's better to set this to False as well, though in that case
+        you really want to have background-subtracted before sending
+        data to this function.
         Default is True.
     soft: bool
         Toggle the use of a soft-edged aperture.
@@ -440,11 +442,9 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
 
     flux = np.nansum(masked_data)  # total flux, not per pixel!
     area = np.nansum(mask)  # save the number of pixels in the aperture
-    denominator = flux
-    masked_data_bgsub = masked_data
 
     # get an offset annulus to get a local background estimate
-    if full or local_bg:
+    if local_bg:
         inner = get_circle(radius=annulus[0], imsize=data.shape[0], soft=False).get_image(cx, cy)
         outer = get_circle(radius=annulus[1], imsize=data.shape[0], soft=False).get_image(cx, cy)
         annulus_map = outer - inner
@@ -468,6 +468,15 @@ def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True,
         if local_bg:  # update these to use the local background
             denominator = (flux - background * area)
             masked_data_bgsub = (data - background) * mask
+
+    else:
+        denominator = flux
+        masked_data_bgsub = masked_data
+        annulus_map_sum = 0.
+        background = np.nan
+        variance = np.nan
+        norm = np.sqrt( np.nansum( mask ** 2 ) )
+
 
     if denominator == 0:  # this should only happen in pathological cases
         return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True

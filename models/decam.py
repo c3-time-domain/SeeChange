@@ -276,6 +276,14 @@ class DECam(Instrument):
         )
         return t
 
+    def overscan_trim_keywords_to_strip( self ):
+        yanklist = [ 'DETSIZE' ]
+        for base in [ 'TRIMSEC', 'DATASEC', 'DETSEC', 'CCDSEC', 'PRESEC', 'POSTSEC', 'BAISSEC', 'AMPSEC' ]:
+            for suffix in [ '', 'A', 'B' ]:
+                yanklist.append( f"{base}{suffix}" )
+        return yanklist
+
+
     def get_standard_flags_image( self, section_id ):
         # NOTE : there's a race condition here; multiple
         # processes might try to locally cache the

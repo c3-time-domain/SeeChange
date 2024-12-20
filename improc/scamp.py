@@ -81,6 +81,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
     _, cat = ldac.get_table_from_ldac( catfile, imghdr_as_header=True )
 
     try:
+        wasntgoodenough = False
         max_nmatches = [ 0 ]
         if ( max_sources_to_use is not None ):
             if isinstance( max_sources_to_use, int ):
@@ -145,10 +146,13 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                      and ( ( sig0 + sig1 ) / 2. <= max_arcsec_residual )
                     ):
                 infostr += ( ", which isn't good enough.\n" )
+                wasntgoodenough = True
                 # A warning not an error in case something outside is iterating
                 SCLogger.warning( infostr )
             else:
                 success = True
+                if wasntgoodenough:
+                    SCLogger.info( infostr )
                 break
 
         if not success:

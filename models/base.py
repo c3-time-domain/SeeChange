@@ -46,26 +46,21 @@ from util.util import asUUID, UUIDJsonEncoder
 import psycopg2.extensions
 
 
-def _adapt_numpy_float64_psycopg2( val ):
+def _adapt_numpy_float_psycopg2( val ):
+    if np.isnan( val ):
+        return psycopg2.extensions.AsIs( "'NaN'::float" )
+    else:
+        return psycopg2.extensions.AsIs( val )
+
+
+def _adapt_numpy_int_psycopg2( val ):
     return psycopg2.extensions.AsIs( val )
 
 
-def _adapt_numpy_float32_psycopg2( val ):
-    return psycopg2.extensions.AsIs( val )
-
-
-def _adapt_numpy_int64_psycopg2( val ):
-    return psycopg2.extensions.AsIs( val )
-
-
-def _adapt_numpy_int32_psycopg2( val ):
-    return psycopg2.extensions.AsIs( val )
-
-
-psycopg2.extensions.register_adapter( np.float64, _adapt_numpy_float64_psycopg2 )
-psycopg2.extensions.register_adapter( np.float32, _adapt_numpy_float32_psycopg2 )
-psycopg2.extensions.register_adapter( np.int64, _adapt_numpy_int64_psycopg2 )
-psycopg2.extensions.register_adapter( np.int32, _adapt_numpy_int32_psycopg2 )
+psycopg2.extensions.register_adapter( np.float64, _adapt_numpy_float_psycopg2 )
+psycopg2.extensions.register_adapter( np.float32, _adapt_numpy_float_psycopg2 )
+psycopg2.extensions.register_adapter( np.int64, _adapt_numpy_int_psycopg2 )
+psycopg2.extensions.register_adapter( np.int32, _adapt_numpy_int_psycopg2 )
 
 
 # this is the root SeeChange folder
@@ -545,6 +540,12 @@ class SeeChangeBase:
                 val = json.dumps( val )
             elif isinstance( val, np.ndarray ):
                 val = list( val )
+
+            # if isinstance( val, list ):
+            #     # Gotta handle nans manually; it looks like psycopg2
+            #     #   doesn't do this right in sql arrays :(
+            #     # TODO : look into doing this with psycopg2.extensions.register_adapter
+            #     val = [ v if not( isinstance(v, float) and np.isnan(v) ) else None for v in val ]
 
             # In our case, everything nullable has a default of NULL.  So,
             #   if a nullable column has val at None, it means that we

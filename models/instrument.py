@@ -1746,6 +1746,16 @@ class Instrument:
         # whew
         return secs
 
+    def overscan_trim_keywords_to_strip( self ):
+        """Returns a list of header keywords that should be removed after overscan/trim.
+
+        This should be overridden by specific instrument classes.
+
+        """
+
+        return []
+
+
     def overscan_and_trim( self, *args ):
         """Overscan and trim image.
 
