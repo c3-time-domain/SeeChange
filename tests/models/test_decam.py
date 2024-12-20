@@ -32,7 +32,8 @@ def test_decam_exposure(decam_exposure):
     assert e.dec == -43.0096
     assert e.exp_time == 86.0
     assert e.filepath == 'c4d_230702_080904_ori.fits.fz'
-    assert e.filter == 'r DECam SDSS c0002 6415.0 1480.0'
+    assert e.filter == 'r'
+    assert e.instrument_object.get_full_filter_name( e.filter ) == 'r DECam SDSS c0002 6415.0 1480.0'
     assert not e.from_db
     assert e.info == {}
     assert e.target == 'ELAIS-E1'
@@ -74,7 +75,7 @@ def test_image_from_decam_exposure(decam_exposure, provenance_base, data_dir):
     assert im.mjd == 60127.33963431
     assert im.end_mjd == 60127.34062968037
     assert im.exp_time == 86.0
-    assert im.filter == 'r DECam SDSS c0002 6415.0 1480.0'
+    assert im.filter == 'r'
     assert im.target == 'ELAIS-E1'
     assert im.project == '2023A-716082'
     assert im.section_id == sec_id
@@ -362,7 +363,7 @@ def test_decam_download_and_commit_exposure(
                 match = re.search( r'^c4d_(?P<yymmdd>\d{6})_(?P<hhmmss>\d{6})_ori.fits', fname )
                 assert match is not None
                 # Todo : add the subdirectory to dbfname once that is implemented
-                dbfname = ( f'c4d_20{match.group("yymmdd")}_{match.group("hhmmss")}_{exposure.filter[0]}_'
+                dbfname = ( f'c4d_20{match.group("yymmdd")}_{match.group("hhmmss")}_{exposure.filter}_'
                             f'{exposure.provenance_id[0:6]}.fits' )
                 assert exposure.filepath == dbfname
                 assert ( pathlib.Path( exposure.get_fullpath( download=False ) ) ==
@@ -375,7 +376,8 @@ def test_decam_download_and_commit_exposure(
                 # Or, just trust that the archive works because it has its own tests.
                 assert exposure.instrument == 'DECam'
                 assert exposure.mjd == pytest.approx( decam_raw_origin_exposures._frame.iloc[i]['MJD-OBS'], abs=1e-5)
-                assert exposure.filter == decam_raw_origin_exposures._frame.iloc[i].ifilter
+                assert ( exposure.instrument_object.get_full_filter_name( exposure.filter )
+                        == decam_raw_origin_exposures._frame.iloc[i].ifilter )
 
         # Make sure they're really in the database
         with SmartSession() as session:
@@ -402,7 +404,7 @@ def test_decam_download_and_commit_exposure(
 # @pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
 def test_get_default_calibrators( decam_default_calibrators ):
     sections, filters = decam_default_calibrators
-    # decam = get_instrument_instance( 'DECam' )
+    decam = get_instrument_instance( 'DECam' )
 
     with SmartSession() as session:
         for sec in sections:
@@ -419,7 +421,7 @@ def test_get_default_calibrators( decam_default_calibrators ):
                     if ftype != 'linearity':
                         q = q.join( Image ).filter( Image.filter==filt )
 
-                    if ( ftype == 'fringe' ) and ( filt not in [ 'z', 'Y' ] ):
+                    if ( ftype == 'fringe' ) and ( decam.get_short_filter_name(filt) not in [ 'z', 'Y' ] ):
                         assert q.count() == 0
                     else:
                         assert q.count() == 1

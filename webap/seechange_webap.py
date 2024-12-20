@@ -241,7 +241,7 @@ class Exposures( BaseView ):
         #  user....  perhaps we should disable it?
         subdict = {}
         if data['provenancetag'] is None:
-            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.project, e.filter, e.filter_array, e.exp_time, '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.project, e._filter, e.filter_array, e.exp_time, '
                   '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
                   '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
@@ -259,7 +259,7 @@ class Exposures( BaseView ):
                   'GROUP BY e._id, i._id, s._id, sl._id '
                  )
         else:
-            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.filter, e.project, e.filter_array, e.exp_time, '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e._filter, e.project, e.filter_array, e.exp_time, '
                   '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
                   '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
@@ -316,19 +316,19 @@ class Exposures( BaseView ):
         # Now run a second query to count and sum those things
         # These numbers will be wrong (double-counts) if not filtering on a provenance tag, or if the
         #   provenance tag includes multiple provenances for a given step!
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
               '  COUNT(t.subid) AS num_subs, SUM(t.num_sources) AS num_sources, '
               '  SUM(t.num_measurements) AS num_measurements '
               'INTO TEMP TABLE temp_imgs_2 '
               'FROM temp_imgs t '
-              'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time '
+              'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time '
              )
 
         cursor.execute( q )
 
         # Run a third query to count reports
         subdict = {}
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
               '  t.num_subs, t.num_sources, t.num_measurements, '
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
@@ -347,7 +347,7 @@ class Exposures( BaseView ):
             subdict['provtag'] = data['provenancetag']
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.
-        q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t.filter, t.filter_array, t.exp_time, '
+        q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
                '  t.num_subs, t.num_sources, t.num_measurements ' )
 
         cursor.execute( q, subdict  )
@@ -377,9 +377,9 @@ class Exposures( BaseView ):
             mjd.append( row[columns['mjd']] )
             target.append( row[columns['target']] )
             project.append( row[columns['project']] )
-            app.logger.debug( f"filter={row[columns['filter']]} type {row[columns['filter']]}; "
+            app.logger.debug( f"filter={row[columns['_filter']]} type {row[columns['_filter']]}; "
                               f"filter_array={row[columns['filter_array']]} type {row[columns['filter_array']]}" )
-            filtername.append( row[columns['filter']] )
+            filtername.append( row[columns['_filter']] )
             exp_time.append( row[columns['exp_time']] )
             n_subs.append( row[columns['num_subs']] )
             n_sources.append( row[columns['num_sources']] )

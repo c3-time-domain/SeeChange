@@ -1203,6 +1203,17 @@ class Instrument:
         return filter
 
     @classmethod
+    def get_full_filter_name(cls, shortfilter):
+        """Translate the short filter name into the full version.
+
+        The default is to just return the short filter name,
+        unless an instrument subclass has overridden these functions.
+        """
+
+        # should be overridden: default is to return the input
+        return shortfilter
+
+    @classmethod
     def standard_apertures( cls ):
         """Return standard photometry aperture radii in FWHMs.
 
@@ -1489,7 +1500,8 @@ class Instrument:
         section: str
           The name of the SensorSection
         filter: str
-          The filter (can be None for some types, e.g. zero, linearity)
+          The filter (can be None for some types, e.g. zero, linearity). Should
+          be the short filter name, not the long filter name.
         mjd: float
           The mjd where the calibrator params are valid
         nofetch: bool
@@ -1569,7 +1581,7 @@ class Instrument:
                     # we had to do it before searching for the file so that we don't have a race
                     # condition for multiple processes all downloading the file at once.
                     calib = self._get_default_calibrator( mjd, section, calibtype=calibtype,
-                                                          filter=self.get_short_filter_name( filter ),
+                                                          filter=filter,
                                                           session=session )
                     SCLogger.debug( f"Got default calibrator {calib} for {calibtype} {section}" )
 
