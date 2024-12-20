@@ -45,17 +45,20 @@ body { color: var(--main-color);
 .center { text-align: center }
 .vcenter { vertical-align: middle }
 
+.tooltipcolorlesssource { text-decoration: var(--link-decorate);
+                          cursor: pointer; }
 .tooltipsource { color: var(--link-color);
                  text-decoration: var(--link-decoration);
                  cursor: pointer; }
-.tooltipsource .tooltiptext { visibility: hidden;
-                              background-color: var(--tooltip-background);
-                              border: 1px solid var(--tooltip-border);
-                              color: var(--tooltip-color);
-                              z-index: 10;
-                              position: absolute;
-                            }
-.tooltipsource:hover .tooltiptext { visibility: visible; }
+.tooltipsource .tooltiptext, .tooltipcolorlesssource .tooltiptext {
+    visibility: hidden;
+    background-color: var(--tooltip-background);
+    border: 1px solid var(--tooltip-border);
+    color: var(--tooltip-color);
+    z-index: 10;
+    position: absolute;
+}
+.tooltipsource:hover .tooltiptext, .tooltipcolorlesssource:hover .tooltiptext { visibility: visible; }
 
 img { image-rendering: pixelated }
 a { color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }

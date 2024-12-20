@@ -843,7 +843,7 @@ seechange.Exposure = class
 
     show_cutouts_for_image( div, dex, indata )
     {
-        var table, tr, th, td, img;
+        var table, tr, th, td, img, span, ttspan;
         var oversample = 5;
 
         if ( ! this.cutouts_pngs.hasOwnProperty( dex ) )
@@ -904,40 +904,76 @@ seechange.Exposure = class
                                           "height": oversample * data.cutouts['h'][i],
                                           "alt": "sub" } } );
 
+            // *** The info td, which is long
             td = rkWebUtil.elemaker( "td", tr );
-            let subdiv = rkWebUtil.elemaker( "div", td );
-            // TODO: use "warning" color for low r/b
-            if ( ( data.cutouts['flux'][i] == null ) ||
-                 ( data.cutouts['rb'][i] == null ) ||
-                 ( data.cutouts['rb'][i] < data.cutouts['rbcut'][i] )
-               )
-                td.classList.add( 'bad' )
-            else td.classList.add( 'good' );
-            let textblob = ( "<b>chip:</b> " + data.cutouts.section_id[i] + "<br>" +
-                             "<b>source index:</b> " + data.cutouts.source_index[i]
-                             + data.cutouts.is_bad[i] ? " <b>is_bad</b>" : "" + "<br>" +
-                             // "<b>cutout (α, δ):</b> (" + data.cutouts['ra'][i].toFixed(5) + " , "
-                             // + data.cutouts['dec'][i].toFixed(5) + ")<br>" +
-                             "<b>(α, δ):</b> (" + seechange.nullorfixed( data.cutouts['measra'][i], 5 ) + " , "
-                             + seechange.nullorfixed( data.cutouts['measdec'][i],5 ) + ")<br>" +
-                             "<b>(x, y):</b> (" + seechange.nullorfixed( data.cutouts['x'][i], 2 ) + " , "
-                             + seechange.nullorfixed( data.cutouts['y'][i], 2 ) + ")<br>" +
-                             // ****
-                             "<b>(x, y):</b> (" + seechange.nullorfixed( data.cutouts['meas_x'][i], 2 ) + " , "
-                             + seechange.nullorfixed( data.cutouts['meas_y'][i], 2 ) + ")<br>" +
-                             // ****
-                             "<b>Flux:</b> " + seechange.nullorfixed( data.cutouts['flux'][i], 0 )
-                             + " ± " + seechange.nullorfixed( data.cutouts['dflux'][i], 0 )
-                           );
-            if ( ( data.cutouts['aperrad'][i] == null ) || ( data.cutouts['aperrad'][i] <= 0 ) )
-                textblob += "  (psf)";
+            // row; chip
+            rkWebUtil.elemaker( "b", td, { "text": "chip: " } );
+            td.appendChild( document.createTextNode( data.cutouts.section_id[i] ) );
+            rkWebUtil.elemaker( "br", td );
+            // row: source index, with good/bad
+            rkWebUtil.elemaker( "b", td, { "text": "source index: " } )
+            td.appendChild( document.createTextNode( data.cutouts.source_index[i] + "  " ) );
+            span = rkWebUtil.elemaker( "b", td, { "text": ( data.cutouts.is_bad[i] ?
+                                                            "fails cuts" : "passes cuts" ) } );
+            if ( data.cutouts.scores[i] != null ) {
+                span.classList.add( "tooltipcolorlesssource" );
+                ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+                ttspan.innerHTML = "<pre>" + JSON.stringify( data.cutouts.scores[i], null, 2 ) + "</pre>";
+            }
+            span.classList.add( data.cutouts.is_bad[i] ? "bad" : "good" );
+            rkWebUtil.elemaker( "br", td );
+            // row: ra/dec
+            rkWebUtil.elemaker( "b", td, { "text": "(α, δ): " } );
+            td.appendChild( document.createTextNode( "(" +
+                                                     seechange.nullorfixed( data.cutouts['measra'][i], 5 )
+                                                     + " , " +
+                                                     seechange.nullorfixed( data.cutouts['measdec'][i], 5 )
+                                                     + ")" ) );
+            rkWebUtil.elemaker( "br", td );
+            // row: x, y from cutouts; this is where it was originally detected.
+            rkWebUtil.elemaker( "b", td, { "text": "det. (x, y): " } );
+            td.appendChild( document.createTextNode( "(" +
+                                                     seechange.nullorfixed( data.cutouts['x'][i], 2 )
+                                                     + " , " +
+                                                     seechange.nullorfixed( data.cutouts['y'][i], 2 )
+                                                     + ")" ) );
+            rkWebUtil.elemaker( "br", td );
+            // row: x, y from measurement table.
+            rkWebUtil.elemaker( "b", td, { "text": "meas. (x, y): " } );
+            td.appendChild( document.createTextNode( "(" +
+                                                     seechange.nullorfixed( data.cutouts['meas_x'][i], 2 )
+                                                     + " , " +
+                                                     seechange.nullorfixed( data.cutouts['meas_y'][i], 2 )
+                                                     + ")" ) );
+            rkWebUtil.elemaker( "br", td );
+            // row: flux
+            rkWebUtil.elemaker( "b", td, { "text": "Flux: " } );
+            td.appendChild( document.createTextNode( seechange.nullorfixed( data.cutouts["flux"][i], 0 )
+                                                     + " ± " +
+                                                     seechange.nullorfixed( data.cutouts["dflux"][i], 0 )
+                                                     + "  " +
+                                                     + ( ( ( data.cutouts['aperrad'][i] == null ) ||
+                                                           ( data.cutouts['aperrad'][i] <= 0 ) ) ?
+                                                         '(psf)' :
+                                                         ( "(aper r=" +
+                                                           seechange.nullorfixed( data.cutouts['aperrad'][i], 2 )
+                                                           + " px)" ) ) ) );
+            rkWebUtil.elemaker( "br", td );
+            // row: mag
+            rkWebUtil.elemaker( "b", td, { "text": "Mag: " } );
+            td.appendChild( document.createTextNode( seechange.nullorfixed( data.cutouts['mag'][i], 2 )
+                                                     + " ± " +
+                                                     seechange.nullorfixed( data.cutouts['dmag'][i], 2 ) ) );
+            rkWebUtil.elemaker( "br", td );
+            // row; R/B
+            span = rkWebUtil.elemaker( "span", td );
+            if ( ( data.cutouts['rb'][i] == null ) || ( data.cutouts['rb'][i] < data.cutouts['rbcut'][i] ) )
+                span.classList.add( 'bad' );
             else
-                textblob +=  + "  (aper r=" + seechange.nullorfixed( data.cutouts['aperrad'][i], 2) + " px)";
-            textblob += ("<br>" + "<b>Mag:</b> " + seechange.nullorfixed( data.cutouts['mag'][i], 2 )
-                         + " ± " + seechange.nullorfixed( data.cutouts['dmag'][i], 2 )
-                        );
-            textblob += "<br><b>R/B:</b> " + seechange.nullorfixed( data.cutouts['rb'][i], 3 );
-            subdiv.innerHTML = textblob;
+                span.classList.add( 'good' );
+            rkWebUtil.elemaker( "b", span, { "text": "R/B: " } );
+            span.appendChild( document.createTextNode( seechange.nullorfixed( data.cutouts['rb'][i], 3 ) ) );
+
         }
     };
 }

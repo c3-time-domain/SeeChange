@@ -14,6 +14,7 @@ import logging
 import base64
 import uuid
 
+import simplejson
 import numpy
 import h5py
 import PIL
@@ -30,6 +31,13 @@ from models.user import AuthUser
 from models.deepscore import DeepScore
 from models.base import SmartSession
 
+
+class UUIDJSONEncoder( simplejson.JSONEncoder ):
+    def default( self, obj ):
+        if isinstance( obj, uuid.UUID ):
+            return str(obj)
+        else:
+            return super().default( obj )
 
 # ======================================================================
 
@@ -68,13 +76,23 @@ class BaseView( flask.views.View ):
             if ( self._admin_required ) and ( not self.user.isadmin ):
                 return "Action requires admin", 500
             try:
-                return self.do_the_things( *args, **kwargs )
+                retval = self.do_the_things( *args, **kwargs )
+                # Can't just use the default JSON handling, because it
+                #   writes out NaN which is not standard JSON and which
+                #   the javascript JSON parser chokes on.  Sigh.
+                if isinstance( retval, dict ) or isinstance( retval, list ):
+                    return ( simplejson.dumps( retval, ignore_nan=True, cls=UUIDJSONEncoder ),
+                             200, { 'Content-Type': 'application/json' } )
+                elif isinstance( retval, str ):
+                    return retval, 200, { 'Content-Type': 'text/plain; charset=utf-8' }
+                else:
+                    return retval, 200, { 'Content-Type': 'application/octet-stream' }
             except Exception as ex:
                 # sio = io.StringIO()
                 # traceback.print_exc( file=sio )
                 # app.logger.debug( sio.getvalue() )
                 app.logger.exception( str(ex) )
-                return f"Exception handling request: {ex}", 500
+                return str(ex), 500
 
 
 # ======================================================================
@@ -653,7 +671,7 @@ class PngCutoutsForSubImage( BaseView ):
         q = ( 'SELECT m.ra AS measra, m.dec AS measdec, m.index_in_sources, m.best_aperture, '
               '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, m.is_fake, '
               '       m.score, m._algorithm, m.center_x_pixel, m.center_y_pixel, m.offset_x, m.offset_y, '
-              '       s._id AS subid, s.section_id '
+              '       m.disqualifier_scores,s._id AS subid, s.section_id '
               'FROM cutouts c '
               'INNER JOIN provenance_tags cpt ON cpt.provenance_id=c.provenance_id AND cpt.tag=%(provtag)s '
               'INNER JOIN source_lists sl ON c.sources_id=sl._id '
@@ -664,6 +682,7 @@ class PngCutoutsForSubImage( BaseView ):
               '           meas.flux_apertures_err[meas.best_aperture+1] AS dflux, '
               '           meas.flux_psf AS psfflux, meas.flux_psf_err AS dpsfflux, '
               '           meas.center_x_pixel, meas.center_y_pixel, meas.offset_x, meas.offset_y, '
+              '           meas.disqualifier_scores, '
               '           obj.name, obj.is_test, obj.is_fake, score.score, score._algorithm '
               '    FROM measurements meas '
               '    INNER JOIN provenance_tags mpt ON meas.provenance_id=mpt.provenance_id AND mpt.tag=%(provtag)s '
@@ -681,7 +700,7 @@ class PngCutoutsForSubImage( BaseView ):
         if data['sortby'] == 'fluxdesc_chip_index':
             q += 'ORDER BY flux DESC NULLS LAST,s.section_id,m.index_in_sources '
         elif data['sortby'] == 'rbdesc_fluxdesc_chip_index':
-            q += 'ORDER BY score DESC NULLS LAST,flux DESC NULLS LAST,s.section_id,m.index_in_sources '
+            q += 'ORDER BY is_bad,score DESC NULLS LAST,flux DESC NULLS LAST,s.section_id,m.index_in_sources '
         else:
             raise RuntimeError( f"Unknown sort criterion {data['sortby']}" )
         if limit is not None:
@@ -714,6 +733,7 @@ class PngCutoutsForSubImage( BaseView ):
                        'is_fake': [],
                        'x': [],
                        'y': [],
+                       'scores': [],
                        'meas_x': [],
                        'meas_y': [],
                        'w': [],
@@ -765,16 +785,18 @@ class PngCutoutsForSubImage( BaseView ):
             scaledref = numpy.array( scaledref, dtype=numpy.uint8 )
             scaledsub = numpy.array( scaledsub, dtype=numpy.uint8 )
 
-            # TODO : transpose, flip for principle of least surprise
-            # Figure out what PIL.Image does.
-            #  (this will affect w and h below)
+            # Flip images vertically.  In DS9 and with FITS images,
+            #   we call the lower-left pixel (0,0).  Images on
+            #   web browsers call the upper-left pixel (0,0).
+            #   Flipping vertically will make it display the same
+            #   on the web browser as it will in DS9
 
             newim = io.BytesIO()
             refim = io.BytesIO()
             subim = io.BytesIO()
-            PIL.Image.fromarray( scalednew ).save( newim, format='png' )
-            PIL.Image.fromarray( scaledref ).save( refim, format='png' )
-            PIL.Image.fromarray( scaledsub ).save( subim, format='png' )
+            PIL.Image.fromarray( scalednew ).transpose( PIL.Image.FLIP_TOP_BOTTOM ).save( newim, format='png' )
+            PIL.Image.fromarray( scaledref ).transpose( PIL.Image.FLIP_TOP_BOTTOM ).save( refim, format='png' )
+            PIL.Image.fromarray( scaledsub ).transpose( PIL.Image.FLIP_TOP_BOTTOM ).save( subim, format='png' )
 
             retval['cutouts']['sub_id'].append( subid )
             retval['cutouts']['image_id'].append( imageids[subid] )
@@ -788,6 +810,7 @@ class PngCutoutsForSubImage( BaseView ):
             retval['cutouts']['y'].append( grp.attrs['new_y'] )
 
             if row is None:
+                retval['cutouts']['scores'].append( None )
                 retval['cutouts']['meas_x'].append( None )
                 retval['cutouts']['meas_y'].append( None )
                 retval['cutouts']['rb'].append( None )
@@ -800,6 +823,7 @@ class PngCutoutsForSubImage( BaseView ):
                 dflux = None
                 aperrad= 0.
             else:
+                retval['cutouts']['scores'].append( row[cols['disqualifier_scores']] )
                 retval['cutouts']['meas_x'].append( row[cols['center_x_pixel']] + row[cols['offset_x']] )
                 retval['cutouts']['meas_y'].append( row[cols['center_y_pixel']] + row[cols['offset_y']] )
                 retval['cutouts']['rb'].append( row[cols['score']] )
