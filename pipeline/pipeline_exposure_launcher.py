@@ -1,7 +1,4 @@
-import re
 import time
-import multiprocessing
-import multiprocessing.pool
 import psutil
 import logging
 import argparse
@@ -11,9 +8,7 @@ from util.logger import SCLogger
 
 from models.base import SmartSession
 from models.knownexposure import KnownExposure
-from models.instrument import get_instrument_instance
 
-from pipeline.top_level import Pipeline
 from pipeline.exposure_processor import ExposureProcessor
 
 

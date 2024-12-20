@@ -39,6 +39,7 @@ class UUIDJSONEncoder( simplejson.JSONEncoder ):
         else:
             return super().default( obj )
 
+
 # ======================================================================
 
 class BaseView( flask.views.View ):

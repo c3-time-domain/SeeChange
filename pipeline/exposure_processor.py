@@ -1,16 +1,10 @@
 import re
-import time
 import multiprocessing
 import multiprocessing.pool
-import psutil
 import logging
-import argparse
 
-from util.conductor_connector import ConductorConnector
 from util.logger import SCLogger
 
-from models.base import SmartSession
-from models.knownexposure import KnownExposure
 from models.instrument import get_instrument_instance
 
 # Importing this because otherwise when I try to do something completly
@@ -163,4 +157,3 @@ class ExposureProcessor:
                        f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
         SCLogger.info( f"Succeeded (maybe): {succeeded}" )
         SCLogger.info( f"Failed (definitely): {failed}" )
-
