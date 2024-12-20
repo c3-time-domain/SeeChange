@@ -784,8 +784,8 @@ class PngCutoutsForSubImage( BaseView ):
             retval['cutouts']['sub_png'].append( base64.b64encode( subim.getvalue() ).decode('ascii') )
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
-            retval['cutouts']['x'].append( grp.attrs( 'new_x' ) )
-            retval['cutouts']['y'].append( grp.attrs( 'new_y' ) )
+            retval['cutouts']['x'].append( grp.attrs['new_x'] )
+            retval['cutouts']['y'].append( grp.attrs['new_y'] )
 
             if row is None:
                 retval['cutouts']['meas_x'].append( None )
