@@ -92,8 +92,8 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
 
         # check for an error if the file is not found when loading
         os.remove(txtpath)
-        with pytest.raises( OSError, match="file is missing" ):
-            wcobj.load()
+        with pytest.raises( OSError, match="File .* not found!" ):
+            wcobj.load( download=False )
 
         # ensure you can create an identical wcs from a saved one
         wcobj.save( image=ds.image, sources=ds.sources )

@@ -50,7 +50,7 @@ def test_image_upstreams_downstreams(sim_image1, sim_reference, provenance_extra
     assert len(upstream_images) == 5  # was made of five images
     assert all( [ isinstance(u, Image) for u in upstream_images ] )
     # source_images_ids = [ im.id for im in upstream_images ]
-    downstream_ids = [d.id for d in sim_reference_image.get_downstreams()]
+    downstream_ids = [d.id for d in sim_reference_image.get_downstreams( only_images=True )]
     assert [new.id] == downstream_ids  # should be the only downstream
 
     # test for the Image.downstream relationship
@@ -62,8 +62,8 @@ def test_image_upstreams_downstreams(sim_image1, sim_reference, provenance_extra
     assert len( sim_image1.get_downstreams() ) == 1
     assert [ i.id for i in sim_image1.get_downstreams() ] == [ diff_image.id ]
 
-    assert len( sim_reference_image.get_downstreams() ) == 1
-    assert [ i.id for i in sim_reference_image.get_downstreams() ] == [ diff_image.id ]
+    assert len( sim_reference_image.get_downstreams() ) == 2
+    assert [ i.id for i in sim_reference_image.get_downstreams( only_images=True ) ] == [ diff_image.id ]
 
     assert len( new.get_downstreams() ) == 0
 
@@ -87,8 +87,8 @@ def test_image_upstreams_downstreams(sim_image1, sim_reference, provenance_extra
     assert len( sim_image1.get_downstreams() ) == 2
     assert set( [ i.id for i in sim_image1.get_downstreams() ] ) == set( [ diff_image.id, new2.id ] )
 
-    assert len( sim_reference_image.get_downstreams() ) == 1
-    assert [ i.id for i in sim_reference_image.get_downstreams() ] == [ diff_image.id ]
+    assert len( sim_reference_image.get_downstreams() ) == 2
+    assert [ i.id for i in sim_reference_image.get_downstreams( only_images=True ) ] == [ diff_image.id ]
 
     assert len( new2.get_downstreams() ) == 0
 

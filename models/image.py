@@ -664,7 +664,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         new.raw_data = exposure.data[section_id]
 
         # read the header from the exposure file's individual section data
-        new._header = exposure.section_headers[section_id]
+        new._header = fits.Header( exposure.section_headers[section_id], copy=True )
 
         # If this is a preprocessed exposure, then we should be able to get weight and flags as well
         if exposure.preproc_bitflag != 0:

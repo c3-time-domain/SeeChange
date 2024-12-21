@@ -1,7 +1,7 @@
 """refset_single_ref_prov
 
 Revision ID: 5a2647d468be
-Revises: 23d4754077d1
+Revises: 9ef3762a6889
 Create Date: 2024-12-17 15:29:44.136501
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '5a2647d468be'
-down_revision = '23d4754077d1'
+down_revision = '9ef3762a6889'
 branch_labels = None
 depends_on = None
 

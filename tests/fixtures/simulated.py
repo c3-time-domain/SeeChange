@@ -242,7 +242,7 @@ sim_image_uncommitted = generate_image_fixture(commit=False)
 
 
 @pytest.fixture
-def sim_reference(provenance_preprocessing, provenance_extra):
+def sim_reference(provenance_preprocessing, provenance_extraction, provenance_extra):
     rng = np.random.default_rng()
     filter = rng.choice(list('grizY'))
     target = rnd_str(6)
@@ -283,15 +283,25 @@ def sim_reference(provenance_preprocessing, provenance_extra):
     coaddprov = Provenance( process='coaddition',
                             code_version_id=provenance_extra.code_version_id,
                             parameters={},
-                            upstreams=[provenance_extra],
+                            upstreams=[provenance_extra,provenance_extraction],
                             is_testing=True )
     coaddprov.insert_if_needed()
     ref_image.provenance_id = coaddprov.id
     ref_image.save()
     ref_image.insert()
 
+    # This is a garbage throwaway sources that doesn't have a file associated,
+    #   just so the refs table has something to chew on.  If we ever need
+    #   these sources for real, then we need to make them, which may be
+    #   distressingly slow.
+
+    sc = SourceList( format='sextrfits', image_id=ref_image.id, best_aper_num=-1, num_sources=0,
+                     provenance_id=provenance_extraction.id, md5sum=uuid.uuid4(), filepath="foo" )
+    sc.insert()
+
     ref = Reference()
     ref.image_id = ref_image.id
+    ref.sources_id = sc.id
     refprov = Provenance(
         code_version_id=provenance_extra.code_version_id,
         process='referencing',
@@ -318,6 +328,7 @@ def sim_reference(provenance_preprocessing, provenance_extra):
         exp.delete_from_disk_and_database()
 
     with SmartSession() as session:
+        session.execute( sa.delete( SourceList ).where( SourceList._id==sc.id ) )
         session.execute( sa.delete( Provenance ).where( Provenance._id.in_([coaddprov.id, refprov.id]) ) )
         session.commit()
 

@@ -139,7 +139,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
                                       'sub_image, detections, cutouts, measurements, scores')
         assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
         repprov = Provenance.get( rep.provenance_id )
-        assert repprov.upstreams[0].id == ds.measurements[0].provenance_id
+        assert repprov.upstreams[0].id == ds.scores[0].provenance_id
         assert rep.num_prev_reports == 0
         ds.save_and_commit()
         rep.scan_datastore(ds)
