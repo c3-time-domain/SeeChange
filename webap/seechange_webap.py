@@ -86,6 +86,8 @@ class BaseView( flask.views.View ):
                              200, { 'Content-Type': 'application/json' } )
                 elif isinstance( retval, str ):
                     return retval, 200, { 'Content-Type': 'text/plain; charset=utf-8' }
+                elif isinstance( retval, tuple ):
+                    return retval
                 else:
                     return retval, 200, { 'Content-Type': 'application/octet-stream' }
             except Exception as ex:
@@ -167,9 +169,13 @@ class CloneProvTag( BaseView ):
     def do_the_things( self, existingtag, newtag, clobber=0 ):
         cursor = self.conn.cursor()
         if clobber:
-            cursor.execute( "DELETE FROM provenance_tags WHERE tag=%(tag)s", { 'tag': newtag } )
+            q = "DELETE FROM provenance_tags WHERE tag=%(tag)s"
+            # app.logger.debug( f"CloneProvTag running {cursor.mogrify(q,{'tag':newtag})}" )
+            cursor.execute( q, { 'tag': newtag } )
         else:
-            cursor.execute( "SELECT COUNT(*) FROM provenance_tags WHERE tag=%(tag)s", { 'tag': newtag } )
+            q = "SELECT COUNT(*) FROM provenance_tags WHERE tag=%(tag)s"
+            # app.logger.debug( f"CloneProvTag running {cursor.mogrify(q,{'tag':newtag})}" )
+            cursor.execute( q, { 'tag': newtag } )
             n = cursor.fetchone()[0]
             if n != 0:
                 return f"Tag {newtag} already exists and clobber was False", 500
@@ -178,12 +184,16 @@ class CloneProvTag( BaseView ):
         #   clever enough, except that I'd need to have a server default
         #   on provenance_tags for generating the primary key uuid, and
         #   right now we don't have that.
-        cursor.execute( "SELECT provenance_id FROM provenance_tags WHERE tag=%(tag)s", { 'tag': existingtag } )
+        q = "SELECT provenance_id FROM provenance_tags WHERE tag=%(tag)s"
+        # app.logger.debug( f"ConeProvTag running {cursor.mogrify(q,{'tag':existingtag})}" )
+        cursor.execute( q, { 'tag': existingtag } )
         rows = cursor.fetchall()
         for row in rows:
-            cursor.execute( "INSERT INTO provenance_tags(_id,tag,provenance_id) "
-                            "VALUES(%(id)s,%(tag)s,%(provid)s)",
-                            { 'id': uuid.uuid4(), 'tag': newtag, 'provid': row[0] } )
+            q = "INSERT INTO provenance_tags(_id,tag,provenance_id) VALUES(%(id)s,%(tag)s,%(provid)s)"
+            subdict = { 'id': uuid.uuid4(), 'tag': newtag, 'provid': row[0] }
+            # app.logger.debug( f"CloneProvTag running {cursor.mogrify(q,subdict)}" )
+            cursor.execute( q, subdict )
+        # app.logger.debug( "CloneProvTag comitting" )
         self.conn.commit()
 
         return { 'status': 'ok' }
