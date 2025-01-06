@@ -75,7 +75,9 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     if m.best_aperture == -1:
         assert m.flux == m.flux_psf - m.bkg_mean * m.area_psf
         assert m.magnitude != m.mag_psf  # the magnitude has background subtracted from it
-        assert m.flux_err > m.flux_psf_err   # the magnitude error is larger because of the error in background
+        # Commenting out the next one.  We no longer automatically do annulus background,
+        #   so the background error won't be bigger.  See issue #396.
+        # assert m.flux_err > m.flux_psf_err   # the magnitude error is larger because of the error in background
         # This next one can fail if the mean background is negative.
         #   While the flux error will be larger, the flux itself will
         #   also be larger in the background-subtracted version if the
