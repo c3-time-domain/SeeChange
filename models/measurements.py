@@ -163,19 +163,14 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         """The error on the background subtracted aperture flux in the "best" aperture. """
         if self.best_aperture == -1:
             # we divide by the number of pixels of the background as that is how well we can estimate the b/g mean
-            # → this is wrong.  The background noise contributes to the flux independent of how well
-            #   we estimate the background mean.  (How well we estimate the background mean should be
-            #   an aditional uncertainty on top of the direct contribution of background noise to the flux,
-            #   but that will tend to be a small contribution so can be neglected in a quadrature sum.)
-            # if self.bkg_pix > 0:
-            #     return np.sqrt(self.flux_psf_err ** 2 + self.bkg_std ** 2 / self.bkg_pix * self.area_psf)
-            return np.sqrt( self.flux_psf_err ** 2 + self.bkg_std ** 2 * self.area_psf )
+            err = self.flux_psf_err ** 2
+            if self.bkg_pix > 0:
+                err += self.bkg_std ** 2 / self.bkg_pix * self.area_psf
         else:
-            err = self.flux_apertures_err[self.best_aperture]
-            # → wrong for the same reason as in the if above
-            # err += self.bkg_std ** 2 / self.bkg_pix * self.area_apertures[self.best_aperture]
-            err += self.bkg_std **2 * self.area_apertures[self.best_aperture]
-            return np.sqrt(err)
+            err = self.flux_apertures_err[self.best_aperture] ** 2
+            if self.bkg_pix > 0:
+                err += self.bkg_std ** 2 / self.bkg_pix * self.area_apertures[self.best_aperture]
+        return np.sqrt(err)
 
     @property
     def mag_psf(self):
