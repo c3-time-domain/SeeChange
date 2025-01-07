@@ -26,21 +26,21 @@ def test_decam_exposure(decam_exposure):
     assert e.instrument == 'DECam'
     assert isinstance(e.instrument_object, DECam)
     assert e.telescope == 'CTIO 4.0-m telescope'
-    assert e.mjd == 60127.33963431
-    assert e.end_mjd == 60127.34062968037
-    assert e.ra == 7.874804166666666
+    assert e.mjd == 59512.20054752
+    assert e.end_mjd == 59512.20154289037
+    assert e.ra == 7.874595833333333
     assert e.dec == -43.0096
-    assert e.exp_time == 86.0
-    assert e.filepath == 'c4d_230702_080904_ori.fits.fz'
+    assert e.exp_time == 86.
+    assert e.filepath == 'c4d_211025_044847_ori.fits.fz'
     assert e.filter == 'r'
     assert e.instrument_object.get_full_filter_name( e.filter ) == 'r DECam SDSS c0002 6415.0 1480.0'
     assert not e.from_db
     assert e.info == {}
     assert e.target == 'ELAIS-E1'
-    assert e.project == '2023A-716082'
+    assert e.project == '2021B-0149'
 
     # check that we can lazy load the header from file
-    assert len(e.header) == 150
+    assert len(e.header) == 151
     assert e.header['NAXIS'] == 0
 
     with pytest.raises(ValueError, match=re.escape('The section_id must be a string. ')):
@@ -70,14 +70,14 @@ def test_image_from_decam_exposure(decam_exposure, provenance_base, data_dir):
     # should not be the same as the exposure!
     assert im.ra != e.ra
     assert im.dec != e.dec
-    assert im.ra == 7.878344279652849
-    assert im.dec == -43.0961474371319
-    assert im.mjd == 60127.33963431
-    assert im.end_mjd == 60127.34062968037
+    assert im.ra == 7.877311263154294
+    assert im.dec == -43.09570143713222
+    assert im.mjd == 59512.20054752
+    assert im.end_mjd == 59512.20154289037
     assert im.exp_time == 86.0
     assert im.filter == 'r'
     assert im.target == 'ELAIS-E1'
-    assert im.project == '2023A-716082'
+    assert im.project == '2021B-0149'
     assert im.section_id == sec_id
 
     assert im._id is None
@@ -567,9 +567,9 @@ def test_overscan( decam_raw_image, data_dir ):
     rawright = rawdata[ 2296:2297, 1900:1968 ]
     rawovright = rawdata[ 2296:2297, 2104:2154 ]
     trimmedright = trimmeddata[ 2246:2247, 1844:1912 ]
-    assert rawleft.mean() == pytest.approx( 3823.5882, abs=0.01 )
+    assert rawleft.mean() == pytest.approx( 2287.3676, abs=0.01 )
     assert np.median( rawovleft ) == pytest.approx( 1660, abs=0.001 )
     assert trimmedleft.mean() == pytest.approx( rawleft.mean() - np.median(rawovleft), abs=0.1 )
-    assert rawright.mean() == pytest.approx( 4530.8971, abs=0.01 )
-    assert np.median( rawovright ) == pytest.approx( 2209, abs=0.001 )
+    assert rawright.mean() == pytest.approx( 2994.1176, abs=0.01 )
+    assert np.median( rawovright ) == pytest.approx( 2319, abs=0.001 )
     assert trimmedright.mean() == pytest.approx( rawright.mean() - np.median(rawovright), abs=0.1 )

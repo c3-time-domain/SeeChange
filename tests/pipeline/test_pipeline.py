@@ -446,7 +446,6 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.sources.id]
-            import pdb; pdb.set_trace()
             assert set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ]) == set([
                 ds.ref_image.id,
                 ds.ref_sources.id,

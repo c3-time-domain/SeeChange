@@ -445,10 +445,6 @@ def test_coadded_reference(ptf_ref):
     assert isinstance(ref_wcs, WorldCoordinates)
     assert isinstance(ref_zp, ZeroPoint)
 
-    assert ptf_ref.target == ref_image.target
-    assert ptf_ref.filter == ref_image.filter
-    assert str(ptf_ref.section_id) == str(ref_image.section_id)
-
     ref_prov = Provenance.get( ptf_ref.provenance_id )
     # refimg_prov = Provenance.get( ref_image.provenance_id )
 

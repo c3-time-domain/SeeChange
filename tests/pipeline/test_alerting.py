@@ -76,7 +76,6 @@ def test_send_alerts( test_config, decam_datastore_through_scoring, user ):
     topic = alerter.methods[0]['topic']
     assert re.search( '^test_topic_[a-z]{6}$', topic )
 
-    import pdb; pdb.set_trace()
     alerter.send( ds )
 
     groupid = f'test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'

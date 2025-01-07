@@ -94,7 +94,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
 
     try:
         t0 = time.perf_counter()
-        ds = p.run(decam_exposure, 'S3')
+        ds = p.run(decam_exposure, 'S2')
         total_time = time.perf_counter() - t0
 
         assert p.preprocessor.has_recalculated

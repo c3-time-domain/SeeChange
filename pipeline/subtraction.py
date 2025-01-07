@@ -600,7 +600,7 @@ class Subtractor:
                 if ref is None:
                     raise ValueError(
                         f'Cannot find a reference image corresponding to the datastore inputs: {ds.inputs_str}; '
-                        f'referencing provs = {[ p._id for p in ds.prov_tree["referencing"] ]}'
+                        f'referencing prov = {ds.prov_tree["referencing"]}'
                     )
 
                 prov = ds.get_provenance('subtraction', self.pars.get_critical_pars(), session=session)
