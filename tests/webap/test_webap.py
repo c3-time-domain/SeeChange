@@ -262,11 +262,11 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         assert len(rows) == 2
 
         cols = rows[1].find_elements( By.XPATH, "./*" )
-        assert cols[0].text == 'c4d_230702_080904_ori.fits.fz'
+        assert cols[0].text == 'c4d_211025_044847_ori.fits.fz'
         assert cols[2].text == 'ELAIS-E1'
         assert cols[5].text == '1'    # n_images
-        assert cols[6].text == '189'  # detections
-        assert cols[7].text == '2'    # sources
+        assert cols[6].text == '266'  # detections
+        assert cols[7].text == '28'    # sources
 
         # ======================================================================
         # ======================================================================
@@ -276,7 +276,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         expnamelink = cols[0].find_element( By.TAG_NAME, 'a' )
         expnamelink.click()
         WebDriverWait( exposurediv, timeout=10 ).until(
-            lambda d: d.find_element( By.XPATH, "//h2[contains(.,'Exposure c4d_230702_080904_ori.fits.fz')]" ) )
+            lambda d: d.find_element( By.XPATH, "//h2[contains(.,'Exposure c4d_211025_044847_ori.fits.fz')]" ) )
 
         buttonbox = exposurediv.find_element( By.XPATH, ".//div[contains(@class, 'buttonboxdiv')]" )
         assert 'tabsel' in ( buttonbox
@@ -299,13 +299,13 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         imagesdiv = subcontentdiv.find_element( By.XPATH, "./div" )
         assert imagesdiv.get_attribute('id') == 'exposureimagesdiv'
         assert re.search( r"^Exposure has 1 images and 1 completed subtractions.*"
-                          r"2 out of 189 detections pass preliminary cuts",
+                          r"28 out of 266 detections pass preliminary cuts",
                           imagesdiv.text, re.DOTALL ) is not None
         imagestab = imagesdiv.find_element( By.TAG_NAME, 'table' )
         rows = imagestab.find_elements( By.TAG_NAME, 'tr' )
         assert len(rows) == 2
         cols = rows[1].find_elements( By.XPATH, "./*" )
-        assert re.search( r'^c4d_20230702_080904_S3_r_Sci', cols[1].text ) is not None
+        assert re.search( r'^c4d_20211025_044847_S2_r_Sci', cols[1].text ) is not None
 
         # ======================================================================
         # Sources
@@ -323,7 +323,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         assert sourcesdiv.get_attribute('id') == "exposurecutoutsdiv"
         sourcestable = sourcesdiv.find_element( By.TAG_NAME, 'table' )
         rows = sourcestable.find_elements( By.TAG_NAME, 'tr' )
-        assert len(rows) == 3
+        assert len(rows) == 29
 
         # OMG writing these tests is exhausting.  There is still lots more to do:
         # * actually look at the rows of the sources table

@@ -475,10 +475,6 @@ class Measurer:
 
                     m.disqualifier_scores['filter bank'] = np.argmax(filter_scores)
 
-                    if m.index_in_sources == 113:
-                        import pdb; pdb.set_trace()
-                        pass
-
                     # TODO: add additional disqualifiers
 
                     # make sure disqualifier scores don't have any numpy types

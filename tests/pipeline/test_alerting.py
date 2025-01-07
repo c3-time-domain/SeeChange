@@ -60,6 +60,7 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
     assert all( a['prvDiaForcedSources'] is None for a in alerts )
     assert all( len(a['prvDiaNonDetectionLimits']) == 0 for a in alerts )
 
+
 # ROB! Remove the "user" fixture, you put it here for interactive debugging
 def test_send_alerts( test_config, decam_datastore_through_scoring, user ):
     ds = decam_datastore_through_scoring

@@ -387,7 +387,9 @@ cutting:
 # NOTES:
 #   With decam, filter_bank=1 with width_filter_multipliers=[0.25, 2.0,
 #      5.0, 10.0] was too severe a cut, it was throwing out good
-#      candidates.  MAYBE.
+#      candidates.  Setting filter_bank=2 so that it won't throw things
+#      out based on a high correlation with a small gaussian.
+#      (This is going to be bad for undersampled data, anyway.)
 #   annulus background is broken.  Don't use it.  See Issue #396
 
 measuring:
@@ -409,12 +411,12 @@ measuring:
     negatives: 0.3
     bad pixels: 1
     offsets: 5.0
-    filter bank: 1
+    filter bank: 2
   deletion_thresholds:
     negatives: 0.3
     bad pixels: 1
     offsets: 5.0
-    filter bank: 1
+    filter bank: 2
 
 # ======================================================================
 # Scoring
