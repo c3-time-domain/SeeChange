@@ -285,7 +285,7 @@ class DECam(Instrument):
 
     def overscan_trim_keywords_to_strip( self ):
         yanklist = [ 'DETSIZE' ]
-        for base in [ 'TRIMSEC', 'DATASEC', 'DETSEC', 'CCDSEC', 'PRESEC', 'POSTSEC', 'BAISSEC', 'AMPSEC' ]:
+        for base in [ 'TRIMSEC', 'DATASEC', 'DETSEC', 'CCDSEC', 'PRESEC', 'POSTSEC', 'BIASSEC', 'AMPSEC' ]:
             for suffix in [ '', 'A', 'B' ]:
                 yanklist.append( f"{base}{suffix}" )
         return yanklist

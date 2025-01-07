@@ -117,9 +117,15 @@ class Backgrounder:
                     # be able to precisely represent a 16-bit integer mask image
                     # In any event, sep.Background uses >0 as "bad"
                     fmask = np.array(image._flags, dtype=np.float32)
-                    sep_bg_obj = sep.Background(image.data.copy(), mask=fmask,
-                                                  bw=boxsize, bh=boxsize, fw=filtsize, fh=filtsize)
+                    # Further issue: sep requires native byte order.  image.data may
+                    # well not be in native byteorder.
+                    tmpimagedata = image.data.copy()
+                    if not tmpimagedata.dtype.isnative:
+                        tmpimagedata= tmpimagedata.byteswap().newbyteorder()
+                    sep_bg_obj = sep.Background(tmpimagedata, mask=fmask,
+                                                bw=boxsize, bh=boxsize, fw=filtsize, fh=filtsize)
                     del fmask
+                    del tmpimagedata
                     bg = Background(
                         value=float(np.nanmedian(sep_bg_obj.back())),
                         noise=float(np.nanmedian(sep_bg_obj.rms())),

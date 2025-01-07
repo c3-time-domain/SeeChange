@@ -58,7 +58,7 @@ def decam_default_calibrators(cache_dir, data_dir):
                 )
 
         decam = get_instrument_instance( 'DECam' )
-        sections = [ 'S3', 'N16' ]
+        sections = [ 'S2', 'N16' ]
         filters = [ 'r', 'i', 'z', 'g']
         for sec in sections:
             for calibtype in [ 'flat', 'fringe' ]:
@@ -86,7 +86,7 @@ def decam_default_calibrators(cache_dir, data_dir):
         imagestonuke = set()
         datafilestonuke = set()
         with SmartSession() as session:
-            for sec in [ 'S3', 'N16' ]:
+            for sec in [ 'S2', 'N16' ]:
                 for filt in [ 'r', 'i', 'z', 'g' ]:
                     info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
                                                                  sec, filt, 60000, nofetch=True, session=session )
@@ -305,7 +305,17 @@ def decam_exposure_factory(download_url, data_dir, decam_cache_dir):
 #   in once anyway.
 @pytest.fixture(scope="session")
 def decam_exposure( decam_exposure_factory ):
-    return decam_exposure_factory( 'c4d_230702_080904_ori.fits.fz' )
+    # 2025-01-06 RKNOP... changing the
+    #   exposure we're using, which will be painful
+    #   as lots of tests will need to be updated,
+    #   but the new one has a nice SN in it that
+    #   was found for DECAT-DDF with lensgrinder.
+    # (Why I didn't choose a test exposure that way
+    # in the first place is a mystery.)
+    # Lots of 'S3' in other fixtures have been
+    #  changed to 'S2' to go along with this.
+    # return decam_exposure_factory( 'c4d_230702_080904_ori.fits.fz' )
+    return decam_exposure_factory( 'c4d_211025_044847_ori.fits.fz' )
 
 
 @pytest.fixture
@@ -315,7 +325,7 @@ def decam_raw_image_provenance( provenance_base ):
 
 @pytest.fixture
 def decam_raw_image( decam_exposure, provenance_base ):
-    image = Image.from_exposure(decam_exposure, section_id='S3')
+    image = Image.from_exposure(decam_exposure, section_id='S2')
     image.data = image.raw_data.astype(np.float32)
     # These next two don't mean anything, but put them there for things
     #   that require those files to be there for reading purposes
@@ -360,9 +370,9 @@ def decam_datastore(
     """
     ds = datastore_factory(
         decam_exposure,
-        'S3',
+        'S2',
         cache_dir=decam_cache_dir,
-        cache_base_name='007/c4d_20230702_080904_S3_r_Sci_IDDLGQ',
+        cache_base_name='007/c4d_20211025_044847_S2_r_Sci_IDDLGQ',
         overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
         save_original_image=True,
         provtag='decam_datastore'
@@ -405,7 +415,7 @@ def decam_datastore(
 # not general; it will only work for DECam
 # fields that use decam_reference (so they
 # have to be r-band, in the right specific
-# field, and on chip S3.)
+# field, and on chip S2.)
 @pytest.fixture
 def decam_partial_datastore_factory( datastore_factory, decam_cache_dir,
                                      decam_reference, decam_default_calibrators ):
@@ -419,11 +429,11 @@ def decam_partial_datastore_factory( datastore_factory, decam_cache_dir,
         mat = re.search( r'^c4d_(?P<yymmdd>\d{6})_(?P<hhmmss>\d{6})_ori\.fits\.fz$', str(exposure.filepath) )
         if mat is None:
             raise ValueError( f"Failed to match {exposure.filepath}" )
-        cache_base_name = f'007/c4d_20{mat.group("yymmdd")}_{mat.group("hhmmss")}_S3_r_Sci_IDDLGQ'
+        cache_base_name = f'007/c4d_20{mat.group("yymmdd")}_{mat.group("hhmmss")}_S2_r_Sci_IDDLGQ'
 
         ds = datastore_factory(
             exposure,
-            'S3',
+            'S2',
             cache_dir=decam_cache_dir,
             cache_base_name=cache_base_name,
             overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
@@ -563,7 +573,7 @@ def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_d
 
     dses = []
     delete_list = []
-    for dsindex, chip in enumerate( [ 27, 47 ] ):
+    for dsindex, chip in enumerate( [ 26, 47 ] ):
         for ext in [ 'image.fits', 'weight.fits', 'flags.fits', 'image.yaml' ]:
             cache_path = os.path.join( decam_cache_dir, f'007/{filebase}.{chip:02d}.{ext}' )
             if os.path.isfile( cache_path ):

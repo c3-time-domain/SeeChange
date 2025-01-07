@@ -464,12 +464,20 @@ class Measurer:
 
                     norm_data_no_nans = norm_data.copy()
                     norm_data_no_nans[np.isnan(norm_data)] = 0
+                    template_norm_fac = np.abs(norm_data_no_nans).sum()
 
                     filter_scores = []
                     for template in self._filter_bank:
-                        filter_scores.append(np.max(signal.correlate(abs(norm_data_no_nans), template, mode='same')))
+                        # It's not clear to me that abs is the right thing to do here.
+                        filter_scores.append(np.max(signal.correlate(abs(norm_data_no_nans),
+                                                                     template * template_norm_fac,
+                                                                     mode='same')))
 
                     m.disqualifier_scores['filter bank'] = np.argmax(filter_scores)
+
+                    if m.index_in_sources == 113:
+                        import pdb; pdb.set_trace()
+                        pass
 
                     # TODO: add additional disqualifiers
 
@@ -540,21 +548,34 @@ class Measurer:
     def make_filter_bank(self, imsize, psf_fwhm):
         """Make a filter bank matching the PSF width.
 
+        These filters will be run through scipy.signal.correlate( abs(subclip), filter, mode='same' )
+
+        The first thing in the filter bank is a gaussian the size of the
+        psf.  Ideally, this is the one that matches best.
+
+        The next len(width_filter_multipliers) are gaussians whose
+        sigmas are scaled by those factors from config.
+
+        Finally, there are a bunch of streaks, nominally.
+
         Parameters
         ----------
         imsize: int
             The size of the image cutouts, which is also the size of the filters. # TODO: allow smaller filters?
         psf_fwhm : float
             The FWHM of the PSF in pixels.
+
         """
         psf_sigma = psf_fwhm / 2.355  # convert FWHM to sigma
         templates = []
-        templates.append(make_gaussian(imsize=imsize, sigma_x=psf_sigma, sigma_y=psf_sigma, norm=2))
+        # We normalize everything to 1.  Later, before running the correlation, we will renormalize
+        #   everything to the sum of the data we're correlating with.
+        templates.append(make_gaussian(imsize=imsize, sigma_x=psf_sigma, sigma_y=psf_sigma, norm=1))
 
         # narrow gaussian to trigger on cosmic rays, wider templates for extended sources
         for multiplier in self.pars.width_filter_multipliers:
             templates.append(
-                make_gaussian(imsize=imsize, sigma_x=psf_sigma * multiplier, sigma_y=psf_sigma * multiplier, norm=2)
+                make_gaussian(imsize=imsize, sigma_x=psf_sigma * multiplier, sigma_y=psf_sigma * multiplier, norm=1)
             )
 
         # add some streaks:
@@ -570,7 +591,8 @@ class Measurer:
             streak = (1 / np.sqrt(2.0 * np.pi) / psf_sigma) * np.exp(
                 -0.5 * d ** 2 / psf_sigma ** 2
             )
-            streak /= np.sqrt(np.sum(streak ** 2))  # verify that the template is normalized
+            # streak /= np.sqrt(np.sum(streak ** 2))  # verify that the template is normalized
+            streak /= np.sum(streak)
 
             templates.append(streak)
 
