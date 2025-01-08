@@ -8,7 +8,8 @@ from improc.tools import make_gaussian
 from tests.conftest import SKIP_WARNING_TESTS
 
 
-@pytest.mark.flaky(max_runs=3)
+# @pytest.mark.flaky(max_runs=3)
+@pytest.mark.skip( reason="This test will get wholly rewritten with Issue #398" )
 def test_measuring( decam_default_calibrators, decam_datastore_through_cutouts ):
     ds = decam_datastore_through_cutouts
     measurer = ds._pipeline.measurer

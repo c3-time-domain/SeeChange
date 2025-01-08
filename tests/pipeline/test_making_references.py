@@ -651,7 +651,7 @@ def test_making_references( ptf_reference_image_datastores ):
         second_image_id = ref2.image_id
         assert second_time < first_time * 0.1  # should be much faster, we are reloading the reference set
         assert ref2.id == ref.id
-        assert second_refset.id == first_refset.id
+        assert asUUID(second_refset.id) == asUUID(first_refset.id)
         assert second_image_id == first_image_id
 
         # now try to make a new ref set with a new name
@@ -663,21 +663,15 @@ def test_making_references( ptf_reference_image_datastores ):
         third_refset = maker.refset
         third_image_id = ref3.image_id
         assert third_time < first_time * 0.1  # should be faster, we are loading the same reference
-        assert third_refset.id != first_refset.id
+        assert asUUID(third_refset.id) != asUUID(first_refset.id)
         assert ref3.id == ref.id
         assert third_image_id == first_image_id
 
-        # append to the same refset but with different reference parameters (image loading parameters)
+        # Make sure we can't append to the refset, as there's only one provenance per refset
         maker.pars.max_number += 1
-        t0 = time.perf_counter()
-        ref4 = maker.run(ra=188, dec=4.5, filter='R')
-        fourth_time = time.perf_counter() - t0
-        fourth_refset = maker.refset
-        fourth_image_id = ref4.image_id
-        assert fourth_time < first_time * 0.1  # should be faster, we can still re-use the underlying coadd image
-        assert fourth_refset.id != first_refset.id
-        assert ref4.id != ref.id
-        assert fourth_image_id == first_image_id
+        with pytest.raises( ValueError, match=("Refset.*already exists with provenance.*which does not match the "
+                                               "ref provenance we're using:" ) ):
+            _ = maker.run(ra=188, dec=4.5, filter='R')
 
         # now make the coadd image again with a different parameter for the data production
         maker.coadd_pipeline.coadder.pars.flag_fwhm_factor *= 1.2
@@ -689,9 +683,9 @@ def test_making_references( ptf_reference_image_datastores ):
         fifth_refset = maker.refset
         fifth_image_id = ref5.image_id
         assert np.log10(fifth_time) == pytest.approx(np.log10(first_time), rel=0.2)  # should take about the same time
-        assert ref5.id != ref.id
-        assert fifth_refset.id != first_refset.id
-        assert fifth_image_id != first_image_id
+        assert asUUID(ref5.id) != asUUID(ref.id)
+        assert asUUID(fifth_refset.id) != asUUID(first_refset.id)
+        assert asUUID(fifth_image_id) != asUUID(first_image_id)
 
     finally:  # cleanup
         if ( ref is not None ) and ( ref.image_id is not None ):
