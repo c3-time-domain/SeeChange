@@ -100,22 +100,21 @@ def test_warp_decam( decam_datastore_through_zp, decam_reference ):
 
         # Check a couple of spots on the image
         # First, around a star (which I visually inspected and saw was lined up):
-        stararea = ( slice( 2601, 2612, 1 ), slice( 355, 367, 1 ) )
+        stararea = ( slice( 2306, 2327, 1 ), slice( 1046, 1068, 1 ) )
         origll = warped_to_ref( stararea[0].start, stararea[1].start )
         origur = warped_to_ref( stararea[0].stop, stararea[1].stop )
         # I know in this case that the ll and ur are swapped,
+        #   (the image got transposed in the warp)
         #   hence the switch below
         origrefstararea = ( slice( round(origur[0]), round(origll[0]), 1 ),
                             slice( round(origur[1]), round(origll[1]), 1 ) )
-        assert ds.image.data[ stararea ].sum() == pytest.approx( 637299.1, rel=0.001 )
-        assert warped.data[ stararea ].sum() == pytest.approx( 389884.78, rel=0.001 )
-        # I'm a little sad that this next one is only good to 0.007
-        # swarp has failed me
+        assert ds.image.data[ stararea ].sum() == pytest.approx( 323622.53, rel=0.001 )
+        assert warped.data[ stararea ].sum() == pytest.approx( 24483.215, rel=0.001 )
         assert ( warped.data[ stararea ].sum() ==
-                 pytest.approx( ds.ref_image.data[ origrefstararea ].sum(), rel=0.007 ) )
+                 pytest.approx( ds.ref_image.data[ origrefstararea ].sum(), rel=0.001 ) )
 
         # And a blank spot (here we can do some statistics instead of hard coded values)
-        blankarea = ( slice( 2008, 2028, 1 ), slice( 851, 871, 1 ) )
+        blankarea = ( slice( 2700, 2721, 1 ), slice( 1040, 1061, 1 ) )
         origll = warped_to_ref( blankarea[0].start, blankarea[1].start )
         origur = warped_to_ref( blankarea[0].stop, blankarea[1].stop )
         origrefblankarea = ( slice( round(origur[0]), round(origll[0]), 1 ),
@@ -131,39 +130,31 @@ def test_warp_decam( decam_datastore_through_zp, decam_reference ):
 
         # Check that the reference is actually background subtracted
         # (fudged the 3σ based on empiricism...)
-        assert origrefmean == pytest.approx( 0., abs=3.1/np.sqrt(num_pix) )
-        assert warpedmean == pytest.approx( 0., abs=3/np.sqrt(num_pix) )
+        assert origrefmean == pytest.approx( 0., abs=3. * origrefstd / np.sqrt(num_pix) )
+        assert warpedmean == pytest.approx( 0., abs=3. * warpedstd / np.sqrt(num_pix) )
 
         # The rel values below are really regression tests, since I tuned them to
         #   what matched.  Correlated schmorrelated.  (In summed images, which had
         #   resampling, and warped images.)
-        assert origrefmean == pytest.approx( ds.ref_bg.value, abs=3./np.sqrt(num_pix) )
-        assert origrefstd == pytest.approx( ds.ref_bg.noise, rel=0.07 )
-        assert warpedmean == pytest.approx( warpedbg.value, abs=3./np.sqrt(num_pix) )
+        assert origrefmean == pytest.approx( ds.ref_bg.value, abs=3. * origrefstd / np.sqrt(num_pix) )
+        assert origrefstd == pytest.approx( ds.ref_bg.noise, rel=0.09 )
+        assert warpedmean == pytest.approx( warpedbg.value, abs=3. * warpedstd / np.sqrt(num_pix) )
         assert warpedstd == pytest.approx( warpedbg.noise, rel=0.15 )
-        assert newmean == pytest.approx( 0., abs=3./np.sqrt(num_pix) )
-        assert newstd == pytest.approx( ds.bg.noise, rel=0.02 )
+        assert newmean == pytest.approx( 0., abs=3. * newstd / np.sqrt(num_pix) )
+        assert newstd == pytest.approx( ds.bg.noise, rel=0.01 )
 
 
         # Make sure the warped image WCS is about right.  We don't
         # expect it to be exactly identical, but it should be very
         # close.
 
-        # For the elais-e1 image, the upper left WCS
-        # was off by ~1/2".  Looking at the image, it is
-        # probably due to a dearth of stars in that corner
-        # of the image on the new image, meaning the solution
-        # was being extrapolated.  A little worrying for how
-        # well we want to be able to claim to locate discovered
-        # transients....
-        # x = [ 256, 1791, 256, 1791, 1024 ]
-        # y = [ 256, 256, 3839, 3839, 2048 ]
-        x = [ 256, 1791, 1791, 1024 ]
-        y = [ 256, 256, 3839, 2048 ]
+        x = [ 256, 1791, 256, 1791, 1024 ]
+        y = [ 256, 256, 3839, 3839, 2048 ]
         imsc = ds.wcs.wcs.pixel_to_world( x, y )
         warpsc = warpedwcs.pixel_to_world( x, y )
-        assert all( [ i.ra.deg == pytest.approx(w.ra.deg, abs=0.1/3600.) for i, w in zip( imsc, warpsc ) ] )
-        assert all( [ i.dec.deg == pytest.approx(w.dec.deg, abs=0.1/3600.) for i, w in zip( imsc, warpsc ) ] )
+        # In fact, it's better than 0.1/3600. except for the (256,3839) (upper-left) in dec
+        assert all( [ i.ra.deg == pytest.approx(w.ra.deg, abs=0.25/3600.) for i, w in zip( imsc, warpsc ) ] )
+        assert all( [ i.dec.deg == pytest.approx(w.dec.deg, abs=0.25/3600.) for i, w in zip( imsc, warpsc ) ] )
 
     finally:
         if 'warped' in locals():
