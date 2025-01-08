@@ -424,9 +424,9 @@ def test_find_images(ptf_reference_image_datastores, ptf_ref,
     assert len(found5) < total
     assert len(found4) + len(found5) == total
 
-    # filter by images that contain this point (ELAIS-E1, chip S3)
-    ra = 7.449
-    dec = -42.926
+    # filter by images that contain this point (ELAIS-E1, chip S2)
+    ra = 7.025
+    dec = -42.923
     found1 = Image.find_containing( ra, dec )   # note: find_containing is a FourCorners method
     found1a = Image.find_images( ra=ra, dec=dec )
     assert set( i.id for i in found1 ) == set( i.id for i in found1a )
@@ -479,8 +479,8 @@ def test_find_images(ptf_reference_image_datastores, ptf_ref,
     assert len(found1) < total
 
     # filter by the two different project names for DECam:
-    found2 = Image.find_images(project=['many', '2023A-716082'])
-    assert all(im.project in ['many', '2023A-716082'] for im in found2)
+    found2 = Image.find_images(project=['many', '2021B-0149'])
+    assert all(im.project in ['many', '2021B-0149'] for im in found2)
     assert all(im.instrument == 'DECam' for im in found2)
     assert len(found2) < total
     assert len(found1) + len(found2) == total
@@ -643,9 +643,9 @@ def test_find_images(ptf_reference_image_datastores, ptf_ref,
     assert found1[0].instrument == 'PTF'
     assert found1[0].type == 'ComSci'
 
-    # cross the DECam target and section ID with the exposure time that's of the S3 ref image
+    # cross the DECam target and section ID with the exposure time that's of the S2 ref image
     target = 'ELAIS-E1'
-    section_id = 'S3'
+    section_id = 'S2'
     exp_time = 120.0
 
     found2 = Image.find_images(target=target, section_id=section_id, min_exp_time=exp_time)
