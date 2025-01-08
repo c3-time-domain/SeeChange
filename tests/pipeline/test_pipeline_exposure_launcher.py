@@ -52,7 +52,7 @@ def test_exposure_launcher( conductor_connector,
     assert all( [ ke.hold for ke in kes if str(ke.id) != idtodo ] )
     assert all( [ not ke.hold for ke in kes if str(ke.id) == idtodo ] )
 
-    elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S3', 'N16'], verify=False,
+    elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'], verify=False,
                                 worker_log_level=logging.DEBUG )
     elaunch.register_worker()
 
@@ -88,8 +88,8 @@ def test_exposure_launcher( conductor_connector,
             measq = session.query( Measurements ).join( Cutouts ).join( SourceList ).join( Image )
             meas0 = measq.filter( Image._id==sub0.id ).all()
             meas1 = measq.filter( Image._id==sub1.id ).all()
-            assert len(meas0) == 2
-            assert len(meas1) == 6
+            assert len(meas0) == 26
+            assert len(meas1) == 36
 
     finally:
         # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,
