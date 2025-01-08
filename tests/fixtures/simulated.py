@@ -27,14 +27,14 @@ from improc.tools import make_gaussian
 from tests.conftest import rnd_str
 
 
-def make_sim_exposure():
+def make_sim_exposure( filter=None ):
     rng = np.random.default_rng()
     e = Exposure(
         filepath=f"Demo_test_{rnd_str(5)}.fits",
         section_id=0,
         exp_time=rng.integers(1, 4) * 10,  # 10 to 40 seconds
         mjd=rng.uniform(58000, 58500),
-        filter=rng.choice(list('grizY')),
+        filter=rng.choice(list('grizY')) if filter is None else filter,
         ra=rng.uniform(0, 360),
         dec=rng.uniform(-90, 90),
         project='foo',
@@ -174,9 +174,11 @@ class ImageCleanup:
             #   need to clean out those entries.  (They won't automatically clean out
             #   because ondelete is RESTRICT for upstream_id in image_upstreams_associaton.)
             # We're trusting that whoever made the downstream will clean themselves up.
+            # (And, really, those folks should have removed the image_coadd_component
+            # entry, but whatevs.)
             with SmartSession() as sess:
-                sess.execute( sa.text( "DELETE FROM image_upstreams_association "
-                                       "WHERE upstream_id=:id" ),
+                sess.execute( sa.text( "DELETE FROM image_coadd_component "
+                                       "WHERE image_id=:id" ),
                               { "id": self.image.id } )
                 sess.commit()
             self.image.delete_from_disk_and_database()
@@ -185,13 +187,13 @@ class ImageCleanup:
 
 
 # idea taken from: https://github.com/pytest-dev/pytest/issues/2424#issuecomment-333387206
-def generate_image_fixture(commit=True):
+def generate_image_fixture(commit=True, filter=None):
 
     @pytest.fixture
     def new_image(provenance_preprocessing):
         im = None
         exp = None
-        exp = make_sim_exposure()
+        exp = make_sim_exposure( filter=filter )
         add_file_to_exposure(exp)
         # Have to commit the exposure even if commit=False
         #  because otherwise tests that use this fixture
@@ -218,8 +220,8 @@ def generate_image_fixture(commit=True):
         #   need to clean out the association table.  (See comment in
         #   ImageCleanup.__del__.)
         with SmartSession() as sess:
-            sess.execute( sa.text( "DELETE FROM image_upstreams_association "
-                                   "WHERE upstream_id=:id" ),
+            sess.execute( sa.text( "DELETE FROM image_coadd_component "
+                                   "WHERE image_id=:id" ),
                           { "id": im.id } )
             sess.commit()
 
@@ -236,6 +238,8 @@ def generate_image_fixture(commit=True):
 for i in range(1, 10):
     globals()[f'sim_image{i}'] = generate_image_fixture()
 
+for i in range(1, 10):
+    globals()[f'sim_image_r{i}'] = generate_image_fixture( filter='r' )
 
 # use this Image if you want the test to do the saving
 sim_image_uncommitted = generate_image_fixture(commit=False)

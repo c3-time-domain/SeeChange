@@ -1042,8 +1042,8 @@ class CoaddPipeline:
         # check if this exact coadd image already exists in the DB
         with SmartSession() as dbsession:
             coadd_prov = self.datastore.prov_tree['coaddition']
-            coadd_image = Image.get_image_from_upstreams( [ d.image for d in data_store_list ],
-                                                          coadd_prov, session=dbsession)
+            coadd_image = Image.get_coadd_from_components( [ d.image for d in data_store_list ],
+                                                           coadd_prov, session=dbsession)
 
         if coadd_image is not None:
             self.datastore.image = coadd_image

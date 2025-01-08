@@ -10,7 +10,7 @@ from util.logger import SCLogger
 from models.base import SmartSession, FileOnDiskMixin, FourCorners
 from models.provenance import Provenance
 from models.exposure import Exposure
-from models.image import Image, image_upstreams_association_table
+from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
 from models.background import Background
@@ -409,8 +409,8 @@ class DataStore:
                 raise ValueError( "DataStore.sub_image must have is_sub set" )
             if ( ( self._detections is not None ) and ( self._detections.image_id != val.id ) ):
                 raise ValueError( "Can't set a sub_image inconsistent with detections" )
-            if val.ref_image_id != self.ref_image.id:
-                raise ValueError( "Can't set a sub_image inconsistent with ref image" )
+            if val.ref_id != self.reference.id:
+                raise ValueError( "Can't set a sub_image inconsistent with reference" )
             if val.new_image_id != self.image.id:
                 raise ValueError( "Can't set a sub image inconsistent with image" )
             # TODO : check provenance upstream of sub_image to make sure it's consistent
@@ -1650,11 +1650,9 @@ class DataStore:
                 raise RuntimeError( "Can't get sub_image, don't have an image_id" )
 
             imgs = ( sess.query( Image )
-                     .join( image_upstreams_association_table,
-                            image_upstreams_association_table.c.downstream_id==Image._id )
-                     .filter( image_upstreams_association_table.c.upstream_id==self.image.id )
                      .filter( Image.provenance_id==provenance.id )
-                     .filter( Image.ref_image_id==self.reference.image_id )
+                     .filter( Image.new_image_id==self.image.id )
+                     .filter( Image.ref_id==self.reference.id )
                      .filter( Image.is_sub ) ).all()
             if len(imgs) > 1:
                 raise RuntimeError( "Found more than one matching sub_image in the database!  This shouldn't happen!" )

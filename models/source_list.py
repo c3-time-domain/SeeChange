@@ -828,7 +828,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         docstring in SeeChangeBase.get_downstreams.)
 
         Returns a list of objects (potentially including Background,
-        PSF, WorldCoordinates, ZeroPoint, Cutouts, and Image objects).
+        PSF, WorldCoordinates, ZeroPoint, Cutouts, Image, and Reference
+        objects).
 
         """
 
@@ -839,7 +840,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.zero_point import ZeroPoint
         from models.cutouts import Cutouts
         from models.provenance import provenance_self_association_table
-        from models.image import image_upstreams_association_table
+        from models.image import image_coadd_component_table
+        from models.reference import Reference
 
         output = []
         with SmartSession( session ) as sess:
@@ -859,23 +861,45 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             if co is not None:
                 output.append( co )
 
-            # Coadd or subtraction images made from this SourceList's
-            #  parent image, which have this sourcelist as an upstream.
-            #  They're not explicitly tracked as downstreams of sources
-            #  (is that a mistake?), so we have to poke into the image
-            #  upstreams association table.  Also poke into the
-            #  provenance upstreams association table; this may be
-            #  redundant, but it makes sure that we're really getting
-            #  things that are downstream of self.
+            # Coadd images made from this SourceList's parent image,
+            #   which have this SourceList as an upstream.  They're
+            #   not explicitly tracked as downstreams of SourceLists
+            #   (is that a mistake?), so we have to poke into the
+            #   coadd components table and the provenance upstreams
+            #   association table to get the right things.  That's all
+            #   complicated; perhaps it would just be simpler to
+            #   store information more than once and make the SourceLists
+            #   as upstreams of the coadded image, but whatevs.
             imgs = ( sess.query( Image )
                      .join( provenance_self_association_table,
                             provenance_self_association_table.c.downstream_id == Image.provenance_id )
-                     .join( image_upstreams_association_table,
-                            image_upstreams_association_table.c.downstream_id == Image._id )
+                     .join( image_coadd_component_table,
+                            image_coadd_component_table.c.coadd_image_id == Image._id )
                      .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
-                     .filter( image_upstreams_association_table.c.upstream_id == self.image_id )
+                     .filter( image_coadd_component_table.c.image_id == self.image_id )
                     ).all()
             output.extend( list(imgs) )
+
+            # Subtraction images made from this SourceList's parent image
+            #   Again, we have to go poking into provenance upstream tables
+            #   because the source list used with the new image for the subtraction
+            #   isn't explicitly an upstream of the subtraction image.  Likewise
+            #   for the Reference.
+            newimgs = ( sess.query( Image )
+                        .join( provenance_self_association_table,
+                               provenance_self_association_table.c.downstream_id == Image.provenance_id )
+                        .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
+                        .filter( Image.new_image_id == self.image_id )
+                       ).all()
+            output.extend( list(newimgs) )
+
+            refs = ( sess.query( Reference )
+                     .join( provenance_self_association_table,
+                            provenance_self_association_table.c.downstream_id == Reference.provenance_id )
+                     .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
+                     .filter( Reference.image_id == self.image_id )
+                    ).all()
+            output.extend( list(refs) )
 
         return output
 

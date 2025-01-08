@@ -618,7 +618,7 @@ class Subtractor:
 
                     SCLogger.debug( f"Making new subtraction from image {image.id} path {image.filepath} , "
                                     f"reference {ds.ref_image.id} path {ds.ref_image.filepath}" )
-                    sub_image = Image.from_ref_and_new(ds.ref_image, image)
+                    sub_image = Image.from_ref_and_new(ds.reference, image)
                     sub_image.is_sub = True
                     sub_image.provenance_id = prov.id
                     sub_image.set_coordinates_to_match_target( image )

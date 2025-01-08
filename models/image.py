@@ -53,23 +53,22 @@ import util.config as config
 from improc.tools import sigma_clipping
 
 
-# links many-to-many Image to all the Images used to create it
-image_upstreams_association_table = sa.Table(
-    'image_upstreams_association',
+# many-to-many link of coadded images to images that went into the coadd
+image_coadd_component_table = sa.Table(
+    'image_coadd_component',
     Base.metadata,
-    sa.Column('upstream_id',
+    sa.Column('image_id',
               sqlUUID,
-              sa.ForeignKey('images._id', ondelete="RESTRICT", name='image_upstreams_association_upstream_id_fkey'),
+              sa.ForeignKey('images._id', ondelete="RESTRICT", name='image_coadd_component_image_fkey'),
               primary_key=True),
-    sa.Column('downstream_id',
+    sa.Column('coadd_image_id',
               sqlUUID,
-              sa.ForeignKey('images._id', ondelete="CASCADE", name='image_upstreams_association_downstream_id_fkey'),
+              sa.ForeignKey('images._id', ondelete="CASCADE", name='image_coadd_component_coadd_fkey'),
               primary_key=True),
 )
 
 
 class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, HasBitFlagBadness):
-
     __tablename__ = 'images'
 
     @declared_attr
@@ -112,41 +111,20 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         )
     )
 
-    ref_image_id = sa.Column(
-        sa.ForeignKey('images._id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
-        nullable=True,
+    is_coadd = sa.Column(
+        sa.Boolean,
+        nullable=False,
+        server_default='false',
         index=True,
-        doc=( "ID of the reference image used to produce this image, in the upstream_images list.  "
-              "For subtractions, this is the template image.  For coadditions, this is the alignment target." )
+        doc='Is this image made by stacking multiple images.'
     )
 
-    @property
-    def new_image_id(self):
-        """Get the id of the image that is NOT the reference image. Only for subtractions (with ref+new upstreams)"""
-        if not self.is_sub:
-            raise RuntimeError( "new_image_id is not defined for images that aren't subtractions" )
-        image = [ i for i in self.upstream_image_ids if i != self.ref_image_id ]
-        if len(image) == 0 or len(image) > 1:
-            return None
-        return image[0]
-
-    @property
-    def upstream_image_ids( self ):
-        if self._upstream_ids is None:
-            with SmartSession() as session:
-                them = list ( session.query( image_upstreams_association_table.c.upstream_id,
-                                             Image.mjd )
-                              .join( Image, Image._id == image_upstreams_association_table.c.upstream_id )
-                              .filter( image_upstreams_association_table.c.downstream_id == self.id )
-                              .all() )
-            them.sort( key=lambda x: x[1] )
-            self._upstream_ids = [ t[0] for t in them ]
-        return self._upstream_ids
-
-    @upstream_image_ids.setter
-    def upstream_image_ids( self, val ):
-        raise RuntimeError( "upstream_ids cannot be set directly.  Set it by creating the image with "
-                            "from_images() or from_ref_and_new()" )
+    coadd_alignment_target = sa.Column(
+        sa.ForeignKey('images._id', ondelete="RESTRICT", name="images_coadd_alignment_target_fkey" ),
+        nullable=True,
+        index=True,
+        doc=( "ID of the image that was the alignment target for this coadd image." )
+    )
 
     is_sub = sa.Column(
         sa.Boolean,
@@ -156,13 +134,60 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         doc='Is this a subtraction image.'
     )
 
-    is_coadd = sa.Column(
-        sa.Boolean,
-        nullable=False,
-        server_default='false',
+    new_image_id = sa.Column(
+        sa.ForeignKey('images._id', ondelete="RESTRICT", name="images_new_image_id_fkey" ),
+        nullable=True,
         index=True,
-        doc='Is this image made by stacking multiple images.'
+        doc=( "ID of the new image used to make this difference image.  Should be null unless "
+              "is_sub is True" )
     )
+
+    ref_id = sa.Column(
+        sa.ForeignKey('refs._id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
+        nullable=True,
+        index=True,
+        doc=( "ID of the reference used to produce this image, in the upstream_images list.  "
+              "For subtractions, this is the template image.  For coadditions, this is the alignment target." )
+    )
+
+    def _load_coadd_component_ids( self, session=None ):
+        with SmartSession( session ) as session:
+            them = list ( session.query( image_coadd_component_table.c.image_id,
+                                         Image.mjd )
+                          .join( Image, Image._id == image_coadd_component_table.c.image_id )
+                          .filter( image_coadd_component_table.c.coadd_image_id == self.id )
+                          .all() )
+        # sort component images by mjd
+        them.sort( key=lambda x: x[1] )
+        self._coadd_component_ids = [ t[0] for t in them ]
+        if ( len( self._coadd_component_ids ) > 0 ) and ( not self.is_coadd ):
+            raise RuntimeError( "Database corruption, there are coadd components, but image is not a coadd." )
+
+    @property
+    def coadd_component_ids( self ):
+        if self._coadd_component_ids is None:
+            self._load_coadd_component_ids()
+        return self._coadd_component_ids
+
+    @property
+    def upstream_image_ids( self ):
+        if self.is_coadd:
+            return self.coadd_component_ids
+        elif self.is_sub:
+            # Avoid circular import
+            from models.reference import Reference
+            with SmartSession() as session:
+                if self._ref_image_id is None:
+                    refim = ( session.query( Image )
+                              .join( Reference, Image._id == Reference.image_id )
+                              .filter( Reference._id == self.ref_id ) ).all()
+                    if len(refim) != 1:
+                        raise RuntimeError( f"Database corruption, expected one reference image for sub image, but "
+                                            f"got {len(refim)}" )
+                    self._ref_image_id = refim[0].id
+            return [ self._ref_image_id, self.new_image_id ]
+        else:
+            return []
 
     _type = sa.Column(
         sa.SMALLINT,
@@ -433,7 +458,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nandata = None  # a copy of the image data, only with NaNs at each flagged point. Lazy calculated.
         self._nanscore = None  # a copy of the image score, only with NaNs at each flagged point. Lazy calculated.
 
-        self._upstream_ids = None
+        self._coadd_component_ids = None
+        self._ref_image_id = None
 
         self._instrument_object = None
         self._bitflag = 0
@@ -469,7 +495,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nandata = None
         self._nanscore = None
 
-        self._upstream_ids = None
+        self._coadd_component_ids = None
+        self._ref_image_id = None
 
         self._instrument_object = None
 
@@ -481,13 +508,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         """Add the Image object to the database.
 
         In any events, if there are no exceptions, self.id will be set upon
-        return.  (As a side effect, may also load self._upstream_ids, but
-        that's transparent to the user, and happens when the user accesses
-        upstream_image_ids anyway.)
+        return.
 
-        This calls UUIDMixin.insert, but also will create assocations
-        defined in self._upstreams (which will have been set if this
-        Image was created with from_images() or from_ref_and_new()).
+        This calls UUIDMixin.insert, but also will add to the
+        image_coadd_component_table if this image is a coadd.
 
         Parameters
         ----------
@@ -499,14 +523,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         with SmartSession( session ) as sess:
             # Insert the image.  If this raises an exception (because the image already exists),
-            # then we won't futz with the image_upstreams_association table.
+            # then we won't futz with the image_coadd_component_table.
             SeeChangeBase.insert( self, session=sess )
 
-            if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
-                for ui in self._upstream_ids:
-                    sess.execute( sa.text( "INSERT INTO "
-                                           "image_upstreams_association(upstream_id,downstream_id) "
-                                               "VALUES (:them,:me)" ),
+            if ( self._coadd_component_ids is not None ) and ( len(self._coadd_component_ids) > 0 ):
+                for ui in self._coadd_component_ids:
+                    sess.execute( sa.text( "INSERT INTO image_coadd_component(image_id,coadd_image_id) "
+                                           "VALUES (:them,:me)" ),
                                   { "them": ui, "me": self.id } )
                 sess.commit()
 
@@ -515,22 +538,21 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         with SmartSession( session ) as sess:
             SeeChangeBase.upsert( self, session=sess, load_defaults=load_defaults )
 
-            # We're just going to merrily try to set all the upstream associations and not care
+            # We're just going to merrily try to set all the coadd component ids and not care
             #   if we get already existing errors.  Assume that if we get one, we'll get 'em
             #   all, because somebody else has already loaded all of them.
             # (I hope that's right.  But, in reality, it's extremely unlikely that two processes
             # will be trying to upsert the same image at the same time.)
 
-            if ( self._upstream_ids is not None ) and ( len(self._upstream_ids) > 0 ):
+            if ( self._coadd_component_ids is not None ) and ( len(self._coadd_component_ids) > 0 ):
                 try:
-                    for ui in self._upstream_ids:
-                        sess.execute( sa.text( "INSERT INTO "
-                                               "image_upstreams_association(upstream_id,downstream_id) "
-                                                   "VALUES (:them,:me)" ),
+                    for ui in self._coadd_component_ids:
+                        sess.execute( sa.text( "INSERT INTO image_coadd_component(image_id,coadd_image_id) "
+                                               "VALUES (:them,:me)" ),
                                       { "them": ui, "me": self.id } )
                         sess.commit()
                 except IntegrityError as ex:
-                    if 'duplicate key value violates unique constraint "image_upstreams_association_pkey"' in str(ex):
+                    if 'duplicate key value violates unique constraint "image_coadd_component_pkey"' in str(ex):
                         sess.rollback()
                     else:
                         raise
@@ -743,10 +765,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def copy_image(cls, image):
         """Make a new Image object with the same data as an existing Image object.
 
-        This new object does not have a provenance or any relationships to other objects.
-        It should be used only as a working copy, not to be saved back into the database.
-        The filepath is set to None and should be manually set to a new (unique)
-        value so as not to overwrite the original.
+        This new object does not have a provenance.  It should be used
+        only as a working copy, not to be saved back into the database.
+        The filepath is set to None and should be manually set to a new
+        (unique) value so as not to overwrite the original.
+
         """
         copy_attributes = cls.saved_components + [
             'header',
@@ -777,7 +800,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             'lim_mag_estimate',
             'bkg_mean_estimate',
             'bkg_rms_estimate',
-            'ref_image_id',
+            'ref_id',
+            'new_image_id',
+            'coadd_alignment_target',
             'is_coadd',
             'is_sub',
             '_bitflag',
@@ -812,11 +837,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def from_images(cls, images, index=0, alignment_target=None, set_is_coadd=True):
         """Create a new Image object from a list of other Image objects.
 
-        This is the first step in making a multi-image (usually a
-        coadd).  Do not use this to make subtractions!  Use
-        from_ref_and_new instead.  Make sure to set the is_coadd flag of
-        the returned image, as it's not set here (just in case there's
-        some eventual usage other than making coadds).
+        This is the first step in making a coadd image.
 
         The output image doesn't have any data, and is created with
         nofile=True.  It is up to the calling application to fill in the data,
@@ -859,7 +880,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if len(images) < 1:
             raise ValueError("Must provide at least one image to combine.")
 
-        # sort images by mjd:
+        # sort component images by mjd:
         images = sorted(images, key=lambda x: x.mjd)
 
         # Make sure input images all have ids set.  If these images were
@@ -883,7 +904,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         fail_if_not_consistent_attributes = ['filter']
         copy_if_consistent_attributes = ['section_id', 'instrument', 'telescope', 'project', 'target', 'filter']
 
-        copy_target_attributes = ['gallon', 'gallat', 'ecllon', 'ecllat']
+        copy_target_attributes = ['gallon', 'gallat', 'ecllon', 'ecllat', 'target']
         for att in ['ra', 'dec']:
             copy_target_attributes.append(att)
             for corner in ['00', '01', '10', '11']:
@@ -896,14 +917,14 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 raise ValueError(f"Cannot combine images with different {att} values: "
                                  f"{[getattr(image, att) for image in images]}")
 
+        # Copy target image position information
+        for att in copy_target_attributes:
+            setattr(output, att, getattr(alignment_target, att))
+
         # only copy if attribute is consistent across upstreams, otherwise leave as None
         for att in copy_if_consistent_attributes:
             if len(set([getattr(image, att) for image in images])) == 1:
                 setattr(output, att, getattr(images[0], att))
-
-        # Copy target image position information
-        for att in copy_target_attributes:
-            setattr(output, att, getattr(alignment_target, att))
 
         # exposure time is usually added together
         output.exp_time = sum([image.exp_time for image in images])
@@ -930,10 +951,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if not base_type.startswith('Com'):
             output.type = 'Com' + base_type
 
-        output._upstream_ids = upstream_ids
-
-        # mark as the reference the image used for alignment
-        output.ref_image_id = alignment_target.id
+        output._coadd_component_ids = upstream_ids
+        output.coadd_alignment_target = alignment_target.id
 
         output._upstream_bitflag = 0
         for im in images:
@@ -943,33 +962,25 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return output
 
     @classmethod
-    def from_ref_and_new(cls, ref_image, new_image):
-        return cls.from_new_and_ref(new_image, ref_image)
+    def from_ref_and_new(cls, ref, new_image):
+        return cls.from_new_and_ref(new_image, ref)
 
     @classmethod
-    def from_new_and_ref(cls, new_image, ref_image):
-        """Create a new Image object from a reference Image object and a new Image object.
+    def from_new_and_ref(cls, new_image, ref):
+        """Create a new Image object from a Reference object and a new Image object.
         This is the first step in making a difference image.
 
         The output image doesn't have any data, and is created with
         nofile=True.  It is up to the calling application to fill in the
         data, flags, weight, etc. using the appropriate preprocessing tools.
 
-        The Image objects used as inputs must have their own data products
-        loaded before calling this method, so their provenances will be recorded.
-        The provenance of the output object should be generated, then a call to
-        output.provenance.upstreams = output.get_upstream_provenances()
-        will make sure the provenance has the correct upstreams.
-
-        After that, the data needs to be saved to file, and only then
-        can the new Image be added to the database.
-
         Parameters
         ----------
         new_image: Image object
             The new image to use.
-        ref_image: Image object
-            The reference image to use.
+
+        ref_image: Reference object
+            The reference to use
 
         Returns
         -------
@@ -977,66 +988,46 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             The new Image object. It would not have any data variables or filepath.
         """
 
+        # Avoid circular import
+        from models.reference import Reference
 
-        if ref_image is None:
+        if ref is None:
             raise ValueError("Must provide a reference image.")
+        if not isinstance( ref, Reference ):
+            raise TypeError( f"ref must be a Reference, not a {type(ref)}" )
         if new_image is None:
             raise ValueError("Must provide a new image.")
+        if not isinstance( new_image, Image ):
+            raise TypeError( f"new_image must be an Image, not a {type(new_image)}" )
 
-        ref_image_id = ref_image.id
-        new_image_id = new_image.id
+        ref_image = Image.get_by_id( ref.image_id )
 
         output = Image( nofile=True )
 
-        # for each attribute, check the two images have the same value
-        for att in ['instrument', 'telescope', 'project', 'section_id', 'filter', 'target']:
-            ref_value = getattr(ref_image, att)
-            new_value = getattr(new_image, att)
-
-            if att == 'section_id':
-                ref_value = str(ref_value)
-                new_value = str(new_value)
-
-            # TODO: should replace this condition with a check that RA and Dec are overlapping?
-            #  in that case: what do we consider close enough? how much overlap is reasonable?
-            #  another issue: what happens if the section_id is different, what would be the
-            #  value for the subtracted image? can it live without a value entirely?
-            #  the same goes for target. what about coadded images? can they have no section_id??
-            if att in ['section_id', 'filter', 'target'] and ref_value != new_value:
-                raise ValueError(
-                    f"Cannot combine images with different {att} values: "
-                    f"{ref_value} and {new_value}. "
-                )
-
-            # assign the values from the new image
-            setattr(output, att, new_value)
-
         fail_if_not_consistent_attributes = ['filter']
-
-        for att in fail_if_not_consistent_attributes:
-            if getattr(ref_image, att) != getattr(new_image, att):
-                raise ValueError(f"Cannot combine images with different {att} values: "
-                                 f"{getattr(ref_image, att)} and {getattr(new_image, att)}")
-
-        if ref_image.mjd < new_image.mjd:
-            output._upstream_ids = [ ref_image_id, new_image_id ]
-        else:
-            output._upstream_ids = [ new_image_id, ref_image_id ]
-
-        output.ref_image_id = ref_image.id
-
-        output._upstream_bitflag = 0
-        output._upstream_bitflag |= ref_image.bitflag
-        output._upstream_bitflag |= new_image.bitflag
-
-        # get some more attributes from the new image
-        for att in ['section_id', 'instrument', 'telescope', 'project', 'target',
+        # Set various values based on the new image
+        # Note that we're assuming that we're going to be aligning
+        #   the sub image to the new image here (which is the
+        #   default).
+        for att in ['instrument', 'telescope', 'project', 'section_id', 'filter', 'target',
                     'exp_time', 'airmass', 'mjd', 'end_mjd', 'info', 'header',
                     'gallon', 'gallat', 'ecllon', 'ecllat', 'ra', 'dec',
                     'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
                     'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11',
                     'minra', 'maxra', 'mindec', 'maxdec' ]:
-            output.__setattr__(att, getattr(new_image, att))
+            if ( ( att in fail_if_not_consistent_attributes) and
+                 ( getattr( ref_image, att ) != getattr( new_image, att ) ) ):
+                raise ValueError(f"Cannot combine images with different {att} values: "
+                                 f"{getattr(ref_image, att)} and {getattr(new_image, att)}")
+            setattr( output, att, getattr( new_image, att ) )
+
+        output.ref_id = ref.id
+        output._ref_image_id = ref_image.id
+        output.new_image_id = new_image.id
+
+        output._upstream_bitflag = 0
+        output._upstream_bitflag |= ref_image.bitflag
+        output._upstream_bitflag |= new_image.bitflag
 
         output.format = config.Config.get().value( 'storage.images.format' )
         output.type = 'Diff'
@@ -1183,14 +1174,22 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # TODO: which elements of the naming convention are really necessary?
         #  and what is a good way to make sure the filename actually depends on them?
 
-        if self._upstream_ids is not None and len(self._upstream_ids) > 0:
+        # Add some barf at the end if this is a coadded or subtracted image.
+        # Reason: it's possible all the rest of the filename will be identical
+        #  to an existing image.
+        if self.is_coadd or self.is_sub:
             utag = hashlib.sha256()
-            for id in self._upstream_ids:
-                utag.update( str(id).encode('utf-8') )
+
+            if self.is_coadd:
+                for id in self.coadd_component_ids:
+                    utag.update( str(id).encode('utf-8') )
+            else:
+                utag.update( str(self.ref_id).encode('utf-8') )
+                utag.update( str(self.new_image_id).encode('utf-8') )
+
             utag = base64.b32encode(utag.digest()).decode().lower()
             utag = '_u-' + utag[:6]
             filepath += utag
-            # ignore situations where upstream_images is not loaded, it should not happen for a combined image
 
         return filepath
 
@@ -1233,7 +1232,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         just_update_header: bool, default True
             Ignored unless only_image is True and the image is stored as
             multiple files rather than as FITS extensions.  In this
-            case, if just_udpate_header is True and the file already
+            case, if just_update_header is True and the file already
             exists, don't write the data, just update the header.
 
         **kwargs: passed on to FileOnDiskMixin.save(), include:
@@ -1430,27 +1429,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 setattr( self, f'_{prop}', None )
 
 
-    def get_upstream_provenances(self):
-        """Collect the provenances for all upstream objects.
-
-        This does not recursively go back to the upstreams of the upstreams.
-        It gets only the provenances of the immediate upstream objects.
-
-        Provenances that are the same (have the same hash) are combined (returned only once).
-
-        This is what would generally be put into a new provenance's upstreams list.
-
-        Returns
-        -------
-        list of Provenance objects:
-            A list of all the provenances for the upstream objects.
-        """
-        upstream_objs = self.get_upstreams()
-        provids = [ i.provenance_id for i in upstream_objs ]
-        provs = Provenance.get_batch( provids )
-        return provs
-
-
     def get_upstreams(self, only_images=False, session=None):
         """Get the upstream images and associated products that were used to make this image.
 
@@ -1462,7 +1440,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         Not recursive.  (So, won't get the Exposure upstreams of the images
         that went into a coadd, for instance, and if by some chance you have a
         coadd of coadds (don't do that!), the images that went into the coadd
-        that was coadded to produce this coadd won't be loaded.  (Got that?))
+        that was coadded to produce this coadd won't be loaded.  What's more,
+        the reference image won't be loaded, only the Reference.  (Got that?))
 
         Parameters
         ----------
@@ -1501,28 +1480,30 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 # We're done!  That wasn't so bad.
                 return upstreams
 
-            # This *is* so bad....
-            # myprov = session.query( Provenance ).filter( self.provenance_id == Provenance._id ).first()
+            # This *is* so bad....  Because we don't have direct references to
+            #   the SourceList (etc.) used to make the coadd or sub image, we
+            #   have to look at our own provenance's upstreams and do table
+            #   joins to find them.
             myprov = Provenance.get( self.provenance_id, session=session )
             upstrprov = myprov.get_upstreams()
             upstrprovids = [ i.id for i in upstrprov ]
 
-            # If a subtraction, we have to go a step further with the referencing upstream
-            if self.is_sub:
-                for prov in upstrprov:
-                    if prov.process in ( 'referencing', 'manual_reference' ):
-                        upstrprovids += [ p.id for p in prov.get_upstreams() ]
-
-            # Upstream images first
-            upstrimages = session.query( Image ).filter( Image._id.in_( self.upstream_image_ids ) ).all()
-            # Sort by mjd
-            upstrimages.sort( key=lambda i: i.mjd )
+            # Reference (if relevant) and upstream images first
+            if self.is_coadd:
+                upstrimages = session.query( Image ).filter( Image._id.in_( self.coadd_component_ids ) ).all()
+                # Sort by mjd
+                upstrimages.sort( key=lambda i: i.mjd )
+            else:
+                # Avoid circular import
+                from models.reference import Reference
+                upstreams.append( Reference.get_by_id( self.ref_id, session ) )
+                upstrimages = [ Image.get_by_id( self.new_image_id, session ) ]
             upstreams.extend( upstrimages )
 
             if not only_images:
-                # Get all of the other falderal associated with those images
+                # Get all of the other falderal assocated with the upstream images
                 upstrsources = ( session.query( SourceList )
-                                 .filter( SourceList.image_id.in_( self.upstream_image_ids ) )
+                                 .filter( SourceList.image_id.in_( [ i.id for i in upstrimages ] ) )
                                  .filter( SourceList.provenance_id.in_( upstrprovids ) )
                                  .all() )
                 upstrsrcids = [ s.id for s in upstrsources ]
@@ -1542,7 +1523,17 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return upstreams
 
     def get_downstreams(self, session=None, only_images=False, siblings=False):
-        """Get all the objects that were created based on this image. """
+        """Get all the data products that were created based on this image.
+
+        Searches SourceList, Background, PSF, WorldCoordinates, and ZeroPoints.
+
+        Also searches References, subtractions where this is the
+        new_image, and coadds that include this image.
+
+        (Does *not* subtractions where this was the Reference; get the
+        downstreams of the Reference to get that.)
+
+        """
 
         # avoids circular import
         from models.source_list import SourceList
@@ -1570,12 +1561,20 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 downstreams.extend( list(wcses) )
                 downstreams.extend( list(zps) )
 
-            # Now get all images that are downstream of this image.
+            # Get all References based on this image
+            from models.reference import Reference
+            refs = session.query( Reference ).filter( Reference.image_id == self.id ).all()
+            downstreams.extend( list(refs) )
 
+            # Get all subtractions that used this as a new image
+            subimgs = session.query( Image ).filter( Image.new_image_id == self.id ).all()
+            downstreams.extend( list(subimgs) )
+
+            # Get all coadds that include this image
             dsimgs = ( session.query( Image )
-                       .join( image_upstreams_association_table,
-                              image_upstreams_association_table.c.downstream_id == Image._id )
-                       .filter( image_upstreams_association_table.c.upstream_id == self.id )
+                       .join( image_coadd_component_table,
+                              image_coadd_component_table.c.coadd_image_id == Image._id )
+                       .filter( image_coadd_component_table.c.image_id == self.id )
                       ).all()
             downstreams.extend( list(dsimgs) )
 
@@ -1936,35 +1935,38 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
 
     @staticmethod
-    def get_image_from_upstreams(images, prov_id=None, session=None):
-        """Finds the combined image that was made from exactly the list of images (with a given provenance).
+    def get_coadd_from_components(images, prov_id=None, session=None):
+        """Finds the combined image with a given provenance that was made from exactly a list of images.
 
         Parameters
         ----------
-           images: list of Image
-             TODO: allow passing just image ids here as an alternative (since id is all we really need).
+           images: list of Image or str/UUID
+             The images, or the image ids, whose sum we're looking for.  Does not need
+             to be sorted.
 
-           prov_id: str
+           prov_id: str or UUID
+             The provenance of the coadd image.
 
         """
 
         if ( prov_id is not None ) and ( isinstance( prov_id, Provenance ) ):
             prov_id = prov_id.id
+        imgids = tuple( i.id if isinstance(i,Image) else str(i) for i in images )
 
         with SmartSession(session) as session:
             session.execute( sa.text( "DROP TABLE IF EXISTS temp_image_from_upstreams" ) )
 
-            # First get a list of candidate images that are ones whose upstreams
+            # First get a list of candidate coadd images that are ones whose upstreams
             #   include anything in images, plus a count of how many of
             #   images are in the upstreams.
-            q = ( "SELECT i._id AS imgid, COUNT(a.upstream_id) AS nmatchupstr "
+            q = ( "SELECT i._id AS imgid, COUNT(c.image_id) AS nmatchupstr "
                   "INTO TEMP TABLE temp_image_from_upstreams "
                   "FROM images i "
-                  "INNER JOIN image_upstreams_association a ON a.downstream_id=i._id "
-                  "WHERE a.upstream_id IN :imgids " )
-            subdict = { 'imgids': tuple( [ i.id for i in images ] ) }
+                  "INNER JOIN image_coadd_component c ON c.coadd_image_id=i._id "
+                  "WHERE c.image_id IN :imgids " )
+            subdict = { 'imgids': imgids }
 
-            if prov_id is not None:  # pick only those with the right provenance id
+            if prov_id is not None:  # pick only those coadds with the right provenance id
                 q += "AND i.provenance_id=:provid "
                 subdict[ 'provid' ] = prov_id
 
@@ -1975,12 +1977,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             # The one (if any) that has len(images) in both the count of
             # matched upstreams and all upstreams is the one we're looking for.
             q = ( "SELECT imgid FROM ("
-                  "  SELECT t.imgid, t.nmatchupstr, COUNT(a.upstream_id) AS nupstr "
+                  "  SELECT t.imgid, t.nmatchupstr, COUNT(c.image_id) AS nupstr "
                   "  FROM temp_image_from_upstreams t "
-                  "  INNER JOIN image_upstreams_association a ON a.downstream_id=t.imgid "
+                  "  INNER JOIN image_coadd_component c ON c.coadd_image_id=t.imgid "
                   "  GROUP BY t.imgid, t.nmatchupstr ) subq "
                   "WHERE nmatchupstr=:num AND nupstr=:num " )
-            output = session.scalars( sa.text(q), { 'num': len(images) } ).all()
+            output = session.scalars( sa.text(q), { 'num': len(imgids) } ).all()
 
             if len(output) > 1:
                 raise ValueError( f"More than one combined image found with provenance ID {prov_id} "

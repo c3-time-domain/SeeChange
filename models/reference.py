@@ -122,6 +122,12 @@ class Reference(Base, UUIDMixin):
         return sources, bg, psf, wcs, zp
 
 
+    def get_downstreams( self, session=None, siblings=True ):
+        """Get downstreams of this Reference.  That is all subtraction images that use this as a reference."""
+        with SmartSession( session ) as sess:
+            return list( sess.query( Image ).filter( Image.ref_id==self.id ).all() )
+
+
     @classmethod
     def get_references(
             cls,

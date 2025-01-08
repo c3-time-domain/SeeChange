@@ -11,7 +11,7 @@ from models.provenance import Provenance, provenance_self_association_table
 from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.cutouts import Cutouts
-from models.image import Image, image_upstreams_association_table
+from models.image import Image
 from models.source_list import SourceList
 from models.zero_point import ZeroPoint
 from models.enums_and_bitflags import measurements_badness_inverse
@@ -114,10 +114,11 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     # the need for manual setting in the refactor.)
     @property
     def zp( self ):
+        raise RuntimeError( "This is broken right now." )
         if self._zp is None:
             sub_image = orm.aliased( Image )
             sub_sources = orm.aliased( SourceList )
-            imassoc = orm.aliased( image_upstreams_association_table )
+            imassoc = orm.aliased( image_upstreams_association_table ) # remove this comment # noqa: F821
             provassoc = orm.aliased( provenance_self_association_table )
             with SmartSession() as session:
                 zps = ( session.query( ZeroPoint )
@@ -695,6 +696,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             The area of the aperture.
 
         """
+
         if aperture is None:
             aperture = self.best_aperture
         if aperture == 'best':
@@ -713,21 +715,18 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                         .join( Cutouts, WorldCoordinates.sources_id==Cutouts.sources_id )
                         .filter( Cutouts.id==self.cutouts_id ) ).first()
             if wcs is None:
-                # There was no WorldCoordiantes for the sub image, so we're going to
+                # There was no WorldCoordinates for the sub image, so we're going to
                 #   make an assumption that we make elsewhere: that the wcs for the
-                #   sub image is the same as the wcs for the new image.  This is
+                #   sub image is the same as the wcs for the new image.
                 #   almost the same query that's used in zp() above.
                 sub_image = orm.aliased( Image )
                 sub_sources = orm.aliased( SourceList )
-                imassoc = orm.aliased( image_upstreams_association_table )
                 provassoc = orm.aliased( provenance_self_association_table )
                 wcs = ( session.query( WorldCoordinates )
-                        .join( SourceList, SourceList._id == WorldCoordinates.sources_id )
+                        .join( SourceList, sa.and_( SourceList._id == WorldCoordinates.sources_id,
+                                                    SourceList.image_id == sub_image.new_image_id ) )
                         .join( provassoc, provassoc.c.upstream_id == SourceList.provenance_id )
-                        .join( imassoc, imassoc.c.upstream_id == SourceList.image_id )
-                        .join( sub_image, sa.and_( sub_image.provenance_id == provassoc.c.downstream_id,
-                                                   sub_image._id == imassoc.c.downstream_id,
-                                                   sub_image.ref_image_id != SourceList.image_id ) )
+                        .join( sub_image, sub_image.provenance_id == provassoc.c.downstream_id )
                         .join( sub_sources, sub_sources.image_id == sub_image._id )
                         .join( Cutouts, sub_sources._id == Cutouts.sources_id )
                         .filter( Cutouts._id==self.cutouts_id )
