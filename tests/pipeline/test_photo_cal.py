@@ -62,10 +62,10 @@ def test_decam_photo_cal( decam_datastore_through_wcs, blocking_plots ):
     # off. <--- that comment was written for a different image.
     # investigate if it's still true for the image we're looking
     # at now.
-    assert ds.zp.zp == pytest.approx( 30.128, abs=0.01 )
-    assert ds.zp.dzp == pytest.approx( 2.15e-6, rel=0.1 )   # That number is absurd, but oh well
-    assert ds.zp.aper_cor_radii == pytest.approx( [ 4.164, 8.328, 12.492, 20.819 ], abs=0.01 )
-    assert ds.zp.aper_cors == pytest.approx( [ -0.205, -0.035, -0.006, 0. ], abs=0.01 )
+    assert ds.zp.zp == pytest.approx( 30.228, abs=0.01 )
+    assert ds.zp.dzp == pytest.approx( 4.93e-7, rel=0.1 )   # That number is absurd, but oh well
+    assert ds.zp.aper_cor_radii == pytest.approx( [ 4.171, 8.343, 12.514, 20.857 ], abs=0.01 )
+    assert ds.zp.aper_cors == pytest.approx( [ -0.264, -0.069, -0.025, 0. ], abs=0.01 )
 
     # Verify that it doesn't rerun if it doesn't have to
     ds.save_and_commit()

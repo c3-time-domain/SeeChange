@@ -51,7 +51,7 @@ def test_preprocessing(
     assert flatsec.std() < rawsec.std()
 
     # Make sure that some bad pixels got masked, but not too many
-    assert np.all( ds.image._flags[ 2756:2773, 991:996 ] == 4 )
+    assert np.all( ds.image._flags[ 2718:2735, 921:926 ] == 4 )
     assert np.all( ds.image._flags[ 0:4095, 57:60 ] == 1 )
     assert ( ds.image._flags != 0 ).sum() / ds.image.data.size < 0.03
 

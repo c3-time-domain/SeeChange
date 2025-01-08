@@ -543,7 +543,7 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
     ptags = check_prov_tag( provs.values(), 'pipeline_for_tests' )
 
     t_start = datetime.datetime.utcnow()
-    ds = p.run(decam_exposure, 'S3')  # the data should all be there so this should be quick
+    ds = p.run(decam_exposure, 'S2')  # the data should all be there so this should be quick
     t_end = datetime.datetime.utcnow()
 
     assert ds.image.provenance_id == provs['preprocessing'].id
