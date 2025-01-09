@@ -1429,7 +1429,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 setattr( self, f'_{prop}', None )
 
 
-    def get_upstreams(self, only_images=False, session=None):
+    def get_upstreams(self, only_images=False, only_images_and_reference=False, session=None):
         """Get the upstream images and associated products that were used to make this image.
 
         This includes the reference/new image (for subtractions) or the set of
@@ -1448,6 +1448,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         only_images: bool, default False
              If True, only get upstream images, not the other assorted data products.
 
+        only_images_and_reference: bool, default False
+             Ignored if only_images is True.  Only return the Image upstreams and,
+             if this is a subtraction, the Reference upstream.
+
         session: SQLAlchemy session (optional)
             The session to use to query the database.  If not provided,
             will open a new session that automatically closes at
@@ -1457,9 +1461,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         -------
         upstreams: list of objects
             The upstream Exposure, Image, SourceList, Background, WCS,
-            ZeroPoint, PSF objects that were used to create this image.  For most
-            images, it will be (at most) a single Exposure.  For subtraction and
-            coadd images, there could be all those other things.
+            ZeroPoint, PSF, Reference objects that were used to create
+            this image.  For most images, it will be (at most) a single
+            Exposure.  For subtraction and coadd images, there could be
+            all those other things.
 
         """
 
@@ -1469,6 +1474,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         from models.psf import PSF
         from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
+        from models.reference import Reference
 
         upstreams = []
         with SmartSession(session) as session:
@@ -1494,13 +1500,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 # Sort by mjd
                 upstrimages.sort( key=lambda i: i.mjd )
             else:
-                # Avoid circular import
-                from models.reference import Reference
-                upstreams.append( Reference.get_by_id( self.ref_id, session ) )
+                if not only_images:
+                    upstreams.append( Reference.get_by_id( self.ref_id, session ) )
                 upstrimages = [ Image.get_by_id( self.new_image_id, session ) ]
             upstreams.extend( upstrimages )
 
-            if not only_images:
+            if not ( only_images or only_images_and_reference ):
                 # Get all of the other falderal assocated with the upstream images
                 upstrsources = ( session.query( SourceList )
                                  .filter( SourceList.image_id.in_( [ i.id for i in upstrimages ] ) )

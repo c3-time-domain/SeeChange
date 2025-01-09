@@ -5,9 +5,17 @@ import sqlalchemy as sa
 
 from astropy.time import Time
 
-from models.base import SmartSession, FourCorners
+from models.base import SmartSession, Psycopg2Connection, FourCorners
 from models.provenance import Provenance
-from models.image import Image, image_upstreams_association_table
+from models.exposure import Exposure
+from models.image import Image
+from models.source_list import SourceList
+from models.background import Background
+from models.psf import PSF
+from models.world_coordinates import WorldCoordinates
+from models.zero_point import ZeroPoint
+from models.reference import Reference
+from util.util import asUUID
 
 from tests.fixtures.simulated import ImageCleanup
 
@@ -686,28 +694,55 @@ def test_find_images(ptf_reference_image_datastores, ptf_ref,
     assert im_qual(diff) == im_qual(new)
 
 
-def test_image_get_upstream_images( ptf_ref, ptf_supernova_image_datastores, ptf_subtraction1_datastore ):
-    with SmartSession() as session:
-        # how many image to image associations are on the DB right now?
-        num_associations = session.execute(
-            sa.select(sa.func.count()).select_from(image_upstreams_association_table)
-        ).scalar()
+# This test might actually belong in test_image.py rather than here ¯\_(ツ)_/¯
+def test_image_get_upstreams_downstreams( ptf_ref, ptf_supernova_image_datastores, ptf_subtraction1_datastore ):
+
+    # Upstream of a regular image should be just an exposure
+    upstrs = ptf_subtraction1_datastore.image.get_upstreams()
+    assert len(upstrs) == 1
+    assert isinstance( upstrs[0], Exposure )
 
     refimg = Image.get_by_id( ptf_ref.image_id )
-    assert num_associations > len( refimg.upstream_image_ids )
-
     prov = Provenance.get( refimg.provenance_id )
     assert prov.process == 'coaddition'
+
+    # Test upstreams of a coadd image
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute( "SELECT image_id FROM image_coadd_component WHERE coadd_image_id=%(id)s",
+                        { 'id': refimg.id } )
+        dbcomps = set( [ asUUID(row[0]) for row in cursor.fetchall() ] )
+    # There were 5 images summed together in the ptf_ref
+    assert len(dbcomps) == 5
+    assert set( asUUID(i) for i in refimg.upstream_image_ids ) == dbcomps
+    assert set( asUUID(i) for i in refimg.coadd_component_ids ) == dbcomps
     images = refimg.get_upstreams( only_images=True )
-    assert len(images) > 1
+    assert set( asUUID(i.id) for i in images ) == dbcomps
 
-    loaded_image = Image.get_image_from_upstreams(images, prov.id)
-
+    loaded_image = Image.get_coadd_from_components(images, prov.id)
     assert loaded_image.id == refimg.id
     assert loaded_image.id != ptf_subtraction1_datastore.image.id
-    with pytest.raises( RuntimeError, match="new_image_id is not defined for images that aren't subtractions" ):
-        assert loaded_image.id != ptf_subtraction1_datastore.image.new_image_id
 
+    # Test upstreams of a difference image
+    subim = ptf_subtraction1_datastore.sub_image
+    upstrs = subim.get_upstreams( only_images=True )
+    assert len(upstrs) == 1
+    assert isinstance( upstrs[0], Image )
+    assert upstrs[0].id == ptf_subtraction1_datastore.image.id
+    upstrs = subim.get_upstreams( only_images_and_reference=True )
+    assert len(upstrs) == 2
+    assert isinstance( upstrs[0], Reference )
+    assert isinstance( upstrs[1], Image )
+    assert [ asUUID(u.id) for u in upstrs ] == [ asUUID(ptf_ref.id),
+                                                 asUUID(ptf_subtraction1_datastore.image.id) ]
+    assert subim.coadd_component_ids == []
+    assert [ asUUID(i) for i in subim.upstream_image_ids ] == [ asUUID(ptf_ref.image_id),
+                                                                asUUID(ptf_subtraction1_datastore.image.id) ]
+    upstrs = subim.get_upstreams()
+    assert set( type(u) for u in upstrs ) == { Reference, Image, SourceList, Background,
+                                               PSF, WorldCoordinates, ZeroPoint }
+
+    # Test get_coadd_from_components
     new_image = None
     new_image2 = None
     new_image3 = None
@@ -720,28 +755,28 @@ def test_image_get_upstream_images( ptf_ref, ptf_supernova_image_datastores, ptf
         newprov.update_id()
         newprov.insert()
         new_image.provenance_id = newprov.id
-        # Not supposed to set _upstream_ids directly, so never do it
-        # anywhere in code; set the upstreams of an image by building it
-        # with Image.from_images() or Image.from_ref_and_now().  But, do
-        # this here for testing purposes.
-        new_image._upstream_ids = refimg.upstream_image_ids
+        # Not supposed to set _coadd_component_ids directly, so never do
+        # it anywhere in code; set the components of a coadded image by
+        # building it with Image.from_images().  But, do this here for
+        # testing purposes.
+        new_image._coadd_component_ids = refimg.coadd_component_ids
         new_image.save()
         new_image.insert()
 
-        loaded_image = Image.get_image_from_upstreams(images, newprov.id)
+        loaded_image = Image.get_coadd_from_components(refimg.upstream_image_ids, newprov.id)
         assert loaded_image.id == new_image.id
         assert new_image.id != refimg.id
 
         # use the original provenance but take down an image from the upstreams
         new_image2 = Image.copy_image( refimg )
         new_image2.provenance_id = prov.id
-        # See note above about setting _upstream_ids directly (which is naughty)
-        new_image2._upstream_ids = refimg.upstream_image_ids[1:]
+        # See note above about setting _coadd_component_ids directly (which is naughty)
+        new_image2._coadd_component_ids = refimg.coadd_component_ids[1:]
         new_image2.save()
         new_image2.insert()
 
         images = [ Image.get_by_id( i ) for i in refimg.upstream_image_ids[1:] ]
-        loaded_image = Image.get_image_from_upstreams(images, prov.id)
+        loaded_image = Image.get_coadd_from_components(images, prov.id)
         assert loaded_image.id != refimg.id
         assert loaded_image.id != new_image.id
         assert loaded_image.id == new_image2.id
@@ -751,13 +786,13 @@ def test_image_get_upstream_images( ptf_ref, ptf_supernova_image_datastores, ptf
 
         new_image3 = Image.copy_image(refimg)
         new_image3.provenance_id = prov.id
-        # See note above about setting _upstream_ids directly (which is naughty)
-        new_image3._upstream_ids = upstrids
+        # See note above about setting _coadd_component_ids directly (which is naughty)
+        new_image3._coadd_component_ids = upstrids
         new_image3.save()
         new_image3.insert()
 
         images = [ Image.get_by_id( i ) for i in upstrids ]
-        loaded_image = Image.get_image_from_upstreams(images, prov.id)
+        loaded_image = Image.get_coadd_from_components(images, prov.id)
         assert loaded_image.id == new_image3.id
 
     finally:
@@ -767,3 +802,22 @@ def test_image_get_upstream_images( ptf_ref, ptf_supernova_image_datastores, ptf
             new_image2.delete_from_disk_and_database()
         if new_image3 is not None:
             new_image3.delete_from_disk_and_database()
+
+
+    # Image downstreams of the original image should only be the sum image
+    downstr = ptf_subtraction1_datastore.image.get_downstreams( only_images=True )
+    assert len(downstr) == 1
+    assert asUUID( downstr[0].id ) == asUUID( subim.id )
+
+    # All downstreams of the original image should be a lot of things
+    downstr = ptf_subtraction1_datastore.image.get_downstreams()
+    assert len(downstr) == 6
+    assert set( type(d) for d in downstr ) == { SourceList, Background, PSF, WorldCoordinates, ZeroPoint, Image }
+
+    # The downstream of the ref image should be the reference in addition to the other data products
+    downstr = ptf_ref.image.get_downstreams()
+    assert asUUID(ptf_ref.id) in [ asUUID(i.id) for i in downstr ]
+    assert set( type(d) for d in downstr ) == { SourceList, Background, PSF, WorldCoordinates, ZeroPoint, Reference }
+
+    # The sub image should have no downstreams because we haven't run anything after subtraction in the fixture
+    assert len( subim.get_downstreams() ) == 0

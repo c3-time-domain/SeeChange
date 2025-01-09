@@ -520,7 +520,7 @@ def ptf_ref(
             coadd_image = copy_from_cache(Image, ptf_cache_dir, cache_base_name)
             # We're supposed to load this property by running Image.from_images(), but directly
             # access the underscore variable here as a hack since we loaded from the cache.
-            coadd_image._upstream_ids = [ d.image.id for d in ptf_reference_image_datastores ]
+            coadd_image._coadd_component_ids = [ d.image.id for d in ptf_reference_image_datastores ]
             coadd_image.provenance_id = im_prov.id
             coadd_image.ref_image_id = ptf_reference_image_datastores[-1].image.id
 
@@ -690,9 +690,6 @@ def ptf_subtraction1_datastore( ptf_ref, ptf_supernova_image_datastores, subtrac
 
     if ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_path) ):  # try to load this from cache
         im = copy_from_cache( Image, ptf_cache_dir, cache_path )
-        refim = Image.get_by_id( ptf_ref.image_id )
-        im._upstream_ids = [ refim.id, ptf_supernova_image_datastores[0].image.id ]
-        im.ref_image_id = ptf_ref.image.id
         im.provenance_id = prov.id
         ds.sub_image = im
         ds.sub_image.insert()
