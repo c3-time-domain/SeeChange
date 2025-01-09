@@ -58,7 +58,7 @@ def decam_default_calibrators(cache_dir, data_dir):
                 )
 
         decam = get_instrument_instance( 'DECam' )
-        sections = [ 'S2', 'N16' ]
+        sections = [ 'S2', 'S3', 'N16' ]
         filters = [ 'r', 'i', 'z', 'g']
         for sec in sections:
             for calibtype in [ 'flat', 'fringe' ]:
@@ -86,7 +86,7 @@ def decam_default_calibrators(cache_dir, data_dir):
         imagestonuke = set()
         datafilestonuke = set()
         with SmartSession() as session:
-            for sec in [ 'S2', 'N16' ]:
+            for sec in [ 'S2', 'S3', 'N16' ]:
                 for filt in [ 'r', 'i', 'z', 'g' ]:
                     info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
                                                                  sec, filt, 60000, nofetch=True, session=session )

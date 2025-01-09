@@ -479,7 +479,7 @@ def test_preprocessing_calibrator_files( decam_default_calibrators ):
     linfile = None
     for filt in [ 'r', 'z' ]:
         info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
-                                                     'S3', filt, 60000. )
+                                                     'N10', filt, 60000. )
         for nocalib in [ 'zero', 'dark' ]:
             # DECam doesn't include these three in its preprocessing steps
             assert f'{nocalib}_isimage' not in info.keys()
@@ -509,16 +509,16 @@ def test_preprocessing_calibrator_files( decam_default_calibrators ):
     # gets called the second time around, which it should not.
     for filt in [ 'r', 'z' ]:
         info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
-                                                     'S3', filt, 60000. )
+                                                     'N10', filt, 60000. )
 
     # Remove the files that we downloaded.  Be careful not to step on
     #   the toes of the decam_default_calibrators session-scope fixture.
-    #   That one is downloading for chips S2 and N16, so our S3 flats,
+    #   That one is downloading for chips S2 and N16, so our N10 flats,
     #   illuminations, and fringes can go, but we don't want to blow
     #   away the linearity file or other shared things.
     for filt in [ 'r','z' ]:
         info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
-                                                     'S3', filt, 60000. )
+                                                     'N10', filt, 60000. )
         for which in [ 'flat', 'illumination', 'fringe' ]:
             if info[ f'{which}_fileid' ] is not None:
                 if info[ f'{which}_isimage']:

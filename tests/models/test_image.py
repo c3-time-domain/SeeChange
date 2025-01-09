@@ -1005,11 +1005,13 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
 
     finally:
         with SmartSession() as session:
+            if im is not None:
+                session.execute( sa.text( "DELETE FROM images WHERE _id=:id" ), { 'id': im.id } )
             if ref is not None:
                 session.execute( sa.text( "DELETE FROM refs WHERE _id=:id" ), { 'id': ref.id } )
             if refsl is not None:
                 session.execute( sa.text( "DELETE FROM source_lists WHERE _id=:id" ), { 'id': refsl.id } )
-            for i in [ im, im1, im2 ]:
+            for i in [ im1, im2 ]:
                 if i is not None:
                     session.execute( sa.text( "DELETE FROM images WHERE _id=:id" ), {'id': i.id } )
             if refprov is not None:
