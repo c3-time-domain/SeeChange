@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import Provenance, ProvenanceTag
 from models.exposure import Exposure
-from models.image import Image, image_upstreams_association_table
+from models.image import Image
 from models.calibratorfile import CalibratorFile
 from models.source_list import SourceList
 from models.psf import PSF
@@ -34,15 +34,20 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, ds):
     Parameters
     ----------
     exp_id: int
-        The exposure ID.
+        The Exposure ID.
+
     sec_id: str or int
-        The section ID.
+        The section_id of the image from the exposure.
+
     ref_id: int
-        The reference image ID.
+        The Reference ID.
+
     session: sqlalchemy.orm.session.Session
         The database session
+
     ds: datastore.DataStore
         The datastore object
+
     """
 
     with SmartSession() as session:
@@ -83,23 +88,7 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, ds):
         assert ds.zp.id == zp.id
 
         # find the subtraction image
-        aliased_table = sa.orm.aliased(image_upstreams_association_table)
-        sub = session.scalars(
-            sa.select(Image).join(
-                image_upstreams_association_table,
-                sa.and_(
-                    image_upstreams_association_table.c.upstream_id == ref_id,
-                    image_upstreams_association_table.c.downstream_id == Image._id,
-                )
-            ).join(
-                aliased_table,
-                sa.and_(
-                    aliased_table.c.upstream_id == im.id,
-                    aliased_table.c.downstream_id == Image._id,
-                )
-            )
-        ).first()
-
+        sub = session.query( Image ).filter( Image.new_image_id==im.id ).filter( Image.ref_id==ref_id ).first()
         assert sub is not None
         assert ds.sub_image.id == sub.id
 
@@ -249,7 +238,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             for process in expected_processes:
                 assert process in prov_processes
 
-            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image_id, ds)
+            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.id, ds)
 
         # feed the pipeline the same data, but missing the upstream data.
         attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements', 'scores']
@@ -264,7 +253,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             ds = p.run(ds)  # for each iteration, we should be able to recreate the data
             ds.save_and_commit()
 
-            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image_id, ds)
+            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.id, ds)
 
         # make sure we can remove the data from the end to the beginning and recreate it
         # TODO : this is a test that the pipeline can pick up if it's partially done.
@@ -283,7 +272,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             ds = p.run(ds)  # for each iteration, we should be able to recreate the data
             ds.save_and_commit()
 
-            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.image_id, ds)
+            check_datastore_and_database_have_everything(exposure.id, sec_id, ref.id, ds)
 
     finally:
         if 'ds' in locals():
@@ -446,34 +435,10 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.sources.id]
-            # ****
-            if not set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ]) == set([
-                ds.ref_image.id,
-                ds.ref_sources.id,
-                ds.ref_psf.id,
-                ds.ref_bg.id,
-                ds.ref_wcs.id,
-                ds.ref_zp.id,
-                ds.image.id,
-                ds.sources.id,
-                ds.psf.id,
-                ds.bg.id,
-                ds.wcs.id,
-                ds.zp.id,
-            ]):
-                import pdb; pdb.set_trace()
-                pass
-            else:
-                import pdb; pdb.set_trace()
-                pass
-            # ****
+            assert ( set( upstream.id for upstream in ds.reference.get_upstreams(session=session) )
+                     == { ds.reference.image_id, ds.reference.sources_id } )
             assert set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ]) == set([
-                ds.ref_image.id,
-                ds.ref_sources.id,
-                ds.ref_psf.id,
-                ds.ref_bg.id,
-                ds.ref_wcs.id,
-                ds.ref_zp.id,
+                ds.reference.id,
                 ds.image.id,
                 ds.sources.id,
                 ds.psf.id,
@@ -520,6 +485,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [downstream.id for downstream in ds.psf.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.wcs.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.zp.get_downstreams(session=session)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.reference.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.sub_image.get_downstreams(session=session)] == [ds.detections.id]
             assert [downstream.id for downstream in ds.detections.get_downstreams(session=session)] == [ds.cutouts.id]
             measurement_ids = set([measurement.id for measurement in ds.measurements])
@@ -569,6 +535,7 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
 
     assert ds.image.provenance_id == provs['preprocessing'].id
     assert ds.sources.provenance_id == provs['extraction'].id
+    assert ds.reference.provenance_id == provs['referencing'].id
     assert ds.sub_image.provenance_id == provs['subtraction'].id
     assert ds.detections.provenance_id == provs['detection'].id
     assert ds.cutouts.provenance_id == provs['cutting'].id
