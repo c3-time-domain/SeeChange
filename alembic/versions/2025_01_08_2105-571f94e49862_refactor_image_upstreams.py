@@ -35,7 +35,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_images_ref_id'), 'images', ['ref_id'], unique=False)
     op.drop_constraint('images_ref_image_id_fkey', 'images', type_='foreignkey')
     op.create_foreign_key('images_new_image_id_fkey', 'images', 'images', ['new_image_id'], ['_id'], ondelete='RESTRICT')
-    op.create_foreign_key('images_ref_image_id_fkey', 'images', 'refs', ['ref_id'], ['_id'], ondelete='SET NULL')
+    op.create_foreign_key('images_ref_id_fkey', 'images', 'refs', ['ref_id'], ['_id'], ondelete='RESTRICT')
     op.create_foreign_key('images_coadd_alignment_target_fkey', 'images', 'images', ['coadd_alignment_target'], ['_id'], ondelete='RESTRICT')
     op.drop_column('images', 'ref_image_id')
     # ### end Alembic commands ###

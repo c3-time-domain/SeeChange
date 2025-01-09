@@ -390,7 +390,7 @@ cutting:
 #      candidates.  Setting filter_bank=2 so that it won't throw things
 #      out based on a high correlation with a small gaussian.
 #      (This is going to be bad for undersampled data, anyway.)
-#   annulus background is broken.  Don't use it.  See Issue #396
+#   annulus background is broken.  Don't use it.  See Issue #396, #398.
 
 measuring:
   annulus_radii: [10, 15]

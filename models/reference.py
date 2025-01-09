@@ -3,7 +3,8 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from models.base import Base, SeeChangeBase, FourCorners, UUIDMixin, SmartSession
+from models.base import Base, SeeChangeBase, HasBitFlagBadness, FourCorners, UUIDMixin, SmartSession
+from models.enums_and_bitflags import reference_badness_inverse
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
@@ -13,7 +14,7 @@ from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 
 
-class Reference(Base, UUIDMixin):
+class Reference(Base, UUIDMixin, HasBitFlagBadness):
     """A table that refers to each reference Image object.
 
     The provenance of this table (tagged with the "reference" process)
@@ -41,30 +42,6 @@ class Reference(Base, UUIDMixin):
         doc="ID of the source list that goes with the image for this reference"
     )
 
-    # this badness is in addition to the regular bitflag of the underlying products
-    # it can be used to manually kill a reference and replace it with another one
-    is_bad = sa.Column(
-        sa.Boolean,
-        nullable=False,
-        server_default='false',
-        doc="Whether this reference image is bad. "
-    )
-
-    bad_reason = sa.Column(
-        sa.Text,
-        nullable=True,
-        doc=(
-            "The reason why this reference image is bad. "
-            "Should be a single pharse or a comma-separated list of reasons. "
-        )
-    )
-
-    bad_comment = sa.Column(
-        sa.Text,
-        nullable=True,
-        doc="Any additional comments about why this reference image is bad. "
-    )
-
     provenance_id = sa.Column(
         sa.ForeignKey('provenances._id', ondelete="CASCADE", name='references_provenance_id_fkey'),
         nullable=False,
@@ -84,7 +61,13 @@ class Reference(Base, UUIDMixin):
         return self._image
 
 
+    def _get_inverse_badness(self):
+        """Get a dict with the allowed values of badness that can be assigned to this object"""
+        return reference_badness_inverse
+
+
     def __init__( self, *args, **kwargs ):
+        HasBitFlagBadness.__init__( self )
         SeeChangeBase.__init__( self, *args, **kwargs )
         self._image = None
 
@@ -121,6 +104,12 @@ class Reference(Base, UUIDMixin):
 
         return sources, bg, psf, wcs, zp
 
+
+    def get_upstreams( self, session=None ):
+        """Get ustreams of this Reference.  That is the Image and SourceList of the reference."""
+        with SmartSession( session ) as sess:
+            return [ Image.get_by_id( self.image_id, session=sess ),
+                     SourceList.get_by_id( self.sources_id, session=sess ) ]
 
     def get_downstreams( self, session=None, siblings=True ):
         """Get downstreams of this Reference.  That is all subtraction images that use this as a reference."""
@@ -402,7 +391,7 @@ class Reference(Base, UUIDMixin):
                 subdict['filter'] = filter
 
             if skip_bad:
-                q += " AND NOT r.is_bad "
+                q += " AND r._bitflag=0 AND r._upstream_bitflag=0 "
 
             # Get the Reference objects
             references = list( sess.scalars( sa.select( Reference )

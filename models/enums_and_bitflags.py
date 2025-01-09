@@ -430,12 +430,6 @@ source_list_badness_dict = {
 source_list_badness_inverse = {EnumConverter.c(v): k for k, v in source_list_badness_dict.items()}
 
 
-# these are the ways a Background object is allowed to be bad
-background_badness_dict = {
-
-}
-
-
 # these are the ways a WorldCoordinates/ZeroPoint object is allowed to be bad
 # mostly due to bad matches to the catalog
 catalog_match_badness_dict = {
@@ -446,6 +440,7 @@ catalog_match_badness_dict = {
 catalog_match_badness_inverse = {EnumConverter.c(v): k for k, v in catalog_match_badness_dict.items()}
 
 
+# these are the ways a Background object is allowed to be bad
 # TODO: need to consider what kinds of bad backgrounds we really might have
 # TODO: make sure we are not repeating the same keywords in other badness dictionaries
 bg_badness_dict = {
@@ -453,6 +448,14 @@ bg_badness_dict = {
     32: 'bad fit',
 }
 bg_badness_inverse = {EnumConverter.c(v): k for k, v in bg_badness_dict.items()}
+
+
+# These are the ways a Reference object may be bad
+reference_badness_dict = {
+    35: 'ref is bad',
+    36: 'ref is superceded'
+}
+reference_badness_inverse = {EnumConverter.c(v): k for k, v in reference_badness_dict.items()}
 
 
 # these are the ways a Measurements object is allowed to be bad
@@ -476,6 +479,7 @@ data_badness_dict.update(psf_badness_dict)
 data_badness_dict.update(bg_badness_dict)
 data_badness_dict.update(catalog_match_badness_dict)
 data_badness_dict.update(bg_badness_dict)
+data_badness_dict.update(reference_badness_dict)
 data_badness_inverse = {EnumConverter.c(v): k for k, v in data_badness_dict.items()}
 if 0 in data_badness_inverse:
     raise ValueError('Cannot have a badness bitflag of zero. This is reserved for good data.')

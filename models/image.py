@@ -143,7 +143,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     )
 
     ref_id = sa.Column(
-        sa.ForeignKey('refs._id', ondelete="SET NULL", name='images_ref_image_id_fkey'),
+        sa.ForeignKey('refs._id', ondelete="RESTRICT", name='images_ref_id_fkey'),
         nullable=True,
         index=True,
         doc=( "ID of the reference used to produce this image, in the upstream_images list.  "

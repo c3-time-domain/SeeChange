@@ -1436,7 +1436,7 @@ class DataStore:
             if self.reference.provenance_id not in provenance_ids:
                 self.reference = None
 
-            elif skip_bad and self.reference.is_bad:
+            elif skip_bad and ( self.reference.bitflag != 0 ):
                 self.reference = None
 
             elif match_filter and self.reference.image.filter != image.filter:

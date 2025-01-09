@@ -114,20 +114,16 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     # the need for manual setting in the refactor.)
     @property
     def zp( self ):
-        raise RuntimeError( "This is broken right now." )
         if self._zp is None:
             sub_image = orm.aliased( Image )
             sub_sources = orm.aliased( SourceList )
-            imassoc = orm.aliased( image_upstreams_association_table ) # remove this comment # noqa: F821
             provassoc = orm.aliased( provenance_self_association_table )
             with SmartSession() as session:
                 zps = ( session.query( ZeroPoint )
                         .join( SourceList, SourceList._id == ZeroPoint.sources_id )
                         .join( provassoc, provassoc.c.upstream_id == SourceList.provenance_id )
-                        .join( imassoc, imassoc.c.upstream_id == SourceList.image_id )
                         .join( sub_image, sa.and_( sub_image.provenance_id == provassoc.c.downstream_id,
-                                                   sub_image._id == imassoc.c.downstream_id,
-                                                   sub_image.ref_image_id != SourceList.image_id ) )
+                                                   sub_image.new_image_id == SourceList.image_id ) )
                         .join( sub_sources, sub_sources.image_id == sub_image._id )
                         .join( Cutouts, sub_sources._id == Cutouts.sources_id )
                         .filter( Cutouts._id==self.cutouts_id )
@@ -723,10 +719,10 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                 sub_sources = orm.aliased( SourceList )
                 provassoc = orm.aliased( provenance_self_association_table )
                 wcs = ( session.query( WorldCoordinates )
-                        .join( SourceList, sa.and_( SourceList._id == WorldCoordinates.sources_id,
-                                                    SourceList.image_id == sub_image.new_image_id ) )
+                        .join( SourceList, SourceList._id == WorldCoordinates.sources_id )
                         .join( provassoc, provassoc.c.upstream_id == SourceList.provenance_id )
-                        .join( sub_image, sub_image.provenance_id == provassoc.c.downstream_id )
+                        .join( sub_image, sa.and_( sub_image.provenance_id == provassoc.c.downstream_id,
+                                                   sub_image.new_image_id == SourceList.image_id ) )
                         .join( sub_sources, sub_sources.image_id == sub_image._id )
                         .join( Cutouts, sub_sources._id == Cutouts.sources_id )
                         .filter( Cutouts._id==self.cutouts_id )
