@@ -511,6 +511,22 @@ def test_preprocessing_calibrator_files( decam_default_calibrators ):
         info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
                                                      'S3', filt, 60000. )
 
+    # Remove the files that we downloaded.  Be careful not to step on
+    #   the toes of the decam_default_calibrators session-scope fixture.
+    #   That one is downloading for chips S2 and N16, so our S3 flats,
+    #   illuminations, and fringes can go, but we don't want to blow
+    #   away the linearity file or other shared things.
+    for filt in [ 'r','z' ]:
+        info = decam.preprocessing_calibrator_files( 'externally_supplied', 'externally_supplied',
+                                                     'S3', filt, 60000. )
+        for which in [ 'flat', 'illumination', 'fringe' ]:
+            if info[ f'{which}_fileid' ] is not None:
+                if info[ f'{which}_isimage']:
+                    im = Image.get_by_id( info[ f'{which}_fileid' ] )
+                else:
+                    im = DataFile.get_by_id( info[ f'{which}_fileid' ] )
+                im.delete_from_disk_and_database()
+
 
 def test_overscan_sections( decam_raw_image, data_dir,  ):
     decam = get_instrument_instance( "DECam" )
