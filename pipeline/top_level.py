@@ -335,7 +335,7 @@ class Pipeline:
         stepstodo = self.ALL_STEPS
         if self.pars.through_step is not None:
             if self.pars.through_step not in stepstodo:
-                raise ValueError( f"Unknown through_step: \"{self.parse.through_step}\"" )
+                raise ValueError( f"Unknown through_step: \"{self.pars.through_step}\"" )
             stepstodo = stepstodo[ :stepstodo.index(self.pars.through_step)+1 ]
         return stepstodo
 
@@ -504,7 +504,7 @@ class Pipeline:
         reporting provenance.  In this case, will also only generate
         provenances for steps through self.pars.through_step.  If
         self.pars.generate_report is True, will generate a provenance
-        for all steps regardless of self.parse.through_step (as they're
+        for all steps regardless of self.pars.through_step (as they're
         all needed for upstreams for the report).
 
         Even if self.pars.generate_report is True, if ok_no_ref_provs is
