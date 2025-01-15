@@ -4,7 +4,7 @@ import uuid
 import pytest
 import numpy as np
 import h5py
-import sep
+import sep_pjw as sep
 
 import sqlalchemy as sa
 

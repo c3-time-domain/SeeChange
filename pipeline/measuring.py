@@ -1,10 +1,16 @@
 import time
 import warnings
+import random
+
 import numpy as np
-
 from scipy import signal
+from astropy.table import QTable
+import photutils.background
+import photutils.psf
+import photutils.aperture
+import photutils.morphology
 
-from improc.photometry import iterative_cutouts_photometry
+# from improc.photometry import iterative_cutouts_photometry
 from improc.tools import make_gaussian
 
 from models.base import SmartSession
@@ -15,6 +21,7 @@ from models.enums_and_bitflags import BitFlagConverter, BadnessConverter
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
+from util.config import Config
 from util.util import env_as_bool
 from util.logger import SCLogger
 
@@ -40,39 +47,17 @@ class ParsMeasurer(Parameters):
             'adjust the annulus size for each image based on the PSF width. '
         )
 
-        # RKNOP 2024-12-20 : changing this default from True to False,
-        #   and also changing it in the default .yaml config.  I was
-        #   seeing cases where the seeing was biggish (several pixel
-        #   FWHM) and the recentroiding offsets were coming out clearly
-        #   absurd when this was True (as in it recentroided to a
-        #   position that was clearly wrong).  I didn't dig into why,
-        #   but in this case the default pixel-sized background annulus
-        #   was not big enough and did include the PSF wings.  In any
-        #   event, we're working on a sub image, so local background
-        #   subtraction should not be necessary.  If we *do* use it,
-        #   we shouldn't use a pixel radius for the annulus, but a FWHM
-        #   radius, and we should investigate what's going on.
-        # Note also that the PSF flux measurement *never* uses the
-        #   annulus!  (Call to m.get_flux_at_point; if you look
-        #   at models/measurements.py, get_flux_at_point has no
-        #   concept of a local background annulus.)  Given this,
-        #   I'm tempted to deprecate the annulus altogether until
-        #   we can make it work more consistently.  (Perhaps we
-        #   shoudl be using a standard photometry package like
-        #   photutils rather than rolling our own?)
-        self.use_annulus_background = self.add_par(
-            'use_annulus_backgrund',
+        self.use_annulus_bg_on_sub = self.add_par(
+            'annulus_bg_on_sub',
             False,
             bool,
-            'Use the local background measurements for measurements on the sub image.  Because '
-            'this is a measurement on the difference image, usually you want this to be False. '
-            'Currently, the code will error out if you set this to True, because the pipeline as '
-            'a whole does not treat this consistently.'
+            ( 'Use an annulus background for measurements on the sub image.  Defaults to '
+              'False, because sub images should already have a 0 background.' )
         )
 
         self.analytical_cuts = self.add_par(
             'analytical_cuts',
-            ['negatives', 'bad pixels', 'offsets', 'filter bank', 'bad_flag'],
+            ['negatives', 'bad pixels', ], #more
             [list],
             ( 'Which kinds of analytic cuts are used to give scores to this measurement. '
               'TODO: remove these in favor of the thresholds dict (and put None to not threshold '
@@ -230,10 +215,13 @@ class Measurer:
         self._filter_psf_fwhm = None  # recall the FWHM used to produce this filter bank, recalculate if it changes
 
     def run(self, *args, sub_psf=None, **kwargs):
-        """Measure all sorts of things on the cutous from an image.
+        """Measure sources found on subtraction images.
 
-        Go over the cutouts from an image and measure all sorts of things
-        for each cutout: photometry (flux, centroids), etc.
+        Measure the psf flux and aperture fluxes (depending on config)
+        on the new, ref, and sub images.  The psf is fit to the sub
+        image, and then done with forced photometry on the new and ref;
+        the aperture fluxes are probably more meaningful here (insofar
+        as they're meaningful at all).
 
         Returns a DataStore object with the products of the processing.
 
@@ -260,6 +248,10 @@ class Measurer:
                 # ds.image = ds.sub_image.new_image
             else:
                 ds, session = DataStore.from_args(*args, **kwargs)
+                if session is not None:
+                    raise RuntimeError( "Got a session from datastore; implicit assumptions below assume "
+                                        "that there isn't one." )
+
 
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
@@ -271,14 +263,21 @@ class Measurer:
             # get the provenance for this step:
             prov = ds.get_provenance('measuring', self.pars.get_critical_pars(), session=session)
 
-            # sub_image = ds.get_subtraction( session=session )
-            # if sub_image is None:
-            #     raise ValueError(f"Can't find a subtraction image corresponding to "
-            #                      f"datastore inputs: {ds.inputs_str}" )
+            new_image = ds.image
+            ref_image = ds.ref_image
+            sub_image = ds.get_subtraction()
+            if ( new_image is None ) or ( ref_image is None ) or ( sub_image is None ):
+                missing_things = [ name for name,val in zip([ 'image','ref_image','subtraction'],
+                                                            [ new_image, ref_image, sub_image ])
+                                   if val is None ]
+                raise ValueError( f"DataStore must have all of image, ref_image, and subtraction; "
+                                  f"missing {missing_things}" )
+
             new_zp = ds.get_zp( session=session )
             if new_zp is None:
                 raise ValueError(f"Can't find a zp corresponding to the datastore inputs: {ds.inputs_str}")
 
+            # We'll be assuming that the sub was aligned with the new
             new_wcs = ds.get_wcs( session=session )
             if new_wcs is None:
                 raise ValueError(f"Can't find a wcs corresponding to the datastore inputs: {ds.inputs_str}")
@@ -302,8 +301,81 @@ class Measurer:
             # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
             if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements
                 self.has_recalculated = True
-
+                cfg = Config.get()
                 SCLogger.debug( f"Measurer performing measurements on {len(cutouts.co_dict)} cutouts" )
+
+                inner_annulus_px = self.pars.annulus_radii[0]
+                outer_annulus_px = self.pars.annulus_radii[1]
+                if self.pars.annulus_units == 'fwhm':
+                    inner_annulus_px *= sub_psf.fwhm_pixels
+                    outer_annulus_px *= sub_psf.fwhm_pixels
+
+                aper_radii = new_zp.aper_cor_radii
+                if len( aper_radii ) == 0:
+                    raise RuntimeError( "I don't know how to cope with no apertures." )
+
+                # Photutils requires 1σ errors, not weights
+                # It also requires True/False masks
+                new_mask = np.full_like( new_image.flags, False, dtype=bool )
+                new_mask[ new_image.flags != 0 ] = True
+                # Make sure things with weight 0 (or, which should never happen, <0) are masked
+                new_mask[ new_image.weight <= 0. ] = True
+                new_noise = 1. / np.sqrt( new_image.weight )
+                new_noise[ new_mask ] = np.nan
+
+                ref_mask = np.full_like( ref_image.flags, False, dtype=bool )
+                ref_mask[ ref_image.flags != 0 ] = True
+                ref_mask[ ref_image.weight <= 0. ] = True
+                ref_noise = 1. / np.sqrt( ref_image.weight )
+                ref_noise[ ref_mask ] = np.nan
+
+                sub_mask = np.full_like( sub_image.flags, False, dtype=bool )
+                sub_mask[ sub_image.flags != 0 ] = True
+                sub_mask[ sub_image.weight <= 0. ] = True
+                sub_noise = 1. / np.sqrt( sub_image.weight )
+                sub_noise[ sub_mask ] = np.nan
+
+                # photutils LocalBackground does a sigma-clipped median
+                backgrounder = photutils.background.LocalBackground( inner_annulus_px, outer_annulus_px )
+
+                # Get psfs
+                SCLogger.debug( "Getting psfs for photometry..." )
+                psfs = []
+                clipwid = None
+                for i in range( len(detections.x) ):
+                    clip = photutils.psf.ImagePSF( sub_psf.get_clip( x=detections.x[i], y=detections.y[i] ) )
+                    clipwid = clip.shape[0] if clipwid is None else clipwid
+                    psfs.append( clip )
+                SCLogger.debug( "...done getting psfs." )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 nextlog = 0
                 logevery = 10
                 onwhichone = 0

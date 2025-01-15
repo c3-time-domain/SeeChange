@@ -9,7 +9,7 @@ import numpy.lib.recfunctions as rfn
 from scipy import ndimage
 
 import astropy.table
-import sep
+import sep_pjw as sep
 
 from astropy.io import fits, votable
 
@@ -564,10 +564,9 @@ class Detector:
         cfg = Config.get()
         if cfg.value( 'astromatic.config_dir' ) is not None:
             astromatic_dir = pathlib.Path( cfg.value( 'astromatic.config_dir' ) )
-        elif cfg.value( 'astromatic.config_subdir' ) is not None:
-            astromatic_dir = pathlib.Path( CODE_ROOT ) / cfg.value( 'astromatic.config_subdir' )
-        if astromatic_dir is None:
-            raise FileNotFoundError( "Can't figure out where astromatic config directory is" )
+        else:
+            astromatic_dir = pathlib.Path( CODE_ROOT )
+        astromatic_dir = astromatic_dir / cfg.value( 'astromatic.config_subdir' )
         if not astromatic_dir.is_dir():
             raise FileNotFoundError( f"Astromatic config dir {str(astromatic_dir)} doesn't exist "
                                      f"or isn't a directory." )

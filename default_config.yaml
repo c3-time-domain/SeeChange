@@ -652,13 +652,13 @@ DECam:
 # Astromatic utility config (sextractor, scamp, swarp, psfex)
 #
 # config_dir: string or null
-#    An absolute path to where astromatic config files are.  If null,
-#    will use config_subdir
+#    An absolute path to the base of the path where astromatic config
+#    files are.  If null, will use $CODE_ROOT.
 #
 # config_subdir: string or null
-#   A path relative to models.base.CODE_ROOT (see models/base.py) where
-#   the astromatic config files are.  Ignored if config_dir is not null.
+#   A path relative to config_dir where the astromatic config files are.
+#   Can't be null.
 
 astromatic:
   config_dir: null
-  config_subdir: data/astromatic_config
+  config_subdir: share/astromatic

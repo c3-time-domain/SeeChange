@@ -37,20 +37,20 @@
 #     test_included    ** Image used in tests to run the tests
 #     test_bindmount
 #
-# As of 2024-11-08, the sizes of images from the various stages are as follows:
-#   base                0.86GB
-#   build               3.41GB
-#   included_code_build 3.49GB
-#   conductor_build     3.49GB
+# As of 2025-01-15, the sizes of images from the various stages are as follows:
+#   base                0.89GB
+#   build               3.35GB
+#   included_code_build 3.45GB
+#   conductor_build     3.45GB
 #   webap_build
-#   build_selenium      3.48GB
-#   included_code       2.55GB
-#   conductor           2.55GB
+#   build_selenium      3.43GB
+#   included_code       2.52GB
+#   conductor           2.52GB
 #   webap
-#   bindmount_code      2.54GB
-#   base_selenium       1.22GB
+#   bindmount_code      2.52GB
+#   base_selenium       1.24GB
 #   test_bindmount      2.92GB
-#   test_included       2.93GB
+#   test_included       2.92GB
 #
 # The "smallest usable image" is bindmount_code, as it includes all the
 # pip requirements, but does not include firefox or selenium.
@@ -82,6 +82,7 @@ RUN apt-get update && \
       flex \
       git \
       imagemagick \
+      libbz2-1.0 \
       libcfitsio-bin \
       libfftw3-bin \
       liblapack3 \
@@ -159,6 +160,7 @@ RUN apt-get update && \
       gdb \
       gfortran \
       git \
+      libbz2-dev \
       libcairo2-dev \
       libcfitsio-dev \
       libcurl4-openssl-dev \

@@ -2,7 +2,7 @@ import time
 
 import numpy as np
 
-import sep
+import sep_pjw as sep
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
