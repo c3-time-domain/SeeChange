@@ -10,8 +10,7 @@ import photutils.psf
 import photutils.aperture
 import photutils.morphology
 
-# from improc.photometry import iterative_cutouts_photometry
-from improc.tools import make_gaussian
+from improc.photometry import photometry_and_diagnostics
 
 from models.base import SmartSession
 from models.cutouts import Cutouts
@@ -32,14 +31,14 @@ class ParsMeasurer(Parameters):
 
         self.annulus_radii = self.add_par(
             'annulus_radii',
-            [7.5, 10.0],
+            [4., 5.],
             list,
             'Inner and outer radii of the background annulus. '
         )
 
         self.annulus_units = self.add_par(
             'annulus_units',
-            'pixels',
+            'fwhm',
             str,
             'Units for the annulus radii. Can be pixels or fwhm. '
             'This describes the units of the annulus_radii input. '
@@ -55,122 +54,58 @@ class ParsMeasurer(Parameters):
               'False, because sub images should already have a 0 background.' )
         )
 
-        self.analytical_cuts = self.add_par(
-            'analytical_cuts',
-            ['negatives', 'bad pixels', ], #more
-            [list],
-            ( 'Which kinds of analytic cuts are used to give scores to this measurement. '
-              'TODO: remove these in favor of the thresholds dict (and put None to not threshold '
-              'on any one of them)?  Issue #319.' ),
-        )
-
-        self.outlier_sigma = self.add_par(
-            'outlier_sigma',
-            3.0,
+        self.diag_box_halfsize = self.add_par(
+            'diag_box_halfsize',
+            2.,
             float,
-            'How many times the local background RMS the pixel flux must be '
-            'to be considered a negative or positive outlier pixel.  Something will '
-            'be flagged negative if: (a) at least abs_n_negatives_threshold pixels '
-            'were less than -outlier_sigma*bkg_sg, (b) at least '
-            'rel_n_negatives_threshold pixels, as a fraction of the '
-            'number of pixels within negatives_radius, were negative, and '
-            '(c) the number of negatives vs. the number of positives is '
-            'greater than the "negatives" threshold.' )
-
-        self.abs_n_negatives_threshold = self.add_par(
-            'abs_n_negatives_thresdhold',
-            3,
-            int,
-            'See outlier_sigma.'
+            ( 'The diagnostic box used for counting bad pixels and negative pixels will be '
+              '2 * diag_box_halfsize + 1 on a side.  (Think of this as a radius.)' )
         )
 
-        self.rel_n_negatives_thresdhold = self.add_par(
-            'rel_n_negatives_threshold',
-            0.005,
-            float,
-            'See outlier_sigma.'
-        )
-
-        self.negatives_radius = self.add_par(
-            'negatives_radius',
-            3.,
-            float,
-            'Radius around central pixel to look for too many negative pixels (dipole detector)'
-        )
-
-        self.negatives_radius_units = self.add_par(
-            'negatives_radius_units',
+        self.diag_box_halfsize_unit = self.add_par(
+            'diag_box_halfsize_unit',
             'fwhm',
             str,
-            'Units of negatives_radius (pixels or fwhm)'
+            ( 'fwhm or pixel' )
         )
 
-        # ROB READ THIS -- think about augmenting the negatives cuts
-        #   to not only look at negatives/positives, but also the
-        #   fraction of the area that has negatives at all.  That
-        #   will avoid weird edge cases of things like 1 negative,
-        #   3 positives getting thrown out.
-
-        self.bad_pixel_radius = self.add_par(
-            'bad_pixel_radius',
-            3.0,
+        self.negatives_n_sigma_outlier = self.add_par(
+            'negatives_n_sigma_outlier',
+            2.,
             float,
-            ( 'Any bad pixels within this pixel radius of the center of a cutout will be counted '
-              'towards the "bad pixels" disqualifier score' )
+            ( 'A pixel this many times the 1σ noise away from 0 will be considered an outlier when '
+              'counting the nubmer of negative and positive pixels within the diag_box.' )
         )
 
-        self.bad_pixel_exclude = self.add_par(
-            'bad_pixel_exclude',
-            [],
-            list,
-            'List of strings of the bad pixel types to exclude from the bad pixel cut. '
-            'The same types are ignored when running photometry. '
-        )
-
-        self.bad_flag_exclude = self.add_par(
-            'bad_flag_exclude',
-            [],
-            list,
-            'List of strings of the bad flag types (i.e., bitflag) to exclude from the bad flag cut. '
-            'This includes things like image saturation, too many sources, etc. '
-        )
-
-        self.streak_filter_angle_step = self.add_par(
-            'streak_filter_angle_step',
-            5.0,
-            float,
-            'Step in degrees for the streaks filter bank. '
-        )
-
-        self.width_filter_multipliers = self.add_par(
-            'width_filter_multipliers',
-            [0.25, 2.0, 5.0, 10.0],
-            list,
-            'Multipliers of the PSF width to use as matched filter templates'
-            'to compare against the real width (x1.0) when running psf width filter. '
-        )
-
-        self.thresholds = self.add_par(
-            'thresholds',
-            {
-                'negatives_rel_positives': 0.3,
-                'bad pixels': 1,
-                'offsets': 5.0,
-                'filter bank': 1,
-                'bad_flag': 1,
-            },
+        self.bad_thresholds = self.add_par(
+            'bad_thresholds',
+            { 'detection_dist': 5.,
+              'centroid_dist': 5.,
+              'elongation': 3.,
+              'width_ratio': 2.,
+              'nbadpix': 1,
+              'negfrac': 0.5,
+              'negfluxfrac': 0.5,
+             },
             dict,
-            'Failure thresholds for the disqualifier scores. '
-            'If the score is higher than (or equal to) the threshold, the measurement is marked as bad. '
+            ( 'A dictionary of thresholds. If a Measurements has a property whose value is ≥ the '
+              'threshold, it will be marked bad (is_bad set to True).  Set a value to None to not '
+              'use that cut.' )
         )
 
         self.deletion_thresholds = self.add_par(
             'deletion_thresholds',
-            None,
-            (dict, None),
-            'Deletion thresholds for the disqualifier scores. '
-            'If the score is higher than (or equal to) the threshold, the measurement is not saved. ',
-            critical=False
+            { 'detection_dist': 5.,
+              'centroid_dist': 5.,
+              'elongation': 3.,
+              'width_ratio': 2.,
+              'nbadpix': 1,
+              'negfrac': 0.5,
+              'negfluxfrac': 0.5,
+             },
+            dict,
+            ( 'Like bad_thresholds, but Meausurements with values ≥ the threshold will not even '
+              'be saved to the database.' )
         )
 
         self.association_radius = self.add_par(
@@ -200,28 +135,17 @@ class Measurer:
     def __init__(self, **kwargs):
         self.pars = ParsMeasurer(**kwargs)
 
-        # Hack alert : Remove this if Issue #396 is fully resovled,
-        #   and we start doing annulus background subtraction in
-        #   a consistent manner.
-        if self.pars.use_annulus_background:
-            raise NotImplementedError( "Photometry with local background subtraction is not currently "
-                                       "implemented in a consistent manner." )
-
         # this is useful for tests, where we can know if
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
 
-        self._filter_bank = None  # store an array of filters to match against the cutouts
-        self._filter_psf_fwhm = None  # recall the FWHM used to produce this filter bank, recalculate if it changes
 
     def run(self, *args, sub_psf=None, **kwargs):
         """Measure sources found on subtraction images.
 
         Measure the psf flux and aperture fluxes (depending on config)
-        on the new, ref, and sub images.  The psf is fit to the sub
-        image, and then done with forced photometry on the new and ref;
-        the aperture fluxes are probably more meaningful here (insofar
-        as they're meaningful at all).
+        on the sub image.  Measure morphological parameters, perform
+        threshold cuts.
 
         Returns a DataStore object with the products of the processing.
 
@@ -263,15 +187,9 @@ class Measurer:
             # get the provenance for this step:
             prov = ds.get_provenance('measuring', self.pars.get_critical_pars(), session=session)
 
-            new_image = ds.image
-            ref_image = ds.ref_image
             sub_image = ds.get_subtraction()
-            if ( new_image is None ) or ( ref_image is None ) or ( sub_image is None ):
-                missing_things = [ name for name,val in zip([ 'image','ref_image','subtraction'],
-                                                            [ new_image, ref_image, sub_image ])
-                                   if val is None ]
-                raise ValueError( f"DataStore must have all of image, ref_image, and subtraction; "
-                                  f"missing {missing_things}" )
+            if sub_image is None:
+                raise ValueError( "Can't perform measurements, DataStore is missing sub_image" )
 
             new_zp = ds.get_zp( session=session )
             if new_zp is None:
@@ -301,7 +219,6 @@ class Measurer:
             # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
             if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements
                 self.has_recalculated = True
-                cfg = Config.get()
                 SCLogger.debug( f"Measurer performing measurements on {len(cutouts.co_dict)} cutouts" )
 
                 inner_annulus_px = self.pars.annulus_radii[0]
@@ -316,290 +233,93 @@ class Measurer:
 
                 # Photutils requires 1σ errors, not weights
                 # It also requires True/False masks
-                new_mask = np.full_like( new_image.flags, False, dtype=bool )
-                new_mask[ new_image.flags != 0 ] = True
-                # Make sure things with weight 0 (or, which should never happen, <0) are masked
-                new_mask[ new_image.weight <= 0. ] = True
-                new_noise = 1. / np.sqrt( new_image.weight )
-                new_noise[ new_mask ] = np.nan
-
-                ref_mask = np.full_like( ref_image.flags, False, dtype=bool )
-                ref_mask[ ref_image.flags != 0 ] = True
-                ref_mask[ ref_image.weight <= 0. ] = True
-                ref_noise = 1. / np.sqrt( ref_image.weight )
-                ref_noise[ ref_mask ] = np.nan
-
                 sub_mask = np.full_like( sub_image.flags, False, dtype=bool )
                 sub_mask[ sub_image.flags != 0 ] = True
                 sub_mask[ sub_image.weight <= 0. ] = True
                 sub_noise = 1. / np.sqrt( sub_image.weight )
                 sub_noise[ sub_mask ] = np.nan
 
-                # photutils LocalBackground does a sigma-clipped median
-                backgrounder = photutils.background.LocalBackground( inner_annulus_px, outer_annulus_px )
+                cutouts.load_all_co_data( sources=detections )
+                rangecutouts = range( len(detections.x) )
+                sub_cutouts = [ cutouts.co_dict[f"source_index_{i}"]["sub_data"] for i in rangecutouts ]
+                sub_weight_cutouts = [ cutouts.co_dict[f"source_index_{i}"]["sub_weight"] for i in rangecutouts ]
+                sub_flags_cutouts = [ cutouts.co_dict[f"source_index_{i}"]["sub_flags"] for i in rangecutouts ]
+                # Make the weight and mask cutouts that photometry needs
+                sub_mask_cutouts = [ np.full_like( c, False, dtype=bool ) for c in sub_flags_cutouts ]
+                for m, c, w in zip( sub_mask_cutouts, sub_flags_cutouts, sub_weight_cutouts ):
+                    m[ c != 0 ] = True
+                    m[ w <= 0. ] = True
+                sub_noise_cutouts = [ 1. / np.sqrt( c ) for c in sub_weight_cutouts ]
+                for m, n in zip( sub_mask_cutouts, sub_noise_cutouts ):
+                    n[ m ] = np.nan
 
-                # Get psfs
-                SCLogger.debug( "Getting psfs for photometry..." )
-                psfs = []
-                clipwid = None
-                for i in range( len(detections.x) ):
-                    clip = photutils.psf.ImagePSF( sub_psf.get_clip( x=detections.x[i], y=detections.y[i] ) )
-                    clipwid = clip.shape[0] if clipwid is None else clipwid
-                    psfs.append( clip )
-                SCLogger.debug( "...done getting psfs." )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                nextlog = 0
-                logevery = 10
-                onwhichone = 0
-
-                # prepare the filter bank for this batch of cutouts
-
-                if self._filter_psf_fwhm is None or self._filter_psf_fwhm != sub_psf.fwhm_pixels:
-                    self.make_filter_bank( cutouts.co_dict["source_index_0"]["sub_data"].shape[0], sub_psf.fwhm_pixels )
-
-                # go over each cutouts object and produce a measurements object
-                measurements_list = []
-                for key, co_subdict in cutouts.co_dict.items():
-                    if onwhichone >= nextlog:
-                        SCLogger.debug( f"....measurer on cutout {onwhichone} of {len(cutouts.co_dict)}" )
-                        nextlog += logevery
-                    onwhichone += 1
-
-                    m = Measurements( cutouts_id=cutouts.id )
-                    m.index_in_sources = int(key[13:]) # grab just the number from "source_index_xxx"
-                    m.get_data_from_cutouts( cutouts=cutouts, detections=detections )
-
-                    m.best_aperture = -1 if detections.best_aper_num is None else detections.best_aper_num
-
-                    # These will be rounded by Measurements.__setattr__
-                    m.center_x_pixel = detections.x[m.index_in_sources]
-                    m.center_y_pixel = detections.y[m.index_in_sources]
-
-                    # zero point corrected aperture radii
-                    m.aper_radii = new_zp.aper_cor_radii
-
-                    ignore_bits = 0
-                    for badness in self.pars.bad_pixel_exclude:
-                        ignore_bits |= 2 ** BitFlagConverter.convert(badness)
-
-                    # remove the bad pixels that we want to ignore
-                    flags = co_subdict['sub_flags'].astype('uint16') & ~np.array(ignore_bits).astype('uint16')
-
-                    annulus_radii_pixels = self.pars.annulus_radii
-                    if self.pars.annulus_units == 'fwhm':
-                        fwhm = sub_psf.fwhm_pixels
-                        annulus_radii_pixels = [rad * fwhm for rad in annulus_radii_pixels]
-
-                    # TODO: consider if there are any additional parameters that photometry needs
-                    # TODO : I'm distressed by how long this next one takes.
-                    output = iterative_cutouts_photometry(
-                        co_subdict['sub_data'],
-                        co_subdict['sub_weight'],
-                        flags,
-                        radii=m.aper_radii,
-                        annulus=annulus_radii_pixels,
-                        local_bg=self.pars.use_annulus_background,
-                    )
-
-                    # This is a little bit kludgy, but I'm retrofitting the abitilty to not need
-                    #   a background annulus, and the code as designed originally assuming we
-                    #   were always doing to do that... except, sorta, not always, and not
-                    #   consistently.  I know that iterative_cutouts_photometry will have
-                    #   screwed up the background estimate if I didn't use an annulus.
-                    if not self.pars.use_annulus_background:
-                        output['background'] = ds.sub_image.bkg_mean_estimate
-                        output['variance'] = ds.sub_image.bkg_rms_estimate ** 2
-
-                    m.flux_apertures = output['fluxes']
-                    m.flux_apertures_err = [np.sqrt(output['variance']) * norm for norm in output['normalizations']]
-                    m.aper_radii = output['radii']
-                    m.area_apertures = output['areas']
-                    m.bkg_mean = output['background']
-                    m.bkg_std = np.sqrt(output['variance'])
-                    m.bkg_pix = output['n_pix_bg']
-                    m.offset_x = output['offset_x']
-                    m.offset_y = output['offset_y']
-                    m.width = (output['major'] + output['minor']) / 2
-                    m.elongation = output['elongation']
-                    m.position_angle = output['angle']
-
-                    # update the coordinates using the centroid offsets
-                    x = m.center_x_pixel + m.offset_x
-                    y = m.center_y_pixel + m.offset_y
-                    ra, dec = new_wcs.wcs.pixel_to_world_values(x, y)
-                    m.ra = float(ra)
-                    m.dec = float(dec)
-                    m.calculate_coordinates()
-
-                    # PSF photometry:
-                    # Two options: use the PSF flux from ZOGY, or use the new image PSF to measure the flux.
-                    # TODO: this is currently commented out since I don't know how to normalize this flux
-                    # if c.sub_psfflux is not None and c.sub_psffluxerr is not None:
-                    #     ix = int(np.round(m.offset_x + c.sub_data.shape[1] // 2))
-                    #     iy = int(np.round(m.offset_y + c.sub_data.shape[0] // 2))
-                    #
-                    #     # when offsets are so big it really doesn't matter what we put here, it will fail the cuts
-                    #     if ix < 0 or ix >= c.sub_psfflux.shape[1] or iy < 0 or iy >= c.sub_psfflux.shape[0]:
-                    #         m.flux_psf = np.nan
-                    #         m.flux_psf_err = np.nan
-                    #         m.area_psf = np.nan
-                    #     else:
-                    #         m.flux_psf = c.sub_psfflux[iy, ix]
-                    #         m.flux_psf_err = c.sub_psffluxerr[iy, ix]
-                    #         psf = c.sources.image.get_psf()
-                    #         m.area_psf = np.nansum(psf.get_clip(c.x, c.y))
-                    # else:
-                    if np.isnan(ra) or np.isnan(dec):
-                        flux = np.nan
-                        fluxerr = np.nan
-                        area = np.nan
-                    else:
-                        flux, fluxerr, area = m.get_flux_at_point( ra, dec, aperture='psf', wcs=new_wcs, psf=sub_psf )
-                    m.flux_psf = flux
-                    m.flux_psf_err = fluxerr
-                    m.area_psf = area
-
-                    # update the provenance
+                positions = [ ( detections.x[i], detections.y[i] ) for i in range(len(detections.x)) ]
+                all_measurements = photometry_and_diagnostics( sub_image.data, sub_noise, sub_mask,
+                                                               positions, sub_psf, aper_radii,
+                                                               dobgsub=self.pars.use_annulus_bg_on_sub,
+                                                               innerrad=inner_annulus_px,
+                                                               outerrad=outer_annulus_px,
+                                                               cutouts=sub_cutouts,
+                                                               noise_cutouts=sub_noise_cutouts,
+                                                               mask_cutouts=sub_mask_cutouts,
+                                                               diagdist=self.pars.diag_box_halfsize,
+                                                               distunit=self.pars.diag_box_halfsize_unit )
+                # Fill in some basic fields of the measurements
+                for i, m in enumerate( all_measurements ):
+                    m.cutouts_id = cutouts.id
+                    m.index_in_sources = i
                     m.provenance_id = prov.id
 
-                    # Apply analytic cuts to each stamp image, to rule out artefacts.
-                    # NOTE : I'm unappy about this absolute std cutoff.  It should
-                    #   be compared to the sub image bkg_rms or some such
-                    m.disqualifier_scores = {}
-                    if m.bkg_mean != 0 and m.bkg_std > 0.1:
-                        norm_data = (m.sub_nandata - m.bkg_mean) / m.bkg_std  # normalize
-                    else:
-                        # only provide this warning if the offset is within the image
-                        # otherwise, this measurement is never going to pass any cuts
-                        # and we don't want to spam the logs with this warning
-                        if (
-                                abs(m.offset_x) < m.sub_data.shape[1] and
-                                abs(m.offset_y) < m.sub_data.shape[0]
-                        ):
-                            warnings.warn(f'Background mean= {m.bkg_mean}, std= {m.bkg_std}, normalization skipped!')
-                        norm_data = m.sub_nandata  # no good background measurement, do not normalize!
+                ds.all_measurements = all_measurements
 
-                    x, y = np.meshgrid(range(m.sub_data.shape[0]), range(m.sub_data.shape[1]))
-                    x = x - m.sub_data.shape[1] // 2 - m.offset_x
-                    y = y - m.sub_data.shape[0] // 2 - m.offset_y
-                    r = np.sqrt(x ** 2 + y ** 2)
-                    negrad = self.pars.negatives_radius
-                    if self.pars.negatives_radius_units == 'fwhm':
-                        negrad *= sub_psf.fwhm_pixels
+                # Threshold cutting
+                SCLogger.debug( f"Doing threshold cuts on {len(all_measurements)} measurements..." )
+                measurements = []
+                for m in all_measurements:
+                    is_bad = False
+                    keep = True
+                    badthresh = self.pars.bad_thresholds
+                    delthresh = self.pars.deletion_thresholds
 
-                    offset = np.sqrt(m.offset_x ** 2 + m.offset_y ** 2)
-                    m.disqualifier_scores['offsets'] = offset
+                    # detection to center of fit psf distance
+                    if ( badthresh['detection_dist'] is not None ) or ( delthresh['detection_dist'] is not None ):
+                        dist = np.sqrt( ( m.x - m.center_x_pixel ) ** 2 + ( m.y - m.center_y_pixel ) ** 2 )
+                        if ( badthresh['detection_dist'] is not None ) and ( dist >= badthresh['detection_dist'] ):
+                            is_bad = True
+                        if ( delthresh['detection_dist'] is not None ) and ( dist >= delthresh['detection_dist'] ):
+                            keep = False
 
-                    positives = np.sum(norm_data[ r <= negrad ] > self.pars.outlier_sigma)
-                    negatives = np.sum(norm_data[ r <= negrad ] < -self.pars.outlier_sigma)
-                    if negatives == 0:
-                        m.disqualifier_scores['negatives'] = 0.0
-                    elif positives == 0:
-                        m.disqualifier_scores['negatives'] = 1.0
-                    else:
-                        m.disqualifier_scores['negatives'] = negatives / positives
-                    if ( ( negatives < self.pars.abs_n_negatives_thresdhold ) or
-                         ( negatives < self.pars.rel_n_negatives_threshold * ( r < negrad ).sum() )
-                        ):
-                        m.disqualifier_scores['negatives'] = -1.0
+                    # centroid to center of fit psf distance
+                    if ( badthresh['centroid_dist'] is not None ) or ( delthresh['centroid_dist'] is not None ):
+                        dist = np.sqrt( ( m.x - m.centroid_x ) ** 2 + ( m.y - m.centroid_y ) ** 2 )
+                        if ( badthresh['centroid_dist'] is not None ) and ( dist >= badthresh['centroid_dist'] ):
+                            is_bad = True
+                        if ( delthresh['centroid_dist'] is not None ) and ( dist >= delthresh['centroid_dist'] ):
+                            keep = False
 
-                    bad_pixel_inclusion = r <= self.pars.bad_pixel_radius + 0.5
-                    m.disqualifier_scores['bad pixels'] = np.sum(flags[bad_pixel_inclusion] > 0)
+                    # Ratio of width to psf
+                    if ( badthresh['width_ratio'] is not None ) and ( delthresh['width_ratio'] is not None ):
+                        rat = m.width / sub_psf.fwhm_pixels
+                        if ( badthresh['width_ratio'] is not None ) and ( rat > badthresh['width_ratio'] ):
+                            is_bad = True
+                        if ( delthresh['width_ratio'] is not None ) and ( rat > delthresh['width_ratio'] ):
+                            keep = False
 
-                    norm_data_no_nans = norm_data.copy()
-                    norm_data_no_nans[np.isnan(norm_data)] = 0
-                    template_norm_fac = np.abs(norm_data_no_nans).sum()
+                    # The rest can be done in a simple loop:
+                    for prop in [ 'elongation', 'nbadpix','negfrac', 'negfluxfrac' ]:
+                        if ( badthresh[prop] is not None ) and ( getattr( m, prop ) >= badthresh[prop] ):
+                            is_bad = True
+                        if ( delthresh[prop] is not None ) and ( getattr( m, prop ) >= delthresh[prop] ):
+                            keep = False
 
-                    filter_scores = []
-                    for template in self._filter_bank:
-                        # It's not clear to me that abs is the right thing to do here.
-                        filter_scores.append(np.max(signal.correlate(abs(norm_data_no_nans),
-                                                                     template * template_norm_fac,
-                                                                     mode='same')))
+                    m.is_bad = is_bad
+                    if keep:
+                        measurements.append( m )
 
-                    m.disqualifier_scores['filter bank'] = np.argmax(filter_scores)
+                ds.measurements = measurements
 
-                    # TODO: add additional disqualifiers
+                SCLogger.debug( f"...done doing threshold cuts, {len(ds.measurements)} survived." )
 
-                    # make sure disqualifier scores don't have any numpy types
-                    for k, v in m.disqualifier_scores.items():
-                        if isinstance(v, np.number):
-                            m.disqualifier_scores[k] = v.item()
-
-                    measurements_list.append(m)
-
-                SCLogger.debug( f"Running threshold cuts on {len(measurements_list)} measurements" )
-                nextlog = 0
-                logevery = 10
-
-                saved_measurements = []
-                for i, m in enumerate( measurements_list ):
-                    # regardless of wether we created these now, or loaded from DB,
-                    # the bitflag should be updated based on the most recent data
-                    m._upstream_bitflag = 0
-                    m._upstream_bitflag |= cutouts.bitflag
-
-                    ignore_bits = 0
-                    for badness in self.pars.bad_flag_exclude:
-                        ignore_bits |= 2 ** BadnessConverter.convert(badness)
-
-                    m.disqualifier_scores['bad_flag'] = int(np.bitwise_and(
-                        np.array(m.bitflag).astype('uint64'),
-                        ~np.array(ignore_bits).astype('uint64'),
-                    ))
-
-                    threshold_comparison = self.compare_measurement_to_thresholds(m)
-                    if threshold_comparison != "delete":  # all disqualifiers are below threshold
-                        m.is_bad = threshold_comparison == "bad"
-                        saved_measurements.append(m)
-
-                # add the resulting measurements to the data store
-                ds.all_measurements = measurements_list  # debugging only
-                ds.failed_measurements = [m for m in measurements_list if m not in saved_measurements]  # debugging only
-                ds.measurements = saved_measurements  # only keep measurements that passed the disqualifiers cuts.
-
-                # Associate objects
-                if not self.pars.do_not_associate:
-                    SCLogger.debug( f"Associating objects to {len(ds.measurements)} Measurementses" )
-
-                    with SmartSession( session ) as sess:
-                        for m in ds.measurements:
-                            m.associate_object( self.pars.association_radius,
-                                                is_testing=prov.is_testing,
-                                                session=sess )
-                else:
-                    SCLogger.debug( "Skipping association of measurements with objects." )
-
-            else:
-                ds.measurements = measurements_list
 
             ds.runtimes['measuring'] = time.perf_counter() - t_start
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
@@ -612,87 +332,3 @@ class Measurer:
             SCLogger.exception( f"Exception in Measurer.run: {e}" )
             ds.exceptions.append( e )
             raise
-
-    def make_filter_bank(self, imsize, psf_fwhm):
-        """Make a filter bank matching the PSF width.
-
-        These filters will be run through scipy.signal.correlate( abs(subclip), filter, mode='same' )
-
-        The first thing in the filter bank is a gaussian the size of the
-        psf.  Ideally, this is the one that matches best.
-
-        The next len(width_filter_multipliers) are gaussians whose
-        sigmas are scaled by those factors from config.
-
-        Finally, there are a bunch of streaks, nominally.
-
-        Parameters
-        ----------
-        imsize: int
-            The size of the image cutouts, which is also the size of the filters. # TODO: allow smaller filters?
-        psf_fwhm : float
-            The FWHM of the PSF in pixels.
-
-        """
-        psf_sigma = psf_fwhm / 2.355  # convert FWHM to sigma
-        templates = []
-        # We normalize everything to 1.  Later, before running the correlation, we will renormalize
-        #   everything to the sum of the data we're correlating with.
-        templates.append(make_gaussian(imsize=imsize, sigma_x=psf_sigma, sigma_y=psf_sigma, norm=1))
-
-        # narrow gaussian to trigger on cosmic rays, wider templates for extended sources
-        for multiplier in self.pars.width_filter_multipliers:
-            templates.append(
-                make_gaussian(imsize=imsize, sigma_x=psf_sigma * multiplier, sigma_y=psf_sigma * multiplier, norm=1)
-            )
-
-        # add some streaks:
-        (y, x) = np.meshgrid(range(-(imsize // 2), imsize // 2 + 1), range(-(imsize // 2), imsize // 2 + 1))
-        for angle in np.arange(-90.0, 90.0, self.pars.streak_filter_angle_step):
-
-            if abs(angle) == 90:
-                d = np.abs(x)  # distance from line
-            else:
-                a = np.tan(np.radians(angle))
-                b = 0  # impact parameter is zero for centered streak
-                d = np.abs(a * x - y + b) / np.sqrt(1 + a ** 2)  # distance from line
-            streak = (1 / np.sqrt(2.0 * np.pi) / psf_sigma) * np.exp(
-                -0.5 * d ** 2 / psf_sigma ** 2
-            )
-            # streak /= np.sqrt(np.sum(streak ** 2))  # verify that the template is normalized
-            streak /= np.sum(streak)
-
-            templates.append(streak)
-
-        self._filter_bank = templates
-        self._filter_psf_fwhm = psf_fwhm
-
-    def compare_measurement_to_thresholds(self, m):
-        """Compare measurement disqualifiers of a Measurements object to the thresholds set for
-        this measurer object.
-
-        Inputs:
-          - m : a Measurements object to be compared
-
-        returns one of three strings to indicate the result
-          - "ok"     : All disqualifiers below both thresholds
-          - "bad"    : Some disqualifiers above mark_thresh but all
-                       below deletion_thresh
-          - "delete" : Some disqualifiers above deletion_thresh
-
-        """
-        passing_status = "ok"
-
-        mark_thresh = self.pars.thresholds
-        deletion_thresh = ( mark_thresh if self.pars.deletion_thresholds is None
-                           else self.pars.deletion_thresholds )
-
-        combined_keys = np.unique(list(mark_thresh.keys()) + list(deletion_thresh.keys())) # unique keys from both
-        for key in combined_keys:
-            if deletion_thresh.get(key) is not None and m.disqualifier_scores[key] >= deletion_thresh[key]:
-                passing_status =  "delete"
-                break
-            if mark_thresh.get(key) is not None and m.disqualifier_scores[key] >= mark_thresh[key]:
-                passing_status = "bad" # no break because another key could trigger "delete"
-
-        return passing_status

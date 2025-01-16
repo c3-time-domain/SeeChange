@@ -6,18 +6,21 @@ import photutils.aperture
 
 from astropy.table import QTable
 
+from improc.tools import make_cutouts
 from models.measurements import Measurements
 from util.logger import SCLogger
 
-def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, baddist=None,
-                                dobgsub=False, innerrad=None, outerrad=None,
-                                cutouts=None, noise_cutouts=None, mask_cutouts=None, cutouts_rad=20 ):
-    """Calculate photometry and associated diagnostics at various positions on an image.
+def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
+                dobgsub=False, innerrad=None, outerrad=None,
+                cutouts=None, noise_cutouts=None, mask_cutouts=None, cutouts_size=41,
+                return_cutouts=False ):
+    """Do PSF and and Aperture photometry on an image.
 
     Parameters
-    ----------
         image : 2d ndarray
-          The image data.
+          The image data.  Indexed so that the pixel at position (ix, iy)
+          is image[iy, ix].  The center of the lower-left pixel is (0.0,
+          0.0).
 
         noise : 2d ndarray
           The 1σ noise data for image.  Whereas in most of the pipeline we
@@ -28,6 +31,12 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
           A mask image the same size as image and noise which like what
           photutils expects: False = not masked, True = masked.
 
+        positions : List of 2-element tuples (or similar)
+          A sequence of positions.  Must be such that positions[n] is a
+          2-element sequence with (x,y) positions.  (It may be that
+          it must be exactly a list of tuples, depending on how
+          photutils behaves.)
+
         psfobj : PSF
           A PSF object that goes with image.  Will use the fwhm_pixels
           attribute and get_clip method of this object.
@@ -35,13 +44,11 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
         apers : list of float
           Aperture radii in pixels in which to do photometry.
 
-        baddist : int or None
-          See the "diagnostics" return below.
-
-        positions : list of (x, y)
-          Positions at which to do photometry.  These are initial positions.
-          The lower-left corner of the lower-left pixel is at (-0.5, -0.5).
-          The pixel at position (ix, iy) on image is image[iy, ix].
+        measurements : list of Measurement or None
+          If passed, modify the appropriate fields of these Measurements
+          objects based on the photometry and return that; must have the
+          same length as the number of positions.  If not passed, a new
+          list of Measurements will be allocated.
 
         dobgsub : bool, default False
           If True, do annulus background subtraction.
@@ -50,10 +57,12 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
           Ignored if dobgsub is false.  Required if dobgsub is true.  The
           size in pixels of the background annulus.
 
-        cutouts : list of 2d ndarray
+        cutouts : list of 2d ndarray or 3d ndarray
           Small cutouts on the image which will be used for diagnostic
-          calculatoins.  If None, cutouts will be manually constructed here.
-          If given, then noise_cutouts and mask_cutouts must also be given.
+          calculations.  cutouts[i] must be a 2d ndarray square image
+          centered on positions[i] on the image.  If None, cutouts will
+          be manually constructed here.  If given, then noise_cutouts
+          and mask_cutouts must also be given.
 
         noise_cutouts : list of 2d ndarray
           Cutouts with 1σ noise.
@@ -61,99 +70,64 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
         mask_cutouts : list of 2d ndarray of bool
           Masks on cutouts
 
-        cutouts_rad : int, default 20
-          If cutouts is None, construct cutouts by making squares ±this many
-          pixels in x and y on the image.
+        cutouts_size : int, default 41
+          If cutouts is None, construct cutouts by making squares this
+          length on a side.
+
+        return_cutouts : bool, default False
+           If True, also return a dictionary with the lists of cutouts.
 
     Returns
     -------
-      measurements, diagnostics
+      measurements or measurements, cutouts
 
       measurements : a list of Measurement objects
-        These have not been saved to the database, and are not yet in a
-        state to be saved to the database.  They need to have
-        cutouts_id, index_in_sources, best_aperture, and provenance_id
-        filled before they can be saved to the database.
+        These have not been saved to the database.  Unless a
+        "measurements" parameters was passed with the right fields
+        pre-filled, they are not yet in a state to be saved to the
+        database.  They need to have cutouts_id, index_in_sources,
+        best_aperture, provenance_id must be filled before they can be
+        saved to the database, in addition to parameters that are filled
+        by a call to diagnostics().
 
-      diagnostics : a dictionary of ndarrays, each of length len(positions)
-        Diagnostic quantities, designed so that larger = worse.  Keys
-        in the dictionary:
-
-          width_ratio : 2√(2ln2) * width / image FHWM_pix  (ratio of object size to seeing)
-          elongation : major axis / minor axis, where the axes are determined from the moments on the cutouts
-                Set to 1e32 if the minor axis length comes out to zero (somehow)
-          numbadpix : number of bad pixels within baddist in either x or y of the center of the cutout.
-                      if baddist is None, look at the whole cutout
-          negfrac : number of <-2σ pixels divided by number of >2σ pixels.  Set to 0 if there are no
-             pixels either <-2σ or >2σ, else set to 1e32 if there are no pixels >2σ.
-          negfluxfrac : |total flux| in <-2σ pixels divded by total fix in >2σ pixels.  Set to 0 if there
-             are no pixels either <-2σ or >2σ, else set to 1e32 if there are no pixels >2σ
+      cutouts : a dictionary with keys "image", "noise", "mask"
+        Only returned if parameter return_cutouts is True.  The value of
+        each element is one of the cutouts lists either passed to the
+        function or created inside the function.  (If created inside the
+        function, will be a 3d ndarray, not a list of 2d ndarrays.)
 
     """
 
+    xvals = [ p[0] for p in positions ]
+    yvals = [ p[1] for p in positions ]
     if cutouts is None:
-        SCLogger.debug( "photometry_and_diagnostics making cutouts..." )
-        cutouts = []
-        noise_cutouts = []
-        mask_cutouts = []
-        for (x, y) in positions:
-            im = np.zeros( ( 2*cutouts_rad+1, 2*cutouts_rad+1 ), dtype=image.dtype )
-            no = np.zeros( ( 2*cutouts_rad+1, 2*cutouts_rad+1 ), dtype=noise.dtype )
-            ma = np.full( ( 2*cutouts_rad+1, 2*cutouts_rad+1 ), False, dtype=bool )
-            # Figure out the limits with all the usual special-case pain of detecting
-            #   cutouts that hang off of the image
-            x0 = int( np.round(x) - cutouts_rad )
-            outx0 = 0
-            x1 = x0 + 2 * cutouts_rad + 1
-            outx1 = 2 * cutouts_rad + 1
-            y0 = int( np.round(y) - cutouts_rad )
-            outy0 = 0
-            y1 = y0 + 2 * cutouts_rad + 1
-            outy1 = 2 * cutouts_rad + 1
-            if x0 < 0:
-                outx0 = -x0
-                x0 = 0
-                ma[ :, 0:outx0 ] = True
-                no[ :, 0:outx0 ] = np.nan
-            if x1 > image.shape[1]:
-                outx1 -= ( x1 - image.shape[1] )
-                x1 = image.shape[1]
-                ma[ :, outx1:2*cutouts_rad+1 ] = False
-                no[ :, outx1:2*cuyouts_rad+1 ] = np.nan
-            if y0 < 0:
-                outy0 = -y0
-                y0 = 0
-                ma[ 0:outy0, : ] = True
-                no[ 0:outy0, : ] = np.nan
-            if y1 > image.shape[0]:
-                outy1 -= ( y1 - image.shape[0] )
-                y1 = image.shape[0]
-                ma[ outy1:2*cutouts_rad+1, : ] = False
-                no[ outy1:2*cuyouts_rad+1, : ] = np.nan
-            im[outy0:outy1, outx0:outx1] = image[y0:y1, x0:x1]
-            no[outy0:outy1, outx0:outx1] = noise[y0:y1, x0:x1]
-            ma[outy0:outy1, outx0:outx1] = mask[y0:y1, x0:x1]
-            cutouts.append( im )
-            noise_cutouts.append( no )
-            mask_cutouts.append( ma )
-        SCLogger.debug( "...photometry_and_diagnostics done making cutouts." )
+        cutouts = make_cutouts( image, xvals, yvals, size=cutouts_size )
+    if noise_cutouts is None:
+        noise_cutouts = make_cutouts( noise, xvals, yvals, size=cutouts_size )
+    if mask_cutouts is None:
+        mask_cutouts = make_cutouts( mask, xvals, yvals, size=cutouts_size, fillvalue=True )
 
-    if ( noise_cutouts is None ) or ( mask_cutouts is None ):
-        raise ValueError( "If you pass cutouts, you must also pass noise_cutouts and mask_cutouts" )
-
-    if ( ( len(cutouts) != len(positions) ) or ( len(noise_cutouts) != len(positions) )
-         or ( len(mask_cutouts) != len(positions) ) ):
-        raise ValueError( "Number of cutouts, noise_cutouts, and mask_cutouts must all match number of positions." )
+    if ( ( len(cutouts) != len(positions) )
+         or ( len(noise_cutouts) != len(positions) )
+         or ( len(mask_cutouts) != len(positions ) )
+        ):
+        raise ValueError( f"Length of positions, cutouts, noise_cutouts, and mask_cutouts must all match; "
+                          f"Got positions={len(positions)}, cutouts={len(cutouts)}, "
+                          f"noise_cutouts={len(noise_cutouts)}, mask_cutouts={len(mask_cutouts)}" )
 
     if dobgsub:
         # photutils LocalBackground does a sigma-clipped median
-        backgrounder = photutils.background.LocalBackground( inner_annulus_px, outer_annulus_px )
+        SCLogger.debug( "Determining backgrounds..." )
+        backgrounder = photutils.background.LocalBackground( innerrad, outerrad )
+        bkgs = backgrounder( image, xvals, yvals, mask=mask )
+    else:
+        bkgs = np.zeros( ( len(positions), ), dtype=np.float32 )
 
     SCLogger.debug( "Getting pfs for photometry..." )
     psfs = []
     clipwid = None
     for pos in positions:
-        clip = psfobj.get_clip( x=pos[0], y=pos[1] )
+        clip = psfobj.get_clip( x=np.round(pos[0]), y=np.round(pos[1]) )
         clipwid = clipwid if clipwid is not None else clip.shape[0]
         psfs.append( photutils.psf.ImagePSF( clip ) )
 
@@ -166,26 +140,28 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
     #    understands PSFEX psfs.  Hopefully what we have here will be
     #    good enough for our purposes, but we should verify that!
     # Sadly, we can't just pass all the positions in a single call the
-    #   way we do with aperture photometry, because the interace to
+    #   way we do with aperture photometry, because the interface to
     #   photutils lets us pass in a single PSF model, but we're using a
     #   different one for each detection because we used a
-    #   position-variable PSF from psfex.
+    #   position-variable PSF from psfex.  In practice, it doesn't seem
+    #   to be too terribly slow.
     # (It should be possible to fix both these issues by writing a
     #   Fittable2dModel class to use with photutils' PSF photometry
-    #   using our models/psf.py class and get_clip.  It might be slow.
-    #   It would be effort to do.)
+    #   using our models/psf.py class and get_clip.  It might be slower.
+    #   It would be effort to write it.
+
     SCLogger.debug( "Doing psf photometry...." )
     measurements = []
     for i, pos in enumerate( positions ):
         photor = photutils.psf.PSFPhotometry(
             psfs[i],
             clipwid,
-            localbkg_estimator=backgrounder if dobgsub else None,
             aperture_radius=psfobj.fwhm_pixels
         )
         init_params = QTable()
         init_params['x'] = [ pos[0] ]
         init_params['y'] = [ pos[1] ]
+        init_params['local_bkg'] = [ bkgs[i] ]
         photresult = photor( image, mask=mask, error=noise, init_params=init_params )
         m = Measurements( aper_radii=apers,
                           flux_apertures=[np.nan] * len(apers),
@@ -193,7 +169,11 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
                           x=photresult['x_fit'][0],
                           y=photresult['y_fit'][0],
                           flux_psf=photresult['flux_fit'][0],
-                          flux_psf_err=photresult['flux_err'][0] )
+                          flux_psf_err=photresult['flux_err'][0],
+                          bkg_per_pix=bkgs[i],
+                          center_x_pixel=int(np.round(pos[0])),
+                          center_y_pixel=int(np.round(pos[1])),
+                         )
         measurements.append( m )
     SCLogger.debug( "...done doing psf photometry." )
 
@@ -213,42 +193,159 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
 
     SCLogger.debug( "Building apertures for photometry..." )
     aperobjs = [ photutils.aperture.CircularAperture( positions, r=r ) for r in apers ]
-    if dobgsub:
-        SCLogger.debug( "...measuring backgrounds on sub image..." )
-        bkgs = backgrounder( image,
-                             [p[0] for p in positions],
-                             [p[1] for p in positions],
-                             mask=mask )
     for i in range(len(apers)):
-        SCLogger.debug( f"...aperture on sub image photometry with r={apers[i]}" )
+        SCLogger.debug( f"...aperture photometry with r={apers[i]}" )
         apphot = photutils.aperture.aperture_photometry( image,
                                                          aperobjs[i],
                                                          error=noise,
                                                          mask=mask )
         for j in range( len(measurements) ):
             if dobgsub:
-                measurements[j].flux_apertures[i] = apphot['aperture_sum'][j] - bkgs[j] * apers[i].area
+                measurements[j].flux_apertures[i] = apphot['aperture_sum'][j] - bkgs[j] * aperobjs[i].area
             else:
                 measurements[j].flux_apertures[i] = apphot['aperture_sum'][j]
             measurements[j].flux_apertures_err[i] = apphot['aperture_sum_err'][j]
+    SCLogger.debug( f"...done with aperture photometry" )
 
-    # Calculate morphological parameters.
+    if return_cutouts:
+        return measurements, { 'image': cutouts,
+                               'noise': noise_cutouts,
+                               'mask': mask_cutouts }
+    else:
+        return measurements
 
-    diagnostics = { 'width_ratio': np.zeros( len(measurements) ),
-                    'ellipticity': np.zeros( len(measurements) ),
-                    'negfrac': np.zeros( len(measurements) ),
-                    'negfluxfrac': np.zeros( len(measurements) ) }
 
-    SCLogger.debug( "Calculating moments for morphological parameters..." )
+def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels,
+                 diagdist=2, distunit='fwhm', n_sigma_outlier=2. ):
+    """Measure morphological and diagnostic properties of cutouts and Measurements.
+
+    At the end of this function, several fields of each Measurement
+    object in the measurements list will be filled, including
+    centroid_x, centroid_y, width, elongation, position_angle,
+    diagnostics.  (The is_bad field will not be set; that needs to be
+    set by something that has thresholds for diagnostics, whereas this
+    routine just calculates them.)
+
+    The fields of Measurements are calculated as follows.  Many of them
+    (elongation, det_offset, centroid_offset, width_ration, nbadpix,
+    negfrac, negfluxfrac) are defined so that bigger is "worse".  A
+    threshold could be set for each one of those, a Measurement being
+    marked bad if any one of the values is above the corresponding
+    threshold.
+
+       centroid_x, centroid_y : the centroid (first moment along each
+         axis) of the flux distribution on the cutout.
+
+       width : An estimate of the FWHM of the distribution of flux on
+         the cutout.  In reality, two values σ_maj and σ_min are
+         calculated from the second moments on the cutout (see comments
+         and code in the function body for details).  If the
+         distribution of flux were a 2d elliptical Gaussian, σ_maj and
+         σ_min would be the sizes of the major and minor axes with
+         lenghts corresponding to the two σ values for the Gaussian.
+         The width property is defined as 2√(2ln2) * (σ_maj+σ_min)/2.
+
+      elongation : σ_maj / σ_min (see "width" for what these are).  If
+        σ_min (somehow) comes out to 0., elongation is set to 1e32.
+        elongation=1 means a round flux distribution; larger values mean
+        more and more elongated.
+
+      position_angle : An angle between -π/2 and π/2 that is the angle
+        between the major axis of the flux distribution (σ_maj) and the
+        x-axis.
+
+      nbadpix : the number of bad pixels within a square whose size is
+        defined by diagdist (see below)
+
+      negfrac : the number of pixels that are <-2σ divided by the number
+        that are >2σ (where σ is given by the noise cutout) in the same
+        square used for nbadpix
+
+      negfluxfrac : the absolute value of the total flux in pixels that
+        are <-2σ divided by the total flux in pixels that are >2σ in the
+        same square used for nbadpix.
+
+    Parameters
+    ----------
+      measurements : list of Measurement
+        Such as might have been returned from photometry (above).  The
+        Measurement objects in this list will be modified; see above.
+
+      cutouts : list of 2d ndarrays or 3d ndarray
+        cutouts[i] is a square cutout from the image that goes with
+        measurements[i].
+
+      noise_cutouts : list of 2d ndarrays or 3d ndarray
+        1σ noise (not weights!) on cutouts.
+
+      mask_cutouts : list of 2d ndarrays of bool or 3d ndarray of bool
+        Masks on cutouts; True = pixel is masked, False = pixel is not
+        masked.  (Using this rather than our flags bitmask because this
+        is what photutils expects.)
+
+      fwhm_pixels : The FWHM of the seeing in pixels
+
+      diagdist : float, default 2
+        For some diagnostics, look in a square on the cutout that is
+        2*diagdist+1 on a side, centered on the pixel where the object is
+        found.  (This is the pixel defined by measurements[i].x,
+        measurements[i].y, not the center of the cutout, though it
+        should be close. )  This square is used for the bad pixel
+        counts and the negative / positive pixel ratios
+
+      distunit : "fwhm" or "pixel"
+        The units of baddist.
+
+      n_sigma_outlier : float, default 2.
+        A pixel will be counted in the negfrac and negfluxfrac
+        diagnostics if its flux value is at least this many times the
+        noise away from zero.
+
+    Returns
+    -------
+      nothing, but measurements is modified; see above
+
+    """
+
+    # Number of lines of comments and documentation MUST be more than number of lines of code!
+
+    _2sqrt2ln2 = 2.35482
+
+    if ( ( len(cutouts) != len(measurements) )
+         or ( len(noise_cutouts) != len(measurements) )
+         or ( len(mask_cutouts) != len(measurements ) )
+        ):
+        raise ValueError( f"Number of cutouts, noise_cutouts, and mask_cutouts must match number of measurements; got "
+                          f"measurements={len(measurements)}, cutouts={len(cutouts)}, "
+                          f"noise_cutouts={len(noise_cutouts)}, mask_cutouts={len(mask_cutouts)}" )
+
+    if distunit not in [ "fwhm", "pixel" ]:
+        raise ValueError( f"distunit must be 'fwhm' or 'pixel', not '{distunit}'" )
+
+    SCLogger.debug( "Calculating morphological parameters and diagnostics..." )
+    dist = diagdist if distunit == 'pixel' else diagdist * fwhm_pixels
+    dist = int( np.round( dist ) )
+    xvals, yvals = np.meshgrid( range(0,cutouts[0].shape[1]), range(0,cutouts[0].shape[0]) )
     for i, ( m, cutout, cutout_noise, cutout_mask ) in enumerate( zip( measurements, cutouts, noise_cutouts,
                                                                        mask_cutouts ) ):
-        if dobgsub:
-            morpho = photutils.morphology.data_properties( cutout - bkgs[i], mask=mask )
-        else:
-            morpho = photutils.morphology.data_properties( cutout, mask=cutout_mask )
+        # Notice that photutils.morphology.data_properties doesn't take
+        #   a noise image....  The moments are defined in terms of just
+        #   the image, yes, but notice that there *is* a mask, and you
+        #   could define (at least) a centroid that weights by noise.
+        # morpho = photutils.morphology.data_properties( cutout - m.bkg_per_pix, mask=cutout_mask )
+        # ...
+        # photutils.morphology.data_properties sets all negative pixels to positive for purposes
+        #   of moment calculation.  I *THINK*.  Hard to say, because the documentation on
+        #   SourceCatalog, which data_properties points to, talks about source segments, but
+        #   data_properties has no concept of that.  As such, I'm not 100% sure what it's actually
+        #   doing.  Alas.  Calculate them ourselves, so we know what's happened.
 
-        m.centroid_x = morpho.centroid[0]
-        m.centroid_y = morpho.centroid[1]
+        m00 = ( cutout[ ~cutout_mask ] - m.bkg_per_pix ).sum()
+        m10 = ( ( cutout - m.bkg_per_pix ) * yvals )[ ~cutout_mask ].sum()
+        m01 = ( ( cutout - m.bkg_per_pix ) * xvals )[ ~cutout_mask ].sum()
+        m20 = ( ( cutout - m.bkg_per_pix ) * yvals * yvals )[ ~cutout_mask ].sum()
+        m02 = ( ( cutout - m.bkg_per_pix ) * xvals * xvals )[ ~cutout_mask ].sum()
+        m11 = ( ( cutout - m.bkg_per_pix ) * xvals * yvals )[ ~cutout_mask ].sum()
 
         # Dealing with moments.
         # See: https://en.wikipedia.org/wiki/Image_moment
@@ -265,7 +362,7 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
         #    between the x-axis and the profile, in a counter-clockwise
         #    fashion (i.e. rotate from the +x axis towards the +y axis)
         #
-        # Define moments by:
+        # Define some moments by:
         #   A = Σ f(x,y)
         #   cxx = Σ (x - x0)^2 * f(x,y)
         #   cyy = Σ (y - y0)^2 * f(x,y)
@@ -285,7 +382,8 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
         # σ1² = ( rxx + ryy ) / 2 + sqrt( 4 rxy^2 + ( rxx - ryy )^2 ) / 2
         # σ2² = ( rxx + ryy ) / 2 - sqrt( 4 rxy^2 + ( rxx - ryy )^2 ) / 2
         #
-        # Those give the 1σ major and minor axes sizes.
+        # Those give the major (σ1) and minor (σ2) axes sizes, corresponding
+        # to the 1σ Gaussian widths.
         #
         # Define φ as the angle between the major axis of the distribution
         #   and the (y if cyy > cxx else x)-axis, in a counter-clockwise direction.
@@ -295,7 +393,7 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
         # (if cxy = 0, φ is not well-defined and we may as well call it 0.)
         #
         # You can calculate φ with:
-        #   φ = 1/2 arctan( 2 rxy / ( rxx^2 - ryy^2 ) )
+        #   φ = 1/2 arctan( 2 rxy / ( rxx - ryy ) )
         # if rxx != ryy, else:
         #   φ = π/4
         #
@@ -303,582 +401,83 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, ba
         #   θ = φ if rxx > ryy
         #   else θ = π/2 - θ
 
-        rxx = morpho.moments_central[0][2] / morpho.moments_central[0][0]
-        ryy = morpho.moments_central[2][0] / morpho.moments_central[0][0]
-        rxy = morpho.moments_central[1][1] / morpho.moments_central[0][0]
-        major = ( ( rxx + ryy ) + np.sqrt( 4 * rxy**2 + ( rxx - ryy ) ) ) / 2.
-        minor = ( ( rxx + ryy ) - np.sqrt( 4 * rxy**2 + ( rxx - ryy ) ) ) / 2.
+        m.centroid_x = m01 / m00
+        m.centroid_y = m10 / m00
+        rxx = ( m02 - m.centroid_x * m01 ) / m00
+        ryy = ( m20 - m.centroid_y * m10 ) / m00
+        rxy = ( m11 - m.centroid_y * m01 ) / m00
+
+        m.centroid_x += m.center_x_pixel - cutout.shape[1] // 2
+        m.centroid_y += m.center_y_pixel - cutout.shape[0] // 2
+
+        major = np.sqrt( ( ( rxx + ryy ) + np.sqrt( 4 * rxy**2 + ( rxx - ryy )**2 ) ) / 2. )
+        minor = np.sqrt( ( ( rxx + ryy ) - np.sqrt( 4 * rxy**2 + ( rxx - ryy )**2 ) ) / 2. )
         if rxx == ryy:
             theta = np.pi/4. if rxy > 0 else -np.pi/4. if rxy < 0 else 0.
         else:
-            phi = 0.5 * np.atan( 2 * rxy / ( rxx**2 - ryy**2 ) )
+            phi = 0.5 * np.atan( 2 * rxy / ( rxx - ryy ) )
             theta = phi if rxx > rxy else np.pi/2. - phi
             # Make the angle between -π/2 and π/2
             if theta > np.pi / 2.:
                 theta -= np.pi
 
-        m.width = ( major + minor ) / 2.
+        m.width = _2sqrt2ln2 * ( major + minor ) / 2.
         m.elongation = major / minor if minor > 0. else 1e32
         m.position_angle = theta
 
-    SCLogger.debug( "...done calculating moments and morphological parameters." )
+        # Figure out positions on cutouts for some of the diagnostics
+        ixc = int( np.round( m.x ) - m.center_x_pixel + ( cutouts[i].shape[1] // 2 ) )
+        iyc = int( np.round( m.y ) - m.center_y_pixel + ( cutouts[i].shape[0] // 2 ) )
+        x0 = max( 0, ixc - dist )
+        x1 = min( ixc + dist + 1, cutouts[i].shape[1] )
+        y0 = max( 0, iyc - dist )
+        y1 = min( iyc + dist + 1, cutouts[i].shape[0] )
 
-    # Diagnostic scores.  All of these are defined so that you can
-    #   set a maximum threshold above which you decide a candidate is bad.
-    #
-    # * with_ratio = 2√(2ln2) * width / image FHWM_pix   (ratio of object size to seeing)
-    # * elongation (bigger = more elliptical)
-    # * negfrac = negpix / pospix:
-    #     In a box of size 4fwhm on a side centered on center of the cutout,
-    #       pospix = the number of pixels that are >2σ
-    #       negpix = the number of pixels that are <-2σ
-    #     Higher = more negative pixels, more likely to be a dipole
-    #  * negfluxfrac = negflux / posflux
-    #     In a box of size 4fwhm on a side centered on the cutout
-    #       posflux = sum of flux values of all pixels that are >2σ
-    #       negflux = -sum of flux values of all pixels that are <-2σ
-    #  * nbad = # of bad (flagged) pixels within nbaddist of obj center along x or y
+        # Make subsetted cutouts that include just this size for those diagnostics
+        sub_cutout = cutouts[i][ y0:y1, x0:x1 ]
+        sub_noise = noise_cutouts[i][ y0:y1, x0:x1 ]
+        sub_mask = mask_cutouts[i][ y0:y1, x0:x1 ]
 
-    SCLogger.debug( "Calculating diagnostics..." )
-    _2sqrt2ln2 = 2.35482
-    # dist =
-    x0 = int( np.round(cutout.shape[0] / 2 - 2 * psfobj.fwhm_pixels ) )
-    x1 = int( np.round(cutout.shape[0] / 2 + 2 * psfobj.fwhm_pixels ) ) + 1
-    x0 = x0 if x0 >= 0 else 0
-    x1 = x1 if x1 <= cutout.shape[0] else cutout.shape[0]
-    for i, m in enumerate( measurements ):
-        diagnostics['width_ratio'][i] = _2sqrt2ln2 * m.width / psfobj.fwhm_pixels
-        diagnostics['ellipticity'][i] = m.elongation
-        sub_cutout = cutout[ x0:x1, x0:x1 ]
-        sub_noise = cutout_noise[ x0:x1, x0:x1 ]
-        sub_mask = cutout_mask[ x0:x1, x0:x1 ]
-        wneg = ( ~sub_mask ) & ( sub_cutout < 2.*sub_noise )
-        wpos = ( ~sub_mask ) & ( sub_cutout > 2.*sub_noise )
-        nneg = wneg[x0:x1, x0:x1].sum()
-        npos = wpos[x0:x1, x0:x1].sum()
+        m.nbadpix = sub_mask.sum()
+        wneg = ( ~sub_mask ) & ( sub_cutout - m.bkg_per_pix < -n_sigma_outlier * sub_noise )
+        wpos = ( ~sub_mask ) & ( sub_cutout - m.bkg_per_pix > n_sigma_outlier * sub_noise )
+        nneg = wneg.sum()
+        npos = wpos.sum()
         fluxneg = -sub_cutout[ wneg ].sum()
         fluxpos = sub_cutout[ wpos ].sum()
-        diagnostics['negfrac'][i] = ( 0 if ( npos == 0 and nneg == 0 )
-                                      else 1e32 if npos == 0
-                                      else nneg / npos )
-        diagnostics['negfluxfrac'][i] = ( 0 if ( fluxpos == 0 and fluxneg == 0 )
-                                          else 1e32 if fluxpos == 0
-                                          else fluxneg / fluxpos )
+        m.negfrac = ( 0 if ( npos == 0 and nneg == 0 )
+                      else 1e32 if npos == 0
+                      else nneg / npos )
+        m.negfluxfrac = ( 0 if ( fluxpos == 0 and fluxneg == 0 )
+                          else 1e32 if fluxpos == 0
+                          else fluxneg / fluxpos )
 
     SCLogger.debug( "...done calculating diagnostics." )
 
 
-    return measurements, diagnostics
 
+def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, measurements=None,
+                                dobgsub=False, innerrad=None, outerrad=None,
+                                cutouts=None, noise_cutouts=None, mask_cutouts=None, cutouts_size=41,
+                                diagdist=2, distunit='fwhm' ):
 
-# ======================================================================
-# OLD BELOW
+    """Calculate photometry and associated diagnostics at various positions on an image.
 
-# import numpy as np
+    All parameters are passed on to photometry() or diagnostics(); see those functions for documentation.
 
-# from improc.tools import sigma_clipping
+    Returns
+    -------
+      measurements : list of Measurements
+        The return value from photometry(), with further fields filled by diagnostics()
 
-# # caching the soft-edge circles for faster calculations
-# CACHED_CIRCLES = []
-# CACHED_RADIUS_RESOLUTION = 0.01
+    """
 
+    measurements, co = photometry( image, noise, mask, positions, psfobj, apers, measurements=measurements,
+                                   dobgsub=dobgsub, innerrad=innerrad, outerrad=outerrad,
+                                   cutouts=cutouts, noise_cutouts=noise_cutouts, mask_cutouts=mask_cutouts,
+                                   cutouts_size=cutouts_size, return_cutouts=True )
 
-# def get_circle(radius, imsize=15, oversampling=100, soft=True):
+    diagnostics( measurements, co['image'], co['noise'], co['mask'], psfobj.fwhm_pixels,
+                 diagdist=diagdist, distunit=distunit )
 
-#     """Get a soft-edge circle.
-
-#     This function will return a 2D array with a soft-edge circle of the given radius.
-
-#     Parameters
-#     ----------
-#     radius: float
-#         The radius of the circle.
-#     imsize: int
-#         The size of the 2D array to return. Must be square. Default is 15.
-#     oversampling: int
-#         The oversampling factor for the circle.
-#         Default is 100.
-#     soft: bool
-#         Toggle the soft edge of the circle. Default is True (soft edge on).
-
-#     Returns
-#     -------
-#     circle: np.ndarray
-#         A 2D array with the soft-edge circle.
-
-#     """
-#     # Check if the circle is already cached
-#     for circ in CACHED_CIRCLES:
-#         if np.abs(circ.radius - radius) < CACHED_RADIUS_RESOLUTION and circ.imsize == imsize and circ.soft == soft:
-#             return circ
-
-#     # Create the circle
-#     circ = Circle(radius, imsize=imsize, oversampling=oversampling, soft=soft)
-
-#     # Cache the circle
-#     CACHED_CIRCLES.append(circ)
-
-#     return circ
-
-
-# class Circle:
-#     def __init__(self, radius, imsize=15, oversampling=100, soft=True):
-#         self.radius = radius
-#         self.imsize = imsize
-#         self.datasize = max(imsize, 1 + 2 * int(radius + 1))
-#         self.oversampling = oversampling
-#         self.soft = soft
-
-#         # these include the circle, after being moved by sub-pixel shifts for all possible positions in x and y
-#         self.datacube = np.zeros((oversampling ** 2, self.datasize, self.datasize))
-
-#         for i in range(oversampling):
-#             for j in range(oversampling):
-#                 x = i / oversampling
-#                 y = j / oversampling
-#                 self.datacube[i * oversampling + j] = self._make_circle(x, y)
-
-#     def _make_circle(self, x, y):
-#         """Generate the circles for a given sub-pixel shift in x and y. """
-
-#         if x < 0 or x > 1 or y < 0 or y > 1:
-#             raise ValueError("x and y must be between 0 and 1")
-
-#         # Create the circle
-#         xgrid, ygrid = np.meshgrid(np.arange(self.datasize), np.arange(self.datasize))
-#         xgrid = xgrid - self.datasize // 2 - x
-#         ygrid = ygrid - self.datasize // 2 - y
-#         r = np.sqrt(xgrid ** 2 + ygrid ** 2)
-#         if self.soft:
-#             im = 1 + self.radius - r
-#             im[r <= self.radius] = 1
-#             im[r > self.radius + 1] = 0
-#         else:
-#             im = r
-#             im[r <= self.radius] = 1
-#             im[r > self.radius] = 0
-
-#         # TODO: improve this with a better soft-edge function
-
-#         return im
-
-#     def get_image(self, dx, dy):
-#         """Get the circle with the given pixel shifts, dx and dy.
-
-#         Parameters
-#         ----------
-#         dx: float
-#             The shift in the x direction. Can be a fraction of a pixel.
-#         dy: float
-#             The shift in the y direction. Can be a fraction of a pixel.
-
-#         Returns
-#         -------
-#         im: np.ndarray
-#             The circle with the given shifts.
-#         """
-#         if not np.isfinite(dx):
-#             dx = 0
-#         if not np.isfinite(dy):
-#             dy = 0
-
-#         # Get the integer part of the shifts
-#         ix = int(np.floor(dx))
-#         iy = int(np.floor(dy))
-
-#         # Get the fractional part of the shifts
-#         fx = dx - ix
-#         fx = int(fx * self.oversampling)  # convert to oversampled pixels
-#         fy = dy - iy
-#         fy = int(fy * self.oversampling)  # convert to oversampled pixels
-
-#         # Get the circle
-#         im = self.datacube[(fx * self.oversampling + fy) % self.datacube.shape[0], :, :]
-
-#         # roll and crop the circle to the correct position
-#         im = np.roll(im, ix, axis=1)
-#         if ix >= 0:
-#             im[:, :ix] = 0
-#         else:
-#             im[:, ix:] = 0
-#         im = np.roll(im, iy, axis=0)
-#         if iy >= 0:
-#             im[:iy, :] = 0
-#         else:
-#             im[iy:, :] = 0
-
-#         if self.imsize != self.datasize:  # crop the image to the correct size
-#             im = im[
-#                 (self.datasize - self.imsize) // 2 : (self.datasize + self.imsize) // 2,
-#                 (self.datasize - self.imsize) // 2 : (self.datasize + self.imsize) // 2,
-#             ]
-
-#         return im
-
-
-# def iterative_cutouts_photometry(
-#         image, weight, flags, radii=[3.0, 5.0, 7.0], annulus=[7.5, 10.0], iterations=2, local_bg=True
-# ):
-#     """Perform aperture photometry on an image, at slowly updating positions, using a list of apertures.
-
-#     The "iterative" part means that it will use the starting positions but move the aperture centers
-#     around based on the centroid found using the last aperture.
-
-#     Parameters
-#     ----------
-#     image: np.ndarray
-#         The image to perform photometry on.
-#     weight: np.ndarray
-#         The weight map for the image.
-#     flags: np.ndarray
-#         The flags for the image.
-#     radii: list or 1D array
-#         The apertures to use for photometry.
-#         Must be a list of positive numbers.
-#         In units of pixels!
-#         Default is [3, 5, 7].
-#     annulus: list or 1D array
-#         The inner and outer radii of the annulus in pixels.
-#     iterations: int
-#         The number of repositioning iterations to perform.
-#         For each aperture, will measure and reposition the centroid
-#         this many times before moving on to the next aperture.
-#         After the final centroid is found, will measure the flux
-#         and second moments using the best centroid, over all apertures.
-#         Default is 2.
-#     local_bg: bool
-#         Toggle the use of a local background estimate.
-#         When True, will use the measured background in the annulus
-#         when calculating the centroids. If the background is really
-#         well subtracted before sending the cutout into this function,
-#         the results will be a little more accurate with this set to False.
-#         If the area in the annulus is very crowded,
-#         it's better to set this to False as well.
-#         Default is True.
-
-#     Returns
-#     -------
-#     photometry: dict
-#         A dictionary with the output of the photometry.
-
-#     """
-#     # Make sure the image is a 2D array
-#     if len(image.shape) != 2:
-#         raise ValueError("Image must be a 2D array")
-
-#     # Make sure the weight is a 2D array
-#     if len(weight.shape) != 2:
-#         raise ValueError("Weight must be a 2D array")
-
-#     # Make sure the flags is a 2D array
-#     if len(flags.shape) != 2:
-#         raise ValueError("Flags must be a 2D array")
-
-#     # Make sure the apertures are a list or 1D array
-#     radii = np.atleast_1d(radii)
-#     if not np.all(radii > 0):
-#         raise ValueError("Apertures must be positive numbers")
-
-#     # order the radii in descending order:
-#     radii = np.sort(radii)[::-1]
-
-#     xgrid, ygrid = np.meshgrid(np.arange(image.shape[1]), np.arange(image.shape[0]))
-#     xgrid -= image.shape[1] // 2
-#     ygrid -= image.shape[0] // 2
-
-#     nandata = np.where(flags > 0, np.nan, image)
-
-#     if np.all(nandata == 0 | np.isnan(nandata)):
-#         cx = cy = cxx = cyy = cxy = 0.0
-#         need_break = True  # skip the iterative mode if there's no data
-#     else:
-#         need_break = False
-#         # find a rough estimate of the centroid using an unmasked cutout
-#         if local_bg:
-#             bkg_estimate = np.nanmedian(nandata)
-#         else:
-#             bkg_estimate = 0.0
-
-#         denominator = np.nansum(nandata - bkg_estimate)
-#         # prevent division by zero and other rare cases
-#         epsilon = 0.01
-#         if denominator == 0:
-#             denominator = epsilon
-#         elif abs(denominator) < epsilon:
-#             denominator = epsilon * np.sign(denominator)
-
-#         cx = np.nansum(xgrid * (nandata - bkg_estimate)) / denominator
-#         cy = np.nansum(ygrid * (nandata - bkg_estimate)) / denominator
-#         cxx = np.nansum((xgrid - cx) ** 2 * (nandata - bkg_estimate)) / denominator
-#         cyy = np.nansum((ygrid - cy) ** 2 * (nandata - bkg_estimate)) / denominator
-#         cxy = np.nansum((xgrid - cx) * (ygrid - cy) * (nandata - bkg_estimate)) / denominator
-
-#     # get some very rough estimates just so we have something in case of immediate failure of the loop
-#     fluxes = [np.nansum(nandata - bkg_estimate)] * len(radii)
-#     areas = [float(np.nansum(~np.isnan(nandata)))] * len(radii)
-#     norms = [float(np.nansum(~np.isnan(nandata)))] * len(radii)
-
-#     background = 0.0
-#     variance = np.nanvar(nandata)
-
-#     photometry = dict(
-#         radii=radii,
-#         fluxes=fluxes,
-#         areas=areas,
-#         normalizations=norms,
-#         background=background,
-#         variance=variance,
-#         n_pix_bg=nandata.size,
-#         offset_x=cx,
-#         offset_y=cy,
-#         moment_xx=cxx,
-#         moment_yy=cyy,
-#         moment_xy=cxy,
-#     )
-
-#     if abs(cx) > nandata.shape[1] or abs(cy) > nandata.shape[0]:
-#         need_break = True  # skip iterations if the centroid measurement is outside the cutouts
-
-#     # in case any of the iterations fail, go back to the last centroid
-#     prev_cx = cx
-#     prev_cy = cy
-
-#     for j, r in enumerate(radii):  # go over radii in order (from large to small!)
-#         # short circuit if one of the measurements failed
-#         if need_break:
-#             break
-
-#         # for each radius, do 1-3 rounds of repositioning the centroid
-#         for i in range(iterations):
-#             flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, failure = calc_at_position(
-#                 nandata, r, annulus, xgrid, ygrid, cx, cy, local_bg=local_bg, full=False  # reposition only!
-#             )
-
-#             if failure:
-#                 need_break = True
-#                 cx = prev_cx
-#                 cy = prev_cy
-#                 break
-
-#             # keep this in case any of the iterations fail
-#             prev_cx = cx
-#             prev_cy = cy
-
-#     fluxes = np.full(len(radii), np.nan)
-#     areas = np.full(len(radii), np.nan)
-#     norms = np.full(len(radii), np.nan)
-
-#     # no more updating of the centroids!
-#     best_cx = cx
-#     best_cy = cy
-
-#     # go over each radius again and this time get all outputs (e.g., cxx) using the best centroid
-#     for j, r in enumerate(radii):
-#         flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, failure = calc_at_position(
-#             nandata,
-#             r,
-#             annulus,
-#             xgrid,
-#             ygrid,
-#             best_cx,
-#             best_cy,
-#             local_bg=local_bg,
-#             soft=True,
-#             full=True,
-#             fixed=True,
-#         )
-
-#         if failure:
-#             break
-
-#         fluxes[j] = flux
-#         areas[j] = area
-#         norms[j] = norm
-
-#     # update the output dictionary
-#     photometry['radii'] = radii[::-1]  # return radii and fluxes in increasing order
-#     photometry['fluxes'] = fluxes[::-1]  # return radii and fluxes in increasing order
-#     photometry['areas'] = areas[::-1]  # return radii and areas in increasing order
-#     photometry['background'] = background
-#     photometry['variance'] = variance
-#     photometry['n_pix_bg'] = n_pix_bg
-#     photometry['normalizations'] = norms[::-1]  # return radii and areas in increasing order
-#     photometry['offset_x'] = best_cx
-#     photometry['offset_y'] = best_cy
-#     photometry['moment_xx'] = cxx
-#     photometry['moment_yy'] = cyy
-#     photometry['moment_xy'] = cxy
-
-#     # calculate from 2nd moments the width, ratio and angle of the source
-#     # ref: https://en.wikipedia.org/wiki/Image_moment
-#     major = 2 * (cxx + cyy + np.sqrt((cxx - cyy) ** 2 + 4 * cxy ** 2))
-#     major = np.sqrt(major) if major > 0 else 0
-#     minor = 2 * (cxx + cyy - np.sqrt((cxx - cyy) ** 2 + 4 * cxy ** 2))
-#     minor = np.sqrt(minor) if minor > 0 else 0
-
-#     angle = np.arctan2(2 * cxy, cxx - cyy) / 2
-#     elongation = major / minor if minor > 0 else 0
-
-#     photometry['major'] = major
-#     photometry['minor'] = minor
-#     photometry['angle'] = angle
-#     photometry['elongation'] = elongation
-
-#     return photometry
-
-
-# def calc_at_position(data, radius, annulus, xgrid, ygrid, cx, cy, local_bg=True, soft=True, full=True, fixed=False):
-#     """Calculate the photometry at a given position.
-
-#     Parameters
-#     ----------
-#     data: np.ndarray
-#         The image to perform photometry on.
-#         Any bad pixels in the image are replaced by NaN.
-#     radius: float
-#         The radius of the aperture in pixels.
-#     annulus: list or 1D array
-#         The inner and outer radii of the annulus in pixels.
-#     xgrid: np.ndarray
-#         The x grid for the image.
-#     ygrid: np.ndarray
-#         The y grid for the image.
-#     cx: float
-#         The x position of the aperture center.
-#     cy: float
-#         The y position of the aperture center.
-#     local_bg: bool
-#         Toggle the use of a local background estimate.
-#         When True, will use the measured background in the annulus
-#         when calculating the centroids. If the background is really
-#         well subtracted before sending the cutout into this function,
-#         the results will be a little more accurate with this set to False.
-#         If the area in the annulus is very crowded,
-#         it's better to set this to False as well, though in that case
-#         you really want to have background-subtracted before sending
-#         data to this function.
-#         Default is True.
-#     soft: bool
-#         Toggle the use of a soft-edged aperture.
-#         Default is True.
-#     full: bool
-#         Toggle the calculation of the fluxes and second moments.
-#         If set to False, will only calculate the centroids.
-#         Default is True.
-#     fixed: bool
-#         If True, do not update the centroid position (assume it is fixed).
-#         Default is False.
-
-#     Returns
-#     -------
-#     flux: float
-#         The flux in the aperture.
-#     area: float
-#         The area of the aperture.
-#     background: float
-#         The background level.
-#     variance: float
-#         The variance of the background.
-#     n_pix_bg: float
-#         Number of pixels in the background annulus.
-#     norm: float
-#         The normalization factor for the flux error
-#         (this is the sqrt of the sum of squares of the aperture mask).
-#     cx: float
-#         The x position of the centroid.
-#     cy: float
-#         The y position of the centroid.
-#     cxx: float
-#         The second moment in x.
-#     cyy: float
-#         The second moment in y.
-#     cxy: float
-#         The cross moment.
-#     failure: bool
-#         A flag to indicate if the calculation failed.
-#         This means the centroid is outside the cutout,
-#         or the aperture is empty, or things like that.
-#         If True, it flags to the outer scope to stop
-#         the iterative process.
-#     """
-#     flux = area = background = variance = n_pix_bg = norm = cxx = cyy = cxy = 0
-#     if np.all(np.isnan(data)):
-#         return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
-
-#     # make a circle-mask based on the centroid position
-#     if not np.isfinite(cx) or not np.isfinite(cy):
-#         raise ValueError("Centroid is not finite, cannot proceed with photometry")
-
-#     # get a circular mask
-#     mask = get_circle(radius=radius, imsize=data.shape[0], soft=soft).get_image(cx, cy)
-#     if np.nansum(mask) == 0:
-#         return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
-
-#     masked_data = data * mask
-
-#     flux = np.nansum(masked_data)  # total flux, not per pixel!
-#     area = np.nansum(mask)  # save the number of pixels in the aperture
-
-#     # get an offset annulus to get a local background estimate
-#     if local_bg:
-#         inner = get_circle(radius=annulus[0], imsize=data.shape[0], soft=False).get_image(cx, cy)
-#         outer = get_circle(radius=annulus[1], imsize=data.shape[0], soft=False).get_image(cx, cy)
-#         annulus_map = outer - inner
-#         annulus_map[annulus_map == 0.] = np.nan  # flag pixels outside annulus as nan
-
-#         if np.nansum(annulus_map) == 0:  # this can happen if annulus is too large
-#             return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
-
-#         annulus_map_sum = np.nansum(annulus_map)
-#         if annulus_map_sum == 0 or np.all(np.isnan(annulus_map)):
-#             # this should only happen in tests or if the annulus is way too large or if all pixels are NaN
-#             background = 0
-#             variance = 0
-#             norm = 0
-#         else:
-#             # b/g mean and variance (per pixel)
-#             background, standard_dev = sigma_clipping(data * annulus_map, nsigma=5.0, median=True)
-#             variance = standard_dev ** 2
-#             norm = np.sqrt(np.nansum(mask ** 2))
-
-#         if local_bg:  # update these to use the local background
-#             denominator = (flux - background * area)
-#             masked_data_bgsub = (data - background) * mask
-
-#     else:
-#         denominator = flux
-#         masked_data_bgsub = masked_data
-#         annulus_map_sum = 0.
-#         background = np.nan
-#         variance = np.nan
-#         norm = np.sqrt( np.nansum( mask ** 2 ) )
-
-
-#     if denominator == 0:  # this should only happen in pathological cases
-#         return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
-
-#     if not fixed:  # update the centroids
-#         cx = np.nansum(xgrid * masked_data_bgsub) / denominator
-#         cy = np.nansum(ygrid * masked_data_bgsub) / denominator
-
-#         # check that we got reasonable values!
-#         if np.isnan(cx) or abs(cx) > data.shape[1] / 2 or np.isnan(cy) or abs(cy) > data.shape[0] / 2:
-#             return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, True
-
-#     if full:
-#         # update the second moments
-#         cxx = np.nansum((xgrid - cx) ** 2 * masked_data_bgsub) / denominator
-#         cyy = np.nansum((ygrid - cy) ** 2 * masked_data_bgsub) / denominator
-#         cxy = np.nansum((xgrid - cx) * (ygrid - cy) * masked_data_bgsub) / denominator
-
-#     n_pix_bg = annulus_map_sum
-#     return flux, area, background, variance, n_pix_bg, norm, cx, cy, cxx, cyy, cxy, False
-
-
-# if __name__ == '__main__':
-#     import matplotlib
-#     matplotlib.use('TkAgg')
-#     import matplotlib.pyplot as plt
-#     c = get_circle(radius=3.0)
-#     plt.imshow(c.get_image(0.0, 0.0))
-#     plt.show()
+    return measurements

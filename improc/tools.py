@@ -232,7 +232,8 @@ def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None, yes_i_know_my_
 
     fillvalue: float or int
         The value to fill the cutouts with if they are partially off the
-        edge of the data.  Default is np.nan, for floats, 0 for integers.
+        edge of the data.  Default is np.nan for floats, 0 for integers,
+        False for boolean.
 
     dtype: numpy datatype or None
         The datatype for the returned cutouts.  If None, will use the
@@ -258,12 +259,14 @@ def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None, yes_i_know_my_
     else:
         dtype = np.dtype( dtype )
 
-    if dtype.kind not in ( 'f', 'i', 'u' ):
-        raise TypeError( "make_cutouts: can only make float or integer cutouts" )
+    if dtype.kind not in ( 'f', 'i', 'u', 'b' ):
+        raise TypeError( "make_cutouts: can only make float, integer, or boolean cutouts" )
 
     if fillvalue is None:
         if dtype.kind == 'f':
             fillvalue = np.nan
+        elif dtype.kind == 'b':
+            fillvalue = False
         else:
             fillvalue = 0
 

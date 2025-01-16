@@ -383,40 +383,33 @@ cutting:
 # as well as making analytical cuts.
 #
 # See pipeline/measuring.py for definition of the parameters
-#
-# NOTES:
-#   With decam, filter_bank=1 with width_filter_multipliers=[0.25, 2.0,
-#      5.0, 10.0] was too severe a cut, it was throwing out good
-#      candidates.  Setting filter_bank=2 so that it won't throw things
-#      out based on a high correlation with a small gaussian.
-#      (This is going to be bad for undersampled data, anyway.)
-#   annulus background is broken.  Don't use it.  See Issue #396, #398.
 
 measuring:
-  annulus_radii: [10, 15]
-  annulus_units: pixels
-  use_annulus_background: false
-  analytical_cuts: ['negatives', 'bad pixels', 'offsets', 'filter bank']
-  negatives_radius: 3.
-  negatives_radius_units: fwhm
-  outlier_sigma: 3.0
-  abs_n_negatives_threshold: 3
-  rel_n_negatives_threshold: 0.005
-  bad_pixel_radius: 3.0
-  bad_pixel_exclude: []
-  streak_filter_angle_step: 5.0
-  width_filter_multipliers: [0.25, 2.0, 5.0, 10.0]
-  association_radius: 2.0
-  thresholds:
-    negatives: 0.3
-    bad pixels: 1
-    offsets: 5.0
-    filter bank: 2
+  annulus_radii: [ 4., 5. ]
+  annulus_units: fwhm
+  use_annulus_bg_on_sub: False
+  diag_box_halfsize: 2.
+  diag_box_halfsize_unit: fwhm
+  negatives_n_sigma_outlier: 2.
+  bad_thresholds:
+    detection_dist: 5.
+    centroid_dist: 5.
+    elongation: 3.
+    width_ratio: 2.
+    nbadpix: 1
+    negfrac: 0.5
+    negfluxfrac: 0.5
   deletion_thresholds:
-    negatives: 0.3
-    bad pixels: 1
-    offsets: 5.0
-    filter bank: 2
+    detection_dist: 5.
+    centroid_dist: 5.
+    elongation: 3.
+    width_ratio: 2.
+    nbadpix: 1
+    negfrac: 0.5
+    negfluxfrac: 0.5
+  association_radius: 2.0
+  do_not_associate: False
+
 
 # ======================================================================
 # Scoring

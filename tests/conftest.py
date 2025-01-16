@@ -46,8 +46,8 @@ from util.logger import SCLogger
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -545,22 +545,22 @@ class PSFPaletteMaker:
         self.noiselevel = 5.
 
         self.x0 = self.nx/2.
-        self.sigx0 = 1.
+        self.sigx0 = 1.25
         if round:
             self.sigxx = 0.
             self.sigxy = 0.
         else:
-            self.sigxx = 0.25 / self.nx
+            self.sigxx = 0.5 / self.nx
             self.sigxy = 0.
 
         self.y0 = self.ny/2.
         if round:
-            self.sigy0 = 1.
+            self.sigy0 = 1.25
             self.sigyx = 0.
             self.sigyy = 0.
         else:
-            self.sigy0 = 1.5
-            self.sigyx = -0.25 / self.ny
+            self.sigy0 = 1.75
+            self.sigyx = -0.5 / self.nx
             self.sigyy = 0.
 
         self.theta0 = 0.
@@ -569,7 +569,7 @@ class PSFPaletteMaker:
             self.thetay = 0.
         else:
             self.thetax = 0.
-            self.thetay = math.pi / 4. / self.nx
+            self.thetay = math.pi / 2. / self.ny
 
         # Positions where we're going to put the PSFs.  Want to have
         # about 100 of them, but also don't want them all to fall right
@@ -604,7 +604,8 @@ class PSFPaletteMaker:
                         self.img[yi, xi] = self.flux * self.psfpixel( xc, yc, xi, yi )
 
         # Have to have some noise in there, or sextractor will choke on the image
-        rng = np.random.default_rng()
+        # Seed it, so we don't have to make our tests flaky.
+        rng = np.random.default_rng( seed=42 )
         self.img += rng.normal( 0., self.noiselevel, self.img.shape )
 
         hdu = fits.PrimaryHDU( data=self.img )

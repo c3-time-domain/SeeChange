@@ -106,7 +106,10 @@ class Inpainter:
 
         # replace bad pixels (those with flags not marked "ignored") with NaNs
         self.images_nan = self.images_cube.copy()
-        self.images_nan[self.flags_cube & (~self.pars.ignore_flags) != 0] = np.nan
+        # Play games with types to avoid integer overflow
+        # (python ~0 is -1, but if flags_cube is a uint, there will be problems.)
+        ignore_flags = self.flags_cube.dtype.type( self.pars.ignore_flags )
+        self.images_nan[self.flags_cube & (~ignore_flags) != 0] = np.nan
 
     def inpaint_cube(self):
         """Interpolate on the images in the data cube by using the average of all images.
