@@ -12,7 +12,7 @@ import photutils.morphology
 
 from improc.photometry import photometry_and_diagnostics
 
-from models.base import SmartSession
+from models.base import SmartSession, Psycopg2Connection
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.enums_and_bitflags import BitFlagConverter, BadnessConverter
@@ -269,12 +269,17 @@ class Measurer:
                     m.cutouts_id = cutouts.id
                     m.index_in_sources = i
                     m.provenance_id = prov.id
+                    sc = new_wcs.wcs.pixel_to_world( m.x, m.y )
+                    m.ra = sc.ra.deg
+                    m.dec = sc.dec.deg
+                    m.calculate_coordinates()
 
                 ds.all_measurements = all_measurements
 
                 # Threshold cutting
                 SCLogger.debug( f"Doing threshold cuts on {len(all_measurements)} measurements..." )
                 measurements = []
+                _2sqrt2ln2 = 2.35482
                 for m in all_measurements:
                     is_bad = False
                     keep = True
@@ -299,14 +304,23 @@ class Measurer:
 
                     # Ratio of width to psf
                     if ( badthresh['width_ratio'] is not None ) and ( delthresh['width_ratio'] is not None ):
-                        rat = m.width / sub_psf.fwhm_pixels
-                        if ( badthresh['width_ratio'] is not None ) and ( rat > badthresh['width_ratio'] ):
+                        width = _2sqrt2ln2 * ( m.major_width + m.minor_width ) / 2.
+                        rat = width / sub_psf.fwhm_pixels
+                        if ( badthresh['width_ratio'] is not None ) and ( rat >= badthresh['width_ratio'] ):
                             is_bad = True
-                        if ( delthresh['width_ratio'] is not None ) and ( rat > delthresh['width_ratio'] ):
+                        if ( delthresh['width_ratio'] is not None ) and ( rat >= delthresh['width_ratio'] ):
+                            keep = False
+
+                    # Elongation
+                    if ( badthresh['elongation'] is not None ) and ( delthresh['elongation'] is not None ):
+                        elongation = 1e32 if m.minor_width <= 0. else m.major_width / m.minor_width
+                        if ( badthresh['elongation'] is not None ) and ( elongation >= badthresh['elongation'] ):
+                            is_bad = True
+                        if ( delthresh['elongation'] is not None ) and ( elongation >= delthresh['elongation'] ):
                             keep = False
 
                     # The rest can be done in a simple loop:
-                    for prop in [ 'elongation', 'nbadpix','negfrac', 'negfluxfrac' ]:
+                    for prop in [ 'nbadpix','negfrac', 'negfluxfrac' ]:
                         if ( badthresh[prop] is not None ) and ( getattr( m, prop ) >= badthresh[prop] ):
                             is_bad = True
                         if ( delthresh[prop] is not None ) and ( getattr( m, prop ) >= delthresh[prop] ):
@@ -315,6 +329,12 @@ class Measurer:
                     m.is_bad = is_bad
                     if keep:
                         measurements.append( m )
+
+                # Associate objects with measurements that passed deletion thresholds
+                if not self.pars.do_not_associate:
+                    with Psycopg2Connection() as conn:
+                        for m in measurements:
+                            m.associate_object( radius=self.pars.association_radius, connection=conn )
 
                 ds.measurements = measurements
 

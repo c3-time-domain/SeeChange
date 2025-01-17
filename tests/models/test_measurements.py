@@ -12,12 +12,14 @@ from models.measurements import Measurements
 from pipeline.data_store import DataStore
 
 
-def test_measurements_attributes(measurer, ptf_datastore, test_config):
+# ROB!  You put the "user" prefix infor testing, remember to remove it before merging to main
+def test_measurements_attributes(measurer, ptf_datastore, test_config, user):
     ds = ptf_datastore
 
     aper_radii = test_config.value('extraction.sources.apertures')
     ds.measurements = None
     ds = measurer.run( ds )
+    import pdb; pdb.set_trace()
     # check that the measurer actually loaded the measurements from db, and not recalculated
     # TODO -- testing that should be in pipeline/test_measuring.py.  We should just use
     #   here what the fixture gave us

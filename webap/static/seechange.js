@@ -475,7 +475,10 @@ seechange.ExposureList = class
                                                self.show_exposure( exps["id"][i],
                                                                    exps["name"][i],
                                                                    exps["mjd"][i],
+                                                                   exps["airmass"][i],
                                                                    exps["filter"][i],
+                                                                   exps["seeingavg"][i],
+                                                                   exps["limmagavg"][i],
                                                                    exps["target"][i],
                                                                    exps["project"][i],
                                                                    exps["exp_time"][i] );
@@ -499,7 +502,7 @@ seechange.ExposureList = class
     };
 
 
-    show_exposure( id, name, mjd, filter, target, project, exp_time )
+    show_exposure( id, name, mjd, airmass, filter, seeingavg, limmagavg, target, project, exp_time )
     {
         let self = this;
 
@@ -515,7 +518,8 @@ seechange.ExposureList = class
             this.context.connector.sendHttpRequest( "exposure_images/" + id + "/" + this.provtag,
                                                     null,
                                                     (data) => {
-                                                        self.actually_show_exposure( id, name, mjd, filter,
+                                                        self.actually_show_exposure( id, name, mjd, airmass,
+                                                                                     filter, seeingavg, limmagavg,
                                                                                      target, project,
                                                                                      exp_time, data );
                                                     } );
@@ -523,10 +527,11 @@ seechange.ExposureList = class
     };
 
 
-    actually_show_exposure( id, name, mjd, filter, target, project, exp_time, data )
+    actually_show_exposure( id, name, mjd, airmass, filter, seeingavg, limmagavg, target, project, exp_time, data )
     {
         let exp = new seechange.Exposure( this, this.context, this.exposurediv,
-                                          id, name, mjd, filter, target, project, exp_time, data );
+                                          id, name, mjd, airmass, filter, seeingavg, limmagavg,
+                                          target, project, exp_time, data );
         this.exposure_displays[id] = exp;
         exp.render_page();
     };
@@ -540,7 +545,8 @@ seechange.ExposureList = class
 
 seechange.Exposure = class
 {
-    constructor( exposurelist, context, parentdiv, id, name, mjd, filter, target, project, exp_time, data )
+    constructor( exposurelist, context, parentdiv, id, name, mjd, airmass, filter, seeingavg, limmagavg,
+                 target, project, exp_time, data )
     {
         this.exposurelist = exposurelist;
         this.context = context;
@@ -548,7 +554,10 @@ seechange.Exposure = class
         this.id = id;
         this.name = name;
         this.mjd = mjd;
+        this.airmass = airmass;
         this.filter = filter;
+        this.seeingavg = seeingavg;
+        this.limmagavg = limmagavg;
         this.target = target;
         this.project = project;
         this.exp_time = exp_time;
@@ -627,6 +636,12 @@ seechange.Exposure = class
         li.innerHTML = "<b>filter:</b> " + this.filter;
         li = rkWebUtil.elemaker( "li", ul );
         li.innerHTML = "<b>t_exp (s):</b> " + this.exp_time;
+        li = rkWebUtil.elemaker( "li", ul );
+        li.innerHTML = "<b>airmass:</b> " + this.airmass;
+        li = rkWebUtil.elemaker( "li", ul );
+        li.innerHTML = "<b>avg. seeing (¨):</b> " + this.seeingavg;
+        li = rkWebUtil.elemaker( "li", ul );
+        li.innerHTML = "<b>avg. 5σ lim mag:</b> " + this.limmagavg;
 
         this.tabs = new rkWebUtil.Tabbed( this.div );
 
@@ -915,11 +930,16 @@ seechange.Exposure = class
             td.appendChild( document.createTextNode( data.cutouts.source_index[i] + "  " ) );
             span = rkWebUtil.elemaker( "b", td, { "text": ( data.cutouts.is_bad[i] ?
                                                             "fails cuts" : "passes cuts" ) } );
-            if ( data.cutouts.scores[i] != null ) {
-                span.classList.add( "tooltipcolorlesssource" );
-                ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
-                ttspan.innerHTML = "<pre>" + JSON.stringify( data.cutouts.scores[i], null, 2 ) + "</pre>";
-            }
+            span.classList.add( "tooltipcolorlesssource" );
+            ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+            ttspan.innerHTML = ( "<p>major_width: " + seechange.nullorfixed( data.cutouts.major_width[i], 2 ) + "<br>" +
+                                 "minor_width: " + seechange.nullorfixed( data.cutouts.minor_width[i], 2 ) + "<br>" +
+                                 "nbadpix: " + data.cutouts.nbadpix[i] + "<br>" +
+                                 "negfrac: " + data.cutouts.negfrac[i] + "<br>" +
+                                 "negfluxfrac: " + data.cutouts.negfluxfrac[i] + "<br>" +
+                                 "centroid: " + seechange.nullorfixed( data.cutouts['xcentroid'][i], 2 )
+                                 + " , " + seechange.nullorfixed( data.cutouts['ycentroid'][i], 2 ) +
+                                 "</p>" )
             span.classList.add( data.cutouts.is_bad[i] ? "bad" : "good" );
             rkWebUtil.elemaker( "br", td );
             // row: ra/dec
@@ -933,17 +953,17 @@ seechange.Exposure = class
             // row: x, y from cutouts; this is where it was originally detected.
             rkWebUtil.elemaker( "b", td, { "text": "det. (x, y): " } );
             td.appendChild( document.createTextNode( "(" +
-                                                     seechange.nullorfixed( data.cutouts['x'][i], 2 )
+                                                     seechange.nullorfixed( data.cutouts['cutout_x'][i], 2 )
                                                      + " , " +
-                                                     seechange.nullorfixed( data.cutouts['y'][i], 2 )
+                                                     seechange.nullorfixed( data.cutouts['cutout_y'][i], 2 )
                                                      + ")" ) );
             rkWebUtil.elemaker( "br", td );
             // row: x, y from measurement table.
             rkWebUtil.elemaker( "b", td, { "text": "meas. (x, y): " } );
             td.appendChild( document.createTextNode( "(" +
-                                                     seechange.nullorfixed( data.cutouts['meas_x'][i], 2 )
+                                                     seechange.nullorfixed( data.cutouts['x'][i], 2 )
                                                      + " , " +
-                                                     seechange.nullorfixed( data.cutouts['meas_y'][i], 2 )
+                                                     seechange.nullorfixed( data.cutouts['y'][i], 2 )
                                                      + ")" ) );
             rkWebUtil.elemaker( "br", td );
             // row: flux

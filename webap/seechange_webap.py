@@ -270,8 +270,10 @@ class Exposures( BaseView ):
         #  user....  perhaps we should disable it?
         subdict = {}
         if data['provenancetag'] is None:
-            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e.project, e._filter, e.filter_array, e.exp_time, '
-                  '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.airmass, e.target, e.project, '
+                  '       e._filter, e.filter_array, e.exp_time, '
+                  '       i._id AS imgid, i.fwhm_estimate as fwhm_estimate, i.lim_mag_estimate as lim_mag_estimate, '
+                  '       s._id AS subid, sl._id AS slid, sl.num_sources, '
                   '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
                   'FROM exposures e '
@@ -283,13 +285,15 @@ class Exposures( BaseView ):
                   'GROUP BY e._id, i._id, s._id, sl._id '
                  )
         else:
-            q = ( 'SELECT e._id, e.filepath, e.mjd, e.target, e._filter, e.project, e.filter_array, e.exp_time, '
-                  '       i._id AS imgid, s._id AS subid, sl._id AS slid, sl.num_sources, '
+            q = ( 'SELECT e._id, e.filepath, e.mjd, e.airmass, e.target, e._filter, e.project, '
+                  '       e.filter_array, e.exp_time, '
+                  '       i._id AS imgid, i.fwhm_estimate as fwhm_estimate, i.lim_mag_estimate as lim_mag_estimate, '
+                  '       s._id AS subid, sl._id AS slid, sl.num_sources, '
                   '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
                   'FROM exposures e '
                   'LEFT JOIN ( '
-                  '  SELECT im._id, im.exposure_id FROM images im '
+                  '  SELECT im._id, im.exposure_id, im.fwhm_estimate, im.lim_mag_estimate FROM images im '
                   '  INNER JOIN provenance_tags impt ON impt.provenance_id=im.provenance_id '
                   '                                  AND impt.tag=%(provtag)s '
                   ') i ON i.exposure_id=e._id '
@@ -332,27 +336,28 @@ class Exposures( BaseView ):
                 subdict['t1'] = t1
                 _and = 'AND '
 
-        q += 'GROUP BY e._id, i._id, s._id, sl._id, sl.num_sources '
+        q += 'GROUP BY e._id, i._id, i.fwhm_estimate, i.lim_mag_estimate, s._id, sl._id, sl.num_sources '
 
         cursor.execute( q, subdict )
 
         # Now run a second query to count and sum those things
         # These numbers will be wrong (double-counts) if not filtering on a provenance tag, or if the
         #   provenance tag includes multiple provenances for a given step!
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
+              '  AVG(t.fwhm_estimate) AS seeingavg, AVG(t.lim_mag_estimate) AS limmagavg, '
               '  COUNT(t.subid) AS num_subs, SUM(t.num_sources) AS num_sources, '
               '  SUM(t.num_measurements) AS num_measurements '
               'INTO TEMP TABLE temp_imgs_2 '
               'FROM temp_imgs t '
-              'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time '
+              'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time'
              )
 
         cursor.execute( q )
 
         # Run a third query to count reports
         subdict = {}
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
-              '  t.num_subs, t.num_sources, t.num_measurements, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
+              '  t.seeingavg, t.limmagavg, t.num_subs, t.num_sources, t.num_measurements, '
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
               'FROM temp_imgs_2 t '
@@ -370,8 +375,8 @@ class Exposures( BaseView ):
             subdict['provtag'] = data['provenancetag']
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.
-        q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
-               '  t.num_subs, t.num_sources, t.num_measurements ' )
+        q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, '
+               '  t.exp_time, t.seeingavg, t.limmagavg, t.num_subs, t.num_sources, t.num_measurements ' )
 
         cursor.execute( q, subdict  )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
@@ -379,10 +384,13 @@ class Exposures( BaseView ):
         ids = []
         name = []
         mjd = []
+        airmass = []
         target = []
         project = []
         filtername = []
         exp_time = []
+        seeingavg = []
+        limmagavg = []
         n_subs = []
         n_sources = []
         n_measurements = []
@@ -398,12 +406,15 @@ class Exposures( BaseView ):
             else:
                 name.append( match.group(1) )
             mjd.append( row[columns['mjd']] )
+            airmass.append( row[columns['airmass']] )
             target.append( row[columns['target']] )
             project.append( row[columns['project']] )
             app.logger.debug( f"filter={row[columns['_filter']]} type {row[columns['_filter']]}; "
                               f"filter_array={row[columns['filter_array']]} type {row[columns['filter_array']]}" )
             filtername.append( row[columns['_filter']] )
             exp_time.append( row[columns['exp_time']] )
+            seeingavg.append( row[columns['seeingavg']] )
+            limmagavg.append( row[columns['limmagavg']] )
             n_subs.append( row[columns['num_subs']] )
             n_sources.append( row[columns['num_sources']] )
             n_measurements.append( row[columns['num_measurements']] )
@@ -419,10 +430,13 @@ class Exposures( BaseView ):
                      'id': ids,
                      'name': name,
                      'mjd': mjd,
+                     'airmass': airmass,
                      'project': project,
                      'target': target,
                      'filter': filtername,
                      'exp_time': exp_time,
+                     'seeingavg': seeingavg,
+                     'limmagavg': limmagavg,
                      'n_subs': n_subs,
                      'n_sources': n_sources,
                      'n_measurements': n_measurements,
@@ -672,8 +686,9 @@ class PngCutoutsForSubImage( BaseView ):
         app.logger.debug( f"Getting measurements for {len(subids)} sub images" )
         q = ( 'SELECT m.ra AS measra, m.dec AS measdec, m.index_in_sources, m.best_aperture, '
               '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, m.is_fake, '
-              '       m.score, m._algorithm, m.center_x_pixel, m.center_y_pixel, m.offset_x, m.offset_y, '
-              '       m.disqualifier_scores,s._id AS subid, s.section_id '
+              '       m.score, m._algorithm, m.center_x_pixel, m.center_y_pixel, m.x, m.y, m.centroid_x, m.centroid_y, '
+              '       m.major_width, m.minor_width, m.position_angle, m.nbadpix, m.negfrac, m.negfluxfrac, '
+              '       s._id AS subid, s.section_id '
               'FROM cutouts c '
               'INNER JOIN provenance_tags cpt ON cpt.provenance_id=c.provenance_id AND cpt.tag=%(provtag)s '
               'INNER JOIN source_lists sl ON c.sources_id=sl._id '
@@ -683,8 +698,9 @@ class PngCutoutsForSubImage( BaseView ):
               '           meas.best_aperture, meas.flux_apertures[meas.best_aperture+1] AS flux, '
               '           meas.flux_apertures_err[meas.best_aperture+1] AS dflux, '
               '           meas.flux_psf AS psfflux, meas.flux_psf_err AS dpsfflux, '
-              '           meas.center_x_pixel, meas.center_y_pixel, meas.offset_x, meas.offset_y, '
-              '           meas.disqualifier_scores, '
+              '           meas.center_x_pixel, meas.center_y_pixel, meas.x, meas.y, meas.centroid_x, meas.centroid_y, '
+              '           meas.major_width, meas.minor_width, meas.position_angle, '
+              '           meas.nbadpix, meas.negfrac, meas.negfluxfrac, '
               '           obj.name, obj.is_test, obj.is_fake, score.score, score._algorithm '
               '    FROM measurements meas '
               '    INNER JOIN provenance_tags mpt ON meas.provenance_id=mpt.provenance_id AND mpt.tag=%(provtag)s '
@@ -733,11 +749,17 @@ class PngCutoutsForSubImage( BaseView ):
                        'objname': [],
                        'is_test': [],
                        'is_fake': [],
+                       'cutout_x': [],
+                       'cutout_y': [],
                        'x': [],
                        'y': [],
-                       'scores': [],
-                       'meas_x': [],
-                       'meas_y': [],
+                       'xcentroid': [],
+                       'ycentroid': [],
+                       'major_width': [],
+                       'minor_width': [],
+                       'nbadpix': [],
+                       'negfrac': [],
+                       'negfluxfrac': [],
                        'w': [],
                        'h': [],
                        'new_png': [],
@@ -808,13 +830,19 @@ class PngCutoutsForSubImage( BaseView ):
             retval['cutouts']['sub_png'].append( base64.b64encode( subim.getvalue() ).decode('ascii') )
             retval['cutouts']['w'].append( scalednew.shape[0] )
             retval['cutouts']['h'].append( scalednew.shape[1] )
-            retval['cutouts']['x'].append( grp.attrs['new_x'] )
-            retval['cutouts']['y'].append( grp.attrs['new_y'] )
+            retval['cutouts']['cutout_x'].append( grp.attrs['new_x'] )
+            retval['cutouts']['cutout_y'].append( grp.attrs['new_y'] )
 
             if row is None:
-                retval['cutouts']['scores'].append( None )
-                retval['cutouts']['meas_x'].append( None )
-                retval['cutouts']['meas_y'].append( None )
+                retval['cutouts']['x'].append( None )
+                retval['cutouts']['y'].append( None )
+                retval['cutouts']['xcentroid'].append( None )
+                retval['cutouts']['ycentroid'].append( None )
+                retval['cutouts']['major_width'].append( None )
+                retval['cutouts']['minor_width'].append( None )
+                retval['cutouts']['nbadpix'].append( None )
+                retval['cutouts']['negfrac'].append( None )
+                retval['cutouts']['negfluxfrac'].append( None )
                 retval['cutouts']['rb'].append( None )
                 retval['cutouts']['rbcut'].append( None )
                 retval['cutouts']['is_bad'].append( True )
@@ -825,9 +853,15 @@ class PngCutoutsForSubImage( BaseView ):
                 dflux = None
                 aperrad= 0.
             else:
-                retval['cutouts']['scores'].append( row[cols['disqualifier_scores']] )
-                retval['cutouts']['meas_x'].append( row[cols['center_x_pixel']] + row[cols['offset_x']] )
-                retval['cutouts']['meas_y'].append( row[cols['center_y_pixel']] + row[cols['offset_y']] )
+                retval['cutouts']['x'].append( row[cols['x']] )
+                retval['cutouts']['y'].append( row[cols['y']] )
+                retval['cutouts']['xcentroid'].append( row[cols['centroid_x']] )
+                retval['cutouts']['ycentroid'].append( row[cols['centroid_y']] )
+                retval['cutouts']['major_width'].append( row[cols['major_width']] )
+                retval['cutouts']['minor_width'].append( row[cols['minor_width']] )
+                retval['cutouts']['nbadpix'].append( row[cols['nbadpix']] )
+                retval['cutouts']['negfrac'].append( row[cols['negfrac']] )
+                retval['cutouts']['negfluxfrac'].append( row[cols['negfluxfrac']] )
                 retval['cutouts']['rb'].append( row[cols['score']] )
                 retval['cutouts']['rbcut'].append( None if row[cols['_algorithm']] is None
                                                    else DeepScore.get_rb_cut( row[cols['_algorithm']] ) )

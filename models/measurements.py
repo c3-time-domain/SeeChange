@@ -1,3 +1,5 @@
+import uuid
+
 import numpy as np
 
 import sqlalchemy as sa
@@ -6,7 +8,14 @@ from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.ext.declarative import declared_attr
 
-from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness
+from util.util import asUUID
+from models.base import ( Base,
+                          SeeChangeBase,
+                          UUIDMixin,
+                          SpatiallyIndexed,
+                          HasBitFlagBadness,
+                          SmartSession,
+                          Psycopg2Connection )
 from models.provenance import Provenance, provenance_self_association_table
 from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
@@ -133,41 +142,39 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         doc="y pixel coordinate on the subtraction image of the fit psf profile"
     )
 
-    centroid_x = sa.Column(
+    gfit_x = sa.Column(
         sa.REAL,
         nullable=False,
-        doc=( "Centroid x of the sub cutout.  Get the centroid on the sub image by adding "
-              "center_x_pixel - (cutout_width) // 2... I think" )
+        doc="Position of a gaussian fit to the cutout."
     )
 
-    centroid_y = sa.Column(
+    gfit_y = sa.Column(
         sa.REAL,
         nullable=False,
-        doc=( "Centroid y of the sub cutout.  Get the centroid on the sub image by adding "
-              "center_y_pixel - (cutout_width) // 2... I think" )
+        doc="Position of a gaussian fit to the cutout."
     )
 
-    width = sa.Column(
+    major_width = sa.Column(
         sa.REAL,
         nullable=False,
         index=True,
-        doc="Width (FWHM for a Gaussian) of the source in the cutout. "
-            "Calculated from the average of the 2nd moments of the distribution of counts in the aperture. "
+        doc=( "Major axis width of the source in the cutout. "
+              "Calculated as the FWHM of a Gaussian fit." )
     )
 
-    elongation = sa.Column(
+    minor_width = sa.Column(
         sa.REAL,
         nullable=False,
-        doc="Elongation of the source in the cutout. "
-            "Given by the ratio of the 2nd moments of the distribution of counts in the aperture. "
-            "Values close to 1 indicate a round source, while values bigger values indicate an elongated source. "
+        index=True,
+        doc=( "Minor axis width of the source in the cutout. "
+              "Calculated as the FWHM of a Gaussian fit." )
     )
 
     position_angle = sa.Column(
         sa.REAL,
         nullable=False,
         doc="Position angle of the source in the cutout. "
-            "Defined as relative to the x-axis, between -pi/2 and pi/2."
+            "Defined as relative to the x-axis, between -pi/2 and pi/2.  From Gaussian fit."
     )
 
     # Futher diagnostics are nullable, as we may add diagnostics, and the existing
@@ -531,20 +538,23 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             setattr( self, f"_{att}", co_data_dict.get(att) )
 
 
-    def associate_object(self, radius, is_testing=False, session=None):
+    def associate_object(self, radius, is_testing=False, is_fake=False, connection=None):
         """Find or create a new object and associate it with this measurement.
 
         If no Object is found, a new one is created and saved to the
         database. Its coordinates will be identical to those of this
         Measurements object.
 
-        This should only be done for measurements that have passed deletion_threshold
-        preliminary cuts, which mostly rules out obvious artefacts. However, measurements
-        which passed the deletion_threshold cuts but failed the threshold cuts should still
-        be allowed to use this method - in this case, they will create an object with
-        attribute is_bad set to True so they are available to review in the db.
-
-        TODO -- this is not the right behavior.  See Issue #345.
+        This should only be done for measurements that have passed
+        deletion_threshold preliminary cuts, which mostly rules out
+        obvious artifacts.  Measurements which do pass those thresholds
+        and are saved still do get an object associated with them.  Good
+        objects will eventually have a mix of "good" and "bad"
+        measurements assocated with them, as there will be some low S/N
+        detections that will randomly not pass some of the thresholds.
+        (If the "bad" and "deletion" thresholds are the same, then no
+        is_bad measurements will get saved to the database in the first
+        place.)
 
         Parameters
         ----------
@@ -557,42 +567,61 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             Set to True if the provenance of the measurement is a
             testing provenance.
 
+          is_fake: bool, default False
+            Set to True if this is a measurement of a fake.
+
+          connection: psycopg2 connection or None
+
         """
         from models.object import Object  # avoid circular import
 
-        with SmartSession(session) as sess:
+        obj = None
+        with Psycopg2Connection( connection ) as conn:
             try:
-                # Avoid race condition of two processes saving a measurement of
-                # the same new object at once.
-                self._get_table_lock( sess, 'objects' )
-                obj = sess.scalars(sa.select(Object).where(
-                    Object.cone_search( self.ra, self.dec, radius, radunit='arcsec' ),
-                    Object.is_test.is_(is_testing),  # keep testing sources separate
-                    Object.is_bad.is_(self.is_bad),    # keep good objects with good measurements
-                )).first()
-
-                if obj is None:  # no object exists, make one based on these measurements
-                    obj = Object(
-                        ra=self.ra,
-                        dec=self.dec,
-                        is_bad=self.is_bad
-                    )
-                    obj.is_test = is_testing
-
+                cursor = conn.cursor()
+                # Avoid race condition of two processes trying to
+                #   create the same object at once.
+                cursor.execute( "LOCK TABLE objects" )
+                cursor.execute( ( "SELECT _id, name, ra, dec, is_test, is_fake, is_bad FROM objects WHERE "
+                                  "q3c_radial_query( ra, dec, %(ra)s, %(dec)s, %(radius)s ) "
+                                  "AND is_fake=%(fake)s" ),
+                                { 'ra': self.ra, 'dec': self.dec, 'radius': radius/3600., 'fake': is_fake } )
+                rows = cursor.fetchall()
+                if len(rows) == 0:
+                    objid = uuid.uuid4()
                     # TODO -- need a way to generate object names.  The way we were
                     #   doing it before no longer works since it depended on numeric IDs.
                     # (Issue #347)
-                    obj.name = str( obj.id )[-12:]
+                    objname = str( objid )[-12:]
+                    cursor.execute( ( "INSERT INTO objects(_id,ra,dec,name,is_test,is_fake,is_bad) "
+                                      "VALUES(%(id)s, %(ra)s, %(dec)s, %(name)s, %(testing)s, FALSE, FALSE)" ),
+                                    { 'id': objid, 'name': objname, 'ra': self.ra, 'dec': self.dec,
+                                      'testing': is_testing } )
+                    conn.commit()
+                    obj = Object( _id=objid,
+                                  name=objname,
+                                  ra=self.ra,
+                                  dec=self.dec,
+                                  is_test=is_testing,
+                                  is_fake=is_fake,
+                                  is_bad=False )
+                else:
+                    obj = Object( _id=asUUID(rows[0][0]),
+                                  name=rows[0][1],
+                                  ra=rows[0][2],
+                                  dec=rows[0][3],
+                                  is_test=rows[0][4],
+                                  is_fake=rows[0][5],
+                                  is_bad=rows[0][6] )
 
-                    # SCLogger.debug( "Measurements.associate_object calling Object.insert (which will commit)" )
-                    obj.insert( session=sess )
-
-                self.object_id = obj.id
             finally:
-                # Assure that lock is released
-                # SCLogger.debug( "Measurements.associate_object rolling back" )
-                sess.rollback()
+                conn.rollback()
 
+        if obj is None:
+            raise RuntimeError( "This should never happen." )
+
+        self.object_id = obj.id
+        return obj
 
     def _get_inverse_badness(self):
         return measurements_badness_inverse

@@ -52,7 +52,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         sa.Boolean,
         nullable=False,
         index=True,
-        doc='Boolean flag to indicate if the object is associated with measurements marked "bad". '
+        doc='Boolean flag to indicate object is bad; only will ever be set manually.'
     )
 
 

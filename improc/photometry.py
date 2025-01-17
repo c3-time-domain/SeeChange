@@ -4,6 +4,7 @@ import photutils.background
 import photutils.psf
 import photutils.aperture
 
+import astropy.modeling.fitting
 from astropy.table import QTable
 
 from improc.tools import make_cutouts
@@ -86,9 +87,10 @@ def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
         "measurements" parameters was passed with the right fields
         pre-filled, they are not yet in a state to be saved to the
         database.  They need to have cutouts_id, index_in_sources,
-        best_aperture, provenance_id must be filled before they can be
-        saved to the database, in addition to parameters that are filled
-        by a call to diagnostics().
+        best_aperture, provenance_id, ra, dec, gallat, gallon, ecllat,
+        ecllon all filled before they can be saved to the database, in
+        addition to parameters that are filled by a call to
+        diagnostics().
 
       cutouts : a dictionary with keys "image", "noise", "mask"
         Only returned if parameter return_cutouts is True.  The value of
@@ -151,6 +153,7 @@ def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
     #   It would be effort to write it.
 
     SCLogger.debug( "Doing psf photometry...." )
+
     measurements = []
     for i, pos in enumerate( positions ):
         photor = photutils.psf.PSFPhotometry(
@@ -236,22 +239,30 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
        centroid_x, centroid_y : the centroid (first moment along each
          axis) of the flux distribution on the cutout.
 
-       width : An estimate of the FWHM of the distribution of flux on
-         the cutout.  In reality, two values σ_maj and σ_min are
-         calculated from the second moments on the cutout (see comments
-         and code in the function body for details).  If the
-         distribution of flux were a 2d elliptical Gaussian, σ_maj and
-         σ_min would be the sizes of the major and minor axes with
-         lenghts corresponding to the two σ values for the Gaussian.
-         The width property is defined as 2√(2ln2) * (σ_maj+σ_min)/2.
+----> OLD       width : An estimate of the FWHM of the distribution of flux on
+----> OLD         the cutout.  In reality, two values σ_maj and σ_min are
+----> OLD         calculated from the second moments on the cutout (see comments
+----> OLD         and code in the function body for details).  If the
+----> OLD         distribution of flux were a 2d elliptical Gaussian, σ_maj and
+----> OLD         σ_min would be the sizes of the major and minor axes with
+----> OLD         lenghts corresponding to the two σ values for the Gaussian.
+----> OLD         The width property is defined as 2√(2ln2) * (σ_maj+σ_min)/2.
+----> OLD
+----> OLD      elongation : σ_maj / σ_min (see "width" for what these are).  If
+----> OLD        σ_min (somehow) comes out to 0., elongation is set to 1e32.
+----> OLD        elongation=1 means a round flux distribution; larger values mean
+----> OLD        more and more elongated.
 
-      elongation : σ_maj / σ_min (see "width" for what these are).  If
-        σ_min (somehow) comes out to 0., elongation is set to 1e32.
-        elongation=1 means a round flux distribution; larger values mean
-        more and more elongated.
+      major_width : The major-axis width of the distribution of flux on
+        the cutout.  For a Gaussian distribution, this would be the 1σ
+        major axis.
+
+      minor_width : The minor-axis width of the distribution of flux on the
+        cutout.  For a Gaussian, this is 1σ.  Note that the calculation might
+        formally yield NaN; in that case, this is set to 0.
 
       position_angle : An angle between -π/2 and π/2 that is the angle
-        between the major axis of the flux distribution (σ_maj) and the
+        between the major axis of the flux distribution and the
         x-axis.
 
       nbadpix : the number of bad pixels within a square whose size is
@@ -309,8 +320,6 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
 
     # Number of lines of comments and documentation MUST be more than number of lines of code!
 
-    _2sqrt2ln2 = 2.35482
-
     if ( ( len(cutouts) != len(measurements) )
          or ( len(noise_cutouts) != len(measurements) )
          or ( len(mask_cutouts) != len(measurements ) )
@@ -328,104 +337,150 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
     xvals, yvals = np.meshgrid( range(0,cutouts[0].shape[1]), range(0,cutouts[0].shape[0]) )
     for i, ( m, cutout, cutout_noise, cutout_mask ) in enumerate( zip( measurements, cutouts, noise_cutouts,
                                                                        mask_cutouts ) ):
-        # Notice that photutils.morphology.data_properties doesn't take
-        #   a noise image....  The moments are defined in terms of just
-        #   the image, yes, but notice that there *is* a mask, and you
-        #   could define (at least) a centroid that weights by noise.
-        # morpho = photutils.morphology.data_properties( cutout - m.bkg_per_pix, mask=cutout_mask )
-        # ...
-        # photutils.morphology.data_properties sets all negative pixels to positive for purposes
-        #   of moment calculation.  I *THINK*.  Hard to say, because the documentation on
-        #   SourceCatalog, which data_properties points to, talks about source segments, but
-        #   data_properties has no concept of that.  As such, I'm not 100% sure what it's actually
-        #   doing.  Alas.  Calculate them ourselves, so we know what's happened.
+        # Leave this code here for now; we'll probably
+        #   remove it later, but I'm heding my bets.
+        if False:
+            # Notice that photutils.morphology.data_properties doesn't take
+            #   a noise image....  The moments are defined in terms of just
+            #   the image, yes, but notice that there *is* a mask, and you
+            #   could define (at least) a centroid that weights by noise.
+            morpho = photutils.morphology.data_properties( cutout - m.bkg_per_pix, mask=cutout_mask )
+            # ...
+            # photutils.morphology.data_properties sets all negative pixels to positive for purposes
+            #   of moment calculation.  I *THINK*.  Hard to say, because the documentation on
+            #   SourceCatalog, which data_properties points to, talks about source segments, but
+            #   data_properties has no concept of that.  As such, I'm not 100% sure what it's actually
+            #   doing.  Alas.  Calculate them ourselves, so we know what's happened.
 
-        m00 = ( cutout[ ~cutout_mask ] - m.bkg_per_pix ).sum()
-        m10 = ( ( cutout - m.bkg_per_pix ) * yvals )[ ~cutout_mask ].sum()
-        m01 = ( ( cutout - m.bkg_per_pix ) * xvals )[ ~cutout_mask ].sum()
-        m20 = ( ( cutout - m.bkg_per_pix ) * yvals * yvals )[ ~cutout_mask ].sum()
-        m02 = ( ( cutout - m.bkg_per_pix ) * xvals * xvals )[ ~cutout_mask ].sum()
-        m11 = ( ( cutout - m.bkg_per_pix ) * xvals * yvals )[ ~cutout_mask ].sum()
+            m00 = ( cutout[ ~cutout_mask ] - m.bkg_per_pix ).sum()
+            m10 = ( ( cutout - m.bkg_per_pix ) * yvals )[ ~cutout_mask ].sum()
+            m01 = ( ( cutout - m.bkg_per_pix ) * xvals )[ ~cutout_mask ].sum()
+            m20 = ( ( cutout - m.bkg_per_pix ) * yvals * yvals )[ ~cutout_mask ].sum()
+            m02 = ( ( cutout - m.bkg_per_pix ) * xvals * xvals )[ ~cutout_mask ].sum()
+            m11 = ( ( cutout - m.bkg_per_pix ) * xvals * yvals )[ ~cutout_mask ].sum()
 
-        # Dealing with moments.
-        # See: https://en.wikipedia.org/wiki/Image_moment
-        #  and: hacks/rknop/moments.wxmx (a wxMaxima file)
-        #
-        # For a Gaussian, the image is:
-        #   im(x,y) = ( A / (2π σx σy) ) exp( - ( xr^2/(2 σx^2) + ( yr^2/(2 σy^2) ) ) )
-        # where
-        #   xr =  x cos(θ) + y sin(θ)
-        #   yr = -x sin(θ) + y cos(θ)
-        #
-        # A is the total flux in the Gaussian
-        # θ is the rotation of the profile; consider it the angle
-        #    between the x-axis and the profile, in a counter-clockwise
-        #    fashion (i.e. rotate from the +x axis towards the +y axis)
-        #
-        # Define some moments by:
-        #   A = Σ f(x,y)
-        #   cxx = Σ (x - x0)^2 * f(x,y)
-        #   cyy = Σ (y - y0)^2 * f(x,y)
-        #   cxy = Σ (x - x0) * (y - y0) * f(x,y0)
-        # where sums are over x and y and (x0,y0) is the centroid.
-        #
-        # These can be found in the photutils.morpology result (see above):
-        #   A = morpho.moments_central[0][0]
-        #   cxx = morpho.moments_central[0][2]
-        #   cyy = morpho.moments_central[2][0]
-        #   cxy = morpho.moments_central[1][1]
-        #
-        # Define reduced moments by rab = cab / A
-        #
-        # You can reconstruct σx and σy with:
-        #
-        # σ1² = ( rxx + ryy ) / 2 + sqrt( 4 rxy^2 + ( rxx - ryy )^2 ) / 2
-        # σ2² = ( rxx + ryy ) / 2 - sqrt( 4 rxy^2 + ( rxx - ryy )^2 ) / 2
-        #
-        # Those give the major (σ1) and minor (σ2) axes sizes, corresponding
-        # to the 1σ Gaussian widths.
-        #
-        # Define φ as the angle between the major axis of the distribution
-        #   and the (y if cyy > cxx else x)-axis, in a counter-clockwise direction.
-        #
-        # With this definition, then
-        #   ( π/4 < φ < π/4 ) if cxx != cyy else π/4 if cxy > 0 else -π/4 if cxy < 0 else 0
-        # (if cxy = 0, φ is not well-defined and we may as well call it 0.)
-        #
-        # You can calculate φ with:
-        #   φ = 1/2 arctan( 2 rxy / ( rxx - ryy ) )
-        # if rxx != ryy, else:
-        #   φ = π/4
-        #
-        # You can then get θ back (sorta... choose a thing between -π/2 and π that looks the same)
-        #   θ = φ if rxx > ryy
-        #   else θ = π/2 - θ
+            # Dealing with moments.
+            # See: https://en.wikipedia.org/wiki/Image_moment
+            #  and: hacks/rknop/moments.wxmx (a wxMaxima file)
+            #
+            # For a Gaussian, the image is:
+            #   im(x,y) = ( A / (2π σx σy) ) exp( - ( xr^2/(2 σx^2) + ( yr^2/(2 σy^2) ) ) )
+            # where
+            #   xr =  x cos(θ) + y sin(θ)
+            #   yr = -x sin(θ) + y cos(θ)
+            #
+            # A is the total flux in the Gaussian
+            # θ is the rotation of the profile; consider it the angle
+            #    between the x-axis and the profile, in a counter-clockwise
+            #    fashion (i.e. rotate from the +x axis towards the +y axis)
+            #
+            # Define some moments by:
+            #   A = Σ f(x,y)
+            #   cxx = Σ (x - x0)^2 * f(x,y)
+            #   cyy = Σ (y - y0)^2 * f(x,y)
+            #   cxy = Σ (x - x0) * (y - y0) * f(x,y0)
+            # where sums are over x and y and (x0,y0) is the centroid.
+            #
+            # These can be found in the photutils.morpology result (see above):
+            #   A = morpho.moments_central[0][0]
+            #   cxx = morpho.moments_central[0][2]
+            #   cyy = morpho.moments_central[2][0]
+            #   cxy = morpho.moments_central[1][1]
+            #
+            # Define reduced moments by rab = cab / A
+            #
+            # You can reconstruct σx and σy with:
+            #
+            # σ1² = ( rxx + ryy ) / 2 + sqrt( 4 rxy^2 + ( rxx - ryy )^2 ) / 2
+            # σ2² = ( rxx + ryy ) / 2 - sqrt( 4 rxy^2 + ( rxx - ryy )^2 ) / 2
+            #
+            # Those give the major (σ1) and minor (σ2) axes sizes, corresponding
+            # to the 1σ Gaussian widths.
+            #
+            # Define φ as the angle between the major axis of the distribution
+            #   and the (y if cyy > cxx else x)-axis, in a counter-clockwise direction.
+            #
+            # With this definition, then
+            #   ( π/4 < φ < π/4 ) if cxx != cyy else π/4 if cxy > 0 else -π/4 if cxy < 0 else 0
+            # (if cxy = 0, φ is not well-defined and we may as well call it 0.)
+            #
+            # You can calculate φ with:
+            #   φ = 1/2 arctan( 2 rxy / ( rxx - ryy ) )
+            # if rxx != ryy, else:
+            #   φ = π/4
+            #
+            # You can then get θ back (sorta... choose a thing between -π/2 and π that looks the same)
+            #   θ = φ if rxx > ryy
+            #   else θ = π/2 - θ
 
-        m.centroid_x = m01 / m00
-        m.centroid_y = m10 / m00
-        rxx = ( m02 - m.centroid_x * m01 ) / m00
-        ryy = ( m20 - m.centroid_y * m10 ) / m00
-        rxy = ( m11 - m.centroid_y * m01 ) / m00
+            m.centroid_x = m01 / m00
+            m.centroid_y = m10 / m00
+            rxx = ( m02 - m.centroid_x * m01 ) / m00
+            ryy = ( m20 - m.centroid_y * m10 ) / m00
+            rxy = ( m11 - m.centroid_y * m01 ) / m00
 
-        m.centroid_x += m.center_x_pixel - cutout.shape[1] // 2
-        m.centroid_y += m.center_y_pixel - cutout.shape[0] // 2
+            m.centroid_x += m.center_x_pixel - cutout.shape[1] // 2
+            m.centroid_y += m.center_y_pixel - cutout.shape[0] // 2
 
-        major = np.sqrt( ( ( rxx + ryy ) + np.sqrt( 4 * rxy**2 + ( rxx - ryy )**2 ) ) / 2. )
-        minor = np.sqrt( ( ( rxx + ryy ) - np.sqrt( 4 * rxy**2 + ( rxx - ryy )**2 ) ) / 2. )
-        if rxx == ryy:
-            theta = np.pi/4. if rxy > 0 else -np.pi/4. if rxy < 0 else 0.
+            m.major_width = np.sqrt( ( ( rxx + ryy ) + np.sqrt( 4 * rxy**2 + ( rxx - ryy )**2 ) ) / 2. )
+            m.minor_width = ( ( rxx + ryy ) - np.sqrt( 4 * rxy**2 + ( rxx - ryy )**2 ) ) / 2.
+            m.minor_width = np.sqrt( m.minor_width ) if m.minor_width > 0. else 0.
+            if rxx == ryy:
+                theta = np.pi/4. if rxy > 0 else -np.pi/4. if rxy < 0 else 0.
+            else:
+                phi = 0.5 * np.atan( 2 * rxy / ( rxx - ryy ) )
+                theta = phi if rxx > rxy else np.pi/2. - phi
+                # Make the angle between -π/2 and π/2
+                if theta > np.pi / 2.:
+                    theta -= np.pi
+            m.position_angle = theta
+
+        # Unfortunately, those moment width measurements are crap when
+        # the image is noisy, which is going to be the case for lots of
+        # our detections.  To get a width measurement, fit a Gaussian
+        # over the cutout.
+
+        # First, gotta turn the cutout into what astropy fitting
+        # expects, which isn't exactly the same as what photutils
+        # wanted.  It can't handle any nans, and it wants a 1/σ image it
+        # calls weight (yes, 1/σ, not 1/σ²).
+        gcutout = np.copy( cutout ) - m.bkg_per_pix
+        bad = ( cutout_mask ) | ( np.isnan( gcutout ) ) | ( cutout_noise <= 0. ) | ( np.isnan(cutout_noise) )
+        gcutout[ bad ] = 0.
+        gcutout_weight = 1. / cutout_noise
+        gcutout_weight[ bad ] = 0.
+
+        initgauss = photutils.psf.GaussianPSF( flux=m.flux_psf, x_0=cutout.shape[1] // 2, y_0=cutout.shape[0] // 2,
+                                               x_fwhm=fwhm_pixels, y_fwhm=fwhm_pixels, theta=0. )
+        initgauss.x_fwhm.fixed = False
+        initgauss.y_fwhm.fixed = False
+        initgauss.theta.fixed = False
+        gfitter = astropy.modeling.fitting.LMLSQFitter()
+        fitgauss = gfitter( initgauss, xvals, yvals, gcutout, weights=gcutout_weight )
+
+        theta = fitgauss.theta.value * np.pi / 180.
+        m.gfit_x = fitgauss.x_0.value + m.center_x_pixel - cutout.shape[1] // 2
+        m.gfit_y = fitgauss.y_0.value + m.center_y_pixel - cutout.shape[0] // 2
+        if fitgauss.x_fwhm > fitgauss.y_fwhm:
+            m.major_width = fitgauss.x_fwhm.value
+            m.minor_width = fitgauss.y_fwhm.value
+            theta -= np.pi/2.
         else:
-            phi = 0.5 * np.atan( 2 * rxy / ( rxx - ryy ) )
-            theta = phi if rxx > rxy else np.pi/2. - phi
-            # Make the angle between -π/2 and π/2
-            if theta > np.pi / 2.:
-                theta -= np.pi
-
-        m.width = _2sqrt2ln2 * ( major + minor ) / 2.
-        m.elongation = major / minor if minor > 0. else 1e32
+            m.major_width = fitgauss.y_fwhm.value
+            m.minor_width = fitgauss.x_fwhm.value
+        # Try to make theta betwen -π/2 and π/2.
+        while theta >= np.pi:
+            theta -= 2. * np.pi
+        while theta < -np.pi:
+            theta += 2. * np.pi
+        if theta > np.pi/2:
+            theta -= np.pi
+        if theta <= -np.pi/2.:
+            theta += np.pi
         m.position_angle = theta
 
-        # Figure out positions on cutouts for some of the diagnostics
+
+        # Figure out positions on cutouts for the bad pixel and negative fraction diagnostics
         ixc = int( np.round( m.x ) - m.center_x_pixel + ( cutouts[i].shape[1] // 2 ) )
         iyc = int( np.round( m.y ) - m.center_y_pixel + ( cutouts[i].shape[0] // 2 ) )
         x0 = max( 0, ixc - dist )

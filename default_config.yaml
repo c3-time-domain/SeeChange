@@ -400,13 +400,13 @@ measuring:
     negfrac: 0.5
     negfluxfrac: 0.5
   deletion_thresholds:
-    detection_dist: 5.
-    centroid_dist: 5.
-    elongation: 3.
-    width_ratio: 2.
-    nbadpix: 1
-    negfrac: 0.5
-    negfluxfrac: 0.5
+    detection_dist: null
+    centroid_dist: null
+    elongation: null
+    width_ratio: null
+    nbadpix: null
+    negfrac: null
+    negfluxfrac: null
   association_radius: 2.0
   do_not_associate: False
 

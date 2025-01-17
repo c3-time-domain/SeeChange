@@ -8,6 +8,9 @@ from improc.photometry import photometry_and_diagnostics
 # This test has a slow startup because making the psf palette takes ~20-30 seconds, and
 #   then we run sextractor (fast) psfex (slow).  Overall a ~1 min fixture setup.
 def test_photometry_and_diagnostics( psf_palette ):
+
+    # Test photometry on something where we know all the fluxes and shapes
+    # TODO : run a test with a much noisier psf palette
     with fits.open( psf_palette.imagename ) as hdul:
         image = hdul[0].data
     with fits.open( psf_palette.flagsname ) as hdul:
@@ -47,10 +50,9 @@ def test_photometry_and_diagnostics( psf_palette ):
     # PSFPalette did not line up all things right at the center of pixels
     assert np.median( np.abs( [ m.center_x_pixel - m.x for m in meas ] ) ) == pytest.approx( 0.3, abs=0.1 )
     assert np.median( np.abs( [ m.center_y_pixel - m.y for m in meas ] ) ) == pytest.approx( 0.3, abs=0.1 )
-    # Centroids should be very close to psf fit positions
-    assert all( [ m.centroid_x == pytest.approx( m.x, abs=0.05 ) for m in meas ] )
-    assert all( [ m.centroid_y == pytest.approx( m.y, abs=0.05 ) for m in meas ] )
-
+    # Gaussian fit positions should be very close to psf fit positions
+    assert all( [ m.gfit_x == pytest.approx( m.x, abs=0.01 ) for m in meas ] )
+    assert all( [ m.gfit_y == pytest.approx( m.y, abs=0.01 ) for m in meas ] )
 
     # With PSF palette:
     #   σx = 1.25 + 0.5 * ( x - 512 ) / 1024
@@ -58,27 +60,21 @@ def test_photometry_and_diagnostics( psf_palette ):
     #   θ = 0. + π/2 * ( y - 512 ) / 1024
     #
     # Expect, for pure gaussians, without the convolving effect of pixelization:
-    #   Lower left : σx = 1.0, σy = 2.0, θ = -π/4   : width=3.53, elongation=2.0
-    #   Lower right : σx = 1.5, σy = 1.5, θ = -π/4  : width=3.53, elongation=1.0
-    #   Middle : σx = 1.25, σy = 1.75, θ = 0.       : width=3.53, elongation=1.4
-    #   Upper left : σx = 1.0, σy = 2.0, θ = π/4    : width=3.53, elongation=2.0
-    #   Upper right : σx = 1.5, οy = 1.5, θ = π/4   : width=3.53, elongation=1.0
-    assert all( [ np.abs( m.width - 3.53 ) < 0.5 for m in meas ] )
-    assert np.mean( [ ( m.width - 3.53 ) for m in meas ] ) < 0.1
-    assert np.std( [ ( m.width - 3.53 ) for m in meas ] ) < 0.2
-    assert np.median( [ np.abs( m.elongation -
-                                ( 1.75 - 0.5 * (m.x - 512) / 1024 ) / ( 1.25 + 0.5 * (m.x - 512) / 1024 ) )
-                        for m in meas ] ) < 0.05
-    assert np.abs( np.mean( [ m.elongation - ( 1.75 - 0.5 * (m.x - 512) / 1024 ) / ( 1.25 + 0.5 * (m.x - 512) / 1024 )
-                              for m in meas ] ) ) < 0.02
-    assert np.std( np.mean( [ m.elongation - ( 1.75 - 0.5 * (m.x - 512) / 1024 ) / ( 1.25 + 0.5 * (m.x - 512) / 1024 )
-                              for m in meas ] ) ) < 0.15
-    # Angles will be most reliable on the left side where it's less rounded; as it gets more round,
-    #   the meaning of the angle gets wonky
-    # THE FIRST ONE OF THESE FAILS, look into that TODO ROB BEFORE PR
-    # assert all( [ np.abs( m.position_angle - ( np.pi / 2. * ( m.y - 512 ) / 1024 ) )
-    #               < 0.1 for m in meas if m.x < 256 ] )
+    #   Lower left : σx = 1.0, σy = 2.0, θ = -π/4
+    #   Lower right : σx = 1.5, σy = 1.5, θ = -π/4
+    #   Middle : σx = 1.25, σy = 1.75, θ = 0.
+    #   Upper left : σx = 1.0, σy = 2.0, θ = π/4
+    #   Upper right : σx = 1.5, οy = 1.5, θ = π/4
 
+    # Empirically, the major widths are systemtically about 0.05 bigger
+    #   than the σy values; likewise for minor widths and σx (diff
+    #   0.07).  is this the result of the convolution from
+    #   pixellization?  Perhaps if I fit GaussianPRF instead of
+    #   GaussianPSF it would be better?  Not going to worry about it
+    assert all( [ np.abs( m.major_width - 2.35482 * ( 1.75 - 0.5 * (m.x-512) / 1024. ) ) < 0.07 for m in meas ] )
+    assert all( [ np.abs( m.minor_width - 2.35482 * ( 1.25 + 0.5 * (m.x-512) / 1024. ) ) < 0.10 for m in meas ] )
+
+    assert all( [ np.abs( m.position_angle - ( np.pi / 2 * (m.y-512) / 1024 ) ) < 0.005 for m in meas ] )
 
     # NEXT.  Make sure background subtraction works right, at least for a very basic
     #  background.  Should get all the same photometry back out.
@@ -87,7 +83,8 @@ def test_photometry_and_diagnostics( psf_palette ):
                                          dobgsub=True, innerrad=17., outerrad=20. )
     assert all( [ b.bkg_per_pix == pytest.approx( 20., abs=1. ) for b in bgmeas ] )
     # For a ring of inner radius 17, outer radius 20, area~350 pixels, expect bg to be good to 5./sqrt(350) = ~0.27
-    assert np.mean( [ b.bkg_per_pix - 20. for b in bgmeas ] ) == pytest.approx( 0., 0.03 )
+    # The average of the averages should be good to ~0.27 / sqrt(100) = ~0.027
+    assert np.mean( [ b.bkg_per_pix - 20. for b in bgmeas ] ) == pytest.approx( 0., abs=0.03 )
     assert np.std( [ b.bkg_per_pix - 20. for b in bgmeas ] ) == pytest.approx( 0.27, rel=0.3 )
     assert all( [ b.flux_psf / m.flux_psf == pytest.approx( 1.0, 0.001 ) for b, m in zip( bgmeas, meas ) ] )
     assert all( [ b.flux_psf_err / m.flux_psf_err == pytest.approx( 1.0, 0.001 ) for b, m in zip( bgmeas, meas ) ] )
@@ -98,16 +95,7 @@ def test_photometry_and_diagnostics( psf_palette ):
     assert all( [ b.center_y_pixel == m.center_y_pixel for b, m in zip( bgmeas, meas ) ] )
     assert all( [ b.x == pytest.approx( m.x, abs=0.001 ) for b, m in zip( bgmeas, meas ) ] )
     assert all( [ b.y == pytest.approx( m.y, abs=0.001 ) for b, m in zip( bgmeas, meas ) ] )
-    # Not sure why the centroids aren't as good.... they're still good enough,
-    #  but I've had expected to be the same.
-    assert all( [ b.centroid_x == pytest.approx( m.centroid_x, abs=0.003 ) for b, m in zip( bgmeas, meas ) ] )
-    assert all( [ b.centroid_y == pytest.approx( m.centroid_y, abs=0.003 ) for b, m in zip( bgmeas, meas ) ] )
 
-    # ROB YOU STOPPED HERE.  bgmeas[0].width is coming out nan, and it really shouldn't.  FIGURE THIS OUT.
-    #   (Probably a sqrt of statistically -0.)
-
-
-    import pdb; pdb.set_trace()
-
-
-    pass
+    assert all( [ np.abs( m.major_width - b.major_width ) < 0.001 for m, b in zip( meas, bgmeas ) ] )
+    assert all( [ np.abs( m.minor_width - b.minor_width ) < 0.001 for m, b in zip( meas, bgmeas ) ] )
+    assert all( [ np.abs( m.position_angle - b.position_angle ) < 1e-5 for m, b in zip( meas, bgmeas ) ] )
