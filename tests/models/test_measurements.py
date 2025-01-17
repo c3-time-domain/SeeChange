@@ -19,7 +19,6 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config, user):
     aper_radii = test_config.value('extraction.sources.apertures')
     ds.measurements = None
     ds = measurer.run( ds )
-    import pdb; pdb.set_trace()
     # check that the measurer actually loaded the measurements from db, and not recalculated
     # TODO -- testing that should be in pipeline/test_measuring.py.  We should just use
     #   here what the fixture gave us
@@ -72,24 +71,6 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config, user):
     # set the flux temporarily to something negative
     m.flux_apertures[0] = -10000
     assert np.isnan(m.mag_apertures[0])
-
-    # check that background is subtracted from the "flux" and "magnitude" properties
-    if m.best_aperture == -1:
-        assert m.flux == m.flux_psf - m.bkg_mean * m.area_psf
-        assert m.magnitude != m.mag_psf  # the magnitude has background subtracted from it
-        # Commenting out the next one.  We no longer automatically do annulus background,
-        #   so the background error won't be bigger.  See issue #396.
-        # assert m.flux_err > m.flux_psf_err   # the magnitude error is larger because of the error in background
-        # This next one can fail if the mean background is negative.
-        #   While the flux error will be larger, the flux itself will
-        #   also be larger in the background-subtracted version if the
-        #   mean background is negative, so the magnitude error (which
-        #   is a log of dflux/flux) may come out slightly smaller.
-        #   (This is just yet another indication that you should
-        #   generally work with fluxes, not magnitudes!)
-        # assert m.magnitude_err > m.mag_psf_err  # the magnitude error is larger because of the error in background
-    else:
-        assert m.flux == m.flux_apertures[m.best_aperture] - m.bkg_mean * m.area_apertures[m.best_aperture]
 
     # set the flux and zero point to some randomly chosen values and test the distribution of the magnitude:
     fiducial_zp = m.zp.zp

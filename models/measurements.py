@@ -131,13 +131,13 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     )
 
     x = sa.Column(
-        sa.Integer,
+        sa.REAL,
         nullable=False,
         doc="x pixel coordinate on the subtraction image of the fit psf profile"
     )
 
     y = sa.Column(
-        sa.Integer,
+        sa.REAL,
         nullable=False,
         doc="y pixel coordinate on the subtraction image of the fit psf profile"
     )

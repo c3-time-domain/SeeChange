@@ -80,7 +80,7 @@ class ParsMeasurer(Parameters):
         self.bad_thresholds = self.add_par(
             'bad_thresholds',
             { 'detection_dist': 5.,
-              'centroid_dist': 5.,
+              'gaussfit_dist': 5.,
               'elongation': 3.,
               'width_ratio': 2.,
               'nbadpix': 1,
@@ -96,7 +96,7 @@ class ParsMeasurer(Parameters):
         self.deletion_thresholds = self.add_par(
             'deletion_thresholds',
             { 'detection_dist': 5.,
-              'centroid_dist': 5.,
+              'gaussfit_dist': 5.,
               'elongation': 3.,
               'width_ratio': 2.,
               'nbadpix': 1,
@@ -294,17 +294,17 @@ class Measurer:
                         if ( delthresh['detection_dist'] is not None ) and ( dist >= delthresh['detection_dist'] ):
                             keep = False
 
-                    # centroid to center of fit psf distance
-                    if ( badthresh['centroid_dist'] is not None ) or ( delthresh['centroid_dist'] is not None ):
-                        dist = np.sqrt( ( m.x - m.centroid_x ) ** 2 + ( m.y - m.centroid_y ) ** 2 )
-                        if ( badthresh['centroid_dist'] is not None ) and ( dist >= badthresh['centroid_dist'] ):
+                    # Gaussian fit position to center of fit psf distance
+                    if ( badthresh['gaussfit_dist'] is not None ) or ( delthresh['gaussfit_dist'] is not None ):
+                        dist = np.sqrt( ( m.x - m.gfit_x ) ** 2 + ( m.y - m.gfit_y ) ** 2 )
+                        if ( badthresh['gaussfit_dist'] is not None ) and ( dist >= badthresh['gaussfit_dist'] ):
                             is_bad = True
-                        if ( delthresh['centroid_dist'] is not None ) and ( dist >= delthresh['centroid_dist'] ):
+                        if ( delthresh['gaussfit_dist'] is not None ) and ( dist >= delthresh['gaussfit_dist'] ):
                             keep = False
 
                     # Ratio of width to psf
-                    if ( badthresh['width_ratio'] is not None ) and ( delthresh['width_ratio'] is not None ):
-                        width = _2sqrt2ln2 * ( m.major_width + m.minor_width ) / 2.
+                    if ( badthresh['width_ratio'] is not None ) or ( delthresh['width_ratio'] is not None ):
+                        width = ( m.major_width + m.minor_width ) / 2.
                         rat = width / sub_psf.fwhm_pixels
                         if ( badthresh['width_ratio'] is not None ) and ( rat >= badthresh['width_ratio'] ):
                             is_bad = True
@@ -312,7 +312,7 @@ class Measurer:
                             keep = False
 
                     # Elongation
-                    if ( badthresh['elongation'] is not None ) and ( delthresh['elongation'] is not None ):
+                    if ( badthresh['elongation'] is not None ) or ( delthresh['elongation'] is not None ):
                         elongation = 1e32 if m.minor_width <= 0. else m.major_width / m.minor_width
                         if ( badthresh['elongation'] is not None ) and ( elongation >= badthresh['elongation'] ):
                             is_bad = True

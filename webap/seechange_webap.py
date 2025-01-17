@@ -686,7 +686,7 @@ class PngCutoutsForSubImage( BaseView ):
         app.logger.debug( f"Getting measurements for {len(subids)} sub images" )
         q = ( 'SELECT m.ra AS measra, m.dec AS measdec, m.index_in_sources, m.best_aperture, '
               '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, m.is_fake, '
-              '       m.score, m._algorithm, m.center_x_pixel, m.center_y_pixel, m.x, m.y, m.centroid_x, m.centroid_y, '
+              '       m.score, m._algorithm, m.center_x_pixel, m.center_y_pixel, m.x, m.y, m.gfit_x, m.gfit_y, '
               '       m.major_width, m.minor_width, m.position_angle, m.nbadpix, m.negfrac, m.negfluxfrac, '
               '       s._id AS subid, s.section_id '
               'FROM cutouts c '
@@ -698,7 +698,7 @@ class PngCutoutsForSubImage( BaseView ):
               '           meas.best_aperture, meas.flux_apertures[meas.best_aperture+1] AS flux, '
               '           meas.flux_apertures_err[meas.best_aperture+1] AS dflux, '
               '           meas.flux_psf AS psfflux, meas.flux_psf_err AS dpsfflux, '
-              '           meas.center_x_pixel, meas.center_y_pixel, meas.x, meas.y, meas.centroid_x, meas.centroid_y, '
+              '           meas.center_x_pixel, meas.center_y_pixel, meas.x, meas.y, meas.gfit_x, meas.gfit_y, '
               '           meas.major_width, meas.minor_width, meas.position_angle, '
               '           meas.nbadpix, meas.negfrac, meas.negfluxfrac, '
               '           obj.name, obj.is_test, obj.is_fake, score.score, score._algorithm '
@@ -753,8 +753,8 @@ class PngCutoutsForSubImage( BaseView ):
                        'cutout_y': [],
                        'x': [],
                        'y': [],
-                       'xcentroid': [],
-                       'ycentroid': [],
+                       'gfit_x': [],
+                       'gfit_y': [],
                        'major_width': [],
                        'minor_width': [],
                        'nbadpix': [],
@@ -836,8 +836,8 @@ class PngCutoutsForSubImage( BaseView ):
             if row is None:
                 retval['cutouts']['x'].append( None )
                 retval['cutouts']['y'].append( None )
-                retval['cutouts']['xcentroid'].append( None )
-                retval['cutouts']['ycentroid'].append( None )
+                retval['cutouts']['gfit_x'].append( None )
+                retval['cutouts']['gfit_y'].append( None )
                 retval['cutouts']['major_width'].append( None )
                 retval['cutouts']['minor_width'].append( None )
                 retval['cutouts']['nbadpix'].append( None )
@@ -855,8 +855,8 @@ class PngCutoutsForSubImage( BaseView ):
             else:
                 retval['cutouts']['x'].append( row[cols['x']] )
                 retval['cutouts']['y'].append( row[cols['y']] )
-                retval['cutouts']['xcentroid'].append( row[cols['centroid_x']] )
-                retval['cutouts']['ycentroid'].append( row[cols['centroid_y']] )
+                retval['cutouts']['gfit_x'].append( row[cols['gfit_x']] )
+                retval['cutouts']['gfit_y'].append( row[cols['gfit_y']] )
                 retval['cutouts']['major_width'].append( row[cols['major_width']] )
                 retval['cutouts']['minor_width'].append( row[cols['minor_width']] )
                 retval['cutouts']['nbadpix'].append( row[cols['nbadpix']] )

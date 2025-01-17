@@ -937,8 +937,8 @@ seechange.Exposure = class
                                  "nbadpix: " + data.cutouts.nbadpix[i] + "<br>" +
                                  "negfrac: " + data.cutouts.negfrac[i] + "<br>" +
                                  "negfluxfrac: " + data.cutouts.negfluxfrac[i] + "<br>" +
-                                 "centroid: " + seechange.nullorfixed( data.cutouts['xcentroid'][i], 2 )
-                                 + " , " + seechange.nullorfixed( data.cutouts['ycentroid'][i], 2 ) +
+                                 "Gauss fit pos: " + seechange.nullorfixed( data.cutouts['gfit_x'][i], 2 )
+                                 + " , " + seechange.nullorfixed( data.cutouts['gfit_y'][i], 2 ) +
                                  "</p>" )
             span.classList.add( data.cutouts.is_bad[i] ? "bad" : "good" );
             rkWebUtil.elemaker( "br", td );

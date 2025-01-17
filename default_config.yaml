@@ -393,7 +393,7 @@ measuring:
   negatives_n_sigma_outlier: 2.
   bad_thresholds:
     detection_dist: 5.
-    centroid_dist: 5.
+    gaussfit_dist: 5.
     elongation: 3.
     width_ratio: 2.
     nbadpix: 1
@@ -401,7 +401,7 @@ measuring:
     negfluxfrac: 0.5
   deletion_thresholds:
     detection_dist: null
-    centroid_dist: null
+    gaussfit_dist: null
     elongation: null
     width_ratio: null
     nbadpix: null
