@@ -585,7 +585,9 @@ def ptf_ref(
         is_testing=True
     )
     refprov.insert_if_needed()
+    # Have to have reproducible Reference ids for the cache to work
     ref = Reference(
+        _id = 'f2f8f6f1-26a9-44f1-9b8e-37b12bec7722',
         image_id=coadd_datastore.image.id,
         sources_id=coadd_datastore.sources.id,
         provenance_id=refprov.id
@@ -637,7 +639,9 @@ def ptf_ref_offset(ptf_ref):
     offset_sources.m5dsum = uuid.uuid4()
     offset_sources.image_id = offset_image.id
 
-    new_ref = Reference( image_id=offset_image.id,
+    # Have to have reproducible Reference ids for the cache to work
+    new_ref = Reference( _id='227165ca-01ab-4dae-b76d-744040c1735e',
+                         image_id=offset_image.id,
                          sources_id=offset_sources.id,
                          provenance_id=ptf_ref.provenance_id
                         )

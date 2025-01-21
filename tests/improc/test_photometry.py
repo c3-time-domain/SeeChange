@@ -5,6 +5,7 @@ from astropy.io import fits
 
 from improc.photometry import photometry_and_diagnostics
 
+
 # This test has a slow startup because making the psf palette takes ~20-30 seconds, and
 #   then we run sextractor (fast) psfex (slow).  Overall a ~1 min fixture setup.
 def test_photometry_and_diagnostics( psf_palette ):

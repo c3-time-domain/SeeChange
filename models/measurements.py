@@ -5,7 +5,7 @@ import numpy as np
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.schema import UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.declarative import declared_attr
 
 from util.util import asUUID
@@ -16,9 +16,7 @@ from models.base import ( Base,
                           HasBitFlagBadness,
                           SmartSession,
                           Psycopg2Connection )
-from models.provenance import Provenance, provenance_self_association_table
-from models.psf import PSF
-from models.world_coordinates import WorldCoordinates
+from models.provenance import provenance_self_association_table
 from models.cutouts import Cutouts
 from models.image import Image
 from models.source_list import SourceList
@@ -181,6 +179,12 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     #   Measurements won't have them.  Ideally, we'll do it right and no provenance
     #   that includes these diagnostics will be working on older Measurements that
     #   don't have them, but deal with that when it comes up.
+
+    psf_fit_flags = sa.Column(
+        sa.Integer,
+        nullable=True,
+        doc=( "The flags returned by photutils PSFPhotometry" )
+    )
 
     nbadpix = sa.Column(
         sa.Integer,

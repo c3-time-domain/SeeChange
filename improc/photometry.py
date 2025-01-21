@@ -11,6 +11,7 @@ from improc.tools import make_cutouts
 from models.measurements import Measurements
 from util.logger import SCLogger
 
+
 def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
                 dobgsub=False, innerrad=None, outerrad=None,
                 cutouts=None, noise_cutouts=None, mask_cutouts=None, cutouts_size=41,
@@ -176,6 +177,7 @@ def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
                           bkg_per_pix=bkgs[i],
                           center_x_pixel=int(np.round(pos[0])),
                           center_y_pixel=int(np.round(pos[1])),
+                          psf_fit_flags = photresult['flags'][0]
                          )
         measurements.append( m )
     SCLogger.debug( "...done doing psf photometry." )
@@ -208,7 +210,7 @@ def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
             else:
                 measurements[j].flux_apertures[i] = apphot['aperture_sum'][j]
             measurements[j].flux_apertures_err[i] = apphot['aperture_sum_err'][j]
-    SCLogger.debug( f"...done with aperture photometry" )
+    SCLogger.debug( "...done with aperture photometry" )
 
     if return_cutouts:
         return measurements, { 'image': cutouts,
@@ -344,7 +346,7 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
             #   a noise image....  The moments are defined in terms of just
             #   the image, yes, but notice that there *is* a mask, and you
             #   could define (at least) a centroid that weights by noise.
-            morpho = photutils.morphology.data_properties( cutout - m.bkg_per_pix, mask=cutout_mask )
+            # morpho = photutils.morphology.data_properties( cutout - m.bkg_per_pix, mask=cutout_mask )
             # ...
             # photutils.morphology.data_properties sets all negative pixels to positive for purposes
             #   of moment calculation.  I *THINK*.  Hard to say, because the documentation on
@@ -455,7 +457,8 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
         initgauss.x_fwhm.fixed = False
         initgauss.y_fwhm.fixed = False
         initgauss.theta.fixed = False
-        gfitter = astropy.modeling.fitting.LMLSQFitter()
+        # gfitter = astropy.modeling.fitting.LMLSQFitter()
+        gfitter = astropy.modeling.fitting.TRFLSQFitter()
         fitgauss = gfitter( initgauss, xvals, yvals, gcutout, weights=gcutout_weight )
 
         theta = fitgauss.theta.value * np.pi / 180.

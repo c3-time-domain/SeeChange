@@ -155,30 +155,47 @@ def test_filtering_measurements(ptf_datastore):
         ms = session.scalars(sa.select(Measurements).where(Measurements.flux_apertures[0] > 5000)).all()
         assert len(ms) < len(measurements)  # only some measurements have a flux above 5000
 
-        ms = session.scalars(sa.select(Measurements).where(Measurements.bkg_mean > 0)).all()
+        ms = session.scalars(sa.select(Measurements).where(Measurements.bkg_per_pix > 0)).all()
         assert len(ms) <= len(measurements)  # only some of the measurements have positive background
 
         ms = session.scalars(sa.select(Measurements).where(
-            Measurements.offset_x > 0, Measurements.provenance_id == m.provenance_id
+            Measurements.x > Measurements.center_x_pixel, Measurements.provenance_id == m.provenance_id
         )).all()
-        assert len(ms) <= len(measurements)  # only some of the measurements have positive offsets
+        assert len(ms) <= len(measurements)  # only some of the measurements have x > center_x_pixel
+
+        # ms = session.scalars(sa.select(Measurements).where(
+        #     Measurements.area_psf >= 0, Measurements.provenance_id == m.provenance_id
+        # )).all()
+        # assert len(ms) == len(measurements)  # all measurements have positive psf area
 
         ms = session.scalars(sa.select(Measurements).where(
-            Measurements.area_psf >= 0, Measurements.provenance_id == m.provenance_id
-        )).all()
-        assert len(ms) == len(measurements)  # all measurements have positive psf area
-
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.width >= 0, Measurements.provenance_id == m.provenance_id
+            Measurements.major_width >= 0, Measurements.provenance_id == m.provenance_id
         )).all()
         assert len(ms) == len(measurements)  # all measurements have positive width
 
-        # filter on a specific disqualifier score
         ms = session.scalars(sa.select(Measurements).where(
-            Measurements.disqualifier_scores['negatives'].astext.cast(sa.REAL) < 0.1,
-            Measurements.provenance_id == m.provenance_id
+            Measurements.psf_fit_flags != 0, Measurements.provenance_id == m.provenance_id
         )).all()
-        assert len(ms) <= len(measurements)
+        assert len(ms) < len(measurements)   # Not all have psf fit flags set
+        assert len(ms) > 0                   # ...but some did
+
+        ms = session.scalars(sa.select(Measurements).where(
+            Measurements.nbadpix > 0, Measurements.provenance_id == m.provenance_id
+        )).all()
+        assert len(ms) < len(measurements)   # Not all measurements had a bad pixel
+        assert len(ms) > 0                   # ...but some did
+
+        ms = session.scalars(sa.select(Measurements).where(
+            Measurements.negfrac > 0.5, Measurements.provenance_id == m.provenance_id
+        )).all()
+        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.5
+        assert len(ms) > 0                   # ...but some did
+
+        ms = session.scalars(sa.select(Measurements).where(
+            Measurements.negfluxfrac > 0.5, Measurements.provenance_id == m.provenance_id
+        )).all()
+        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.5
+        assert len(ms) > 0                   # ...but some did
 
 
 def test_measurements_cannot_be_saved_twice(ptf_datastore):

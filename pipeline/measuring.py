@@ -1,26 +1,15 @@
 import time
-import warnings
-import random
 
 import numpy as np
-from scipy import signal
-from astropy.table import QTable
-import photutils.background
-import photutils.psf
-import photutils.aperture
-import photutils.morphology
 
 from improc.photometry import photometry_and_diagnostics
 
-from models.base import SmartSession, Psycopg2Connection
+from models.base import Psycopg2Connection
 from models.cutouts import Cutouts
-from models.measurements import Measurements
-from models.enums_and_bitflags import BitFlagConverter, BadnessConverter
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from util.config import Config
 from util.util import env_as_bool
 from util.logger import SCLogger
 
@@ -79,7 +68,8 @@ class ParsMeasurer(Parameters):
 
         self.bad_thresholds = self.add_par(
             'bad_thresholds',
-            { 'detection_dist': 5.,
+            { 'psf_fit_flags_bitmask': 0x2e,
+              'detection_dist': 5.,
               'gaussfit_dist': 5.,
               'elongation': 3.,
               'width_ratio': 2.,
@@ -95,7 +85,8 @@ class ParsMeasurer(Parameters):
 
         self.deletion_thresholds = self.add_par(
             'deletion_thresholds',
-            { 'detection_dist': 5.,
+            { 'psf_fit_flags_bitmask': 0x2e,
+              'detection_dist': 5.,
               'gaussfit_dist': 5.,
               'elongation': 3.,
               'width_ratio': 2.,
@@ -279,12 +270,22 @@ class Measurer:
                 # Threshold cutting
                 SCLogger.debug( f"Doing threshold cuts on {len(all_measurements)} measurements..." )
                 measurements = []
+                badthresh = self.pars.bad_thresholds
+                delthresh = self.pars.deletion_thresholds
                 _2sqrt2ln2 = 2.35482
                 for m in all_measurements:
                     is_bad = False
                     keep = True
-                    badthresh = self.pars.bad_thresholds
-                    delthresh = self.pars.deletion_thresholds
+
+                    # Chuck it if the psf fit failed
+                    if ( ( badthresh['psf_fit_flags_bitmask'] is not None )
+                         and ( m.psf_fit_flags & badthresh['psf_fit_flags_bitmask'] )
+                        ):
+                        is_bad = True
+                    if ( ( delthresh['psf_fit_flags_bitmask'] is not None )
+                         and ( m.psf_fit_flags & delthresh['psf_fit_flags_bitmask'] )
+                        ):
+                        keep = False
 
                     # detection to center of fit psf distance
                     if ( badthresh['detection_dist'] is not None ) or ( delthresh['detection_dist'] is not None ):

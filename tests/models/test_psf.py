@@ -4,18 +4,17 @@ import psutil
 import time
 import uuid
 import random
-import math
 import pathlib
 import subprocess
 
-import sqlalchemy as sa
-import psycopg2.errors
-
 import numpy as np
 
+import sqlalchemy as sa
+import psycopg2.errors
+import astropy
+from astropy.io import fits
 
 from util.config import Config
-from util.logger import SCLogger
 from models.base import SmartSession, FileOnDiskMixin, CODE_ROOT, get_archive_object
 from models.provenance import Provenance
 from models.psf import PSF

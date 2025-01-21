@@ -392,6 +392,7 @@ measuring:
   diag_box_halfsize_unit: fwhm
   negatives_n_sigma_outlier: 2.
   bad_thresholds:
+    psf_fit_flags_bitmask: 0x2e
     detection_dist: 5.
     gaussfit_dist: 5.
     elongation: 3.
@@ -400,6 +401,7 @@ measuring:
     negfrac: 0.5
     negfluxfrac: 0.5
   deletion_thresholds:
+    psf_fit_flags_bitmask: null
     detection_dist: null
     gaussfit_dist: null
     elongation: null

@@ -690,8 +690,11 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
     )
     refprov.insert_if_needed()
 
-    for ds in decam_elais_e1_two_refs_datastore:
+    # Have to have reproducible Reference ids for the cache to work
+    for refid, ds in zip( [ '74c10990-51f0-49d2-9e92-cb9c3fe04c18', '80a00042-ac0c-4ebe-9fde-435c8b6b65b7' ],
+                          decam_elais_e1_two_refs_datastore ):
         ref = Reference(
+            _id = refid,
             image_id = ds.image.id,
             sources_id = ds.sources.id,
             provenance_id = refprov.id
