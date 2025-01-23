@@ -246,7 +246,7 @@ class Measurer:
 
                 positions = [ ( detections.x[i], detections.y[i] ) for i in range(len(detections.x)) ]
                 all_measurements = photometry_and_diagnostics( sub_image.data, sub_noise, sub_mask,
-                                                               positions, sub_psf, aper_radii,
+                                                               positions, aper_radii, psfobj=sub_psf,
                                                                dobgsub=self.pars.use_annulus_bg_on_sub,
                                                                innerrad=inner_annulus_px,
                                                                outerrad=outer_annulus_px,

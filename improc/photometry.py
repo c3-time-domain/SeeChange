@@ -12,7 +12,8 @@ from models.measurements import Measurements
 from util.logger import SCLogger
 
 
-def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
+def photometry( image, noise, mask, positions, apers, measurements=None,
+                psfobj=None, photutils_psf=None, fwhm_pixels=None,
                 dobgsub=False, innerrad=None, outerrad=None,
                 cutouts=None, noise_cutouts=None, mask_cutouts=None, cutouts_size=41,
                 return_cutouts=False ):
@@ -41,7 +42,19 @@ def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
 
         psfobj : PSF
           A PSF object that goes with image.  Will use the fwhm_pixels
-          attribute and get_clip method of this object.
+          attribute and get_clip method of this object.  Must specify
+          either this, or both of photutils_psf and fwhm_pixels.
+
+        photutils_psf : astropy.modeling.Model
+          One of the photutils PSF classes derived from
+          astropy.modeling.Model (e.g. GaussianPRF, ImagePSF).  May
+          specify this instead of psfobj.  If this is specified, must
+          also give fwhm_pixels.
+
+        fwhm_pixels : float
+          The PSF fwhm.  (A single value for the whole image, so a PSF
+          that varies isn't fully encapsulated here).  Not needed if
+          psfobj is given, needed if photutils_psf is needed.
 
         apers : list of float
           Aperture radii in pixels in which to do photometry.
@@ -129,10 +142,26 @@ def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
     SCLogger.debug( "Getting pfs for photometry..." )
     psfs = []
     clipwid = None
-    for pos in positions:
-        clip = psfobj.get_clip( x=np.round(pos[0]), y=np.round(pos[1]) )
-        clipwid = clipwid if clipwid is not None else clip.shape[0]
-        psfs.append( photutils.psf.ImagePSF( clip ) )
+    if psfobj is not None:
+        if photutils_psf is not None:
+            raise ValueError( "Can't specify both psfobj and photutils_psf" )
+        if fwhm_pixels is not None:
+            raise ValueError( "Can't specify fwhm_pixels and psfobj together." )
+        for pos in positions:
+            clip = psfobj.get_clip( x=np.round(pos[0]), y=np.round(pos[1]) )
+            clipwid = clipwid if clipwid is not None else clip.shape[0]
+            psfs.append( photutils.psf.ImagePSF( clip ) )
+            fwhm_pixels = psfobj.fwhm_pixels
+    elif photutils_psf is not None:
+        if fwhm_pixels is None:
+            raise ValueError( "photutils_psf requires fwhm_pixels" )
+        clipwid = cutouts_size
+        for pos in positions:
+            # I hope I don't regret storing the same object repeatedly.
+            # I don't *think* PSFPhotometry modifies the psf object.
+            psfs.append( photutils_psf )
+    else:
+        raise ValueError( "Must give either psfobj or photutils_psf" )
 
     # Psf photometry first, to find optimum positions.  Because
     #    photutils doesn't understand psfex psfs, it's not actually
@@ -160,7 +189,7 @@ def photometry( image, noise, mask, positions, psfobj, apers, measurements=None,
         photor = photutils.psf.PSFPhotometry(
             psfs[i],
             clipwid,
-            aperture_radius=psfobj.fwhm_pixels
+            aperture_radius=fwhm_pixels
         )
         init_params = QTable()
         init_params['x'] = [ pos[0] ]
@@ -501,8 +530,8 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
         wpos = ( ~sub_mask ) & ( sub_cutout - m.bkg_per_pix > n_sigma_outlier * sub_noise )
         nneg = wneg.sum()
         npos = wpos.sum()
-        fluxneg = -sub_cutout[ wneg ].sum()
-        fluxpos = sub_cutout[ wpos ].sum()
+        fluxneg = -(sub_cutout[ wneg ] - m.bkg_per_pix).sum()
+        fluxpos = (sub_cutout[ wpos ] - m.bkg_per_pix).sum()
         m.negfrac = ( 0 if ( npos == 0 and nneg == 0 )
                       else 1e32 if npos == 0
                       else nneg / npos )
@@ -514,7 +543,8 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
 
 
 
-def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, measurements=None,
+def photometry_and_diagnostics( image, noise, mask, positions, apers, measurements=None,
+                                psfobj=None, photutils_psf=None, fwhm_pixels=None,
                                 dobgsub=False, innerrad=None, outerrad=None,
                                 cutouts=None, noise_cutouts=None, mask_cutouts=None, cutouts_size=41,
                                 diagdist=2, distunit='fwhm' ):
@@ -530,12 +560,13 @@ def photometry_and_diagnostics( image, noise, mask, positions, psfobj, apers, me
 
     """
 
-    measurements, co = photometry( image, noise, mask, positions, psfobj, apers, measurements=measurements,
+    measurements, co = photometry( image, noise, mask, positions, apers, measurements=measurements,
+                                   psfobj=psfobj, photutils_psf=photutils_psf, fwhm_pixels=fwhm_pixels,
                                    dobgsub=dobgsub, innerrad=innerrad, outerrad=outerrad,
                                    cutouts=cutouts, noise_cutouts=noise_cutouts, mask_cutouts=mask_cutouts,
                                    cutouts_size=cutouts_size, return_cutouts=True )
 
-    diagnostics( measurements, co['image'], co['noise'], co['mask'], psfobj.fwhm_pixels,
-                 diagdist=diagdist, distunit=distunit )
+    fwhm_pixels = psfobj.fwhm_pixels if psfobj is not None else fwhm_pixels
+    diagnostics( measurements, co['image'], co['noise'], co['mask'], fwhm_pixels, diagdist=diagdist, distunit=distunit )
 
     return measurements
