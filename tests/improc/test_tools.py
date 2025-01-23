@@ -178,5 +178,5 @@ def test_make_cutouts():
         assert cuts.dtype.itemsize == 2
 
     # This should fail -- can't make cutouts of type timedelta!
-    with pytest.raises( TypeError, match="make_cutouts: can only make float or integer cutouts" ):
+    with pytest.raises( TypeError, match="make_cutouts: can only make float, integer, or boolean cutouts" ):
         cuts = make_cutouts( image, xs, ys, dtype='m' )
