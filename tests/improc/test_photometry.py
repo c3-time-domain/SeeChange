@@ -234,8 +234,11 @@ def test_diagnostics():
                        'minor_width': pytest.approx( 3*fwhm, rel=0.03 ) } )
 
 
+    # TODO : more!
+    #   * vertical and/or horizontal streak (1-pixel wide)
+    #   * streak at an angle
+    
     psf = photutils.psf.CircularGaussianPSF( flux=1., fwhm=fwhm )
-
     measurements = photometry_and_diagnostics( image, noise, mask, positions, [ fwhm, 2*fwhm ],
                                                photutils_psf=psf, fwhm_pixels=fwhm,
                                                dobgsub=True, innerrad=inner, outerrad=outer )
