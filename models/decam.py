@@ -668,13 +668,17 @@ class DECam(Instrument):
                 y1 = secs[amp]['destsec']['y1']
 
                 lindex = np.floor( data[ y0:y1, x0:x1 ] ).astype( int )
-                newdata[ y0:y1, x0:x1 ] = ( linhdu[ccdnum].data[lindex][ampdex]
-                                            + ( ( data[y0:y1, x0:x1] - linhdu[ccdnum].data[lindex]['ADU'] )
-                                                * ( linhdu[ccdnum].data[lindex+1][ampdex]
-                                                    - linhdu[ccdnum].data[lindex][ampdex] )
-                                                / ( linhdu[ccdnum].data[lindex+1]['ADU']
-                                                    - linhdu[ccdnum].data[lindex]['ADU'] )
-                                               ) )
+                # ...this used to work without having to flatten the array used
+                #    as indexes into the linhdu[ccdnum].data table, but it stopped
+                #    working.  Don't know why.  Astropy version change?  Scary.
+                flatdata = data[ y0:y1, x0:x1 ].flatten()
+                lindata = linhdu[ccdnum].data[ lindex.flatten() ]
+                lindatap1 = linhdu[ccdnum].data[ lindex.flatten() + 1 ]
+                linearized = ( lindata[ampdex]
+                               + ( ( flatdata - lindata['ADU'] )
+                                   * ( lindatap1[ampdex] - lindata[ampdex] )
+                                   / ( lindatap1['ADU'] - lindata['ADU'] ) ) )
+                newdata[ y0:y1, x0:x1 ] = np.reshape( linearized, shape=( y1-y0, x1-x0 ) )
 
         return newdata
 

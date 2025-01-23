@@ -195,20 +195,38 @@ def photometry( image, noise, mask, positions, apers, measurements=None,
         init_params['x'] = [ pos[0] ]
         init_params['y'] = [ pos[1] ]
         init_params['local_bkg'] = [ bkgs[i] ]
-        photresult = photor( image, mask=mask, error=noise, init_params=init_params )
+
         m = Measurements( aper_radii=apers,
                           flux_apertures=[np.nan] * len(apers),
                           flux_apertures_err=[np.nan] * len(apers),
-                          x=photresult['x_fit'][0],
-                          y=photresult['y_fit'][0],
-                          flux_psf=photresult['flux_fit'][0],
-                          flux_psf_err=photresult['flux_err'][0],
                           bkg_per_pix=bkgs[i],
                           center_x_pixel=int(np.round(pos[0])),
                           center_y_pixel=int(np.round(pos[1])),
-                          psf_fit_flags = photresult['flags'][0]
                          )
+
+        # PSFPhotometry is going to spit at us if we feed it a fully masked
+        #   object.  Try to detect that ahead of time and skip the photometry
+        #   if that might happen.
+        r = max( 3, int( np.round( 2. * fwhm_pixels ) ) )
+        r = r if ( r % 2 == 1 ) else r + 1
+        ninr = ( 2*r + 1 ) **2
+        nmask = mask[ m.center_y_pixel-r:m.center_y_pixel+r+1,
+                      m.center_x_pixel-r:m.center_x_pixel+r+1 ].sum()
+        if nmask > 0.75 * ninr:
+            m.x = pos[0]
+            m.y = pos[1]
+            m.flux_psf = np.nan
+            m.flux_psf_err = np.nan
+            m.psf_fit_flags = 9         # 1 = "≥1 pixel masked", 8 = "fit did not converge"
+        else:
+            photresult = photor( image, mask=mask, error=noise, init_params=init_params )
+            m.x = photresult['x_fit'][0]
+            m.y = photresult['y_fit'][0]
+            m.flux_psf = photresult['flux_fit'][0]
+            m.flux_psf_err = photresult['flux_err'][0]
+            m.psf_fit_flags = photresult['flags'][0]
         measurements.append( m )
+
     SCLogger.debug( "...done doing psf photometry." )
 
     # Aperture photometry we can do in one go for each
@@ -481,12 +499,12 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
         gcutout_weight = 1. / cutout_noise
         gcutout_weight[ bad ] = 0.
 
-        initgauss = photutils.psf.GaussianPSF( flux=m.flux_psf, x_0=cutout.shape[1] // 2, y_0=cutout.shape[0] // 2,
+        fluxguess = m.flux_psf if ( not np.isnan(m.flux_psf) ) else gcutout[~bad].sum()
+        initgauss = photutils.psf.GaussianPSF( flux=fluxguess, x_0=cutout.shape[1] // 2, y_0=cutout.shape[0] // 2,
                                                x_fwhm=fwhm_pixels, y_fwhm=fwhm_pixels, theta=0. )
         initgauss.x_fwhm.fixed = False
         initgauss.y_fwhm.fixed = False
         initgauss.theta.fixed = False
-        # gfitter = astropy.modeling.fitting.LMLSQFitter()
         gfitter = astropy.modeling.fitting.TRFLSQFitter()
         fitgauss = gfitter( initgauss, xvals, yvals, gcutout, weights=gcutout_weight )
 

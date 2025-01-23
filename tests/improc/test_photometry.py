@@ -237,7 +237,7 @@ def test_diagnostics():
     # TODO : more!
     #   * vertical and/or horizontal streak (1-pixel wide)
     #   * streak at an angle
-    
+
     psf = photutils.psf.CircularGaussianPSF( flux=1., fwhm=fwhm )
     measurements = photometry_and_diagnostics( image, noise, mask, positions, [ fwhm, 2*fwhm ],
                                                photutils_psf=psf, fwhm_pixels=fwhm,

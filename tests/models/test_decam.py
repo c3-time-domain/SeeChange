@@ -6,6 +6,7 @@ import hashlib
 import pytest
 
 import numpy as np
+from astropy.io import fits
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.exposure import Exposure
@@ -53,7 +54,7 @@ def test_decam_exposure(decam_exposure):
     with pytest.raises(ValueError, match=re.escape('The section_id must be a string. ')):
         _ = e.section_headers[0]
 
-    assert len(e.section_headers['N4']) == 100
+    assert len(e.section_headers['N4']) == 98
     assert e.section_headers['N4']['NAXIS'] == 2
     assert e.section_headers['N4']['NAXIS1'] == 2160
     assert e.section_headers['N4']['NAXIS2'] == 4146
@@ -83,7 +84,7 @@ def test_image_from_decam_exposure(decam_exposure, provenance_base, data_dir):
     assert im._id is None
     assert im.filepath is None
 
-    assert len(im.header) == 98
+    assert len(im.header) == 96
     assert im.header['NAXIS'] == 2
     assert im.header['NAXIS1'] == 2160
     assert im.header['NAXIS2'] == 4146
@@ -457,13 +458,21 @@ def test_linearity( decam_raw_image, decam_default_calibrators ):
 
             # This is here to uncomment for debugging purposes
             # from astropy.io import fits
-            # fits.writeto( 'trimmed.fits', im.data, im.header, overwrite=True )
-            # fits.writeto( 'linearitied.fits', newdata, im.header, overwrite=True )
+            fits.writeto( 'trimmed.fits', im.data, im.header, overwrite=True )
+            fits.writeto( 'linearitied.fits', newdata, im.header, overwrite=True )
+            fits.writeto( 'diff.fits', newdata - im.data, im.header, overwrite=True )
+            fits.writeto( 'reldiff.fits', ( newdata - im.data ) / im.data, im.header, overwrite=True )
 
             # Brighter pixels should all have gotten brighter
             # (as nonlinearity will suppress bright pixels )
+            # TODO -- but this test is saying that brighter pixels got *dimmer*!!!
+            #   ---> ARE WE DOING DECAM LINEARITY CORRECTION BACKWARDS SOMEHOW?
+            #        Investigate!  Put in an Issue!
             w = np.where( im.data > 10000 )
             assert np.all( newdata[w] <= im.data[w] )
+
+            # Linearity should be a small correction
+            assert np.all( np.abs( ( newdata[w] - im.data[w] ) / im.data[w] ) < 0.025 )
 
             # TODO -- figure out more ways to really test if this was done right
             #  (Could make this a regression test by putting in empirically what

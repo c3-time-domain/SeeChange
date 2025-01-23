@@ -379,8 +379,8 @@ cutting:
 # ======================================================================
 # Measuring
 #
-# Measuring fluxes and centroids on the cutouts of the difference image,
-# as well as making analytical cuts.
+# Measuring fluxes and positiohns of detections, as well as making
+# analytical cuts.
 #
 # See pipeline/measuring.py for definition of the parameters
 
@@ -398,8 +398,8 @@ measuring:
     elongation: 3.
     width_ratio: 2.
     nbadpix: 1
-    negfrac: 0.5
-    negfluxfrac: 0.5
+    negfrac: 0.3
+    negfluxfrac: 0.3
   deletion_thresholds:
     psf_fit_flags_bitmask: null
     detection_dist: null
