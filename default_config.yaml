@@ -379,7 +379,7 @@ cutting:
 # ======================================================================
 # Measuring
 #
-# Measuring fluxes and positiohns of detections, as well as making
+# Measuring fluxes and positions of detections, as well as making
 # analytical cuts.
 #
 # See pipeline/measuring.py for definition of the parameters

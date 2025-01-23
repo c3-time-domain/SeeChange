@@ -8,3 +8,8 @@ share_DATA = RBbot_models/RBbot-feasible-disco-117-config.json \
 	avsc/ls4.v0_1.diaSource.avsc \
 	avsc/ls4.v0_1.diaForcedSource.avsc \
 	avsc/ls4.v0_1.diaObject.avsc
+	astromatic/default.conv
+	astromatic/default.nnw
+	astromatic/detection_sextractor.param
+	astromatic/sourcelist_sextractor.param
+	astromatic/sourcelist_sextractor_with_psf.param

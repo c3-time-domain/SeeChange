@@ -668,9 +668,12 @@ class DECam(Instrument):
                 y1 = secs[amp]['destsec']['y1']
 
                 lindex = np.floor( data[ y0:y1, x0:x1 ] ).astype( int )
-                # ...this used to work without having to flatten the array used
-                #    as indexes into the linhdu[ccdnum].data table, but it stopped
-                #    working.  Don't know why.  Astropy version change?  Scary.
+                # ...this used to work without having to flatten the
+                #    array used as indexes into the linhdu[ccdnum].data
+                #    table, but it stopped working.  Don't know why.
+                #    Astropy version change?  Something in numpy 2.0 and
+                #    how it interacts with astropy fits tables?  Dunno.
+                #    Scary.
                 flatdata = data[ y0:y1, x0:x1 ].flatten()
                 lindata = linhdu[ccdnum].data[ lindex.flatten() ]
                 lindatap1 = linhdu[ccdnum].data[ lindex.flatten() + 1 ]
