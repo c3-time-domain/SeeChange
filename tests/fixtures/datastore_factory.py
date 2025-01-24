@@ -671,10 +671,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     for f in files_needed:
                         strio.write( f"   ... {f} : {'found' if f.is_file() else 'NOT FOUND'}\n" )
                     SCLogger.debug( strio.getvalue() )
-                    # ROB TODO BEFORE MERGE
-                    #   YU WERE TRYING TO FIND WHERE THIS WENT WRONG.
-                    # import pdb; pdb.set_trace()
-                    # pass
 
             if ds.sub_image is None:  # no hit in the cache
                 SCLogger.debug( "make_datastore running subtractor to create subtraction image" )
