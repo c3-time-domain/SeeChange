@@ -458,10 +458,10 @@ def test_linearity( decam_raw_image, decam_default_calibrators ):
 
             # This is here to uncomment for debugging purposes
             # from astropy.io import fits
-            fits.writeto( 'trimmed.fits', im.data, im.header, overwrite=True )
-            fits.writeto( 'linearitied.fits', newdata, im.header, overwrite=True )
-            fits.writeto( 'diff.fits', newdata - im.data, im.header, overwrite=True )
-            fits.writeto( 'reldiff.fits', ( newdata - im.data ) / im.data, im.header, overwrite=True )
+            # fits.writeto( 'trimmed.fits', im.data, im.header, overwrite=True )
+            # fits.writeto( 'linearitied.fits', newdata, im.header, overwrite=True )
+            # fits.writeto( 'diff.fits', newdata - im.data, im.header, overwrite=True )
+            # fits.writeto( 'reldiff.fits', ( newdata - im.data ) / im.data, im.header, overwrite=True )
 
             # Brighter pixels should all have gotten brighter
             # (as nonlinearity will suppress bright pixels )
