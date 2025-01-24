@@ -152,7 +152,7 @@ def test_parameters( test_config ):
         'subtraction': { 'method': 'override' },
         'detection': { 'threshold': 3.14 },
         'cutting': { 'cutout_size': 666 },
-        'measuring': { 'outlier_sigma': 3.5 }
+        'measuring': { 'negatives_n_sigma_outlier': 3.5 }
     }
 
     def check_override( new_values_dict, pars ):

@@ -3,6 +3,8 @@ import pytest
 import re
 import io
 
+import numpy as np
+
 import fastavro
 import confluent_kafka
 
@@ -16,7 +18,7 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
     fluxscale = 10** ( ( ds.zp.zp - 27.5 ) / -2.5 )
 
     alerter = Alerting()
-    alerts = alerter.build_avro_alert_structures( ds )
+    alerts = alerter.build_avro_alert_structures( ds, skip_bad=False )
 
     assert len(alerts) == len(ds.measurements)
     assert all( isinstance( a['alertId'], str ) for a in alerts )
@@ -31,13 +33,13 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
                 for a, m in zip( alerts, ds.measurements ) )
     assert all( a['diaSource']['fluxZeroPoint'] == 27.5 for a in alerts )
     assert all( a['diaSource']['psfFlux'] == pytest.approx( m.flux_psf * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds.measurements ) )
+                for a, m in zip( alerts, ds.measurements ) if not np.isnan(m.flux_psf)  )
     assert all( a['diaSource']['psfFluxErr'] == pytest.approx( m.flux_psf_err * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds.measurements ) )
+                for a, m in zip( alerts, ds.measurements ) if not np.isnan(m.flux_psf_err) )
     assert all( a['diaSource']['apFlux'] == pytest.approx( m.flux_apertures[0] * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds.measurements ) )
+                for a, m in zip( alerts, ds.measurements ) if not np.isnan(m.flux_psf) )
     assert all( a['diaSource']['apFluxErr'] == pytest.approx( m.flux_apertures_err[0] * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds.measurements ) )
+                for a, m in zip( alerts, ds.measurements ) if not np.isnan(m.flux_psf) )
 
     assert all( a['diaSource']['rbtype'] == s.algorithm for a, s in zip( alerts, ds.scores ) )
     assert all( a['diaSource']['rbcut'] == DeepScore.get_rb_cut( s.algorithm ) for a, s in zip( alerts, ds.scores ) )
@@ -60,97 +62,119 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
     assert all( a['prvDiaForcedSources'] is None for a in alerts )
     assert all( len(a['prvDiaNonDetectionLimits']) == 0 for a in alerts )
 
+    # Make sure that if we skip is_bad measurements (which is the
+    # default), we get fewer (but still some)
+    alerts = alerter.build_avro_alert_structures( ds )
+    assert len(alerts) > 2
+    assert len(alerts) < len(ds.measurements)
+
 
 def test_send_alerts( test_config, decam_datastore_through_scoring ):
     ds = decam_datastore_through_scoring
 
-    alerter = Alerting()
-    # The test config has "{barf}" in the kafka topic.  The reason for
-    #  this is that It isn't really possible to clean up after the tests
-    #  by clearing out the kafka server, so instead of cleaning up after
-    #  ourselves, we'll just point to a different topic each time, which
-    #  for testing purposes should be close enough.  (It does mean if you
-    #  leave a test environment open for a long time, stuff will build up
-    #  on the test kafka server.)
-    topic = alerter.methods[0]['topic']
-    assert re.search( '^test_topic_[a-z]{6}$', topic )
+    nalerts = {}
+    for skip_bad in [ False, True ]:
+        alerter = Alerting()
+        # The test config has "{barf}" in the kafka topic.  The reason for
+        #  this is that It isn't really possible to clean up after the tests
+        #  by clearing out the kafka server, so instead of cleaning up after
+        #  ourselves, we'll just point to a different topic each time, which
+        #  for testing purposes should be close enough.  (It does mean if you
+        #  leave a test environment open for a long time, stuff will build up
+        #  on the test kafka server.)
+        topic = alerter.methods[0]['topic']
+        assert re.search( '^test_topic_[a-z]{6}$', topic )
 
-    alerter.send( ds )
+        alerter.send( ds, skip_bad=skip_bad )
 
-    groupid = f'test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
-    consumer = confluent_kafka.Consumer( { 'bootstrap.servers': test_config.value('alerts.methods.0.kafka_server'),
-                                           'auto.offset.reset': 'earliest',
-                                           'group.id': groupid } )
-    consumer.subscribe( [ alerter.methods[0]['topic'] ] )
+        groupid = f'test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
+        consumer = confluent_kafka.Consumer( { 'bootstrap.servers': test_config.value('alerts.methods.0.kafka_server'),
+                                               'auto.offset.reset': 'earliest',
+                                               'group.id': groupid } )
+        consumer.subscribe( [ alerter.methods[0]['topic'] ] )
 
-    # I have noticed that the very first time I run this test within a
-    #   docker compose environment, and the very first time I send
-    #   alerts to the kafka server, they don't show up here with a
-    #   consumer.consume call command.  If I rerun the tests, it works a
-    #   second time.  If I rerun the consume task, if finds them.  In
-    #   practical usage, one would be repeatedly polling the consumer,
-    #   so if they don't come through one time, but do the next, then
-    #   things are basically working.  So, to hack around the error I've
-    #   seen, put in a poll loop that continues until we get messages
-    #   once, and then stops once we aren't.
-    gotsome = False
-    done = False
-    msgs = []
-    while not done:
-        newmsgs = consumer.consume( 100, timeout=1 )
-        if gotsome and ( len(newmsgs) == 0 ):
-            done = True
-        if len( newmsgs ) > 0:
-            msgs.extend( newmsgs )
-            gotsome = True
+        # I have noticed that the very first time I run this test within a
+        #   docker compose environment, and the very first time I send
+        #   alerts to the kafka server, they don't show up here with a
+        #   consumer.consume call command.  If I rerun the tests, it works a
+        #   second time.  If I rerun the consume task, if finds them.  In
+        #   practical usage, one would be repeatedly polling the consumer,
+        #   so if they don't come through one time, but do the next, then
+        #   things are basically working.  So, to hack around the error I've
+        #   seen, put in a poll loop that continues until we get messages
+        #   once, and then stops once we aren't.
+        gotsome = False
+        done = False
+        msgs = []
+        while not done:
+            newmsgs = consumer.consume( 100, timeout=1 )
+            if gotsome and ( len(newmsgs) == 0 ):
+                done = True
+            if len( newmsgs ) > 0:
+                msgs.extend( newmsgs )
+                gotsome = True
+        nalerts[skip_bad] = len(msgs)
 
-    measurements_seen = set()
-    for msg in msgs:
-        alert = fastavro.schemaless_reader( io.BytesIO( msg.value() ), alerter.methods[0]['schema'] )
-        dex = [ i for i in range(len(ds.measurements))
-                if str( ds.measurements[i].id ) == alert['diaSource']['diaSourceId'] ]
-        assert len(dex) > 0
-        dex = dex[0]
-        measurements_seen.add( ds.measurements[dex].id )
+        if skip_bad:
+            measurements = [ m for m in ds.measurements if not m.is_bad ]
+            scores = [ s for s, m in zip( ds.scores, ds.measurements ) if not m.is_bad ]
+        else:
+            measurements = ds.measurements
+            scores = ds.scores
 
-        assert alert['diaSource']['MJD'] == pytest.approx( ds.image.mid_mjd, abs=0.0001 )
-        assert alert['diaSource']['ra'] == pytest.approx( ds.measurements[dex].ra, abs=0.1/3600. )
-        assert alert['diaSource']['dec'] == pytest.approx( ds.measurements[dex].dec, abs=0.1/3600. )
-        assert alert['diaSource']['fluxZeroPoint'] == 27.5
-        fluxscale = 10 ** ( ( ds.zp.zp - 27.5 ) / -2.5 )
-        assert alert['diaSource']['psfFlux'] == pytest.approx( ds.measurements[dex].flux_psf * fluxscale, rel=1e-5 )
-        assert alert['diaSource']['psfFluxErr'] == pytest.approx( ds.measurements[dex].flux_psf_err * fluxscale,
-                                                                  rel=1e-5 )
-        assert alert['diaSource']['apFlux'] == pytest.approx( ds.measurements[dex].flux_apertures[0] * fluxscale,
-                                                              rel=1e-5 )
-        assert alert['diaSource']['apFluxErr'] == pytest.approx( ds.measurements[dex].flux_apertures_err[0]
-                                                                 * fluxscale, rel=1e-5 )
-        assert alert['diaObject']['diaObjectId'] == str( ds.measurements[dex].object_id )
+        measurements_seen = set()
+        for msg in msgs:
+            alert = fastavro.schemaless_reader( io.BytesIO( msg.value() ), alerter.methods[0]['schema'] )
+            dex = [ i for i in range(len(measurements))
+                    if str( measurements[i].id ) == alert['diaSource']['diaSourceId'] ]
+            assert len(dex) > 0
+            dex = dex[0]
+            measurements_seen.add( measurements[dex].id )
 
-        assert alert['diaSource']['rbtype'] == ds.scores[dex].algorithm
-        assert alert['diaSource']['rbcut'] == pytest.approx( DeepScore.get_rb_cut( ds.scores[dex].algorithm ),
-                                                             rel=1e-6 )
-        assert alert['diaSource']['rb'] == pytest.approx( ds.scores[dex].score, rel=0.001 )
+            assert alert['diaSource']['MJD'] == pytest.approx( ds.image.mid_mjd, abs=0.0001 )
+            assert alert['diaSource']['ra'] == pytest.approx( measurements[dex].ra, abs=0.1/3600. )
+            assert alert['diaSource']['dec'] == pytest.approx( measurements[dex].dec, abs=0.1/3600. )
+            assert alert['diaSource']['fluxZeroPoint'] == 27.5
+            fluxscale = 10 ** ( ( ds.zp.zp - 27.5 ) / -2.5 )
+            if not np.isnan( measurements[dex].flux_psf ):
+                assert alert['diaSource']['psfFlux'] == pytest.approx( measurements[dex].flux_psf * fluxscale,
+                                                                       rel=1e-5 )
+                assert alert['diaSource']['psfFluxErr'] == pytest.approx( measurements[dex].flux_psf_err * fluxscale,
+                                                                          rel=1e-5 )
+                assert alert['diaSource']['apFlux'] == pytest.approx( measurements[dex].flux_apertures[0] * fluxscale,
+                                                                      rel=1e-5 )
+                assert alert['diaSource']['apFluxErr'] == pytest.approx( measurements[dex].flux_apertures_err[0]
+                                                                         * fluxscale, rel=1e-5 )
+            assert alert['diaObject']['diaObjectId'] == str( measurements[dex].object_id )
 
-        assert len(alert['cutoutScience']) == 41 * 41 * 4
-        assert len(alert['cutoutTemplate']) == 41 * 41 * 4
-        assert len(alert['cutoutDifference']) == 41 * 41 * 4
+            assert alert['diaSource']['rbtype'] == scores[dex].algorithm
+            assert alert['diaSource']['rbcut'] == pytest.approx( DeepScore.get_rb_cut( scores[dex].algorithm ),
+                                                                 rel=1e-6 )
+            assert alert['diaSource']['rb'] == pytest.approx( scores[dex].score, rel=0.001 )
 
-        # TODO : check the actual image cutout data
+            assert len(alert['cutoutScience']) == 41 * 41 * 4
+            assert len(alert['cutoutTemplate']) == 41 * 41 * 4
+            assert len(alert['cutoutDifference']) == 41 * 41 * 4
 
-        assert len( alert['prvDiaSources'] ) == 0
-        assert alert['prvDiaForcedSources'] is None
-        assert len( alert['prvDiaNonDetectionLimits'] ) == 0
+            # TODO : check the actual image cutout data
 
-    # The test had None configured for its r/b cutoff, so it should be using the default
-    cut = DeepScore.get_rb_cut( ds.scores[0].algorithm )
-    assert measurements_seen == set( m.id for m, s in zip( ds.measurements, ds.scores ) if s.score >= cut )
+            assert len( alert['prvDiaSources'] ) == 0
+            assert alert['prvDiaForcedSources'] is None
+            assert len( alert['prvDiaNonDetectionLimits'] ) == 0
+
+        # The test had None configured for its r/b cutoff, so it should be using the default
+        cut = DeepScore.get_rb_cut( scores[0].algorithm )
+        assert measurements_seen == set( m.id for m, s in zip( measurements, scores ) if s.score >= cut )
+
+    assert nalerts[True] > 0
+    assert nalerts[False] > 0
+    assert nalerts[True] < nalerts[False]
 
 
-# This one long time even if all the data is cached, because it takes a
-#  while (10s of seconds) to process all the *cached* data for a fully
-#  processed datastore (load it in, uplaod to archive, etc.), and now
-#  we're doing *three* datastores.
+# This one takes a long time even if all the data is cached, because it
+#  takes a while (10s of seconds) to process all the *cached* data for a
+#  fully processed datastore (load it in, uplaod to archive, etc.), and
+#  now we're doing *three* datastores.
 #
 # Not doing the datastore construction in fixtures because we want to control
 #   the order in which they are run.  Making sure that none of these exposures

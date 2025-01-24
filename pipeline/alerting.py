@@ -79,7 +79,7 @@ class Alerting:
 
 
 
-    def send( self, ds ):
+    def send( self, ds, skip_bad=True ):
         """Send alerts from a fully processed DataStore.
 
         The DataStore must have run all the way through scoring.
@@ -87,6 +87,11 @@ class Alerting:
         Parmameters
         -----------
           ds: DataStore
+
+          skip_bad : bool
+            If True, do not send alerts for measurements whose is_bad
+            field is set to True.  If False, send alerts for all of
+            ds.measurements.
 
         """
         if not self.send_alerts:
@@ -102,7 +107,7 @@ class Alerting:
         # If any of the methods are kafka, we will need to build avro alerts
         avroalerts = None
         if any( method['enabled'] and ( method['method'] == 'kafka' ) for method in self.methods ):
-            avroalerts = self.build_avro_alert_structures( ds )
+            avroalerts = self.build_avro_alert_structures( ds, skip_bad=skip_bad )
 
         # Issue alerts for all methods
         for method in self.methods:
@@ -172,7 +177,7 @@ class Alerting:
                 }
 
 
-    def build_avro_alert_structures( self, ds ):
+    def build_avro_alert_structures( self, ds, skip_bad=True ):
         sub_image = ds.get_subtraction()
         image = ds.get_image()
         zp = ds.get_zp()
@@ -209,6 +214,10 @@ class Alerting:
         alerts = []
 
         for meas, scr in zip( measurements, scores ):
+            # By default, no alerts for bad measurements
+            if skip_bad and meas.is_bad:
+                continue
+
             # Make sure cutout data is big-endian floats and that
             #  masked pixels are NaN
             cdex = f'source_index_{meas.index_in_sources}'
