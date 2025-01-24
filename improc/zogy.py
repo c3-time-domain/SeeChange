@@ -55,6 +55,13 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
      * The "flux-based zero point" is the flux needed to provide a S/N=1, measure in a matched-filter image with
        the correct PSF. For a sum(P)=1 normalized PSF, use 1/sqrt(sum(P**2)/B), where B is the background variance.
 
+    This function tries to be aggressive about deleting variables it
+    doesn't need anymore.  Otherwise, it ends up with a few gig of
+    unused arrays sitting there, bloating the memory usage.  (Not a big
+    deal on today's machines for a single process, but if you want to
+    run a bunch of processes, it's bad if one process gets up to 6GB of
+    RSS when it doesn't need to.)
+
     Parameters
     ----------
     image_ref : numpy.ndarray
@@ -114,6 +121,7 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
             the flux based zero point estimate based on the input zero point and backgrounds
 
     """
+
     if dy is None:
         dy = dx  # assume equal astrometric noise if only dx is given
 
@@ -142,6 +150,9 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     sigma_r = np.median(noise_ref[~nan_mask]) if isinstance(noise_ref, np.ndarray) else noise_ref
     sigma_n = np.median(noise_new[~nan_mask]) if isinstance(noise_new, np.ndarray) else noise_new
 
+    # Done with nan_mask
+    del nan_mask
+
     # these are just shorthands for the flux normalization of each image
     F_r = flux_ref
     F_n = flux_new
@@ -153,6 +164,10 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     P_n_f = np.fft.fft2(Pn)
     P_r_f_abs2 = np.abs(P_r_f) ** 2
     P_n_f_abs2 = np.abs(P_n_f) ** 2
+
+    # Done with Pr and Pn
+    del Pr
+    del Pn
 
     # now start calculating the main results, equations 12-16 from the paper:
     F_D = F_r * F_n / np.sqrt(sigma_n ** 2 * F_r ** 2 + sigma_r ** 2 * F_n ** 2)  # eq 15
@@ -182,11 +197,21 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     Z1_f = Z0 * np.fft.fftshift(k1) / m1  # make sure the zero frequency is in the corner
     Z2_f = Z0 * np.fft.fftshift(k2) / m2  # make sure the zero frequency is in the corner
 
-    # transform the subtracted image (and PSF, score) back to real space
+    # Done with Z0, k1, k2
+    del Z0
+    del k1
+    del k2
+
+    # transform the subtracted image (and PSF, score) back to real space, cleaning up memory as we go
     D = np.real(np.fft.ifft2(D_f))
+    del D_f
     P_D = np.real(np.fft.ifft2(P_D_f))
+    del P_D_f
     S = np.real(np.fft.ifft2(S_f))
+    del S_f
     Z = np.imag(np.fft.ifft2(Z1_f)) ** 2 + np.imag(np.fft.ifft2(Z2_f)) ** 2  # this is Z^2 but we'll call it Z for short
+    del Z1_f
+    del Z2_f
 
     # additional corrections from the source noise terms:
     # get the variance maps, assuming the N/R images are background subtracted,
@@ -200,21 +225,37 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     k_r_f = F_r * F_n ** 2 * np.conj(P_r_f) * P_n_f_abs2 / denominator
     k_r = np.real(np.fft.ifft2(k_r_f))
     k_r2 = k_r ** 2
+    del k_r
     k_r2_f = np.fft.fft2(k_r2)
+    del k_r2
 
     # this kernel is used to estimate the new source noise
     k_n_f = F_n * F_r ** 2 * np.conj(P_n_f) * P_r_f_abs2 / denominator
     k_n = np.real(np.fft.ifft2(k_n_f))
     k_n2 = k_n ** 2
+    del k_n
     k_n2_f = np.fft.fft2(k_n2)
+    del k_n2
 
     # Fourier transform the variance (including source noise) images
     V_r_f = np.fft.fft2(V_r)
     V_n_f = np.fft.fft2(V_n)
 
+    # Done with V_r, V_n, P_r_f, P_n_f
+    del V_r
+    del V_n
+    del P_r_f
+    del P_n_f
+
     # these variance maps are convolved with the kernels
     V_S_r = np.real(np.fft.ifft2(V_r_f * k_r2_f))
     V_S_n = np.real(np.fft.ifft2(V_n_f * k_n2_f))
+
+    # Done with V_r_f, V_n_f, k_n2_f, k_r2_f
+    del V_r_f
+    del V_n_f
+    del k_n2_f
+    del k_r2_f
 
     if dx is not None and dx != 0 and dy is not None and dy != 0:
         # and calculate astrometric variance
@@ -232,7 +273,16 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     else:
         V_ast = 0
 
+    # Done with R_f, N_f, k_r_f, k_n_f
+    del k_r_f
+    del k_n_f
+
     V_S = V_S_r + V_S_n + V_ast
+
+    # Done with V_S_r, V_S_n, V_ast
+    del V_S_r
+    del V_S_n
+    del V_ast
 
     zero_mask = V_S == 0  # get rid of zeros
     V_S_sqrt = np.sqrt(V_S, where=~zero_mask)
@@ -240,9 +290,17 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     S_corr = S / V_S_sqrt
     Z_corr = Z / V_S
 
+    # done with V_S
+    del V_S
+
     # PSF photometry part:
     # Eqs. 41-43 from paper
     F_S = F_n ** 2 * F_r ** 2 * np.sum((P_n_f_abs2 * P_r_f_abs2) / denominator)
+
+    # Done with P_n_f_abs2, P_r_f_abs2, denominator
+    del P_n_f_abs2
+    del P_r_f_abs2
+    del denominator
 
     # divide by the number of pixels in the images (related to FFT normalization)
     F_S /= R.size
@@ -250,6 +308,10 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     alpha = S / F_S
     V_S_sqrt[zero_mask] = 0  # should we replace this with NaNs?
     alpha_std = V_S_sqrt / F_S
+
+    # done with F_S, V_S_sqrt
+    del F_S
+    del V_S_sqrt
 
     # rename the outputs and fftshift back
     sub_image = np.fft.fftshift(D)
@@ -259,10 +321,20 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     alpha = np.fft.fftshift(alpha)
     alpha_std = np.fft.fftshift(alpha_std)
 
+    # Done with D, P_D, S, S_Corr
+    del D
+    del P_D
+    del S
+    del S_corr
+
     translient = np.fft.fftshift(Z)
     translient_sigma = norm.isf(chi2.sf(translient, df=2))
     translient_corr = np.fft.fftshift(Z_corr)
     translient_corr_sigma = norm.isf(chi2.sf(translient_corr, df=2))
+
+    # Done with Z, Z_Corr, though we're almost done anyway so it may not matter
+    del Z
+    del Z_corr
 
     return dict(
         sub_image=sub_image,

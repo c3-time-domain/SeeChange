@@ -92,10 +92,11 @@ class ParsSubtractor(Parameters):
 class Subtractor:
     def __init__(self, **kwargs):
         self.pars = ParsSubtractor(**kwargs)
-        self.inpainter = Inpainter(**self.pars.inpainting)
-        self.pars.inpainting = self.inpainter.pars.get_critical_pars()  # add Inpainter defaults into this dictionary
-        self.aligner = ImageAligner(**self.pars.alignment)
-        self.pars.alignment = self.aligner.pars.get_critical_pars()  # add ImageAligner defaults into this dictionary
+        inpainter = Inpainter(**self.pars.inpainting)
+        self.pars.inpainting = inpainter.pars.get_critical_pars()  # add Inpainter defaults into this dictionary
+        del inpainter
+        aligner = ImageAligner(**self.pars.alignment)
+        self.pars.alignment = aligner.pars.get_critical_pars()  # add ImageAligner defaults into this dictionary
 
         # this is useful for tests, where we can know if
         # the object did any work or just loaded from DB or datastore
@@ -220,7 +221,9 @@ class Subtractor:
         ref_image_flux_zp = 10 ** (0.4 * ref_zp.zp)
         # TODO: consider adding an estimate for the astrometric uncertainty dx, dy
 
-        new_image_data = self.inpainter.run(new_image_data, new_image.flags, new_image.weight)
+        inpainter = Inpainter(**self.pars.inpainting)
+        new_image_data = inpainter.run(new_image_data, new_image.flags, new_image.weight)
+        del inpainter
 
         output = zogy_subtract(
             ref_image_data,
@@ -627,6 +630,7 @@ class Subtractor:
 
                 # Align the images
                 to_index = self.pars.alignment_index
+                aligner = ImageAligner(**self.pars.alignment)
                 if to_index == 'ref':
                     SCLogger.error( "Aligning new to ref will violate assumptions in detection.py and measuring.py" )
                     raise RuntimeError( "Aligning new to ref not supported; align ref to new instead" )
@@ -635,9 +639,10 @@ class Subtractor:
                         if needed is None:
                             raise RuntimeError( "Not all data products needed for alignment to ref "
                                                 "are present in the DataStore" )
+
                     ( aligned_image, aligned_sources,
-                      aligned_bg, aligned_psf ) = self.aligner.run( ds.image, ds.sources, ds.bg, ds.psf, ds.wcs, ds.zp,
-                                                                    ds.ref_image, ds.ref_sources )
+                      aligned_bg, aligned_psf ) = aligner.run( ds.image, ds.sources, ds.bg, ds.psf, ds.wcs, ds.zp,
+                                                               ds.ref_image, ds.ref_sources )
                     ds.aligned_new_image = aligned_image
                     ds.aligned_new_sources = aligned_sources
                     ds.aligned_new_bg = aligned_bg
@@ -658,10 +663,11 @@ class Subtractor:
                         if needed is None:
                             raise RuntimeError( "Not all data products needed for alignment to new "
                                                 "are present in the DataStore" )
+
                     ( aligned_image, aligned_sources,
-                      aligned_bg, aligned_psf ) = self.aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg,
-                                                                    ds.ref_psf, ds.ref_wcs, ds.ref_zp,
-                                                                    ds.image, ds.sources )
+                      aligned_bg, aligned_psf ) = aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg,
+                                                               ds.ref_psf, ds.ref_wcs, ds.ref_zp,
+                                                               ds.image, ds.sources )
                     ds.aligned_new_image = ds.image
                     ds.aligned_new_sources = ds.sources
                     ds.aligned_new_bg = ds.bg
@@ -683,6 +689,7 @@ class Subtractor:
                 else:
                     raise ValueError( f"alignment_index must be ref or new, not {to_index}" )
 
+                del aligner
                 ImageAligner.cleanup_temp_images()
 
                 SCLogger.debug( "Alignment complete" )
