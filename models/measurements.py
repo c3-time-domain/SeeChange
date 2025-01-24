@@ -25,8 +25,6 @@ from models.enums_and_bitflags import measurements_badness_inverse
 
 # from util.logger import SCLogger
 
-# from improc.photometry import get_circle
-
 
 class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 

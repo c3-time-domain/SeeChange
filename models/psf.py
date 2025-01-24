@@ -430,16 +430,16 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         ymin = yc - stampwid // 2
         ymax = yc + stampwid // 2 + 1
 
-        # xs = np.array( range( xmin, xmax ) )
-        # ys = np.array( range( ymin, ymax ) )
-        # xsincarg = psfdex1d[:, np.newaxis] - ( xs - x ) / psfsamp
-        # xsincvals = np.sinc( xsincarg ) * np.sinc( xsincarg/4. )
-        # xsincvals[ ( xsincarg > 4 ) | ( xsincarg < -4 ) ] = 0.
-        # ysincarg = psfdex1d[:, np.newaxis] - ( ys - y ) / psfsamp
-        # ysincvals = np.sinc( ysincarg ) * np.sinc( ysincarg/4. )
-        # ysincvals[ ( ysincarg > 4 ) | ( ysincarg < -4 ) ] = 0.
-        # tenpro = np.tensordot( ysincvals[:, :, np.newaxis], xsincvals[:, :, np.newaxis], axes=0 )[ :, :, 0, :, :, 0 ]
-        # clip = ( psfbase[:, np.newaxis, :, np.newaxis ] * tenpro ).sum( axis=0 ).sum( axis=1 )
+        xs = np.array( range( xmin, xmax ) )
+        ys = np.array( range( ymin, ymax ) )
+        xsincarg = psfdex1d[:, np.newaxis] - ( xs - x ) / psfsamp
+        xsincvals = np.sinc( xsincarg ) * np.sinc( xsincarg/4. )
+        xsincvals[ ( xsincarg > 4 ) | ( xsincarg < -4 ) ] = 0.
+        ysincarg = psfdex1d[:, np.newaxis] - ( ys - y ) / psfsamp
+        ysincvals = np.sinc( ysincarg ) * np.sinc( ysincarg/4. )
+        ysincvals[ ( ysincarg > 4 ) | ( ysincarg < -4 ) ] = 0.
+        tenpro = np.tensordot( ysincvals[:, :, np.newaxis], xsincvals[:, :, np.newaxis], axes=0 )[ :, :, 0, :, :, 0 ]
+        clip = ( psfbase[:, np.newaxis, :, np.newaxis ] * tenpro ).sum( axis=0 ).sum( axis=1 )
 
         # Keeping the code below, because the code above is inpenetrable, and it's trying to
         #   do the same thing as the code below.
@@ -448,18 +448,18 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
         #  if you swap the order of yxincvals and xsincvals in the test, then the values of clip
         #  do not match the code below very well.  As is, they match to within a few times 1e-17,
         #  which is good enough as the minimum non-zero value in either one is of order 1e-12.)
-        clip = np.empty( ( stampwid, stampwid ), dtype=dtype )
-        for xi in range( xmin, xmax ):
-            for yi in range( ymin, ymax ):
-                xsincarg = psfdex1d - (xi-x) / psfsamp
-                xsincvals = np.sinc( xsincarg ) * np.sinc( xsincarg/4. )
-                xsincvals[ ( xsincarg > 4 ) | ( xsincarg < -4 ) ] = 0
-                ysincarg = psfdex1d - (yi-y) / psfsamp
-                ysincvals = np.sinc( ysincarg ) * np.sinc( ysincarg/4. )
-                ysincvals[ ( ysincarg > 4 ) | ( ysincarg < -4 ) ] = 0
-                clip[ yi-ymin, xi-xmin ] = ( xsincvals[np.newaxis, :]
-                                             * ysincvals[:, np.newaxis]
-                                             * psfbase ).sum()
+        # clip = np.empty( ( stampwid, stampwid ), dtype=dtype )
+        # for xi in range( xmin, xmax ):
+        #     for yi in range( ymin, ymax ):
+        #         xsincarg = psfdex1d - (xi-x) / psfsamp
+        #         xsincvals = np.sinc( xsincarg ) * np.sinc( xsincarg/4. )
+        #         xsincvals[ ( xsincarg > 4 ) | ( xsincarg < -4 ) ] = 0
+        #         ysincarg = psfdex1d - (yi-y) / psfsamp
+        #         ysincvals = np.sinc( ysincarg ) * np.sinc( ysincarg/4. )
+        #         ysincvals[ ( ysincarg > 4 ) | ( ysincarg < -4 ) ] = 0
+        #         clip[ yi-ymin, xi-xmin ] = ( xsincvals[np.newaxis, :]
+        #                                      * ysincvals[:, np.newaxis]
+        #                                      * psfbase ).sum()
 
         if norm:
             clip /= clip.sum()

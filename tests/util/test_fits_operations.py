@@ -391,7 +391,7 @@ def test_fpack_image_update_header( fpacked_fits_file ):
 
     # AUGH.  With some astropy version update (I THINK), this stopped
     # working.  It's possible that we were lucky before, and it worked
-    # becasue the header size was such that the number of 2880-byte FITS
+    # because the header size was such that the number of 2880-byte FITS
     # header records on the disk didn't change, so it didn't need to
     # actually read and write the file.  But, I suspect it's due to the
     # version change.  Not sure.

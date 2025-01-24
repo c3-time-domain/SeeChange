@@ -467,7 +467,7 @@ def test_linearity( decam_raw_image, decam_default_calibrators ):
             # (as nonlinearity will suppress bright pixels )
             # TODO -- but this test is saying that brighter pixels got *dimmer*!!!
             #   ---> ARE WE DOING DECAM LINEARITY CORRECTION BACKWARDS SOMEHOW?
-            #        Investigate!  Put in an Issue!
+            #        Investigate!  Issue #403.
             w = np.where( im.data > 10000 )
             assert np.all( newdata[w] <= im.data[w] )
 

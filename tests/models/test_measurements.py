@@ -9,7 +9,6 @@ from models.base import SmartSession
 from models.provenance import Provenance
 from models.image import Image  # noqa: F401
 from models.measurements import Measurements
-from pipeline.data_store import DataStore
 
 
 # ROB!  You put the "user" prefix infor testing, remember to remove it before merging to main
@@ -234,98 +233,3 @@ def test_measurements_cannot_be_saved_twice(ptf_datastore):
             with SmartSession() as sess:
                 sess.execute( sa.delete( Measurements ).where( Measurements._id==m2.id ) )
                 sess.commit()
-
-
-@pytest.mark.skip( reason="THIS TEST NEEDS TO BE UPDATED (or moved to pipeline/test_measuring)" )
-def test_threshold_flagging(ptf_datastore, measurer):
-
-    measurements = ptf_datastore.measurements
-    m = measurements[0]  # grab the first one as an example
-
-    measurer.pars.thresholds['negatives'] = 0.3
-    measurer.pars.deletion_thresholds['negatives'] = 0.5
-
-    m.disqualifier_scores['negatives'] = 0.1 # set a value that will pass both
-    assert measurer.compare_measurement_to_thresholds(m) == "ok"
-
-    m.disqualifier_scores['negatives'] = 0.4 # set a value that will fail one
-    assert measurer.compare_measurement_to_thresholds(m) == "bad"
-
-    m.disqualifier_scores['negatives'] = 0.6 # set a value that will fail both
-    assert measurer.compare_measurement_to_thresholds(m) == "delete"
-
-    # test what happens if we set deletion_thresholds to unspecified
-    #   This should not test at all for deletion
-    measurer.pars.deletion_thresholds = {}
-
-    m.disqualifier_scores['negatives'] = 0.1 # set a value that will pass
-    assert measurer.compare_measurement_to_thresholds(m) == "ok"
-
-    m.disqualifier_scores['negatives'] = 0.8 # set a value that will fail
-    assert measurer.compare_measurement_to_thresholds(m) == "bad"
-
-    # test what happens if we set deletion_thresholds to None
-    #   This should set the deletion threshold same as threshold
-    measurer.pars.deletion_thresholds = None
-    m.disqualifier_scores['negatives'] = 0.1 # set a value that will pass
-    assert measurer.compare_measurement_to_thresholds(m) == "ok"
-
-    m.disqualifier_scores['negatives'] = 0.4 # a value that would fail mark
-    assert measurer.compare_measurement_to_thresholds(m) == "delete"
-
-    m.disqualifier_scores['negatives'] = 0.9 # a value that would fail both (earlier)
-    assert measurer.compare_measurement_to_thresholds(m) == "delete"
-
-
-# This really ought to be in pipeline/test_measuring.py
-@pytest.mark.skip( "THIS TEST NEEDS TO BE MOVED TO pipeline/test_measuring.py" )
-def test_deletion_thresh_is_non_critical( ptf_datastore_through_cutouts, measurer ):
-
-    # hard code in the thresholds to ensure no problems arise
-    # if the defaults for testing change
-    measurer.pars.threshold = {
-                'negatives': 0.3,
-                'bad pixels': 1,
-                'offsets': 5.0,
-                'filter bank': 2,
-                'bad_flag': 1,
-            }
-
-    measurer.pars.deletion_threshold = {
-                'negatives': 0.3,
-                'bad pixels': 1,
-                'offsets': 5.0,
-                'filter bank': 2,
-                'bad_flag': 1,
-            }
-
-    ds1 = DataStore( ptf_datastore_through_cutouts )
-    ds2 = DataStore( ptf_datastore_through_cutouts )
-
-    # Gotta remove the 'measuring' provenance from ds1's prov tree
-    #  (which I think will also remove it from ds2's, not to mention
-    #  ptf_datastore_through_cutout's, as I don't think the copy
-    #  construction for DataStore does a deep copy) because we're about
-    #  to run measurements with a different set of parameters
-    del ds1.prov_tree['measuring']
-
-    ds1 = measurer.run( ds1 )
-    ds1provid = ds1.measurements[0].provenance_id
-
-
-    # Make sure that if we change a deletion threshold, we get
-    #   back the same provenance
-
-    # First make sure that the measurements are all cleared out of the database,
-    #  so they won't just get reloaded
-    with SmartSession() as session:
-        session.execute( sa.delete( Measurements ).where( Measurements._id.in_( [ i.id for i in ds1.measurements ] ) ) )
-        session.commit()
-
-    measurer.pars.deletion_threshold = None
-    # Make sure the data store forgets about its measurements provenance so it will make a new one
-    if 'measuring' in ds2.prov_tree:
-        del ds2.prov_tree['measuring']
-    ds2 = measurer.run( ds2 )
-
-    assert ds2.measurements[0].provenance_id == ds1provid
