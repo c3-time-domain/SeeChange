@@ -6,7 +6,7 @@ import hashlib
 import pytest
 
 import numpy as np
-from astropy.io import fits
+# from astropy.io import fits
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.exposure import Exposure
