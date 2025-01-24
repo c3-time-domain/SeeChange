@@ -674,7 +674,7 @@ class Subtractor:
                     ds.aligned_ref_zp = ds.ref_zp
                     ds.aligned_wcs = ds.wcs
 
-                    # We are going to makre the aligned ref image as *not* a coadd, because
+                    # We are going to make the aligned ref image as *not* a coadd, because
                     #   it's not a direct coadd, it's a warp of another image.  Scary.  But,
                     #   these don't generally get saved to the database, so it shouldn't matter.
                     #   (The test fixtures do care about this, as it affects filename munging.)

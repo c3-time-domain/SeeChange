@@ -63,10 +63,13 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
     assert all( len(a['prvDiaNonDetectionLimits']) == 0 for a in alerts )
 
     # Make sure that if we skip is_bad measurements (which is the
-    # default), we get fewer (but still some)
+    # default), we will get fewer (but still some).  (Actually,
+    # we may not get fewer: if the deletion thresholds are the
+    # same as the bad thresholds, then no is_bad measurements
+    # will have been saved in the first place.)
     alerts = alerter.build_avro_alert_structures( ds )
     assert len(alerts) > 2
-    assert len(alerts) < len(ds.measurements)
+    assert len(alerts) <= len(ds.measurements)
 
 
 def test_send_alerts( test_config, decam_datastore_through_scoring ):
@@ -168,7 +171,7 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
 
     assert nalerts[True] > 0
     assert nalerts[False] > 0
-    assert nalerts[True] < nalerts[False]
+    assert nalerts[True] <= nalerts[False]
 
 
 # This one takes a long time even if all the data is cached, because it

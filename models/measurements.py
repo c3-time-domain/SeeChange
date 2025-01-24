@@ -155,7 +155,6 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     major_width = sa.Column(
         sa.REAL,
         nullable=False,
-        index=True,
         doc=( "Major axis width of the source in the cutout. "
               "Calculated as the FWHM of a Gaussian fit." )
     )
@@ -163,7 +162,6 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     minor_width = sa.Column(
         sa.REAL,
         nullable=False,
-        index=True,
         doc=( "Minor axis width of the source in the cutout. "
               "Calculated as the FWHM of a Gaussian fit." )
     )
@@ -175,10 +173,11 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             "Defined as relative to the x-axis, between -pi/2 and pi/2.  From Gaussian fit."
     )
 
-    # Futher diagnostics are nullable, as we may add diagnostics, and the existing
-    #   Measurements won't have them.  Ideally, we'll do it right and no provenance
-    #   that includes these diagnostics will be working on older Measurements that
-    #   don't have them, but deal with that when it comes up.
+    # Futher diagnostics are nullable, as we may add diagnostics, and
+    #   the existing Measurements won't have values to put in when we
+    #   migrate.  Ideally, we'll do it right and no provenance that
+    #   includes these diagnostics will be working on older Measurements
+    #   that don't have them, but deal with that when it comes up.
 
     psf_fit_flags = sa.Column(
         sa.Integer,
@@ -204,6 +203,8 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         nullable=True,
         doc=( "|Flux| in the negative pixels divided by flux in the positive pixels used in negfrac" )
     )
+
+    # End of further diagnostics.
 
     is_bad = sa.Column(
         sa.Boolean,

@@ -86,8 +86,8 @@ def test_exposure_launcher( conductor_connector,
             measq = session.query( Measurements ).join( Cutouts ).join( SourceList ).join( Image )
             meas0 = measq.filter( Image._id==sub0.id ).all()
             meas1 = measq.filter( Image._id==sub1.id ).all()
-            assert len(meas0) == 26
-            assert len(meas1) == 36
+            assert len(meas0) == 2
+            assert len(meas1) == 5
 
     finally:
         # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,

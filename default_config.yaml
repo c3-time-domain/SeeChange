@@ -382,6 +382,12 @@ cutting:
 # Measuring fluxes and positions of detections, as well as making
 # analytical cuts.
 #
+# If you want (for testing purposes) to have all measurements
+# saved regardless of whether they're good or not, set all
+# the deletion thresholds to null.  (A few measurements will
+# still get filtered out, if most of the pixels in the region
+# of the source is masked.)
+#
 # See pipeline/measuring.py for definition of the parameters
 
 measuring:
@@ -401,14 +407,22 @@ measuring:
     negfrac: 0.3
     negfluxfrac: 0.3
   deletion_thresholds:
-    psf_fit_flags_bitmask: null
-    detection_dist: null
-    gaussfit_dist: null
-    elongation: null
-    width_ratio: null
-    nbadpix: null
-    negfrac: null
-    negfluxfrac: null
+    psf_fit_flags_bitmask: 0x2e
+    detection_dist: 5.
+    gaussfit_dist: 5.
+    elongation: 3.
+    width_ratio: 2.
+    nbadpix: 1
+    negfrac: 0.3
+    negfluxfrac: 0.3
+    # psf_fit_flags_bitmask: null
+    # detection_dist: null
+    # gaussfit_dist: null
+    # elongation: null
+    # width_ratio: null
+    # nbadpix: null
+    # negfrac: null
+    # negfluxfrac: null
   association_radius: 2.0
   do_not_associate: False
 
