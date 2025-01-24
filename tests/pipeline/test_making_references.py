@@ -716,7 +716,7 @@ def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
     ref = ptf_datastore.get_reference(provenances=refset.provenance)
 
     assert ref is not None
-    assert ref.id == ptf_ref.id
+    assert asUUID( ref.id ) == asUUID( ptf_ref.id )
 
     # now offset the image that needs matching
     ptf_datastore.image.ra_corner_00 -= 0.5
@@ -730,4 +730,4 @@ def test_datastore_get_reference(ptf_datastore, ptf_ref, ptf_ref_offset):
     ref = ptf_datastore.get_reference(provenances=refset.provenance)
 
     assert ref is not None
-    assert ref.id == ptf_ref_offset.id
+    assert asUUID( ref.id ) == asUUID( ptf_ref_offset.id )

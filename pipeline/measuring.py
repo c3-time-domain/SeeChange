@@ -337,6 +337,10 @@ class Measurer:
                         for m in measurements:
                             m.associate_object( radius=self.pars.association_radius, connection=conn )
 
+                # Make sure the upstream bitflag is set for all measurements
+                for m in measurements:
+                    m._upstream_bitflag = ds.cutouts.bitflag
+
                 ds.measurements = measurements
 
                 SCLogger.debug( f"...done doing threshold cuts, {len(ds.measurements)} survived." )

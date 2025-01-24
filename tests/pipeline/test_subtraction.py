@@ -5,6 +5,7 @@ import numpy as np
 from scipy import ndimage
 
 from improc.tools import sigma_clipping
+from util.util import asUUID
 
 from tests.conftest import SKIP_WARNING_TESTS
 
@@ -40,7 +41,7 @@ def test_subtraction_data_products( ptf_ref, ptf_supernova_image_datastores ):
 
     # check that reference is loaded automatically when calling the subtraction
     assert ds.reference is not None
-    assert ds.reference.id == ptf_ref.id
+    assert asUUID( ds.reference.id ) == asUUID( ptf_ref.id )
     assert ds.reference != ptf_ref  # not the same object, it was loaded from DB!
     assert ds.reference.from_db  # it was loaded from DB!
 
