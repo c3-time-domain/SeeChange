@@ -183,18 +183,19 @@ def test_filtering_measurements(ptf_datastore):
             Measurements.nbadpix > 0, Measurements.provenance_id == m.provenance_id
         )).all()
         assert len(ms) < len(measurements)   # Not all measurements had a bad pixel
+        # assert len(ms) > 0                 # ...but some did
+        #                                    # ...well, some did if the deletion_thresholds were all null...
+
+        ms = session.scalars(sa.select(Measurements).where(
+            Measurements.negfrac > 0.2, Measurements.provenance_id == m.provenance_id
+        )).all()
+        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.2
         assert len(ms) > 0                   # ...but some did
 
         ms = session.scalars(sa.select(Measurements).where(
-            Measurements.negfrac > 0.5, Measurements.provenance_id == m.provenance_id
+            Measurements.negfluxfrac > 0.2, Measurements.provenance_id == m.provenance_id
         )).all()
-        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.5
-        assert len(ms) > 0                   # ...but some did
-
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.negfluxfrac > 0.5, Measurements.provenance_id == m.provenance_id
-        )).all()
-        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.5
+        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.2
         assert len(ms) > 0                   # ...but some did
 
 

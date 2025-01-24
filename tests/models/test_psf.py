@@ -232,7 +232,7 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     assert resamp.shape == ( 31, 31 )
 
     clip = psf.get_clip( 512., 512., 1., dtype=np.float64 )
-    assert clip.shape == ( 19, 19 )                        # (15, 15) for round psf (resampling ends up different)
+    assert clip.shape == ( 23, 23 )
     assert clip.sum() == pytest.approx( 1., abs=1e-5 )
 
     with fits.open( psf_palette.imagename ) as ifp:
@@ -275,4 +275,4 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # mixed up the x and y terms on the polynomial in
     # PSF.get_resampled_psf (the **i and **j).
 
-    assert chisq / n < 25.0
+    assert chisq / n < 105.

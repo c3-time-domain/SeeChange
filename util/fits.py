@@ -200,6 +200,15 @@ def save_fits_image_file( filename,
             raise NotImplementedError( "just_update_header doesn't work with single_file" )
         if not finalfilepath.is_file():
             raise FileNotFoundError( f"just_update_header failure: missing file {finalfilepath}" )
+        # Previously, this would not change the compressed data.  Now it
+        #   does.  I *think* the difference was the upgrade to astropy
+        #   6.  I've tried using disable_image_compression=True and
+        #   output_verify='ignore', but that doesn't accomplish what we
+        #   want.  So, for now, we have to accept that when we're
+        #   just updating the header, compressed data (compressed with a
+        #   lossy algorithm like fpack uses) will change slightly (but
+        #   hopefully not significantly!), even though that's stupid.
+        # Issue #402.
         with fits.open( finalfilepath, mode="update" ) as filehdu:
             ext = 1 if fpack else 0
 

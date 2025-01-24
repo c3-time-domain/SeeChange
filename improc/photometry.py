@@ -19,7 +19,42 @@ def photometry( image, noise, mask, positions, apers, measurements=None,
                 return_cutouts=False ):
     """Do PSF and and Aperture photometry on an image.
 
+    Some properties of the returned Measurements objects are filled and
+    calculated as follows:
+
+      bkg_per_pix : The background level measured in an annulus around
+        (center_x_pixel, center_y_pixel) with inner radius innerrad and
+        outer radius outerrad, or just 0. if dobgsub is False.  else 0.
+
+      center_x_pixel, center_y_pixel : The center pixel of the cutout.
+        This is pulled from what was passed in positions.
+
+      x, y : The position of the source from psf fitting.
+
+      flux_psf : The flux of the source from psf fitting.  If more than
+        75% of the pixels in a square 2*FWHM on a side around
+        (center_x_pixel,center_y_pixel) (minimum 7×7) are masked, then
+        this will be NaN.
+
+      flux_psf_err : Uncertainty on flux_psf (or NaN if flux_psf is NaN).
+
+      psf_fit_flags : Flags returned by photutils' psf fit.  See
+         https://photutils.readthedocs.io/en/stable/api/photutils.psf.PSFPhotometry.html
+         and search for "flags" under "Returns" for method __call__.
+
+      aper_radii : the list of aperture radii in pixels.  This is
+        specified in the config (though perhaps in fwhm, so the pixel
+        size will be calculated here).
+
+      flux_apertures : an array of aperture-photometry flux
+        corresponding to the elements of aper_radii.  These are
+        background-subtracted if dobgsub is True.  Does not include an
+        aperture correctin.  In units of ADU.
+
+      flux_apertures_err : uncertainties in flux_apertures.
+
     Parameters
+    ----------
         image : 2d ndarray
           The image data.  Indexed so that the pixel at position (ix, iy)
           is image[iy, ix].  The center of the lower-left pixel is (0.0,
@@ -180,7 +215,7 @@ def photometry( image, noise, mask, positions, apers, measurements=None,
     # (It should be possible to fix both these issues by writing a
     #   Fittable2dModel class to use with photutils' PSF photometry
     #   using our models/psf.py class and get_clip.  It might be slower.
-    #   It would be effort to write it.
+    #   It would be effort to write it.)
 
     SCLogger.debug( "Doing psf photometry...." )
 
@@ -272,58 +307,43 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
     """Measure morphological and diagnostic properties of cutouts and Measurements.
 
     At the end of this function, several fields of each Measurement
-    object in the measurements list will be filled, including
-    centroid_x, centroid_y, width, elongation, position_angle,
-    diagnostics.  (The is_bad field will not be set; that needs to be
-    set by something that has thresholds for diagnostics, whereas this
-    routine just calculates them.)
+    object in the measurements list will be filled, including gfit_x,
+    gfit_y, major_width, minor_width, position_angle, nbadpix, negfrac,
+    negfluxfrac.  (The is_bad field will not be set; that needs to be
+    set by something that has thresholds for diagnostics
+    (e.g. pipline/measuring.py), whereas this routine just calculates
+    them.)
 
-    The fields of Measurements are calculated as follows.  Many of them
-    (elongation, det_offset, centroid_offset, width_ration, nbadpix,
-    negfrac, negfluxfrac) are defined so that bigger is "worse".  A
-    threshold could be set for each one of those, a Measurement being
-    marked bad if any one of the values is above the corresponding
-    threshold.
+    The fields of Measurements are calculated as follows.
 
-       centroid_x, centroid_y : the centroid (first moment along each
-         axis) of the flux distribution on the cutout.
+      gfit_x, gfit_y : Center position of a 2d Gaussian fit over the
+        source.
 
-----> OLD       width : An estimate of the FWHM of the distribution of flux on
-----> OLD         the cutout.  In reality, two values σ_maj and σ_min are
-----> OLD         calculated from the second moments on the cutout (see comments
-----> OLD         and code in the function body for details).  If the
-----> OLD         distribution of flux were a 2d elliptical Gaussian, σ_maj and
-----> OLD         σ_min would be the sizes of the major and minor axes with
-----> OLD         lenghts corresponding to the two σ values for the Gaussian.
-----> OLD         The width property is defined as 2√(2ln2) * (σ_maj+σ_min)/2.
-----> OLD
-----> OLD      elongation : σ_maj / σ_min (see "width" for what these are).  If
-----> OLD        σ_min (somehow) comes out to 0., elongation is set to 1e32.
-----> OLD        elongation=1 means a round flux distribution; larger values mean
-----> OLD        more and more elongated.
+      minor_width, major_width : The minor axis and major axis FWHM from
+        the 2d Gaussian fit.
 
-      major_width : The major-axis width of the distribution of flux on
-        the cutout.  For a Gaussian distribution, this would be the 1σ
-        major axis.
+      position_angle : The angle of the major axis of the Gaussian fit
+        relative to the x-axis.  (...if the code below properly
+        interprets the return from astropy's fit.)
 
-      minor_width : The minor-axis width of the distribution of flux on the
-        cutout.  For a Gaussian, this is 1σ.  Note that the calculation might
-        formally yield NaN; in that case, this is set to 0.
+      nbadpix : The number of masked pixels within diagdist of
+        round(x,y) that are masked.  (Within that distance along either
+        x or y; it looks in a square of side 2*diag_dist+1.)
 
-      position_angle : An angle between -π/2 and π/2 that is the angle
-        between the major axis of the flux distribution and the
-        x-axis.
+      negfrac : The number of significantly negative pixels divided by
+        significantly positive pixels within the same square used for
+        nbadpix.  "Signficantly" is defined more than as n_sigma_outlier
+        times the noise value of the pixel (from noise_cutouts) away
+        from 0 on the background subtracted cutout.  Does not include
+        masked pixels.  Larger values indicate more significantly
+        negative pixels (and thus a sign of a likely bad candidate,
+        e.g. a dipole).  Set to 1e32 if there are no significantly
+        positive pixels in the diagnostic square.
 
-      nbadpix : the number of bad pixels within a square whose size is
-        defined by diagdist (see below)
-
-      negfrac : the number of pixels that are <-2σ divided by the number
-        that are >2σ (where σ is given by the noise cutout) in the same
-        square used for nbadpix
-
-      negfluxfrac : the absolute value of the total flux in pixels that
-        are <-2σ divided by the total flux in pixels that are >2σ in the
-        same square used for nbadpix.
+      negfluxfrac : Looking at the same pixels selected in negfrac, the
+        absolute value of the sum of the negative pixel values divided by
+        the sum of the positive pixel values.  Set to 1e32 if there are no
+        significantly positive pixels in the diagnostic square.
 
     Parameters
     ----------
@@ -367,8 +387,6 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
 
     """
 
-    # Number of lines of comments and documentation MUST be more than number of lines of code!
-
     if ( ( len(cutouts) != len(measurements) )
          or ( len(noise_cutouts) != len(measurements) )
          or ( len(mask_cutouts) != len(measurements ) )
@@ -387,7 +405,12 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
     for i, ( m, cutout, cutout_noise, cutout_mask ) in enumerate( zip( measurements, cutouts, noise_cutouts,
                                                                        mask_cutouts ) ):
         # Leave this code here for now; we'll probably
-        #   remove it later, but I'm heding my bets.
+        #   remove it later, but I'm hedging my bets.
+        # I found that the moment calculations were very
+        #   unstable.  They're a nice idea, but highly
+        #   susceptible to noisy images, which means
+        #   they won't be very good on anything that's
+        #   anywhere near our detection limit.
         if False:
             # Notice that photutils.morphology.data_properties doesn't take
             #   a noise image....  The moments are defined in terms of just
@@ -484,10 +507,8 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
                     theta -= np.pi
             m.position_angle = theta
 
-        # Unfortunately, those moment width measurements are crap when
-        # the image is noisy, which is going to be the case for lots of
-        # our detections.  To get a width measurement, fit a Gaussian
-        # over the cutout.
+        # Fit a 2d Gaussian over the detected source to get some
+        # diagnostics.
 
         # First, gotta turn the cutout into what astropy fitting
         # expects, which isn't exactly the same as what photutils
@@ -528,7 +549,6 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
         if theta <= -np.pi/2.:
             theta += np.pi
         m.position_angle = theta
-
 
         # Figure out positions on cutouts for the bad pixel and negative fraction diagnostics
         ixc = int( np.round( m.x ) - m.center_x_pixel + ( cutouts[i].shape[1] // 2 ) )
