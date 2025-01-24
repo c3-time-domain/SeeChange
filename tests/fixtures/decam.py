@@ -310,6 +310,7 @@ def decam_exposure( decam_exposure_factory ):
     #   as lots of tests will need to be updated,
     #   but the new one has a nice SN in it that
     #   was found for DECAT-DDF with lensgrinder.
+    #   (DC21cyddn).
     # (Why I didn't choose a test exposure that way
     # in the first place is a mystery.)
     # Lots of 'S3' in other fixtures have been
