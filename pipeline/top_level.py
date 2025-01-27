@@ -5,7 +5,7 @@ import warnings
 import sqlalchemy as sa
 
 from pipeline.parameters import Parameters
-from pipeline.data_store import DataStore, UPSTREAM_STEPS
+from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
 from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
@@ -17,10 +17,7 @@ from pipeline.measuring import Measurer
 from pipeline.scoring import Scorer
 
 from models.base import SmartSession
-from models.provenance import CodeVersion, Provenance, ProvenanceTag
-from models.refset import RefSet
 from models.exposure import Exposure
-from models.image import Image
 from models.report import Report
 
 from util.config import Config
@@ -294,9 +291,10 @@ class Pipeline:
             raise RuntimeError( "Exposure must be loaded into the database." )
 
         try:  # create (and commit, if not existing) all provenances for the products
-            provs = self.make_provenance_tree( ds.exposure,
+            provs = self.make_provenance_tree( ds,
+                                               ds.exposure,
                                                no_provtag=no_provtag,
-                                               ok_no_ref_provs=ok_no_ref_provs )
+                                               all_steps=self.pars.generate_report )
             ds.prov_tree = provs
         except Exception as e:
             raise RuntimeError( f'Failed to create the provenance tree: {str(e)}' ) from e
@@ -338,6 +336,104 @@ class Pipeline:
                 raise ValueError( f"Unknown through_step: \"{self.pars.through_step}\"" )
             stepstodo = stepstodo[ :stepstodo.index(self.pars.through_step)+1 ]
         return stepstodo
+
+
+    def get_critical_pars_dicts( self ):
+        return { 'preprocessing': self.preprocessor.get_critical.pars(),
+                 'backgrounding': self.backgrounder.get_critical_pars(),
+                 'extraction': self.extractor.get_critical_pars(),
+                 'wcs': self.astrometor.get_critical_pars(),
+                 'zp': self.photometor.get_critical_pars(),
+                 'subtraction': self.subtractor.get_critical_pars(),
+                 'detection': self.detector.get_critical_pars(),
+                 'cutting': self.cutter.get_critical_pars(),
+                 'measuring': self.measuring.get_critical_pars(),
+                 'scoring': self.scorer.get_critical_pars(),
+                 'report': {}
+                }
+
+    def make_provenance_tree( self,
+                              ds,
+                              exposure,
+                              no_provtag=False,
+                              all_steps=False ):
+        """Create provenances for all steps in the pipeline.
+
+        Use the current configuration of the pipeline and all the
+        objects it has to generate the provenances for all the
+        processing steps by calling ds.make_prov_tree()
+
+        Start from either an Exposure or an Image; the provenance for
+        the starting object must already be in the database.
+
+        (Note that if starting from an Image, we just use that Image's
+        provenance without verifying that it's consistent with the
+        parameters of the preprocessing step of the pipeline.  Most of
+        the time, you want to start with an exposure (hence the name of
+        the parameter), as that's how the pipeline is designed.
+        However, at least in some tests we use this starting with an
+        Image.)
+
+        Parameters
+        ----------
+        ds : DataStore
+            The DataStore to make the provenance tree in.
+
+        exposure : Exposure or Image
+            The exposure to use to get the initial provenance.
+            Alternatively, can be a preprocessed Image.  In either case,
+            the object's provenance must already be in the database.  If
+            Image, then no report will be generated even if the
+            generate_report parameter is True, because reports are
+            linked to exposures.
+
+        no_provtag: bool, default False
+            If True, won't create a provenance tag, and won't ensure
+            that the provenances created match the provenance_tag
+            parameter to the pipeline.  If False, will create the
+            provenance tag if it doesn't exist.  If it does exist, will
+            verify that all the provenances in the created provenance
+            tree are what's tagged.
+
+        all_steps: bool, default False
+            Normally, will only generate provenances up to the
+            through_step parameter of this Pipeline.  If this is True,
+            it will try to generate provenances for all steps.  (If this
+            is True and the DataStore can't find a reference, then an
+            exception will be raised.)  As a side effect, if all_steps
+            is not True and the through_step parameter isn't the
+            last parameter in Pipeline.ALL_STEPS, then no report
+            will be generated (because we don't know the provenance
+            for it!).
+
+        Returns
+        -------
+        ProvenanceTree
+            A map of all the provenances that were created in this
+            function, keyed according to the different steps in the
+            pipeline.  (ds.prov_tree will be set to this same value.)
+
+        """
+
+        if not isinstance( ds, DataStore ):
+            raise TypeError( "First argument to make_provenance_tree must be a DataStore." )
+
+        if all_steps:
+            stepstogenerateprov = self.ALL_STEPS
+        else:
+            stepstogenerateprov = self._get_stepstodo()
+
+        self._generate_report = ( stepstogenerateprov == self.ALL_STEPS ) and ( isinstance( exposure, Exposure ) )
+        if self.pars.generate_report:
+            if self._generate_report:
+                stepstogenerateprov.append( 'report' )
+            else:
+                SCLogger.warning( "generate_report is true but no report will be generated!" )
+
+        parsdict = self.get_critical_pars_dicts()
+        ds.make_prov_tree( exposure, stepstogenerateprov, parsdict,
+                           provtag=None if no_provtag else self.pars.provenance_tag )
+        return ds.prov_tree
 
 
     def run(self, *args, **kwargs):
@@ -487,206 +583,3 @@ class Pipeline:
             if ds is not None:
                 ds.exceptions.append( e )
             raise
-
-    def make_provenance_tree( self,
-                              exposure,
-                              overrides=None,
-                              no_provtag=False,
-                              add_missing_processes_to_provtag=True,
-                              ok_no_ref_provs=False ):
-        """Create provenances for all steps in the pipeline.
-
-        Use the current configuration of the pipeline and all the
-        objects it has to generate the provenances for all the
-        processing steps.
-
-        If self.pars.generate_report is False, will not generate a
-        reporting provenance.  In this case, will also only generate
-        provenances for steps through self.pars.through_step.  If
-        self.pars.generate_report is True, will generate a provenance
-        for all steps regardless of self.pars.through_step (as they're
-        all needed for upstreams for the report).
-
-        Even if self.pars.generate_report is True, if ok_no_ref_provs is
-        True and no reference provenances are found, still will not
-        generate a report provenance, and reporting won't work.  (Again,
-        this is so we don't generate a report provenance that's wrong,
-        i.e. that doesn't include the reference step.)  Flags this
-        internally by setting self._generate_report to False.
-
-        Start from either an Exposure or an Image; the provenance for
-        the starting object must already be in the database.
-
-        (Note that if starting from an Image, we just use that Image's
-        provenance without verifying that it's consistent with the
-        parameters of the preprocessing step of the pipeline.  Most of
-        the time, you want to start with an exposure (hence the name of
-        the parameter), as that's how the pipeline is designed.
-        However, at least in some tests we use this starting with an
-        Image.)
-
-        Parameters
-        ----------
-        exposure : Exposure or Image
-            The exposure to use to get the initial provenance.
-            Alternatively, can be a preprocessed Image.  In either case,
-            the object's provenance must already be in the database.
-
-        overrides: dict, optional
-            A dictionary of provenances to override any of the steps in
-            the pipeline.  For example, set overrides={'preprocessing':
-            prov} to use a specific provenance for the basic Image
-            provenance.
-
-        no_provtag: bool, default False
-            If True, won't create a provenance tag, and won't ensure
-            that the provenances created match the provenance_tag
-            parameter to the pipeline.  If False, will create the
-            provenance tag if it doesn't exist.  If it does exist, will
-            verify that all the provenances in the created provenance
-            tree are what's tagged.
-
-        add_missing_processes_to_provtag: bool, default True
-            If the provenance tag already exists in the database, and
-            the provenance tag for a given provenance does not match the
-            provenance derived by this function for that process, an
-            exception will be raised.  If the provenance tag already
-            exists but there is no current provenance tag for a given
-            process, then if this is True, that provenance will be
-            added; if this is False, an exception will be raised.
-
-        ok_no_ref_provs: bool, default False
-            Normally, if a refeset can't be found, or no image
-            provenances associated with that refset can be found, an
-            execption will be raised.  Set this to True to indicate that
-            that's OK; in that case, the returned prov_tree will not
-            have any provenances for steps other than preprocessing and
-            extraction.
-
-        Returns
-        -------
-        dict
-            A dictionary of all the provenances that were created in this function,
-            keyed according to the different steps in the pipeline.
-            The provenance will all be inserted into the database if necessary.
-
-        """
-        if overrides is None:
-            overrides = {}
-
-        self._generate_report = self.pars.generate_report
-        if not self._generate_report:
-            stepstogenerateprov = self._get_stepstodo()
-        else:
-            stepstogenerateprov = self.ALL_STEPS
-
-        code_version = None
-        is_testing = None
-
-        provs = {}
-
-        # Get started with the passed Exposure (usual case) or Image
-        if isinstance( exposure, Exposure ):
-            with SmartSession() as session:
-                exp_prov = Provenance.get( exposure.provenance_id, session=session )
-                code_version = CodeVersion.get_by_id( exp_prov.code_version_id, session=session )
-            provs['exposure'] = exp_prov
-            is_testing  = exp_prov.is_testing
-        elif isinstance( exposure, Image ):
-            exp_prov = None
-            self._generate_report = False
-            with SmartSession() as session:
-                passed_image_provenance = Provenance.get( exposure.provenance_id, session=session )
-                code_version = CodeVersion.get_by_id( passed_image_provenance.code_version_id, session=session )
-            is_testing = passed_image_provenance.is_testing
-        else:
-            raise TypeError( f"The first parameter to make_provenance_tree must be an Exposure or Image, "
-                             f"not a {exposure.__class__.__name__}" )
-
-        # Get the reference
-        ref_prov = None
-        refset_name = self.subtractor.pars.refset
-        if refset_name is None:
-            if not ok_no_ref_provs:
-                raise ValueError( "refset_name is None but ok_no_ref_provs is False; this is inconsistent." )
-            # If no refset is given, then don't try to generate provenances for
-            #   subtraction or anything later.
-            self._generate_report = False
-            stepstogenerateprov = self._get_stepstodo()
-            if 'subtraction' in stepstogenerateprov:
-                stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subtraction') ]
-        else:
-            refset = RefSet.get_by_name( refset_name )
-            if refset is None:
-                if not ok_no_ref_provs:
-                    raise ValueError(f'No reference set with name {refset_name} found in the database!')
-                else:
-                    # No reference, can't do subtraction or later
-                    self._generate_report = False
-                    stepstogenerateprov = self._get_stepstodo()
-                    if 'subtraction' in stepstogenerateprov:
-                        stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subtraction') ]
-            else:
-                ref_prov = Provenance.get( refset.provenance_id )
-
-        if ref_prov is not None:
-            provs['referencing'] = ref_prov
-
-        for step in stepstogenerateprov:
-            if step in overrides:
-                # Accept explicit provenances specified by the user as overrides,
-                # even if these are totally screwy and inconsistent.  Users be users.
-                provs[step] = overrides[step]
-            else:
-                # special case handling for 'preprocessing' if we don't have an exposure
-                if ( step == 'preprocessing' ) and exp_prov is None:
-                    provs[step] = passed_image_provenance
-                    passed_image_provenance.insert_if_needed()
-                else:
-                    # Because backgrounding, extraction, wcs, and zp all share
-                    #  a provenance with extraction, don't try to generate
-                    #  provenaces for those steps.
-                    if step in PROCESS_OBJECTS:
-                        # load the parameters from the objects on the pipeline
-                        obj_name = PROCESS_OBJECTS[step]  # translate the step to the object name
-                        if isinstance(obj_name, dict):
-                            # sub-objects, e.g., extraction.sources,
-                            # extraction.wcs, etc.  get the first item
-                            # of the dictionary and hope its pars object
-                            # has siblings defined correctly:
-                            obj_name = obj_name.get( list(obj_name.keys())[0] )
-                        parameters = getattr(self, obj_name).pars.get_critical_pars()
-
-                        # figure out which provenances go into the upstreams for this step
-                        up_steps = UPSTREAM_STEPS[step]
-                        if isinstance(up_steps, str):
-                            up_steps = [up_steps]
-                        upstream_provs = [ provs[u] for u in up_steps ]
-
-                        provs[step] = Provenance(
-                            code_version_id=code_version.id,
-                            process=step,
-                            parameters=parameters,
-                            upstreams=upstream_provs,
-                            is_testing=is_testing,
-                        )
-                        provs[step].insert_if_needed()
-
-        # Make the report provenance
-        if self._generate_report:
-            provs['report'] = Provenance(
-                process='report',
-                code_version_id=code_version.id,
-                parameters={},
-                upstreams=[ provs[ self.ALL_STEPS[-1] ] ],
-                is_testing=is_testing
-            )
-            provs['report'].insert_if_needed()
-
-        # Set the provenance tag if requested.
-        # (Chances are it's already set, but somebody will be first.)
-        if not no_provtag:
-            ProvenanceTag.addtag( self.pars.provenance_tag, provs.values(),
-                                  add_missing_processes_to_provtag=add_missing_processes_to_provtag )
-
-        return provs
