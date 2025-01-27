@@ -147,7 +147,6 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         raise ValueError("noise_new must have the same shape as the new image.")
 
     # get the representative noise values
-    import pdb; pdb.set_trace()
     sigma_r = np.median(noise_ref[~nan_mask]) if isinstance(noise_ref, np.ndarray) else noise_ref
     sigma_n = np.median(noise_new[~nan_mask]) if isinstance(noise_new, np.ndarray) else noise_new
 
@@ -466,6 +465,10 @@ def zogy_add_weights_flags( ref_weight, new_weight, ref_flags, new_flags,
     mask = (ref_weight == 0) | (new_weight == 0) | ( new_flags !=0 ) | ( ref_flags != 0 )
     outwt = np.divide( 1, w1 + w2, out=np.zeros_like(w1, dtype=np.float32),
                        where=(mask==0) & ((w1 + w2) != 0) )
+
+    # Done with w1, w2
+    del w1
+    del w2
 
     # expand the flags of the new image
     splash_pixels = int(np.ceil(max(ref_psf_fwhm, new_psf_fwhm)))

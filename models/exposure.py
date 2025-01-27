@@ -156,6 +156,15 @@ class ExposureImageIterator:
 
 
 class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBadness):
+    """Encapsulates one exposure, which includes many images each on different sensor sections (chips).
+
+    Access to the data is through the data, weight, and flags
+    attributes, which are SectionData instances.  You can treat them as
+    dictionaries, where you give the sensor section id as key.
+
+    Call clear_cache() to clear any cached data from the SectionData instances in order to free up memory.
+
+    """
 
     __tablename__ = "exposures"
 
@@ -832,6 +841,13 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             raise ValueError(f"flags_section_headers must be a SectionHeaders object. Got {type(value)} instead. ")
         self._flags_section_headers = value
 
+    def clear_cache( self ):
+        if self._data is not None:
+            self._data.clear_cache()
+        if self._weight is not None:
+            self._weight.clear_cache()
+        if self._flags is not None:
+            self._flags.clear_cache()
 
     @property
     def header(self):
