@@ -219,8 +219,9 @@ email:
 #      falling back to the NOIRLab server.
 
 catalog_gaiadr3:
-  use_server: True
-  use_datalab: False
+  # use_server: True
+  # TEMPORARY 2025-01-27 : NERSC is down this week, so don't even try the spin server.
+  use_server: False
   fallback_datalab: True
   server_url: https://ls4-gaia-dr3.lbl.gov
   server_timeout_sec: 5.

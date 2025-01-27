@@ -147,6 +147,7 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         raise ValueError("noise_new must have the same shape as the new image.")
 
     # get the representative noise values
+    import pdb; pdb.set_trace()
     sigma_r = np.median(noise_ref[~nan_mask]) if isinstance(noise_ref, np.ndarray) else noise_ref
     sigma_n = np.median(noise_new[~nan_mask]) if isinstance(noise_new, np.ndarray) else noise_new
 
@@ -221,19 +222,20 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     V_n = N + sigma_n ** 2
     V_n[V_n < 0] = 0  # make sure we don't have negative values
 
+    # Done with R and N (except we'll need R.size later)
+    Rsize = R.size
+    del R
+    del N
+
     # this kernel is used to estimate the reference source noise
     k_r_f = F_r * F_n ** 2 * np.conj(P_r_f) * P_n_f_abs2 / denominator
-    k_r = np.real(np.fft.ifft2(k_r_f))
-    k_r2 = k_r ** 2
-    del k_r
+    k_r2 = np.real(np.fft.ifft2(k_r_f)) ** 2
     k_r2_f = np.fft.fft2(k_r2)
     del k_r2
 
     # this kernel is used to estimate the new source noise
     k_n_f = F_n * F_r ** 2 * np.conj(P_n_f) * P_r_f_abs2 / denominator
-    k_n = np.real(np.fft.ifft2(k_n_f))
-    k_n2 = k_n ** 2
-    del k_n
+    k_n2 = np.real(np.fft.ifft2(k_n_f)) ** 2
     k_n2_f = np.fft.fft2(k_n2)
     del k_n2
 
@@ -274,6 +276,8 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         V_ast = 0
 
     # Done with R_f, N_f, k_r_f, k_n_f
+    del R_f
+    del N_f
     del k_r_f
     del k_n_f
 
@@ -303,7 +307,7 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     del denominator
 
     # divide by the number of pixels in the images (related to FFT normalization)
-    F_S /= R.size
+    F_S /= Rsize
 
     alpha = S / F_S
     V_S_sqrt[zero_mask] = 0  # should we replace this with NaNs?

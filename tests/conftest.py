@@ -255,7 +255,13 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(scope='session')
 def download_url():
-    return 'https://portal.nersc.gov/cfs/m4616/SeeChange_testing_data'
+    # return 'https://portal.nersc.gov/cfs/m4616/SeeChange_testing_data'
+    # TEMPORARY 2025-01-27
+    # NERSC is down this week, so use the following fallback location until it's back up.
+    # Make sure to undo this later because I have a transfer limit.  It's 2TB/month,
+    # so we can download a full cache ~20 times before it runs out, but with github
+    # actions, it's easier to hit this than you might think.
+    return 'https://rknop.net/SeeChange_testing_data'
 
 
 # data that is included in the repo and should be available for tests
