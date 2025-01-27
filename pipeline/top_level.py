@@ -28,7 +28,7 @@ from util.util import env_as_bool
 # if multiple objects are used in one step, replace the string with a sub-dictionary,
 # where the sub-dictionary keys are the keywords inside the expected critical parameters
 # that come from all the different objects.
-PROCESS_OBJECTS = {
+_PROCESS_OBJECTS = {
     'preprocessing': 'preprocessor',
     'extraction': {
         'sources': 'extractor',
@@ -215,25 +215,25 @@ class Pipeline:
     def override_parameters(self, **kwargs):
         """Override some of the parameters for this object and its sub-objects, using Parameters.override(). """
         for key, value in kwargs.items():
-            if key in PROCESS_OBJECTS:
-                if isinstance(PROCESS_OBJECTS[key], dict):
-                    for sub_key, sub_value in PROCESS_OBJECTS[key].items():
+            if key in _PROCESS_OBJECTS:
+                if isinstance(_PROCESS_OBJECTS[key], dict):
+                    for sub_key, sub_value in _PROCESS_OBJECTS[key].items():
                         if sub_key in value:
                             getattr(self, sub_value).pars.override(value[sub_key])
-                elif isinstance(PROCESS_OBJECTS[key], str):
-                    getattr(self, PROCESS_OBJECTS[key]).pars.override(value)
+                elif isinstance(_PROCESS_OBJECTS[key], str):
+                    getattr(self, _PROCESS_OBJECTS[key]).pars.override(value)
             else:
                 self.pars.override({key: value})
 
     def augment_parameters(self, **kwargs):
         """Add some parameters to this object and its sub-objects, using Parameters.augment(). """
         for key, value in kwargs.items():
-            if key in PROCESS_OBJECTS:
-                getattr(self, PROCESS_OBJECTS[key]).pars.augment(value)
+            if key in _PROCESS_OBJECTS:
+                getattr(self, _PROCESS_OBJECTS[key]).pars.augment(value)
             else:
                 self.pars.augment({key: value})
 
-    def setup_datastore(self, *args, no_provtag=False, ok_no_ref_provs=False, **kwargs):
+    def setup_datastore(self, *args, no_provtag=False, ok_no_ref_prov=False, **kwargs):
         """Initialize a datastore, including an exposure and a report, to use in the pipeline run.
 
         Will raise an exception if there is no valid Exposure,
@@ -262,7 +262,7 @@ class Pipeline:
             verify that all the provenances in the created provenance
             tree are what's tagged.
 
-          ok_no_ref_provs: bool, default False
+          ok_no_ref_prov: bool, default False
             Normally, if a refeset can't be found, or no image
             provenances associated with that refset can be found, an
             execption will be raised.  Set this to True to indicate that
@@ -294,6 +294,7 @@ class Pipeline:
             provs = self.make_provenance_tree( ds,
                                                ds.exposure,
                                                no_provtag=no_provtag,
+                                               ok_no_ref_prov=ok_no_ref_prov,
                                                all_steps=self.pars.generate_report )
             ds.prov_tree = provs
         except Exception as e:
@@ -330,7 +331,7 @@ class Pipeline:
 
 
     def _get_stepstodo( self ):
-        stepstodo = self.ALL_STEPS
+        stepstodo = self.ALL_STEPS.copy()
         if self.pars.through_step is not None:
             if self.pars.through_step not in stepstodo:
                 raise ValueError( f"Unknown through_step: \"{self.pars.through_step}\"" )
@@ -339,16 +340,17 @@ class Pipeline:
 
 
     def get_critical_pars_dicts( self ):
-        return { 'preprocessing': self.preprocessor.get_critical.pars(),
-                 'backgrounding': self.backgrounder.get_critical_pars(),
-                 'extraction': self.extractor.get_critical_pars(),
-                 'wcs': self.astrometor.get_critical_pars(),
-                 'zp': self.photometor.get_critical_pars(),
-                 'subtraction': self.subtractor.get_critical_pars(),
-                 'detection': self.detector.get_critical_pars(),
-                 'cutting': self.cutter.get_critical_pars(),
-                 'measuring': self.measuring.get_critical_pars(),
-                 'scoring': self.scorer.get_critical_pars(),
+        # The contents of this dictionary must be synced with _PROCESS_OBJECTS above.
+        return { 'preprocessing': self.preprocessor.pars.get_critical_pars(),
+                 'backgrounding': self.backgrounder.pars.get_critical_pars(),
+                 'extraction': self.extractor.pars.get_critical_pars(),
+                 'wcs': self.astrometor.pars.get_critical_pars(),
+                 'zp': self.photometor.pars.get_critical_pars(),
+                 'subtraction': self.subtractor.pars.get_critical_pars(),
+                 'detection': self.detector.pars.get_critical_pars(),
+                 'cutting': self.cutter.pars.get_critical_pars(),
+                 'measuring': self.measurer.pars.get_critical_pars(),
+                 'scoring': self.scorer.pars.get_critical_pars(),
                  'report': {}
                 }
 
@@ -356,6 +358,7 @@ class Pipeline:
                               ds,
                               exposure,
                               no_provtag=False,
+                              ok_no_ref_prov=False,
                               all_steps=False ):
         """Create provenances for all steps in the pipeline.
 
@@ -395,6 +398,14 @@ class Pipeline:
             verify that all the provenances in the created provenance
             tree are what's tagged.
 
+        ok_no_ref_prov: bool, default False
+            Normally, if a refeset can't be found, or no image
+            provenances associated with that refset can be found, an
+            execption will be raised.  Set this to True to indicate that
+            that's OK; in that case, the returned prov_tree will not
+            have any provenances for steps other than preprocessing and
+            extraction.
+
         all_steps: bool, default False
             Normally, will only generate provenances up to the
             through_step parameter of this Pipeline.  If this is True,
@@ -423,16 +434,21 @@ class Pipeline:
         else:
             stepstogenerateprov = self._get_stepstodo()
 
-        self._generate_report = ( stepstogenerateprov == self.ALL_STEPS ) and ( isinstance( exposure, Exposure ) )
-        if self.pars.generate_report:
-            if self._generate_report:
-                stepstogenerateprov.append( 'report' )
-            else:
-                SCLogger.warning( "generate_report is true but no report will be generated!" )
+        if ( stepstogenerateprov == self.ALL_STEPS ) and ( self.pars.generate_report ):
+            stepstogenerateprov.append( 'report' )
 
         parsdict = self.get_critical_pars_dicts()
         ds.make_prov_tree( exposure, stepstogenerateprov, parsdict,
-                           provtag=None if no_provtag else self.pars.provenance_tag )
+                           provtag=None if no_provtag else self.pars.provenance_tag,
+                           ok_no_ref_prov=ok_no_ref_prov )
+
+        if 'report' not in ds.prov_tree:
+            if self.pars.generate_report:
+                SCLogger.warning( "generate_report is true but no report will be generated!" )
+                self._generate_report = False
+            else:
+                self._generate_report = True
+
         return ds.prov_tree
 
 

@@ -93,6 +93,9 @@ class ProvenanceTree:
     def keys( self ):
         return self._provs.keys()
 
+    def values( self ):
+        return self._provs.values()
+
 
 class DataStore:
     """An object that stores all of the data products from a run through a pipeline.
@@ -804,7 +807,7 @@ class DataStore:
             self.report.upsert()
 
 
-    def make_prov_tree( self, exposure, steps, pars, provtag=None ):
+    def make_prov_tree( self, exposure, steps, pars, provtag=None, ok_no_ref_prov=False ):
         """Create the DataStore's provenance tree.
 
         Also creates provenances and saves them to the database if
@@ -831,6 +834,11 @@ class DataStore:
           no_provtag : str or None
              If not None, add all created provenances to this provenance tag
 
+          ok_no_ref_prov: bool, default False
+             If True, and if 'subtraction' is in steps, and a reference isn't found,
+             usually that's an exception.  if ok_no_ref_prov is True, then instead
+             just stop generating provenances at the step before subtraction.
+
         """
 
         code_version = None
@@ -850,6 +858,9 @@ class DataStore:
             'exposure': [],  # no upstreams
             'preprocessing': ['exposure'],
             'extraction': ['preprocessing'],
+            'backgrounding':['preprocessing'],
+            'wcs':['preprocessing'],
+            'zp':['preprocessing'],
             'referencing': [],       # This is a special case; it *does* have upstreams, but outside the main pipeline
             'subtraction': ['referencing', 'preprocessing', 'extraction'],
             'detection': ['subtraction'],
@@ -873,7 +884,8 @@ class DataStore:
         elif isinstance( exposure, Image ):
             exp_prov = None
             if 'report' in steps:
-                raise ValueError( "Can't generate a report if building a provenance tree off of an Image" )
+                SCLogger.warning( "'report' was in steps but starting from an Image; removing 'report' from steps" )
+                steps = [ s for s in steps if s != 'report' ]
             with SmartSession() as session:
                 passed_image_provenance = Provenance.get( exposure.provenance_id, session=session )
                 code_version = CodeVersion.get_by_id( passed_image_provenance.code_version_id, session=session )
@@ -885,13 +897,17 @@ class DataStore:
         # Get the reference
         ref_prov = None
         if 'subtraction' in steps:
-            refset_name = pars['subtraction'].refset
+            refset_name = pars['subtraction']['refset']
             if refset_name is None:
                 raise ValueError( "'subtraction' is in steps but refset_name is None; this is inconsistent" )
-        else:
             refset = RefSet.get_by_name( refset_name )
             if refset is None:
-                raise ValueError(f'No reference set with name {refset_name} found in the database!')
+                if ok_no_ref_prov:
+                    SCLogger.warning( "No ref provenance found, not generating provenances subtraction or later steps" )
+                    subdex = steps.index( 'subtraction' )
+                    steps = steps[:subdex]
+                else:
+                    raise ValueError(f'No reference set with name {refset_name} found in the database!')
             else:
                 ref_prov = Provenance.get( refset.provenance_id )
                 if ref_prov is None:
@@ -899,6 +915,7 @@ class DataStore:
 
         if ref_prov is not None:
             provs['referencing'] = ref_prov
+
 
         for step in steps:
             if ( step == 'preprocessing' ) and exp_prov is None:

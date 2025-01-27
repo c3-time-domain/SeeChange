@@ -213,8 +213,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
         p.override_parameters(**overrides)
         p.augment_parameters(**augments)
 
-        ds.prov_tree = p.make_provenance_tree( ds.exposure if ds.exposure is not None else ds.image,
-                                               ok_no_ref_provs=True )
+        p.make_provenance_tree( ds, ds.exposure if ds.exposure is not None else ds.image,
+                                ok_no_ref_prov=True )
 
         if isinstance( exporim, Exposure ) and ( not env_as_bool("LIMIT_CACHE_USAGE") ) and cache_dir.is_dir():
             # If we didn't know the cache base path before, we should

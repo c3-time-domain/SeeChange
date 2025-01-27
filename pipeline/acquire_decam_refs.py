@@ -274,7 +274,7 @@ class DECamRefFetcher:
                                                  'calibset': 'externally_supplied',
                                                  'flattype': 'externally_supplied',
                                                  'steps_required': [ 'overscan', 'linearity', 'flat', 'fringe' ]} )
-            pipeline.run( ds, no_provtag=True, ok_no_ref_provs=True )
+            pipeline.run( ds, no_provtag=True, ok_no_ref_prov=True )
             ds.reraise()
 
             success = True
