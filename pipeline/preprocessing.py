@@ -41,6 +41,12 @@ class ParsPreprocessor(Parameters):
                       "One of the FlatTypeConverter enum. ",
                       critical=True )
 
+        self.add_par( 'purge_raw_data',
+                      True,
+                      bool,
+                      "Set the raw_data field of image to None in an attempt to preserve memory",
+                      critical=False )
+
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -205,7 +211,8 @@ class Preprocessor:
                 # At this point, we won't use image.raw_data again.  Set it
                 #   to None so the memory will be freed if it's not also
                 #   referred somewhere else.
-                image.raw_data = None
+                if self.pars.purge_raw_data:
+                    image.raw_data = None
 
                 # Apply steps in the order expected by the instrument
                 for step in self.pars.steps_required:

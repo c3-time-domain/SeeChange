@@ -18,6 +18,7 @@ def test_preprocessing(
     # _get_default_calibrators won't be called as a side effect of calls
     # to Preprocessor.run().  (To avoid committing.)
     preprocessor.pars.test_parameter = uuid.uuid4().hex  # make a new Provenance for this temporary image
+    preprocessor.pars.purge_raw_data = False
     ds = preprocessor.run( decam_exposure, 'S3' )
     assert preprocessor.has_recalculated
 

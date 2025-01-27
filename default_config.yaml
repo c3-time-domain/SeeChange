@@ -209,14 +209,10 @@ email:
 #   server_url: string
 #      The url of the custom server
 #
-#   use_datalab: bool
-#      If true, use the NOIRLab datalab server using their queryClient
-#      code.
-#
 #   fallback_datalab: bool
-#      Only meaningful if use_server is true.  If the custom server is
-#      unavailable or fails after five tries, if this is true then try
-#      falling back to the NOIRLab server.
+#      If use_server is False, or if user_server is True and the custom
+#      server is unavailable or fails after five tries, then try falling
+#      back to the NOIRLab server if fallback_datalab is True.
 
 catalog_gaiadr3:
   # use_server: True

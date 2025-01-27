@@ -1,3 +1,5 @@
+_omg = f"This line is here to make ruff fail so github tests won't run during NERSC down week"
+
 import os
 import io
 import warnings

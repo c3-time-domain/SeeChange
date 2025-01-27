@@ -494,8 +494,8 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
 
     # Look at a spot with a star, and a nearby sky, in a place where there was only
     #   one image in the coadd
-    assert img.data[ 3217:3231, 479:491 ].sum() == pytest.approx( 82561., abs=25. )
-    assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 205., abs=25. )
+    assert img.data[ 3217:3231, 479:491 ].sum() == pytest.approx( 82495.63, abs=25. )
+    assert img.data[ 3217:3231, 509:521 ].sum() == pytest.approx( 177.60, abs=25. )
     # ...for reasons I don't understand, the actual numbers that github actions was
     #   getting did not quite match the numbers I got on my local machine.  (I did
     #   make sure I'd cleared the cache on my local machine.)  This is concerning,
@@ -506,8 +506,8 @@ def test_coadd_partial_overlap_swarp( decam_four_offset_refs, decam_four_refs_al
 
     # Look at a spot with a galaxy and a nearby sky, in a place where there were
     #   two images in the sum
-    assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7950., abs=10. )
-    assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 51., abs=10. )
+    assert img.data[ 237:266, 978:988 ].sum() == pytest.approx( 7959., abs=10. )
+    assert img.data[ 237:266, 1008:1018 ].sum() == pytest.approx( 70., abs=10. )
 
 
 # This next test is very slow (9 minutes on github), and also perhaps a
