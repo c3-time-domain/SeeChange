@@ -686,15 +686,21 @@ def ptf_subtraction1_datastore( ptf_ref, ptf_supernova_image_datastores, subtrac
     subtractor.pars.refset = 'test_refset_ptf'
     ds = ptf_supernova_image_datastores[0]
     ds.set_prov_tree( { 'referencing': Provenance.get( ptf_ref.provenance_id ) } )
-    prov = ds.get_provenance( 'subtraction', pars_dict=subtractor.pars.get_critical_pars(), replace_tree=True )
+    subprov = Provenance( process='subtraction',
+                          parameters=subtractor.pars.get_critical_pars(),
+                          upstreams=[ds.prov_tree[p] for p in ['referencing','preprocessing','extraction']],
+                          code_version_id=code_version.id,
+                          is_testing=True )
+    subprov.insert_if_needed()
+    ds.set_prov_tree( { 'subtraction': subprov } )
     cache_path = os.path.join(
         ptf_cache_dir,
-        f'187/PTF_20100216_075004_11_R_Diff_{prov.id[:6]}_u-iig7a2.image.fits.json'
+        f'187/PTF_20100216_075004_11_R_Diff_{subprov.id[:6]}_u-iig7a2.image.fits.json'
     )
 
     if ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_path) ):  # try to load this from cache
         im = copy_from_cache( Image, ptf_cache_dir, cache_path )
-        im.provenance_id = prov.id
+        im.provenance_id = subprov.id
         ds.sub_image = im
         ds.sub_image.insert()
 
