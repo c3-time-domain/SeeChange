@@ -292,7 +292,6 @@ class Pipeline:
 
         try:  # create (and commit, if not existing) all provenances for the products
             provs = self.make_provenance_tree( ds,
-                                               ds.exposure,
                                                no_provtag=no_provtag,
                                                ok_no_ref_prov=ok_no_ref_prov,
                                                all_steps=self.pars.generate_report )
@@ -356,7 +355,6 @@ class Pipeline:
 
     def make_provenance_tree( self,
                               ds,
-                              exposure,
                               no_provtag=False,
                               ok_no_ref_prov=False,
                               all_steps=False ):
@@ -380,13 +378,11 @@ class Pipeline:
         Parameters
         ----------
         ds : DataStore
-            The DataStore to make the provenance tree in.
-
-        exposure : Exposure or Image
-            The exposure to use to get the initial provenance.
-            Alternatively, can be a preprocessed Image.  In either case,
-            the object's provenance must already be in the database.  If
-            Image, then no report will be generated even if the
+            The DataStore to make the provenance tree in.  Will use
+            either the exposure or the image that's in this DataStore.
+            In either case, the object's provenance must already be in
+            the database.  If there is no exposure in the DataStore,
+            only an image, then no report will be generated even if the
             generate_report parameter is True, because reports are
             linked to exposures.
 
@@ -438,7 +434,7 @@ class Pipeline:
             stepstogenerateprov.append( 'report' )
 
         parsdict = self.get_critical_pars_dicts()
-        ds.make_prov_tree( exposure, stepstogenerateprov, parsdict,
+        ds.make_prov_tree( stepstogenerateprov, parsdict,
                            provtag=None if no_provtag else self.pars.provenance_tag,
                            ok_no_ref_prov=ok_no_ref_prov )
 

@@ -4,7 +4,7 @@ import sqlalchemy as sa
 import uuid
 # import traceback
 
-from util.util import parse_session, listify, asUUID
+from util.util import listify, asUUID
 from util.logger import SCLogger
 
 from models.base import SmartSession, FileOnDiskMixin, FourCorners
@@ -24,7 +24,7 @@ from models.refset import RefSet
 
 # The products that are made at each processing step.
 # Usually it is only one, but sometimes there are multiple products for one step (e.g., extraction)
-PROCESS_PRODUCTS = {
+_PROCESS_PRODUCTS = {
     'exposure': 'exposure',
     'preprocessing': 'image',
     'coaddition': 'image',
@@ -146,7 +146,6 @@ class DataStore:
         'exposure_id',
         'section_id',
         'image_id',
-        'session',
         'all_measurements',
         # Things specific to the zogy subtraction method
         'zogy_score',
@@ -198,7 +197,7 @@ class DataStore:
     def exposure( self ):
         if self._exposure is None:
             if self.exposure_id is not None:
-                self._exposure = self.get_raw_exposure( session=self.session )
+                self._exposure = self.get_raw_exposure()
         return self._exposure
 
     @exposure.setter
@@ -544,29 +543,14 @@ class DataStore:
         ds: DataStore
             The DataStore object.
 
-        session: sqlalchemy.orm.session.Session or SmartSession or None
-            Never use this.
-
         """
         if len(args) == 0:
             raise ValueError('No arguments given to DataStore constructor!')
         if len(args) == 1 and isinstance(args[0], DataStore):
             return args[0], None
-        if (
-                len(args) == 2 and isinstance(args[0], DataStore) and
-                (isinstance(args[1], sa.orm.session.Session) or args[1] is None)
-        ):
-            if isinstance( args[1], sa.orm.session.Session ):
-                SCLogger.error( "You passed a session to a DataStore constructor.  This is usually a bad idea." )
-                raise RuntimeError( "Don't pass a session to the DataStore constructor." )
-            return args[0], args[1]
         else:
             ds = DataStore()
-            session = ds.parse_args(*args, **kwargs)
-            if session is not None:
-                SCLogger.error( "You passed a session to a DataStore constructor.  This is usually a bad idea." )
-                raise RuntimeError( "Don't pass a session to the DataStore constructor." )
-            return ds, session
+            return ds
 
 
     def parse_args(self, *args, **kwargs):
@@ -601,27 +585,12 @@ class DataStore:
         Additional things that can get automatically parsed,
         either by keyword or by the content of one of the args:
             - provenances / prov_tree: a self-consistent ProvenanceTree object
-            - session: a sqlalchemy session object to use.  (Usually you do not want to give this!)
-
-        Returns
-        -------
-        output_session: sqlalchemy.orm.session.Session or SmartSession
-            If the user provided a session, return it to the scope
-            that called "parse_args" so it can be used locally by
-            the function that received the session as one of the arguments.
-            If no session is given, will return None.
 
         """
         if len(args) == 1 and isinstance(args[0], DataStore):
             # if the only argument is a DataStore, copy it
             self.__dict__ = args[0].__dict__.copy()
             return
-
-        args, kwargs, output_session = parse_session(*args, **kwargs)
-        if output_session is not None:
-            raise RuntimeError( "You passed a session to DataStore.  Don't." )
-
-        self.session = output_session
 
         # look for a user-given provenance tree
         # ...This seems like a lot of work to allow people to pass stuff
@@ -679,11 +648,6 @@ class DataStore:
         for key, val in kwargs.items():
             # The various setters will do type checking
             setattr( self, key, val )
-
-        if output_session is not None:
-            raise RuntimeError( "DataStore parse_args found a session.  "
-                                "Don't pass sessions to DataStore constructors." )
-        return output_session
 
 
     def __init__(self, *args, **kwargs):
@@ -746,31 +710,8 @@ class DataStore:
         self.products_committed = ''  # a comma separated list of object names (e.g., "image, sources") saved to DB
         self.report = None  # keep a reference to the report object for this run
 
-        # The database session parsed in parse_args; it could still be None even after parse_args
-        self.session = None
         self.parse_args(*args, **kwargs)
 
-
-    def __setattr__(self, key, value):
-        """Check some of the inputs before saving them.
-
-        TODO : since we're only checking a couple of them, it might make sense to
-        write specific handlers just for those instead of having every single attribute
-        access of a DataStore have to make this function call.
-
-        """
-
-        if value is not None:
-            if key in ['section_id'] and not isinstance(value, (int, str)):
-                raise TypeError(f'{key} must be an integer or a string, got {type(value)}')
-
-            elif ( key == 'prov_tree' ) and ( not isinstance(value, ProvenanceTree) ):
-                raise TypeError(f'prov_tree must be a ProvenanceTree objects, got a {type(value)}')
-
-            elif key == 'session' and not isinstance(value, sa.orm.session.Session):
-                raise ValueError(f'Session must be a SQLAlchemy session or SmartSession, got {type(value)}')
-
-        super().__setattr__(key, value)
 
     def update_report(self, process_step, session=None):
         """Update the report object with the latest results from a processing step that just finished. """
@@ -786,17 +727,17 @@ class DataStore:
             self.report.upsert()
 
 
-    def make_prov_tree( self, exposure, steps, pars, provtag=None, ok_no_ref_prov=False ):
+    def make_prov_tree( self, steps, pars, provtag=None, ok_no_ref_prov=False ):
         """Create the DataStore's provenance tree.
 
         Also creates provenances and saves them to the database if
         they're not there already.
 
+        Will base the provenance tree off of self.exposure if that's
+        defined, otherwise off of self.image.
+
         Parameters
         ----------
-          exposure : Exposure or Image
-             The thing processing will start from.
-
           steps : list of str The steps that we want to generate
              provenances for.  Must be in order (i.e. anything later in
              the list has all of its upstreams earlier in the list).
@@ -825,6 +766,9 @@ class DataStore:
 
         if not isinstance( pars, dict ):
             raise TypeError( "pars must be a dictionary" )
+        if ( ( not all( isinstance( v, dict ) for v in pars.values() ) ) or
+             ( not all( isinstance( k, str ) for k in pars.keys() ) ) ):
+            raise TypeError( "pars must be a dictionary of str:dict" )
         for step in steps:
             if step not in pars:
                 raise ValueError( f"Step {step} not in pars" )
@@ -854,24 +798,27 @@ class DataStore:
         # and we'll add a fake injector key.)
 
         # Get started with the passed Exposure (usual case) or Image
-        if isinstance( exposure, Exposure ):
+        if self.exposure is not None:
+            if not isinstance( self.exposure, Exposure ):
+                raise TypeError( f"DataStore's exposure field is a {type(self.exposure)}, not Exposure!" )
             with SmartSession() as session:
-                exp_prov = Provenance.get( exposure.provenance_id, session=session )
+                exp_prov = Provenance.get( self.exposure.provenance_id, session=session )
                 code_version = CodeVersion.get_by_id( exp_prov.code_version_id, session=session )
             provs['exposure'] = exp_prov
             is_testing  = exp_prov.is_testing
-        elif isinstance( exposure, Image ):
+        elif self.image is not None:
+            if not isinstance( self.image, Image ):
+                raise TypeError( f"DataStore's image field is a {type(self.image)}, not Image!" )
             exp_prov = None
             if 'report' in steps:
                 SCLogger.warning( "'report' was in steps but starting from an Image; removing 'report' from steps" )
                 steps = [ s for s in steps if s != 'report' ]
             with SmartSession() as session:
-                passed_image_provenance = Provenance.get( exposure.provenance_id, session=session )
-                code_version = CodeVersion.get_by_id( passed_image_provenance.code_version_id, session=session )
-            is_testing = passed_image_provenance.is_testing
+                image_prov = Provenance.get( self.image.provenance_id, session=session )
+                code_version = CodeVersion.get_by_id( image_prov.code_version_id, session=session )
+            is_testing = image_prov.is_testing
         else:
-            raise TypeError( f"The first parameter to make_prov_tree must be an Exposure or Image, "
-                             f"not a {exposure.__class__.__name__}" )
+            raise RuntimeError( "DataStore make_prov_tree requires either exposure or image to be set" )
 
         # Get the reference
         ref_prov = None
@@ -898,8 +845,8 @@ class DataStore:
 
         for step in steps:
             if ( step == 'preprocessing' ) and exp_prov is None:
-                provs[step] = passed_image_provenance
-                passed_image_provenance.insert_if_needed()
+                provs[step] = image_prov
+                image_prov.insert_if_needed()   # ...it really shouldn't be needed
             else:
                 # figure out which provenances go into the upstreams for this step
                 up_steps = provs.upstream_steps[ step ]
@@ -986,39 +933,20 @@ class DataStore:
                     done = True
                 lenlastwipe = len(mustwipe)
             for towipe in mustwipe:
-                del self.prov_tree[ towipe ]
+                if towipe in self.prov_tree:
+                    del self.prov_tree[ towipe ]
 
 
-    def get_provenance(self, process, pars_dict, session=None,
-                       pars_not_match_prov_tree_pars=False,
-                       replace_tree=False ):
+    def get_provenance(self, process, pars_dict=None, session=None ):
         """Get the provenance for a given process.
 
-        Will try to find a provenance that matches the current code version
-        and the parameter dictionary, and if it doesn't find it,
-        it will create a new Provenance object.
+        Will return the provenance from the DataStore's internal provenance tree.
 
-        This function should be called externally by applications
-        using the DataStore, to get the provenance for a given process,
-        or to make it if it doesn't exist.
-
-        Getting upstreams:
-        Will use the prov_tree attribute of the datastore (if it exists)
-        and if not, will try to get the upstream provenances from objects
-        it has in memory already.
-        If it doesn't find an upstream in either places it would use the
-        most recently created provenance as an upstream, but this should
-        rarely happen.
-
-        Note that the output provenance can be different for the given process,
-        if there are new parameters that differ from those used to make this provenance.
-        For example: a prov_tree contains a preprocessing provenance "A",
-        and an extraction provenance "B". This function is called for
-        the "extraction" step, but with some new parameters (different than in "B").
-        The "A" provenance will be used as the upstream, but the output provenance
-        will not be "B" because of the new parameters.
-        This will not change the prov_tree or affect later calls to this function
-        for downstream provenances.
+        For historic reasons, if pars_dict is passed, will verify that
+        the provenance is consistent with pars_tree, and raise an
+        exception if it's not.  (Previously, we could ask for
+        provenances with any pars_dict from DataStore, and there is code
+        that uses that interface.)
 
         Parameters
         ----------
@@ -1026,36 +954,9 @@ class DataStore:
             The name of the process, e.g., "preprocess", "extraction", "subtraction".
 
         pars_dict: dict
-            A dictionary of parameters used for the process.  These
-            include the critical parameters for this process.  Use a
-            Parameter object's get_critical_pars() if you are setting
-            this; otherwise, the provenance will be wrong, as it may
-            include things in parameters that aren't supposed to be
-            there.
+            A dictionary of critical parameters used for the process.
 
-            WARNING : be careful creating an extraction provenance.
-            The pars_dict there is more complicated because of
-            siblings.
-
-        session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.
-            If not given, will use the session stored inside the
-            DataStore object; if there is none, new sessions
-            will be opened and closed as necessary.
-
-        pars_not_match_prov_tree_pars: bool, default False
-            If you're consciously asking for a provenance with
-            parameters that you know won't match the provenance in the
-            DataStore's provenance tree, set this to True.  Otherwise,
-            an exception will be raised if you ask for a provenance
-            that's inconsistent with one in the prov_tree.
-
-        replace_tree: bool, default False
-            Replace whatever's in the provenance tree with the newly
-            generated provenance.  This requires upstream provenances to
-            exist-- either in the prov tree, or in upstream objects
-            already saved to the data store.  It (effectively) implies
-            pars_not_match_prov_tree_pars.
+        session : SQLAlchemy session or None
 
         Returns
         -------
@@ -1068,89 +969,14 @@ class DataStore:
         if self.prov_tree is None:
             raise RuntimeError( "get_provenance requires the DataStore to have a provenance tree" )
 
-        # First, check the provenance tree:
-        prov_found_in_tree = None
-        if ( not replace_tree ) and ( self.prov_tree is not None ) and ( process in self.prov_tree ):
-            if self.prov_tree[ process ].parameters != pars_dict:
-                if not pars_not_match_prov_tree_pars:
-                    raise ValueError( f"DataStore getting provenance for {process} whose parameters "
-                                      f"don't match the parameters of the same process in the prov_tree" )
-            else:
-                prov_found_in_tree = self.prov_tree[ process ]
+        if process not in self.prov_tree:
+            raise ValueError( f"No provenance for {process} in provenance tree" )
 
-        if prov_found_in_tree is not None:
-            return prov_found_in_tree
+        if ( pars_dict is not None ) and ( self.prov_tree[process].parameters != pars_dict ):
+            raise ValueError( f"Passed pars_dict does not match parameters for internal provenance of {process}" )
 
-        # If that fails, see if we can make one
+        return self.prov_tree[process]
 
-        session = self.session if session is None else session
-
-        code_version = Provenance.get_code_version(session=session)
-        if code_version is None:
-            raise RuntimeError( "No code_version in the database, can't make a Provenance" )
-
-        # check if we can find the upstream provenances
-        upstreams = []
-        for name in self.prov_tree.upstream_steps[process]:
-            prov = None
-            if name in self.prov_tree:
-                # first try to load an upstream that was given explicitly:
-                prov = self.prov_tree[name]
-            else:
-                # if that fails, see if the correct object exists in memory
-                obj_names = PROCESS_PRODUCTS[name]
-                if isinstance(obj_names, str):
-                    obj_names = [obj_names]
-                obj = getattr(self, obj_names[0], None)  # only need one object to get the provenance
-                if isinstance(obj, list):
-                    obj = obj[0]  # for cutouts or measurements just use the first one
-                if ( obj is not None ) and ( obj.provenance_id is not None ):
-                    prov = Provenance.get( obj.provenance_id, session=session )
-
-            if prov is not None:  # if we don't find one of the upstreams, it will raise an exception
-                upstreams.append(prov)
-
-        if len(upstreams) != len(self.prov_tree.upstream_steps[process]):
-            raise ValueError(f'Could not find all upstream provenances for process {process}.')
-
-        # we have a code version object and upstreams, we can make a provenance
-        prov = Provenance(
-            process=process,
-            code_version_id=code_version.id,
-            parameters=pars_dict,
-            upstreams=upstreams,
-            is_testing="test_parameter" in pars_dict,  # this is a flag for testing purposes
-        )
-        prov.insert_if_needed( session=session )
-
-        if replace_tree:
-            self.set_prov_tree( { process: prov }, wipe_tree=False )
-
-        return prov
-
-    def _get_provenance_for_an_upstream(self, process, session=None):
-        """Get the provenance for a given process, without parameters or code version.
-        This is used to get the provenance of upstream objects.
-        Looks for a matching provenance in the prov_tree attribute.
-
-        Example:
-        When making a SourceList in the extraction phase, we will want to know the provenance
-        of the Image object (from the preprocessing phase).
-        To get it, we'll call this function with process="preprocessing".
-        If prov_tree is not None, it will provide the provenance for the preprocessing phase.
-
-        Will raise if no provenance can be found.
-        """
-        raise RuntimeError( "Deprecated; just look in prov_tree" )
-
-        # # see if it is in the prov_tree
-        # if self.prov_tree is not None:
-        #     if process in self.prov_tree:
-        #         return self.prov_tree[process]
-        #     else:
-        #         raise ValueError(f'No provenance found for process "{process}" in prov_tree!')
-
-        # return None  # if not found in prov_tree, just return None
 
     def get_raw_exposure(self, session=None):
         """Get the raw exposure from the database."""
@@ -1158,7 +984,7 @@ class DataStore:
             if self.exposure_id is None:
                 raise ValueError('Cannot get raw exposure without an exposure_id!')
 
-            with SmartSession(session, self.session) as session:
+            with SmartSession(session) as session:
                 self.exposure = session.scalars(sa.select(Exposure).where(Exposure._id == self.exposure_id)).first()
 
         return self._exposure
@@ -1196,10 +1022,9 @@ class DataStore:
             'preprocessing' provenance.
 
         session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.
-            If not given, will use the session stored inside the
-            DataStore object; if there is none, will open a new session
-            and close it when done with it.
+            An optional session to use for the database query.  If not
+            given, will open a new session and close it when done with
+            it.
 
         Returns
         -------
@@ -1207,8 +1032,6 @@ class DataStore:
             The image object, or None if no matching image is found.
 
         """
-        session = self.session if session is None else session
-
         # See if we have the image
 
         if reload:
@@ -1408,10 +1231,9 @@ class DataStore:
             'extraction' provenance.
 
         session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.
-            If not given, will use the session stored inside the
-            DataStore object; if there is none, will open a new session
-            and close it at the end of the function.
+            An optional session to use for the database query.  If not
+            given, will open a new session and close it at the end of
+            the function.
 
         Returns
         -------
@@ -1762,10 +1584,9 @@ class DataStore:
             Set .sub_image to None, and always try to reload from the database.
 
         session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.
-            If not given, will use the session stored inside the
-            DataStore object; if there is none, will open a new session
-            and close it at the end of the function.
+            An optional session to use for the database query.  If not
+            given, will open a new session and close it at the end of
+            the function.
 
         Returns
         -------
@@ -1938,8 +1759,7 @@ class DataStore:
                         no_archive=False,
                         update_image_header=False,
                         update_image_record=True,
-                        force_save_everything=False,
-                        session=None):
+                        force_save_everything=False ):
         """Go over all the data products, saving them to disk if necessary, saving them to the database as necessary.
 
         In general, it will *not* save data products that have a
@@ -2013,13 +1833,6 @@ class DataStore:
             Write all files even if the md5sum exists in the database.
             Usually you don't want to use this, but it may be useful for
             testing purposes.
-
-        session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.
-            If not given, will use the session stored inside the
-            DataStore object; if there is none, will open a new session
-            and close it at the end of the function.
-            Note that this method calls session.commit()
 
         """
         # save to disk whatever is FileOnDiskMixin
