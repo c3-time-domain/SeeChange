@@ -247,9 +247,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug( f'make_datastore searching cache for report {report_cache_path}' )
             if use_cache and ( report_cache_path is not None ) and report_cache_path.is_file():
                 SCLogger.debug( 'make_datastore loading report from cache' )
-                ds.report = copy_from_cache( Report, cache_dir, report_cache_path, symlink=True )
+                cached_report = copy_from_cache( Report, cache_dir, report_cache_path, symlink=True )
                 # The cached exposure id won't be right
-                ds.report.exposure_id = exporim.id
+                cached_report.exposure_id = exporim.id
                 # TODO -- I want this next line to be ds.report.insert().  And, indeed,
                 #   when I run all the tests on my local machine, it works.  However,
                 #   when running the tests on github actions, in two tests this was
@@ -263,13 +263,24 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 #   we should probably do that.  (Or, if we happen to find the solution
                 #   while doing something else, make this upsert into an insert and
                 #   close the issue.)
-                # ds.report.insert()
-                ds.report.upsert()
+                # cached_report.insert()
+                cached_report.upsert()
+                # We may have made a report earlier when calling Pipeline.setup_datastore,
+                #   so we need to remove that one from the database now that we've replaced it.
+                if ds.report is not None:
+                    with Psycopg2Connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute( "DELETE FROM reports WHERE _id=%(id)s",
+                                        { 'id': ds.report.id } )
+                        conn.commit()
+                ds.report = cached_report
                 report_was_loaded_from_cache = True
             else:
-                ds.report = Report( exposure_id=exporim.id, section_id=section_id )
-                ds.report.start_time = datetime.datetime.now( tz=datetime.UTC )
-                ds.report.provenance_id = ds.prov_tree['report'].id
+                if ds.report is not None:
+                    ds.report.start_time = datetime.datetime.now( tz=datetime.UTC )
+                    ds.report.provenance_id = ds.prov_tree['report'].id
+                else:
+                    raise RuntimeError( "ds.report is None and I'm surprised" )
 
         # Remove all steps past subtraction if there's no referencing provenance
         if ( 'subtraction' in stepstodo ) and ( 'referencing' not in ds.prov_tree ):
