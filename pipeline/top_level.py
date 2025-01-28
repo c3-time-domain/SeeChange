@@ -292,7 +292,6 @@ class Pipeline:
                                                no_provtag=no_provtag,
                                                ok_no_ref_prov=ok_no_ref_prov,
                                                all_steps=self.pars.generate_report )
-            ds.prov_tree = provs
         except Exception as e:
             raise RuntimeError( f'Failed to create the provenance tree: {str(e)}' ) from e
 
@@ -307,7 +306,7 @@ class Pipeline:
                     prev_rep = dbsession.scalars(
                         sa.select(Report).where(
                             Report.exposure_id == ds.exposure.id,
-                            Report.section_id == ds.section_id,
+                            Report.section_id == str( ds.section_id ),
                             Report.provenance_id == provs['report'].id,
                         )
                     ).all()

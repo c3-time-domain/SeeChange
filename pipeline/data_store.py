@@ -713,7 +713,7 @@ class DataStore:
         self.parse_args(*args, **kwargs)
 
 
-    def update_report(self, process_step, session=None):
+    def update_report(self, process_step):
         """Update the report object with the latest results from a processing step that just finished. """
         if self.report is not None:
             self.report.scan_datastore( self, process_step=process_step )
