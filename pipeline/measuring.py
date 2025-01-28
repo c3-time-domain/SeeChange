@@ -63,7 +63,7 @@ class ParsMeasurer(Parameters):
             2.,
             float,
             ( 'A pixel this many times the 1σ noise away from 0 will be considered an outlier when '
-              'counting the nubmer of negative and positive pixels within the diag_box.' )
+              'counting the number of negative and positive pixels within the diag_box.' )
         )
 
         self.bad_thresholds = self.add_par(
@@ -95,7 +95,7 @@ class ParsMeasurer(Parameters):
               'negfluxfrac': 0.5,
              },
             dict,
-            ( 'Like bad_thresholds, but Meausurements with values ≥ the threshold will not even '
+            ( 'Like bad_thresholds, but Measurements with values ≥ the threshold will not even '
               'be saved to the database.' )
         )
 

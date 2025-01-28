@@ -16,7 +16,6 @@ def test_rbbot( decam_datastore_through_measurements, code_version ):
                            )
     ds.prov_tree['scoring'] = scoreprov
 
-    import pdb; pdb.set_trace()
     expected_scores = [ 0.415, 0.468, 0.514, 0.532, 0.768, 0.643, 0.484, 0.488, 0.674, 0.352 ]
     scorer.run( ds )
     for scobj, expect in zip( ds.scores, expected_scores ):

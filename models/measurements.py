@@ -193,7 +193,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         sa.REAL,
         nullable=True,
         doc=( "Number of significantly negative / significantly positive pixels in a configurable "
-              "square around (x,y).  Sqaure is the same as that for nbadpix; 'significant' usually=>2sigma" )
+              "square around (x,y).  Square is the same as that for nbadpix; 'significant' usually=>2sigma" )
     )
 
     negfluxfrac = sa.Column(
