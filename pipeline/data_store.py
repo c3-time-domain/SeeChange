@@ -547,9 +547,9 @@ class DataStore:
         if len(args) == 0:
             raise ValueError('No arguments given to DataStore constructor!')
         if len(args) == 1 and isinstance(args[0], DataStore):
-            return args[0], None
+            return args[0]
         else:
-            ds = DataStore()
+            ds = DataStore( *args, **kwargs )
             return ds
 
 

@@ -277,11 +277,8 @@ class Pipeline:
         ds : DataStore
             The DataStore object that was created or loaded.
 
-        session: sqlalchemy.orm.session.Session
-            An optional session. If not given, this will be None.  You usually don't want to give this.
-
         """
-        ds, session = DataStore.from_args(*args, **kwargs)
+        ds = DataStore.from_args(*args, **kwargs)
 
         if ds.exposure is None:
             raise RuntimeError('Cannot run this pipeline method without an exposure!')
@@ -305,7 +302,7 @@ class Pipeline:
                 report = Report( exposure_id=ds.exposure.id, section_id=ds.section_id )
                 report.start_time = datetime.datetime.now( tz=datetime.UTC )
                 report.provenance_id = provs['report'].id
-                with SmartSession(session) as dbsession:
+                with SmartSession() as dbsession:
                     # check how many times this report was generated before
                     prev_rep = dbsession.scalars(
                         sa.select(Report).where(
@@ -320,13 +317,14 @@ class Pipeline:
                 if report.exposure_id is None:
                     raise RuntimeError('Report did not get a valid exposure_id!')
             except Exception as e:
+                import pdb; pdb.set_trace()
                 raise RuntimeError('Failed to create or merge a report for the exposure!') from e
 
             ds.report = report
         else:
             ds.report = None
 
-        return ds, session
+        return ds
 
 
     def _get_stepstodo( self ):
@@ -457,10 +455,7 @@ class Pipeline:
         Parameters
         ----------
         Inputs should include the exposure and section_id, or a datastore
-        with these things already loaded. If a session is passed in as
-        one of the arguments, it will be used as a single session for
-        running the entire pipeline (instead of opening and closing
-        sessions where needed).
+        with these things already loaded.
 
         Returns
         -------
@@ -471,10 +466,7 @@ class Pipeline:
 
         ds = None
         try:
-            ds, session = self.setup_datastore(*args, **kwargs)
-            if session is not None:
-                raise RuntimeError( "You have a persistent session in Pipeline.run; don't do that." )
-
+            ds = self.setup_datastore(*args, **kwargs)
             stepstodo = self._get_stepstodo()
 
             if ds.image is not None:
@@ -499,41 +491,41 @@ class Pipeline:
 
                 if 'preprocessing' in stepstodo:
                     SCLogger.info("preprocessor")
-                    ds = self.preprocessor.run(ds, session)
-                    ds.update_report('preprocessing', session=None)
+                    ds = self.preprocessor.run(ds)
+                    ds.update_report('preprocessing')
                     SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
 
                 # extract sources and make a SourceList and PSF from the image
                 if 'extraction' in stepstodo:
                     SCLogger.info(f"extractor for image id {ds.image.id}")
-                    ds = self.extractor.run(ds, session)
-                    ds.update_report('extraction', session=None)
+                    ds = self.extractor.run(ds)
+                    ds.update_report('extraction')
 
                 # find the background for this image
                 if 'backgrounding' in stepstodo:
                     SCLogger.info(f"backgrounder for image id {ds.image.id}")
-                    ds = self.backgrounder.run(ds, session)
-                    ds.update_report('backgrounding', session=None)
+                    ds = self.backgrounder.run(ds)
+                    ds.update_report('backgrounding')
 
                 # find astrometric solution, save WCS into Image object and FITS headers
                 if 'wcs' in stepstodo:
                     SCLogger.info(f"astrometor for image id {ds.image.id}")
-                    ds = self.astrometor.run(ds, session)
-                    ds.update_report('astrocal', session=None)
+                    ds = self.astrometor.run(ds)
+                    ds.update_report('astrocal')
 
                 # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
                 if 'zp' in stepstodo:
                     SCLogger.info(f"photometor for image id {ds.image.id}")
-                    ds = self.photometor.run(ds, session)
-                    ds.update_report('photocal', session=None)
+                    ds = self.photometor.run(ds)
+                    ds.update_report('photocal')
 
                 if self.pars.save_before_subtraction:
                     t_start = time.perf_counter()
                     try:
                         SCLogger.info(f"Saving intermediate image for image id {ds.image.id}")
-                        ds.save_and_commit(session=session)
+                        ds.save_and_commit()
                     except Exception as e:
-                        ds.update_report('save intermediate', session=None)
+                        ds.update_report('save intermediate')
                         SCLogger.error(f"Failed to save intermediate image for image id {ds.image.id}")
                         SCLogger.error(e)
                         raise e
@@ -543,40 +535,40 @@ class Pipeline:
                 # fetch reference images and subtract them, save subtracted Image objects to DB and disk
                 if 'subtraction' in stepstodo:
                     SCLogger.info(f"subtractor for image id {ds.image.id}")
-                    ds = self.subtractor.run(ds, session)
-                    ds.update_report('subtraction', session=None)
+                    ds = self.subtractor.run(ds)
+                    ds.update_report('subtraction')
 
                 # find sources, generate a source list for detections
                 if 'detection' in stepstodo:
                     SCLogger.info(f"detector for image id {ds.image.id}")
-                    ds = self.detector.run(ds, session)
-                    ds.update_report('detection', session=None)
+                    ds = self.detector.run(ds)
+                    ds.update_report('detection')
 
                 # make cutouts of all the sources in the "detections" source list
                 if 'cutting' in stepstodo:
                     SCLogger.info(f"cutter for image id {ds.image.id}")
-                    ds = self.cutter.run(ds, session)
-                    ds.update_report('cutting', session=None)
+                    ds = self.cutter.run(ds)
+                    ds.update_report('cutting')
 
                 # extract photometry and analytical cuts
                 if 'measuring' in stepstodo:
                     SCLogger.info(f"measurer for image id {ds.image.id}")
-                    ds = self.measurer.run(ds, session)
-                    ds.update_report('measuring', session=None)
+                    ds = self.measurer.run(ds)
+                    ds.update_report('measuring')
 
                 # measure deep learning models on the cutouts/measurements
                 if 'scoring' in stepstodo:
                     SCLogger.info(f"scorer for image id {ds.image.id}")
-                    ds = self.scorer.run(ds, session)
-                    ds.update_report('scoring', session=None)
+                    ds = self.scorer.run(ds)
+                    ds.update_report('scoring')
 
                 if self.pars.save_at_finish and ( 'subtraction' in stepstodo ):
                     t_start = time.perf_counter()
                     try:
                         SCLogger.info(f"Saving final products for image id {ds.image.id}")
-                        ds.save_and_commit(session=session)
+                        ds.save_and_commit()
                     except Exception as e:
-                        ds.update_report('save final', session)
+                        ds.update_report('save final')
                         SCLogger.error(f"Failed to save final products for image id {ds.image.id}")
                         SCLogger.error(e)
                         raise e

@@ -58,13 +58,8 @@ class Cutter:
             # if isinstance(args[0], SourceList) and args[0].is_sub:  # most likely gets a SourceList detections object
             if isinstance( args[0], SourceList ):
                 raise RuntimeError( "Need to update the code for creating a Cutter from a detections list" )
-                # args, kwargs, session = parse_session(*args, **kwargs)
-                # ds = DataStore()
-                # ds.detections = args[0]
-                # ds.sub_image = args[0].image
-                # ds.image = args[0].image.new_image
             else:
-                ds, session = DataStore.from_args(*args, **kwargs)
+                ds = DataStore.from_args(*args, **kwargs)
 
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
@@ -74,15 +69,15 @@ class Cutter:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('cutting', self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('cutting', self.pars.get_critical_pars())
 
-            detections = ds.get_detections(session=session)
+            detections = ds.get_detections()
             if detections is None:
                 raise ValueError( f'Cannot find a detections source list corresponding to '
                                   f'the datastore inputs: {ds.inputs_str}' )
 
             # try to find some cutouts in memory or in the database:
-            cutouts = ds.get_cutouts(prov, session=session)
+            cutouts = ds.get_cutouts(prov)
 
             if cutouts is not None:
                 cutouts.load_all_co_data()

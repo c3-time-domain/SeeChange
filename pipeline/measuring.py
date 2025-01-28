@@ -162,11 +162,7 @@ class Measurer:
                 # ds.sub_image = ds.detections.image
                 # ds.image = ds.sub_image.new_image
             else:
-                ds, session = DataStore.from_args(*args, **kwargs)
-                if session is not None:
-                    raise RuntimeError( "Got a session from datastore; implicit assumptions below assume "
-                                        "that there isn't one." )
-
+                ds = DataStore.from_args(*args, **kwargs)
 
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
@@ -176,26 +172,26 @@ class Measurer:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('measuring', self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('measuring', self.pars.get_critical_pars())
 
             sub_image = ds.get_subtraction()
             if sub_image is None:
                 raise ValueError( "Can't perform measurements, DataStore is missing sub_image" )
 
-            new_zp = ds.get_zp( session=session )
+            new_zp = ds.get_zp()
             if new_zp is None:
                 raise ValueError(f"Can't find a zp corresponding to the datastore inputs: {ds.inputs_str}")
 
             # We'll be assuming that the sub was aligned with the new
-            new_wcs = ds.get_wcs( session=session )
+            new_wcs = ds.get_wcs()
             if new_wcs is None:
                 raise ValueError(f"Can't find a wcs corresponding to the datastore inputs: {ds.inputs_str}")
 
-            detections = ds.get_detections(session=session)
+            detections = ds.get_detections()
             if detections is None:
                 raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.inputs_str}')
 
-            cutouts = ds.get_cutouts(session=session)
+            cutouts = ds.get_cutouts()
             if cutouts is None:
                 raise ValueError(f'Cannot find cutouts corresponding to the datastore inputs: {ds.inputs_str}')
             else:
@@ -205,7 +201,7 @@ class Measurer:
                 sub_psf = ds.psf
 
             # try to find some measurements in memory or in the database:
-            measurements_list = ds.get_measurements(prov, session=session)
+            measurements_list = ds.get_measurements(prov)
 
             # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
             if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements

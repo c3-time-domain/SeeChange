@@ -107,7 +107,7 @@ class Preprocessor:
         self.has_recalculated = False
 
         try:
-            ds, session = DataStore.from_args( *args, **kwargs )
+            ds = DataStore.from_args( *args, **kwargs )
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -138,16 +138,15 @@ class Preprocessor:
                                                                            self.pars.flattype,
                                                                            ds.section_id,
                                                                            ds.exposure.filter,
-                                                                           ds.exposure.mjd,
-                                                                           session=session )
+                                                                           ds.exposure.mjd )
 
             SCLogger.debug("preprocessing: got calibrator files")
 
             # get the provenance for this step, using the current parameters:
-            prov = ds.get_provenance('preprocessing', self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('preprocessing', self.pars.get_critical_pars())
 
             # check if the image already exists in memory or in the database:
-            image = ds.get_image(prov, session=session)
+            image = ds.get_image(prov)
 
             image_was_from_exposure = False
             if image is None:  # need to make new image
@@ -242,7 +241,7 @@ class Preprocessor:
                         calibfile = self.stepfiles[ stepfileid ]
                     else:
 
-                        with SmartSession( session ) as session:
+                        with SmartSession() as session:
                             if step in [ 'zero', 'dark', 'flat', 'illumination', 'fringe' ]:
                                 calibfile = session.get( Image, stepfileid )
                                 if calibfile is None:

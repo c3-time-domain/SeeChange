@@ -580,7 +580,7 @@ class Subtractor:
         self.has_recalculated = False
 
         try:
-            ds, session = DataStore.from_args(*args, **kwargs)
+            ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -589,7 +589,7 @@ class Subtractor:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            with SmartSession(session) as session:
+            with SmartSession() as session:
                 # look for a reference that has to do with the current image and refset
                 if self.pars.refset is None:
                     raise ValueError('No reference set given for subtraction')
