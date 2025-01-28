@@ -86,7 +86,7 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
                 cursor = conn.cursor()
                 cursor.execute( "DELETE FROM provenances WHERE _id IN %(id)s",
                                 { 'id': tuple( [ p.id for p in provs_created ] ) } )
-                cursor.execute( "DELETE FROM provenance_tags WHERE tag='test_data_store_make_prov_tree'" )
+                cursor.execute( "DELETE FROM provenance_tags WHERE tag='test_data_store_test_make_prov_tree'" )
                 conn.commit()
 
 
