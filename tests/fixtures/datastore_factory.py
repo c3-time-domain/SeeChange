@@ -278,7 +278,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
             else:
                 if ds.report is not None:
                     ds.report.start_time = datetime.datetime.now( tz=datetime.UTC )
-                    ds.report.provenance_id = ds.prov_tree['report'].id
                 else:
                     raise RuntimeError( "ds.report is None and I'm surprised" )
 

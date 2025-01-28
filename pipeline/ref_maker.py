@@ -6,7 +6,7 @@ import psycopg2.extras
 from pipeline.parameters import Parameters
 from pipeline.coaddition import CoaddPipeline
 from pipeline.top_level import Pipeline
-from pipeline.data_store import DataStore
+from pipeline.data_store import DataStore, ProvenanceTree
 
 from models.base import SmartSession, Psycopg2Connection
 from models.provenance import Provenance, CodeVersion
@@ -662,8 +662,11 @@ class RefMaker:
                 raise RuntimeError( f"Can't find instrument {inst} in one of (im_provs, ex_provs); "
                                     f"this shouldn't happen." )
             ds = DataStore( im )
-            ds.set_prov_tree( { self.im_provs[inst].process: self.im_provs[inst],
-                                self.ex_provs[inst].process: self.ex_provs[inst] } )
+            provs = { self.im_provs[inst].process: self.im_provs[inst],
+                      self.ex_provs[inst].process: self.ex_provs[inst] }
+            upstreams = { self.im_provs[inst].process: [ u.process for u in self.im_provs[inst].upstreams ],
+                          self.ex_provs[inst].process: [ u.process for u in self.ex_provs[inst].upstreams ] }
+            ds.prov_tree = ProvenanceTree( provs, upstreams )
             ds.sources = ds.get_sources()
             ds.bg = ds.get_background()
             ds.psf = ds.get_psf()

@@ -13,6 +13,8 @@ from models.base import SmartSession, CODE_ROOT
 from models.image import Image
 from models.world_coordinates import WorldCoordinates
 
+from pipeline.top_level import Pipeline
+
 from util.util import env_as_bool
 
 from tests.conftest import SKIP_WARNING_TESTS
@@ -107,25 +109,29 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
     astrometor.pars.crossid_radii = [2.0]
     astrometor.pars.min_frac_matched = 0.1
     astrometor.pars.min_matched_stars = 10
-    astrometor.pars.test_parameter = uuid.uuid4().hex  # make sure it gets a different Provenance
 
     # The datastore should object when it tries to get the provenance for astrometor
     # params that don't match what we started with
-    with pytest.raises( ValueError, match=( "DataStore getting provenance for extraction whose parameters "
-                                            "don't match the parameters of the same process in the prov_tree" ) ):
+    with pytest.raises( ValueError, match=( "Passed pars_dict does not match parameters for "
+                                            "internal provenance of extraction" ) ):
         ds = astrometor.run(ds)
 
-    # Wipe the datastore prov_tree so that we can
-    #   run something with paramaters that are
-    #   different from what's in there.
-    # (This is doing it "wrong", because we're now
-    #   going to generate a WCS in the datastore
-    #   whose provenance is different from the
-    #   provenance of sources.  Doing that for this
-    #   test here, but the production pipeline should
-    #   never do that.  (Not setting ds.prov_tree to
-    #   None would have caught that in this case.))
-    ds.prov_tree = None
+    # Update the datastore's prov_tree so that it has the provenance we
+    #   want for astrometor.  Because astrometry is a sibling of extraction,
+    #   we need to set all of the extraction siblings.
+    ds._pipeline.astrometor = astrometor
+    siblings = { 'sources': ds._pipeline.extractor.pars,
+                 'bg': ds._pipeline.backgrounder.pars,
+                 'wcs': ds._pipeline.astrometor.pars,
+                 'zp': ds._pipeline.photometor.pars }
+    ds._pipeline.extractor.pars.add_siblings( siblings )
+    ds._pipeline.backgrounder.pars.add_siblings( siblings )
+    ds._pipeline.astrometor.pars.add_siblings( siblings )
+    ds._pipeline.photometor.pars.add_siblings( siblings )
+    old_prov_tree = ds.prov_tree
+    ds._pipeline.setup_datastore( ds, no_provtag=True, ok_no_ref_prov=True )
+
+    # And now run
     ds = astrometor.run(ds)
 
     assert astrometor.has_recalculated

@@ -98,11 +98,7 @@ class DataStore:
     case you must also build up a proper set of dictionaries of critical
     parameters yourself.
 
-    You can get the provenances from a DataStore with get_provenance;
-    that will try to load a default if there isn't one already in the
-    tree.  You can also use that function to update the provenances
-    stored in the provenance tree.  You can manually update the
-    provenances stored in the provenance tree with set_prov_tree.
+    You can get the provenances from a DataStore with get_provenance.
 
     """
     # the products_to_save are also getting cleared along with products_to_clear

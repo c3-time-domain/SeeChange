@@ -21,11 +21,11 @@ def test_subtraction_data_products( ptf_ref, ptf_supernova_image_datastores ):
     subtractor = ds1._pipeline.subtractor
 
     # run the subtraction like you'd do in the real pipeline (calls get_reference and get_subtraction internally)
-    subtractor.pars.test_parameter = uuid.uuid4().hex
+    # subtractor.pars.test_parameter = uuid.uuid4().hex
     subtractor.pars.method = 'naive'
     subtractor.pars.refset = 'test_refset_ptf'
     assert subtractor.pars['alignment_index'] == 'new'  # make sure alignment is configured to new, not latest image
-    ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
+    ds1._pipeline.make_provenance_tree( ds1, no_provtag=True )
     ds = subtractor.run( ds1 )
     assert len( ds.exceptions ) == 0      # Make sure no exceptions from subtractor run
 
@@ -56,11 +56,11 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     subtractor = ds1._pipeline.subtractor
 
     # run the subtraction like you'd do in the real pipeline (calls get_reference and get_subtraction internally)
-    subtractor.pars.test_parameter = uuid.uuid4().hex
+    # subtractor.pars.test_parameter = uuid.uuid4().hex
     subtractor.pars.method = 'zogy'  # this is the default, but it might not always be
     subtractor.pars.refset = 'test_refset_ptf'
     assert subtractor.pars['alignment_index'] == 'new'  # make sure alignment is configured to new, not latest image
-    ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
+    ds1._pipeline.make_provenance_tree( ds1, no_provtag=True )
     ds = subtractor.run( ds1 )
     assert len( ds.exceptions ) == 0      # Make sure no exceptions from subtractor run
 
@@ -111,7 +111,7 @@ def test_subtraction_ptf_hotpants( ptf_ref, ptf_supernova_image_datastores ):
     subtractor.pars.method = 'hotpants'
     subtractor.pars.refset = 'test_refset_ptf'
     detector.pars.method = 'sextractor'
-    ds1.prov_tree = ds1._pipeline.make_provenance_tree( ds1.exposure, no_provtag=True )
+    ds1._pipeline.make_provenance_tree( ds1, no_provtag=True )
     ds = subtractor.run( ds1 )
     assert len( ds.exceptions ) == 0      # Make sure no exceptions from subtractor run
 
@@ -151,7 +151,7 @@ def test_warnings_and_exceptions( decam_datastore_through_zp, decam_reference, d
     if not SKIP_WARNING_TESTS:
         subtractor.pars.inject_warnings = 1
         subtractor.pars.refset = 'test_refset_decam'
-        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+        ds._pipeline.make_provenance_tree( ds )
 
         with pytest.warns(UserWarning) as record:
             subtractor.run( ds )
@@ -162,6 +162,6 @@ def test_warnings_and_exceptions( decam_datastore_through_zp, decam_reference, d
     subtractor.pars.inject_warnings = 0
     subtractor.pars.inject_exceptions = 1
     ds.sub_image = None
-    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+    ds._pipeline.make_provenance_tree( ds )
     with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'subtraction'."):
         ds = subtractor.run( ds )
