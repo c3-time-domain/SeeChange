@@ -11,8 +11,7 @@ from models.image import Image  # noqa: F401
 from models.measurements import Measurements
 
 
-# ROB!  You put the "user" prefix infor testing, remember to remove it before merging to main
-def test_measurements_attributes(measurer, ptf_datastore, test_config, user):
+def test_measurements_attributes(measurer, ptf_datastore, test_config):
     ds = ptf_datastore
 
     aper_radii = test_config.value('extraction.sources.apertures')
