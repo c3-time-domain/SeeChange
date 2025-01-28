@@ -22,22 +22,6 @@ from models.measurements import Measurements
 from models.deepscore import DeepScore
 from models.refset import RefSet
 
-# for each process step, list the steps that go into its upstream
-# backgrounding, astrocal, photocal don't appear in this list because
-# they share a provenance with 'extraction', so where you see 'extraction',
-# treat it as the union of (extraction, bbackgrounding, astrocal, photocal).
-UPSTREAM_STEPS = {
-    'exposure': [],  # no upstreams
-    'preprocessing': ['exposure'],
-    'extraction': ['preprocessing'],
-    'referencing': [],               # This is a special case; it *does* have upstreams, but outside the main pipeline
-    'subtraction': ['referencing', 'preprocessing', 'extraction'],
-    'detection': ['subtraction'],
-    'cutting': ['detection'],
-    'measuring': ['cutting'],
-    'scoring': ['measuring'],
-}
-
 # The products that are made at each processing step.
 # Usually it is only one, but sometimes there are multiple products for one step (e.g., extraction)
 PROCESS_PRODUCTS = {
@@ -54,7 +38,7 @@ PROCESS_PRODUCTS = {
 }
 
 
-class ProvenanceTree:
+class ProvenanceTree(dict):
     """Used internally by DataStore and Pipeline.
 
     This keeps track of all the provenances for all the steps that could
@@ -63,38 +47,33 @@ class ProvenanceTree:
 
     This isn't internally enforced, but a self-consistent provenance
     tree has an entry in self.upstream_steps for each entry in its
-    internal _provs dictionary, and all of the values in the upstream
-    steps are also in the keys _provs.
+    provenance dictionary, and all of the values in the upstream steps
+    are also in the keys of the provenance dictionary.
 
     """
 
-    # This may seem a little gratuitous, since it's almost
-    # exactly a dictionary.  The whole purpose of this class
-    # is to package upstream_steps alongside _provs.
-
     def __init__( self, provs={}, upstream_steps={} ):
-        self._provs = provs
-        # self.upstream_steps is an ordered dictionary,
-        #   and must be in the order that steps are applied.
+        """Create a ProvenanceTree.
+
+        Once created, the provences can be accessed from the
+        ProvenanceTree object just like a dictionary.  (In fact, it *is*
+        a dictionary.)  The upstream_steps property has the dictionary
+        of upstream steps.
+
+        Parameters
+        ----------
+          provs : dict
+            A dictionary of processname : provenance
+
+          upstream_steps : dict
+            A dictionary of processname : list of upstream process
+            names.  This dictionary must be ordered, so that all of the
+            upstreams of a process are earlier in the upstream_steps
+            dictionary.
+
+        """
+        super().__init__( provs )
         self.upstream_steps = upstream_steps
-
-    def __getitem__( self, step ):
-        return self._provs[ step ]
-
-    def __setitem__( self, step, value ):
-        self._provs[ step ] = value
-
-    def __delitem__( self, step ):
-        del self._provs[ step ]
-
-    def __contains__( self, step ):
-        return step in self._provs
-
-    def keys( self ):
-        return self._provs.keys()
-
-    def values( self ):
-        return self._provs.values()
 
 
 class DataStore:
