@@ -280,12 +280,16 @@ class Pipeline:
         """
         ds = DataStore.from_args(*args, **kwargs)
 
-        if ds.exposure is None:
-            raise RuntimeError('Cannot run this pipeline method without an exposure!')
-
-        # Make sure exposure is in DB
-        if Exposure.get_by_id( ds.exposure.id ) is None:
-            raise RuntimeError( "Exposure must be loaded into the database." )
+        if ds.exposure is not None:
+            if Exposure.get_by_id( ds.exposure.id ) is None:
+                raise RuntimeError( "Exposure must be loaded into the database." )
+        elif ds.image is not None:
+            # ...I think it's OK if image isn't in the database?  Maybe?
+            # if Image.get_by_id( ds.image.id ) is None:
+            #     raise RuntimeError( "Image must be loaded into the database." )
+            pass
+        else:
+            raise RuntimeError( "Datastore must have either an image or an exposure" )
 
         try:  # create (and commit, if not existing) all provenances for the products
             provs = self.make_provenance_tree( ds,
