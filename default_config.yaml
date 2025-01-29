@@ -267,46 +267,47 @@ preprocessing:
 
 # ======================================================================
 # Extraction
-#
-# Right now, "extraction" actually encompasses four steps.  Those steps
-# are all done at once and so have a single provenance associated with
-# them.  (This is the reason that all those steps' parameters are stored
-# underneath extraction-- so that the provenance's parameters will take
-# all of them into account.)  Those steps are backgrounding
-# (i.e. finding the sky background) ("bg"), extraction of sources
-# ("sources"), doing the astrometric solution ("wcs"), and doing the
-# photometric calibration ("zp").  See the pipeline documentation for
-# the meanings of all the parmeters.
 
 extraction:
-  sources:
-    method: sextractor
-    measure_psf: true
-    apertures: [1.0, 2.0, 3.0, 5.0]
-    inf_aper_num: -1
-    best_aper_num: 0
-    aperunit: fwhm
-    separation_fwhm: 1.0
-    threshold: 3.0
-    subtraction: false
-  bg:
-    format: map
-    method: sep
-    poly_order: 1
-    sep_box_size: 128
-    sep_filt_size: 3
-  wcs:
-    cross_match_catalog: gaia_dr3
-    solution_method: scamp
-    max_catalog_mag: [22.0]
-    mag_range_catalog: 6.0
-    min_catalog_stars: 50
-    max_sources_to_use: [2000, 1000, 500, 200]
-  zp:
-    cross_match_catalog: gaia_dr3
-    max_catalog_mag: [22.0]
-    mag_range_catalog: 6.0
-    min_catalog_stars: 50
+  method: sextractor
+  measure_psf: true
+  apertures: [1.0, 2.0, 3.0, 5.0]
+  inf_aper_num: -1
+  best_aper_num: 0
+  aperunit: fwhm
+  separation_fwhm: 1.0
+  threshold: 3.0
+  subtraction: false
+
+# ======================================================================
+# Backgrounding
+
+backgrounding:
+  format: map
+  method: sep
+  poly_order: 1
+  sep_box_size: 128
+  sep_filt_size: 3
+
+# ======================================================================
+# World Coordinates
+
+wcs:
+  cross_match_catalog: gaia_dr3
+  solution_method: scamp
+  max_catalog_mag: [22.0]
+  mag_range_catalog: 6.0
+  min_catalog_stars: 50
+  max_sources_to_use: [2000, 1000, 500, 200]
+
+# ======================================================================
+# Zero Point
+
+zp:
+  cross_match_catalog: gaia_dr3
+  max_catalog_mag: [22.0]
+  mag_range_catalog: 6.0
+  min_catalog_stars: 50
 
 # ======================================================================
 # Subtraction
@@ -508,24 +509,23 @@ coaddition:
       single_image_method: biharmonic
       ignore_flags: 0
   extraction:
-    sources:
-      measure_psf: true
-      threshold: 3.0
-      method: sextractor
-    bg:
-      format: map
-      method: sep
-    wcs:
-      cross_match_catalog: gaia_dr3
-      solution_method: scamp
-      max_catalog_mag: [22.0]
-      mag_range_catalog: 6.0
-      min_catalog_stars: 50
-    zp:
-      cross_match_catalog: gaia_dr3
-      max_catalog_mag: [22.0]
-      mag_range_catalog: 6.0
-      min_catalog_stars: 50
+    measure_psf: true
+    threshold: 3.0
+    method: sextractor
+  backgrounding:
+    format: map
+    method: sep
+  wcs:
+    cross_match_catalog: gaia_dr3
+    solution_method: scamp
+    max_catalog_mag: [22.0]
+    mag_range_catalog: 6.0
+    min_catalog_stars: 50
+  zp:
+    cross_match_catalog: gaia_dr3
+    max_catalog_mag: [22.0]
+    mag_range_catalog: 6.0
+    min_catalog_stars: 50
 
 # ======================================================================
 # ======================================================================
@@ -565,53 +565,51 @@ referencing:
     save_new_refs: true  # should the new references be saved to disk and committed to the database?
   pipeline:  # The following are used to override the regular "extraction" parameters
     extraction:
-      sources:  # override the regular source and psf extraction parameters
-        measure_psf: true
-#        threshold: 3.0
-#        method: sextractor
-#      bg:
-#        format: map
-#        method: sep
-#        poly_order: 1
-#        sep_box_size: 128
-#        sep_filt_size: 3
-#      wcs:  # override the regular astrometric calibration parameters
-#        cross_match_catalog: gaia_dr3
-#        solution_method: scamp
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
-#      zp:  # override the regular photometric calibration parameters
-#        cross_match_catalog: gaia_dr3
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
+      measure_psf: true
+#      threshold: 3.0
+#      method: sextractor
+#    backgrounding:
+#      format: map
+#      method: sep
+#      poly_order: 1
+#      sep_box_size: 128
+#      sep_filt_size: 3
+#    wcs:  # override the regular astrometric calibration parameters
+#      cross_match_catalog: gaia_dr3
+#      solution_method: scamp
+#      max_catalog_mag: [22.0]
+#      mag_range_catalog: 6.0
+#      min_catalog_stars: 50
+#    zp:  # override the regular photometric calibration parameters
+#      cross_match_catalog: gaia_dr3
+#      max_catalog_mag: [22.0]
+#      mag_range_catalog: 6.0
+#      min_catalog_stars: 50
 
   coaddition:  # override the coaddition parameters in the general "coaddition" config
     coaddition:  # override the way coadds are made, from the general "coaddition" config
       method: swarp
     extraction:  # override the coaddition/regular pipeline config, when extracting for the coadd images
-      sources: # override the regular source and psf extraction parameters and the coadd extraction parameters
-        measure_psf: true
-#        threshold: 3.0
-#        method: sextractor
-#      bg: # override the regular background estimation parameters and the coadd extraction parameters
-#        format: map
-#        method: sep
-#        poly_order: 1
-#        sep_box_size: 128
-#        sep_filt_size: 3
-#      wcs:  # override the regular astrometric calibration parameters and the coadd extraction parameters
-#        cross_match_catalog: gaia_dr3
-#        solution_method: scamp
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
-#      zp:  # override the regular photometric calibration parameters and the coadd extraction parameters
-#        cross_match_catalog: gaia_dr3
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
+      measure_psf: true
+#      threshold: 3.0
+#      method: sextractor
+#    backgrounding: # override the regular background estimation parameters and the coadd extraction parameters
+#      format: map
+#      method: sep
+#      poly_order: 1
+#      sep_box_size: 128
+#      sep_filt_size: 3
+#    wcs:  # override the regular astrometric calibration parameters and the coadd extraction parameters
+#      cross_match_catalog: gaia_dr3
+#      solution_method: scamp
+#      max_catalog_mag: [22.0]
+#      mag_range_catalog: 6.0
+#      min_catalog_stars: 50
+#    zp:  # override the regular photometric calibration parameters and the coadd extraction parameters
+#      cross_match_catalog: gaia_dr3
+#      max_catalog_mag: [22.0]
+#      mag_range_catalog: 6.0
+#      min_catalog_stars: 50
 
 
 # ======================================================================

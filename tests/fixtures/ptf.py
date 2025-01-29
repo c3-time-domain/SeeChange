@@ -473,7 +473,7 @@ def ptf_ref(
     utag = hashlib.sha256()
     SCLogger.debug( f"ptf_reference_image_datastores image ids: "
                     f"{[d.image.id for d in ptf_reference_image_datastores]}" )
-    for id in [ d.image.id for d in ptf_reference_image_datastores ]:
+    for id in [ d.zp.id for d in ptf_reference_image_datastores ]:
         utag.update( str(id).encode('utf-8') )
     utag = base64.b32encode(utag.digest()).decode().lower()
     utag = f'u-{utag[:6]}'
@@ -588,8 +588,7 @@ def ptf_ref(
     # Have to have reproducible Reference ids for the cache to work
     ref = Reference(
         _id = 'f2f8f6f1-26a9-44f1-9b8e-37b12bec7722',
-        image_id=coadd_datastore.image.id,
-        sources_id=coadd_datastore.sources.id,
+        zp_id=coadd_datastore.zp.id,
         provenance_id=refprov.id
     )
     ref.provenance_id=refprov.id

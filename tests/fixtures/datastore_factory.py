@@ -47,6 +47,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
     this path will be in ds.path_to_original_image.  In this case, the
     thing that calls this factory must delete that file when done.
 
+    The returned DataStore will have a property _pipeline that holds the
+    pipeline used to create the data products.
+
     (...this whole thing is a sort of more verbose implementation of
     pipeline/top_level.py...)
 
@@ -151,7 +154,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         cache_dir = pathlib.Path( cache_dir ) if cache_dir is not None else None
 
-        stepstodo = [ 'preprocessing', 'extraction', 'bg', 'wcs', 'zp',
+        stepstodo = [ 'preprocessing', 'bg', 'extraction', 'wcs', 'zp',
                       'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ]
         if through_step is None:
             if skip_sub:
@@ -186,12 +189,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if 'subtraction' in stepstodo:
             inst_name = ds.image.instrument.lower() if ds.image else ds.exposure.instrument.lower()
             refset_name = f'test_refset_{inst_name}'
-            # Removing these - the refsets should be created when the references are.
-            # if inst_name == 'ptf':  # request the ptf_refset fixture dynamically:
-            #     request.getfixturevalue('ptf_refset')
-            # if inst_name == 'decam':  # request the decam_refset fixture dynamically:
-            #     request.getfixturevalue('decam_refset')
-
             if 'subtraction' not in overrides:
                 overrides['subtraction'] = {}
             overrides['subtraction']['refset'] = refset_name
@@ -417,14 +414,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         ############# extraction to create sources / PSF  #############
 
-        # this filename_barf is used by all of sources, psf, bg, wcs, zp
-        filename_barf = ds.prov_tree['extraction'].id[:6]
-
         if 'extraction' in stepstodo:
 
             found_sources_in_cache = False
             if use_cache:
                 # try to get the source list from cache
+                filename_barf = ds.prov_tree['extraction'].id[:6]
                 sources_cache_path = ( cache_dir / cache_base_path.parent /
                                        f'{cache_base_path.name}.sources_{filename_barf}.fits.json' )
                 SCLogger.debug( f'make_datastore searching cache for source list {sources_cache_path}' )
@@ -477,6 +472,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ########## Background ##########
 
         if 'bg' in stepstodo:
+            filename_barf = ds.prov_tree['backgrounding'].id[:6]
             bg_cache_path = ( cache_dir / cache_base_path.parent /
                               f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
             if use_cache and found_sources_in_cache:
@@ -505,6 +501,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ########## Astrometric calibration ##########
 
         if 'wcs' in stepstodo:
+            filename_barf = ds.prov_tree['wcs'].id[:6]
             wcs_cache_path = ( cache_dir / cache_base_path.parent /
                                f'{cache_base_path.name}.wcs_{filename_barf}.txt.json' )
             if use_cache and found_sources_in_cache:

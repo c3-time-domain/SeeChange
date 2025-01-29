@@ -94,7 +94,7 @@ class Backgrounder:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('extraction', self.pars.get_critical_pars())
+            prov = ds.get_provenance('backgrounding', self.pars.get_critical_pars())
 
             # try to find the background object in memory or in the database:
             bg = ds.get_background( provenance=prov )
@@ -127,6 +127,7 @@ class Backgrounder:
                     del fmask
                     del tmpimagedata
                     bg = Background(
+                        provenance_id=prov.id,
                         value=float(np.nanmedian(sep_bg_obj.back())),
                         noise=float(np.nanmedian(sep_bg_obj.rms())),
                         counts=sep_bg_obj.back(),

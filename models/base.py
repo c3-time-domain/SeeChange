@@ -2092,7 +2092,8 @@ class FourCorners:
         return cls.find_containing( ra, dec, session=session )
 
     @classmethod
-    def _find_possibly_containing_temptable( cls, ra, dec, session, prov_id=None ):
+    def _find_possibly_containing_temptable( cls, ra, dec, session, prov_id=None,
+                                             fromclause=None, provtable='i' ):
         """Internal.
 
         Looks for all cls objects where ra, dec is between minra:maxra,
@@ -2112,7 +2113,16 @@ class FourCorners:
              Required here, otherwise the temp table would be useless.
 
           prov_id : str, list of str, or None
-             If not None, search for objects with this provenance, or any of these provenances if a list.
+             If not None, search for objects with this provenance, or
+             any of these provenances if a list.
+
+          fromclause : str, default None
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
+
+          provtable : str, default 'i'
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
 
         """
         session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_containing" ) )
@@ -2123,26 +2133,29 @@ class FourCorners:
 
         query = ( "SELECT i._id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
                   "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
-                  "INTO TEMP TABLE temp_find_containing "
-                  f"FROM {cls.__tablename__} i "
-                  "WHERE ( "
-                  "  ( maxdec >= :dec AND mindec <= :dec ) "
-                  "  AND ( "
-                  "    ( (maxra > minra ) AND "
-                  "      ( maxra >= :ra AND minra <= :ra ) )"
-                  "    OR "
-                  "    ( ( maxra < minra ) AND "
-                  "      ( ( maxra >= :ra OR :ra > 180. ) AND ( minra <= :ra OR :ra <= 180. ) ) )"
-                  "  )"
-                  ")"
-                 )
+                  "INTO TEMP TABLE temp_find_containing " )
+        if fromclause is not None:
+            query += fromclause + " "
+        else:
+            query += f"FROM {cls.__tablename__} i "
+        query += ( "WHERE ( "
+                   "  ( i.maxdec >= :dec AND i.mindec <= :dec ) "
+                   "  AND ( "
+                   "    ( (i.maxra > i.minra ) AND "
+                   "      ( maxra >= :ra AND minra <= :ra ) )"
+                   "    OR "
+                   "    ( ( i.maxra < i.minra ) AND "
+                   "      ( ( i.maxra >= :ra OR :ra > 180. ) AND ( i.minra <= :ra OR :ra <= 180. ) ) )"
+                   "  )"
+                   ")"
+                  )
         subdict = { "ra": ra, "dec": dec }
         if prov_id is not None:
             if isinstance( prov_id, str ):
-                query += " AND provenance_id=:prov"
+                query += f" AND {provtable}.provenance_id=:prov"
                 subdict['prov'] = prov_id
             elif isinstance( prov_id, list ):
-                query += " AND provenance_id IN :prov"
+                query += f" AND {provtable}.provenance_id IN :prov"
                 subdict['prov'] = tuple( prov_id )
             else:
                 raise TypeError( "prov_id must be a a str or a list of str" )

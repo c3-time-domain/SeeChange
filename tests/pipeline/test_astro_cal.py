@@ -13,8 +13,6 @@ from models.base import SmartSession, CODE_ROOT
 from models.image import Image
 from models.world_coordinates import WorldCoordinates
 
-from pipeline.top_level import Pipeline
-
 from util.util import env_as_bool
 
 from tests.conftest import SKIP_WARNING_TESTS
@@ -128,7 +126,6 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
     ds._pipeline.backgrounder.pars.add_siblings( siblings )
     ds._pipeline.astrometor.pars.add_siblings( siblings )
     ds._pipeline.photometor.pars.add_siblings( siblings )
-    old_prov_tree = ds.prov_tree
     ds._pipeline.setup_datastore( ds, no_provtag=True, ok_no_ref_prov=True )
 
     # And now run

@@ -30,13 +30,10 @@ from util.util import env_as_bool
 # that come from all the different objects.
 _PROCESS_OBJECTS = {
     'preprocessing': 'preprocessor',
-    'extraction': {
-        'sources': 'extractor',
-        'psf': 'extractor',
-        'bg': 'backgrounder',
-        'wcs': 'astrometor',
-        'zp': 'photometor',
-    },
+    'extraction': 'extractor',
+    'bg': 'backgrounder',
+    'wcs': 'astrometor',
+    'zp': 'photometor',
     'subtraction': 'subtractor',
     'detection': 'detector',
     'cutting': 'cutter',
@@ -125,7 +122,7 @@ class ParsPipeline(Parameters):
 
 
 class Pipeline:
-    ALL_STEPS = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp', 'subtraction',
+    ALL_STEPS = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp', 'subtraction',
                   'detection', 'cutting', 'measuring', 'scoring', ]
 
     def __init__(self, **kwargs):
@@ -142,41 +139,29 @@ class Pipeline:
         self.preprocessor = Preprocessor(**preprocessing_config)
 
         # source detection ("extraction" for the regular image!)
-        extraction_config = config.value('extraction.sources', {})
-        extraction_config.update(kwargs.get('extraction', {}).get('sources', {}))
+        extraction_config = config.value('extraction', {})
+        extraction_config.update(kwargs.get('extraction', {}))
         extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
         # background estimation using either sep or other methods
-        background_config = config.value('extraction.bg', {})
-        background_config.update(kwargs.get('extraction', {}).get('bg', {}))
+        background_config = config.value('backgrounding', {})
+        background_config.update(kwargs.get('backgrounding', {}))
         self.pars.add_defaults_to_dict(background_config)
         self.backgrounder = Backgrounder(**background_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometor_config = config.value('extraction.wcs', {})
-        astrometor_config.update(kwargs.get('extraction', {}).get('wcs', {}))
+        astrometor_config = config.value('wcs', {})
+        astrometor_config.update(kwargs.get('wcs', {}))
         self.pars.add_defaults_to_dict(astrometor_config)
         self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photometor_config = config.value('extraction.zp', {})
-        photometor_config.update(kwargs.get('extraction', {}).get('zp', {}))
+        photometor_config = config.value('zp', {})
+        photometor_config.update(kwargs.get('zp', {}))
         self.pars.add_defaults_to_dict(photometor_config)
         self.photometor = PhotCalibrator(**photometor_config)
-
-        # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
-        siblings = {
-            'sources': self.extractor.pars,
-            'bg': self.backgrounder.pars,
-            'wcs': self.astrometor.pars,
-            'zp': self.photometor.pars,
-        }
-        self.extractor.pars.add_siblings(siblings)
-        self.backgrounder.pars.add_siblings(siblings)
-        self.astrometor.pars.add_siblings(siblings)
-        self.photometor.pars.add_siblings(siblings)
 
         # reference fetching and image subtraction
         subtraction_config = config.value('subtraction', {})
@@ -342,8 +327,8 @@ class Pipeline:
     def get_critical_pars_dicts( self ):
         # The contents of this dictionary must be synced with _PROCESS_OBJECTS above.
         return { 'preprocessing': self.preprocessor.pars.get_critical_pars(),
-                 'backgrounding': self.backgrounder.pars.get_critical_pars(),
                  'extraction': self.extractor.pars.get_critical_pars(),
+                 'backgrounding': self.backgrounder.pars.get_critical_pars(),
                  'wcs': self.astrometor.pars.get_critical_pars(),
                  'zp': self.photometor.pars.get_critical_pars(),
                  'subtraction': self.subtractor.pars.get_critical_pars(),

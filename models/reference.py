@@ -2,6 +2,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy import orm
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
 from models.base import Base, SeeChangeBase, HasBitFlagBadness, FourCorners, UUIDMixin, SmartSession
 from models.enums_and_bitflags import reference_badness_inverse
@@ -14,32 +15,44 @@ from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 
 
+image_subtraction_components = sa.Table(
+    'image_subtraction_components',
+    Base.metadata,
+    sa.Column('image_id',
+              sqlUUID,
+              sa.ForeignKey('images._id', ondelete='CASCADE', name='image_subtraction_sub_image_fkey' ),
+              primary_key=True),
+    sa.Column('new_zp_id',
+              sqlUUID,
+              sa.ForeignKey('zero_points._id', ondelete='RESTRICT', name='image_subtraction_new_zp_fkey' ),
+              nullable=False,
+              index=True),
+    sa.Column('ref_id',
+              sqlUUID,
+              sa.ForeignKey('refs._id', ondelete='RESTRICT', name='image_subtraction_ref_fkey' ),
+              nullable=False,
+              index=True)
+)
+
+
 class Reference(Base, UUIDMixin, HasBitFlagBadness):
-    """A table that refers to each reference Image object.
+    """A table that keeps track of subtraction references.
 
-    The provenance of this table (tagged with the "reference" process)
-    will have as its upstream IDs the provenance IDs of the image,
-    the source list, the PSF, the WCS, and the zero point.
+    A reference is defined by a zeropoint.  While this seems
+    counter-intuitive, to actually use references, we need the image to
+    be fully reduced, which means it needs to have an image, source
+    list, background, wcs, and zp.  The zp is all that's necessary to
+    find the self-consistent set of the rest.
 
-    This means that the reference should always come loaded
-    with the image and all its associated products,
-    based on the provenance given when it was created.
     """
 
     __tablename__ = 'refs'   # 'references' is a reserved postgres word
 
-    image_id = sa.Column(
-        sa.ForeignKey('images._id', ondelete='CASCADE', name='references_image_id_fkey'),
+    zp_id = sa.Column(
+        sa.ForeignKey('zero_points._id', ondelete='CASCADE', name='references_zp_id_fkey' ),
         nullable=False,
         index=True,
-        doc="ID of the reference image that this object is referring to. "
-    )
-
-    sources_id = sa.Column(
-        sa.ForeignKey('source_lists._id', ondelete='CASCADE', name='references_sources_id_fkey'),
-        nullable=False,
-        index=True,
-        doc="ID of the source list that goes with the image for this reference"
+        doc="ID of the zeropoint (and, hence, wcs, bg, source_list, and image) that defines this reference."
     )
 
     provenance_id = sa.Column(
@@ -57,8 +70,32 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
     @property
     def image( self ):
         if self._image is None:
-            self._image = Image.get_by_id( self.image_id )
+            self._load_ref_data_products()
         return self._image
+
+    @property
+    def sources( self ):
+        if self._sources is None:
+            self._load_ref_data_products()
+        return self._sources
+
+    @property
+    def bg( self ):
+        if self._bg is None:
+            self._load_ref_data_products()
+        return self._bg
+
+    @property
+    def wcs( self ):
+        if self._wcs is None:
+            self._load_ref_data_products()
+        return self._wcs
+
+    @property
+    def zp( self ):
+        if self._zp is None:
+            self._load_zp_data_products()
+        return self._zp
 
 
     def _get_inverse_badness(self):
@@ -70,46 +107,46 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
         HasBitFlagBadness.__init__( self )
         SeeChangeBase.__init__( self, *args, **kwargs )
         self._image = None
+        self._sources = None
+        self._bg = None
+        self._wcs = None
+        self._zp = None
 
     @orm.reconstructor
     def init_on_load( self ):
         SeeChangeBase.init_on_load( self )
         self._image = None
+        self._sources = None
+        self._bg = None
+        self._wcs = None
+        self._zp = None
 
 
-    def get_ref_data_products(self, session=None):
-        """Get the (SourceList, Background, PSF, WorldCoordiantes, Zeropoint) assocated with self.image_id
+    def _load_ref_data_products(self, session=None):
+        """Load the (SourceList, Background, PSF, WorldCoordiantes, Zeropoint) assocated with self.image_id
 
-        Only works if the sources (etc.) have already been committed to
-        the database with a provenance that's in the upstreams of this
-        object's provenance.
-
-        Returns
-        -------
-          sources, bg, psf, wcs, zp
+        Only works if the all of the upstream dataproducts (image,
+        sources, bg, wcs, zp) have been committed ot the database (or
+        are in the session, but, brrrr.).
 
         """
 
         with SmartSession( session ) as sess:
-            sources = SourceList.get_by_id( self.sources_id, session=sess )
-            # Going to assume that there's only one bg, psf, wcs, zp
-            #   associated with these sources.  By construction, there
-            #   should only be one, so unless the databse has gotten
-            #   mucked up, this is a good assumption.
-            bg = sess.query( Background ).filter( Background.sources_id == sources.id ).first()
-            psf = sess.query( PSF ).filter( PSF.sources_id == sources.id ).first()
-            wcs = ( sess.query( WorldCoordinates )
-                    .filter( WorldCoordinates.sources_id == sources.id ) ).first()
-            zp = sess.query( ZeroPoint ).filter( ZeroPoint.sources_id == sources.id ).first()
-
-        return sources, bg, psf, wcs, zp
+            self._zp = ZeroPoint.get_by_id( self.zp_id, session=sess )
+            self._wcs = WorldCoordinates.get_by_id( self._zp.wcs_id, session=sess )
+            self._bg = Background.get_by_id( self._zp.background_id, session=sess )
+            if self._bg.sources_id != self._wcs.sources_id:
+                raise RuntimeError( f"Database corruption.  Zeropoint {self._zp.id} has wcs {self._wcs.id} and "
+                                    f"background {self._bg.id}, but the wcs and bg don't have the same sources_id" )
+            self._sources = SourceList.get_by_id( self._wcs.sources_id, session=sess )
+            self._image = Image.get_by_id( self._sources.image_id, session=sess)
+            self._psf = sess.query( PSF ).filter( PSF.sources_id==self._sources.id ).first()
 
 
     def get_upstreams( self, session=None ):
-        """Get ustreams of this Reference.  That is the Image and SourceList of the reference."""
+        """Get upstreams of this Reference.  That is the ZeroPoint of the reference."""
         with SmartSession( session ) as sess:
-            return [ Image.get_by_id( self.image_id, session=sess ),
-                     SourceList.get_by_id( self.sources_id, session=sess ) ]
+            return [ ZeroPoint.get_by_id( self.zp_id, session=sess ) ]
 
     def get_downstreams( self, session=None, siblings=True ):
         """Get downstreams of this Reference.  That is all subtraction images that use this as a reference."""
@@ -242,7 +279,11 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
                 if overlapfrac is not None:
                     raise ValueError( "Can't give overlapfrac with target/section_id" )
 
-                q = ( "SELECT r.* FROM refs r INNER JOIN images i ON r.image_id=i._id "
+                q = ( "SELECT r.* FROM refs r "
+                      "INNER JOIN zero_points z ON r.zp_id=z._id "
+                      "INNER JOIN world_coordinates w ON z.wcs_id=w._id "
+                      "INNER JOIN source_lists s ON w.sources_id=s._id "
+                      "INNER JOIN images i ON S.image_id=i._id "
                       "WHERE i.target=:target AND i.section_id=:section_id " )
                 subdict = { 'target': target, 'section_id': section_id }
 
@@ -270,7 +311,10 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
                       "( SELECT r.*, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
                       "         i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
                       "  FROM refs r "
-                      "  INNER JOIN images i ON r.image_id=i._id "
+                      "  INNER JOIN zero_points z ON r.zp_id=z._id "
+                      "  INNER JOIN world_coordinates w ON z.wcs_id=w._id "
+                      "  INNER JOIN source_lists s ON w.sources_id=s._id "
+                      "  INNER JOIN images i ON s.image_id=i._id "
                       "  WHERE ( "
                       "    ( i.maxdec >= :dec AND i.mindec <= :dec ) "
                       "    AND ( "
@@ -287,7 +331,10 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
                 sess.execute( sa.text(q), subdict )
 
                 q = ( "SELECT r.* FROM refs r INNER JOIN temp_find_containing_ref t ON r._id=t._id "
-                      "INNER JOIN images i ON r.image_id=i._id "
+                      "INNER JOIN zero_points z ON r.zp_id=z._id "
+                      "INNER JOIN world_coordinates w ON z.wcs_id=w._id "
+                      "INNER JOIN source_lists s ON w.sources_id=s._id "
+                      "INNER JOIN images i ON s.image_id=i._id "
                       "WHERE q3c_poly_query( :ra, :dec, ARRAY[ t.ra_corner_00, t.dec_corner_00, "
                       "                                        t.ra_corner_01, t.dec_corner_01, "
                       "                                        t.ra_corner_11, t.dec_corner_11, "
@@ -327,7 +374,11 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
                 #  but we can't just use that because Reference isn't a FourCorners and
                 #  we have to do the refs/images join.
 
-                q = ( "SELECT r.* FROM refs r INNER JOIN images i ON r.image_id=i._id "
+                q = ( "SELECT r.* FROM refs r "
+                      "INNER JOIN zero_points z ON r.zp_id=z._id "
+                      "INNER JOIN world_coordinates w ON z.wcs_id=w._id "
+                      "INNER JOIN source_lists s ON w.sources_id=s._id "
+                      "INNER JOIN images i ON s.image_id=i._id "
                       "WHERE ( "
                       "  ( i.maxdec >= :mindec AND i.mindec <= :maxdec ) "
                       "  AND "

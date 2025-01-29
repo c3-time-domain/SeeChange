@@ -565,7 +565,7 @@ class ImageAligner:
             # re-calculate the source list and PSF for the warped image
             source_sources_prov = Provenance.get( source_sources.provenance_id )
             extractor = Detector()
-            extractor.pars.override(source_sources_prov.parameters['sources'], ignore_addons=True)
+            extractor.pars.override(source_sources_prov.parameters, ignore_addons=True)
             warpedsources, warpedpsf, _, _ = extractor.extract_sources(warpedim)
 
             prov = Provenance(
@@ -632,7 +632,7 @@ class ImageAligner:
                                   upstreams=upstrprovs
                                  )
         tmp_extractor = Detector()
-        tmp_extractor.pars.override(  source_sources_prov.parameters['sources'], ignore_addons=True )
+        tmp_extractor.pars.override( source_sources_prov.parameters, ignore_addons=True )
         warped_sources_prov = Provenance( code_version_id=code_version.id,
                                           process='extraction',
                                           parameters=tmp_extractor.pars.get_critical_pars(),

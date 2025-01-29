@@ -263,7 +263,7 @@ class AstroCalibrator:
         self.crossid_radius = radius
         self.catexp = catexp
 
-        ds.wcs = WorldCoordinates( sources_id=sources.id )
+        ds.wcs = WorldCoordinates( sources_id=sources.id, provenance_id=prov.id )
         ds.wcs.wcs = wcs
 
     # ----------------------------------------------------------------------
@@ -286,7 +286,7 @@ class AstroCalibrator:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('extraction', self.pars.get_critical_pars())
+            prov = ds.get_provenance('wcs', self.pars.get_critical_pars())
 
             # try to find the world coordinates in memory or in the database:
             wcs = ds.get_wcs( provenance=prov )

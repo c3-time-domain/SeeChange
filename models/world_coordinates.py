@@ -4,7 +4,7 @@ import os
 
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.schema import CheckConstraint
+from sqlalchemy.schema import CheckConstraint, UniqueConstraint
 from sqlalchemy.ext.declarative import declared_attr
 
 from astropy.wcs import WCS
@@ -14,10 +14,10 @@ from astropy.wcs import utils
 from models.base import Base, SmartSession, UUIDMixin, HasBitFlagBadness, FileOnDiskMixin, SeeChangeBase
 from models.enums_and_bitflags import catalog_match_badness_inverse
 from models.image import Image
-from models.source_list import SourceList, SourceListSibling
+from models.source_list import SourceList
 
 
-class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'world_coordinates'
 
     @declared_attr
@@ -26,6 +26,7 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
+            UniqueConstraint('sources_id', 'provenance_id', name='_wcs_source_list_provenance_uc' )
         )
 
     sources_id = sa.Column(
@@ -35,6 +36,14 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
         unique=True,
         doc="ID of the source list this world coordinate system is associated with. "
     )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='wcs_provenance_id_fkey'),
+        nullable=False,
+        index=True,
+        doc="ID of the provenance of this wcs."
+    )
+
 
     @property
     def wcs( self ):
@@ -172,3 +181,14 @@ class WorldCoordinates(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasB
         references to those objects, the memory won't actually be freed.
         """
         self._wcs = None
+
+    def get_upstreams(self, session=None):
+        """Get the source list that was used to make this wcs."""
+        with SmartSession(session) as session:
+            return session.scalars( sa.select(SourceList).where( SourceList._id==self.sources_id ) ).all()
+
+    def get_downstreams(self, session=None):
+        """Get immediate downstreams of this wcs, which are zeropoints."""
+        from models.zero_point import ZeroPoint
+        with SmartSession(session) as session:
+            return session.scalars( sa.select(ZeroPoint).where( ZeroPoint.wcs_id==self._id ) ).all()

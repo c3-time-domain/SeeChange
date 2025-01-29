@@ -43,7 +43,7 @@ def preprocessor(preprocessor_factory):
 def extractor_factory(test_config):
 
     def make_extractor():
-        extr = Detector(**test_config.value('extraction.sources'))
+        extr = Detector(**test_config.value('extraction'))
         extr.pars._enforce_no_new_attrs = False
         extr.pars.test_parameter = extr.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -64,7 +64,7 @@ def extractor(extractor_factory):
 def backgrounder_factory(test_config):
 
     def make_backgrounder():
-        bg = Backgrounder(**test_config.value('extraction.bg'))
+        bg = Backgrounder(**test_config.value('backgrounding'))
         bg.pars._enforce_no_new_attrs = False
         bg.pars.test_parameter = bg.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -80,7 +80,7 @@ def backgrounder_factory(test_config):
 def astrometor_factory(test_config):
 
     def make_astrometor():
-        astrom = AstroCalibrator(**test_config.value('extraction.wcs'))
+        astrom = AstroCalibrator(**test_config.value('wcs'))
         astrom.pars._enforce_no_new_attrs = False
         astrom.pars.test_parameter = astrom.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -101,7 +101,7 @@ def astrometor(astrometor_factory):
 def photometor_factory(test_config):
 
     def make_photometor():
-        photom = PhotCalibrator(**test_config.value('extraction.zp'))
+        photom = PhotCalibrator(**test_config.value('zp'))
         photom.pars._enforce_no_new_attrs = False
         photom.pars.test_parameter = photom.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -262,23 +262,10 @@ def pipeline_factory(
         p.pars.save_before_subtraction = False
         p.pars.save_at_finish = False
         p.preprocessor = preprocessor_factory()
-        p.extractor = extractor_factory()
         p.backgrounder = backgrounder_factory()
+        p.extractor = extractor_factory()
         p.astrometor = astrometor_factory()
         p.photometor = photometor_factory()
-
-        # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
-        siblings = {
-            'sources': p.extractor.pars,
-            'bg': p.backgrounder.pars,
-            'wcs': p.astrometor.pars,
-            'zp': p.photometor.pars
-        }
-        p.extractor.pars.add_siblings(siblings)
-        p.backgrounder.pars.add_siblings(siblings)
-        p.astrometor.pars.add_siblings(siblings)
-        p.photometor.pars.add_siblings(siblings)
-
         p.subtractor = subtractor_factory()
         p.detector = detector_factory()
         p.cutter = cutter_factory()
@@ -319,18 +306,6 @@ def coadd_pipeline_factory(
         p.astrometor = astrometor_factory()
         p.photometor = photometor_factory()
 
-        # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
-        siblings = {
-            'sources': p.extractor.pars,
-            'bg': p.backgrounder.pars,
-            'wcs': p.astrometor.pars,
-            'zp': p.photometor.pars,
-        }
-        p.extractor.pars.add_siblings(siblings)
-        p.backgrounder.pars.add_siblings(siblings)
-        p.astrometor.pars.add_siblings(siblings)
-        p.photometor.pars.add_siblings(siblings)
-
         return p
 
     return make_pipeline
@@ -345,7 +320,7 @@ def coadd_pipeline_for_tests(coadd_pipeline_factory):
 def refmaker_factory(test_config, pipeline_factory, coadd_pipeline_factory):
 
     def make_refmaker(name, instrument, provtag='refmaker_factory'):
-        maker = RefMaker(maker={'name': name, 'instruments': [instrument]})
+        maker = RefMaker(maker={'name': name, 'instrument': instrument})
         maker.pars._enforce_no_new_attrs = False
         maker.pars.test_parameter = maker.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True

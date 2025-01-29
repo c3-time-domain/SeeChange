@@ -93,17 +93,11 @@ class ParsRefMaker(Parameters):
             critical=True,
         )
 
-        self.instruments = self.add_par(
-            'instruments',
-            None,
-            (None, list),
-            'Only use images from these instruments. If None, will use all instruments. '
-            'If None, or if more than one instrument is given, will (possibly) construct a '
-            'cross-instrument reference.  If you are (rightfully) leery of this, make sure '
-            'to specify a single instrument in this list. '
-            '(NOTE: it\'s not clear that building a multi-instrument ref actually works right now '
-            '(because of provenance handling).  As such, an attempt to build a multi-instrument '
-            'ref currently raises a NotImplementedError exception.)',
+        self.instrument = self.add_par(
+            'instrument',
+            'DECam',
+            str,
+            'The instrument for which we are building a reference.',
             critical=True,
         )
 
@@ -114,16 +108,6 @@ class ParsRefMaker(Parameters):
             'Only use images from these projects. If None, will not limit the projects. '
             'If given as a list, will use any of the projects in the list. ',
             critical=True,
-        )
-
-        self.preprocessing_prov_id = self.add_par(
-            'preprocessing_prov',
-            None,
-            (str, None),
-            "Provenance ID of preprocessing provenance to search for images for.  Be careful using this!  "
-            "Do not use this if you have more than one instrument.  If you don't specify this, it will "
-            "be determined automatically using config, which is usually what you want.",
-            critical=True
         )
 
         self.__image_query_pars__ = ['airmass', 'background', 'seeing', 'lim_mag', 'exp_time']
@@ -218,28 +202,33 @@ class RefMaker:
         coaddition. Each should be a dictionary.  maker keys are defined
         by ParsRefMaker above.  pipeline keys are defined as described
         pipeline/top_level.py::Pipeline, and may have subdictionaries
-        pipeline, preprocessing, and extraction (which in turn has
-        subdictionaries sources, bg, wcs, and zp).  coaddition keys are
-        defined by pipeline/coaddition.py::ParsCoadd.
+        pipeline, preprocessing, extraction, sources, bg, wcs, and zp.
+        coaddition keys are defined by
+        pipeline/coaddition.py::ParsCoadd.
 
         Parameters are set by first looking at the referencing.pipeline,
         referencing.coaddition, and referncing.maker trees from the
         config file.  They are then overridden by anything passed to the
         constructor.
 
-        The maker contains a pipeline object, that doesn't do any work, but is instantiated so it can build up the
-        provenances of the images and their products, that go into the coaddition.
-        Those images need to already exist in the database before calling run().
-        Pass kwargs into the pipeline object using kwargs['pipeline'].
-        TODO: what about multiple instruments that go into the coaddition? we'd need multiple pipeline objects
-         in order to have difference parameter sets for preprocessing/extraction for each instrument.
-        The maker also contains a coadd_pipeline object, that has two roles: one is to build the provenances of the
-        coadd image and the products of that image (extraction on the coadd) and the second is to actually
-        do the work of coadding the chosen images.
+        The maker contains a Pipeline object, that doesn't do any work,
+        but is instantiated so it can build up the provenances of the
+        images and their products, that go into the coaddition.  Those
+        images need to already exist in the database before calling
+        run().  Pass kwargs into the pipeline object using
+        kwargs['pipeline'].
+
+        The maker also contains a coadd_pipeline object, that has two
+        roles: one is to build the provenances of the coadd image and
+        the products of that image (extraction on the coadd) and the
+        second is to actually do the work of coadding the chosen images.
         Pass kwargs into this object using kwargs['coaddition'].
-        The choice of which images are loaded into the reference coadd is determined by the parameters object of the
-        maker itself (and the provenances of the images and their products).
-        To set these parameters, use the "referencing.maker" dictionary in the config, or pass them in kwargs['maker'].
+
+        The choice of which images are loaded into the reference coadd
+        is determined by the parameters object of the maker itself (and
+        the provenances of the images and their products).  To set these
+        parameters, use the "referencing.maker" dictionary in the
+        config, or pass them in kwargs['maker'].
 
         """
         # first break off some pieces of the kwargs dict
@@ -270,16 +259,22 @@ class RefMaker:
             raise ValueError( "Configuration error; for RefMaker, must have a float for both of "
                               "corner_distance and overlap_fraction, or both must be None." )
 
-        if ( self.pars.instruments is None ) or ( len(self.pars.instruments) > 1 ):
-            raise NotImplementedError( "Cross-instrument references not supported.  Specify one instrument." )
-
-        # first, make sure we can assemble the provenances up to extraction:
-        self.im_provs = None  # the provenances used to make images going into the reference (these are coadds!)
-        self.ex_provs = None  # the provenances used to make extraction, bg, wcs, zp from the images
-        self.coadd_im_prov = None  # the provenance used to make the coadd image
-        self.coadd_ex_prov = None  # the provenance used to make the products of the coadd image
-        self.ref_prov = None  # the provenance of the reference itself
-        self.refset = None  # the RefSet object that was found / created
+        # first, make sure we can assemble the provenances of the component images
+        self.im_prov = None
+        self.ex_prov = None
+        self.bg_prov = None
+        self.wcs_prov = None
+        self.zp_prov = None
+        # ...and the provenances of the coadded image
+        self.coadd_im_prov = None
+        self.coadd_ex_prov = None
+        self.coadd_bg_prov = None
+        self.coadd_wcs_prov = None
+        self.coadd_zp_prov = None
+        # ...and the provenance of the ref itself
+        self.ref_prov = None
+        # ...and the refset
+        self.refset = None
 
         self.reset()
 
@@ -310,66 +305,84 @@ class RefMaker:
         and to look for images and associated products (like SourceLists) when
         building the reference.
 
+        The created provenances are loaded into the database.
+
         """
-        if self.pars.instruments is None or len(self.pars.instruments) == 0:
-            raise ValueError('No instruments given to RefMaker!')
 
-        self.im_provs = {}
-        self.ex_provs = {}
+        self.im_prov = None
+        self.ex_prov = None
+        self.bg_prov = None
+        self.wcs_prov = None
+        self.zp_prov = None
 
-        if self.pars.preprocessing_prov_id is not None:
-            if len(self.pars.instruments) > 1:
-                SCLogger.warning( "RefMaker was given a preprocessing id, but also more than one instrument. "
-                                  "This is almost certainly wrong." )
-            preprocessing = Provenance.get( self.pars.preprocessing_prov_id )
-            code_version = Provenance.get_code_version()
-            if preprocessing is None:
-                raise ValueError( f"Failed to find provenance {self.pars.preprocessing_prov_id}" )
+        load_exposure = Exposure.make_provenance( self.pars.instrument )
+        code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
+        pars = self.pipeline.processor.pars.get_critical_pars(),
+        preprocessing = Provenance(
+            process='preprocessing',
+            code_version_id=code_version.id,  # TODO: allow loading versions for each process
+            parameters=pars,
+            upstreams=[load_exposure],
+            is_testing='test_parameter' in pars,
+        )
+        preprocessing.insert_if_needed()
+        pars = self.pipeline.extractor.pars.get_critical_pars()
+        extraction = Provenance(
+            process='extraction',
+            code_version_id=code_version.id,  # TODO: allow loading versions for each process
+            parameters=pars,
+            upstreams=[preprocessing],
+            is_testing='test_parameter' in pars,
+        )
+        extraction.insert_if_needed()
+        pars = self.pipeline.backgrounder.pars.get_critical_pars()
+        backgrounding = Provenance(
+            process='backgrounding',
+            code_version_id=code_version.id,
+            parameters=pars,
+            upstreams=[extraction],
+            is_testing='test_parameter' in pars,
+        )
+        backgrounding.insert_if_needed()
+        pars = self.pipeline.astrometor.pars.get_critical_pars()
+        wcs = Provenance(
+            process='wcs',
+            code_version_id=code_version.id,
+            parameters=pars,
+            upstreams=[extraction],
+            is_testing='test_paramter' in pars,
+        )
+        wcs.insert_if_needed()
+        pars = self.pipeline.photometor.pars.get_critical_pars()
+        zp = Provenance(
+            process='zp',
+            code_version_id=code_version.id,
+            parameters=pars,
+            upstreams=[wcs,backgrounding],
+            is_testing='test_parameter' in pars,
+        )
+        zp.insert_if_needed()
 
-        for inst in self.pars.instruments:
-            if self.pars.preprocessing_prov_id is None:
-                load_exposure = Exposure.make_provenance(inst)
-                code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
-                pars = self.pipeline.preprocessor.pars.get_critical_pars()
-                preprocessing = Provenance(
-                    process='preprocessing',
-                    code_version_id=code_version.id,  # TODO: allow loading versions for each process
-                    parameters=pars,
-                    upstreams=[load_exposure],
-                    is_testing='test_parameter' in pars,
-                )
-                # This provenance needs to be in the database so we can insert the
-                #   coadd provenance later, as this provenance is an upstream of that.
-                # Ideally, it's already there, but if not, we need to be ready.
-                preprocessing.insert_if_needed()
-            pars = self.pipeline.extractor.pars.get_critical_pars()  # includes parameters of siblings
-            extraction = Provenance(
-                process='extraction',
-                code_version_id=code_version.id,  # TODO: allow loading versions for each process
-                parameters=pars,
-                upstreams=[preprocessing],
-                is_testing='test_parameter' in pars,
-            )
-            # Same comment as for the Provenance preprocessing above.
-            extraction.insert_if_needed()
+        self.im_prov = preprocessing
+        self.ex_prov = extraction
+        self.bg_prov = backgrounding
+        self.wcs_prov = wcs
+        self.zp_prov = zp
 
-            # the exposure provenance is not included in the reference provenance's upstreams
-            self.im_provs[ inst ] = preprocessing
-            self.ex_provs[ inst ] = extraction
-
-        # all the provenances that (could) go into the coadd
-        upstreams = list( self.im_provs.values() ) + list( self.ex_provs.values() )
-        # TODO: allow different code_versions for each process
+        upstreams = [ self.zp_prov ]
         coadd_provs = self.coadd_pipeline.make_provenance_tree( None, upstream_provs=upstreams )
         self.coadd_im_prov = coadd_provs['coaddition']
         self.coadd_ex_prov = coadd_provs['extraction']
+        self.coadd_bg_prov = coadd_provs['backgrounding']
+        self.coadd_wcs_prov = coadd_provs['wcs']
+        self.coadd_zp_prov = coadd_provs['zp']
 
         pars = self.pars.get_critical_pars()
         self.ref_prov = Provenance(
             process=self.pars.get_process_name(),
             code_version_id=code_version.id,  # TODO: allow loading versions for each process
             parameters=pars,
-            upstreams=[self.coadd_im_prov, self.coadd_ex_prov],
+            upstreams=[ self.coadd_zp_prov ],
             is_testing='test_parameter' in pars,
         )
         self.ref_prov.insert_if_needed()
@@ -559,8 +572,9 @@ class RefMaker:
             kwargs = { 'minra': self.minra, 'maxra': self.maxra, 'mindec': self.mindec, 'maxdec': self.maxdec,
                        'overlapfrac': self.pars.coadd_overlap_fraction }
 
-        kwargs['provenance_ids'] = [ p.id for p in self.im_provs.values() ]
-        kwargs['instrument' ] = self.pars.instruments
+        kwargs['provenance_ids'] = [ self.zp_prov ]
+        kwargs['provenance_ids_are_zp'] = True
+        kwargs['instrument' ] = self.pars.instrument
         kwargs['project'] = self.pars.projects
         kwargs['filter'] = self.filter
         kwargs['min_mjd'] = ( None if self.pars.start_time is None

@@ -28,7 +28,10 @@ _PROCESS_PRODUCTS = {
     'exposure': 'exposure',
     'preprocessing': 'image',
     'coaddition': 'image',
-    'extraction': ['sources', 'psf', 'bg', 'wcs', 'zp'],
+    'extraction': ['sources', 'psf'],
+    'backgrounding': 'bg',
+    'wcs': 'wcs',
+    'zp': 'zp',
     'referencing': 'reference',
     'subtraction': 'sub_image',
     'detection': 'detections',
@@ -549,7 +552,7 @@ class DataStore:
             return ds
 
 
-    def parse_args(self, *args, **kwargs):
+    def parse_args(self, *args, prov_tree=None ):
         """Parse the arguments to the DataStore constructor.
 
         Can initialize based on exposure and section ids,
@@ -571,16 +574,9 @@ class DataStore:
             - Image: an Image object.
             - image_id: give a single integer
 
-        kwargs: dict
-            A dictionary of keyword arguments to parse.
-            Using named arguments allows the user to
-            explicitly assign the values to the correct
-            attributes. These are parsed after the args
-            list and can override it!
-
-        Additional things that can get automatically parsed,
-        either by keyword or by the content of one of the args:
-            - provenances / prov_tree: a self-consistent ProvenanceTree object
+        prov_tree : ProvenanceTree or None
+           Initialize the DataStore's provenance tree (stored in the
+           prov_tree property) with this.
 
         """
         if len(args) == 1 and isinstance(args[0], DataStore):
@@ -588,30 +584,10 @@ class DataStore:
             self.__dict__ = args[0].__dict__.copy()
             return
 
-        # look for a user-given provenance tree
-        # ...This seems like a lot of work to allow people to pass stuff
-        #   in whatever order they want. Having some actual arguments
-        #   beyond (self, *args, **kwargs) would remove the need for all
-        #   of this (except for a single type check)
-        provs = [ arg for arg in args if isinstance( arg, ProvenanceTree ) ]
-        if len(provs) > 1:
-            raise RuntimeError( "Passed more than one ProvenanceTree, can pass at most one." )
-        if len(provs) > 0:
-            self.prov_tree = provs[0]
-            # also remove the provenances from the args list
-            args = [ arg for arg in args if not isinstance( arg, ProvenanceTree ) ]
-        found_keys = []
-        for key, value in kwargs.items():
-            if key in ['prov', 'provs', 'provenances', 'prov_tree', 'provs_tree', 'provenance_tree']:
-                if not isinstance( value, ProvenanceTree ):
-                    raise ValueError('Provenance tree must be a ProvenanceTree object.')
-                self.prov_tree = value
-                found_keys.append(key)
-        if ( ( len(provs) > 0 ) and ( len(found_keys) > 0 ) ) or ( len(found_keys) > 1 ):
-            raise RuntimeError( "Passed more than one ProvenanceTree, can pass at most one." )
-
-        for key in found_keys:
-            del kwargs[key]
+        if prov_tree is not None:
+            if not isinstance( prov_tree, ProvenanceTree ):
+                raise TypeError( f"provtree must be a ProvenanceTree, not a {type(prov_tree)}" )
+            self.prov_tree = prov_tree
 
         # parse the args list
         self.inputs_str = "(unknown)"
@@ -640,11 +616,6 @@ class DataStore:
                               f'Expected [<image_id>], or [<image>], or [<exposure id>, <section id>], '
                               f'or [<exposure>, <section id>]. ' )
 
-        # parse the kwargs dict
-        for key, val in kwargs.items():
-            # The various setters will do type checking
-            setattr( self, key, val )
-
 
     def __init__(self, *args, **kwargs):
         """Make a DataStore.
@@ -658,6 +629,8 @@ class DataStore:
         self._section = None  # SensorSection
 
         self.prov_tree = None  # ProvenanceTree object
+        self._provtag = None
+        self._code_version = None
 
         # these all need to be added to the products_to_save list
         self._image = None  # single image from one sensor section
@@ -714,6 +687,7 @@ class DataStore:
         if self.report is not None:
             self.report.scan_datastore( self, process_step=process_step )
 
+
     def finalize_report( self ):
         """Mark the report as successful and set the finish time."""
         if self.report is not None:
@@ -723,7 +697,7 @@ class DataStore:
             self.report.upsert()
 
 
-    def make_prov_tree( self, steps, pars, provtag=None, ok_no_ref_prov=False ):
+    def make_prov_tree( self, steps, pars, provtag=None, ok_no_ref_prov=False, upstream_steps=None ):
         """Create the DataStore's provenance tree.
 
         Also creates provenances and saves them to the database if
@@ -731,6 +705,15 @@ class DataStore:
 
         Will base the provenance tree off of self.exposure if that's
         defined, otherwise off of self.image.
+
+        As a side effect, if 'subtraction' is in the steps, it tries to
+        identify a reference for the image based on
+        pars['subtraction']['refset'].  If a reference is not found,
+        referencing and everything downstream from it will not have
+        provenances identified or generated.  (This is necessary because
+        the provenance of the subtraction and later products depends on
+        the provenance of the reference.  References are not built as
+        part of the main pipeline, but external to the main pipeline.)
 
         Parameters
         ----------
@@ -747,13 +730,21 @@ class DataStore:
              step.  (The get_critical_pars_dicts method of a Pipeline
              object returns what's needed here.)
 
-          no_provtag : str or None
+          provtag : str or None
              If not None, add all created provenances to this provenance tag
 
           ok_no_ref_prov: bool, default False
              If True, and if 'subtraction' is in steps, and a reference isn't found,
              usually that's an exception.  if ok_no_ref_prov is True, then instead
              just stop generating provenances at the step before subtraction.
+
+          upstream_steps: dict or None
+             You usually don't want to specify this.  This a dict of
+             str: list.  Each key is the name of a process, the value is
+             a list of process names that are upstream to this process.
+             It must be ordered so that all of the upstream processes
+             are keys earlier in the dict.  There is a default built in
+             that is usually what you want to use.
 
         """
 
@@ -773,48 +764,60 @@ class DataStore:
             raise ValueError( "Steps must not include referencing" )
 
         provs = ProvenanceTree()
-        provs.upstream_steps = {
-            'exposure': [],  # no upstreams
-            'preprocessing': ['exposure'],
-            'extraction': ['preprocessing'],
-            'backgrounding':['preprocessing'],
-            'wcs':['preprocessing'],
-            'zp':['preprocessing'],
-            'referencing': [],       # This is a special case; it *does* have upstreams, but outside the main pipeline
-            'subtraction': ['referencing', 'preprocessing', 'extraction'],
-            'detection': ['subtraction'],
-            'cutting': ['detection'],
-            'measuring': ['cutting'],
-            'scoring': ['measuring'],
-            'report': ['scoring']
-        }
-        # Put code here to modify upstream_steps based on things in pars
-        # (This will happen with fake injection in a future PR.; the
-        # subtraction's upstreams will change to have a fake injector,
-        # and we'll add a fake injector key.)
+
+        if upstream_steps is not None:
+            if ( ( not isinstance( upstream_steps, dict ) ) or
+                 ( not all( isinstance( k, str ) ) for k in upstream_steps.keys() ) or
+                 ( not all( isinstance( v, list ) ) for v in upstream_steps.values() ) or
+                 ( not all( all( isinstance( vv, str ) for vv in v ) for v in upstream_steps.values() ) ) ):
+                raise TypeError( "upstream_steps must be a dict of str: list of str" )
+            k0 = next( iter( upstream_steps.keys() ) )
+            if upstream_steps[k0] != []:
+                ValueError( f"The first step in upstream_steps cannot have prerequisites! "
+                            f"Got first step {k0} had prereqs {upstream_steps[k0]}" )
+            provs.upstream_steps = upstream_steps.copy()
+            if 'starting_point' not in provs.upstream_steps:
+                keyorder = ['starting_point'] + list( provs.upstream_steps.keys() )
+                provs.upstream_steps['starting_point'] = []
+                provs.upstream_steps = { k: provs.upstream_steps[k] for k in keyorder }
+                provs.upstream_steps[k0] = [ 'starting_point' ]
+        else:
+            provs.upstream_steps = {
+                'starting_point': [],
+                'preprocessing': ['starting_point'],
+                'extraction': ['preprocessing'],
+                'backgrounding':['extraction'],
+                'wcs':['extraction'],
+                'zp':['wcs', 'backgrounding'],
+                'referencing': [],   # This is a special case; it *does* have upstreams, but outside the main pipeline
+                'subtraction': ['referencing', 'zp'],
+                'detection': ['subtraction'],
+                'cutting': ['detection'],
+                'measuring': ['cutting'],
+                'scoring': ['measuring'],
+                'report': ['scoring']
+            }
+            # Put code here to modify upstream_steps based on things in pars
+            # (This will happen with fake injection in a future PR.; the
+            # subtraction's upstreams will change to have a fake injector,
+            # and we'll add a fake injector key.)
 
         # Get started with the passed Exposure (usual case) or Image
         if self.exposure is not None:
             if not isinstance( self.exposure, Exposure ):
                 raise TypeError( f"DataStore's exposure field is a {type(self.exposure)}, not Exposure!" )
-            with SmartSession() as session:
-                exp_prov = Provenance.get( self.exposure.provenance_id, session=session )
-                code_version = CodeVersion.get_by_id( exp_prov.code_version_id, session=session )
-            provs['exposure'] = exp_prov
-            is_testing  = exp_prov.is_testing
+            provs['starting_point'] = Provenance.get( self.exposure.provenance_id )
         elif self.image is not None:
             if not isinstance( self.image, Image ):
                 raise TypeError( f"DataStore's image field is a {type(self.image)}, not Image!" )
-            exp_prov = None
+            provs['starting_point'] = Provenance.get( self.image.provenance_id )
             if 'report' in steps:
                 SCLogger.warning( "'report' was in steps but starting from an Image; removing 'report' from steps" )
                 steps = [ s for s in steps if s != 'report' ]
-            with SmartSession() as session:
-                image_prov = Provenance.get( self.image.provenance_id, session=session )
-                code_version = CodeVersion.get_by_id( image_prov.code_version_id, session=session )
-            is_testing = image_prov.is_testing
         else:
             raise RuntimeError( "DataStore make_prov_tree requires either exposure or image to be set" )
+        code_version = CodeVersion.get_by_id( provs['starting_point'].code_version_id )
+        is_testing  = provs['starting_point'].is_testing
 
         # Get the reference
         ref_prov = None
@@ -838,102 +841,107 @@ class DataStore:
         if ref_prov is not None:
             provs['referencing'] = ref_prov
 
-
         for step in steps:
-            if ( step == 'preprocessing' ) and exp_prov is None:
-                provs[step] = image_prov
-                image_prov.insert_if_needed()   # ...it really shouldn't be needed
-            else:
-                # figure out which provenances go into the upstreams for this step
-                up_steps = provs.upstream_steps[ step ]
-                if isinstance( up_steps, str ):
-                    up_steps = [ up_steps ]
-                upstream_provs = [ provs[u] for u in up_steps ]
+            # figure out which provenances go into the upstreams for this step
+            up_steps = provs.upstream_steps[ step ]
+            if isinstance( up_steps, str ):
+                up_steps = [ up_steps ]
+            upstream_provs = [ provs[u] for u in up_steps ]
+            provs[step] = Provenance( code_version_id=code_version.id,
+                                      process=step,
+                                      parameters=pars[step],
+                                      upstreams=upstream_provs,
+                                      is_testing=is_testing )
+            provs[step].insert_if_needed()
 
-                provs[step] = Provenance( code_version_id=code_version.id,
-                                          process=step,
-                                          parameters=pars[step],
-                                          upstreams=upstream_provs,
-                                          is_testing=is_testing )
-                provs[step].insert_if_needed()
+            # Set the provenance tag if requested.
+            # (Chances are it's already set, but somebody will be first.)
+            self._provtag = provtag
+            if self._provtag is not None:
+                ProvenanceTag.addtag( self._provtag, provs.values(), add_missing_processes_to_provtag=True )
 
-        # Set the provenance tag if requested.
-        # (Chances are it's already set, but somebody will be first.)
-        if provtag is not None:
-            ProvenanceTag.addtag( provtag, provs.values(), add_missing_processes_to_provtag=True )
-
+        self._code_version = code_version
         self.prov_tree = provs
 
 
-    def set_prov_tree( self, provs ):
+    def edit_prov_tree( self, step, params_dict=None, provtag=None ):
         """Update the DataStore's provenance tree.
 
         Parameters
         ----------
-           provs: ProvenanceTree or dictionary of process: Provenance
-              If wipe_tree is True, or if a provenance tree hasn't
-              previously been set for this DataStore, then this must be
-              a ProvenanceTree.
-
+           step: ProvenanceTree or str
               If this is a ProvenanceTree, completely replace the
-              DataStore's provenance tree with what's this value.  (It's
-              stored by reference, so don't make changes to what you
-              pass in provs after passing it here if you don't want
-              those changes to show up in the DataStore's provenacne
-              tree!)
+              DataStore's provenance tree with this value.  (It's stored
+              by reference, so don't make changes to what you pass in
+              provs after passing it here if you don't want those
+              changes to show up in the DataStore's provenance tree!)
 
-              If this is a dictionary, replace the specific provenances
-              in the DataStore's provenance tree with what's in provs.
-              It's up to the user to make sure this is done in a
-              self-consistent manner (i.e the upstreams are all right).
-              All the keys of the dictionary must show up in the
-              DataStore's existing provenance tree.  Any downstreams of
-              replaced provenances will be removed from the DataStore's
-              ProvenanceTree (unless they were in the replacement
-              dictionary), because they will have changed.
+              If this is a string, then use params_dict to generate a
+              new provenance for this step, and for all steps downstream
+              of this step.  If a provenance tag was previously passed
+              to make_prov_tree, tag all newly created provenances with
+              that provenance tag.  (Note, however, that this will
+              probably raise an exception, because the provenance tag
+              will have a pre-existing provenance for that step!  The
+              anticipated use for edit_prov_tree is really in tests
+              where we haven't set a provenance tag.)
+
+           params_dict: dict
+              A parameters dictionary for step, such as is produced by
+              Parameters.get_critical_pars()
+
+           provtag: str or None
+              This may only be passed if step is a ProvenanceTree.  In
+              that case, assume that all provenances in ProvenanceTree
+              are already tagged with this provenance tag.  (It's up to
+              the user to ensure that's the case.)  Save this in the
+              DataStore, so that future provenances created with
+              edit_prov_tree will be tagged with this provenance tag.
 
         """
 
-        if isinstance( provs, ProvenanceTree ):
-            self.prov_tree = provs
+        if isinstance( step, ProvenanceTree ):
+            if params_dict is not None:
+                raise ValueError( "params_dict must be None when passing a ProvenanceTree to edit_prov_tree" )
+            self.prov_tree = step
+            self._provtag = provtag
+            self._code_version = CodeVersion.get_by_id( ( next(iter(step.values())) ).code_version_id )
             return
 
         if self.prov_tree is None:
-            raise TypeError( f"When initializing a DataStore's provenance tree, must pass a "
-                             f"ProvenanceTree object, not a {type(provs)}" )
+            raise TypeError( "Can't edit provenance tree, DataStore doesn't have one yet." )
 
-        if not isinstance( provs, dict ):
-            raise TypeError( f"Must pass either a ProvenanceTree or a dict, not a {type(provs)}" )
+        if provtag is not None:
+            raise ValueError( "Can't pass a provtag unless step is a ProvenanceTree" )
 
-        givenkeys = list( provs.keys() )
-        # Sort according to self.prov_tree.upstream_steps
-        # That way, the downstream-wiping won't wipe out something
-        #   that's in our replacement dictionary.
-        givenkeys.sort( key=lambda x: list( self.prov_tree.upstream_steps.keys() ).index( x ) )
+        if step not in self.prov_tree:
+            raise ValueError( f"Unknown step {step} passed to edit_prov_tree" )
 
-        for process in givenkeys:
-            self.prov_tree[ process ] = provs[ process ]
-            # Have to wipe out all downstream provenances, because
-            # they will change!  (There will be a bunch of redundant
-            # work here if multiple provenances are passed in
-            # provdict, but, whatever, it's quick enough, and this
-            # will never be called in an inner loop.)
-            mustwipe = set( [ k for k,v in self.prov_tree.upstream_steps.items() if process in v ] )
-            done = False
-            while not done:
-                lenlastwipe = len(mustwipe)
-                for towipe in mustwipe:
-                    mustwipe = mustwipe.union( set( [ k for k,v in self.prov_tree.upstream_steps.items()
-                                                      if towipe in v ] ) )
-                if lenlastwipe == len(mustwipe):
-                    done = True
-                lenlastwipe = len(mustwipe)
-            for towipe in mustwipe:
-                if towipe in self.prov_tree:
-                    del self.prov_tree[ towipe ]
+        if params_dict is None:
+            raise ValueError( f"Can't edit provenance for step {step}, no params_dict passed." )
+
+        mustmodify = set( step )
+        for s, ups in self.prov_tree.upstream_steps.items():
+            if any( i in mustmodify for i in ups ):
+                mustmodify.add( s )
+
+        for curstep in self.prov_tree.keys():
+            if curstep in mustmodify:
+                upstream_provs = [ self.prov_tree[u] for u in self.prov_tree.upstream_steps[curstep] ]
+                if curstep == step:
+                    params = params_dict
+                else:
+                    params = self.prov_tree[ curstep ].parameters
+                self.prov_tree[curstep] = Provenance( code_version_id=self._code_version.id,
+                                                      process=curstep,
+                                                      paramter=params,
+                                                      upstreams=upstream_provs )
+
+        if self._provtag is not None:
+            ProvenanceTag.addtag( self._provtag, self.prov_tree.values(), add_missing_processes_to_provtag=True )
 
 
-    def get_provenance(self, process, pars_dict=None, session=None ):
+    def get_provenance(self, process, pars_dict=None ):
         """Get the provenance for a given process.
 
         Will return the provenance from the DataStore's internal provenance tree.
@@ -951,8 +959,6 @@ class DataStore:
 
         pars_dict: dict
             A dictionary of critical parameters used for the process.
-
-        session : SQLAlchemy session or None
 
         Returns
         -------
@@ -1103,9 +1109,9 @@ class DataStore:
           upstream_att: str
             The name of the attribute of the DataStore that represents the upstream product.
 
-          cls_upstream_id_att: THING The actual attribute from the
-            class that holds the id of the upstream. E.g., if
-            att="sources" and cls=SourceList, then
+          cls_upstream_id_att:
+            The actual attribute from the class that holds the id of the
+            upstream. E.g., if att="sources" and cls=SourceList, then
             upstream_att="image_id" and att=SourceList.image_id
 
           process: str
@@ -1118,9 +1124,9 @@ class DataStore:
             True if the attribute represented by upstream_att is a list (eg measurements)
 
           match_prov: bool, default True
-            True if the provenance must match.  (For some things,
-            i.e. the SourceList siblings, it's a 1:1 relationship, so
-            there's no need to match provenance.)
+            True if the provenance must match.  (For psf, there is no
+            provenance, it must just match sources_id.  There may be
+            others.)
 
           provenance: Provenance or None
             The provenance of the data product.  If this isn't passed,
@@ -1249,18 +1255,18 @@ class DataStore:
 
     def get_background(self, session=None, reload=False, provenance=None):
         """Get a Background object, either from memory or from the database."""
-        return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, reload=reload, session=session )
+        return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'backgrounding',
+                                       match_prov=True, provenance=provenance, reload=reload, session=session )
 
     def get_wcs(self, session=None, reload=False, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""
-        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, reload=reload, session=session )
+        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'wcs',
+                                       match_prov=True, provenance=provenance, reload=reload, session=session )
 
     def get_zp(self, session=None, reload=False, provenance=None):
         """Get a zeropoint as a ZeroPoint object, from memory or from the database."""
-        return self._get_data_product( 'zp', ZeroPoint, 'sources', ZeroPoint.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, reload=reload, session=session )
+        return self._get_data_product( 'zp', ZeroPoint, 'wcs', ZeroPoint.wcs_id, 'zp',
+                                       match_prov=True, provenance=provenance, reload=reload, session=session )
 
 
     def get_reference(self,
@@ -1929,14 +1935,39 @@ class DataStore:
             self.sources.upsert( load_defaults=True )
             commits.append( 'sources' )
 
-        # SourceList siblings
-        for att in [ 'psf', 'bg', 'wcs', 'zp' ]:
-            if getattr( self, att ) is not None:
-                if self.sources is not None:
-                    setattr( getattr( self, att ), 'sources_id', self.sources.id )
-                SCLogger.debug( f"save_and_commit upserting {att}" )
-                getattr( self, att ).upsert( load_defaults=True )
-                commits.append( att )
+        # psf
+        if self.psf is not None:
+            if self.sources is not None:
+                self.psf.sources_id = self.sources.id
+            SCLogger.debug( "save_and_commit upserting psf" )
+            self.psf.upsert( load_defaults=True )
+            commits.append( 'psf' )
+
+        # bg
+        if self.bg is not None:
+            if self.sources is not None:
+                self.bg.sources_id = self.sources.id
+            SCLogger.debug( "save_and_commit upsertting bg" )
+            self.bg.upsert( load_defaults=True )
+            commits.append( 'bg' )
+
+        # wcs
+        if self.wcs is not None:
+            if self.sources is not None:
+                self.wcs.sources_id = self.sources.id
+            SCLogger.debug( "save_and_commit upserting wcs" )
+            self.wcs.upsert( load_defaults=True )
+            commits.append( 'wcs' )
+
+        # zp
+        if self.zp is not None:
+            if self.wcs is not None:
+                self.zp.wcs_id = self.wcs.id
+            if self.bg is not None:
+                self.zp.background_id = self.bg.id
+            SCLogger.debug( "save_and_commit upsertting zp" )
+            self.zp.upsert( load_defaults=True )
+            commits.append( 'zp' )
 
         # subtraction Image
         if self.sub_image is not None:
@@ -1947,7 +1978,7 @@ class DataStore:
         # detections
         if self.detections is not None:
             if self.sub_image is not None:
-                self.detections.sources_id = self.sub_image.id
+                self.detections.image_id = self.sub_image.id
             SCLogger.debug( "save_and_commit detections" )
             self.detections.upsert( load_defaults=True )
             commits.append( 'detections' )

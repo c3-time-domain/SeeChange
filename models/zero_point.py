@@ -3,21 +3,54 @@ import numpy as np
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
+from sqlalchemy.schema import UniqueConstraint
+from sqlalchemy.ext.declarative import declared_attr
 
-from models.base import Base, UUIDMixin, HasBitFlagBadness, SeeChangeBase
+from models.base import Base, UUIDMixin, HasBitFlagBadness, SeeChangeBase, SmartSession
 from models.enums_and_bitflags import catalog_match_badness_inverse
-from models.source_list import SourceListSibling
 
 
-class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
+# many-to-many link of the zeropoints of coadded images to images that went into the coadd
+image_coadd_component_table = sa.Table(
+    'image_coadd_component',
+    Base.metadata,
+    sa.Column('zp_id',
+              sqlUUID,
+              sa.ForeignKey('zero_points._id', ondelete="RESTRICT", name='image_coadd_component_zp_fkey'),
+              index=True,
+              primary_key=True),
+    sa.Column('coadd_image_id',
+              sqlUUID,
+              sa.ForeignKey('images._id', ondelete="CASCADE", name='image_coadd_component_coadd_fkey'),
+              index=True,
+              primary_key=True),
+)
+
+
+class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
     __tablename__ = 'zero_points'
 
-    sources_id = sa.Column(
-        sa.ForeignKey('source_lists._id', ondelete='CASCADE', name='zero_points_source_list_id_fkey'),
+    @declared_attr
+    def __table_args__(cls):   # noqa: N805
+        return (
+            UniqueConstraint( 'wcs_id', 'background_id', 'provenance_id', name='_zp_wcs_bg_provenance_uc' ),
+        )
+
+    # Note that the sources_id of both the upstream wcs and background must be the same
+    # The structure of the database does not enforce this.
+    wcs_id = sa.Column(
+        sa.ForeignKey('world_coordinates._id', ondelete='CASCADE', name='zp_wcs_id_fkey' ),
         nullable=False,
         index=True,
-        unique=True,
-        doc="ID of the source list this zero point is associated with. ",
+        doc="ID of the wcs this zero point is based on."
+    )
+
+    background_id = sa.Column(
+        sa.ForeignKey('backgrounds._id', ondelete='CASCADE', name='zp_background_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc="ID of the background this zero point is based on."
     )
 
     zp = sa.Column(
@@ -52,6 +85,13 @@ class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
               "in the aperture with the specified radius.  There is a built-in approximation that a "
               "single aperture applies across the entire image, which should be OK given that the "
               "pipeline isn't expected to have photometry to better than a couple of percent." )
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='zp_provenance_id_fkey'),
+        nullable=False,
+        index=True,
+        doc="ID of the provenance of this zerpoinht. "
     )
 
     def __init__(self, *args, **kwargs):
@@ -98,3 +138,30 @@ class ZeroPoint(SourceListSibling, Base, UUIDMixin, HasBitFlagBadness):
         raise ValueError( f"No aperture correction tabulated for sources {self.sources_id} "
                           f"for apertures within 0.01 pixels of {rad}; "
                           f"available apertures are {self.aper_cor_radii}" )
+
+
+    def get_upstreams(self, session=None):
+        """Get the WCS and Background that are upstream to this ZeroPoint."""
+        from models.background import Background
+        from models.world_coordinates import WorldCoordinates
+        with SmartSession(session) as session:
+            bgs = list( session.scalars( sa.select(Background).where( Background._id==self.background_id ) ).all() )
+            wcses = list( session.scalars( sa.select(WorldCoordinates)
+                                           .where( WorldCoordinates._id==self.wcs_id ) ).all() )
+            return bgs + wcses
+
+    def get_downstreams(self, session=None):
+        """Get any downstreams of this ZeroPoint.
+
+        This includes subtraction images, coadded images, and references.
+
+        """
+        from models.image import Image
+        from models.reference import Reference
+        with SmartSession(session) as session:
+            coadds = ( session.query( Image )
+                       .join( image_coadd_component_table, image_coadd_component_table.c.coadd_image_id==Image._id )
+                       .filter( image_coadd_component_table.c.zp_id==self.id ) ).all()
+            subs = ( session.query( Image ).filter( Image.new_zp_id==self.id ) ).all()
+            refs = ( session.query( Reference ).filter( Reference.zp_id==self.id ) ).all()
+            return list(coadds) + list(subs) + list(refs)
