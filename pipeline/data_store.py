@@ -827,7 +827,7 @@ class DataStore:
         self.prov_tree = provs
 
 
-    def edit_prov_tree( self, step, params_dict=None, provtag=None ):
+    def edit_prov_tree( self, step, params_dict=None, prov=None, new_step=False, provtag=None ):
         """Update the DataStore's provenance tree.
 
         Parameters
@@ -851,7 +851,22 @@ class DataStore:
 
            params_dict: dict
               A parameters dictionary for step, such as is produced by
-              Parameters.get_critical_pars()
+              Parameters.get_critical_pars().  Ignored if prov is not
+              None.
+
+           prov: Provenance or None
+              The provenance for this step.  WARNING: this code does
+              not verify that the upstreams of this provenance are
+              correct!  It's up to you to make sure you pass in a valid
+              provenance.  (Downstream provenances will be still
+              recreated using this as the upstream.)
+
+           new_step: bool, default False
+              If True, then this may be new step that doesn't currently
+              exist in the prov tree.  However, that step must exist in
+              the provenance tree's upstream_steps, and all of the
+              upstreams of this provenance (as defined by the prov
+              tree's upstream_steps) must already be in the prov tree.
 
            provtag: str or None
               This may only be passed if step is a ProvenanceTree.  In
@@ -877,11 +892,18 @@ class DataStore:
         if provtag is not None:
             raise ValueError( "Can't pass a provtag unless step is a ProvenanceTree" )
 
-        if step not in self.prov_tree:
-            raise ValueError( f"Unknown step {step} passed to edit_prov_tree" )
+        if ( params_dict is None ) and ( prov is None ):
+            raise ValueError( f"Can't edit provenance for step {step}, no params_dict nor prov passed." )
 
-        if params_dict is None:
-            raise ValueError( f"Can't edit provenance for step {step}, no params_dict passed." )
+        if step not in self.prov_tree:
+            if not new_step:
+                raise RuntimeError( f"Can't modify provenance for step {step}, it's not in the current prov tree." )
+            if step not in self.prov_tree.upstream_steps:
+                raise RuntimeError( f"Can't add provenance for step {step}, it's not a known step." )
+            if not all( s in self.prov_tree for s in self.prov_tree.upstream_steps[step] ):
+                raise RuntimeError( f"Can't add provenance for step {step}, it's upstreams aren't "
+                                    f"already in the current prov tree." )
+            self.prov_tree[ step ] = prov
 
         mustmodify = set( step )
         for s, ups in self.prov_tree.upstream_steps.items():
@@ -890,11 +912,16 @@ class DataStore:
 
         for curstep in self.prov_tree.keys():
             if curstep in mustmodify:
-                upstream_provs = [ self.prov_tree[u] for u in self.prov_tree.upstream_steps[curstep] ]
                 if curstep == step:
-                    params = params_dict
+                    if prov is not None:
+                        self.prov_tree[curstep] = prov
+                        continue
+                    else:
+                        params = params_dict
                 else:
                     params = self.prov_tree[ curstep ].parameters
+
+                upstream_provs = [ self.prov_tree[u] for u in self.prov_tree.upstream_steps[curstep] ]
                 self.prov_tree[curstep] = Provenance( code_version_id=self._code_version.id,
                                                       process=curstep,
                                                       paramter=params,
@@ -1573,9 +1600,6 @@ class DataStore:
             # We could do the call here, but there are so many configurable parameters to
             #   get_reference() that it's safer to make the user do it
             raise RuntimeError( "Can't get a subtraction without a reference; try calling get_reference" )
-
-        # Really, sources and its siblings ought to be loaded too, but we don't strictly need it
-        #   for the search.
 
         with SmartSession( session ) as sess:
             if self.image_id is None:

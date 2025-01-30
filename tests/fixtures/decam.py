@@ -696,8 +696,7 @@ def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
                           decam_elais_e1_two_refs_datastore ):
         ref = Reference(
             _id = refid,
-            image_id = ds.image.id,
-            sources_id = ds.sources.id,
+            zp_id = ds.zp.id,
             provenance_id = refprov.id
         )
         ref.insert()

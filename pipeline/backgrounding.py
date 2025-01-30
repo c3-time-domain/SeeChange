@@ -64,9 +64,6 @@ class ParsBackgrounder(Parameters):
     def get_process_name(self):
         return 'backgrounding'
 
-    def require_siblings(self):
-        return True
-
 
 class Backgrounder:
     def __init__(self, **kwargs):

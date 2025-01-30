@@ -781,13 +781,8 @@ class SeeChangeBase:
         """Get all data products that were directly used to create this object (non-recursive)."""
         raise NotImplementedError( f'get_upstreams not implemented for this {self.__class__.__name__}' )
 
-    def get_downstreams(self, session=None, siblings=True):
-        """Get all data products that were created directly from this object (non-recursive).
-
-        This optionally includes siblings: data products that are co-created in the same pipeline step
-        and depend on one another. E.g., a source list and psf have an image upstream and a (subtraction?) image
-        as a downstream, but they are each other's siblings.
-        """
+    def get_downstreams(self, session=None):
+        """Get all data products that were created directly from this object (non-recursive)."""
         raise NotImplementedError( f'get_downstreams not implemented for {self.__class__.__name__}' )
 
 
@@ -2561,7 +2556,7 @@ class HasBitFlagBadness:
         self._bitflag = 0
         self._upstream_bitflag = 0
 
-    def update_downstream_badness(self, session=None, commit=True, siblings=True, objbank=None):
+    def update_downstream_badness(self, session=None, commit=True, objbank=None):
         """Send a recursive command to update all downstream objects that have bitflags.
 
         Since this function is called recursively, it always updates the
@@ -2585,12 +2580,6 @@ class HasBitFlagBadness:
 
         commit: bool (default True)
             Whether to commit the changes to the database.
-
-        siblings: bool (default True)
-            Whether to also update the siblings of this object.
-            Default is True. This is usually what you want, but
-            anytime this function calls itself, it uses siblings=False,
-            to avoid infinite recursion.
 
         objbank: dict
             Don't pass this, it's only used internally.
@@ -2640,9 +2629,9 @@ class HasBitFlagBadness:
                 self._upstream_bitflag = merged_self._upstream_bitflag
 
             # recursively do this for all downstream objects
-            for downstream in merged_self.get_downstreams(session=session, siblings=siblings):
+            for downstream in merged_self.get_downstreams(session=session):
                 if hasattr(downstream, 'update_downstream_badness') and callable(downstream.update_downstream_badness):
-                    downstream.update_downstream_badness(session=session, siblings=False, commit=False, objbank=objbank)
+                    downstream.update_downstream_badness(session=session, commit=False, objbank=objbank)
 
             if commit:
                 session.commit()

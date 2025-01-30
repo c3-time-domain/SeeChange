@@ -638,7 +638,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         with SmartSession( session ) as session:
             return session.scalars( sa.Select( Cutouts ).where( Cutouts._id == self.cutouts_id ) ).all()
 
-    def get_downstreams( self, session=None, siblings=False ):
+    def get_downstreams( self, session=None ):
         """Get downstream data products of this Measurements."""
 
         # Measurements doesn't currently have downstreams; this will

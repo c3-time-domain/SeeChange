@@ -131,9 +131,6 @@ class ParsAstroCalibrator(Parameters):
     def get_process_name(self):
         return 'astrocal'
 
-    def require_siblings(self):
-        return True
-
 
 class AstroCalibrator:
     def __init__(self, **kwargs):

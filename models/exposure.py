@@ -905,7 +905,7 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         """An exposure does not have any upstreams. """
         return []
 
-    def get_downstreams(self, session=None, siblings=False):
+    def get_downstreams(self, session=None):
         """An exposure has only Image objects as direct downstreams. """
         from models.image import Image
 

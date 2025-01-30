@@ -7,7 +7,6 @@ from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
 from models.background import Background
-from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
@@ -24,45 +23,36 @@ def test_image_upstreams_downstreams( ptf_ref, ptf_supernova_image_datastores, p
     assert len(upstrs) == 1
     assert isinstance( upstrs[0], Exposure )
 
-    refimg = Image.get_by_id( ptf_ref.image_id )
+    refimg = ptf_ref.image
     prov = Provenance.get( refimg.provenance_id )
     assert prov.process == 'coaddition'
 
     # Test upstreams of a coadd image
     with Psycopg2Connection() as conn:
         cursor = conn.cursor()
-        cursor.execute( "SELECT image_id FROM image_coadd_component WHERE coadd_image_id=%(id)s",
+        cursor.execute( "SELECT zp_id FROM image_coadd_component WHERE coadd_image_id=%(id)s",
                         { 'id': refimg.id } )
         dbcomps = set( [ asUUID(row[0]) for row in cursor.fetchall() ] )
     # There were 5 images summed together in the ptf_ref
     assert len(dbcomps) == 5
-    assert set( asUUID(i) for i in refimg.upstream_image_ids ) == dbcomps
-    assert set( asUUID(i) for i in refimg.coadd_component_ids ) == dbcomps
-    images = refimg.get_upstreams( only_images=True )
-    assert set( asUUID(i.id) for i in images ) == dbcomps
+    assert set( asUUID(i) for i in refimg.coadd_component_zp_ids ) == dbcomps
+    upzps = refimg.get_upstreams()
+    assert set( asUUID(z.id) for z in upzps ) == dbcomps
 
-    loaded_image = Image.get_coadd_from_components(images, prov.id)
-    assert loaded_image.id == refimg.id
-    assert loaded_image.id != ptf_subtraction1_datastore.image.id
+    loaded_image = Image.get_coadd_from_components(upzps, prov.id)
+    assert asUUID( loaded_image.id ) == asUUID( refimg.id )
+    assert asUUID( loaded_image.id ) != asUUID( ptf_subtraction1_datastore.image.id )
 
     # Test upstreams of a difference image
     subim = ptf_subtraction1_datastore.sub_image
-    upstrs = subim.get_upstreams( only_images=True )
-    assert len(upstrs) == 1
-    assert isinstance( upstrs[0], Image )
-    assert upstrs[0].id == ptf_subtraction1_datastore.image.id
-    upstrs = subim.get_upstreams( only_images_and_reference=True )
-    assert len(upstrs) == 2
-    assert isinstance( upstrs[0], Reference )
-    assert isinstance( upstrs[1], Image )
-    assert [ asUUID(u.id) for u in upstrs ] == [ asUUID(ptf_ref.id),
-                                                 asUUID(ptf_subtraction1_datastore.image.id) ]
-    assert subim.coadd_component_ids == []
-    assert [ asUUID(i) for i in subim.upstream_image_ids ] == [ asUUID(ptf_ref.image_id),
-                                                                asUUID(ptf_subtraction1_datastore.image.id) ]
     upstrs = subim.get_upstreams()
-    assert set( type(u) for u in upstrs ) == { Reference, Image, SourceList, Background,
-                                               PSF, WorldCoordinates, ZeroPoint }
+    assert len(upstrs) == 2
+    assert isinstance( upstrs[0], ZeroPoint )
+    assert isinstance( upstrs[1], Reference )
+    assert asUUID( upstrs[0].id ) == asUUID( ptf_subtraction1_datastore.zp.id )
+    assert asUUID( upstrs[1].id ) == asUUID( ptf_ref.id )
+
+    assert subim.coadd_component_zp_ids == []
 
     # Test get_coadd_from_components
     new_image = None
@@ -81,41 +71,40 @@ def test_image_upstreams_downstreams( ptf_ref, ptf_supernova_image_datastores, p
         # it anywhere in code; set the components of a coadded image by
         # building it with Image.from_images().  But, do this here for
         # testing purposes.
-        new_image._coadd_component_ids = refimg.coadd_component_ids
+        new_image._coadd_component_zp_ids = refimg.coadd_component_zp_ids
         new_image.save()
         new_image.insert()
 
-        loaded_image = Image.get_coadd_from_components(refimg.upstream_image_ids, newprov.id)
-        assert loaded_image.id == new_image.id
-        assert new_image.id != refimg.id
+        loaded_image = Image.get_coadd_from_components(refimg.coadd_component_zp_ids, newprov.id)
+        assert asUUID( loaded_image.id ) == asUUID( new_image.id )
+        assert asUUID( new_image.id ) != asUUID( refimg.id )
 
         # use the original provenance but take down an image from the upstreams
         new_image2 = Image.copy_image( refimg )
         new_image2.provenance_id = prov.id
         # See note above about setting _coadd_component_ids directly (which is naughty)
-        new_image2._coadd_component_ids = refimg.coadd_component_ids[1:]
+        new_image2._coadd_component_zp_ids = refimg.coadd_component_zp_ids[1:]
         new_image2.save()
         new_image2.insert()
 
-        images = [ Image.get_by_id( i ) for i in refimg.upstream_image_ids[1:] ]
+        images = [ ZeroPoint.get_by_id( i ) for i in refimg.coadd_component_zp_ids[1:] ]
         loaded_image = Image.get_coadd_from_components(images, prov.id)
-        assert loaded_image.id != refimg.id
-        assert loaded_image.id != new_image.id
-        assert loaded_image.id == new_image2.id
+        assert asUUID( loaded_image.id ) != asUUID( refimg.id )
+        assert asUUID( loaded_image.id ) != asUUID( new_image.id )
+        assert asUUID( loaded_image.id ) == asUUID( new_image2.id )
 
         # use the original provenance but add images to the upstreams
-        upstrids = refimg.upstream_image_ids + [ d.image.id for d in ptf_supernova_image_datastores ]
+        upstrids = refimg.coadd_component_zp_ids + [ d.zp.id for d in ptf_supernova_image_datastores ]
 
         new_image3 = Image.copy_image(refimg)
         new_image3.provenance_id = prov.id
         # See note above about setting _coadd_component_ids directly (which is naughty)
-        new_image3._coadd_component_ids = upstrids
+        new_image3._coadd_component_zp_ids = upstrids
         new_image3.save()
         new_image3.insert()
 
-        images = [ Image.get_by_id( i ) for i in upstrids ]
-        loaded_image = Image.get_coadd_from_components(images, prov.id)
-        assert loaded_image.id == new_image3.id
+        loaded_image = Image.get_coadd_from_components(upstrids, prov.id)
+        assert asUUID( loaded_image.id ) == asUUID( new_image3.id )
 
     finally:
         if new_image is not None:
@@ -126,20 +115,20 @@ def test_image_upstreams_downstreams( ptf_ref, ptf_supernova_image_datastores, p
             new_image3.delete_from_disk_and_database()
 
 
-    # Image downstreams of the original image should only be the sum image
-    downstr = ptf_subtraction1_datastore.image.get_downstreams( only_images=True )
+    # Downstreams of the original image should only be the sources
+    downstr = ptf_subtraction1_datastore.image.get_downstreams()
+    assert len(downstr) == 1
+    assert asUUID( downstr[0].id ) == asUUID( ptf_subtraction1_datastore.sources.id )
+
+    # Downstreams of the zp should be the sub image
+    downstr = ptf_subtraction1_datastore.zp.get_downstreams()
     assert len(downstr) == 1
     assert asUUID( downstr[0].id ) == asUUID( subim.id )
 
-    # All downstreams of the original image should be a lot of things
-    downstr = ptf_subtraction1_datastore.image.get_downstreams()
-    assert len(downstr) == 6
-    assert set( type(d) for d in downstr ) == { SourceList, Background, PSF, WorldCoordinates, ZeroPoint, Image }
-
-    # The downstream of the ref image should be the reference in addition to the other data products
-    downstr = ptf_ref.image.get_downstreams()
-    assert asUUID(ptf_ref.id) in [ asUUID(i.id) for i in downstr ]
-    assert set( type(d) for d in downstr ) == { SourceList, Background, PSF, WorldCoordinates, ZeroPoint, Reference }
+    # The downstream of the ref should be the sub image
+    downstr = ptf_ref.get_downstreams()
+    assert len(downstr) == 1
+    assert asUUID( downstr[0].id ) == asUUID( subim.id )
 
     # The sub image should have no downstreams because we haven't run anything after subtraction in the fixture
     assert len( subim.get_downstreams() ) == 0
@@ -213,6 +202,7 @@ def test_multiple_images_badness(
     try:
         images = [sim_image1, sim_image2, sim_image3, sim_image5, sim_image6]
         cleanups = []
+        cleanupzps = []
         cleanupprovs = []
         filter = 'g'
         target = str(uuid.uuid4())
@@ -249,6 +239,35 @@ def test_multiple_images_badness(
             assert sim_image2.id in [i.id for i in bad_images]
             assert sim_image3.id in [i.id for i in bad_images]
 
+        def make_associates( image, extra="" ):
+            with SmartSession() as session:
+                srclist = SourceList( image_id=image.id, num_sources=0, provenance_id=provenance_extra.id,
+                                      md5sum=uuid.uuid4(), filepath=f'foo{extra}_src' )
+                srclist.insert( session=session )
+                bkg = Background( sources_id=srclist.id, format='scalar', method='zero', value=0., noise=1.,
+                                  provenance_id=provenance_extra.id, filepath=f'foo{extra}_bg', md5sum=uuid.uuid4(),
+                                  image_shape=(256,256) )
+                bkg.insert( session=session )
+                wcs = WorldCoordinates( sources_id=srclist.id, provenance_id=provenance_extra.id,
+                                        filepath=f'foo{extra}_wcs', md5sum=uuid.uuid4() )
+                wcs.insert( session=session )
+                zp = ZeroPoint( wcs_id=wcs.id, background_id=bkg.id, zp=25., dzp=0.1,
+                                provenance_id=provenance_extra.id )
+                zp.insert( session=session )
+                image.update_downstream_badness( session=session )
+                # Get the objects back so that we know they are current with the database
+                #  (_upstream_badness)
+                srclist = SourceList.get_by_id( srclist.id, session=session )
+                bkg = Background.get_by_id( bkg.id, session=session )
+                wcs = WorldCoordinates.get_by_id( wcs.id, session=session )
+                zp = ZeroPoint.get_by_id( zp.id, session=session )
+                return srclist, bkg, wcs, zp
+
+        _srclist1, _bkg1, _wcs1, zp1 = make_associates( sim_image1, "1" )
+        _srclist2, _bkg2, _wcs2, zp2 = make_associates( sim_image2, "2" )
+        _srclist3, _bkg3, _wcs3, zp3 = make_associates( sim_image3, "3" )
+        cleanupzps.extend( [ zp1, zp2, zp3 ] )
+
         # make an image from the two bad exposures using subtraction
 
         refprov = Provenance( process='manual_reference',
@@ -257,18 +276,14 @@ def test_multiple_images_badness(
                               is_testing=True )
         refprov.insert_if_needed()
         cleanupprovs.append( refprov )
-        srclst = SourceList( image_id=sim_image2.id, num_sources=0, provenance_id=provenance_extra.id )
-        srclst.md5sum = uuid.uuid4()
-        srclst.filepath = 'foo'
-        srclst.insert()
-        ref = Reference( image_id=sim_image2.id, sources_id=srclst.id, provenance_id=refprov.id )
+        ref = Reference( zp_id=zp2.id, provenance_id=refprov.id )
         ref.insert()
         # Make sure the ref badness propagates right
         sim_image2.update_downstream_badness()
         ref = Reference.get_by_id( ref.id )
         assert ref.own_bitflag == 0
         assert ref.bitflag == sim_image2.bitflag
-        sim_image4 = Image.from_new_and_ref( sim_image3, ref )
+        sim_image4 = Image.from_new_and_ref( zp3, ref )
         improvs = Provenance.get_batch( [ refprov.id, sim_image3.provenance_id ] )
         prov4 = Provenance( process='testsub',
                             upstreams=improvs,
@@ -281,10 +296,12 @@ def test_multiple_images_badness(
         sim_image4.filepath = sim_image4.invent_filepath()
         cleanups.append( sim_image4 )
         sim_image4.insert()
+        _srclist4, _bkg4, _wcs4, zp4 = make_associates( sim_image4, "4" )
+        cleanupzps.append( zp4 )
 
         assert sim_image4.id is not None
-        assert sim_image4.ref_id == ref.id
-        assert sim_image4.new_image_id == sim_image3.id
+        assert asUUID( sim_image4.ref_id ) == asUUID( ref.id )
+        assert asUUID( sim_image4.new_zp_id ) == asUUID( zp3.id )
 
         # check that badness is loaded correctly from both parents
         assert sim_image4.badness == 'banding, bright sky'
@@ -301,17 +318,19 @@ def test_multiple_images_badness(
         # check that adding a badness on the image itself is added to the total badness
         sim_image4.set_badness( 'saturation' )
         sim_image4.upsert()
+        sim_image4.update_downstream_badness()
+        zp4 = ZeroPoint.get_by_id( zp4.id )
         assert sim_image4.badness == 'banding, saturation, bright sky'
         assert sim_image4.own_bitflag == 2 ** 3  # only this bit is from the image itself
 
         # make a new subtraction:
-        srclst = SourceList( image_id=sim_image6.id, num_sources=0, provenance_id=provenance_extra.id )
-        srclst.md5sum = uuid.uuid4()
-        srclst.filepath = 'bar'
-        srclst.insert()
-        ref = Reference( image_id=sim_image6.id, sources_id=srclst.id, provenance_id=refprov.id )
+        _srclist5, _bkg5, _wcs5, zp5 = make_associates( sim_image5, "5" )
+        _srclist6, _bkg6, _wcs6, zp6 = make_associates( sim_image6, "6" )
+        cleanupzps.extend( [ zp5, zp6 ] )
+        ref = Reference( zp_id=zp6.id, provenance_id=refprov.id )
         ref.insert()
-        sim_image7 = Image.from_ref_and_new( ref, sim_image5 )
+
+        sim_image7 = Image.from_ref_and_new( ref, zp5 )
         improvs = Provenance.get_batch( [ refprov.id, sim_image6.provenance_id ] )
         prov7 = Provenance( process='testsub',
                             upstreams=improvs,
@@ -347,13 +366,13 @@ def test_multiple_images_badness(
         # sim_image4 has saturation (3).
 
         # make a coadded image (without including the subtraction sim_image4):
-        sim_image8 = Image.from_images( [sim_image1, sim_image2, sim_image3, sim_image5, sim_image6] )
+        sim_image8 = Image.from_image_zps( [zp1, zp2, zp3, zp5, zp6] )
         sim_image8.is_coadd = True
-        improvs = Provenance.get_batch( [ sim_image1.provenance_id, sim_image2.provenance_id,
-                                          sim_image3.provenance_id, sim_image5.provenance_id,
-                                          sim_image6.provenance_id ] )
+        upprovs = Provenance.get_batch( [ zp1.provenance_id, zp2.provenance_id,
+                                          zp3.provenance_id, zp5.provenance_id,
+                                          zp6.provenance_id ] )
         prov8 = Provenance( process='testcoadd',
-                            upstreams=improvs,
+                            upstreams=upprovs,
                             parameters={},
                             is_testing=True
                            )
@@ -382,11 +401,11 @@ def test_multiple_images_badness(
 
         # now let's add the subtraction image to the coadd:
         # make a coadded image (now including the subtraction sim_image4):
-        sim_image8 = Image.from_images( [sim_image1, sim_image2, sim_image3, sim_image4, sim_image5, sim_image6] )
+        sim_image8 = Image.from_image_zps( [zp1, zp2, zp3, zp4, zp5, zp6] )
         sim_image8.is_coadd = True
-        improvs = Provenance.get_batch( [sim_image1.provenance_id, sim_image2.provenance_id,
-                                         sim_image3.provenance_id, sim_image4.provenance_id,
-                                         sim_image5.provenance_id, sim_image6.provenance_id ] )
+        upprovs = Provenance.get_batch( [zp1.provenance_id, zp2.provenance_id,
+                                         zp3.provenance_id, zp4.provenance_id,
+                                         zp5.provenance_id, zp6.provenance_id ] )
         sim_image8.provenance_id = prov8.id
         sim_image8.md5sum = uuid.uuid4()   # spoof so we don't need to save data
         sim_image8.filepath = sim_image8.invent_filepath()
@@ -416,13 +435,16 @@ def test_multiple_images_badness(
         assert 'shaking' in sim_image8.badness
 
     finally:
-        with SmartSession() as sess:
-            # Make sure no coadd association table entries are left behind
-            for cleanup in cleanups:
-                sess.execute( sa.text( "DELETE FROM image_coadd_component "
-                                       "WHERE image_id=:id OR coadd_image_id=:id" ),
-                              { 'id': cleanup.id } )
-            sess.commit()
+        # with SmartSession() as sess:
+        #     # Make sure no coadd association table entries are left behind
+        #     for cleanupim, cleanupzp in zip( cleanups, cleanupzps ):
+        #         sess.execute( sa.text( "DELETE FROM image_coadd_component "
+        #                                "WHERE zp_id=:zpid OR coadd_image_id=:imid" ),
+        #                       { 'zpid': cleanupzp.id, 'imid': cleanupim.id } )
+        #         sess.execute( sa.text( "DELETE FROM image_subtraction_components "
+        #                                "WHERE zp_id=:zpid OR image_id=:imid" ),
+        #                       { 'zpid': cleanupzp.id, 'imid': cleanupim.id } )
+        #     sess.commit()
         for cleanup in cleanups:
             cleanup.delete_from_disk_and_database()
         with SmartSession() as sess:

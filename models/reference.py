@@ -154,10 +154,13 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
         with SmartSession( session ) as sess:
             return [ ZeroPoint.get_by_id( self.zp_id, session=sess ) ]
 
-    def get_downstreams( self, session=None, siblings=True ):
+    def get_downstreams( self, session=None ):
         """Get downstreams of this Reference.  That is all subtraction images that use this as a reference."""
         with SmartSession( session ) as sess:
-            return list( sess.query( Image ).filter( Image.ref_id==self.id ).all() )
+            return list( sess.query( Image )
+                         .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
+                         .filter( image_subtraction_components.c.ref_id==self.id )
+                         .all() )
 
 
     @classmethod

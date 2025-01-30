@@ -684,14 +684,14 @@ def ptf_refset(refmaker_factory):
 def ptf_subtraction1_datastore( ptf_ref, ptf_supernova_image_datastores, subtractor, ptf_cache_dir, code_version ):
     subtractor.pars.refset = 'test_refset_ptf'
     ds = ptf_supernova_image_datastores[0]
-    ds.set_prov_tree( { 'referencing': Provenance.get( ptf_ref.provenance_id ) } )
+    ds.edit_prov_tree( 'referencing', prov=Provenance.get( ptf_ref.provenance_id ), new_step=True  )
     subprov = Provenance( process='subtraction',
                           parameters=subtractor.pars.get_critical_pars(),
-                          upstreams=[ds.prov_tree[p] for p in ['referencing','preprocessing','extraction']],
+                          upstreams=[ds.prov_tree[p] for p in ['referencing','zp']],
                           code_version_id=code_version.id,
                           is_testing=True )
     subprov.insert_if_needed()
-    ds.set_prov_tree( { 'subtraction': subprov } )
+    ds.edit_prov_tree( 'subtraction', prov=subprov, new_step=True )
     cache_path = os.path.join(
         ptf_cache_dir,
         f'187/PTF_20100216_075004_11_R_Diff_{subprov.id[:6]}_u-iig7a2.image.fits.json'

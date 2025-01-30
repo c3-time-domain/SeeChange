@@ -121,12 +121,6 @@ class ParsDetector(Parameters):
     def get_process_name(self):
         return 'detection'
 
-    def require_siblings(self):
-        if self.pars.subtraction:
-            return False
-        else:
-            return True
-
 
 class Detector:
     """Extract sources (and possibly a psf) from images or subtraction images.

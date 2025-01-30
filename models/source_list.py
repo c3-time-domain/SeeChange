@@ -818,7 +818,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with SmartSession(session) as session:
             return session.scalars(sa.select(Image).where(Image._id == self.image_id)).all()
 
-    def get_downstreams(self, session=None, siblings=False):
+    def get_downstreams(self, session=None):
         """Get all the data products that are made using this source list.
 
         Only gets immediate downstreams; does not recurse.  (As per the

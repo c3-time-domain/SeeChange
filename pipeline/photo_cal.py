@@ -70,9 +70,6 @@ class ParsPhotCalibrator(Parameters):
     def get_process_name(self):
         return 'photocal'
 
-    def require_siblings(self):
-        return True
-
 
 class PhotCalibrator:
     def __init__(self, **kwargs):

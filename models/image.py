@@ -1546,7 +1546,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         # Avoid circular imports
         from models.zero_point import ZeroPoint, image_coadd_component_table
-        from models.reference import Reference
+        from models.reference import Reference, image_subtraction_components as isc
 
         upstreams = []
         with SmartSession(session) as session:
@@ -1562,9 +1562,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 if self.is_coadd:
                     raise ValueError( f"Databse corruption, image {self.id} is both a sub and a coadd!!!!!" )
                 # Zeropoint
-                upstreams.append( session.query( ZeroPoint ).filter( ZeroPoint._id==self.new_zp_id ).first() )
+                upstreams.append( session.query( ZeroPoint )
+                                  .join( isc, isc.c.new_zp_id==ZeroPoint._id )
+                                  .filter( isc.c.image_id==self.id ).first() )
                 # Reference
-                upstreams.append( session.query( Reference ).filter( Reference._id==self.ref_id ).first() )
+                upstreams.append( session.query( Reference )
+                                  .join( isc, isc.c.ref_id==Reference._id )
+                                  .filter( isc.c.image_id==self.id ).first() )
 
             if self.is_coadd:
                 # Zeropoints

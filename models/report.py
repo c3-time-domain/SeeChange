@@ -358,6 +358,6 @@ class Report(Base, UUIDMixin):
 
         return ', '.join(formatted_warnings)
 
-    def get_downstreams( self, session=None, siblings=False ):
+    def get_downstreams( self, session=None ):
         """Reports have no downstreams."""
         return []
