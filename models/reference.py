@@ -451,7 +451,10 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
 
             # Get the image objects
             images = list( sess.scalars( sa.select( Image )
-                                         .where( Image._id.in_( r.image_id for r in references ) )
+                                         .join( SourceList, Image._id==SourceList.image_id )
+                                         .join( WorldCoordinates, SourceList._id==WorldCoordinates.sources_id )
+                                         .join( ZeroPoint, WorldCoordinates._id==ZeroPoint.wcs_id )
+                                         .where( ZeroPoint._id.in_( r.zp_id for r in references ) )
                                         ).all() )
 
         # Make sure they're sorted right
