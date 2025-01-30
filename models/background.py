@@ -238,7 +238,7 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         else:
             raise RuntimeError( f"Don't know how to subtract background of type {self.format}" )
 
-    def save( self, filename=None, image=None, sources=None, **kwargs ):
+    def save( self, filename=None, image=None, **kwargs ):
         """Write the Background to disk.
 
         May or may not upload to the archive and update the
@@ -277,12 +277,6 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
              filepath.  If both filename and image are None, will try
              to load the background's image from the database, if possible.
 
-          sources: SourceList (optional)
-             Ignored if filename is not None.  If filename is None,
-             use this SourceList's provenance to genernate the background's
-             filepath.  If both filename and soruces are None, will try to
-             load the background's SourceList from the database, if possible.
-
           Additional arguments are passed on to FileOnDiskMixin.save()
 
         """
@@ -302,18 +296,17 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 filename += '.h5'
             self.filepath = filename
         else:
-            if ( sources is None ) or ( image is None ):
+            if image is None:
                 with SmartSession() as session:
-                    if sources is None:
-                        sources = SourceList.get_by_id( self.sources_id, session=session )
-                    if ( sources is not None ) and ( image is None ):
-                        image = Image.get_by_id( sources.image_id, session=session )
-                if ( sources is None ) or ( image is None ):
-                    raise RuntimeError( "Can't invent Background filepath; can't find either the corresponding "
-                                        "SourceList or the corresponding Image." )
+                    image = ( session.query( Image )
+                              .join( SourceList, SourceList.image_id==Image._id )
+                              .filter( SourceList._id==self.sources_id )
+                             ).first()
+                if image is None:
+                    raise RuntimeError( "Can't invent Background filepath; can't find corresponding image." )
 
             self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
-            self.filepath += f'.bg_{sources.provenance_id[:6]}.h5'
+            self.filepath += f'.bg_{self.provenance_id[:6]}.h5'
 
         h5path = os.path.join( self.local_path, f'{self.filepath}')
 

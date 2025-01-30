@@ -506,10 +506,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
 
         if zp is None:
-            # Avoid circular imports
-            from models.zero_point import ZeroPoint
-            with SmartSession() as session:
-                zp = session.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
+            # We can't just search the database, because the zp is not necessarily unique.
+            raise RuntimeError( "Must pass a zp to get a limiting magnitude." )
 
         if zp is not None:
             aperture = aperture if aperture is not None else self.best_aper_num

@@ -485,13 +485,13 @@ def datastore_factory(data_dir, pipeline_factory, request):
                                              symlink=True )
                     ds.bg.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
-                    ds.bg.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
+                    ds.bg.save( image=ds.image, verify_md5=False, overwrite=True )
 
 
             if ds.bg is None:
                 SCLogger.debug('make_datastore running background estimation')
                 ds = p.backgrounder.run(ds)
-                ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.bg.save( image=ds.image, overwrite=True )
                 ds.update_report( 'backgrounding' )
                 if use_cache:
                     output_path = copy_to_cache(ds.bg, cache_dir)
@@ -512,12 +512,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.wcs = copy_from_cache(WorldCoordinates, cache_dir, wcs_cache_path, symlink=True)
                     ds.wcs.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
-                    ds.wcs.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
+                    ds.wcs.save( image=ds.image, verify_md5=False, overwrite=True )
 
             if ds.wcs is None:
                 SCLogger.debug('make_datastore running astrometric calibration')
                 ds = p.astrometor.run(ds)
-                ds.wcs.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.wcs.save( image=ds.image, overwrite=True )
                 ds.update_report( 'astrocal' )
                 if use_cache:
                     output_path = copy_to_cache(ds.wcs, cache_dir)

@@ -1862,10 +1862,10 @@ class DataStore:
                         SCLogger.debug( f"self.sources={self.sources}" )
                         basicargs = { 'overwrite': overwrite, 'exists_ok': exists_ok, 'no_archive': no_archive }
                         # Various things need other things to invent their filepath
-                        if att == "sources":
-                            obj.save( image=self.image, **basicargs )
-                        elif att in [ "psf", "bg", "wcs" ]:
+                        if att == "psf":
                             obj.save( image=self.image, sources=self.sources, **basicargs )
+                        elif att in [ "sources", "bg", "wcs" ]:
+                            obj.save( image=self.image, **basicargs )
                         elif att == "detections":
                             obj.save( image=self.sub_image, **basicargs )
                         elif att == "cutouts":
