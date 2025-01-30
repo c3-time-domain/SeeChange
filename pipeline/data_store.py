@@ -16,7 +16,7 @@ from models.psf import PSF
 from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
-from models.reference import Reference
+from models.reference import Reference, image_subtraction_components
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.deepscore import DeepScore
@@ -123,12 +123,6 @@ class DataStore:
     # these get cleared but not saved
     products_to_clear = [
         'reference',
-        '_ref_image',
-        '_ref_sources'
-        '_ref_bg',
-        '_ref_psf',
-        '_ref_wcs',
-        '_ref_zp',
         'aligned_ref_image',
         'aligned_ref_sources'
         'aligned_ref_bg',
@@ -345,10 +339,7 @@ class DataStore:
 
     @property
     def ref_image( self ):
-        if self._ref_image is None:
-            if self.reference is not None:
-                self._ref_image = Image.get_by_id( self.reference.image_id )
-        return self._ref_image
+        return self.reference.image if self.reference is not None else None
 
     @ref_image.setter
     def ref_image( self, val ):
@@ -356,11 +347,7 @@ class DataStore:
 
     @property
     def ref_sources( self ):
-        if self._ref_sources is None:
-            if self.reference is not None:
-                ( self._ref_sources, self._ref_bg, self._ref_psf,
-                  self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
-        return self._ref_sources
+        return self.reference.sources if self.reference is not None else None
 
     @ref_sources.setter
     def ref_sources( self, val ):
@@ -368,11 +355,7 @@ class DataStore:
 
     @property
     def ref_bg( self ):
-        if self._ref_bg is None:
-            if self.reference is not None:
-                ( self._ref_sources, self._ref_bg, self._ref_psf,
-                  self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
-        return self._ref_bg
+        return self.reference.bg if self.reference is not None else None
 
     @ref_bg.setter
     def ref_bg( self, val ):
@@ -380,11 +363,7 @@ class DataStore:
 
     @property
     def ref_psf( self ):
-        if self._ref_psf is None:
-            if self.reference is not None:
-                ( self._ref_sources, self._ref_bg, self._ref_psf,
-                  self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
-        return self._ref_psf
+        return self.reference.psf if self.reference is not None else None
 
     @ref_psf.setter
     def ref_psf( self, val ):
@@ -392,11 +371,7 @@ class DataStore:
 
     @property
     def ref_wcs( self ):
-        if self._ref_wcs is None:
-            if self.reference is not None:
-                ( self._ref_sources, self._ref_bg, self._ref_psf,
-                  self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
-        return self._ref_wcs
+        return self.reference.wcs if self.reference is not None else None
 
     @ref_wcs.setter
     def ref_wcs( self, val ):
@@ -404,11 +379,7 @@ class DataStore:
 
     @property
     def ref_zp( self ):
-        if self._ref_zp is None:
-            if self.reference is not None:
-                ( self._ref_sources, self._ref_bg, self._ref_psf,
-                  self._ref_wcs, self._ref_zp ) = self.reference.get_ref_data_products()
-        return self._ref_zp
+        return self.reference.zp if self.reference is not None else None
 
     @ref_zp.setter
     def ref_zp( self, val ):
@@ -434,10 +405,8 @@ class DataStore:
                 raise ValueError( "Can't set a sub_image inconsistent with detections" )
             if val.ref_id != self.reference.id:
                 raise ValueError( "Can't set a sub_image inconsistent with reference" )
-            if val.new_image_id != self.image.id:
-                raise ValueError( "Can't set a sub image inconsistent with image" )
-            # TODO : check provenance upstream of sub_image to make sure it's consistent
-            #   with ds.sources?
+            if val.new_zp_id != self.zp.id:
+                raise ValueError( "Can't set a sub image inconsistent with image zeropoint" )
             self._sub_image = val
 
     @property
@@ -649,12 +618,6 @@ class DataStore:
 
         # these need to be added to the products_to_clear list
         self.reference = None
-        self._ref_image = None
-        self._ref_sources = None
-        self._ref_bg = None
-        self._ref_psf = None
-        self._ref_wcs = None
-        self._ref_zp = None
         self.aligned_ref_image = None
         self.aligned_ref_sources = None
         self.aligned_ref_bg = None
@@ -1390,12 +1353,6 @@ class DataStore:
 
         if reload:
             self.reference = None
-            self._ref_image = None
-            self._ref_sources = None
-            self._ref_bg = None
-            self._ref_psf = None
-            self._ref_wcs = None
-            self._ref_zp = None
             self.sub_image = None
 
         image = self.get_image(session=session)
@@ -1434,8 +1391,7 @@ class DataStore:
                 self.reference = None
 
             elif ( min_overlap is not None ) and ( min_overlap > 0 ):
-                refimg = Image.get_by_id( self.reference.image_id )
-                ovfrac = FourCorners.get_overlap_frac(image, refimg)
+                ovfrac = FourCorners.get_overlap_frac(image, self.reference.image)
                 if ovfrac < min_overlap:
                     self.reference = None
 
@@ -1447,12 +1403,6 @@ class DataStore:
         # First, clear out all data products that are downstream of reference.
         # (Setting sub_image will cascade to detections, cutouts, measurements.)
 
-        self._ref_image = None
-        self._ref_sources = None
-        self._ref_bg = None
-        self._ref_psf = None
-        self._ref_wcs = None
-        self._ref_zp = None
         self.sub_image = None
 
         arguments = {}
@@ -1616,10 +1566,13 @@ class DataStore:
                                     "provenance in the DataStore's provenance tree." )
             provenance = self.prov_tree[ 'subtraction' ]
 
+        if self.zp is None:
+            raise RuntimeError( "Can't get subtraction without a zp; try calling get_zp" )
+
         if self.reference is None:
             # We could do the call here, but there are so many configurable parameters to
             #   get_reference() that it's safer to make the user do it
-            raise RuntimeError( "Can't get a subtraction without a reference; call get_reference" )
+            raise RuntimeError( "Can't get a subtraction without a reference; try calling get_reference" )
 
         # Really, sources and its siblings ought to be loaded too, but we don't strictly need it
         #   for the search.
@@ -1631,9 +1584,10 @@ class DataStore:
                 raise RuntimeError( "Can't get sub_image, don't have an image_id" )
 
             imgs = ( sess.query( Image )
+                     .join( image_subtraction_components, Image._id==image_subtraction_components.c.image_id )
                      .filter( Image.provenance_id==provenance.id )
-                     .filter( Image.new_image_id==self.image.id )
-                     .filter( Image.ref_id==self.reference.id )
+                     .filter( image_subtraction_components.c.new_zp_id==self.zp.id )
+                     .filter( image_subtraction_components.c.ref_id==self.reference.id )
                      .filter( Image.is_sub ) ).all()
             if len(imgs) > 1:
                 raise RuntimeError( "Found more than one matching sub_image in the database!  This shouldn't happen!" )
@@ -2100,12 +2054,12 @@ class DataStore:
             if self.exposure._header is not None:
                 self.exposure._header = None
 
-        for prop in [ self._image, self._ref_image, self.aligned_ref_image, self.aligned_new_image,
-                      self._sub_image,
-                      self._bg, self._ref_bg, self.aligned_ref_bg, self.aligned_new_bg,
-                      self._sources, self._ref_sources, self.aligned_ref_sources, self.aligned_new_sources,
-                      self._psf, self._ref_psf, self.aligned_ref_psf, self.aligned_new_psf,
-                      self._wcs, self._ref_wcs ]:
+        for prop in [ self._image, self.aligned_ref_image, self.aligned_new_image,
+                      self.reference, self._sub_image,
+                      self._bg, self.aligned_ref_bg, self.aligned_new_bg,
+                      self._sources, self.aligned_ref_sources, self.aligned_new_sources,
+                      self._psf, self.aligned_ref_psf, self.aligned_new_psf,
+                      self._wcs ]:
             if prop is not None:
                 prop.free()
 

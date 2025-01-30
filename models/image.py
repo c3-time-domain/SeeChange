@@ -582,8 +582,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             if ( self._ref_id is not None ) or ( self._new_zp_id is not None ):
                 sess.execute( sa.text( "INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id) "
                                        "VALUES (:me,:zp,:ref) "
-                                       "ON CONFLICT image_subtraction_components_pkey "
-                                       "  DO UPDATE SET new_zp_id=:zp, ref_id=:ref" ),
+                                       "ON CONFLICT (image_id) DO UPDATE SET new_zp_id=:zp, ref_id=:ref" ),
                               { "me": self.id, "zp": self._new_zp_id, "ref": self._ref_id } )
                 sess.commit()
 
@@ -1084,7 +1083,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if new_image_zp is None:
             raise ValueError("Must provide a new image zeropoint.")
         if not isinstance( new_image_zp, ZeroPoint ):
-            raise TypeError( f"new_image must be an Image, not a {type(new_image_zp)}" )
+            raise TypeError( f"new_image_zp must be an ZeroPoint, not a {type(new_image_zp)}" )
         if ( new_image is not None ) and ( not isinstance( new_image, Image ) ):
             raise TypeError( f"If you pass new_image, it must be an Image, not a {type(new_image)}" )
 

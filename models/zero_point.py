@@ -10,7 +10,6 @@ from sqlalchemy.ext.declarative import declared_attr
 from models.base import Base, UUIDMixin, HasBitFlagBadness, SeeChangeBase, SmartSession
 from models.enums_and_bitflags import catalog_match_badness_inverse
 
-
 # many-to-many link of the zeropoints of coadded images to images that went into the coadd
 image_coadd_component_table = sa.Table(
     'image_coadd_component',
@@ -157,11 +156,13 @@ class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
 
         """
         from models.image import Image
-        from models.reference import Reference
+        from models.reference import Reference, image_subtraction_components
         with SmartSession(session) as session:
             coadds = ( session.query( Image )
                        .join( image_coadd_component_table, image_coadd_component_table.c.coadd_image_id==Image._id )
                        .filter( image_coadd_component_table.c.zp_id==self.id ) ).all()
-            subs = ( session.query( Image ).filter( Image.new_zp_id==self.id ) ).all()
+            subs = ( session.query( Image )
+                     .join( image_subtraction_components, Image._id==image_subtraction_components.c.image_id )
+                     .filter( image_subtraction_components.c.new_zp_id==self.id ) ).all()
             refs = ( session.query( Reference ).filter( Reference.zp_id==self.id ) ).all()
             return list(coadds) + list(subs) + list(refs)

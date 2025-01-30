@@ -80,6 +80,12 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
         return self._sources
 
     @property
+    def psf( self ):
+        if self._psf is None:
+            self._load_ref_data_products()
+        return self._psf
+
+    @property
     def bg( self ):
         if self._bg is None:
             self._load_ref_data_products()
@@ -449,20 +455,21 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
                                              .from_statement( sa.text(q).bindparams(**subdict) )
                                             ).all() )
 
-            # Get the image objects
-            images = list( sess.scalars( sa.select( Image )
-                                         .join( SourceList, Image._id==SourceList.image_id )
-                                         .join( WorldCoordinates, SourceList._id==WorldCoordinates.sources_id )
-                                         .join( ZeroPoint, WorldCoordinates._id==ZeroPoint.wcs_id )
-                                         .where( ZeroPoint._id.in_( r.zp_id for r in references ) )
-                                        ).all() )
+            # Get the image and zeropoint objects
+            things = list( sess.query( Image, ZeroPoint )
+                           .join( SourceList, Image._id==SourceList.image_id )
+                           .join( WorldCoordinates, SourceList._id==WorldCoordinates.sources_id )
+                           .join( ZeroPoint, WorldCoordinates._id==ZeroPoint.wcs_id )
+                           .filter( ZeroPoint._id.in_( r.zp_id for r in references ) )
+                           .all() )
+            images = [ t[0] for t in things ]
+            zeropoints = [ t[1] for t in things ]
 
-        # Make sure they're sorted right
-
-        imdict = { i._id : i for i in images }
-        if not all( r.image_id in imdict.keys() for r in references ):
+        # Make sure the images are sorted right
+        imdict = { z._id : i for i, z in zip(images, zeropoints) }
+        if not all( r.zp_id in imdict.keys() for r in references ):
             raise RuntimeError( "Didn't get back the images expected; this should not happen!" )
-        images = [ imdict[r.image_id] for r in references ]
+        images = [ imdict[r.zp_id] for r in references ]
 
         # Deal with overlapfrac if relevant
 
@@ -479,3 +486,14 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
         # Done!
 
         return references, images
+
+    def free(self):
+        for prop in [ self._image, self._sources, self._bg, self._wcs ]:
+            if prop is not None:
+                prop.free()
+
+        self._image = None
+        self._sources = None
+        self._bg = None
+        self._wcs = None
+        self._zp = None
