@@ -577,7 +577,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                     else:
                         raise
 
-            # Update the image_coadd_component_table ; here, we can just
+            # Update the image_subtraction_components_table ; here, we can just
             #   do a straight-up postgres upsert
             if ( self._ref_id is not None ) or ( self._new_zp_id is not None ):
                 sess.execute( sa.text( "INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id) "

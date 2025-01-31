@@ -676,7 +676,6 @@ class ImageAligner:
     def run( self,
              source_image, source_sources, source_bg, source_psf, source_wcs, source_zp,
              target_image, target_sources ):
-
         """Warp source image so that it is aligned with target image.
 
         If the source_image and target_image are the same, will just create
