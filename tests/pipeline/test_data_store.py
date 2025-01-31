@@ -4,7 +4,7 @@ import uuid
 
 import sqlalchemy as sa
 
-from models.base import SmartSession
+from models.base import SmartSession, Psycopg2Connection
 from models.instrument import SensorSection
 from models.exposure import Exposure
 from models.image import Image
@@ -16,38 +16,175 @@ from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.deepscore import DeepScore
-from models.provenance import Provenance
+from models.provenance import Provenance, ProvenanceTag
 
-from pipeline.data_store import DataStore
+from pipeline.data_store import DataStore, ProvenanceTree
+from pipeline.top_level import Pipeline
 
 
-def test_set_prov_tree():
-    refimgprov = Provenance( process='preprocessing', parameters={ 'ref': True } )
-    refsrcprov = Provenance( process='extraction', parameters={ 'ref': True } )
+def test_make_prov_tree( decam_exposure, decam_reference ):
+    provs_created = set()
+    try:
+        pars = {}
+        for i, step in enumerate( Pipeline.ALL_STEPS ):
+            pars[step] = { 'foo': i }
+        pars['subtraction']['refset'] = 'test_refset_decam'
+        ds = DataStore( decam_exposure, 'S2' )
+
+        # Make sure it spits at us if paramteres are missing for a step
+        with pytest.raises( ValueError, match="Step.*not in pars" ):
+            ds.make_prov_tree( ['foo', 'bar'], pars )
+
+        # Make sure it spits at us if we include referencing in steps
+        with pytest.raises( ValueError, match="Steps must not include referencing" ):
+            ds.make_prov_tree( [ 'preprocessing', 'referencing' ], { 'preprocessing': {}, 'referencing': {} } )
+
+        ds.make_prov_tree( Pipeline.ALL_STEPS, pars )
+        # Don't delete the exposure or referencing provenances, they were created in a fixture
+        provs_created = set( v for k, v in ds.prov_tree.items() if k not in ('referencing','starting_point') )
+
+        # Even though 'starting_point' and 'referencing' weren't in the list
+        #   of steps, they should have been created
+        assert set( ds.prov_tree.keys() ) == set( ['starting_point', 'referencing'] + Pipeline.ALL_STEPS )
+        for i, step in enumerate( Pipeline.ALL_STEPS ):
+            assert step in ds.prov_tree
+            assert step in ds.prov_tree.upstream_steps
+            assert isinstance( ds.prov_tree[step], Provenance )
+            assert ds.prov_tree[step].parameters['foo'] == i
+            assert ( set( p.id for p in ds.prov_tree[step].upstreams ) ==
+                     set( ds.prov_tree[u].id for u in ds.prov_tree.upstream_steps[step] ) )
+
+        # Make sure no provenance tag was created
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "SELECT _id FROM provenance_tags WHERE provenance_id IN %(pid)s",
+                            { 'pid': tuple( v.id for k, v in ds.prov_tree.items() if k not in ( 'starting_point',
+                                                                                                'referencing' ) ) } )
+            assert len(cursor.fetchall()) == 0
+
+        # Make sure we can create the provenance tag
+        ds.make_prov_tree( Pipeline.ALL_STEPS, pars, provtag='test_data_store_test_make_prov_tree' )
+        for i, step in enumerate( Pipeline.ALL_STEPS ):
+            # ...quick recheck, we already tested this above
+            assert step in ds.prov_tree
+            assert step in ds.prov_tree.upstream_steps
+            assert isinstance( ds.prov_tree[step], Provenance )
+            assert ds.prov_tree[step].parameters['foo'] == i
+        with SmartSession() as sess:
+            tags = sess.query( ProvenanceTag ).filter( ProvenanceTag.tag=='test_data_store_test_make_prov_tree' ).all()
+            assert set( t.provenance_id for t in tags ) == set( p.id for p in ds.prov_tree.values() )
+
+        # Make sure that the prov tree gets replaced and only some steps
+        #   created if we give fewer than all steps
+        somesteps = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp' ]
+        ds.make_prov_tree( somesteps, pars )
+        assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
+
+        # TODO : explicitly passing an upstream_steps
+        # Passing a starting_point prov
+
+    finally:
+        if len(provs_created) > 0:
+            with Psycopg2Connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute( "DELETE FROM provenances WHERE _id IN %(id)s",
+                                { 'id': tuple( [ p.id for p in provs_created ] ) } )
+                cursor.execute( "DELETE FROM provenance_tags WHERE tag='test_data_store_test_make_prov_tree'" )
+                conn.commit()
+
+
+def test_make_prov_tree_no_ref_prov( decam_exposure ):
+    provs_created = set()
+    try:
+        pars = {}
+        for i, step in enumerate( Pipeline.ALL_STEPS ):
+            pars[step] = { 'foo': i }
+        pars['subtraction']['refset'] = 'test_refset_decam'
+        ds = DataStore( decam_exposure, 'S2' )
+
+        with pytest.raises( ValueError, match="No reference set with name test_refset_decam found in the database!" ):
+            ds.make_prov_tree( Pipeline.ALL_STEPS, pars )
+
+        somesteps = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp' ]
+        ds.make_prov_tree( somesteps, pars )
+        assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
+
+        ds.make_prov_tree( Pipeline.ALL_STEPS, pars, ok_no_ref_prov=True )
+        assert set( ds.prov_tree.keys() ) == { 'starting_point', 'preprocessing', 'extraction',
+                                               'backgrounding', 'wcs', 'zp' }
+
+    finally:
+        if len(provs_created) > 0:
+            with Psycopg2Connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute( "DELETE FROM provenances WHERE _id IN %(id)s",
+                                { 'id': tuple( [ p.id for p in provs_created ] ) } )
+                conn.commit()
+
+
+def test_get_provenance( decam_exposure, decam_reference, pipeline_for_tests ):
+    ds = DataStore( decam_exposure, 'S2' )
+
+    with pytest.raises( RuntimeError, match="get_provenance requires the DataStore to have a provenance tree" ):
+        _ = ds.get_provenance( 'preprocessing' )
+
+    pipeline_for_tests.make_provenance_tree( ds, no_provtag=True, all_steps=True )
+
+    with pytest.raises( ValueError, match="No provenance for foo in provenance tree" ):
+        _ = ds.get_provenance( "foo" )
+
+    with pytest.raises( ValueError, match="Passed pars_dict does not match parameters" ):
+        _ = ds.get_provenance( "preprocessing", { "cats": [ "Guiseppe", "Antonin" ] } )
+
+    subp = ds.get_provenance( 'subtraction' )
+    assert subp.id == ds.prov_tree['subtraction'].id
+
+    subp = ds.get_provenance( 'subtraction', ds.prov_tree['subtraction'].parameters )
+    assert subp.id == ds.prov_tree['subtraction'].id
+
+
+
+def test_edit_prov_tree():
+    refimgprov = Provenance( process='preprocessing', parameters={ 'ref': True, 'test_set_prov_tree': True } )
+    refsrcprov = Provenance( process='extraction', parameters={ 'ref': True, 'test_set_prov_tree': True } )
+
+    provstodel = { refimgprov, refsrcprov }
 
     provs = { 'exposure': Provenance( process='exposure', parameters={} ) }
     provs['preprocessing'] = Provenance( process='preprocessing',
                                          upstreams=[ provs['exposure'] ],
-                                         parameters={ 'a': 4 } )
+                                         parameters={ 'a': 4, 'test_set_prov_tree': True } )
     provs['extraction'] = Provenance( process='extraction',
                                       upstreams=[ provs['preprocessing'] ],
-                                      parameters={ 'b': 8 } )
+                                      parameters={ 'b': 8, 'test_set_prov_Tree': True } )
     provs['referencing'] = Provenance( process='referencing',
                                        upstreams=[ refimgprov, refsrcprov ],
-                                       parameters={ 'c': 15 } )
+                                       parameters={ 'c': 15, 'test_set_prov_tree':True } )
     provs['subtraction'] = Provenance( process='subtraction',
-                                       upstreams=[ refimgprov, refsrcprov,
+                                       upstreams=[ provs['referencing'],
                                                    provs['preprocessing'], provs['extraction'] ],
-                                       parameters={ 'd': 16 } )
+                                       parameters={ 'd': 16, 'test_set_prov_tree': True } )
     provs['detection'] = Provenance( process='detection',
                                      upstreams=[ provs['subtraction' ] ],
-                                     parameters={ 'd': 23 } )
+                                     parameters={ 'd': 23, 'test_set_prov_tree': True } )
     provs['cutting'] = Provenance( process='cutting',
                                    upstreams=[ provs['detection' ] ],
-                                   paramters={ 'e': 42 } )
+                                   paramters={ 'e': 42, 'test_set_prov_tree': True } )
     provs['measuring'] = Provenance( process='measuring',
                                      upstreams=[ provs['cutting' ] ],
-                                     parameters={ 'f': 49152 } )
+                                     parameters={ 'f': 49152, 'test_set_prov_tree': True } )
+
+    for p in provs.values():
+        provstodel.add( p )
+
+    upstreams = { 'exposure': [],
+                  'preprocessing': ['exposure'],
+                  'extraction': ['preprocessing'],
+                  'referencing': [],
+                  'subtraction': ['referencing', 'preprocessing', 'extraction'],
+                  'detection': ['subtraction'],
+                  'cutting': ['detection'],
+                  'measuring': ['cutting'] }
 
     refimgprov.insert_if_needed()
     refsrcprov.insert_if_needed()
@@ -58,158 +195,43 @@ def test_set_prov_tree():
     ds = DataStore()
     assert ds.prov_tree is None
 
-    # Make sure we get the right error if we assign the wrong thing to the prov_tree attribute
-    with pytest.raises( TypeError, match='prov_tree must be a dict of Provenance objects' ):
-        ds.prov_tree = 5
-    with pytest.raises( TypeError, match='prov_tree must be a dict of Provenance objects' ):
-        ds.prov_tree = { 'extraction': provs['extraction'],
-                         'preprocesing': 'kittens' }
+    with pytest.raises(TypeError, match="Can't edit provenance tree, DataStore doesn't have one yet."):
+        ds.edit_prov_tree( provs )
 
-    # On to actually testing set_prov_tree
+    ds.edit_prov_tree( ProvenanceTree( provs, upstreams ) )
 
-    ds.set_prov_tree( provs, wipe_tree=True )
     assert all( [ prov.id == provs[process].id for process, prov in ds.prov_tree.items() ] )
 
-    # Verify that downstreams get wiped out if we set an upstream
+    with pytest.raises(RuntimeError, match=("Can't modify provenance for step anisotropisization, "
+                                            "it's not in the current prov tree." ) ):
+        ds.edit_prov_tree( 'anisotropisization', { 'foo': 'bar' } )
+
+    with pytest.raises(ValueError, match=( "Can't edit provenance for step preprocessing, "
+                                           "no params_dict nor prov passed" ) ):
+        ds.edit_prov_tree( 'preprocessing' )
+
+    # Verify that only downstreams get modified if we edit an upstream
     for i, process in enumerate( provs.keys() ):
-        toset = { list(provs.keys())[j]: provs[process] for j in range(0,i+1) }
-        ds.set_prov_tree( toset, wipe_tree=False )
-        for dsprocess in list(provs.keys())[i+1:]:
-            if dsprocess != 'referencing':
-                assert dsprocess not in ds.prov_tree
-        # reset
-        ds.set_prov_tree( provs, wipe_tree=True )
+        last_provs = ds.prov_tree.copy()
+        params_dict = provs[process].parameters.copy()
+        params_dict['new_parameter'] = 'foo'
+        ds.edit_prov_tree( process, params_dict )
+        assert ds.prov_tree.keys() == last_provs.keys()
+        assert ds.prov_tree[process].parameters['new_parameter'] == 'foo'
+        for j, newproc in enumerate( provs.keys() ):
+            provstodel.add( ds.prov_tree[newproc] )
+            if ( j < i ) or ( ( process != 'referencing' ) and ( newproc == 'referencing' ) ):
+                assert last_provs[newproc].id == ds.prov_tree[newproc].id
+            else:
+                assert last_provs[newproc].id != ds.prov_tree[newproc].id
 
-    # Verify that wipe_tree=True works as expected
-    # (We're making an ill-formed provenance tree here
-    # just for test purposes.)
-    ds.set_prov_tree( { 'subtraction': provs['subtraction'] }, wipe_tree=True )
-    assert all( [ p not in ds.prov_tree for p in provs.keys() if p != 'subtraction' ] )
-
-    # reset and test wipe_tree=False
-    ds.set_prov_tree( provs, wipe_tree=True )
-    ds.set_prov_tree( {'subtraction': provs['subtraction'] }, wipe_tree=False )
-    for shouldbegone in [ 'detection', 'cutting', 'measuring' ]:
-        assert shouldbegone not in ds.prov_tree
-    for shouldbehere in [ 'exposure', 'preprocessing', 'extraction', 'referencing', 'subtraction' ]:
-        assert ds.prov_tree[shouldbehere].id == provs[shouldbehere].id
+    # TODO:
+    #   Passing a Provenance to edit_prov_tree
+    #   Verify that provenance tag gets set?
 
     # Clean up
     with SmartSession() as sess:
-        idstodel = [ refimgprov.id, refsrcprov.id ]
-        idstodel.extend( list( provs.keys() ) )
-        sess.execute( sa.delete( Provenance ).where( Provenance._id.in_( idstodel ) ) )
-        sess.commit()
-
-
-def test_make_provenance():
-    procparams = { 'exposure': {},
-                   'preprocessing': { 'a': 1 },
-                   'extraction': { 'b': 2 },
-                   'referencing': { 'z': 2.7182818 },
-                   'subtraction': { 'c': 3 },
-                   'detection': { 'd': 4 },
-                   'cutting': { 'e': 5 },
-                   'measuring': { 'f': 6 }
-                  }
-    ds = DataStore()
-    assert ds.prov_tree is None
-
-    def refresh_tree():
-        ds.prov_tree = None
-        for process, params in procparams.items():
-            ds.get_provenance( process, params, replace_tree=True )
-
-    refresh_tree()
-
-    # Make sure they're all there
-    for process, params in procparams.items():
-        prov = ds.prov_tree[ process ]
-        assert prov.process == process
-        assert prov.parameters == params
-
-    # Make sure that if we get one, we get the same one back
-    for process, params in procparams.items():
-        prov = ds.get_provenance( process, params )
-        assert prov.process == process
-        assert prov.parameters == params
-
-    # Make sure that the upstreams are consistent
-    assert ds.prov_tree['measuring'].upstreams == [ ds.prov_tree['cutting'] ]
-    assert ds.prov_tree['cutting'].upstreams == [ ds.prov_tree['detection'] ]
-    assert ds.prov_tree['detection'].upstreams == [ ds.prov_tree['subtraction'] ]
-    assert set( ds.prov_tree['subtraction'].upstreams ) == { ds.prov_tree['preprocessing'],
-                                                             ds.prov_tree['extraction'] }
-    assert ds.prov_tree['extraction'].upstreams == [ ds.prov_tree['preprocessing'] ]
-    assert ds.prov_tree['preprocessing'].upstreams == [ ds.prov_tree['exposure'] ]
-
-    # Make sure that if we have different parameters, it yells at us
-    for process in procparams.keys():
-        with pytest.raises( ValueError, match="DataStore getting provenance.*don't match" ):
-            prov = ds.get_provenance( process, { 'does_not_exist': 'luminiferous_aether' } )
-
-    # Check that pars_not_match_prov_tree works, but doesn't replace the tree
-    for process, params in procparams.items():
-        prov = ds.get_provenance( process, { 'does_not_exist': 'luminiferous_aether' },
-                                  pars_not_match_prov_tree_pars=True )
-        assert prov.process == process
-        assert prov.parameters == { 'does_not_exist': 'luminiferous_aether' }
-
-    # Check that if we replace a process, all downstream ones get wiped out
-    # (with 'referencing' being a special case exception).
-    # NOTE: I'm assuming that the keys in DataStore.UPSTREAM_STEPS are
-    # sorted.  Really I should build a tree or something basedon the
-    # dependencies.  But, whatevs.
-    for i, process in enumerate( procparams.keys() ):
-        prov = ds.get_provenance( process, { 'replaced': True }, replace_tree=True )
-        assert prov.process == process
-        assert prov.parameters == { 'replaced': True }
-        for upproc in list( procparams.keys() )[:i]:
-            assert upproc in ds.prov_tree
-            assert ds.prov_tree[upproc].process == upproc
-            assert ds.prov_tree[upproc].parameters == procparams[ upproc ]
-        for downproc in list( procparams.keys() )[i+1:]:
-            if downproc != 'referencing':
-                assert downproc not in ds.prov_tree
-        refresh_tree()
-
-    # TODO : test get_provenance when it's pulling upstreams from objects in the
-    #   datastore rather than from its own prov_tree.
-
-
-def test_make_sub_prov_upstreams():
-    # The previous test was cavalier about subtraction upstreams.  Explicitly
-    #   test that the subtraction provenance doesn't get the referencing
-    #   provenance as an upstream but the refrencing provenance's upstreams.
-    refimgprov = Provenance( process='preprocessing', parameters={ 'ref': True } )
-    refimgprov.insert_if_needed()
-    refsrcprov = Provenance( process='extraction', parameters={ 'ref': True } )
-    refsrcprov.insert_if_needed()
-
-    provs = { 'exposure': Provenance( process='exposure', parameters={} ) }
-    provs['preprocessing'] = Provenance( process='preprocessing',
-                                         upstreams=[provs['exposure']],
-                                         parameters={ 'a': 1 } )
-    provs['extraction'] = Provenance( process='extraction',
-                                      upstreams=[provs['preprocessing']],
-                                      parameters={ 'a': 1 } )
-    provs['referencing'] = Provenance( process='referencing',
-                                       upstreams=[ refimgprov, refsrcprov ],
-                                       parameters={ 'a': 1 } )
-    for prov in provs.values():
-        prov.insert_if_needed()
-
-    ds = DataStore()
-    ds.set_prov_tree( provs )
-    subprov = ds.get_provenance( 'subtraction', {} )
-    assert set( subprov.upstreams ) == { refimgprov, refsrcprov, provs['preprocessing'], provs['extraction'] }
-
-    # Clean up
-    with SmartSession() as sess:
-        idstodel = [ refimgprov.id, refsrcprov.id ]
-        idstodel.extend( list( provs.keys() ) )
-        idstodel.append( subprov.id )
-        sess.execute( sa.delete( Provenance ).where( Provenance._id.in_( idstodel ) ) )
+        sess.execute( sa.delete( Provenance ).where( Provenance._id.in_( [ p.id for p in provstodel ] ) ) )
         sess.commit()
 
 

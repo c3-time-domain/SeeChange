@@ -16,11 +16,11 @@ from models.base import ( Base,
                           HasBitFlagBadness,
                           SmartSession,
                           Psycopg2Connection )
-from models.provenance import provenance_self_association_table
 from models.cutouts import Cutouts
 from models.image import Image
 from models.source_list import SourceList
 from models.zero_point import ZeroPoint
+from models.reference import image_subtraction_components
 from models.enums_and_bitflags import measurements_badness_inverse
 
 # from util.logger import SCLogger
@@ -213,27 +213,19 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     # So many other calculated properties need the zeropoint that we
     # have to be able to find it.  Users would be adivsed to set the
-    # zeropoint manually if they are able...  otherwise, we're gonna
-    # have six table joins to make sure we get the right zeropoint of
-    # the upstream new image!  (Note that before the database refactor,
-    # underneath many of these table joins were happening, but also it
-    # dependend on an image object it was linked to having the manual
-    # "zp" field loaded with the right thing.  So, we haven't reduced
-    # the need for manual setting in the refactor.)
+    # zeropoint manually if they are able, so that each and every
+    # measurement in a list doesn't query the database separately for
+    # that zeropoint.
     @property
     def zp( self ):
         if self._zp is None:
-            sub_image = orm.aliased( Image )
-            sub_sources = orm.aliased( SourceList )
-            provassoc = orm.aliased( provenance_self_association_table )
+            isc = orm.aliased( image_subtraction_components )
             with SmartSession() as session:
                 zps = ( session.query( ZeroPoint )
-                        .join( SourceList, SourceList._id == ZeroPoint.sources_id )
-                        .join( provassoc, provassoc.c.upstream_id == SourceList.provenance_id )
-                        .join( sub_image, sa.and_( sub_image.provenance_id == provassoc.c.downstream_id,
-                                                   sub_image.new_image_id == SourceList.image_id ) )
-                        .join( sub_sources, sub_sources.image_id == sub_image._id )
-                        .join( Cutouts, sub_sources._id == Cutouts.sources_id )
+                        .join( isc, isc.c.new_zp_id==ZeroPoint._id )
+                        .join( Image, Image._id==isc.c.image_id )
+                        .join( SourceList, SourceList.image_id==Image._id )
+                        .join( Cutouts, Cutouts.sources_id==SourceList._id )
                         .filter( Cutouts._id==self.cutouts_id )
                        ).all()
             if len( zps ) > 1:
@@ -638,7 +630,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         with SmartSession( session ) as session:
             return session.scalars( sa.Select( Cutouts ).where( Cutouts._id == self.cutouts_id ) ).all()
 
-    def get_downstreams( self, session=None, siblings=False ):
+    def get_downstreams( self, session=None ):
         """Get downstream data products of this Measurements."""
 
         # Measurements doesn't currently have downstreams; this will

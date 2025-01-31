@@ -14,7 +14,7 @@ from models.measurements import Measurements
 def test_measurements_attributes(measurer, ptf_datastore, test_config):
     ds = ptf_datastore
 
-    aper_radii = test_config.value('extraction.sources.apertures')
+    aper_radii = test_config.value('extraction.apertures')
     ds.measurements = None
     ds = measurer.run( ds )
     # check that the measurer actually loaded the measurements from db, and not recalculated
@@ -191,9 +191,9 @@ def test_filtering_measurements(ptf_datastore):
         assert len(ms) > 0                   # ...but some did
 
         ms = session.scalars(sa.select(Measurements).where(
-            Measurements.negfluxfrac > 0.2, Measurements.provenance_id == m.provenance_id
+            Measurements.negfluxfrac > 0.1, Measurements.provenance_id == m.provenance_id
         )).all()
-        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.2
+        assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.1
         assert len(ms) > 0                   # ...but some did
 
 

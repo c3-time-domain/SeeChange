@@ -124,7 +124,7 @@ class DeepScore(Base, UUIDMixin, HasBitFlagBadness):
                                    .where(Measurements._id ==
                                           self.measurements_id)).all()
 
-    def get_downstreams(self, session=None, siblings=False):
+    def get_downstreams(self, session=None):
         """Get the downstreams of this DeepScore"""
         return []
 

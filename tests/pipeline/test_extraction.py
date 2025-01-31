@@ -321,7 +321,7 @@ def test_warnings_and_exceptions( decam_datastore_through_preprocessing ):
 
     if not SKIP_WARNING_TESTS:
         extractor.pars.inject_warnings = 1
-        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+        ds._pipeline.make_provenance_tree(ds)
 
         with pytest.warns(UserWarning) as record:
             extractor.run( ds )
@@ -331,6 +331,6 @@ def test_warnings_and_exceptions( decam_datastore_through_preprocessing ):
     ds.sources = None
     extractor.pars.inject_warnings = 0
     extractor.pars.inject_exceptions = 1
-    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+    ds._pipeline.make_provenance_tree(ds)
     with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'detection'."):
         ds = extractor.run( ds )

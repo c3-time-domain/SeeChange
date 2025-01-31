@@ -51,11 +51,8 @@ def test_measuring_background( decam_datastore_through_extraction ):
     # error will break all kinds of things; figure out where the error
     # really came from.  (A better way to do this would be to set
     # backgrounder.pars.method to 'zero', then run
-    # ds.prov_tree=ds._pipeline.make_provenance_tree(ds.exposure).
-    # However, in that case, you'd also need to set ds.sources to None
-    # and rerun extraction so that the sources had the right provenance.
-    # Ugly hack here is skipping that step for speed.)
-    ds.prov_tree['extraction'].parameters['bg']['method'] = 'zero'
+    # ds.prov_tree=ds._pipeline.make_provenance_tree(ds.exposure).)
+    ds.prov_tree['backgrounding'].parameters['method'] = 'zero'
     backgrounder.pars.method = 'zero'
 
     # Because we did a horribly ugly wrong never-do-this-hack to the provenances, the backgrounder

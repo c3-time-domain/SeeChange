@@ -170,17 +170,6 @@ class ImageCleanup:
 
     def __del__(self):
         try:
-            # Just in case this image was used in a test and became an upstream, we
-            #   need to clean out those entries.  (They won't automatically clean out
-            #   because ondelete is RESTRICT for upstream_id in image_upstreams_associaton.)
-            # We're trusting that whoever made the downstream will clean themselves up.
-            # (And, really, those folks should have removed the image_coadd_component
-            # entry, but whatevs.)
-            with SmartSession() as sess:
-                sess.execute( sa.text( "DELETE FROM image_coadd_component "
-                                       "WHERE image_id=:id" ),
-                              { "id": self.image.id } )
-                sess.commit()
             self.image.delete_from_disk_and_database()
         finally:
             pass
@@ -215,15 +204,6 @@ def generate_image_fixture(commit=True, filter=None):
             im.insert()
 
         yield im
-
-        # Just in case this image got added as an upstream to anything,
-        #   need to clean out the association table.  (See comment in
-        #   ImageCleanup.__del__.)
-        with SmartSession() as sess:
-            sess.execute( sa.text( "DELETE FROM image_coadd_component "
-                                   "WHERE image_id=:id" ),
-                          { "id": im.id } )
-            sess.commit()
 
         # Clean up the exposure that got created; this will recusrively delete im as well
         if exp is not None:

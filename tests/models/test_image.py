@@ -26,6 +26,7 @@ from models.reference import Reference
 from models.enums_and_bitflags import image_preprocessing_inverse, string_to_bitflag, image_badness_inverse
 from models.psf import PSF
 from models.source_list import SourceList
+from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 import improc.tools
@@ -662,9 +663,9 @@ def test_image_from_exposure( provenance_base, sim_exposure1 ):
     assert not im.is_coadd
     assert not im.is_sub
     assert im._id is None  # need to commit to get IDs
-    assert im._coadd_component_ids is None
-    assert im.ref_id is None
-    assert im.new_image_id is None
+    assert im._coadd_component_zp_ids is None
+    assert im._ref_id is None
+    assert im._new_zp_id is None
     assert im.coadd_alignment_target is None
     assert im.filepath is None  # need to save file to generate a filename
     assert np.array_equal(im.raw_data, sim_exposure1.data[0])
@@ -699,6 +700,8 @@ def test_image_from_exposure( provenance_base, sim_exposure1 ):
         assert im.exposure_id is not None
         assert im.exposure_id == sim_exposure1.id
 
+        assert [ asUUID(i.id) for i in im.get_upstreams() ] == [ asUUID(sim_exposure1.id) ]
+
     finally:
         # All necessary cleanup *should* be done in fixtures
         # (The sim_exposure1 fixture will delete images derived from it)
@@ -726,9 +729,9 @@ def test_image_from_reduced_exposure( decam_reduced_origin_exposure_loaded_in_db
     assert img.exposure_id == exp.id
     assert not img.is_sub
     assert not img.is_coadd
-    assert img._coadd_component_ids is None
-    assert img.ref_id is None
-    assert img.new_image_id is None
+    assert img._coadd_component_zp_ids is None
+    assert img._ref_id is None
+    assert img._new_zp_id is None
     assert img.coadd_alignment_target is None
     assert img.type == 'Sci'
     assert img.provenance_id is None    # from_exposure doesn't set provenance
@@ -762,92 +765,6 @@ def test_image_from_reduced_exposure( decam_reduced_origin_exposure_loaded_in_db
     assert img._flags.sum() == 266089
 
 
-def test_image_with_multiple_upstreams(sim_exposure1, sim_exposure2, provenance_base):
-
-    im = None
-    try:
-        sim_exposure1.update_instrument()
-        sim_exposure2.update_instrument()
-
-        # make sure exposures are in chronological order...
-        if sim_exposure1.mjd > sim_exposure2.mjd:
-            sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
-
-        # get a couple of images from exposure objects
-        im1 = Image.from_exposure(sim_exposure1, section_id=0)
-        im1.provenance_id = provenance_base.id
-        im1.filepath = im1.invent_filepath()
-        im1.md5sum = uuid.uuid4()                # Spoof so we can save to database without writing a file
-        im1.data = im1.raw_data
-        im1.weight = np.ones_like(im1.raw_data)
-        im1.flags = np.zeros_like(im1.raw_data)
-        im2 = Image.from_exposure(sim_exposure2, section_id=0)
-        im2.provenance_id = provenance_base.id
-        im2.filepath = im2.invent_filepath()
-        im2.md5sum = uuid.uuid4()                # Spoof so we can save to database without writing a file
-        im2.data = im2.raw_data
-        im2.weight = np.ones_like(im2.raw_data)
-        im2.flags = np.zeros_like(im2.raw_data)
-        im2.filter = im1.filter
-        im2.target = im1.target
-
-        # Since these images were created fresh, not loaded from the
-        #  database, they don't have ids yet
-        assert im1._id is None
-        assert im2._id is None
-
-        # make a "coadd" image from the two
-        im = Image.from_images([im1, im2])
-        assert im.is_coadd
-        im.provenance_id = provenance_base.id
-        # Spoof the md5sum so we can save to the database
-        im.md5sum = uuid.uuid4()
-
-        # im1, im2 provenances should have been filled in
-        # when we ran from_images
-        assert im1.id is not None
-        assert im2.id is not None
-        assert im1.upstream_image_ids == []
-        assert im2.upstream_image_ids == []
-
-        assert im._id is None
-        assert im.exposure_id is None
-        assert im.upstream_image_ids == [im1.id, im2.id]
-        assert np.isclose(im.mid_mjd, (im1.mjd + im2.mjd) / 2)
-
-        # Make sure we can save all of this to the database
-
-        with pytest.raises( IntegrityError, match='null value in column "filepath" of relation "images" violates' ):
-            im.insert()
-        im.filepath = im.invent_filepath()
-
-        # It should object if we haven't saved the upstreams first
-        with pytest.raises( IntegrityError,
-                            match='insert or update on table "images" violates foreign key constraint' ):
-            im.insert()
-
-        # So try to do it right
-        im1.insert()
-        im2.insert()
-        im.insert()
-
-        assert im.id is not None
-
-        upstrimgs = im.get_upstreams( only_images=True )
-        assert [ i.id for i in upstrimgs ] == [ im1.id, im2.id ]
-
-        with SmartSession() as session:
-            newim = session.query( Image ).filter( Image._id==im.id ).first()
-        assert newim.upstream_image_ids == [ im1.id, im2.id ]
-        assert newim.exposure_id is None
-        assert np.isclose( im.mid_mjd, ( im1.mjd + im2.mjd ) / 2. )
-
-    finally:
-        # im1, im2 will be cleaned up by the exposure fixtures
-        if im is not None:
-            im.delete_from_disk_and_database()
-
-
 def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base ):
     imgs = [ sim_image_r1, sim_image_r2, sim_image_r3 ]
     imgs.sort( key = lambda x: x.mjd )
@@ -856,8 +773,32 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
                   'gallon', 'gallat', 'ecllon', 'ecllat', 'ra', 'dec',
                   'ra_corner_00', 'ra_corner_01', 'ra_corner_10', 'ra_corner_11',
                   'dec_corner_00', 'dec_corner_01', 'dec_corner_10', 'dec_corner_11' ]
+    sls = []
+    bgs = []
+    wcses = []
+    zps = []
     try:
-        im = Image.from_images( imgs )
+        # Have to create a fake SourceList, Background, WorldCoordinates, and ZeroPoint
+        #   for all the images.
+        for i, im in enumerate(imgs):
+            sl = SourceList( image_id=im.id, num_sources=1, provenance_id=provenance_base.id,
+                             filepath=f'foo_sl{i}', md5sum=uuid.uuid4() )
+            sl.insert()
+            sls.append( sl )
+            bg = Background( sources_id=sl.id, format='scalar', value=0., noise=1., provenance_id=provenance_base.id,
+                             filepath=f'foo_bg{i}', md5sum=uuid.uuid4())
+            bg.insert()
+            bgs.append( bg )
+            wcs = WorldCoordinates( sources_id=sl.id, provenance_id=provenance_base.id,
+                                    filepath=f'foo_wcs{i}', md5sum=uuid.uuid4() )
+            wcs.insert()
+            wcses.append( wcs )
+            zp = ZeroPoint( wcs_id=wcs.id, background_id=bg.id, zp=25., dzp=0.1,
+                            provenance_id=provenance_base.id )
+            zp.insert()
+            zps.append( zp )
+
+        im = Image.from_image_zps( zps )
         im.provenance_id = provenance_base.id
         # Spoof the md5sum since we aren't saving anything, but want to insert
         im.md5sum = uuid.uuid4()
@@ -866,18 +807,25 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
         assert im.coadd_alignment_target == imgs[0].id
         assert not im.is_sub
         assert im.ref_id is None
-        assert im.new_image_id is None
-        assert set( im.coadd_component_ids ) == set( i.id for i in imgs )
-        assert all( getattr( im, a ) == getattr( imgs[0], a ) for a in attrcheck )
+        assert im.new_zp_id is None
+        assert set( im.coadd_component_zp_ids ) == set( z.id for z in zps )
+        for a in attrcheck:
+            if isinstance( getattr( im, a ), float ):
+                assert getattr( im, a ) == pytest.approx( getattr( imgs[0], a ), rel=1e-5 )
+            else:
+                if a == 'section_id':
+                    assert int(getattr( im, a )) == getattr( imgs[0], a )
+                else:
+                    assert getattr( im, a ) == getattr( imgs[0], a )
         assert im.exp_time == imgs[0].exp_time + imgs[1].exp_time + imgs[2].exp_time
         im.insert()
 
         gotim = Image.get_by_id( im.id )
         assert asUUID(gotim.md5sum) == im.md5sum
         assert gotim.coadd_alignment_target == imgs[0].id
-        assert gotim._coadd_component_ids is None
-        assert set( gotim.coadd_component_ids ) == set( i.id for i in imgs )
-        assert set( gotim._coadd_component_ids ) == set( i.id for i in imgs )
+        assert gotim._coadd_component_zp_ids is None
+        assert set( gotim.coadd_component_zp_ids ) == set( z.id for z in zps )
+        assert set( gotim._coadd_component_zp_ids ) == set( z.id for z in zps )
         for a in attrcheck:
             if isinstance( getattr( gotim, a ), float ):
                 assert getattr( gotim, a ) == pytest.approx( getattr( imgs[0], a ), rel=1e-5 )
@@ -890,10 +838,12 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
         # Really make sure the coadd component table got loaded
         with Psycopg2Connection() as conn:
             cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
-            cursor.execute( "SELECT image_id FROM image_coadd_component WHERE coadd_image_id=%(id)s",
+            cursor.execute( "SELECT zp_id FROM image_coadd_component WHERE coadd_image_id=%(id)s",
                             {'id': im.id } )
             rows = cursor.fetchall()
-            assert set( [ asUUID(row['image_id']) for row in rows ] ) == set( [ i.id for i in imgs ] )
+            assert set( [ asUUID(row['zp_id']) for row in rows ] ) == set( [ z.id for z in zps ] )
+
+        assert set( u.id for u in gotim.get_upstreams() ) == set( z.id for z in zps )
 
         # Make sure that if we upsert, the components stay in place
         im._format += 1
@@ -902,9 +852,9 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
         gotim = Image.get_by_id( im.id )
         assert asUUID(gotim.md5sum) == im.md5sum
         assert gotim.coadd_alignment_target == imgs[0].id
-        assert gotim._coadd_component_ids is None
-        assert set( gotim.coadd_component_ids ) == set( i.id for i in imgs )
-        assert set( gotim._coadd_component_ids ) == set( i.id for i in imgs )
+        assert gotim._coadd_component_zp_ids is None
+        assert set( gotim.coadd_component_zp_ids ) == set( z.id for z in zps )
+        assert set( gotim._coadd_component_zp_ids ) == set( z.id for z in zps )
         for a in attrcheck:
             if isinstance( getattr( gotim, a ), float ):
                 assert getattr( gotim, a ) == pytest.approx( getattr( imgs[0], a ), rel=1e-5 )
@@ -917,26 +867,46 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
         # Really make sure the coadd component table got loaded
         with Psycopg2Connection() as conn:
             cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
-            cursor.execute( "SELECT image_id FROM image_coadd_component WHERE coadd_image_id=%(id)s",
+            cursor.execute( "SELECT zp_id FROM image_coadd_component WHERE coadd_image_id=%(id)s",
                             {'id': im.id } )
             rows = cursor.fetchall()
-            assert set( [ asUUID(row['image_id']) for row in rows ] ) == set( [ i.id for i in imgs ] )
+            assert set( [ asUUID(row['zp_id']) for row in rows ] ) == set( [ z.id for z in zps ] )
 
     finally:
-        if im is not None:
-            with Psycopg2Connection() as conn:
-                cursor = conn.cursor()
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            if im is not None:
                 cursor.execute( "DELETE FROM images WHERE _id=%(id)s", { 'id': im.id } )
-                conn.commit()
+            if len(zps) > 0:
+                cursor.execute( "DELETE FROM zero_points WHERE _id IN %(ids)s",
+                                { 'ids': tuple( z.id for z in zps ) } )
+            if len(wcses) > 0:
+                cursor.execute( "DELETE FROM world_coordinates WHERE _id IN %(ids)s",
+                                { 'ids': tuple( w.id for w in wcses ) } )
+            if len(bgs) > 0:
+                cursor.execute( "DELETE FROM backgrounds WHERE _id IN %(ids)s",
+                                { 'ids': tuple( b.id for b in bgs ) } )
+            if len(sls) > 0:
+                cursor.execute( "DELETE FROM source_lists WHERE _id IN %(ids)s",
+                                { 'ids': tuple( s.id for s in sls ) } )
+            conn.commit()
 
 
 def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, provenance_extra):
     im1 = None
+    im1sl = None
+    im1bg = None
+    im1wcs = None
+    im1zp = None
+
     im2 = None
-    refsl = None
+    im2sl = None
+    im2bg = None
+    im2wcs = None
+    im2zp = None
+
     ref = None
     im = None
-    refprov = None
     try:
         sim_exposure1.update_instrument()
         sim_exposure2.update_instrument()
@@ -963,31 +933,48 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
         _2 = ImageCleanup.save_image(im2)
         im2.insert()
 
-        # Make a Reference from im1
-        # To do this, we have to make a fake SourceList
-        #   so Reference has something to chew on.
-        refsl = SourceList( image_id=im1.id, num_sources=1, provenance_id=provenance_extra.id,
-                            md5sum=uuid.uuid4(), nofile=True )
-        refsl.filepath = 'foo'
-        refsl.insert()
-        refprov = Provenance( process='manual_reference', code_version_id=provenance_base.code_version_id,
-                              upstreams=[provenance_base, provenance_extra] )
-        refprov.insert_if_needed()
-        ref = Reference( image_id=im1.id, sources_id=refsl.id, provenance_id=refprov.id )
+        # We're gonna (pretend to) do im2 - im1.  We need some (spoofed) image products
+        #   to actually define the subtraction.
+
+        im1sl = SourceList( image_id=im1.id, num_sources=1, provenance_id=provenance_base.id,
+                            filepath='foo_sl1', md5sum=uuid.uuid4() )
+        im1sl.insert()
+        im1bg = Background( sources_id=im1sl.id, format='scalar', value=0., noise=1., provenance_id=provenance_base.id,
+                            filepath='foo_bg1', md5sum=uuid.uuid4() )
+        im1bg.insert()
+        im1wcs = WorldCoordinates( sources_id=im1sl.id, provenance_id=provenance_base.id,
+                                   filepath='foo_wcs1', md5sum=uuid.uuid4() )
+        im1wcs.insert()
+        im1zp = ZeroPoint( wcs_id=im1wcs.id, background_id=im1bg.id, zp=25., dzp=0.1, provenance_id=provenance_base.id )
+        im1zp.insert()
+
+        im2sl = SourceList( image_id=im2.id, num_sources=1, provenance_id=provenance_base.id,
+                            filepath='foo_sl2', md5sum=uuid.uuid4() )
+        im2sl.insert()
+        im2bg = Background( sources_id=im2sl.id, format='scalar', value=0., noise=1., provenance_id=provenance_base.id,
+                            filepath='foo_bg2', md5sum=uuid.uuid4() )
+        im2bg.insert()
+        im2wcs = WorldCoordinates( sources_id=im2sl.id, provenance_id=provenance_base.id,
+                                   filepath='foo_wcs2', md5sum=uuid.uuid4() )
+        im2wcs.insert()
+        im2zp = ZeroPoint( wcs_id=im2wcs.id, background_id=im2bg.id, zp=25., dzp=0.1, provenance_id=provenance_base.id )
+        im2zp.insert()
+
+        ref = Reference( zp_id=im1zp.id, provenance_id=provenance_extra.id )
         ref.insert()
 
         # make a subtraction image from the two
-        im = Image.from_ref_and_new(ref, im2)
+        im = Image.from_ref_and_new(ref, im2zp)
 
         assert im._id is None
         assert im.exposure_id is None
         assert im.ref_id == ref.id
-        assert im.new_image_id == im2.id
+        assert im.new_zp_id == im2zp.id
+        assert im.coadd_component_zp_ids == []
         assert im.mjd == im2.mjd
         assert im.exp_time == im2.exp_time
         assert im.is_sub
         assert not im.is_coadd
-        assert im.upstream_image_ids == [ im1.id, im2.id ]
 
         im.provenance_id = provenance_base.id
         _3 = ImageCleanup.save_image(im)
@@ -998,25 +985,17 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
         assert im.id is not None
         assert im.exposure_id is None
         assert im.ref_id == ref.id
-        assert im.new_image_id == im2.id
+        assert im.new_zp_id == im2zp.id
         assert im.mjd == im2.mjd
         assert im.exp_time == im2.exp_time
-        assert im.upstream_image_ids == [ im1.id, im2.id ]
 
     finally:
-        with SmartSession() as session:
-            if im is not None:
-                session.execute( sa.text( "DELETE FROM images WHERE _id=:id" ), { 'id': im.id } )
-            if ref is not None:
-                session.execute( sa.text( "DELETE FROM refs WHERE _id=:id" ), { 'id': ref.id } )
-            if refsl is not None:
-                session.execute( sa.text( "DELETE FROM source_lists WHERE _id=:id" ), { 'id': refsl.id } )
-            for i in [ im1, im2 ]:
-                if i is not None:
-                    session.execute( sa.text( "DELETE FROM images WHERE _id=:id" ), {'id': i.id } )
-            if refprov is not None:
-                session.execute( sa.text( "DELETE FROM provenances WHERE _id=:id" ), { 'id': refprov.id } )
-            session.commit()
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            for obj in [ im, ref, im2zp, im2wcs, im2bg, im2sl, im2, im1zp, im1wcs, im1bg, im1sl, im1 ]:
+                if obj is not None:
+                    cursor.execute( f"DELETE FROM {obj.__tablename__} WHERE _id=%(id)s", { 'id': obj.id } )
+            conn.commit()
 
 
 def test_image_filename_conventions(sim_image1, test_config):

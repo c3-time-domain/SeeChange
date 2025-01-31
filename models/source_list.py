@@ -506,10 +506,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
 
         if zp is None:
-            # Avoid circular imports
-            from models.zero_point import ZeroPoint
-            with SmartSession() as session:
-                zp = session.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
+            # We can't just search the database, because the zp is not necessarily unique.
+            raise RuntimeError( "Must pass a zp to get a limiting magnitude." )
 
         if zp is not None:
             aperture = aperture if aperture is not None else self.best_aper_num
@@ -818,18 +816,14 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with SmartSession(session) as session:
             return session.scalars(sa.select(Image).where(Image._id == self.image_id)).all()
 
-    def get_downstreams(self, session=None, siblings=False):
+    def get_downstreams(self, session=None):
         """Get all the data products that are made using this source list.
-
-        If siblings=True then also include the PSF, Background, WCS, and ZP
-        that were created at the same time as this SourceList.
 
         Only gets immediate downstreams; does not recurse.  (As per the
         docstring in SeeChangeBase.get_downstreams.)
 
         Returns a list of objects (potentially including Background,
-        PSF, WorldCoordinates, ZeroPoint, Cutouts, Image, and Reference
-        objects).
+        PSF, WorldCoordinates, and Cutouts objects).
 
         """
 
@@ -837,73 +831,30 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         from models.background import Background
         from models.psf import PSF
         from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
         from models.cutouts import Cutouts
-        from models.provenance import provenance_self_association_table
-        from models.image import image_coadd_component_table
-        from models.reference import Reference
 
         output = []
         with SmartSession( session ) as sess:
 
-            # Siblings (Background, PSF, WorldCoordinates, ZeroPoint)
-            if siblings:
-                bkg = sess.query( Background ).filter( Background.sources_id==self.id ).first()
-                psf = sess.query( PSF ).filter( PSF.sources_id==self.id ).first()
-                wcs = sess.query( WorldCoordinates ).filter( WorldCoordinates.sources_id==self.id ).first()
-                zp = sess.query( ZeroPoint ).filter( ZeroPoint.sources_id==self.id ).first()
-                for thing in [ bkg, psf, wcs, zp ]:
-                    if thing is not None:
-                        output.append( thing )
+            # PSF (there will only be one)
+            psf = sess.query( PSF ).filter( PSF.sources_id==self.id ).first()
+            if psf is not None:
+                output.append( psf )
+
+            # Backgrounds
+            bkgs = sess.query( Background ).filter( Background.sources_id==self.id ).all()
+            output.extend( list(bkgs) )
+
+            # World Coordinates
+            wcses = sess.query( WorldCoordinates ).filter( WorldCoordinates.sources_id==self.id ).all()
+            output.extend( list(wcses) )
 
             # Cutouts (will only happen if this is a subtraction)
-            co = sess.query( Cutouts ).filter( Cutouts.sources_id==self.id ).first()
-            if co is not None:
-                output.append( co )
-
-            # Coadd images made from this SourceList's parent image,
-            #   which have this SourceList as an upstream.  They're
-            #   not explicitly tracked as downstreams of SourceLists
-            #   (is that a mistake?), so we have to poke into the
-            #   coadd components table and the provenance upstreams
-            #   association table to get the right things.  That's all
-            #   complicated; perhaps it would just be simpler to
-            #   store information more than once and make the SourceLists
-            #   as upstreams of the coadded image, but whatevs.
-            imgs = ( sess.query( Image )
-                     .join( provenance_self_association_table,
-                            provenance_self_association_table.c.downstream_id == Image.provenance_id )
-                     .join( image_coadd_component_table,
-                            image_coadd_component_table.c.coadd_image_id == Image._id )
-                     .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
-                     .filter( image_coadd_component_table.c.image_id == self.image_id )
-                    ).all()
-            output.extend( list(imgs) )
-
-            # Subtraction images made from this SourceList's parent image
-            #   Again, we have to go poking into provenance upstream tables
-            #   because the source list used with the new image for the subtraction
-            #   isn't explicitly an upstream of the subtraction image.  Likewise
-            #   for the Reference.
-            newimgs = ( sess.query( Image )
-                        .join( provenance_self_association_table,
-                               provenance_self_association_table.c.downstream_id == Image.provenance_id )
-                        .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
-                        .filter( Image.new_image_id == self.image_id )
-                       ).all()
-            output.extend( list(newimgs) )
-
-            refs = ( sess.query( Reference )
-                     .join( provenance_self_association_table,
-                            provenance_self_association_table.c.downstream_id == Reference.provenance_id )
-                     .filter( provenance_self_association_table.c.upstream_id == self.provenance_id )
-                     .filter( Reference.image_id == self.image_id )
-                    ).all()
-            output.extend( list(refs) )
+            cos = sess.query( Cutouts ).filter( Cutouts.sources_id==self.id ).all()
+            output.extend( list(cos))
 
         return output
 
-        # return output
 
     def show(self, **kwargs):
         """Show the source positions on top of the image.
@@ -920,60 +871,3 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             raise ValueError("Can't show source list without an image")
         self.image.show(**kwargs)
         plt.plot(self.x, self.y, 'ro', markersize=5, fillstyle='none')
-
-
-# Mixin for Background, PSF, WorldCoordinates, and ZeroPoint
-# Note that because of the Python MRO, this will have to be listed
-# as the *first* superclass, with Base later.
-
-class SourceListSibling:
-    def get_upstreams( self, session=None ):
-        """The only upstream of a SourceList sibling is the SourceList it's associated with.
-
-        If self.id or self.sources_id is None, returns None.
-
-        (That's how we've implemented it, but one could argue the Image is the upstream,
-        since the SourceList is a sibling.)
-
-        """
-
-        if ( self.id is None ) or ( self.sources_id is None ):
-            return []
-
-        from models.source_list import SourceList
-        with SmartSession( session ) as sess:
-            sl = sess.query( SourceList ).filter( SourceList._id==self.sources_id ).first()
-            # Not clear what the right thing to do here is.
-            # Going to return None, because probably what happened is that nothing is actually
-            #   in the database.  However, if there is a sibling in the database but not the
-            #   SourceList, that's an error.  Going to just feel vaguely unsettled about that
-            #   for now and not actually raise an exception.
-            # if sl is None:
-            #     raise RuntimeError( f"Failed to find SourceList {self.sources_id} "
-            #                         f"that goes with Background {self.id}" )
-
-        return [ sl ] if sl is not None else []
-
-    def get_downstreams(self, session=None, siblings=False):
-        """Get the downstreams of this SourceList sibling object.
-
-        If self.id or self.sources_id is None, returns None
-
-        If siblings=True then also include the SourceList, PSF, WCS, and
-        ZP that were created at the same time as this Background.
-
-        The downstreams are identical to the downstreams of the
-        SourceList it's associated with, except the Background (i.e. the
-        thing that's the same row in the database as self) is removed.
-
-        """
-
-        sl = self.get_upstreams( session=session )
-        if len(sl) == 0:
-            return []
-
-        sl = sl[0]
-        dses = sl.get_downstreams( session=session, siblings=siblings )
-        dses = [ d for d in dses if d.id != self.id  ]
-
-        return dses

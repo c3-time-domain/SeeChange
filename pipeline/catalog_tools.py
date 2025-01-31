@@ -236,13 +236,12 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
                             f"mag=({minmag}:{maxmag}) from custom gaia server" )
 
     if ( ( df is None ) and cfg.value( 'catalog_gaiadr3.fallback_datalab' ) ):
-        # SCLogger.error( 'Skipping quering NOIRLab Astro Data Archive for Gaia DR3 stars; '
-        #                 'need to handle RA spanning 0, or verify that noirlab does it right.' )
-        # # Leave this code here for the unspecified future time when we deal with
-        # # ra spanning 0.  For now, we'll hope that the custom gaia dr3 server
-        # # is just working....
-        # if False:
-        if True:
+        SCLogger.error( 'Skipping quering NOIRLab Astro Data Archive for Gaia DR3 stars; '
+                        'need to handle RA spanning 0, or verify that noirlab does it right.' )
+        # Leave this code here for the unspecified future time when we deal with
+        # ra spanning 0.  For now, we'll hope that the custom gaia dr3 server
+        # is just working....
+        if False:
             SCLogger.warning( "NOIRLab Astro Data Archive querying right now doesn't handle RA spanning 0" )
             SCLogger.info( 'Querying NOIRLab Astro Data Archive for Gaia DR3 stars' )
 

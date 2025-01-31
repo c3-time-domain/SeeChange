@@ -7,6 +7,7 @@ from astropy.io import fits
 
 from models.base import FileOnDiskMixin, SmartSession
 from models.image import Image
+from pipeline.data_store import DataStore
 
 from tests.conftest import SKIP_WARNING_TESTS
 
@@ -19,7 +20,9 @@ def test_preprocessing(
     # to Preprocessor.run().  (To avoid committing.)
     preprocessor.pars.test_parameter = uuid.uuid4().hex  # make a new Provenance for this temporary image
     preprocessor.pars.purge_raw_data = False
-    ds = preprocessor.run( decam_exposure, 'S3' )
+    ds = DataStore( decam_exposure, 'S3' )
+    ds.make_prov_tree( ['preprocessing'], { 'preprocessing': preprocessor.pars.get_critical_pars() } )
+    ds = preprocessor.run( ds )
     assert preprocessor.has_recalculated
 
     # TODO: this might not work, because for some filters (g) the fringe correction doesn't happen
@@ -95,15 +98,19 @@ def test_warnings_and_exceptions(decam_exposure, preprocessor, decam_default_cal
     if not SKIP_WARNING_TESTS:
         preprocessor.pars.inject_warnings = 1
 
+        ds = DataStore( decam_exposure, 'S3' )
+        ds.make_prov_tree( ['preprocessing'], { 'preprocessing': preprocessor.pars.get_critical_pars() } )
         with pytest.warns(UserWarning) as record:
-            preprocessor.run(decam_exposure, 'S3')
+            preprocessor.run(ds)
         assert len(record) > 0
         assert any("Warning injected by pipeline parameters in process 'preprocessing'." in str(w.message)
                    for w in record)
 
     preprocessor.pars.inject_warnings = 0
     preprocessor.pars.inject_exceptions = 1
+    ds = DataStore( decam_exposure, 'S3' )
+    ds.make_prov_tree( ['preprocessing'], { 'preprocessing': preprocessor.pars.get_critical_pars() } )
     with pytest.raises(Exception) as excinfo:
-        ds = preprocessor.run(decam_exposure, 'S3')
+        ds = preprocessor.run(ds)
         ds.reraise()
     assert "Exception injected by pipeline parameters in process 'preprocessing'." in str(excinfo.value)

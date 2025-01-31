@@ -14,7 +14,7 @@ from models.background import Background
 from models.source_list import SourceList
 
 
-def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code_version):
+def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code_version, provenance_extra):
     image = decam_raw_image
     sources = None
     prov = None
@@ -51,12 +51,13 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             sources_id=sources.id,
             value=bg_mean,
             noise=np.sqrt(bg_var),
-            image_shape=image.data.shape
+            image_shape=image.data.shape,
+            provenance_id=provenance_extra.id
         )
-        b1.save( image=image, sources=sources )
+        b1.save( image=image )
 
         # check the filename contains the provenance hash
-        assert prov.id[:6] in b1.get_fullpath()
+        assert provenance_extra.id[:6] in b1.get_fullpath()
 
         # check that the file contains what we expect:
         with h5py.File(b1.get_fullpath(), 'r') as f:
@@ -80,11 +81,12 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
             noise=np.sqrt(bg_var),
             counts=rng.normal(bg_mean, 1, size=(10, 10)),
             variance=rng.normal(bg_var, 1, size=(10, 10)),
-            image_shape=image.data.shape
+            image_shape=image.data.shape,
+            provenance_id=provenance_extra.id
         )
 
         with pytest.raises(RuntimeError, match='Counts shape .* does not match image shape .*'):
-            b2.save( image=image, sources=sources )
+            b2.save( image=image )
 
         # use actual background measurements so we can get a realistic estimate of the compression
         back = sep.Background(image.data)
@@ -92,12 +94,12 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
         b2.variance = back.rms() ** 2
 
         t0 = time.perf_counter()
-        b2.save( image=image, sources=sources )
+        b2.save( image=image )
         # print(f'Background save time: {time.perf_counter() - t0:.3f} s')
         # print(f'Background file size: {os.path.getsize(b2.get_fullpath()) / 1024 ** 2:.3f} MB')
 
         # check the filename contains the provenance hash
-        assert prov.id[:6] in b2.get_fullpath()
+        assert provenance_extra.id[:6] in b2.get_fullpath()
 
         # check that the file contains what we expect:
         with h5py.File(b2.get_fullpath(), 'r') as f:

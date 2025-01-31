@@ -107,25 +107,22 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
     astrometor.pars.crossid_radii = [2.0]
     astrometor.pars.min_frac_matched = 0.1
     astrometor.pars.min_matched_stars = 10
-    astrometor.pars.test_parameter = uuid.uuid4().hex  # make sure it gets a different Provenance
 
     # The datastore should object when it tries to get the provenance for astrometor
     # params that don't match what we started with
-    with pytest.raises( ValueError, match=( "DataStore getting provenance for extraction whose parameters "
-                                            "don't match the parameters of the same process in the prov_tree" ) ):
+    with pytest.raises( ValueError, match=( "Passed pars_dict does not match parameters for "
+                                            "internal provenance of wcs" ) ):
         ds = astrometor.run(ds)
 
-    # Wipe the datastore prov_tree so that we can
-    #   run something with paramaters that are
-    #   different from what's in there.
-    # (This is doing it "wrong", because we're now
-    #   going to generate a WCS in the datastore
-    #   whose provenance is different from the
-    #   provenance of sources.  Doing that for this
-    #   test here, but the production pipeline should
-    #   never do that.  (Not setting ds.prov_tree to
-    #   None would have caught that in this case.))
-    ds.prov_tree = None
+    # Update the datastore's prov_tree so that it has the provenance we
+    #   want for astrometor.  Unset the datastore's provtag because
+    #   we're kind of cheating here.  (If you're going to edit
+    #   the provenance tree like this, you shouldn't have set
+    #   a provenance tag in the first place, but the fixture did.)
+    ds._provtag = None
+    ds.edit_prov_tree( 'wcs', astrometor.pars.get_critical_pars() )
+
+    # And now run
     ds = astrometor.run(ds)
 
     assert astrometor.has_recalculated
@@ -204,12 +201,10 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
 
 def test_warnings_and_exceptions(decam_datastore, astrometor):
 
-    # Wipe the datastore's prov_tree so we get the exceptions we're looking for,
-    #   not an exception about a provenance parameters mismatch.
-    decam_datastore.prov_tree = None
-
     if not SKIP_WARNING_TESTS:
         astrometor.pars.inject_warnings = 1
+        decam_datastore._provtag = None
+        decam_datastore.edit_prov_tree( 'wcs', astrometor.pars.get_critical_pars() )
         with pytest.warns(UserWarning) as record:
             astrometor.run(decam_datastore)
         assert len(record) > 0
@@ -217,5 +212,7 @@ def test_warnings_and_exceptions(decam_datastore, astrometor):
 
     astrometor.pars.inject_warnings = 0
     astrometor.pars.inject_exceptions = 1
+    decam_datastore._provtag = None
+    decam_datastore.edit_prov_tree( 'wcs', astrometor.pars.get_critical_pars() )
     with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'astrocal'."):
         _ = astrometor.run(decam_datastore)

@@ -5,7 +5,7 @@ import warnings
 import sqlalchemy as sa
 
 from pipeline.parameters import Parameters
-from pipeline.data_store import DataStore, UPSTREAM_STEPS
+from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
 from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
@@ -17,10 +17,7 @@ from pipeline.measuring import Measurer
 from pipeline.scoring import Scorer
 
 from models.base import SmartSession
-from models.provenance import CodeVersion, Provenance, ProvenanceTag
-from models.refset import RefSet
 from models.exposure import Exposure
-from models.image import Image
 from models.report import Report
 
 from util.config import Config
@@ -31,15 +28,12 @@ from util.util import env_as_bool
 # if multiple objects are used in one step, replace the string with a sub-dictionary,
 # where the sub-dictionary keys are the keywords inside the expected critical parameters
 # that come from all the different objects.
-PROCESS_OBJECTS = {
+_PROCESS_OBJECTS = {
     'preprocessing': 'preprocessor',
-    'extraction': {
-        'sources': 'extractor',
-        'psf': 'extractor',
-        'bg': 'backgrounder',
-        'wcs': 'astrometor',
-        'zp': 'photometor',
-    },
+    'extraction': 'extractor',
+    'bg': 'backgrounder',
+    'wcs': 'astrometor',
+    'zp': 'photometor',
     'subtraction': 'subtractor',
     'detection': 'detector',
     'cutting': 'cutter',
@@ -128,7 +122,7 @@ class ParsPipeline(Parameters):
 
 
 class Pipeline:
-    ALL_STEPS = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp', 'subtraction',
+    ALL_STEPS = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp', 'subtraction',
                   'detection', 'cutting', 'measuring', 'scoring', ]
 
     def __init__(self, **kwargs):
@@ -145,41 +139,29 @@ class Pipeline:
         self.preprocessor = Preprocessor(**preprocessing_config)
 
         # source detection ("extraction" for the regular image!)
-        extraction_config = config.value('extraction.sources', {})
-        extraction_config.update(kwargs.get('extraction', {}).get('sources', {}))
+        extraction_config = config.value('extraction', {})
+        extraction_config.update(kwargs.get('extraction', {}))
         extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
         # background estimation using either sep or other methods
-        background_config = config.value('extraction.bg', {})
-        background_config.update(kwargs.get('extraction', {}).get('bg', {}))
+        background_config = config.value('backgrounding', {})
+        background_config.update(kwargs.get('backgrounding', {}))
         self.pars.add_defaults_to_dict(background_config)
         self.backgrounder = Backgrounder(**background_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometor_config = config.value('extraction.wcs', {})
-        astrometor_config.update(kwargs.get('extraction', {}).get('wcs', {}))
+        astrometor_config = config.value('wcs', {})
+        astrometor_config.update(kwargs.get('wcs', {}))
         self.pars.add_defaults_to_dict(astrometor_config)
         self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photometor_config = config.value('extraction.zp', {})
-        photometor_config.update(kwargs.get('extraction', {}).get('zp', {}))
+        photometor_config = config.value('zp', {})
+        photometor_config.update(kwargs.get('zp', {}))
         self.pars.add_defaults_to_dict(photometor_config)
         self.photometor = PhotCalibrator(**photometor_config)
-
-        # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
-        siblings = {
-            'sources': self.extractor.pars,
-            'bg': self.backgrounder.pars,
-            'wcs': self.astrometor.pars,
-            'zp': self.photometor.pars,
-        }
-        self.extractor.pars.add_siblings(siblings)
-        self.backgrounder.pars.add_siblings(siblings)
-        self.astrometor.pars.add_siblings(siblings)
-        self.photometor.pars.add_siblings(siblings)
 
         # reference fetching and image subtraction
         subtraction_config = config.value('subtraction', {})
@@ -218,25 +200,25 @@ class Pipeline:
     def override_parameters(self, **kwargs):
         """Override some of the parameters for this object and its sub-objects, using Parameters.override(). """
         for key, value in kwargs.items():
-            if key in PROCESS_OBJECTS:
-                if isinstance(PROCESS_OBJECTS[key], dict):
-                    for sub_key, sub_value in PROCESS_OBJECTS[key].items():
+            if key in _PROCESS_OBJECTS:
+                if isinstance(_PROCESS_OBJECTS[key], dict):
+                    for sub_key, sub_value in _PROCESS_OBJECTS[key].items():
                         if sub_key in value:
                             getattr(self, sub_value).pars.override(value[sub_key])
-                elif isinstance(PROCESS_OBJECTS[key], str):
-                    getattr(self, PROCESS_OBJECTS[key]).pars.override(value)
+                elif isinstance(_PROCESS_OBJECTS[key], str):
+                    getattr(self, _PROCESS_OBJECTS[key]).pars.override(value)
             else:
                 self.pars.override({key: value})
 
     def augment_parameters(self, **kwargs):
         """Add some parameters to this object and its sub-objects, using Parameters.augment(). """
         for key, value in kwargs.items():
-            if key in PROCESS_OBJECTS:
-                getattr(self, PROCESS_OBJECTS[key]).pars.augment(value)
+            if key in _PROCESS_OBJECTS:
+                getattr(self, _PROCESS_OBJECTS[key]).pars.augment(value)
             else:
                 self.pars.augment({key: value})
 
-    def setup_datastore(self, *args, no_provtag=False, ok_no_ref_provs=False, **kwargs):
+    def setup_datastore(self, *args, no_provtag=False, ok_no_ref_prov=False, **kwargs):
         """Initialize a datastore, including an exposure and a report, to use in the pipeline run.
 
         Will raise an exception if there is no valid Exposure,
@@ -265,7 +247,7 @@ class Pipeline:
             verify that all the provenances in the created provenance
             tree are what's tagged.
 
-          ok_no_ref_provs: bool, default False
+          ok_no_ref_prov: bool, default False
             Normally, if a refeset can't be found, or no image
             provenances associated with that refset can be found, an
             execption will be raised.  Set this to True to indicate that
@@ -280,24 +262,25 @@ class Pipeline:
         ds : DataStore
             The DataStore object that was created or loaded.
 
-        session: sqlalchemy.orm.session.Session
-            An optional session. If not given, this will be None.  You usually don't want to give this.
-
         """
-        ds, session = DataStore.from_args(*args, **kwargs)
+        ds = DataStore.from_args(*args, **kwargs)
 
-        if ds.exposure is None:
-            raise RuntimeError('Cannot run this pipeline method without an exposure!')
-
-        # Make sure exposure is in DB
-        if Exposure.get_by_id( ds.exposure.id ) is None:
-            raise RuntimeError( "Exposure must be loaded into the database." )
+        if ds.exposure is not None:
+            if Exposure.get_by_id( ds.exposure.id ) is None:
+                raise RuntimeError( "Exposure must be loaded into the database." )
+        elif ds.image is not None:
+            # ...I think it's OK if image isn't in the database?  Maybe?
+            # if Image.get_by_id( ds.image.id ) is None:
+            #     raise RuntimeError( "Image must be loaded into the database." )
+            pass
+        else:
+            raise RuntimeError( "Datastore must have either an image or an exposure" )
 
         try:  # create (and commit, if not existing) all provenances for the products
-            provs = self.make_provenance_tree( ds.exposure,
+            provs = self.make_provenance_tree( ds,
                                                no_provtag=no_provtag,
-                                               ok_no_ref_provs=ok_no_ref_provs )
-            ds.prov_tree = provs
+                                               ok_no_ref_prov=ok_no_ref_prov,
+                                               all_steps=self.pars.generate_report )
         except Exception as e:
             raise RuntimeError( f'Failed to create the provenance tree: {str(e)}' ) from e
 
@@ -307,12 +290,12 @@ class Pipeline:
                 report = Report( exposure_id=ds.exposure.id, section_id=ds.section_id )
                 report.start_time = datetime.datetime.now( tz=datetime.UTC )
                 report.provenance_id = provs['report'].id
-                with SmartSession(session) as dbsession:
+                with SmartSession() as dbsession:
                     # check how many times this report was generated before
                     prev_rep = dbsession.scalars(
                         sa.select(Report).where(
                             Report.exposure_id == ds.exposure.id,
-                            Report.section_id == ds.section_id,
+                            Report.section_id == str( ds.section_id ),
                             Report.provenance_id == provs['report'].id,
                         )
                     ).all()
@@ -322,22 +305,133 @@ class Pipeline:
                 if report.exposure_id is None:
                     raise RuntimeError('Report did not get a valid exposure_id!')
             except Exception as e:
+                import pdb; pdb.set_trace()
                 raise RuntimeError('Failed to create or merge a report for the exposure!') from e
 
             ds.report = report
         else:
             ds.report = None
 
-        return ds, session
+        return ds
 
 
     def _get_stepstodo( self ):
-        stepstodo = self.ALL_STEPS
+        stepstodo = self.ALL_STEPS.copy()
         if self.pars.through_step is not None:
             if self.pars.through_step not in stepstodo:
                 raise ValueError( f"Unknown through_step: \"{self.pars.through_step}\"" )
             stepstodo = stepstodo[ :stepstodo.index(self.pars.through_step)+1 ]
         return stepstodo
+
+
+    def get_critical_pars_dicts( self ):
+        # The contents of this dictionary must be synced with _PROCESS_OBJECTS above.
+        return { 'preprocessing': self.preprocessor.pars.get_critical_pars(),
+                 'extraction': self.extractor.pars.get_critical_pars(),
+                 'backgrounding': self.backgrounder.pars.get_critical_pars(),
+                 'wcs': self.astrometor.pars.get_critical_pars(),
+                 'zp': self.photometor.pars.get_critical_pars(),
+                 'subtraction': self.subtractor.pars.get_critical_pars(),
+                 'detection': self.detector.pars.get_critical_pars(),
+                 'cutting': self.cutter.pars.get_critical_pars(),
+                 'measuring': self.measurer.pars.get_critical_pars(),
+                 'scoring': self.scorer.pars.get_critical_pars(),
+                 'report': {}
+                }
+
+    def make_provenance_tree( self,
+                              ds,
+                              no_provtag=False,
+                              ok_no_ref_prov=False,
+                              all_steps=False ):
+        """Create provenances for all steps in the pipeline.
+
+        Use the current configuration of the pipeline and all the
+        objects it has to generate the provenances for all the
+        processing steps by calling ds.make_prov_tree()
+
+        Start from either an Exposure or an Image; the provenance for
+        the starting object must already be in the database.
+
+        (Note that if starting from an Image, we just use that Image's
+        provenance without verifying that it's consistent with the
+        parameters of the preprocessing step of the pipeline.  Most of
+        the time, you want to start with an exposure (hence the name of
+        the parameter), as that's how the pipeline is designed.
+        However, at least in some tests we use this starting with an
+        Image.)
+
+        Parameters
+        ----------
+        ds : DataStore
+            The DataStore to make the provenance tree in.  Will use
+            either the exposure or the image that's in this DataStore.
+            In either case, the object's provenance must already be in
+            the database.  If there is no exposure in the DataStore,
+            only an image, then no report will be generated even if the
+            generate_report parameter is True, because reports are
+            linked to exposures.
+
+        no_provtag: bool, default False
+            If True, won't create a provenance tag, and won't ensure
+            that the provenances created match the provenance_tag
+            parameter to the pipeline.  If False, will create the
+            provenance tag if it doesn't exist.  If it does exist, will
+            verify that all the provenances in the created provenance
+            tree are what's tagged.
+
+        ok_no_ref_prov: bool, default False
+            Normally, if a refeset can't be found, or no image
+            provenances associated with that refset can be found, an
+            execption will be raised.  Set this to True to indicate that
+            that's OK; in that case, the returned prov_tree will not
+            have any provenances for steps other than preprocessing and
+            extraction.
+
+        all_steps: bool, default False
+            Normally, will only generate provenances up to the
+            through_step parameter of this Pipeline.  If this is True,
+            it will try to generate provenances for all steps.  (If this
+            is True and the DataStore can't find a reference, then an
+            exception will be raised.)  As a side effect, if all_steps
+            is not True and the through_step parameter isn't the
+            last parameter in Pipeline.ALL_STEPS, then no report
+            will be generated (because we don't know the provenance
+            for it!).
+
+        Returns
+        -------
+        ProvenanceTree
+            A map of all the provenances that were created in this
+            function, keyed according to the different steps in the
+            pipeline.  (ds.prov_tree will be set to this same value.)
+
+        """
+
+        if not isinstance( ds, DataStore ):
+            raise TypeError( "First argument to make_provenance_tree must be a DataStore." )
+
+        if all_steps:
+            stepstogenerateprov = self.ALL_STEPS.copy()
+        else:
+            stepstogenerateprov = self._get_stepstodo()
+
+        if ( stepstogenerateprov == self.ALL_STEPS ) and ( self.pars.generate_report ):
+            stepstogenerateprov.append( 'report' )
+
+        parsdict = self.get_critical_pars_dicts()
+        ds.make_prov_tree( stepstogenerateprov, parsdict,
+                           provtag=None if no_provtag else self.pars.provenance_tag,
+                           ok_no_ref_prov=ok_no_ref_prov )
+
+        if 'report' not in ds.prov_tree:
+            if self.pars.generate_report:
+                SCLogger.warning( "generate_report is true but no report will be generated!" )
+                self._generate_report = False
+            else:
+                self._generate_report = True
+
+        return ds.prov_tree
 
 
     def run(self, *args, **kwargs):
@@ -349,10 +443,7 @@ class Pipeline:
         Parameters
         ----------
         Inputs should include the exposure and section_id, or a datastore
-        with these things already loaded. If a session is passed in as
-        one of the arguments, it will be used as a single session for
-        running the entire pipeline (instead of opening and closing
-        sessions where needed).
+        with these things already loaded.
 
         Returns
         -------
@@ -363,10 +454,7 @@ class Pipeline:
 
         ds = None
         try:
-            ds, session = self.setup_datastore(*args, **kwargs)
-            if session is not None:
-                raise RuntimeError( "You have a persistent session in Pipeline.run; don't do that." )
-
+            ds = self.setup_datastore(*args, **kwargs)
             stepstodo = self._get_stepstodo()
 
             if ds.image is not None:
@@ -391,41 +479,41 @@ class Pipeline:
 
                 if 'preprocessing' in stepstodo:
                     SCLogger.info("preprocessor")
-                    ds = self.preprocessor.run(ds, session)
-                    ds.update_report('preprocessing', session=None)
+                    ds = self.preprocessor.run(ds)
+                    ds.update_report('preprocessing')
                     SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
 
                 # extract sources and make a SourceList and PSF from the image
                 if 'extraction' in stepstodo:
                     SCLogger.info(f"extractor for image id {ds.image.id}")
-                    ds = self.extractor.run(ds, session)
-                    ds.update_report('extraction', session=None)
+                    ds = self.extractor.run(ds)
+                    ds.update_report('extraction')
 
                 # find the background for this image
                 if 'backgrounding' in stepstodo:
                     SCLogger.info(f"backgrounder for image id {ds.image.id}")
-                    ds = self.backgrounder.run(ds, session)
-                    ds.update_report('backgrounding', session=None)
+                    ds = self.backgrounder.run(ds)
+                    ds.update_report('backgrounding')
 
                 # find astrometric solution, save WCS into Image object and FITS headers
                 if 'wcs' in stepstodo:
                     SCLogger.info(f"astrometor for image id {ds.image.id}")
-                    ds = self.astrometor.run(ds, session)
-                    ds.update_report('astrocal', session=None)
+                    ds = self.astrometor.run(ds)
+                    ds.update_report('astrocal')
 
                 # cross-match against photometric catalogs and get zero point, save into Image object and FITS headers
                 if 'zp' in stepstodo:
                     SCLogger.info(f"photometor for image id {ds.image.id}")
-                    ds = self.photometor.run(ds, session)
-                    ds.update_report('photocal', session=None)
+                    ds = self.photometor.run(ds)
+                    ds.update_report('photocal')
 
                 if self.pars.save_before_subtraction:
                     t_start = time.perf_counter()
                     try:
                         SCLogger.info(f"Saving intermediate image for image id {ds.image.id}")
-                        ds.save_and_commit(session=session)
+                        ds.save_and_commit()
                     except Exception as e:
-                        ds.update_report('save intermediate', session=None)
+                        ds.update_report('save intermediate')
                         SCLogger.error(f"Failed to save intermediate image for image id {ds.image.id}")
                         SCLogger.error(e)
                         raise e
@@ -435,40 +523,40 @@ class Pipeline:
                 # fetch reference images and subtract them, save subtracted Image objects to DB and disk
                 if 'subtraction' in stepstodo:
                     SCLogger.info(f"subtractor for image id {ds.image.id}")
-                    ds = self.subtractor.run(ds, session)
-                    ds.update_report('subtraction', session=None)
+                    ds = self.subtractor.run(ds)
+                    ds.update_report('subtraction')
 
                 # find sources, generate a source list for detections
                 if 'detection' in stepstodo:
                     SCLogger.info(f"detector for image id {ds.image.id}")
-                    ds = self.detector.run(ds, session)
-                    ds.update_report('detection', session=None)
+                    ds = self.detector.run(ds)
+                    ds.update_report('detection')
 
                 # make cutouts of all the sources in the "detections" source list
                 if 'cutting' in stepstodo:
                     SCLogger.info(f"cutter for image id {ds.image.id}")
-                    ds = self.cutter.run(ds, session)
-                    ds.update_report('cutting', session=None)
+                    ds = self.cutter.run(ds)
+                    ds.update_report('cutting')
 
                 # extract photometry and analytical cuts
                 if 'measuring' in stepstodo:
                     SCLogger.info(f"measurer for image id {ds.image.id}")
-                    ds = self.measurer.run(ds, session)
-                    ds.update_report('measuring', session=None)
+                    ds = self.measurer.run(ds)
+                    ds.update_report('measuring')
 
                 # measure deep learning models on the cutouts/measurements
                 if 'scoring' in stepstodo:
                     SCLogger.info(f"scorer for image id {ds.image.id}")
-                    ds = self.scorer.run(ds, session)
-                    ds.update_report('scoring', session=None)
+                    ds = self.scorer.run(ds)
+                    ds.update_report('scoring')
 
                 if self.pars.save_at_finish and ( 'subtraction' in stepstodo ):
                     t_start = time.perf_counter()
                     try:
                         SCLogger.info(f"Saving final products for image id {ds.image.id}")
-                        ds.save_and_commit(session=session)
+                        ds.save_and_commit()
                     except Exception as e:
-                        ds.update_report('save final', session)
+                        ds.update_report('save final')
                         SCLogger.error(f"Failed to save final products for image id {ds.image.id}")
                         SCLogger.error(e)
                         raise e
@@ -487,206 +575,3 @@ class Pipeline:
             if ds is not None:
                 ds.exceptions.append( e )
             raise
-
-    def make_provenance_tree( self,
-                              exposure,
-                              overrides=None,
-                              no_provtag=False,
-                              add_missing_processes_to_provtag=True,
-                              ok_no_ref_provs=False ):
-        """Create provenances for all steps in the pipeline.
-
-        Use the current configuration of the pipeline and all the
-        objects it has to generate the provenances for all the
-        processing steps.
-
-        If self.pars.generate_report is False, will not generate a
-        reporting provenance.  In this case, will also only generate
-        provenances for steps through self.pars.through_step.  If
-        self.pars.generate_report is True, will generate a provenance
-        for all steps regardless of self.pars.through_step (as they're
-        all needed for upstreams for the report).
-
-        Even if self.pars.generate_report is True, if ok_no_ref_provs is
-        True and no reference provenances are found, still will not
-        generate a report provenance, and reporting won't work.  (Again,
-        this is so we don't generate a report provenance that's wrong,
-        i.e. that doesn't include the reference step.)  Flags this
-        internally by setting self._generate_report to False.
-
-        Start from either an Exposure or an Image; the provenance for
-        the starting object must already be in the database.
-
-        (Note that if starting from an Image, we just use that Image's
-        provenance without verifying that it's consistent with the
-        parameters of the preprocessing step of the pipeline.  Most of
-        the time, you want to start with an exposure (hence the name of
-        the parameter), as that's how the pipeline is designed.
-        However, at least in some tests we use this starting with an
-        Image.)
-
-        Parameters
-        ----------
-        exposure : Exposure or Image
-            The exposure to use to get the initial provenance.
-            Alternatively, can be a preprocessed Image.  In either case,
-            the object's provenance must already be in the database.
-
-        overrides: dict, optional
-            A dictionary of provenances to override any of the steps in
-            the pipeline.  For example, set overrides={'preprocessing':
-            prov} to use a specific provenance for the basic Image
-            provenance.
-
-        no_provtag: bool, default False
-            If True, won't create a provenance tag, and won't ensure
-            that the provenances created match the provenance_tag
-            parameter to the pipeline.  If False, will create the
-            provenance tag if it doesn't exist.  If it does exist, will
-            verify that all the provenances in the created provenance
-            tree are what's tagged.
-
-        add_missing_processes_to_provtag: bool, default True
-            If the provenance tag already exists in the database, and
-            the provenance tag for a given provenance does not match the
-            provenance derived by this function for that process, an
-            exception will be raised.  If the provenance tag already
-            exists but there is no current provenance tag for a given
-            process, then if this is True, that provenance will be
-            added; if this is False, an exception will be raised.
-
-        ok_no_ref_provs: bool, default False
-            Normally, if a refeset can't be found, or no image
-            provenances associated with that refset can be found, an
-            execption will be raised.  Set this to True to indicate that
-            that's OK; in that case, the returned prov_tree will not
-            have any provenances for steps other than preprocessing and
-            extraction.
-
-        Returns
-        -------
-        dict
-            A dictionary of all the provenances that were created in this function,
-            keyed according to the different steps in the pipeline.
-            The provenance will all be inserted into the database if necessary.
-
-        """
-        if overrides is None:
-            overrides = {}
-
-        self._generate_report = self.pars.generate_report
-        if not self._generate_report:
-            stepstogenerateprov = self._get_stepstodo()
-        else:
-            stepstogenerateprov = self.ALL_STEPS
-
-        code_version = None
-        is_testing = None
-
-        provs = {}
-
-        # Get started with the passed Exposure (usual case) or Image
-        if isinstance( exposure, Exposure ):
-            with SmartSession() as session:
-                exp_prov = Provenance.get( exposure.provenance_id, session=session )
-                code_version = CodeVersion.get_by_id( exp_prov.code_version_id, session=session )
-            provs['exposure'] = exp_prov
-            is_testing  = exp_prov.is_testing
-        elif isinstance( exposure, Image ):
-            exp_prov = None
-            self._generate_report = False
-            with SmartSession() as session:
-                passed_image_provenance = Provenance.get( exposure.provenance_id, session=session )
-                code_version = CodeVersion.get_by_id( passed_image_provenance.code_version_id, session=session )
-            is_testing = passed_image_provenance.is_testing
-        else:
-            raise TypeError( f"The first parameter to make_provenance_tree must be an Exposure or Image, "
-                             f"not a {exposure.__class__.__name__}" )
-
-        # Get the reference
-        ref_prov = None
-        refset_name = self.subtractor.pars.refset
-        if refset_name is None:
-            if not ok_no_ref_provs:
-                raise ValueError( "refset_name is None but ok_no_ref_provs is False; this is inconsistent." )
-            # If no refset is given, then don't try to generate provenances for
-            #   subtraction or anything later.
-            self._generate_report = False
-            stepstogenerateprov = self._get_stepstodo()
-            if 'subtraction' in stepstogenerateprov:
-                stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subtraction') ]
-        else:
-            refset = RefSet.get_by_name( refset_name )
-            if refset is None:
-                if not ok_no_ref_provs:
-                    raise ValueError(f'No reference set with name {refset_name} found in the database!')
-                else:
-                    # No reference, can't do subtraction or later
-                    self._generate_report = False
-                    stepstogenerateprov = self._get_stepstodo()
-                    if 'subtraction' in stepstogenerateprov:
-                        stepstogenerateprov = stepstogenerateprov[ :stepstogenerateprov.index('subtraction') ]
-            else:
-                ref_prov = Provenance.get( refset.provenance_id )
-
-        if ref_prov is not None:
-            provs['referencing'] = ref_prov
-
-        for step in stepstogenerateprov:
-            if step in overrides:
-                # Accept explicit provenances specified by the user as overrides,
-                # even if these are totally screwy and inconsistent.  Users be users.
-                provs[step] = overrides[step]
-            else:
-                # special case handling for 'preprocessing' if we don't have an exposure
-                if ( step == 'preprocessing' ) and exp_prov is None:
-                    provs[step] = passed_image_provenance
-                    passed_image_provenance.insert_if_needed()
-                else:
-                    # Because backgrounding, extraction, wcs, and zp all share
-                    #  a provenance with extraction, don't try to generate
-                    #  provenaces for those steps.
-                    if step in PROCESS_OBJECTS:
-                        # load the parameters from the objects on the pipeline
-                        obj_name = PROCESS_OBJECTS[step]  # translate the step to the object name
-                        if isinstance(obj_name, dict):
-                            # sub-objects, e.g., extraction.sources,
-                            # extraction.wcs, etc.  get the first item
-                            # of the dictionary and hope its pars object
-                            # has siblings defined correctly:
-                            obj_name = obj_name.get( list(obj_name.keys())[0] )
-                        parameters = getattr(self, obj_name).pars.get_critical_pars()
-
-                        # figure out which provenances go into the upstreams for this step
-                        up_steps = UPSTREAM_STEPS[step]
-                        if isinstance(up_steps, str):
-                            up_steps = [up_steps]
-                        upstream_provs = [ provs[u] for u in up_steps ]
-
-                        provs[step] = Provenance(
-                            code_version_id=code_version.id,
-                            process=step,
-                            parameters=parameters,
-                            upstreams=upstream_provs,
-                            is_testing=is_testing,
-                        )
-                        provs[step].insert_if_needed()
-
-        # Make the report provenance
-        if self._generate_report:
-            provs['report'] = Provenance(
-                process='report',
-                code_version_id=code_version.id,
-                parameters={},
-                upstreams=[ provs[ self.ALL_STEPS[-1] ] ],
-                is_testing=is_testing
-            )
-            provs['report'].insert_if_needed()
-
-        # Set the provenance tag if requested.
-        # (Chances are it's already set, but somebody will be first.)
-        if not no_provtag:
-            ProvenanceTag.addtag( self.pars.provenance_tag, provs.values(),
-                                  add_missing_processes_to_provtag=add_missing_processes_to_provtag )
-
-        return provs

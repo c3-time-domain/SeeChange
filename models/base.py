@@ -781,13 +781,8 @@ class SeeChangeBase:
         """Get all data products that were directly used to create this object (non-recursive)."""
         raise NotImplementedError( f'get_upstreams not implemented for this {self.__class__.__name__}' )
 
-    def get_downstreams(self, session=None, siblings=True):
-        """Get all data products that were created directly from this object (non-recursive).
-
-        This optionally includes siblings: data products that are co-created in the same pipeline step
-        and depend on one another. E.g., a source list and psf have an image upstream and a (subtraction?) image
-        as a downstream, but they are each other's siblings.
-        """
+    def get_downstreams(self, session=None):
+        """Get all data products that were created directly from this object (non-recursive)."""
         raise NotImplementedError( f'get_downstreams not implemented for {self.__class__.__name__}' )
 
 
@@ -2092,7 +2087,8 @@ class FourCorners:
         return cls.find_containing( ra, dec, session=session )
 
     @classmethod
-    def _find_possibly_containing_temptable( cls, ra, dec, session, prov_id=None ):
+    def _find_possibly_containing_temptable( cls, ra, dec, session, prov_id=None,
+                                             fromclause=None, provtable='i' ):
         """Internal.
 
         Looks for all cls objects where ra, dec is between minra:maxra,
@@ -2112,7 +2108,16 @@ class FourCorners:
              Required here, otherwise the temp table would be useless.
 
           prov_id : str, list of str, or None
-             If not None, search for objects with this provenance, or any of these provenances if a list.
+             If not None, search for objects with this provenance, or
+             any of these provenances if a list.
+
+          fromclause : str, default None
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
+
+          provtable : str, default 'i'
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
 
         """
         session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_containing" ) )
@@ -2123,26 +2128,29 @@ class FourCorners:
 
         query = ( "SELECT i._id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
                   "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
-                  "INTO TEMP TABLE temp_find_containing "
-                  f"FROM {cls.__tablename__} i "
-                  "WHERE ( "
-                  "  ( maxdec >= :dec AND mindec <= :dec ) "
-                  "  AND ( "
-                  "    ( (maxra > minra ) AND "
-                  "      ( maxra >= :ra AND minra <= :ra ) )"
-                  "    OR "
-                  "    ( ( maxra < minra ) AND "
-                  "      ( ( maxra >= :ra OR :ra > 180. ) AND ( minra <= :ra OR :ra <= 180. ) ) )"
-                  "  )"
-                  ")"
-                 )
+                  "INTO TEMP TABLE temp_find_containing " )
+        if fromclause is not None:
+            query += fromclause + " "
+        else:
+            query += f"FROM {cls.__tablename__} i "
+        query += ( "WHERE ( "
+                   "  ( i.maxdec >= :dec AND i.mindec <= :dec ) "
+                   "  AND ( "
+                   "    ( (i.maxra > i.minra ) AND "
+                   "      ( maxra >= :ra AND minra <= :ra ) )"
+                   "    OR "
+                   "    ( ( i.maxra < i.minra ) AND "
+                   "      ( ( i.maxra >= :ra OR :ra > 180. ) AND ( i.minra <= :ra OR :ra <= 180. ) ) )"
+                   "  )"
+                   ")"
+                  )
         subdict = { "ra": ra, "dec": dec }
         if prov_id is not None:
             if isinstance( prov_id, str ):
-                query += " AND provenance_id=:prov"
+                query += f" AND {provtable}.provenance_id=:prov"
                 subdict['prov'] = prov_id
             elif isinstance( prov_id, list ):
-                query += " AND provenance_id IN :prov"
+                query += f" AND {provtable}.provenance_id IN :prov"
                 subdict['prov'] = tuple( prov_id )
             else:
                 raise TypeError( "prov_id must be a a str or a list of str" )
@@ -2194,7 +2202,8 @@ class FourCorners:
             return objs
 
     @classmethod
-    def _find_potential_overlapping_temptable( cls, fcobj, session, prov_id=None ):
+    def _find_potential_overlapping_temptable( cls, fcobj, session, prov_id=None,
+                                               fromclause=None, provtable='i' ):
         """Internal.
 
         Given a FourCorners object fcobj, will return all objects of
@@ -2217,6 +2226,14 @@ class FourCorners:
              id or ids of the provenance of cls objects to search; if
              None, won't filter on provenance
 
+          fromclause : str, default None
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
+
+          provtable : str, default 'i'
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
+
         """
 
         session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_overlapping" ) )
@@ -2228,37 +2245,40 @@ class FourCorners:
 
         query = ( "SELECT i._id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
                   "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
-                  "INTO TEMP TABLE temp_find_overlapping "
-                  f"FROM {cls.__tablename__} i "
-                  "WHERE ( "
-                  "  ( i.maxdec >= :mindec AND i.mindec <= :maxdec ) "
-                  "  AND "
-                  "  ( ( ( i.maxra >= i.minra AND :maxra >= :minra ) AND "
-                  "      i.maxra >= :minra AND i.minra <= :maxra ) "
-                  "    OR "
-                  "    ( i.maxra < i.minra AND :maxra < :minra ) "   # both include RA=0, will overlap in RA
-                  "    OR "
-                  "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra <= 180. ) AND "
+                  "INTO TEMP TABLE temp_find_overlapping " )
+        if fromclause is not None:
+            query += fromclause + " "
+        else:
+            query += f"FROM {cls.__tablename__} i "
+        query += ( "WHERE ( "
+                   "  ( i.maxdec >= :mindec AND i.mindec <= :maxdec ) "
+                   "  AND "
+                   "  ( ( ( i.maxra >= i.minra AND :maxra >= :minra ) AND "
+                   "      i.maxra >= :minra AND i.minra <= :maxra ) "
+                   "    OR "
+                   "    ( i.maxra < i.minra AND :maxra < :minra ) "   # both include RA=0, will overlap in RA
+                   "    OR "
+                   "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra <= 180. ) AND "
+                   "      i.maxra >= :minra ) "
+                   "    OR "
+                   "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra > 180. ) AND "
+                   "      i.minra <= :maxra ) "
+                   "    OR "
+                   "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra <= 180. ) AND "
+                   "      i.minra <= :maxra ) "
+                   "    OR "
+                   "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra > 180. ) AND "
                   "      i.maxra >= :minra ) "
-                  "    OR "
-                  "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra > 180. ) AND "
-                  "      i.minra <= :maxra ) "
-                  "    OR "
-                  "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra <= 180. ) AND "
-                  "      i.minra <= :maxra ) "
-                  "    OR "
-                  "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra > 180. ) AND "
-                  "      i.maxra >= :minra ) "
-                  "  )"
-                  ") " )
+                   "  )"
+                   ") " )
         subdict = { 'minra': fcobj.minra, 'maxra': fcobj.maxra,
                     'mindec': fcobj.mindec, 'maxdec': fcobj.maxdec }
         if prov_id is not None:
             if isinstance( prov_id, str ):
-                query += " AND provenance_id=:prov"
+                query += f" AND {provtable}.provenance_id=:prov"
                 subdict['prov'] = prov_id
             elif isinstance( prov_id, list ):
-                query += " AND provenance_id IN :prov"
+                query += f" AND {provtable}.provenance_id IN :prov"
                 subdict['prov'] = tuple( prov_id )
             else:
                 raise TypeError( "prov_id must be a a str or a list of str" )
@@ -2548,7 +2568,7 @@ class HasBitFlagBadness:
         self._bitflag = 0
         self._upstream_bitflag = 0
 
-    def update_downstream_badness(self, session=None, commit=True, siblings=True, objbank=None):
+    def update_downstream_badness(self, session=None, commit=True, objbank=None):
         """Send a recursive command to update all downstream objects that have bitflags.
 
         Since this function is called recursively, it always updates the
@@ -2572,12 +2592,6 @@ class HasBitFlagBadness:
 
         commit: bool (default True)
             Whether to commit the changes to the database.
-
-        siblings: bool (default True)
-            Whether to also update the siblings of this object.
-            Default is True. This is usually what you want, but
-            anytime this function calls itself, it uses siblings=False,
-            to avoid infinite recursion.
 
         objbank: dict
             Don't pass this, it's only used internally.
@@ -2627,9 +2641,9 @@ class HasBitFlagBadness:
                 self._upstream_bitflag = merged_self._upstream_bitflag
 
             # recursively do this for all downstream objects
-            for downstream in merged_self.get_downstreams(session=session, siblings=siblings):
+            for downstream in merged_self.get_downstreams(session=session):
                 if hasattr(downstream, 'update_downstream_badness') and callable(downstream.update_downstream_badness):
-                    downstream.update_downstream_badness(session=session, siblings=False, commit=False, objbank=objbank)
+                    downstream.update_downstream_badness(session=session, commit=False, objbank=objbank)
 
             if commit:
                 session.commit()

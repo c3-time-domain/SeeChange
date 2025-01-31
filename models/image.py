@@ -8,7 +8,6 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.exc import IntegrityError
@@ -20,7 +19,7 @@ from astropy.io import fits
 import astropy.coordinates
 import astropy.units as u
 
-from util.util import parse_dateobs, listify
+from util.util import parse_dateobs, listify, asUUID
 from util.fits import read_fits_image, save_fits_image_file
 from util.radec import parse_ra_hms_to_deg, parse_dec_dms_to_deg
 from util.logger import SCLogger
@@ -29,6 +28,7 @@ from models.base import (
     Base,
     SeeChangeBase,
     SmartSession,
+    Psycopg2Connection,
     UUIDMixin,
     FileOnDiskMixin,
     SpatiallyIndexed,
@@ -51,21 +51,6 @@ from models.enums_and_bitflags import (
 import util.config as config
 
 from improc.tools import sigma_clipping
-
-
-# many-to-many link of coadded images to images that went into the coadd
-image_coadd_component_table = sa.Table(
-    'image_coadd_component',
-    Base.metadata,
-    sa.Column('image_id',
-              sqlUUID,
-              sa.ForeignKey('images._id', ondelete="RESTRICT", name='image_coadd_component_image_fkey'),
-              primary_key=True),
-    sa.Column('coadd_image_id',
-              sqlUUID,
-              sa.ForeignKey('images._id', ondelete="CASCADE", name='image_coadd_component_coadd_fkey'),
-              primary_key=True),
-)
 
 
 class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, HasBitFlagBadness):
@@ -126,6 +111,30 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         doc=( "ID of the image that was the alignment target for this coadd image." )
     )
 
+    def _load_coadd_component_zp_ids( self, session=None ):
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            # We have to join back to image in order to get the mjd for sorting
+            cursor.execute( "SELECT z._id FROM zero_points z "
+                            "INNER JOIN image_coadd_component c ON c.zp_id=z._id "
+                            "INNER JOIN world_coordinates w ON w._id=z.wcs_id "
+                            "INNER JOIN source_lists s ON s._id=w.sources_id "
+                            "INNER JOIN images i ON s.image_id=i._id "
+                            "WHERE c.coadd_image_id=%(imid)s "
+                            "ORDER BY i.mjd",
+                            { 'imid': self.id } )
+            zpids = [ asUUID(row[0]) for row in cursor.fetchall() ]
+            if len( zpids ) > 0 and ( not self.is_coadd ):
+                raise RuntimeError( "Database corruption, there are coadd components, but image is not a coadd." )
+            self._coadd_component_zp_ids = zpids
+
+
+    @property
+    def coadd_component_zp_ids( self ):
+        if self._coadd_component_zp_ids is None:
+            self._load_coadd_component_zp_ids()
+        return self._coadd_component_zp_ids
+
     is_sub = sa.Column(
         sa.Boolean,
         nullable=False,
@@ -134,60 +143,38 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         doc='Is this a subtraction image.'
     )
 
-    new_image_id = sa.Column(
-        sa.ForeignKey('images._id', ondelete="RESTRICT", name="images_new_image_id_fkey" ),
-        nullable=True,
-        index=True,
-        doc=( "ID of the new image used to make this difference image.  Should be null unless "
-              "is_sub is True" )
-    )
-
-    ref_id = sa.Column(
-        sa.ForeignKey('refs._id', ondelete="RESTRICT", name='images_ref_id_fkey'),
-        nullable=True,
-        index=True,
-        doc=( "ID of the reference used to produce this image, in the upstream_images list.  "
-              "For subtractions, this is the template image.  For coadditions, this is the alignment target." )
-    )
-
-    def _load_coadd_component_ids( self, session=None ):
-        with SmartSession( session ) as session:
-            them = list ( session.query( image_coadd_component_table.c.image_id,
-                                         Image.mjd )
-                          .join( Image, Image._id == image_coadd_component_table.c.image_id )
-                          .filter( image_coadd_component_table.c.coadd_image_id == self.id )
-                          .all() )
-        # sort component images by mjd
-        them.sort( key=lambda x: x[1] )
-        self._coadd_component_ids = [ t[0] for t in them ]
-        if ( len( self._coadd_component_ids ) > 0 ) and ( not self.is_coadd ):
-            raise RuntimeError( "Database corruption, there are coadd components, but image is not a coadd." )
-
     @property
-    def coadd_component_ids( self ):
-        if self._coadd_component_ids is None:
-            self._load_coadd_component_ids()
-        return self._coadd_component_ids
-
-    @property
-    def upstream_image_ids( self ):
-        if self.is_coadd:
-            return self.coadd_component_ids
-        elif self.is_sub:
-            # Avoid circular import
-            from models.reference import Reference
+    def ref_id( self ):
+        if not self.is_sub:
+            return None
+        if self._ref_id is None:
+            from models.reference import image_subtraction_components
             with SmartSession() as session:
-                if self._ref_image_id is None:
-                    refim = ( session.query( Image )
-                              .join( Reference, Image._id == Reference.image_id )
-                              .filter( Reference._id == self.ref_id ) ).all()
-                    if len(refim) != 1:
-                        raise RuntimeError( f"Database corruption, expected one reference image for sub image, but "
-                                            f"got {len(refim)}" )
-                    self._ref_image_id = refim[0].id
-            return [ self._ref_image_id, self.new_image_id ]
-        else:
-            return []
+                self._ref_id = ( session.query( image_subtraction_components.c.ref_id )
+                                 .filter( image_subtraction_components.c.image_id==self.id )
+                                .scalar() )
+        return self._ref_id
+
+    @ref_id.setter
+    def ref_id( self, val ):
+        raise RuntimeError( "Don't" )
+
+    @property
+    def new_zp_id( self ):
+        if not self.is_sub:
+            return None
+        if self._new_zp_id is None:
+            from models.reference import image_subtraction_components
+            with SmartSession() as session:
+                self._new_zp_id = ( session.query( image_subtraction_components.c.new_zp_id )
+                                    .filter( image_subtraction_components.c.image_id==self.id )
+                                    .scalar() )
+        return self._new_zp_id
+
+    @new_zp_id.setter
+    def new_zp_id( self, val ):
+        raise RuntimeError( "Don't" )
+
 
     _type = sa.Column(
         sa.SMALLINT,
@@ -458,8 +445,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nandata = None  # a copy of the image data, only with NaNs at each flagged point. Lazy calculated.
         self._nanscore = None  # a copy of the image score, only with NaNs at each flagged point. Lazy calculated.
 
-        self._coadd_component_ids = None
+        self._coadd_component_zp_ids = None
+        self._ref_id = None
         self._ref_image_id = None
+        self._new_zp_id = None
 
         self._instrument_object = None
         self._bitflag = 0
@@ -495,8 +484,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nandata = None
         self._nanscore = None
 
-        self._coadd_component_ids = None
+        self._coadd_component_zp_ids = None
+        self._ref_id = None
         self._ref_image_id = None
+        self._new_zp_id = None
 
         self._instrument_object = None
 
@@ -511,7 +502,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return.
 
         This calls UUIDMixin.insert, but also will add to the
-        image_coadd_component_table if this image is a coadd.
+        image_coadd_component_table if this image is a coadd, and to
+        image_subtraction_components if this is a subtraction.
 
         Parameters
         ----------
@@ -526,11 +518,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             # then we won't futz with the image_coadd_component_table.
             SeeChangeBase.insert( self, session=sess )
 
-            if ( self._coadd_component_ids is not None ) and ( len(self._coadd_component_ids) > 0 ):
-                for ui in self._coadd_component_ids:
-                    sess.execute( sa.text( "INSERT INTO image_coadd_component(image_id,coadd_image_id) "
+            if ( self._coadd_component_zp_ids is not None ) and ( len(self._coadd_component_zp_ids) > 0 ):
+                for ui in self._coadd_component_zp_ids:
+                    sess.execute( sa.text( "INSERT INTO image_coadd_component(zp_id,coadd_image_id) "
                                            "VALUES (:them,:me)" ),
                                   { "them": ui, "me": self.id } )
+                sess.commit()
+
+            if ( self._ref_id is not None ) or ( self._new_zp_id is not None ):
+                if ( self._ref_id is None ) or ( self._new_zp_id is None ):
+                    raise RuntimeError( "Either neither or both of _ref_id and _new_zp_id must be None" )
+                sess.execute( sa.text( "INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id) "
+                                       "VALUES (:me,:zp,:ref)" ),
+                              { "me": self.id, "zp": self._new_zp_id, "ref": self._ref_id } )
                 sess.commit()
 
 
@@ -544,10 +544,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             # (I hope that's right.  But, in reality, it's extremely unlikely that two processes
             # will be trying to upsert the same image at the same time.)
 
-            if ( self._coadd_component_ids is not None ) and ( len(self._coadd_component_ids) > 0 ):
+            if ( self._coadd_component_zp_ids is not None ) and ( len(self._coadd_component_zp_ids) > 0 ):
                 try:
-                    for ui in self._coadd_component_ids:
-                        sess.execute( sa.text( "INSERT INTO image_coadd_component(image_id,coadd_image_id) "
+                    for ui in self._coadd_component_zp_ids:
+                        sess.execute( sa.text( "INSERT INTO image_coadd_component(zp_id,coadd_image_id) "
                                                "VALUES (:them,:me)" ),
                                       { "them": ui, "me": self.id } )
                         sess.commit()
@@ -556,6 +556,15 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                         sess.rollback()
                     else:
                         raise
+
+            # Update the image_subtraction_components_table ; here, we can just
+            #   do a straight-up postgres upsert
+            if ( self._ref_id is not None ) or ( self._new_zp_id is not None ):
+                sess.execute( sa.text( "INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id) "
+                                       "VALUES (:me,:zp,:ref) "
+                                       "ON CONFLICT (image_id) DO UPDATE SET new_zp_id=:zp, ref_id=:ref" ),
+                              { "me": self.id, "zp": self._new_zp_id, "ref": self._ref_id } )
+                sess.commit()
 
 
     def set_corners_from_header_wcs( self, wcs=None, setradec=False ):
@@ -800,8 +809,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             'lim_mag_estimate',
             'bkg_mean_estimate',
             'bkg_rms_estimate',
-            'ref_id',
-            'new_image_id',
             'coadd_alignment_target',
             'is_coadd',
             'is_sub',
@@ -834,28 +841,43 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return new
 
     @classmethod
-    def from_images(cls, images, index=0, alignment_target=None, set_is_coadd=True):
-        """Create a new Image object from a list of other Image objects.
+    def from_image_zps(cls, zps, index=0, images=None, alignment_target=None, set_is_coadd=True):
+        """Create a new Image object from a list of other ZeroPoint objects
 
-        This is the first step in making a coadd image.
+        This is the first step in making a coadd image.  You will be
+        coadding a bunch of images, which are pointed to by
+        zp->wcs->sourcelist->image.  (The reason we pass the zeropoints
+        instead of the images is that all of image, background, wcs, and
+        zeropoint are needed to actually perform a coadd.  By passing
+        the zeropoints, we implicitly specify all of those things.  If
+        we just tracked the images, then later we'd have to do all kinds
+        of provenance upstream searching to figureout what other data
+        products were used in the coadd.)
 
         The output image doesn't have any data, and is created with
         nofile=True.  It is up to the calling application to fill in the data,
         flags, weight, etc. using the appropriate preprocessing tools.  It is
         also up to the calling application to fill in the image's provenance
-        (which must include the provenances of the images that went into the
+        (which must include the provenances of the zeropoints that went into the
         combination as upstreams!).
 
         Parameters
         ----------
-        images: list of Image objects
-            The images to combine into a new Image object.
+        zps: list of ZeroPoint objects
+            The ZeroPoints of the images to combine into a new Image object.
 
         index: int, default 0
             The image index in the (mjd sorted) list of upstream images
             that is used to set several attributes of the output image.
             If alignment_target is None, this includes coordinate
             information (ra, dec, minra, maxdec, etc.).
+
+        images: list of Image or None
+            A list of Image objects.  If you pass this, it must have the
+            same length as zps, and the images in the list must go with
+            the zps in the list.  (Otherwise, bad things will happen.)
+            If you don't pass this, the function will search the
+            database to get the right Image objects.
 
         alignment_target: Image, default None
             The Image object to which everything will be aligned.  If
@@ -869,7 +891,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             Set the is_coadd field of the new image.  This is usually
             what you want, so that's the default.  Make this parameter
             False if for some reason you don't want the created image to
-            flagged as a coadd.
+            flagged as a coadd.  This is almost certainly a bad idea.
+            In fact, we should probably remove this parameter.
 
         Returns
         -------
@@ -877,24 +900,57 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             The new Image object. It would not have any data variables or filepath.
 
         """
-        if len(images) < 1:
+        if len(zps) < 1:
             raise ValueError("Must provide at least one image to combine.")
 
-        # sort component images by mjd:
-        images = sorted(images, key=lambda x: x.mjd)
+        if images is not None:
+            if len(images) != len(zps):
+                raise ValueError( "If you pass images, it must match the length of zps" )
+        else:
+            # I couldn't figure out how to write this query in SA.
+            # (I mean, I thought I did, but SA kept telling me it
+            # couldn't figure out how to SQLize it. The supposed advantages
+            # of an ORM seem very thin when constructing a query with the ORM
+            # is just as byzantine, if not more so, than writing it in SQL.)
+            with Psycopg2Connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute( "SELECT i._id,z._id "
+                                "FROM images i "
+                                "INNER JOIN source_lists s ON s.image_id=i._id "
+                                "INNER JOIN world_coordinates w ON w.sources_id=s._id "
+                                "INNER JOIN zero_points z ON z.wcs_id=w._id "
+                                "WHERE z._id IN %(zpids)s",
+                                { 'zpids': tuple( z.id for z in zps ) } )
+                rows = cursor.fetchall()
+            # ...and now we use SA to get the Image objects.  Not very
+            # efficient, we've made two connections.  But, oh well.
+            imzpdict = {}
+            with SmartSession() as sess:
+                for row in rows:
+                    imzpdict[asUUID(row[1])] = Image.get_by_id( row[0], session=sess )
+            if len(imzpdict) != len(zps):
+                raise RuntimeError( "Failed to get all the images for the zeropoints!" )
+            images = [ imzpdict[z.id] for z in zps ]
 
-        # Make sure input images all have ids set.  If these images were
-        #   loaded from the database, then the ids will be set.  If they
-        #   were created fresh, then they don't have ids yet, but
+        # sort component images by mjd:
+        dexen = list( range( len(zps) ) )
+        dexen = sorted( dexen, key=lambda x: images[x].mjd )
+        images = [ images[i] for i in dexen ]
+        zps = [ zps[i] for i in dexen ]
+
+        # Make sure input zeropoints all have ids set.  If these images
+        #   were loaded from the database, then the ids will be set.  If
+        #   they were created fresh, then they don't have ids yet, but
         #   accessing the id property will set them.  This does mean
-        #   that the exact image objects passed need to be saved to the
-        #   database when the coadded image is saved, so the ids track
-        #   properly; otherwise, we'll end up with database integrity
-        #   errors.  This is probably not an issue; in practical usage,
-        #   most of the time we'll be coadding images from the database.
-        #   When we won't is mostly going to be in tests where we don't
-        #   want to save, or where we can control this.
-        upstream_ids = [ i.id for i in images ]
+        #   that the exact zeropoint and image objects passed need to be
+        #   saved to the database when the coadded image is saved, so
+        #   the ids track properly; otherwise, we'll end up with
+        #   database integrity errors.  This is probably not an issue;
+        #   in practical usage, most of the time we'll be coadding
+        #   images from the database.  When we won't is mostly going to
+        #   be in tests where we don't want to save, or where we can
+        #   control this.
+        upstream_ids = [ z.id for z in zps ]
 
         if alignment_target is None:
             alignment_target = images[index]
@@ -933,7 +989,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         output.mjd = images[0].mjd
         output.end_mjd = max([image.end_mjd for image in images])  # exposure ends are not necessarily sorted
 
-        # TODO: what about the header? should we combine them somehow?
         output.info = images[index].info
         # TODO? : this next one is woeful.  Coordinates should be updated
         #   to come from the alignment target image, but lots of
@@ -951,12 +1006,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if not base_type.startswith('Com'):
             output.type = 'Com' + base_type
 
-        output._coadd_component_ids = upstream_ids
+        output._coadd_component_zp_ids = upstream_ids
         output.coadd_alignment_target = alignment_target.id
 
         output._upstream_bitflag = 0
-        for im in images:
-            output._upstream_bitflag |= im.bitflag
+        for z in zps:
+            output._upstream_bitflag |= z.bitflag
 
         # Note that "data" is not filled by this method, also the provenance is empty!
         return output
@@ -966,7 +1021,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return cls.from_new_and_ref(new_image, ref)
 
     @classmethod
-    def from_new_and_ref(cls, new_image, ref):
+    def from_new_and_ref(cls, new_image_zp, ref, new_image=None):
         """Create a new Image object from a Reference object and a new Image object.
         This is the first step in making a difference image.
 
@@ -976,31 +1031,57 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         Parameters
         ----------
-        new_image: Image object
-            The new image to use.
+        new_image_zp: ZeroPoint object
+            The ZeroPoint of the new image to use.  (The subtraction
+            will need to know all of the image, source list, background,
+            psf, wcs, and zeropoint.  By specifying zeropoints, we
+            implicitly specify all of those things.)
 
         ref_image: Reference object
             The reference to use
+
+        new_image: Image or None
+            If you pass this, then it must be the Image that goes along
+            with ZeroPoint.  Normally, this function will search the
+            database to find the right Image.
 
         Returns
         -------
         output: Image
             The new Image object. It would not have any data variables or filepath.
+
         """
 
         # Avoid circular import
         from models.reference import Reference
+        from models.zero_point import ZeroPoint
 
         if ref is None:
             raise ValueError("Must provide a reference image.")
         if not isinstance( ref, Reference ):
             raise TypeError( f"ref must be a Reference, not a {type(ref)}" )
-        if new_image is None:
-            raise ValueError("Must provide a new image.")
-        if not isinstance( new_image, Image ):
-            raise TypeError( f"new_image must be an Image, not a {type(new_image)}" )
+        if new_image_zp is None:
+            raise ValueError("Must provide a new image zeropoint.")
+        if not isinstance( new_image_zp, ZeroPoint ):
+            raise TypeError( f"new_image_zp must be an ZeroPoint, not a {type(new_image_zp)}" )
+        if ( new_image is not None ) and ( not isinstance( new_image, Image ) ):
+            raise TypeError( f"If you pass new_image, it must be an Image, not a {type(new_image)}" )
 
-        ref_image = Image.get_by_id( ref.image_id )
+        with SmartSession() as sess:
+            ref._load_ref_data_products( session=sess )
+            ref_image = Image.get_by_id( ref.image.id, session=sess )
+            if new_image is None:
+                from models.source_list import SourceList
+                from models.world_coordinates import WorldCoordinates
+                from models.zero_point import ZeroPoint
+                new_image = ( sess.query( Image )
+                              .join( SourceList, SourceList.image_id==Image._id )
+                              .join( WorldCoordinates, WorldCoordinates.sources_id==SourceList._id )
+                              .join( ZeroPoint, ZeroPoint.wcs_id==WorldCoordinates._id )
+                              .filter( ZeroPoint._id == new_image_zp.id ) ).first()
+                if new_image is None:
+                    raise RuntimeError( f"Database corruption: Image corresponding to ZeroPoint "
+                                        f"{new_image_zp} not found!" )
 
         output = Image( nofile=True )
 
@@ -1021,13 +1102,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                                  f"{getattr(ref_image, att)} and {getattr(new_image, att)}")
             setattr( output, att, getattr( new_image, att ) )
 
-        output.ref_id = ref.id
+        output._ref_id = ref.id
         output._ref_image_id = ref_image.id
-        output.new_image_id = new_image.id
+        output._new_zp_id = new_image_zp.id
 
         output._upstream_bitflag = 0
         output._upstream_bitflag |= ref_image.bitflag
-        output._upstream_bitflag |= new_image.bitflag
+        output._upstream_bitflag |= new_image_zp.bitflag
 
         output.format = config.Config.get().value( 'storage.images.format' )
         output.type = 'Diff'
@@ -1181,11 +1262,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             utag = hashlib.sha256()
 
             if self.is_coadd:
-                for id in self.coadd_component_ids:
+                for id in self.coadd_component_zp_ids:
                     utag.update( str(id).encode('utf-8') )
             else:
                 utag.update( str(self.ref_id).encode('utf-8') )
-                utag.update( str(self.new_image_id).encode('utf-8') )
+                utag.update( str(self.new_zp_id).encode('utf-8') )
 
             utag = base64.b32encode(utag.digest()).decode().lower()
             utag = '_u-' + utag[:6]
@@ -1429,52 +1510,25 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 setattr( self, f'_{prop}', None )
 
 
-    def get_upstreams(self, only_images=False, only_images_and_reference=False, session=None):
-        """Get the upstream images and associated products that were used to make this image.
+    def get_upstreams(self, session=None):
+        """Get the immediate upstreams of this image.
 
-        This includes the reference/new image (for subtractions) or the set of
-        images used to build a coadd.  Each image will have some products that
-        were generated from it (source lists, PSFs, etc.) that also count as
-        upstreams to this image.
-
-        Not recursive.  (So, won't get the Exposure upstreams of the images
-        that went into a coadd, for instance, and if by some chance you have a
-        coadd of coadds (don't do that!), the images that went into the coadd
-        that was coadded to produce this coadd won't be loaded.  What's more,
-        the reference image won't be loaded, only the Reference.  (Got that?))
-
-        Parameters
-        ----------
-        only_images: bool, default False
-             If True, only get upstream images, not the other assorted data products.
-
-        only_images_and_reference: bool, default False
-             Ignored if only_images is True.  Only return the Image upstreams and,
-             if this is a subtraction, the Reference upstream.
-
-        session: SQLAlchemy session (optional)
-            The session to use to query the database.  If not provided,
-            will open a new session that automatically closes at
-            the end of the function.
+        This may include an exposure (for most images), zeropoints (if
+        this is subtraction or coadd image), and/or a reference (if this
+        is a subtraction).
 
         Returns
         -------
         upstreams: list of objects
-            The upstream Exposure, Image, SourceList, Background, WCS,
-            ZeroPoint, PSF, Reference objects that were used to create
-            this image.  For most images, it will be (at most) a single
-            Exposure.  For subtraction and coadd images, there could be
-            all those other things.
+            The upstream Exposure, ZeroPoint, and Reference
+            objects that were used to create this image.  For most
+            images, it will be (at most) a single Exposure.
 
         """
 
         # Avoid circular imports
-        from models.source_list import SourceList
-        from models.background import Background
-        from models.psf import PSF
-        from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
-        from models.reference import Reference
+        from models.zero_point import ZeroPoint, image_coadd_component_table
+        from models.reference import Reference, image_subtraction_components as isc
 
         upstreams = []
         with SmartSession(session) as session:
@@ -1486,104 +1540,40 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 # We're done!  That wasn't so bad.
                 return upstreams
 
-            # This *is* so bad....  Because we don't have direct references to
-            #   the SourceList (etc.) used to make the coadd or sub image, we
-            #   have to look at our own provenance's upstreams and do table
-            #   joins to find them.
-            myprov = Provenance.get( self.provenance_id, session=session )
-            upstrprov = myprov.get_upstreams()
-            upstrprovids = [ i.id for i in upstrprov ]
+            if self.is_sub:
+                if self.is_coadd:
+                    raise ValueError( f"Databse corruption, image {self.id} is both a sub and a coadd!!!!!" )
+                # Zeropoint
+                upstreams.append( session.query( ZeroPoint )
+                                  .join( isc, isc.c.new_zp_id==ZeroPoint._id )
+                                  .filter( isc.c.image_id==self.id ).first() )
+                # Reference
+                upstreams.append( session.query( Reference )
+                                  .join( isc, isc.c.ref_id==Reference._id )
+                                  .filter( isc.c.image_id==self.id ).first() )
 
-            # Reference (if relevant) and upstream images first
             if self.is_coadd:
-                upstrimages = session.query( Image ).filter( Image._id.in_( self.coadd_component_ids ) ).all()
-                # Sort by mjd
-                upstrimages.sort( key=lambda i: i.mjd )
-            else:
-                if not only_images:
-                    upstreams.append( Reference.get_by_id( self.ref_id, session ) )
-                upstrimages = [ Image.get_by_id( self.new_image_id, session ) ]
-            upstreams.extend( upstrimages )
-
-            if not ( only_images or only_images_and_reference ):
-                # Get all of the other falderal assocated with the upstream images
-                upstrsources = ( session.query( SourceList )
-                                 .filter( SourceList.image_id.in_( [ i.id for i in upstrimages ] ) )
-                                 .filter( SourceList.provenance_id.in_( upstrprovids ) )
-                                 .all() )
-                upstrsrcids = [ s.id for s in upstrsources ]
-
-                upstrbkgs = session.query( Background ).filter( Background.sources_id.in_( upstrsrcids ) ).all()
-                upstrpsfs = session.query( PSF ).filter( PSF.sources_id.in_( upstrsrcids ) ).all()
-                upstrwcses = ( session.query( WorldCoordinates )
-                               .filter( WorldCoordinates.sources_id.in_( upstrsrcids ) ) ).all()
-                upstrzps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( upstrsrcids ) ).all()
-
-                upstreams.extend( list(upstrsources) )
-                upstreams.extend( list(upstrbkgs) )
-                upstreams.extend( list(upstrpsfs) )
-                upstreams.extend( list(upstrwcses) )
-                upstreams.extend( list(upstrzps) )
+                # Zeropoints
+                upstreams.extend( list( session.query( ZeroPoint )
+                                        .join( image_coadd_component_table,
+                                               image_coadd_component_table.c.coadd_image_id==self.id )
+                                        .filter( image_coadd_component_table.c.zp_id==ZeroPoint._id ).all() ) )
 
         return upstreams
 
-    def get_downstreams(self, session=None, only_images=False, siblings=False):
+    def get_downstreams(self, session=None):
         """Get all the data products that were created based on this image.
 
-        Searches SourceList, Background, PSF, WorldCoordinates, and ZeroPoints.
-
-        Also searches References, subtractions where this is the
-        new_image, and coadds that include this image.
-
-        (Does *not* subtractions where this was the Reference; get the
-        downstreams of the Reference to get that.)
+        This will just be SourceLists.
 
         """
 
         # avoids circular import
         from models.source_list import SourceList
-        from models.psf import PSF
-        from models.background import Background
-        from models.world_coordinates import WorldCoordinates
-        from models.zero_point import ZeroPoint
 
-        downstreams = []
         with SmartSession(session) as session:
-            if not only_images:
-                # get all source lists that are related to this image (regardless of provenance)
-                sources = session.scalars( sa.select(SourceList).where(SourceList.image_id == self.id) ).all()
-                downstreams.extend( list(sources) )
-                srcids = [ s.id for s in sources ]
+            return session.query( SourceList ).filter( SourceList.image_id==self.id ).all()
 
-                # Get the bkgs, psfs, wcses, and zps assocated with all of those sources
-                bkgs = session.query( Background ).filter( Background.sources_id.in_( srcids ) ).all()
-                psfs = session.query( PSF ).filter( PSF.sources_id.in_( srcids ) ).all()
-                wcses = session.query( WorldCoordinates ).filter( WorldCoordinates.sources_id.in_( srcids ) ).all()
-                zps = session.query( ZeroPoint ).filter( ZeroPoint.sources_id.in_( srcids ) ).all()
-
-                downstreams.extend( list(bkgs) )
-                downstreams.extend( list(psfs) )
-                downstreams.extend( list(wcses) )
-                downstreams.extend( list(zps) )
-
-            # Get all References based on this image
-            from models.reference import Reference
-            refs = session.query( Reference ).filter( Reference.image_id == self.id ).all()
-            downstreams.extend( list(refs) )
-
-            # Get all subtractions that used this as a new image
-            subimgs = session.query( Image ).filter( Image.new_image_id == self.id ).all()
-            downstreams.extend( list(subimgs) )
-
-            # Get all coadds that include this image
-            dsimgs = ( session.query( Image )
-                       .join( image_coadd_component_table,
-                              image_coadd_component_table.c.coadd_image_id == Image._id )
-                       .filter( image_coadd_component_table.c.image_id == self.id )
-                      ).all()
-            downstreams.extend( list(dsimgs) )
-
-        return downstreams
 
     @staticmethod
     def find_images(
@@ -1596,6 +1586,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             image=None,
             overlapfrac=None,
             provenance_ids=None,
+            provenance_ids_are_zp=False,
             type=[1,2,3,4],
             target=None,
             section_id=None,
@@ -1620,7 +1611,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             max_zero_point=None,
             order_by=None,
             seeing_quality_factor=3.0,
-            max_number=None
+            max_number=None,
+            # return_zeropoints=False
     ):
         """Return a list of images that match criteria.
 
@@ -1669,7 +1661,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             be too.
 
         provenance_ids: str or list of strings
-            Find images with these provenance IDs.
+            Find images with these provenance IDs, unless
+            provenace_ids_are_zp, in which case find images who have
+            ZeroPoint objectds in the database with these provenance
+            IDs.
+
+        provenance_ids_are_zp: bool, default False
+            See provenance_ids
 
         type: integer or string or list of integers or strings, None
             List of image types to search for; see
@@ -1762,9 +1760,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             first max_number returned from the database, ordered as
             specified in order_by.
 
+        # return_zeropoints: bool, default False
+        #     If True, return ZeroPoints of the images in addition to the
+        #     Images.  This requires provenance_ids_are_zp to be True.
+
         Returns
         -------
-          list of Image
+          list of Image # or ( list of Image, list of ZeroPoint )
 
         """
 
@@ -1791,7 +1793,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 if isinstance( dec, str ):
                     dec = parse_dec_dms_to_deg( dec )
 
-                Image._find_possibly_containing_temptable( ra, dec, session=sess, prov_id=provenance_ids )
+                if provenance_ids_are_zp:
+                    Image._find_possibly_containing_temptable(
+                        ra, dec,
+                        session=sess,
+                        prov_id=provenance_ids,
+                        fromclause=( "FROM images i "
+                                     "INNER JOIN source_lists s ON s.image_id=i._id "
+                                     "INNER JOIN world_coordinates w ON w.sources_id=s._id "
+                                     "INNER JOIN zero_points z ON z.wcs_id=w._id " ),
+                        provtable='z'
+                    )
+                else:
+                    Image._find_possibly_containing_temptable( ra, dec, session=sess, prov_id=provenance_ids )
                 searchtable = "temp_find_containing"
 
             elif any( i is not None for i in [ image, minra, maxra, mindec, maxdec ] ):
@@ -1830,7 +1844,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 fcobj.dec_corner_11 = maxdec
                 fcobj.maxdec = maxdec
 
-                Image._find_potential_overlapping_temptable( fcobj, session=sess, prov_id=provenance_ids )
+                if provenance_ids_are_zp:
+                    Image._find_potential_overlapping_temptable(
+                        fcobj,
+                        session=sess,
+                        prov_id=provenance_ids,
+                        fromclause=( "FROM images i "
+                                     "INNER JOIN source_lists s ON s.image_id=i._id "
+                                     "INNER JOIN world_coordinates w ON w.sources_id=s._id "
+                                     "INNER JOIN zero_points z ON z.wcs_id=w._id " ),
+                        provtable='z'
+                    )
+                else:
+                    Image._find_potential_overlapping_temptable( fcobj, session=sess, prov_id=provenance_ids )
                 searchtable = "temp_find_overlapping"
             else:
                 if overlapfrac is not None:
@@ -1869,12 +1895,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             max_dateobs = None if max_dateobs is None else parse_dateobs(max_dateobs, output='mjd')
             types = None if type is None else [ ImageTypeConverter.to_int(t) for t in listify(type) ]
 
+            # Note that we do NOT filter on provenance here, because we already filtered on
+            #   provenance in building the temp_find_containing or temp_find_overlapping table.
             fields = [ { 'field': 'project',             'val': project,        'type': 'list' },
                        { 'field': 'target',              'val': target,         'type': 'list' },
                        { 'field': 'section_id',          'val': section_id,     'type': 'list' },
                        { 'field': 'filter',              'val': filter,         'type': 'list' },
                        { 'field': 'instrument',          'val': instrument,     'type': 'list' },
-                       { 'field': 'provenance_id',       'val': provenance_ids, 'type': 'list' },
                        { 'field': '_type',               'val': types,          'type': 'list' },
                        { 'field': 'mjd',                 'val': min_mjd,        'type': 'ge' },
                        { 'field': 'mjd',                 'val': min_dateobs,    'type': 'ge' },
@@ -1936,27 +1963,55 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         else:
             retimages = list( images )
 
+        # if return_zeropoints:
+        #     if not provenance_ids_are_zp:
+        #         raise ValueError( "return_zeropoints requires provenance_ids_are_zp" )
+        #     import SourceList
+        #     import WorldCoordinates
+        #     import ZeroPooint
+
+        #     with SmartSession() as sess:
+        #         if not isinstance( provenance_ids, list ):
+        #             provenace_ids = list( provenance_ids )
+        #         retzps = ( sess.query( ZeroPoint, Image._id )
+        #                    .join( WorldCoordinates, WorldCoordinates._id=ZeroPoint.wcs_id )
+        #                    .join( SourceList, SourceList._id=WorldCoordinates.sources_id )
+        #                    .join( Image, Image._id=SourceList.image_id )
+        #                    .filter( Image._id.in_( [ i.id for i in retimages ] ) )
+        #                    .filter( ZeroPoint.provenance_id.in_( provenance_ids ) ) ).all()
+        #         if len( retzps ) != len( retimages ):
+        #             raise ValueError( "Didn't find exactly one zeropoint for each found image" )
+        #         retimageids = [ i.id for i in retimages ]
+        #         zpdex = [ retimageids.index(r[1]) for r in retzps ]
+        #         retzps = [ retzps[i] for i in zpdex ]
+
+        #     return retimages, retzps
+
         return retimages
 
 
     @staticmethod
-    def get_coadd_from_components(images, prov_id=None, session=None):
+    def get_coadd_from_components(zps, prov_id=None, session=None):
         """Finds the combined image with a given provenance that was made from exactly a list of images.
+
+        (The zeropoints point back to wcs which point to sources which point to images.)
 
         Parameters
         ----------
-           images: list of Image or str/UUID
-             The images, or the image ids, whose sum we're looking for.  Does not need
-             to be sorted.
+           zps: list of ZeroPoint or str/UUID
+             The zeropoints, or ids of same, that go with the images
+             whose sum we're looking for.  Does not need to be sorted.
 
            prov_id: str or UUID
              The provenance of the coadd image.
 
         """
 
+        from models.zero_point import ZeroPoint
+
         if ( prov_id is not None ) and ( isinstance( prov_id, Provenance ) ):
             prov_id = prov_id.id
-        imgids = tuple( i.id if isinstance(i,Image) else str(i) for i in images )
+        zpids = tuple( i.id if isinstance(i,ZeroPoint) else str(i) for i in zps )
 
         with SmartSession(session) as session:
             session.execute( sa.text( "DROP TABLE IF EXISTS temp_image_from_upstreams" ) )
@@ -1964,12 +2019,12 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             # First get a list of candidate coadd images that are ones whose upstreams
             #   include anything in images, plus a count of how many of
             #   images are in the upstreams.
-            q = ( "SELECT i._id AS imgid, COUNT(c.image_id) AS nmatchupstr "
+            q = ( "SELECT i._id AS imgid, COUNT(c.zp_id) AS nmatchupstr "
                   "INTO TEMP TABLE temp_image_from_upstreams "
                   "FROM images i "
                   "INNER JOIN image_coadd_component c ON c.coadd_image_id=i._id "
-                  "WHERE c.image_id IN :imgids " )
-            subdict = { 'imgids': imgids }
+                  "WHERE c.zp_id IN :zpids " )
+            subdict = { 'zpids': zpids }
 
             if prov_id is not None:  # pick only those coadds with the right provenance id
                 q += "AND i.provenance_id=:provid "
@@ -1979,19 +2034,20 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             session.execute( sa.text( q ), subdict )
 
             # Now go through those images and count *all* of the upstreams.
+            # (The previous table only counted upstreams that were in zps.)
             # The one (if any) that has len(images) in both the count of
             # matched upstreams and all upstreams is the one we're looking for.
             q = ( "SELECT imgid FROM ("
-                  "  SELECT t.imgid, t.nmatchupstr, COUNT(c.image_id) AS nupstr "
+                  "  SELECT t.imgid, t.nmatchupstr, COUNT(c.zp_id) AS nupstr "
                   "  FROM temp_image_from_upstreams t "
                   "  INNER JOIN image_coadd_component c ON c.coadd_image_id=t.imgid "
                   "  GROUP BY t.imgid, t.nmatchupstr ) subq "
                   "WHERE nmatchupstr=:num AND nupstr=:num " )
-            output = session.scalars( sa.text(q), { 'num': len(imgids) } ).all()
+            output = session.scalars( sa.text(q), { 'num': len(zpids) } ).all()
 
             if len(output) > 1:
                 raise ValueError( f"More than one combined image found with provenance ID {prov_id} "
-                                  f"and upstreams {images}." )
+                                  f"and upstreams {zps}." )
             elif len(output) == 0:
                 return None
             else:

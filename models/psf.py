@@ -12,7 +12,7 @@ from astropy.io import fits
 from models.base import Base, SmartSession, SeeChangeBase, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.enums_and_bitflags import PSFFormatConverter, psf_badness_inverse
 from models.image import Image
-from models.source_list import SourceList, SourceListSibling
+from models.source_list import SourceList
 from util.logger import SCLogger
 
 # NOTE.  As of this writing, the only format for PSFs we were
@@ -29,7 +29,7 @@ from util.logger import SCLogger
 # for different formats.
 
 
-class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'psfs'
 
     @declared_attr
@@ -533,3 +533,20 @@ class PSF(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
                                                       ( clip[ y0:y1, x0:x1 ] / gain )
                                                      )
                                               )
+
+
+    def get_upstreams( self, session=None ):
+        """Get the source list that is associated with this PSF."""
+        with SmartSession(session) as session:
+            return SourceList.get_by_id( self.sources_id, session=session )
+
+
+    def get_downstreams( self, session=None ):
+        """PSF has no downstreams.
+
+        (It has no provenance.  There is 1:1 between SourceList and PSF,
+        as the process that extracts the SourceList is the same as the
+        process that determines the PSF (in pipeline/extraction.py).
+
+        """
+        return []

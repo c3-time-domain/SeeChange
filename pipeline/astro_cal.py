@@ -131,9 +131,6 @@ class ParsAstroCalibrator(Parameters):
     def get_process_name(self):
         return 'astrocal'
 
-    def require_siblings(self):
-        return True
-
 
 class AstroCalibrator:
     def __init__(self, **kwargs):
@@ -263,7 +260,7 @@ class AstroCalibrator:
         self.crossid_radius = radius
         self.catexp = catexp
 
-        ds.wcs = WorldCoordinates( sources_id=sources.id )
+        ds.wcs = WorldCoordinates( sources_id=sources.id, provenance_id=prov.id )
         ds.wcs.wcs = wcs
 
     # ----------------------------------------------------------------------
@@ -277,7 +274,7 @@ class AstroCalibrator:
         self.has_recalculated = False
 
         try:
-            ds, session = DataStore.from_args(*args, **kwargs)
+            ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -286,14 +283,14 @@ class AstroCalibrator:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('wcs', self.pars.get_critical_pars())
 
             # try to find the world coordinates in memory or in the database:
-            wcs = ds.get_wcs( provenance=prov, session=session )
+            wcs = ds.get_wcs( provenance=prov )
 
             if wcs is None:  # must create a new WorldCoordinate object
                 self.has_recalculated = True
-                image = ds.get_image(session=session)
+                image = ds.get_image()
                 if image.astro_cal_done:
                     SCLogger.warning(
                         f"Failed to find a wcs for image {pathlib.Path( image.filepath ).name}, "
@@ -302,7 +299,7 @@ class AstroCalibrator:
                     )
 
                 if self.pars.solution_method == 'scamp':
-                    self._run_scamp( ds, prov, session=session )
+                    self._run_scamp( ds, prov )
                 else:
                     raise ValueError( f'Unknown solution method {self.pars.solution_method}' )
 
@@ -318,13 +315,13 @@ class AstroCalibrator:
                     ds.memory_usages['astrocal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
             # update the bitflag with the upstreams
-            sources = ds.get_sources(session=session)
+            sources = ds.get_sources()
             if sources is None:
                 raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.inputs_str}')
-            psf = ds.get_psf(session=session)
+            psf = ds.get_psf()
             if psf is None:
                 raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.inputs_str}')
-            bg = ds.get_background(session=session)
+            bg = ds.get_background()
             if bg is None:
                 raise ValueError(f'Cannot find a background corresponding to the datastore inputs: {ds.inputs_str}')
 

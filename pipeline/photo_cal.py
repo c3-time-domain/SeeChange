@@ -70,9 +70,6 @@ class ParsPhotCalibrator(Parameters):
     def get_process_name(self):
         return 'photocal'
 
-    def require_siblings(self):
-        return True
-
 
 class PhotCalibrator:
     def __init__(self, **kwargs):
@@ -82,7 +79,7 @@ class PhotCalibrator:
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
 
-    def _solve_zp( self, image, sources, wcs, catexp, min_matches=10, match_radius=1. ):
+    def _solve_zp( self, image, sources, wcs, bg, catexp, min_matches=10, match_radius=1. ):
         """Get the instrument zeropoint using a catalog excerpt.
 
         Assumes that a single zeropoint is good enough, and that there's
@@ -103,6 +100,9 @@ class PhotCalibrator:
           wcs: WorldCoordinates
             A WorldCoordinates object that can be used to find ra and
             dec from x and y for the objects in sources.
+
+          bg: Background
+            A Background object to go with Image.
 
           catexp: CatalogExcerpt
             A catalog excerpt overlapping the image.
@@ -236,7 +236,7 @@ class PhotCalibrator:
         self.has_recalculated = False
 
         try:
-            ds, session = DataStore.from_args(*args, **kwargs)
+            ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -245,23 +245,26 @@ class PhotCalibrator:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('zp', self.pars.get_critical_pars())
 
-            image = ds.get_image(session=session)
+            image = ds.get_image()
             if image is None:
                 raise ValueError('Cannot find the image corresponding to the datastore inputs')
-            sources = ds.get_sources(session=session)
+            sources = ds.get_sources()
             if sources is None:
                 raise ValueError(f'Cannot find a source list corresponding to the datastore inputs: {ds.inputs_str}')
-            psf = ds.get_psf(session=session)
+            psf = ds.get_psf()
             if psf is None:
                 raise ValueError(f'Cannot find a psf corresponding to the datastore inputs: {ds.inputs_str}')
-            wcs = ds.get_wcs(session=session)
+            bg = ds.get_background()
+            if bg is None:
+                raise ValueError(f'Cannot find a bg corresponding to the datastore inputs: {ds.inputs_str}')
+            wcs = ds.get_wcs()
             if wcs is None:
                 raise ValueError(f'Cannot find a wcs for image {image.filepath}')
 
             # try to find the world coordinates in memory or in the database:
-            zp = ds.get_zp( provenance=prov, session=session)
+            zp = ds.get_zp( provenance=prov )
 
             if zp is None:  # must create a new ZeroPoint object
                 self.has_recalculated = True
@@ -276,13 +279,12 @@ class PhotCalibrator:
                     minstars=self.pars.min_catalog_stars,
                     maxmags=self.pars.max_catalog_mag,
                     magrange=self.pars.mag_range_catalog,
-                    session=session,
                 )
 
                 # Save for testing/evaluation purposes
                 self.catexp = catexp
 
-                zpval, dzpval = self._solve_zp( image, sources, wcs, catexp )
+                zpval, dzpval = self._solve_zp( image, sources, wcs, bg, catexp )
 
                 # Add the aperture corrections
                 apercors = []
@@ -294,7 +296,8 @@ class PhotCalibrator:
 
                 # Make the ZeroPoint object
                 ds.zp = ZeroPoint( sources_id=ds.sources.id, zp=zpval, dzp=dzpval,
-                                   aper_cor_radii=sources.aper_rads, aper_cors=apercors )
+                                   aper_cor_radii=sources.aper_rads, aper_cors=apercors,
+                                   provenance_id=prov.id )
 
                 if ( ds.image.zero_point_estimate is None ) or ( ds.image.lim_mag_estimate is None ):
                     ds.image.zero_point_estimate = ds.zp.zp

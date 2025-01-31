@@ -750,12 +750,13 @@ class Coadder:
         ----------
           data_store_list: list of DataStore or None
             DataStore objects for all the images to be summed.  Must
-            have image and sources properties available.  Ignored if
-            upstream_provs is not None.
+            have be able to get the zp property for each DataStore.
+            Ignored if upstream_provs is not None.
 
           upstream_provs: list of Provenance or None
             upstream provenances for the coadd provenance.  Can specify
-            this instead of data_store_list.
+            this instead of data_store_list, if you really know what
+            you're doing.
 
           code_version_id: str or None
             If None, the code version will be dtermined automatically
@@ -765,9 +766,7 @@ class Coadder:
 
         # Figure out all upstream provenances
         if upstream_provs is None:
-            provids = [ d.image.provenance_id for d in data_store_list ]
-            provids.extend( [ d.sources.provenance_id for d in data_store_list ] )
-            provids = set( provids )
+            provids = set( d.get_zp().provenance_id for d in data_store_list )
             upstream_provs = Provenance.get_batch( provids )
             if len( upstream_provs ) != len( provids ):
                 raise RuntimeError( "Coadder didn't find all the expected upstream provenances!" )
@@ -903,10 +902,10 @@ class Coadder:
             else:
                 raise ValueError(f'Unknown coaddition method: {self.pars.method}. Use "naive", "swarp", or "zogy".')
 
-        output = Image.from_images( [ d.image for d in data_store_list ],
-                                    index=index if index>=0 else 0,
-                                    alignment_target=None if index>=0 else alignment_target_datastore.image
-                                   )
+        output = Image.from_image_zps( [ d.zp for d in data_store_list ],
+                                       index=index if index>=0 else 0,
+                                       alignment_target=None if index>=0 else alignment_target_datastore.image
+                                      )
         output.provenance_id = coadd_provenance.id
         output.is_coadd = True
         output.data = outim
@@ -959,45 +958,33 @@ class CoaddPipeline:
         self.coadder = Coadder(**coadd_config)
 
         # source detection ("extraction" for the regular image!)
-        extraction_config = self.config.value('extraction.sources', {})
-        extraction_config.update(self.config.value('coaddition.extraction.sources', {}))  # override coadd specific pars
-        extraction_config.update(kwargs.get('extraction', {}).get('sources', {}))
+        extraction_config = self.config.value('extraction', {})
+        extraction_config.update(self.config.value('coaddition.extraction', {}))  # override coadd specific pars
+        extraction_config.update(kwargs.get('extraction', {}))
         extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
         # background estimation
-        backgrounder_config = self.config.value('extraction.bg', {})
-        backgrounder_config.update(self.config.value('coaddition.extraction.bg', {}))  # override coadd specific pars
-        backgrounder_config.update(kwargs.get('extraction', {}).get('bg', {}))
+        backgrounder_config = self.config.value('backgrounding', {})
+        backgrounder_config.update(self.config.value('coaddition.backgrounding', {}))  # override coadd specific pars
+        backgrounder_config.update(kwargs.get('backgrounding', {}))
         self.pars.add_defaults_to_dict(backgrounder_config)
         self.backgrounder = Backgrounder(**backgrounder_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometor_config = self.config.value('extraction.wcs', {})
-        astrometor_config.update(self.config.value('coaddition.extraction.wcs', {}))  # override coadd specific pars
-        astrometor_config.update(kwargs.get('extraction', {}).get('wcs', {}))
+        astrometor_config = self.config.value('wcs', {})
+        astrometor_config.update(self.config.value('coaddition.wcs', {}))  # override coadd specific pars
+        astrometor_config.update(kwargs.get('wcs', {}))
         self.pars.add_defaults_to_dict(astrometor_config)
         self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photometor_config = self.config.value('extraction.zp', {})
-        photometor_config.update(self.config.value('coaddition.extraction.zp', {}))  # override coadd specific pars
-        photometor_config.update(kwargs.get('extraction', {}).get('zp', {}))
+        photometor_config = self.config.value('zp', {})
+        photometor_config.update(self.config.value('coaddition.zp', {}))  # override coadd specific pars
+        photometor_config.update(kwargs.get('zp', {}))
         self.pars.add_defaults_to_dict(photometor_config)
         self.photometor = PhotCalibrator(**photometor_config)
-
-        # make sure when calling get_critical_pars() these objects will produce the full, nested dictionary
-        siblings = {
-            'sources': self.extractor.pars,
-            'bg': self.backgrounder.pars,
-            'wcs': self.astrometor.pars,
-            'zp': self.photometor.pars
-        }
-        self.extractor.pars.add_siblings(siblings)
-        self.backgrounder.pars.add_siblings(siblings)
-        self.astrometor.pars.add_siblings(siblings)
-        self.photometor.pars.add_siblings(siblings)
 
         self.datastore = None  # use this datastore to save the coadd image and all the products
 
@@ -1037,12 +1024,12 @@ class CoaddPipeline:
             raise TypeError( "Must pass a list of DataStore objects to CoaddPipeline.run" )
 
         self.datastore = DataStore()
-        self.datastore.prov_tree = self.make_provenance_tree( data_store_list )
+        self.make_provenance_tree( data_store_list )
 
         # check if this exact coadd image already exists in the DB
         with SmartSession() as dbsession:
-            coadd_prov = self.datastore.prov_tree['coaddition']
-            coadd_image = Image.get_coadd_from_components( [ d.image for d in data_store_list ],
+            coadd_prov = self.datastore.prov_tree['starting_point']
+            coadd_image = Image.get_coadd_from_components( [ d.zp for d in data_store_list ],
                                                            coadd_prov, session=dbsession)
 
         if coadd_image is not None:
@@ -1052,7 +1039,7 @@ class CoaddPipeline:
             # the self.aligned_datastores is None unless you explicitly pass in the pre-aligned images to save time
             self.datastore.image = self.coadder.run( data_store_list,
                                                      aligned_datastores=aligned_datastores,
-                                                     coadd_provenance=self.datastore.prov_tree['coaddition'] )
+                                                     coadd_provenance=self.datastore.prov_tree['starting_point'] )
             self.aligned_datastores = self.coadder.aligned_datastores
 
 
@@ -1077,38 +1064,40 @@ class CoaddPipeline:
         return self.datastore
 
     def make_provenance_tree( self, data_store_list, upstream_provs=None, code_version_id=None ):
-        """Make a (short) provenance tree to use when fetching the provenances of upstreams. """
+        """Make a provenance tree in self.datastore for all coadded data products."""
 
         # NOTE I'm not handling the "test_parameter" thing here, may need to.
-        coadd_prov, code_version = self.coadder.get_coadd_prov( data_store_list, upstream_provs=upstream_provs,
-                                                                code_version_id=code_version_id )
+        # (But see Issue #408)
+        coadd_prov, _code_version = self.coadder.get_coadd_prov( data_store_list, upstream_provs=upstream_provs,
+                                                                 code_version_id=code_version_id )
         coadd_prov.insert_if_needed()
 
-        # the extraction pipeline
-        pars_dict = self.extractor.pars.get_critical_pars()
-        extract_prov = Provenance(
-            code_version_id=code_version.id,
-            process='extraction',
-            upstreams=[ coadd_prov ],
-            parameters=pars_dict,
-            is_testing="test_parameter" in pars_dict['sources'],  # this is a flag for testing purposes
-        )
-        extract_prov.insert_if_needed()
+        steps = [ 'extraction', 'backgrounding', 'wcs', 'zp' ]
+        upstream_steps = { 'extraction': [],
+                           'backgrounding': [ 'extraction' ],
+                           'wcs': [ 'extraction' ],
+                           'zp': [ 'wcs', 'backgrounding' ]
+                          }
+        parses = { 'extraction': self.extractor.pars.get_critical_pars(),
+                   'backgrounding': self.backgrounder.pars.get_critical_pars(),
+                   'wcs': self.astrometor.pars.get_critical_pars(),
+                   'zp': self.photometor.pars.get_critical_pars() }
+        self.datastore.make_prov_tree( steps, parses, upstream_steps=upstream_steps, starting_point=coadd_prov )
 
-        return {'coaddition': coadd_prov, 'extraction': extract_prov}
+        return self.datastore.prov_tree
 
     def override_parameters(self, **kwargs):
         """Override the parameters of this pipeline and its sub objects. """
-        from pipeline.top_level import PROCESS_OBJECTS
+        from pipeline.top_level import _PROCESS_OBJECTS
 
         for key, value in kwargs.items():
-            if key in PROCESS_OBJECTS:
-                if isinstance(PROCESS_OBJECTS[key], dict):
-                    for sub_key, sub_value in PROCESS_OBJECTS[key].items():
+            if key in _PROCESS_OBJECTS:
+                if isinstance(_PROCESS_OBJECTS[key], dict):
+                    for sub_key, sub_value in _PROCESS_OBJECTS[key].items():
                         if sub_key in value:
                             getattr(self, sub_value).pars.override(value[sub_key])
-                elif isinstance(PROCESS_OBJECTS[key], str):
-                    getattr(self, PROCESS_OBJECTS[key]).pars.override(value)
+                elif isinstance(_PROCESS_OBJECTS[key], str):
+                    getattr(self, _PROCESS_OBJECTS[key]).pars.override(value)
             elif key == 'coaddition':
                 self.coadder.pars.override(value)
             else:

@@ -139,7 +139,7 @@ class Scorer:
         self.has_recalculated = False
 
         try:
-            ds, session = DataStore.from_args(*args, **kwargs)
+            ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -148,10 +148,10 @@ class Scorer:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('scoring', self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('scoring', self.pars.get_critical_pars())
 
             # find the list of measurements
-            measurements = ds.get_measurements(session=session)
+            measurements = ds.get_measurements()
             if measurements is None:
                 raise ValueError(
                     f'Cannot find a measurements corresponding to '
@@ -159,7 +159,7 @@ class Scorer:
                 )
 
             # find if these deepscores have already been made
-            scores = ds.get_scores( prov, session = session, reload=True )
+            scores = ds.get_scores( prov, reload=True )
 
             if scores is None or len(scores) == 0:
                 self.has_recalculated = True
@@ -182,7 +182,7 @@ class Scorer:
                         scorelist.append( d )
 
                 elif algo[0:5] == 'RBbot':
-                    scorelist = self.score_rbbot( ds, algo, prov=prov, session=session )
+                    scorelist = self.score_rbbot( ds, algo, prov=prov )
 
                 elif algo in DeepscoreAlgorithmConverter.dict_inverse:
                     raise NotImplementedError(f"algorithm {algo} isn't yet implemented")

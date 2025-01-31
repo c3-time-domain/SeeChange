@@ -432,10 +432,8 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
         p.subtractor.pars.refset = 'test_refset_decam'
         ds = p.run(exposure, sec_id)
 
-        # commit to DB using this session
+        ds.save_and_commit()
         with SmartSession() as session:
-            ds.save_and_commit(session=session)
-
             # test get_upstreams()
             assert ds.exposure.get_upstreams() == []
             assert [upstream.id for upstream in ds.image.get_upstreams(session=session)] == [ds.exposure.id]

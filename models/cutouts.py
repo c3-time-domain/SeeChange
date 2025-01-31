@@ -430,7 +430,7 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         with SmartSession( session ) as session:
             return session.scalars( sa.Select( SourceList ).where( SourceList._id == self.sources_id ) ).all()
 
-    def get_downstreams( self, session=None, siblings=False ):
+    def get_downstreams( self, session=None):
         """Return downstreams of this cutouts object.
 
         Only gets immediate downstreams; does not recurse.  (As per the

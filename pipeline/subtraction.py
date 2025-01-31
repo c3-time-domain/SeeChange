@@ -580,7 +580,7 @@ class Subtractor:
         self.has_recalculated = False
 
         try:
-            ds, session = DataStore.from_args(*args, **kwargs)
+            ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -589,7 +589,7 @@ class Subtractor:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            with SmartSession(session) as session:
+            with SmartSession() as session:
                 # look for a reference that has to do with the current image and refset
                 if self.pars.refset is None:
                     raise ValueError('No reference set given for subtraction')
@@ -606,22 +606,19 @@ class Subtractor:
                         f'referencing prov = {ds.prov_tree["referencing"]}'
                     )
 
-                prov = ds.get_provenance('subtraction', self.pars.get_critical_pars(), session=session)
+                prov = ds.get_provenance('subtraction', self.pars.get_critical_pars())
 
                 if ds.get_subtraction( prov, session=session ) is None:
                     self.has_recalculated = True
-                    # use the latest image in the data store,
-                    # or load using the provenance given in the
-                    # data store's upstream_provs, or just use
-                    # the most recent provenance for "preprocessing"
                     image = ds.get_image(session=session)
-                    if image is None:
-                        raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '
+                    zp = ds.get_zp(session=session)
+                    if zp is None:
+                        raise ValueError(f'Cannot find an zeropoint corresponding to the datastore inputs: '
                                          f'{ds.inputs_str}')
 
                     SCLogger.debug( f"Making new subtraction from image {image.id} path {image.filepath} , "
                                     f"reference {ds.ref_image.id} path {ds.ref_image.filepath}" )
-                    sub_image = Image.from_ref_and_new(ds.reference, image)
+                    sub_image = Image.from_ref_and_new(ds.reference, zp)
                     sub_image.is_sub = True
                     sub_image.provenance_id = prov.id
                     sub_image.set_coordinates_to_match_target( image )

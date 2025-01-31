@@ -331,11 +331,10 @@ def test_lim_mag_estimate( ptf_datastore_through_zp ):
         limMagEst = ds.sources.estimate_lim_mag( aperture=1, zp=ds.zp )
 
     # check the limiting magnitude is consistent with previous runs
-    assert limMagEst == pytest.approx(20.04, abs=0.05)
+    assert limMagEst == pytest.approx(20.11, abs=0.05)
 
-    # Make sure that it can auto-get the zp if you don't pass one
-    redo = ds.sources.estimate_lim_mag( aperture=1 )
-    assert redo == limMagEst
+    with pytest.raises( RuntimeError, match="Must pass a zp to get a limiting magnitude." ):
+        _ = ds.sources.estimate_lim_mag( aperture=1 )
 
 
 # ROB TODO : check this test once you've updated DataStore and the associated fixtures

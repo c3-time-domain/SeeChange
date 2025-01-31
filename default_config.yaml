@@ -215,10 +215,8 @@ email:
 #      back to the NOIRLab server if fallback_datalab is True.
 
 catalog_gaiadr3:
-  # use_server: True
-  # TEMPORARY 2025-01-27 : NERSC is down this week, so don't even try the spin server.
-  use_server: False
-  fallback_datalab: True
+  use_server: True
+  fallback_datalab: False
   server_url: https://ls4-gaia-dr3.lbl.gov
   server_timeout_sec: 5.
 
@@ -267,46 +265,47 @@ preprocessing:
 
 # ======================================================================
 # Extraction
-#
-# Right now, "extraction" actually encompasses four steps.  Those steps
-# are all done at once and so have a single provenance associated with
-# them.  (This is the reason that all those steps' parameters are stored
-# underneath extraction-- so that the provenance's parameters will take
-# all of them into account.)  Those steps are backgrounding
-# (i.e. finding the sky background) ("bg"), extraction of sources
-# ("sources"), doing the astrometric solution ("wcs"), and doing the
-# photometric calibration ("zp").  See the pipeline documentation for
-# the meanings of all the parmeters.
 
 extraction:
-  sources:
-    method: sextractor
-    measure_psf: true
-    apertures: [1.0, 2.0, 3.0, 5.0]
-    inf_aper_num: -1
-    best_aper_num: 0
-    aperunit: fwhm
-    separation_fwhm: 1.0
-    threshold: 3.0
-    subtraction: false
-  bg:
-    format: map
-    method: sep
-    poly_order: 1
-    sep_box_size: 128
-    sep_filt_size: 3
-  wcs:
-    cross_match_catalog: gaia_dr3
-    solution_method: scamp
-    max_catalog_mag: [22.0]
-    mag_range_catalog: 6.0
-    min_catalog_stars: 50
-    max_sources_to_use: [2000, 1000, 500, 200]
-  zp:
-    cross_match_catalog: gaia_dr3
-    max_catalog_mag: [22.0]
-    mag_range_catalog: 6.0
-    min_catalog_stars: 50
+  method: sextractor
+  measure_psf: true
+  apertures: [1.0, 2.0, 3.0, 5.0]
+  inf_aper_num: -1
+  best_aper_num: 0
+  aperunit: fwhm
+  separation_fwhm: 1.0
+  threshold: 3.0
+  subtraction: false
+
+# ======================================================================
+# Backgrounding
+
+backgrounding:
+  format: map
+  method: sep
+  poly_order: 1
+  sep_box_size: 128
+  sep_filt_size: 3
+
+# ======================================================================
+# World Coordinates
+
+wcs:
+  cross_match_catalog: gaia_dr3
+  solution_method: scamp
+  max_catalog_mag: [22.0]
+  mag_range_catalog: 6.0
+  min_catalog_stars: 50
+  max_sources_to_use: [2000, 1000, 500, 200]
+
+# ======================================================================
+# Zero Point
+
+zp:
+  cross_match_catalog: gaia_dr3
+  max_catalog_mag: [22.0]
+  mag_range_catalog: 6.0
+  min_catalog_stars: 50
 
 # ======================================================================
 # Subtraction
@@ -508,24 +507,23 @@ coaddition:
       single_image_method: biharmonic
       ignore_flags: 0
   extraction:
-    sources:
-      measure_psf: true
-      threshold: 3.0
-      method: sextractor
-    bg:
-      format: map
-      method: sep
-    wcs:
-      cross_match_catalog: gaia_dr3
-      solution_method: scamp
-      max_catalog_mag: [22.0]
-      mag_range_catalog: 6.0
-      min_catalog_stars: 50
-    zp:
-      cross_match_catalog: gaia_dr3
-      max_catalog_mag: [22.0]
-      mag_range_catalog: 6.0
-      min_catalog_stars: 50
+    measure_psf: true
+    threshold: 3.0
+    method: sextractor
+  backgrounding:
+    format: map
+    method: sep
+  wcs:
+    cross_match_catalog: gaia_dr3
+    solution_method: scamp
+    max_catalog_mag: [22.0]
+    mag_range_catalog: 6.0
+    min_catalog_stars: 50
+  zp:
+    cross_match_catalog: gaia_dr3
+    max_catalog_mag: [22.0]
+    mag_range_catalog: 6.0
+    min_catalog_stars: 50
 
 # ======================================================================
 # ======================================================================
@@ -563,55 +561,31 @@ referencing:
     min_only_center: False
     seeing_quality_factor: 3.0  # linear coefficient for adding lim_mag and seeing to get the "image quality"
     save_new_refs: true  # should the new references be saved to disk and committed to the database?
-  pipeline:  # The following are used to override the regular "extraction" parameters
-    extraction:
-      sources:  # override the regular source and psf extraction parameters
-        measure_psf: true
-#        threshold: 3.0
-#        method: sextractor
-#      bg:
-#        format: map
-#        method: sep
-#        poly_order: 1
-#        sep_box_size: 128
-#        sep_filt_size: 3
-#      wcs:  # override the regular astrometric calibration parameters
-#        cross_match_catalog: gaia_dr3
-#        solution_method: scamp
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
-#      zp:  # override the regular photometric calibration parameters
-#        cross_match_catalog: gaia_dr3
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
 
   coaddition:  # override the coaddition parameters in the general "coaddition" config
     coaddition:  # override the way coadds are made, from the general "coaddition" config
       method: swarp
     extraction:  # override the coaddition/regular pipeline config, when extracting for the coadd images
-      sources: # override the regular source and psf extraction parameters and the coadd extraction parameters
-        measure_psf: true
-#        threshold: 3.0
-#        method: sextractor
-#      bg: # override the regular background estimation parameters and the coadd extraction parameters
-#        format: map
-#        method: sep
-#        poly_order: 1
-#        sep_box_size: 128
-#        sep_filt_size: 3
-#      wcs:  # override the regular astrometric calibration parameters and the coadd extraction parameters
-#        cross_match_catalog: gaia_dr3
-#        solution_method: scamp
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
-#      zp:  # override the regular photometric calibration parameters and the coadd extraction parameters
-#        cross_match_catalog: gaia_dr3
-#        max_catalog_mag: [22.0]
-#        mag_range_catalog: 6.0
-#        min_catalog_stars: 50
+      measure_psf: true
+#      threshold: 3.0
+#      method: sextractor
+#    backgrounding: # override the regular background estimation parameters and the coadd extraction parameters
+#      format: map
+#      method: sep
+#      poly_order: 1
+#      sep_box_size: 128
+#      sep_filt_size: 3
+#    wcs:  # override the regular astrometric calibration parameters and the coadd extraction parameters
+#      cross_match_catalog: gaia_dr3
+#      solution_method: scamp
+#      max_catalog_mag: [22.0]
+#      mag_range_catalog: 6.0
+#      min_catalog_stars: 50
+#    zp:  # override the regular photometric calibration parameters and the coadd extraction parameters
+#      cross_match_catalog: gaia_dr3
+#      max_catalog_mag: [22.0]
+#      mag_range_catalog: 6.0
+#      min_catalog_stars: 50
 
 
 # ======================================================================
@@ -638,7 +612,7 @@ instrument_default:
 # do a couple of chips, it's not worth the time.  So, I've untarred the
 # files on the NERSC web portal to allow them to be grabbed
 # individually.  These can be found on Perlmutter at
-# /global/cfs/dirs/m2218/www/decam_calibration_files
+# /global/cfs/dirs/m4616/www/decam_calibration_files
 
 DECam:
   calibratorset: externally_supplied

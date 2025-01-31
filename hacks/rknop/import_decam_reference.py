@@ -130,7 +130,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
     pipeline = Pipeline( pipeline={ 'provenance_tag': 'DECam_manual_refs',
                                     'through_step': 'zp',
                                     'generate_report': False } )
-    ds.prov_tree = pipeline.make_provenance_tree( image, ok_no_ref_provs=True )
+    ds.prov_tree = pipeline.make_provenance_tree( image, ok_no_ref_prov=True )
 
     # Have to manually run the pipeline steps because pipeline.run()
     #   as it currently exists depends on starting from an Exposure

@@ -2,11 +2,13 @@ import pytest
 import hashlib
 import os
 import pathlib
+import uuid
 
 import psycopg2.errors
 
 from astropy.wcs import WCS
 
+from models.source_list import SourceList
 from models.world_coordinates import WorldCoordinates
 
 
@@ -46,20 +48,34 @@ def test_world_coordinates( ztf_datastore_uncommitted, provenance_base, provenan
         ds.psf.save( image=ds.image, sources=ds.sources )
 
         wcobj.sources_id = ds.sources.id
-        wcobj.save( image=ds.image, sources=ds.sources )
+        wcobj.provenance_id = provenance_base.id
+        wcobj.save( image=ds.image )
         wcobj.insert()
 
         # add a second WCS object and make sure we cannot accidentally commit it, too
         wcobj2 = WorldCoordinates()
         wcobj2.wcs = old_wcs
         wcobj2.sources_id = ds.sources.id
-        wcobj2.save( image=ds.image, sources=ds.sources ) # overwrite the save of wcobj
+        wcobj2.provenance_id = provenance_base.id
+        wcobj2.save( image=ds.image ) # overwrite the save of wcobj
 
+        with pytest.raises( psycopg2.errors.UniqueViolation,
+                            match='duplicate key value violates unique constraint "_wcs_source_list_provenance_uc"' ):
+            wcobj2.insert()
+
+        # also test the filename uniqueness
+        sl = SourceList( image_id=ds.image.id, format='sepnpy', num_sources=1, provenance_id=provenance_base.id,
+                         filepath="foo", md5sum=uuid.uuid4() )
+        sl.insert()
+        wcobj2.sources_id = sl.id
         with pytest.raises( psycopg2.errors.UniqueViolation,
                             match='duplicate key value violates unique constraint "ix_world_coordinates_filepath"' ):
             wcobj2.insert()
+        sl.delete_from_disk_and_database()
 
         # ensure you cannot overwrite when explicitly setting overwrite=False
+        wcobj2.sources_id = ds.sources.id
+        wcobj2.provenance_id = provenance_base.id
         with pytest.raises( OSError, match=".txt already exists" ):
             wcobj2.save(overwrite=False)
 
@@ -85,9 +101,10 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
     wcobj = WorldCoordinates()
     wcobj.wcs = origwcs
     wcobj.sources_id = ds.sources.id
+    wcobj.provenance_id = provenance_extra.id
 
     try:
-        wcobj.save( image=ds.image, sources=ds.sources )
+        wcobj.save( image=ds.image )
         txtpath = pathlib.Path( wcobj.local_path ) / f'{wcobj.filepath}'
 
         # check for an error if the file is not found when loading
@@ -96,7 +113,7 @@ def test_save_and_load_wcs(ztf_datastore_uncommitted, provenance_base, provenanc
             wcobj.load( download=False )
 
         # ensure you can create an identical wcs from a saved one
-        wcobj.save( image=ds.image, sources=ds.sources )
+        wcobj.save( image=ds.image )
         wcobj2 = WorldCoordinates()
         wcobj2.load( txtpath=txtpath )
 

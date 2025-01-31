@@ -17,11 +17,8 @@ def test_deepscore_saving(ptf_datastore, scorer):
     ## assert that the scores have not recalculated ( thus they were found on DB )
     assert not scorer.has_recalculated
     assert len(ds.scores) == len(ds.measurements)
-
-    ## try and commit
-    with SmartSession() as session:
-        ## try to commit and confirm there are no errors
-        ds.save_and_commit(session=session)
+    ## try to commit and confirm there are no errors
+    ds.save_and_commit()
 
     return None
 
@@ -39,26 +36,23 @@ def test_multiple_algorithms(decam_exposure, decam_reference, decam_default_cali
         p1.subtractor.pars.refset = 'test_refset_decam'
         p1.scorer.pars.algorithm = "random"
         ds1 = p1.run(exposure, sec_id)
+        ds1.save_and_commit()
 
+        # try and find all the existing objects, check they are right
+        m_ids = [m.id for m in ds1.measurements]
         with SmartSession() as session:
-            ds1.save_and_commit(session=session)
-
-            # try and find all the existing objects, check they are right
-            m_ids = [m.id for m in ds1.measurements]
             dbscores = session.query( DeepScore ).filter( DeepScore.measurements_id.in_( m_ids )).all()
-
             assert len(dbscores) == len(ds1.measurements)
-
 
         p2 = Pipeline( pipeline={'provenance_tag': 'test_multiple_algorithms2'} )
         p2.subtractor.pars.refset = 'test_refset_decam'
         p2.scorer.pars.algorithm = "allperfect"
         ds2 = p2.run(exposure, sec_id)
+        ds2.save_and_commit()
 
+        # check that the proper number of scores are saved to db
+        m_ids = [m.id for m in ds2.measurements]
         with SmartSession() as session:
-            # commit and check the proper number of scores are saved to db
-            ds2.save_and_commit(session=session)
-            m_ids = [m.id for m in ds2.measurements]
             dbscores = session.query( DeepScore ).filter( DeepScore.measurements_id.in_( m_ids )).all()
             assert len(dbscores) == 2 * len(ds1.measurements) # both algorithms are in
 

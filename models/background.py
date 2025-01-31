@@ -7,19 +7,19 @@ import h5py
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.declarative import declared_attr
-from sqlalchemy.schema import CheckConstraint
+from sqlalchemy.schema import CheckConstraint, UniqueConstraint
 
 from improc.tools import find_and_apply_bscale
 from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.image import Image
-from models.source_list import SourceList, SourceListSibling
+from models.source_list import SourceList
 from models.enums_and_bitflags import BackgroundFormatConverter, BackgroundMethodConverter, bg_badness_inverse
 
 # from util.logger import SCLogger
 import warnings
 
 
-class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     __tablename__ = 'backgrounds'
 
     @declared_attr
@@ -28,6 +28,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
+            UniqueConstraint('sources_id', 'provenance_id', name='_background_source_list_provenance_ud' )
         )
 
 
@@ -92,6 +93,13 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         index=True,
         nullable=False,
         doc="Noise RMS of the background (in units of counts), as a best representative value for the entire image."
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='background_provenance_id_fkey'),
+        nullable=False,
+        index=True,
+        doc="ID of the provenance of this background. "
     )
 
     @property
@@ -230,7 +238,7 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
         else:
             raise RuntimeError( f"Don't know how to subtract background of type {self.format}" )
 
-    def save( self, filename=None, image=None, sources=None, **kwargs ):
+    def save( self, filename=None, image=None, **kwargs ):
         """Write the Background to disk.
 
         May or may not upload to the archive and update the
@@ -269,12 +277,6 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
              filepath.  If both filename and image are None, will try
              to load the background's image from the database, if possible.
 
-          sources: SourceList (optional)
-             Ignored if filename is not None.  If filename is None,
-             use this SourceList's provenance to genernate the background's
-             filepath.  If both filename and soruces are None, will try to
-             load the background's SourceList from the database, if possible.
-
           Additional arguments are passed on to FileOnDiskMixin.save()
 
         """
@@ -294,18 +296,17 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
                 filename += '.h5'
             self.filepath = filename
         else:
-            if ( sources is None ) or ( image is None ):
+            if image is None:
                 with SmartSession() as session:
-                    if sources is None:
-                        sources = SourceList.get_by_id( self.sources_id, session=session )
-                    if ( sources is not None ) and ( image is None ):
-                        image = Image.get_by_id( sources.image_id, session=session )
-                if ( sources is None ) or ( image is None ):
-                    raise RuntimeError( "Can't invent Background filepath; can't find either the corresponding "
-                                        "SourceList or the corresponding Image." )
+                    image = ( session.query( Image )
+                              .join( SourceList, SourceList.image_id==Image._id )
+                              .filter( SourceList._id==self.sources_id )
+                             ).first()
+                if image is None:
+                    raise RuntimeError( "Can't invent Background filepath; can't find corresponding image." )
 
             self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
-            self.filepath += f'.bg_{sources.provenance_id[:6]}.h5'
+            self.filepath += f'.bg_{self.provenance_id[:6]}.h5'
 
         h5path = os.path.join( self.local_path, f'{self.filepath}')
 
@@ -459,6 +460,19 @@ class Background(SourceListSibling, Base, UUIDMixin, FileOnDiskMixin, HasBitFlag
             newbg.y_degree = bg.coeffs.copy()
 
         return newbg
+
+
+    def get_upstreams(self, session=None):
+        """Get the source list that was used to make this background"""
+        with SmartSession(session) as session:
+            return session.scalars( sa.select(SourceList).where( SourceList._id == self.sources_id ) ).all()
+
+    def get_downstreams(self, session=None):
+        """Get immediate downstreams of this background, which are zeropoints."""
+        from models.zero_point import ZeroPoint
+        with SmartSession(session) as session:
+            return session.scalars( sa.select(ZeroPoint).where( ZeroPoint.background_id == self._id ) ).all()
+
 
     def to_dict( self ):
         # Background needs special handling for to_dict, at least for the

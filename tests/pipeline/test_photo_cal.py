@@ -1,6 +1,7 @@
 import os
 import pytest
 import pathlib
+import uuid
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -75,16 +76,12 @@ def test_decam_photo_cal( decam_datastore_through_wcs, blocking_plots ):
     assert isinstance( ds.zp, ZeroPoint )
 
     # Verify that it will rerun if a parameter is changed
-    # ...this doesn't work, zeropoint doesn't have its
-    # own provenance, and the thing in ds.sources is
-    # still there, and the pre-existing zeropoint
-    # linked to those sources is still in the database.
-    # import pdb; pdb.set_trace()
-    # ds.zp = None
-    # photometor.pars.test_parameter = uuid.uuid4().hex
-    # ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure, no_provtag=True )
-    # photometor.run(ds)
-    # assert photometor.has_recalculated
+    ds.zp = None
+    photometor.pars.test_parameter = uuid.uuid4().hex
+    ds._provtag = None
+    ds.edit_prov_tree( 'zp', photometor.pars.get_critical_pars() )
+    photometor.run(ds)
+    assert photometor.has_recalculated
 
 
 def test_warnings_and_exceptions(decam_datastore_through_wcs):
@@ -93,7 +90,8 @@ def test_warnings_and_exceptions(decam_datastore_through_wcs):
 
     if not SKIP_WARNING_TESTS:
         photometor.pars.inject_warnings = 1
-        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+        ds._provtag = None
+        ds._pipeline.make_provenance_tree( ds )
 
         with pytest.warns(UserWarning) as record:
             photometor.run( ds )
@@ -103,6 +101,7 @@ def test_warnings_and_exceptions(decam_datastore_through_wcs):
     photometor.pars.inject_warnings = 0
     photometor.pars.inject_exceptions = 1
     ds.zp = None
-    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+    ds._provtag = None
+    ds._pipeline.make_provenance_tree(ds)
     with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'photocal'."):
         ds = photometor.run( ds )

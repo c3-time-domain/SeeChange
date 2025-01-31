@@ -121,12 +121,6 @@ class ParsDetector(Parameters):
     def get_process_name(self):
         return 'detection'
 
-    def require_siblings(self):
-        if self.pars.subtraction:
-            return False
-        else:
-            return True
-
 
 class Detector:
     """Extract sources (and possibly a psf) from images or subtraction images.
@@ -219,7 +213,7 @@ class Detector:
 
         if self.pars.subtraction:
             try:
-                ds, session = DataStore.from_args(*args, **kwargs)
+                ds = DataStore.from_args(*args, **kwargs)
                 t_start = time.perf_counter()
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
                     import tracemalloc
@@ -234,16 +228,16 @@ class Detector:
                     # # back-fill the image from the sub image
                     # ds.image = None
                     # ds.image_id = ds.sub_image.new_image_id
-                    # ds.get_image( session=session )
+                    # ds.get_image()
 
                 if ds.sub_image is None:
                     raise RuntimeError( "detection.py: self.pars.subtraction is true, but "
                                         "DataStore has no sub_image" )
 
-                prov = ds.get_provenance('detection', self.pars.get_critical_pars(), session=session)
+                prov = ds.get_provenance('detection', self.pars.get_critical_pars())
 
                 # try to find the sources/detections in memory or in the database:
-                detections = ds.get_detections(prov, session=session)
+                detections = ds.get_detections(prov)
 
                 if detections is None:
                     self.has_recalculated = True
@@ -281,8 +275,8 @@ class Detector:
 
         else:  # regular image
             try:
-                ds, session = DataStore.from_args(*args, **kwargs)
-                prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
+                ds = DataStore.from_args(*args, **kwargs)
+                prov = ds.get_provenance('extraction', self.pars.get_critical_pars())
 
                 t_start = time.perf_counter()
                 if env_as_bool('SEECHANGE_TRACEMALLOC'):
@@ -291,8 +285,8 @@ class Detector:
 
                 self.pars.do_warning_exception_hangup_injection_here()
 
-                sources = ds.get_sources(provenance=prov, session=session)
-                psf = ds.get_psf(provenance=prov, session=session)
+                sources = ds.get_sources(provenance=prov)
+                psf = ds.get_psf(provenance=prov)
 
                 if sources is None or psf is None:
                     # TODO: when only one of these is not found (which is a strange situation)
@@ -305,7 +299,7 @@ class Detector:
                     # or load using the provenance given in the
                     # data store's upstream_provs, or just use
                     # the most recent provenance for "preprocessing"
-                    image = ds.get_image(session=session)
+                    image = ds.get_image()
 
                     if image is None:
                         raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '

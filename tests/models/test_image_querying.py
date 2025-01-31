@@ -456,7 +456,7 @@ def test_find_images(ptf_reference_image_datastores, ptf_ref,
     found1ids = set( f._id for f in found1 )
     assert len(found1) == 6
     assert set( d.image.id for d in ptfdses ).issubset( found1ids )
-    assert ptf_ref.image_id in found1ids
+    assert ptf_ref.image.id in found1ids
 
     found2 = Image.find_images( minra=ptfdses[0].image.minra,
                                 maxra=ptfdses[0].image.maxra,

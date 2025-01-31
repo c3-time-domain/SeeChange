@@ -64,9 +64,6 @@ class ParsBackgrounder(Parameters):
     def get_process_name(self):
         return 'backgrounding'
 
-    def require_siblings(self):
-        return True
-
 
 class Backgrounder:
     def __init__(self, **kwargs):
@@ -85,7 +82,7 @@ class Backgrounder:
         self.has_recalculated = False
 
         try:
-            ds, session = DataStore.from_args(*args, **kwargs)
+            ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -94,15 +91,15 @@ class Backgrounder:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('extraction', self.pars.get_critical_pars(), session=session)
+            prov = ds.get_provenance('backgrounding', self.pars.get_critical_pars())
 
             # try to find the background object in memory or in the database:
-            bg = ds.get_background( provenance=prov, session=session)
+            bg = ds.get_background( provenance=prov )
 
             if bg is None:  # need to produce a background object
                 self.has_recalculated = True
-                image = ds.get_image(session=session)
-                sources = ds.get_sources(session=session)
+                image = ds.get_image()
+                sources = ds.get_sources()
                 if ( image is None ) or ( sources is None ):
                     raise RuntimeError( "Backgrounding can't proceed unless the DataStore "
                                         "already has image and sources" )
@@ -127,6 +124,7 @@ class Backgrounder:
                     del fmask
                     del tmpimagedata
                     bg = Background(
+                        provenance_id=prov.id,
                         value=float(np.nanmedian(sep_bg_obj.back())),
                         noise=float(np.nanmedian(sep_bg_obj.rms())),
                         counts=sep_bg_obj.back(),
@@ -147,10 +145,10 @@ class Backgrounder:
                 ds.image.bkg_mean_estimate = float( bg.value )
                 ds.image.bkg_rms_estimate = float( bg.noise )
 
-            sources = ds.get_sources(session=session)
+            sources = ds.get_sources()
             if sources is None:
                 raise ValueError(f'Cannot find a SourceList corresponding to the datastore inputs: {ds.inputs_str}')
-            psf = ds.get_psf(session=session)
+            psf = ds.get_psf()
             if psf is None:
                 raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.inputs_str}')
 

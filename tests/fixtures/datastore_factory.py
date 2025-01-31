@@ -47,6 +47,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
     this path will be in ds.path_to_original_image.  In this case, the
     thing that calls this factory must delete that file when done.
 
+    The returned DataStore will have a property _pipeline that holds the
+    pipeline used to create the data products.
+
     (...this whole thing is a sort of more verbose implementation of
     pipeline/top_level.py...)
 
@@ -186,12 +189,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
         if 'subtraction' in stepstodo:
             inst_name = ds.image.instrument.lower() if ds.image else ds.exposure.instrument.lower()
             refset_name = f'test_refset_{inst_name}'
-            # Removing these - the refsets should be created when the references are.
-            # if inst_name == 'ptf':  # request the ptf_refset fixture dynamically:
-            #     request.getfixturevalue('ptf_refset')
-            # if inst_name == 'decam':  # request the decam_refset fixture dynamically:
-            #     request.getfixturevalue('decam_refset')
-
             if 'subtraction' not in overrides:
                 overrides['subtraction'] = {}
             overrides['subtraction']['refset'] = refset_name
@@ -213,8 +210,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         p.override_parameters(**overrides)
         p.augment_parameters(**augments)
 
-        ds.prov_tree = p.make_provenance_tree( ds.exposure if ds.exposure is not None else ds.image,
-                                               ok_no_ref_provs=True )
+        p.setup_datastore( ds, ok_no_ref_prov=True )
 
         if isinstance( exporim, Exposure ) and ( not env_as_bool("LIMIT_CACHE_USAGE") ) and cache_dir.is_dir():
             # If we didn't know the cache base path before, we should
@@ -248,9 +244,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug( f'make_datastore searching cache for report {report_cache_path}' )
             if use_cache and ( report_cache_path is not None ) and report_cache_path.is_file():
                 SCLogger.debug( 'make_datastore loading report from cache' )
-                ds.report = copy_from_cache( Report, cache_dir, report_cache_path, symlink=True )
+                cached_report = copy_from_cache( Report, cache_dir, report_cache_path, symlink=True )
                 # The cached exposure id won't be right
-                ds.report.exposure_id = exporim.id
+                cached_report.exposure_id = exporim.id
                 # TODO -- I want this next line to be ds.report.insert().  And, indeed,
                 #   when I run all the tests on my local machine, it works.  However,
                 #   when running the tests on github actions, in two tests this was
@@ -264,13 +260,23 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 #   we should probably do that.  (Or, if we happen to find the solution
                 #   while doing something else, make this upsert into an insert and
                 #   close the issue.)
-                # ds.report.insert()
-                ds.report.upsert()
+                # cached_report.insert()
+                cached_report.upsert()
+                # We may have made a report earlier when calling Pipeline.setup_datastore,
+                #   so we need to remove that one from the database now that we've replaced it.
+                if ds.report is not None:
+                    with Psycopg2Connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute( "DELETE FROM reports WHERE _id=%(id)s",
+                                        { 'id': ds.report.id } )
+                        conn.commit()
+                ds.report = cached_report
                 report_was_loaded_from_cache = True
             else:
-                ds.report = Report( exposure_id=exporim.id, section_id=section_id )
-                ds.report.start_time = datetime.datetime.now( tz=datetime.UTC )
-                ds.report.provenance_id = ds.prov_tree['report'].id
+                if ds.report is not None:
+                    ds.report.start_time = datetime.datetime.now( tz=datetime.UTC )
+                else:
+                    raise RuntimeError( "ds.report is None and I'm surprised" )
 
         # Remove all steps past subtraction if there's no referencing provenance
         if ( 'subtraction' in stepstodo ) and ( 'referencing' not in ds.prov_tree ):
@@ -408,14 +414,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         ############# extraction to create sources / PSF  #############
 
-        # this filename_barf is used by all of sources, psf, bg, wcs, zp
-        filename_barf = ds.prov_tree['extraction'].id[:6]
-
         if 'extraction' in stepstodo:
 
             found_sources_in_cache = False
             if use_cache:
                 # try to get the source list from cache
+                filename_barf = ds.prov_tree['extraction'].id[:6]
                 sources_cache_path = ( cache_dir / cache_base_path.parent /
                                        f'{cache_base_path.name}.sources_{filename_barf}.fits.json' )
                 SCLogger.debug( f'make_datastore searching cache for source list {sources_cache_path}' )
@@ -468,6 +472,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ########## Background ##########
 
         if 'bg' in stepstodo:
+            filename_barf = ds.prov_tree['backgrounding'].id[:6]
             bg_cache_path = ( cache_dir / cache_base_path.parent /
                               f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
             if use_cache and found_sources_in_cache:
@@ -480,13 +485,13 @@ def datastore_factory(data_dir, pipeline_factory, request):
                                              symlink=True )
                     ds.bg.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
-                    ds.bg.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
+                    ds.bg.save( image=ds.image, verify_md5=False, overwrite=True )
 
 
             if ds.bg is None:
                 SCLogger.debug('make_datastore running background estimation')
                 ds = p.backgrounder.run(ds)
-                ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.bg.save( image=ds.image, overwrite=True )
                 ds.update_report( 'backgrounding' )
                 if use_cache:
                     output_path = copy_to_cache(ds.bg, cache_dir)
@@ -496,6 +501,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ########## Astrometric calibration ##########
 
         if 'wcs' in stepstodo:
+            filename_barf = ds.prov_tree['wcs'].id[:6]
             wcs_cache_path = ( cache_dir / cache_base_path.parent /
                                f'{cache_base_path.name}.wcs_{filename_barf}.txt.json' )
             if use_cache and found_sources_in_cache:
@@ -506,12 +512,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     ds.wcs = copy_from_cache(WorldCoordinates, cache_dir, wcs_cache_path, symlink=True)
                     ds.wcs.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
-                    ds.wcs.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
+                    ds.wcs.save( image=ds.image, verify_md5=False, overwrite=True )
 
             if ds.wcs is None:
                 SCLogger.debug('make_datastore running astrometric calibration')
                 ds = p.astrometor.run(ds)
-                ds.wcs.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.wcs.save( image=ds.image, overwrite=True )
                 ds.update_report( 'astrocal' )
                 if use_cache:
                     output_path = copy_to_cache(ds.wcs, cache_dir)
@@ -575,7 +581,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             if use_cache:  # try to find the subtraction image in the cache
                 SCLogger.debug( "make_datstore looking for subtraction image in cache..." )
 
-                sub_im = Image.from_new_and_ref( ds.image, ds.reference )
+                sub_im = Image.from_new_and_ref( ds.zp, ds.reference )
                 sub_im.provenance_id = ds.prov_tree['subtraction'].id
                 cache_sub_name = pathlib.Path( sub_im.invent_filepath() )
 
