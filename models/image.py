@@ -1533,7 +1533,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def get_upstreams(self, session=None):
         """Get the immediate upstreams of this image.
 
-        This may include: zeropoints (if this a sub image or a coadd image), exposures, references.
+        This may include an exposure (for most images), zeropoints (if
+        this is subtraction or coadd image), and/or a reference (if this
+        is a subtraction).
 
         Returns
         -------

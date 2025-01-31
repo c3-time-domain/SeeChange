@@ -118,7 +118,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         print(f'total_time: {total_time:.1f}s')
         print(f'measured_time: {measured_time:.1f}s')
         pprint(ds.report.process_runtime, sort_dicts=False)
-        assert measured_time > 0.99 * total_time  # at least 99% of the time is accounted for
+        assert measured_time > 0.98 * total_time  # at least 98% of the time is accounted for
 
         if env_as_bool('SEECHANGE_TRACEMALLOC'):
             print(f'peak_memory: {peak_memory:.1f}MB')

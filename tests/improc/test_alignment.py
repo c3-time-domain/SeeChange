@@ -176,7 +176,7 @@ def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
         else:
             raise ValueError(f"Unknown alignment reference index: {prov.parameters['alignment_index']}")
 
-        new_image = Image.from_images( [ d.image for d in ptf_reference_image_datastores ], index=index )
+        new_image = Image.from_image_zps( [ d.zp for d in ptf_reference_image_datastores ], index=index )
         new_image.provenance_id = prov.id
 
         coadder.run_alignment( ptf_reference_image_datastores, index )
@@ -191,8 +191,8 @@ def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
         match = re.match(r'/.*/.*_\d{8}_\d{6}_.*_.*_ComSci_.{6}_u-.{6}\.image\.fits', new_image.get_fullpath()[0])
         assert match is not None
 
-        upstream_imgs = new_image.get_upstreams( only_images=True )
-        assert [ i.id for i in upstream_imgs ] == [ d.image.id for d in ptf_reference_image_datastores ]
+        upstream_zps = new_image.get_upstreams()
+        assert [ i.id for i in upstream_zps ] == [ d.zp.id for d in ptf_reference_image_datastores ]
         assert len( coadder.aligned_datastores ) == len( ptf_reference_image_datastores )
         dsindex = ptf_reference_image_datastores[index]
         assert np.array_equal( coadder.aligned_datastores[index].image.data,
@@ -205,11 +205,11 @@ def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
             check_aligned( ds.image, ref )
 
         # check that unaligned images do not pass the check
-        for image in upstream_imgs:
-            if image.id == ref.id:
+        for ds in ptf_reference_image_datastores:
+            if ds.image.id == ref.id:
                 continue
             with pytest.raises(AssertionError):
-                check_aligned(image, ref)
+                check_aligned(ds.image, ref)
 
         # add new image to database
         with SmartSession() as session:
