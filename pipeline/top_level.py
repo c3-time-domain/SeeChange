@@ -412,7 +412,7 @@ class Pipeline:
             raise TypeError( "First argument to make_provenance_tree must be a DataStore." )
 
         if all_steps:
-            stepstogenerateprov = self.ALL_STEPS
+            stepstogenerateprov = self.ALL_STEPS.copy()
         else:
             stepstogenerateprov = self._get_stepstodo()
 

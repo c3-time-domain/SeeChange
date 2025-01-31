@@ -711,6 +711,9 @@ class DataStore:
 
         """
 
+        # Make a copy of steps so we can modify it
+        steps = steps.copy()
+
         code_version = None
         is_testing = None
 
@@ -905,7 +908,7 @@ class DataStore:
                                     f"already in the current prov tree." )
             self.prov_tree[ step ] = prov
 
-        mustmodify = set( step )
+        mustmodify = { step }
         for s, ups in self.prov_tree.upstream_steps.items():
             if any( i in mustmodify for i in ups ):
                 mustmodify.add( s )
@@ -924,7 +927,7 @@ class DataStore:
                 upstream_provs = [ self.prov_tree[u] for u in self.prov_tree.upstream_steps[curstep] ]
                 self.prov_tree[curstep] = Provenance( code_version_id=self._code_version.id,
                                                       process=curstep,
-                                                      paramter=params,
+                                                      parameters=params,
                                                       upstreams=upstream_provs )
 
         if self._provtag is not None:

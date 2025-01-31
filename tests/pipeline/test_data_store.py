@@ -41,11 +41,11 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
 
         ds.make_prov_tree( Pipeline.ALL_STEPS, pars )
         # Don't delete the exposure or referencing provenances, they were created in a fixture
-        provs_created = set( v for k, v in ds.prov_tree.items() if k not in ('referencing','exposure') )
+        provs_created = set( v for k, v in ds.prov_tree.items() if k not in ('referencing','starting_point') )
 
-        # Even though 'exposure' and 'referencing' weren't in the list
+        # Even though 'starting_point' and 'referencing' weren't in the list
         #   of steps, they should have been created
-        assert set( ds.prov_tree.keys() ) == set( ['exposure', 'referencing'] + Pipeline.ALL_STEPS )
+        assert set( ds.prov_tree.keys() ) == set( ['starting_point', 'referencing'] + Pipeline.ALL_STEPS )
         for i, step in enumerate( Pipeline.ALL_STEPS ):
             assert step in ds.prov_tree
             assert step in ds.prov_tree.upstream_steps
@@ -58,7 +58,7 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
         with Psycopg2Connection() as conn:
             cursor = conn.cursor()
             cursor.execute( "SELECT _id FROM provenance_tags WHERE provenance_id IN %(pid)s",
-                            { 'pid': tuple( v.id for k, v in ds.prov_tree.items() if k not in ( 'exposure',
+                            { 'pid': tuple( v.id for k, v in ds.prov_tree.items() if k not in ( 'starting_point',
                                                                                                 'referencing' ) ) } )
             assert len(cursor.fetchall()) == 0
 
@@ -76,9 +76,9 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
 
         # Make sure that the prov tree gets replaced and only some steps
         #   created if we give fewer than all steps
-        somesteps = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp' ]
+        somesteps = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp' ]
         ds.make_prov_tree( somesteps, pars )
-        assert set( ds.prov_tree.keys() ) == set( ['exposure'] + somesteps )
+        assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
 
     finally:
         if len(provs_created) > 0:
@@ -102,12 +102,13 @@ def test_make_prov_tree_no_ref_prov( decam_exposure ):
         with pytest.raises( ValueError, match="No reference set with name test_refset_decam found in the database!" ):
             ds.make_prov_tree( Pipeline.ALL_STEPS, pars )
 
-        somesteps = [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp' ]
+        somesteps = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp' ]
         ds.make_prov_tree( somesteps, pars )
-        assert set( ds.prov_tree.keys() ) == set( ['exposure'] + somesteps )
+        assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
 
         ds.make_prov_tree( Pipeline.ALL_STEPS, pars, ok_no_ref_prov=True )
-        assert set( ds.prov_tree.keys() ) == { 'exposure', 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp' }
+        assert set( ds.prov_tree.keys() ) == { 'starting_point', 'preprocessing', 'extraction',
+                                               'backgrounding', 'wcs', 'zp' }
 
     finally:
         if len(provs_created) > 0:
@@ -192,34 +193,38 @@ def test_edit_prov_tree():
     assert ds.prov_tree is None
 
     with pytest.raises(TypeError, match="Can't edit provenance tree, DataStore doesn't have one yet."):
-        ds.set_prov_tree( provs )
+        ds.edit_prov_tree( provs )
 
     ds.edit_prov_tree( ProvenanceTree( provs, upstreams ) )
 
     assert all( [ prov.id == provs[process].id for process, prov in ds.prov_tree.items() ] )
 
-    with pytest.raises(ValueError, match="Unknown step anisotropisization passed to edit_prov_tree" ):
+    with pytest.raises(RuntimeError, match=("Can't modify provenance for step anisotropisization, "
+                                            "it's not in the current prov tree." ) ):
         ds.edit_prov_tree( 'anisotropisization', { 'foo': 'bar' } )
 
-    with pytest.raises(ValueError, match="Can't edit provenance for step preprocessing, no params_dict passed" ):
-        ds.edit_prov_tree( 'preprocessing', { 'foo': 'bar' } )
+    with pytest.raises(ValueError, match=( "Can't edit provenance for step preprocessing, "
+                                           "no params_dict nor prov passed" ) ):
+        ds.edit_prov_tree( 'preprocessing' )
 
     # Verify that only downstreams get modified if we edit an upstream
     for i, process in enumerate( provs.keys() ):
         last_provs = ds.prov_tree.copy()
-        params_dict = provs['process'].copy()
+        params_dict = provs[process].parameters.copy()
         params_dict['new_parameter'] = 'foo'
         ds.edit_prov_tree( process, params_dict )
         assert ds.prov_tree.keys() == last_provs.keys()
         assert ds.prov_tree[process].parameters['new_parameter'] == 'foo'
         for j, newproc in enumerate( provs.keys() ):
             provstodel.add( ds.prov_tree[newproc] )
-            if j < i:
+            if ( j < i ) or ( ( process != 'referencing' ) and ( newproc == 'referencing' ) ):
                 assert last_provs[newproc].id == ds.prov_tree[newproc].id
             else:
                 assert last_provs[newproc].id != ds.prov_tree[newproc].id
 
-    # TODO? verify that the provrenace tag gets set?
+    # TODO:
+    #   Passing a Provenance to edit_prov_tree
+    #   Verify that provenance tag gets set?
 
     # Clean up
     with SmartSession() as sess:
