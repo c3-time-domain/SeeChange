@@ -154,7 +154,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         cache_dir = pathlib.Path( cache_dir ) if cache_dir is not None else None
 
-        stepstodo = [ 'preprocessing', 'bg', 'extraction', 'wcs', 'zp',
+        stepstodo = [ 'preprocessing', 'extraction', 'bg', 'wcs', 'zp',
                       'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ]
         if through_step is None:
             if skip_sub:

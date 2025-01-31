@@ -841,7 +841,7 @@ class DataStore:
         self.prov_tree = provs
 
 
-    def edit_prov_tree( self, step, params_dict=None, prov=None, new_step=False, provtag=None ):
+    def edit_prov_tree( self, step, params_dict=None, prov=None, new_step=False, provtag=None, donotinsert=False ):
         """Update the DataStore's provenance tree.
 
         Parameters
@@ -889,6 +889,10 @@ class DataStore:
               the user to ensure that's the case.)  Save this in the
               DataStore, so that future provenances created with
               edit_prov_tree will be tagged with this provenance tag.
+
+          donotinsert: bool, default False
+              If True, don't insert any newly created Provenances into
+              the database.  (By default, they will be inserted.)
 
         """
 
@@ -940,6 +944,11 @@ class DataStore:
                                                       process=curstep,
                                                       parameters=params,
                                                       upstreams=upstream_provs )
+        if ( len(mustmodify) > 0 ) and ( not donotinsert ):
+            with SmartSession() as sess:
+                for curstep in self.prov_tree.keys():
+                    if curstep in mustmodify:
+                        self.prov_tree[curstep].insert_if_needed( session=sess )
 
         if self._provtag is not None:
             ProvenanceTag.addtag( self._provtag, self.prov_tree.values(), add_missing_processes_to_provtag=True )

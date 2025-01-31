@@ -14,6 +14,9 @@ from models.base import SmartSession
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
+from models.background import Background
+from models.world_coordinates import WorldCoordinates
+from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.refset import RefSet
 
@@ -23,7 +26,7 @@ from util.util import env_as_bool, asUUID
 def add_test_parameters(maker):
     """Utility function to add "test_parameter" to all the underlying objects. """
     for name in ['preprocessor', 'extractor', 'backgrounder', 'astrometor', 'photometor', 'coadder']:
-        for pipe in ['pipeline', 'coadd_pipeline']:
+        for pipe in ['coadd_pipeline']:
             obj = getattr(getattr(maker, pipe), name, None)
             if obj is not None:
                 obj.pars._enforce_no_new_attrs = False
@@ -37,6 +40,9 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
     refstodel = set()
     imgstodel = set()
     srcstodel = set()
+    bgstodel = set()
+    wcsstodel = set()
+    zpstodel = set()
     basesrcprov = None
     baserefprov = None
     extrasrcprov = None
@@ -55,14 +61,44 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                                        upstreams=[provenance_extra],
                                        parameters={ 'kaglorky': 23 } )
             extrasrcprov.insert_if_needed( session=session )
+            basebgprov = Provenance( code_version_id=code_version.id,
+                                     process='backgrounding',
+                                     upstreams=[basesrcprov],
+                                     parameters={ 'kaglorky': 49152 } )
+            basebgprov.insert_if_needed()
+            extrabgprov = Provenance( code_version_id=code_version.id,
+                                     process='backgrounding',
+                                     upstreams=[extrasrcprov],
+                                     parameters={ 'kaglorky': 16384 } )
+            extrabgprov.insert_if_needed()
+            basewcsprov = Provenance( code_version_id=code_version.id,
+                                      process='wcs',
+                                      upstreams=[basesrcprov],
+                                      parameters={ 'kaglorky': 32768 } )
+            basewcsprov.insert_if_needed()
+            extrawcsprov = Provenance( code_version_id=code_version.id,
+                                       process='wcs',
+                                       upstreams=[extrasrcprov],
+                                       parameters={ 'kaglorky': 4096 } )
+            extrawcsprov.insert_if_needed()
+            basezpprov = Provenance( code_version_id=code_version.id,
+                                     process='zp',
+                                     upstreams=[basebgprov, basewcsprov],
+                                     parameters={ 'kaglorky': 31337 } )
+            basezpprov.insert_if_needed()
+            extrazpprov = Provenance( code_version_id=code_version.id,
+                                       process='wcs',
+                                       upstreams=[extrabgprov, extrawcsprov],
+                                       parameters={ 'kaglorky': 8192 } )
+            extrazpprov.insert_if_needed()
             baserefprov = Provenance( code_version_id=code_version.id,
                                       process='referencing',
-                                      upstreams=[provenance_base, basesrcprov],
+                                      upstreams=[basezpprov],
                                       parameters={ 'which': 'base' } )
             baserefprov.insert_if_needed( session=session )
             extrarefprov = Provenance( code_version_id=code_version.id,
                                        process='referencing',
-                                       upstreams=[provenance_extra,extrasrcprov],
+                                       upstreams=[extrazpprov],
                                        parameters={ 'which': 'extra' } )
             extrarefprov.insert_if_needed( session=session )
 
@@ -86,6 +122,18 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                        'num_sources': 5,
                        'md5sum': uuid.uuid4(),
                       }
+
+        reusebgkw = { 'method': 'zero',
+                      'value': 0.,
+                      'noise': 1.,
+                      'image_shape': ( 256, 256 ),
+                      'md5sum': uuid.uuid4() }
+
+        reusewcskw = { 'md5sum': uuid.uuid4() }
+
+        reusezpkw = { 'zp': 25.,
+                      'dzp': 0.1 }
+
 
         # Make refsets
         refset_base = RefSet( name="base", description="provenance_base", provenance_id=baserefprov.id )
@@ -111,7 +159,17 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src1 = SourceList( image_id=img1.id, provenance_id=basesrcprov.id, filepath='1.fits', **reusesrckw )
         src1.insert()
         srcstodel.add( src1.id )
-        ref1 = Reference( provenance_id=baserefprov.id, image_id=img1.id, sources_id=src1.id, )
+        bg1 = Background( sources_id=src1.id, provenance_id=basebgprov.id, filepath='bg1.fits', **reusebgkw )
+        bg1.insert()
+        bgstodel.add( bg1.id )
+        wcs1 = WorldCoordinates( sources_id=src1.id, provenance_id=basewcsprov.id, filepath='wcs1.fits',
+                                 **reusewcskw )
+        wcs1.insert()
+        wcsstodel.add( wcs1.id )
+        zp1 = ZeroPoint( background_id=bg1.id, wcs_id=wcs1.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp1.insert()
+        zpstodel.add( zp1.id )
+        ref1 = Reference( provenance_id=baserefprov.id, zp_id=zp1.id )
         ref1.insert()
         refstodel.add( ref1.id )
 
@@ -126,7 +184,17 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src2 = SourceList( image_id=img2.id, provenance_id=basesrcprov.id, filepath='2.fits', **reusesrckw )
         src2.insert()
         srcstodel.add( src2.id )
-        ref2 = Reference( provenance_id=baserefprov.id, image_id=img2.id, sources_id=src2.id )
+        bg2 = Background( sources_id=src2.id, provenance_id=basebgprov.id, filepath='bg2.fits', **reusebgkw )
+        bg2.insert()
+        bgstodel.add( bg2.id )
+        wcs2 = WorldCoordinates( sources_id=src2.id, provenance_id=basewcsprov.id, filepath='wcs2.fits',
+                                 **reusewcskw )
+        wcs2.insert()
+        wcsstodel.add( wcs2.id )
+        zp2 = ZeroPoint( background_id=bg2.id, wcs_id=wcs2.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp2.insert()
+        zpstodel.add( zp2.id )
+        ref2 = Reference( provenance_id=baserefprov.id, zp_id=zp2.id )
         ref2.insert()
         refstodel.add( ref2.id )
 
@@ -141,7 +209,17 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         srcp = SourceList( image_id=imgp.id, provenance_id=extrasrcprov.id, filepath='p.fits', **reusesrckw )
         srcp.insert()
         srcstodel.add( srcp.id )
-        refp = Reference( provenance_id=extrarefprov.id, image_id=imgp.id, sources_id=srcp.id )
+        bgp = Background( sources_id=srcp.id, provenance_id=extrabgprov.id, filepath='bgp.fits', **reusebgkw )
+        bgp.insert()
+        bgstodel.add( bgp.id )
+        wcsp = WorldCoordinates( sources_id=srcp.id, provenance_id=extrawcsprov.id, filepath='wcsp.fits',
+                                 **reusewcskw )
+        wcsp.insert()
+        wcsstodel.add( wcsp.id )
+        zpp = ZeroPoint( background_id=bgp.id, wcs_id=wcsp.id, provenance_id=extrazpprov.id, **reusezpkw )
+        zpp.insert()
+        zpstodel.add( zpp.id )
+        refp = Reference( provenance_id=extrarefprov.id, zp_id=zpp.id )
         refp.insert()
         refstodel.add( refp.id )
 
@@ -157,7 +235,17 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src3 = SourceList( image_id=img3.id, provenance_id=basesrcprov.id, filepath='3.fits', **reusesrckw )
         src3.insert()
         srcstodel.add( src3.id )
-        ref3 = Reference( provenance_id=baserefprov.id, image_id=img3.id, sources_id=src3.id )
+        bg3 = Background( sources_id=src3.id, provenance_id=basebgprov.id, filepath='bg3.fits', **reusebgkw )
+        bg3.insert()
+        bgstodel.add( bg3.id )
+        wcs3 = WorldCoordinates( sources_id=src3.id, provenance_id=basewcsprov.id, filepath='wcs3.fits',
+                                 **reusewcskw )
+        wcs3.insert()
+        wcsstodel.add( wcs3.id )
+        zp3 = ZeroPoint( background_id=bg3.id, wcs_id=wcs3.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp3.insert()
+        zpstodel.add( zp3.id )
+        ref3 = Reference( provenance_id=baserefprov.id, zp_id=zp3.id )
         ref3.insert()
         refstodel.add( ref3.id )
 
@@ -173,7 +261,17 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src4 = SourceList( image_id=img4.id, provenance_id=basesrcprov.id, filepath='4.fits', **reusesrckw )
         src4.insert()
         srcstodel.add( src4.id )
-        ref4 = Reference( provenance_id=baserefprov.id, image_id=img4.id, sources_id=src4.id )
+        bg4 = Background( sources_id=src4.id, provenance_id=basebgprov.id, filepath='bg4.fits', **reusebgkw )
+        bg4.insert()
+        bgstodel.add( bg4.id )
+        wcs4 = WorldCoordinates( sources_id=src4.id, provenance_id=basewcsprov.id, filepath='wcs4.fits',
+                                 **reusewcskw )
+        wcs4.insert()
+        wcsstodel.add( wcs4.id )
+        zp4 = ZeroPoint( background_id=bg4.id, wcs_id=wcs4.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp4.insert()
+        zpstodel.add( zp4.id )
+        ref4 = Reference( provenance_id=baserefprov.id, zp_id=zp4.id )
         ref4.insert()
         refstodel.add( ref4.id )
 
@@ -189,7 +287,17 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src5 = SourceList( image_id=img5.id, provenance_id=basesrcprov.id, filepath='5.fits', **reusesrckw )
         src5.insert()
         srcstodel.add( src5.id )
-        ref5 = Reference( provenance_id=baserefprov.id, image_id=img5.id, sources_id=src5.id )
+        bg5 = Background( sources_id=src5.id, provenance_id=basebgprov.id, filepath='bg5.fits', **reusebgkw )
+        bg5.insert()
+        bgstodel.add( bg5.id )
+        wcs5 = WorldCoordinates( sources_id=src5.id, provenance_id=basewcsprov.id, filepath='wcs5.fits',
+                                 **reusewcskw )
+        wcs5.insert()
+        wcsstodel.add( wcs5.id )
+        zp5 = ZeroPoint( background_id=bg5.id, wcs_id=wcs5.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp5.insert()
+        zpstodel.add( zp5.id )
+        ref5 = Reference( provenance_id=baserefprov.id, zp_id=zp5.id )
         ref5.insert()
         refstodel.add( ref5.id )
 
@@ -227,7 +335,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point at center of img1, all filters, all provenances
         refs, imgs = Reference.get_references( ra=20., dec=45. )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
         assert set( r.id for r in refs ) == { ref1.id, ref2.id, refp.id }
         assert set( i.id for i in imgs ) == { img1.id, img2.id, imgp.id }
@@ -236,7 +343,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         for provarg in [ baserefprov.id, baserefprov, [ baserefprov.id ], [ baserefprov ] ]:
             refs, imgs = Reference.get_references( ra=20., dec=45., provenance_ids=provarg )
             assert len(imgs) == len(refs)
-            assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
             assert len(refs) == 2
             assert set( r.id for r in refs ) == { ref1.id, ref2.id }
             assert set( i.id for i in imgs ) == { img1.id, img2.id }
@@ -244,7 +350,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point at center of img1, all provenances, only one filter
         refs, imgs = Reference.get_references( ra=20., dec=45., filter='r' )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
         assert set( r.id for r in refs ) == { ref1.id, refp.id }
         assert set( i.id for i in imgs ) == { img1.id, imgp.id }
@@ -252,7 +357,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point at center of img1, one provenance, one filter
         refs, imgs = Reference.get_references( ra=20., dec=45., filter='r', provenance_ids=baserefprov.id )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 1
         assert refs[0].id == ref1.id
         assert imgs[0].id == img1.id
@@ -264,7 +368,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point at center of img1, refset base
         refs, imgs = Reference.get_references( ra=20., dec=45., refset='base' )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
         assert set( r.id for r in refs ) == { ref1.id, ref2.id }
         assert set( i.id for i in imgs ) == { img1.id, img2.id }
@@ -272,7 +375,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point at center of img1, refset extra
         refs, imgs = Reference.get_references( ra=20., dec=45., refset='extra' )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 1
         assert refs[0].id == refp.id
         assert imgs[0].id == imgp.id
@@ -285,7 +387,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point at upper-left of img1
         refs, imgs = Reference.get_references( ra=20.1273, dec=45.09, **kwargs )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
         assert set( r.id for r in refs ) == { ref1.id, ref3.id, ref4.id }
         assert set( i.id for i in imgs ) == { img1.id, img3.id, img4.id }
@@ -293,7 +394,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point included in img3 but not img4
         refs, imgs = Reference.get_references( ra=20.+0.06*np.sqrt(2.), dec=45.06, **kwargs )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
         assert set( r.id for r in refs ) == { ref1.id, ref3.id }
         assert set( i.id for i in imgs ) == { img1.id, img3.id }
@@ -301,7 +401,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Get point included in img3 and img4 but not img1 (center of img3)
         refs, imgs = Reference.get_references( ra=img3.ra, dec=img3.dec, **kwargs )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
         assert set( r.id for r in refs ) == { ref3.id, ref4.id }
         assert set( i.id for i in imgs ) == { img3.id, img4.id }
@@ -314,7 +413,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
             for ra, dec in zip( ramess[messdex], decmess[messdex] ):
                 refs, imgs = Reference.get_references( ra=ra, dec=dec, **kwargs )
                 assert len(imgs) == len(refs)
-                assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
                 assert len( refs ) == 1
                 assert refs[0].id == ref5.id
                 assert imgs[0].id == img5.id
@@ -323,7 +421,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         # Overlapping -- overlaps img1 at all
         refs, imgs = Reference.get_references( image=img1, **kwargs )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
         assert set( r.id for r in refs ) == { ref1.id, ref3.id, ref4.id }
         assert set( i.id for i in imgs ) == { img1.id, img3.id, img4.id }
@@ -332,7 +429,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                                                 mindec=img1.mindec, maxdec=img1.maxdec,
                                                 **kwargs )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 3
         assert set( r.id for r in refs ) == { ref1.id, ref3.id, ref4.id }
         assert set( i.id for i in imgs ) == { img1.id, img3.id, img4.id }
@@ -345,14 +441,12 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
 
         refs, imgs = Reference.get_references( image=img1, overlapfrac=0.5, **kwargs )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 1
         assert refs[0].id == ref1.id
         assert imgs[0].id == img1.id
 
         refs, imgs = Reference.get_references( image=img1, overlapfrac=0.05, **kwargs )
         assert len(imgs) == len(refs)
-        assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
         assert len(refs) == 2
         assert set( r.id for r in refs ) == { ref1.id, ref3.id }
         assert set( i.id for i in imgs ) == { img1.id, img3.id }
@@ -369,7 +463,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                                                    mindec=ctrdec-0.1, maxdec=ctrdec+0.1,
                                                    **kwargs )
             assert len(imgs) == len(refs)
-            assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
             assert len(refs) == 1
             assert refs[0].id == ref5.id
             assert imgs[0].id == img5.id
@@ -379,7 +472,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                                                    mindec=ctrdec-0.1, maxdec=ctrdec+0.1,
                                                    overlapfrac=fiducialfrac, **kwargs )
             assert len(imgs) == len(refs)
-            assert all( r.image_id == i.id for r, i in zip( refs, imgs ) )
             if ovfrac >= fiducialfrac:
                 assert len(refs) == 1
                 assert refs[0].id == ref5.id
@@ -392,21 +484,31 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         with SmartSession() as session:
             session.execute( sa.delete( RefSet ).where( RefSet.name.in_( ( 'base', 'extra', ) ) ) )
             session.execute( sa.delete( Reference ).where( Reference._id.in_( refstodel ) ) )
+            session.execute( sa.delete( ZeroPoint ).where( ZeroPoint._id.in_( zpstodel ) ) )
+            session.execute( sa.delete( WorldCoordinates ).where( WorldCoordinates._id.in_( wcsstodel ) ) )
+            session.execute( sa.delete( Background ).where( Background._id.in_( bgstodel ) ) )
             session.execute( sa.delete( SourceList ).where( SourceList._id.in_( srcstodel ) ) )
             session.execute( sa.delete( Image ).where( Image._id.in_( imgstodel ) ) )
             session.commit()
 
 
-def test_make_refset():
+def test_make_refset( code_version ):
     provstodel = set()
     rsname = 'test_making_references.py::test_make_refset'
 
     try:
-        maker = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] }, coaddition={ 'method': 'zogy' } )
-        assert maker.im_provs is None
-        assert maker.ex_provs is None
+        # Make a fake zeropoint prov for refmaker to chew on
+        zpprov = Provenance( process='zp', code_version_id=code_version.id, parameters={}, upstreams=[] )
+        zpprov.insert_if_needed()
+        provstodel.add( zpprov )
+
+        maker = RefMaker( maker={ 'name': rsname, 'instrument': 'PTF', 'zp_prov_id': zpprov.id },
+                          coaddition={ 'method': 'zogy' } )
         assert maker.coadd_im_prov is None
         assert maker.coadd_ex_prov is None
+        assert maker.coadd_bg_prov is None
+        assert maker.coadd_wcs_prov is None
+        assert maker.coadd_zp_prov is None
         assert maker.ref_prov is None
         assert maker.refset is None
 
@@ -416,16 +518,17 @@ def test_make_refset():
         # Make sure we can create a new refset, and that it sets up the provenances
         maker.make_refset()
         assert maker.ref_prov is not None
+        assert [ p.id for p in maker.ref_prov.upstreams ] == [ maker.coadd_zp_prov.id ]
         provstodel.add( maker.ref_prov )
-        assert len( maker.im_provs ) > 0
-        assert len( maker.ex_provs ) > 0
-        assert maker.coadd_im_prov is not None
-        assert maker.coadd_ex_prov is not None
+        assert isinstance( maker.coadd_im_prov, Provenance )
+        assert [ p.id for p in maker.coadd_im_prov.upstreams ] == [ zpprov.id ]
+        assert isinstance( maker.coadd_ex_prov, Provenance )
         rs = RefSet.get_by_name( rsname )
         assert isinstance( rs, RefSet )
 
         # Make sure that all is well if we try to make the same RefSet all over again
-        newmaker = RefMaker( maker={ 'name': rsname, 'instruments': ['PTF'] }, coaddition={ 'method': 'zogy' } )
+        newmaker = RefMaker( maker={ 'name': rsname, 'instrument': 'PTF', 'zp_prov_id': zpprov.id },
+                             coaddition={ 'method': 'zogy' } )
         assert newmaker.refset is None
         newmaker.make_refset()
         assert asUUID(newmaker.refset.id) == asUUID(maker.refset.id)
@@ -443,18 +546,28 @@ def test_make_refset():
             sess.commit()
 
 
-def test_making_refsets_in_run():
+def test_making_refsets_in_run( code_version ):
+    # a zp prov for refmaker to chew on
+    zpprov = Provenance( process='zp', code_version_id=code_version.id, parameters={}, upstreams=[] )
+    zpprov.insert_if_needed()
+
     # make a new refset with a new name
     name = uuid.uuid4().hex
-    maker = RefMaker(maker={'name': name, 'instruments': ['PTF'], 'corner_distance': None, 'overlap_fraction': None})
+    maker = RefMaker(maker={'name': name,
+                            'instrument': 'PTF',
+                            'corner_distance': None,
+                            'overlap_fraction': None,
+                            'zp_prov_id': zpprov.id
+                            })
     min_number = maker.pars.min_number
     max_number = maker.pars.max_number
 
     # we still haven't run the maker, so everything is empty
-    assert maker.im_provs is None
-    assert maker.ex_provs is None
     assert maker.coadd_im_prov is None
     assert maker.coadd_ex_prov is None
+    assert maker.coadd_bg_prov is None
+    assert maker.coadd_wcs_prov is None
+    assert maker.coadd_zp_prov is None
 
     # Make sure we can create a fresh refset
     new_ref = maker.run(ra=0, dec=0, filter='R')
@@ -462,12 +575,11 @@ def test_making_refsets_in_run():
     refset = maker.refset
 
     assert refset is not None  # can produce a reference set without finding a reference
-    assert len( maker.im_provs ) > 0
-    assert len( maker.ex_provs ) > 0
-    assert all( isinstance(p, Provenance) for p in maker.im_provs.values() )
-    assert all( isinstance(p, Provenance) for p in maker.ex_provs.values() )
     assert isinstance(maker.coadd_im_prov, Provenance)
     assert isinstance(maker.coadd_ex_prov, Provenance)
+    assert isinstance(maker.coadd_bg_prov, Provenance)
+    assert isinstance(maker.coadd_wcs_prov, Provenance)
+    assert isinstance(maker.coadd_zp_prov, Provenance)
 
     assert refset.provenance.parameters['min_number'] == min_number
     assert refset.provenance.parameters['max_number'] == max_number
@@ -487,7 +599,7 @@ def test_making_refsets_in_run():
     assert new_ref is None  # still can't find images there
 
     # now try to append with different data parameters:
-    maker.pipeline.extractor.pars['threshold'] = 3.14
+    maker.coadd_pipeline.coadder.pars['method'] = 'swarp'
 
     with pytest.raises( ValueError, match="Refset .* already exists with provenance .*, which does not match" ):
         new_ref = maker.run(ra=0, dec=0, filter='R')
@@ -495,18 +607,20 @@ def test_making_refsets_in_run():
     # Clean up
     with SmartSession() as session:
         session.execute( sa.delete( RefSet ).where( RefSet.name.in_( [ name, name2 ] ) ) )
+        session.execute( sa.delete( Provenance ).where( Provenance._id==zpprov.id ) )
         session.commit()
 
 
-def test_identify_images_to_coadd( provenance_base ):
+def test_identify_images_to_coadd( provenance_base, provenance_extra ):
     refmaker = RefMaker( maker={ 'end_time': 60000.,
                                  'corner_distance': 0.8,
                                  'coadd_overlap_fraction': 0.1,
-                                 'instruments': ["DemoInstrument"],
+                                 'instrument': "DemoInstrument",
                                  'max_seeing': 1.1,
-                                 'min_lim_mag': 23. } )
+                                 'min_lim_mag': 23.,
+                                 'zp_prov_id': provenance_extra.id
+                                } )
     refmaker.setup_provenances()
-    improv = refmaker.im_provs["DemoInstrument"]
 
     # Make a bunch of images.  All are 0.2° by 0.1°.
     #   img_base
@@ -521,6 +635,10 @@ def test_identify_images_to_coadd( provenance_base ):
     #   img_shift_upright
 
     idstodel = set()
+    srcstodel = set()
+    bgstodel = set()
+    wcsstodel = set()
+    zpstodel = set()
 
     def imagemaker( filepath, ra, dec, angle=0., **overrides ):
         dra = 0.1
@@ -528,7 +646,8 @@ def test_identify_images_to_coadd( provenance_base ):
         _id = uuid.uuid4()
         kwargs = { 'ra': ra,
                    'dec': dec,
-                   'provenance_id': improv.id,
+                   'provenance_id': provenance_base.id,
+                   'zp_provenance_id': provenance_extra.id,
                    'mjd': 59000.,
                    'end_mjd': 59000.000694,
                    'exp_time': 60.,
@@ -576,6 +695,25 @@ def test_identify_images_to_coadd( provenance_base ):
         img = Image( **kwargs )
         img.insert()
         idstodel.add( img.id )
+        src = SourceList( image_id=img.id, format='sextrfits', num_sources=1,
+                          filepath=f'{filepath}_src.fits', md5sum=uuid.uuid4(),
+                          provenance_id=provenance_base.id )
+        src.insert()
+        srcstodel.add( src.id )
+        bg = Background( sources_id=src.id, method='zero', value=0., noise=1.,
+                         image_shape=(256,256), filepath=f'{filepath}_bg.fits', md5sum=uuid.uuid4(),
+                         provenance_id=provenance_base.id )
+        bg.insert()
+        bgstodel.add( bg.id )
+        wcs = WorldCoordinates( sources_id=src.id, filepath=f'{filepath}_wcs.fits', md5sum=uuid.uuid4(),
+                                provenance_id=provenance_base.id )
+        wcs.insert()
+        wcsstodel.add( wcs.id )
+        zp = ZeroPoint( wcs_id=wcs.id, background_id=bg.id, zp=25., dzp=0.1,
+                        provenance_id=kwargs['zp_provenance_id'] )
+        zp.insert()
+        zpstodel.add( zp.id )
+
         return img
 
     try:
@@ -583,7 +721,8 @@ def test_identify_images_to_coadd( provenance_base ):
         img_rot_45 = imagemaker( 'img_rot_45.fits', 20., 40., 45. )
         _ = imagemaker( 'img_wrongfilter.fits', 20., 40., filter='g' )
         _ = imagemaker( 'img_wronginstrument.fits', 20., 40., instrument='DECam' )
-        _ = imagemaker( 'img_wrongprov.fits', 20., 40., provenance_id=provenance_base.id )
+        _ = imagemaker( 'img_wrongprov.fits', 20., 40.,
+                        provenance_id=provenance_extra.id, zp_provenance_id=provenance_base.id )
         _ = imagemaker( 'img_toolate.fits', 20., 40., mjd=60001, end_mjd=60001.000694 )
         _ = imagemaker( 'img_badseeing.fits', 20., 40., fwhm_estimate=2. )
         _ = imagemaker( 'img_tooshallow.fits', 20., 40., lim_mag_estimate=22. )
@@ -603,6 +742,9 @@ def test_identify_images_to_coadd( provenance_base ):
 
     finally:
         with SmartSession() as sess:
+            sess.execute( sa.delete( ZeroPoint ).where( ZeroPoint._id.in_( zpstodel ) ) )
+            sess.execute( sa.delete( WorldCoordinates ).where( WorldCoordinates._id.in_( wcsstodel ) ) )
+            sess.execute( sa.delete( Background ).where( Background._id.in_( bgstodel ) ) )
             sess.execute( sa.delete( Image ).where( Image._id.in_( idstodel ) ) )
             sess.commit()
 
@@ -619,12 +761,13 @@ def test_making_references( ptf_reference_image_datastores ):
         maker = RefMaker(
             maker={
                 'name': name,
-                'instruments': ['PTF'],
+                'instrument': 'PTF',
                 'min_number': 4,
                 'max_number': 10,
                 'end_time': '2010-01-01',
                 'corner_distance': None,
                 'overlap_fraction': None,
+                'zp_prov_id': ptf_reference_image_datastores[0].zp.provenance_id
             }
         )
         refsetstodel.add( maker.pars.name )
@@ -635,7 +778,7 @@ def test_making_references( ptf_reference_image_datastores ):
         ref = maker.run(ra=188, dec=4.5, filter='R')
         first_time = time.perf_counter() - t0
         first_refset = maker.refset
-        first_image_id = ref.image_id
+        first_image_id = ref.image.id
         assert ref is not None
 
         # check that this ref is saved to the DB
@@ -648,8 +791,8 @@ def test_making_references( ptf_reference_image_datastores ):
         ref2 = maker.run(ra=188, dec=4.5, filter='R')
         second_time = time.perf_counter() - t0
         second_refset = maker.refset
-        second_image_id = ref2.image_id
-        assert second_time < first_time * 0.1  # should be much faster, we are reloading the reference set
+        second_image_id = ref2.image.id
+        assert second_time < first_time * 0.1  # should be much faster, we are reloading the reference
         assert ref2.id == ref.id
         assert asUUID(second_refset.id) == asUUID(first_refset.id)
         assert second_image_id == first_image_id
@@ -661,7 +804,7 @@ def test_making_references( ptf_reference_image_datastores ):
         ref3 = maker.run(ra=188, dec=4.5, filter='R')
         third_time = time.perf_counter() - t0
         third_refset = maker.refset
-        third_image_id = ref3.image_id
+        third_image_id = ref3.image.id
         assert third_time < first_time * 0.1  # should be faster, we are loading the same reference
         assert asUUID(third_refset.id) != asUUID(first_refset.id)
         assert ref3.id == ref.id
@@ -681,23 +824,21 @@ def test_making_references( ptf_reference_image_datastores ):
         ref5 = maker.run(ra=188, dec=4.5, filter='R')
         fifth_time = time.perf_counter() - t0
         fifth_refset = maker.refset
-        fifth_image_id = ref5.image_id
+        fifth_image_id = ref5.image.id
         assert np.log10(fifth_time) == pytest.approx(np.log10(first_time), rel=0.2)  # should take about the same time
         assert asUUID(ref5.id) != asUUID(ref.id)
         assert asUUID(fifth_refset.id) != asUUID(first_refset.id)
         assert asUUID(fifth_image_id) != asUUID(first_image_id)
 
     finally:  # cleanup
-        if ( ref is not None ) and ( ref.image_id is not None ):
-            im = Image.get_by_id( ref.image_id )
-            im.delete_from_disk_and_database(remove_downstreams=True)
+        if ( ref is not None ) and ( ref.image is not None ):
+            ref.image.delete_from_disk_and_database(remove_downstreams=True)
 
         # we don't have to delete ref2, ref3, ref4, because they depend on the same coadd image, and cascade should
         # destroy them as soon as the coadd is removed
 
-        if ( ref5 is not None ) and ( ref5.image_id is not None ):
-            im = Image.get_by_id( ref5.image_id )
-            im.delete_from_disk_and_database(remove_downstreams=True)
+        if ( ref5 is not None ) and ( ref5.image is not None ):
+            ref5.image.delete_from_disk_and_database(remove_downstreams=True)
 
         # Delete the refsets we made
 

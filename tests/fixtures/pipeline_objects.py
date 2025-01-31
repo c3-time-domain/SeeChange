@@ -326,8 +326,6 @@ def refmaker_factory(test_config, pipeline_factory, coadd_pipeline_factory):
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
         )
         maker.pars._enforce_no_new_attrs = True
-        maker.pipeline = pipeline_factory( provtag )
-        maker.pipeline.override_parameters(**test_config.value('referencing.pipeline'))
         maker.coadd_pipeline = coadd_pipeline_factory()
         maker.coadd_pipeline.override_parameters(**test_config.value('referencing.coaddition'))
 

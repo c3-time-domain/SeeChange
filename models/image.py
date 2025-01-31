@@ -114,6 +114,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def _load_coadd_component_zp_ids( self, session=None ):
         with Psycopg2Connection() as conn:
             cursor = conn.cursor()
+            # We have to join back to image in order to get the mjd for sorting
             cursor.execute( "SELECT z._id FROM zero_points z "
                             "INNER JOIN image_coadd_component c ON c.zp_id=z._id "
                             "INNER JOIN world_coordinates w ON w._id=z.wcs_id "
@@ -174,27 +175,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def new_zp_id( self, val ):
         raise RuntimeError( "Don't" )
 
-    @property
-    def upstream_image_ids( self ):
-        # Delete this method
-        raise RuntimeError( "This needs to be fixed." )
-        if self.is_coadd:
-            return self.coadd_component_zp_ids
-        elif self.is_sub:
-            # Avoid circular import
-            from models.reference import Reference
-            with SmartSession() as session:
-                if self._ref_image_id is None:
-                    refim = ( session.query( Image )
-                              .join( Reference, Image._id == Reference.image_id )
-                              .filter( Reference._id == self.ref_id ) ).all()
-                    if len(refim) != 1:
-                        raise RuntimeError( f"Database corruption, expected one reference image for sub image, but "
-                                            f"got {len(refim)}" )
-                    self._ref_image_id = refim[0].id
-            return [ self._ref_image_id, self.new_image_id ]
-        else:
-            return []
 
     _type = sa.Column(
         sa.SMALLINT,
@@ -1631,7 +1611,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             max_zero_point=None,
             order_by=None,
             seeing_quality_factor=3.0,
-            max_number=None
+            max_number=None,
+            # return_zeropoints=False
     ):
         """Return a list of images that match criteria.
 
@@ -1779,9 +1760,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             first max_number returned from the database, ordered as
             specified in order_by.
 
+        # return_zeropoints: bool, default False
+        #     If True, return ZeroPoints of the images in addition to the
+        #     Images.  This requires provenance_ids_are_zp to be True.
+
         Returns
         -------
-          list of Image
+          list of Image # or ( list of Image, list of ZeroPoint )
 
         """
 
@@ -1815,8 +1800,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                         prov_id=provenance_ids,
                         fromclause=( "FROM images i "
                                      "INNER JOIN source_lists s ON s.image_id=i._id "
-                                     "INNER JOIN world_coordinates w ON w.soures_id=s._id "
-                                     "INNER JOIN zero_points Z ON z.wcs_id=w._id " ),
+                                     "INNER JOIN world_coordinates w ON w.sources_id=s._id "
+                                     "INNER JOIN zero_points z ON z.wcs_id=w._id " ),
                         provtable='z'
                     )
                 else:
@@ -1859,7 +1844,19 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 fcobj.dec_corner_11 = maxdec
                 fcobj.maxdec = maxdec
 
-                Image._find_potential_overlapping_temptable( fcobj, session=sess, prov_id=provenance_ids )
+                if provenance_ids_are_zp:
+                    Image._find_potential_overlapping_temptable(
+                        fcobj,
+                        session=sess,
+                        prov_id=provenance_ids,
+                        fromclause=( "FROM images i "
+                                     "INNER JOIN source_lists s ON s.image_id=i._id "
+                                     "INNER JOIN world_coordinates w ON w.sources_id=s._id "
+                                     "INNER JOIN zero_points z ON z.wcs_id=w._id " ),
+                        provtable='z'
+                    )
+                else:
+                    Image._find_potential_overlapping_temptable( fcobj, session=sess, prov_id=provenance_ids )
                 searchtable = "temp_find_overlapping"
             else:
                 if overlapfrac is not None:
@@ -1898,12 +1895,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             max_dateobs = None if max_dateobs is None else parse_dateobs(max_dateobs, output='mjd')
             types = None if type is None else [ ImageTypeConverter.to_int(t) for t in listify(type) ]
 
+            # Note that we do NOT filter on provenance here, because we already filtered on
+            #   provenance in building the temp_find_containing or temp_find_overlapping table.
             fields = [ { 'field': 'project',             'val': project,        'type': 'list' },
                        { 'field': 'target',              'val': target,         'type': 'list' },
                        { 'field': 'section_id',          'val': section_id,     'type': 'list' },
                        { 'field': 'filter',              'val': filter,         'type': 'list' },
                        { 'field': 'instrument',          'val': instrument,     'type': 'list' },
-                       { 'field': 'provenance_id',       'val': provenance_ids, 'type': 'list' },
                        { 'field': '_type',               'val': types,          'type': 'list' },
                        { 'field': 'mjd',                 'val': min_mjd,        'type': 'ge' },
                        { 'field': 'mjd',                 'val': min_dateobs,    'type': 'ge' },
@@ -1964,6 +1962,30 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                     retimages.append( im )
         else:
             retimages = list( images )
+
+        # if return_zeropoints:
+        #     if not provenance_ids_are_zp:
+        #         raise ValueError( "return_zeropoints requires provenance_ids_are_zp" )
+        #     import SourceList
+        #     import WorldCoordinates
+        #     import ZeroPooint
+
+        #     with SmartSession() as sess:
+        #         if not isinstance( provenance_ids, list ):
+        #             provenace_ids = list( provenance_ids )
+        #         retzps = ( sess.query( ZeroPoint, Image._id )
+        #                    .join( WorldCoordinates, WorldCoordinates._id=ZeroPoint.wcs_id )
+        #                    .join( SourceList, SourceList._id=WorldCoordinates.sources_id )
+        #                    .join( Image, Image._id=SourceList.image_id )
+        #                    .filter( Image._id.in_( [ i.id for i in retimages ] ) )
+        #                    .filter( ZeroPoint.provenance_id.in_( provenance_ids ) ) ).all()
+        #         if len( retzps ) != len( retimages ):
+        #             raise ValueError( "Didn't find exactly one zeropoint for each found image" )
+        #         retimageids = [ i.id for i in retimages ]
+        #         zpdex = [ retimageids.index(r[1]) for r in retzps ]
+        #         retzps = [ retzps[i] for i in zpdex ]
+
+        #     return retimages, retzps
 
         return retimages
 

@@ -5,13 +5,11 @@ import psycopg2.extras
 
 from pipeline.parameters import Parameters
 from pipeline.coaddition import CoaddPipeline
-from pipeline.top_level import Pipeline
 from pipeline.data_store import DataStore, ProvenanceTree
 
 from models.base import SmartSession, Psycopg2Connection
-from models.provenance import Provenance, CodeVersion
+from models.provenance import Provenance
 from models.reference import Reference
-from models.exposure import Exposure
 from models.image import Image
 from models.refset import RefSet
 
@@ -108,6 +106,14 @@ class ParsRefMaker(Parameters):
             'Only use images from these projects. If None, will not limit the projects. '
             'If given as a list, will use any of the projects in the list. ',
             critical=True,
+        )
+
+        self.zp_prov_id = self.add_par(
+            'zp_prov_id',
+            'placeholder',
+            str,
+            'The provenance of the ZeroPoint for images to be coadded into the reference.',
+            critical=True
         )
 
         self.__image_query_pars__ = ['airmass', 'background', 'seeing', 'lim_mag', 'exp_time']
@@ -233,7 +239,6 @@ class RefMaker:
         """
         # first break off some pieces of the kwargs dict
         maker_overrides = kwargs.pop('maker', {})  # to set the parameters of the reference maker itself
-        pipe_overrides = kwargs.pop('pipeline', {})  # to allow overriding the regular image pipeline
         coadd_overrides = kwargs.pop('coaddition', {})  # to allow overriding the coaddition pipeline
 
         if len(kwargs) > 0:
@@ -241,11 +246,6 @@ class RefMaker:
 
         # now read the config file
         config = Config.get()
-
-        # initialize an object to get the provenances of the regular images and their products
-        pipe_dict = config.value('referencing.pipeline', {})  # this is the reference pipeline override
-        pipe_dict.update(pipe_overrides)
-        self.pipeline = Pipeline(**pipe_dict)  # internally loads regular pipeline config, overrides with pipe_dict
 
         coadd_dict = config.value('referencing.coaddition', {})  # allow overrides from config's referencing.coaddition
         coadd_dict.update(coadd_overrides)  # allow overrides from kwargs['coaddition']
@@ -259,21 +259,12 @@ class RefMaker:
             raise ValueError( "Configuration error; for RefMaker, must have a float for both of "
                               "corner_distance and overlap_fraction, or both must be None." )
 
-        # first, make sure we can assemble the provenances of the component images
-        self.im_prov = None
-        self.ex_prov = None
-        self.bg_prov = None
-        self.wcs_prov = None
-        self.zp_prov = None
-        # ...and the provenances of the coadded image
         self.coadd_im_prov = None
         self.coadd_ex_prov = None
         self.coadd_bg_prov = None
         self.coadd_wcs_prov = None
         self.coadd_zp_prov = None
-        # ...and the provenance of the ref itself
         self.ref_prov = None
-        # ...and the refset
         self.refset = None
 
         self.reset()
@@ -299,85 +290,26 @@ class RefMaker:
     # ======================================================================
 
     def setup_provenances(self, session=None):
-        """Make the provenances for the images and all their products, including the coadd image.
-
-        These are used both to establish the provenance of the reference itself,
-        and to look for images and associated products (like SourceLists) when
-        building the reference.
+        """Make the provenances for the coadd image and all its products.
 
         The created provenances are loaded into the database.
 
         """
 
-        self.im_prov = None
-        self.ex_prov = None
-        self.bg_prov = None
-        self.wcs_prov = None
-        self.zp_prov = None
-
-        load_exposure = Exposure.make_provenance( self.pars.instrument )
-        code_version = CodeVersion.get_by_id( load_exposure.code_version_id )
-        pars = self.pipeline.processor.pars.get_critical_pars(),
-        preprocessing = Provenance(
-            process='preprocessing',
-            code_version_id=code_version.id,  # TODO: allow loading versions for each process
-            parameters=pars,
-            upstreams=[load_exposure],
-            is_testing='test_parameter' in pars,
-        )
-        preprocessing.insert_if_needed()
-        pars = self.pipeline.extractor.pars.get_critical_pars()
-        extraction = Provenance(
-            process='extraction',
-            code_version_id=code_version.id,  # TODO: allow loading versions for each process
-            parameters=pars,
-            upstreams=[preprocessing],
-            is_testing='test_parameter' in pars,
-        )
-        extraction.insert_if_needed()
-        pars = self.pipeline.backgrounder.pars.get_critical_pars()
-        backgrounding = Provenance(
-            process='backgrounding',
-            code_version_id=code_version.id,
-            parameters=pars,
-            upstreams=[extraction],
-            is_testing='test_parameter' in pars,
-        )
-        backgrounding.insert_if_needed()
-        pars = self.pipeline.astrometor.pars.get_critical_pars()
-        wcs = Provenance(
-            process='wcs',
-            code_version_id=code_version.id,
-            parameters=pars,
-            upstreams=[extraction],
-            is_testing='test_paramter' in pars,
-        )
-        wcs.insert_if_needed()
-        pars = self.pipeline.photometor.pars.get_critical_pars()
-        zp = Provenance(
-            process='zp',
-            code_version_id=code_version.id,
-            parameters=pars,
-            upstreams=[wcs,backgrounding],
-            is_testing='test_parameter' in pars,
-        )
-        zp.insert_if_needed()
-
-        self.im_prov = preprocessing
-        self.ex_prov = extraction
-        self.bg_prov = backgrounding
-        self.wcs_prov = wcs
-        self.zp_prov = zp
-
-        upstreams = [ self.zp_prov ]
+        zpprov = Provenance.get( self.pars.zp_prov_id )
+        if zpprov is None:
+            raise RuntimeError( f"Failed to find ZeroPoint provenance {self.pars.zp_prov_id}" )
+        upstreams = [ Provenance.get( self.pars.zp_prov_id ) ]
+        self.coadd_pipeline.datastore = DataStore()
         coadd_provs = self.coadd_pipeline.make_provenance_tree( None, upstream_provs=upstreams )
-        self.coadd_im_prov = coadd_provs['coaddition']
+        self.coadd_im_prov = coadd_provs['starting_point']
         self.coadd_ex_prov = coadd_provs['extraction']
         self.coadd_bg_prov = coadd_provs['backgrounding']
         self.coadd_wcs_prov = coadd_provs['wcs']
         self.coadd_zp_prov = coadd_provs['zp']
 
         pars = self.pars.get_critical_pars()
+        code_version = Provenance.get_code_version()
         self.ref_prov = Provenance(
             process=self.pars.get_process_name(),
             code_version_id=code_version.id,  # TODO: allow loading versions for each process
@@ -531,7 +463,7 @@ class RefMaker:
            images, match_pos, match_count
 
            images: list of Image
-             Images that can be included in the sum
+             List of images that can be included in the sum.
 
            match_pos: 2d numpy array
              Each row is [ra,dec] of a position on the summed image.  If
@@ -572,7 +504,7 @@ class RefMaker:
             kwargs = { 'minra': self.minra, 'maxra': self.maxra, 'mindec': self.mindec, 'maxdec': self.maxdec,
                        'overlapfrac': self.pars.coadd_overlap_fraction }
 
-        kwargs['provenance_ids'] = [ self.zp_prov ]
+        kwargs['provenance_ids'] = [ self.pars.zp_prov_id ]
         kwargs['provenance_ids_are_zp'] = True
         kwargs['instrument' ] = self.pars.instrument
         kwargs['project'] = self.pars.projects
@@ -666,21 +598,45 @@ class RefMaker:
                            f"match_count={match_count}, min_number={self.pars.min_number}" )
             return None
 
+
         # Sort the images and create data stores for all of them
+        # Have to pull out all the zeropoint upstream provenances
+        #   so the DataStore can find its stuff.
 
         images = sorted(images, key=lambda x: x.mjd)  # sort the images in chronological order for coaddition
         dses = []
+        improv = Provenance.get( images[0].provenance_id )
+        zpprov = Provenance.get( self.pars.zp_prov_id )
+        if len( zpprov.upstreams ) != 2:
+            raise RuntimeError( "I don't know how to cope" )
+        if ( zpprov.upstreams[0].process == 'backgrounding' ) and ( zpprov.upstreams[1].process == 'wcs' ):
+            bgprov = zpprov.upstreams[0]
+            wcsprov = zpprov.upstreams[1]
+        elif ( zpprov.upstreams[0].process == 'wcs' ) and ( zpprov.upstreams[1].process == 'backgrounding' ):
+            bgprov = zpprov.upstreams[1]
+            wcsprov = zpprov.upstreams[0]
+        else:
+            raise RuntimeError( "I don't know how to cope" )
+        if ( len(wcsprov.upstreams) != 1 ) or ( wcsprov.upstreams[0].process != 'extraction' ):
+            raise RuntimeError( "I don't know how to cope" )
+        srcprov = wcsprov.upstreams[0]
+        if ( len(srcprov.upstreams) != 1 ) or ( srcprov.upstreams[0].id != improv.id ):
+            raise RuntimeError( "I don't know how to cope" )
+        provtree = ProvenanceTree( { p.process: p for p in [ improv, srcprov, bgprov, wcsprov, zpprov ] },
+                                   upstream_steps={ improv.process: [ 'starting_point' ],
+                                                    srcprov.process: [ improv.process ],
+                                                    bgprov.process: [ srcprov.process ],
+                                                    wcsprov.process: [ srcprov.process ],
+                                                    zpprov.process: [ wcsprov.process, bgprov.process ] } )
         for im in images:
             inst = im.instrument
-            if ( inst not in self.im_provs ) or ( inst not in self.ex_provs ):
-                raise RuntimeError( f"Can't find instrument {inst} in one of (im_provs, ex_provs); "
-                                    f"this shouldn't happen." )
+            if inst != self.pars.instrument:
+                raise RuntimeError( f"RefMaker for instrument {self.pars.instrument} got an "
+                                    f"image from {inst}" )
+            if im.provenance_id != improv.id:
+                raise RuntimeError( "This should never happen." )
             ds = DataStore( im )
-            provs = { self.im_provs[inst].process: self.im_provs[inst],
-                      self.ex_provs[inst].process: self.ex_provs[inst] }
-            upstreams = { self.im_provs[inst].process: [ u.process for u in self.im_provs[inst].upstreams ],
-                          self.ex_provs[inst].process: [ u.process for u in self.ex_provs[inst].upstreams ] }
-            ds.prov_tree = ProvenanceTree( provs, upstreams )
+            ds.edit_prov_tree( provtree )
             ds.sources = ds.get_sources()
             ds.bg = ds.get_background()
             ds.psf = ds.get_psf()
@@ -689,17 +645,17 @@ class RefMaker:
             prods = {p: getattr(ds, p) for p in ['sources', 'psf', 'bg', 'wcs', 'zp']}
             if any( [p is None for p in prods.values()] ):
                 raise RuntimeError(
-                    f'DataStore for image {im} is missing products {prods} for coaddition! '
+                    f'DataStore for image {im} is missing some of products {prods} for coaddition! '
                     f'Make sure to produce products using the provenances in ex_provs: '
                     f'{self.ex_provs}'
                 )
             dses.append( ds )
 
+        self.coadd_pipeline.make_provenance_tree( dses )
         coadd_ds = self.coadd_pipeline.run( dses )
 
         ref = Reference(
-            image_id = coadd_ds.image.id,
-            sources_id = coadd_ds.sources.id,
+            zp_id = coadd_ds.zp.id,
             provenance_id = self.ref_prov.id
         )
 

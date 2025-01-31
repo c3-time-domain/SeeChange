@@ -106,6 +106,7 @@ class Preprocessor:
         """
         self.has_recalculated = False
 
+        ds = None
         try:
             ds = DataStore.from_args( *args, **kwargs )
             t_start = time.perf_counter()
@@ -357,5 +358,6 @@ class Preprocessor:
 
         except Exception as e:
             SCLogger.exception( f"Exception in Preprocessor.run: {e}" )
-            ds.exceptions.append( e )
+            if ds is not None:
+                ds.exceptions.append( e )
             raise

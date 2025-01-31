@@ -624,37 +624,75 @@ def ptf_ref(
 
 @pytest.fixture
 def ptf_ref_offset(ptf_ref):
-    ptf_ref_image = Image.get_by_id( ptf_ref.image_id )
-    offset_image = Image.copy_image( ptf_ref_image )
-    offset_image.ra_corner_00 -= 0.5
-    offset_image.ra_corner_01 -= 0.5
-    offset_image.ra_corner_10 -= 0.5
-    offset_image.ra_corner_11 -= 0.5
-    offset_image.minra -= 0.5
-    offset_image.maxra -= 0.5
-    offset_image.ra -= 0.5
-    offset_image.filepath = ptf_ref_image.filepath + '_offset'
-    offset_image.provenance_id = ptf_ref_image.provenance_id
-    offset_image.md5sum = uuid.uuid4()  # spoof this so we don't have to save to archive
-    ptf_ref_sources = SourceList.get_by_id( ptf_ref.sources_id )
-    offset_sources = ptf_ref_sources.copy()
-    offset_sources.filepath = ptf_ref_image.filepath + '_offset_sources'
-    offset_sources.m5dsum = uuid.uuid4()
-    offset_sources.image_id = offset_image.id
+    offset_image = None
+    try:
+        with SmartSession() as session:
+            ptf_ref_zp = session.query( ZeroPoint ).filter( ZeroPoint._id==ptf_ref.zp_id ).first()
+            ptf_ref_wcs = session.query( WorldCoordinates ).filter( WorldCoordinates._id==ptf_ref_zp.wcs_id ).first()
+            ptf_ref_bg = session.query( Background ).filter( Background._id==ptf_ref_zp.background_id ).first()
+            ptf_ref_sources = session.query( SourceList ).filter( SourceList._id==ptf_ref_wcs.sources_id ).first()
+            ptf_ref_image = session.query( Image ).filter( Image._id==ptf_ref_sources.image_id ).first()
 
-    # Have to have reproducible Reference ids for the cache to work
-    new_ref = Reference( _id='227165ca-01ab-4dae-b76d-744040c1735e',
-                         image_id=offset_image.id,
-                         sources_id=offset_sources.id,
-                         provenance_id=ptf_ref.provenance_id
-                        )
-    offset_image.insert()
-    new_ref.insert()
+        offset_image = Image.copy_image( ptf_ref_image )
+        offset_image.ra_corner_00 -= 0.5
+        offset_image.ra_corner_01 -= 0.5
+        offset_image.ra_corner_10 -= 0.5
+        offset_image.ra_corner_11 -= 0.5
+        offset_image.minra -= 0.5
+        offset_image.maxra -= 0.5
+        offset_image.ra -= 0.5
+        offset_image.filepath = ptf_ref_image.filepath + '_offset'
+        offset_image.provenance_id = ptf_ref_image.provenance_id
+        offset_image.md5sum = uuid.uuid4()  # spoof this so we don't have to save to archive
+        offset_image.insert()
 
-    yield new_ref
+        offset_sources = ptf_ref_sources.copy()
+        offset_sources._id = uuid.uuid4()
+        offset_sources.filepath = ptf_ref_image.filepath + '_offset_sources'
+        offset_sources.m5dsum = uuid.uuid4()
+        offset_sources.image_id = offset_image.id
+        offset_sources.insert()
 
-    offset_image.delete_from_disk_and_database()
-    # (Database cascade will also delete new_ref)
+        offset_wcs = ptf_ref_wcs.copy()
+        offset_wcs._id = uuid.uuid4()
+        offset_wcs.filepath = ptf_ref_wcs.filepath + '_offset_wcs'
+        offset_wcs.md5sum = uuid.uuid4()
+        offset_wcs.sources_id = offset_sources.id
+        offset_wcs.insert()
+
+        # .copy doesn't work here because it won't pass along image_shape, and
+        #   will end up trying to read the offset_image file, which is fictitious.
+        offset_bg = Background( image_shape=ptf_ref_bg.image_shape,
+                                format=ptf_ref_bg.format,
+                                method=ptf_ref_bg.method,
+                                sources_id=offset_sources.id,
+                                value=ptf_ref_bg.value,
+                                noise=ptf_ref_bg.noise,
+                                provenance_id=ptf_ref_bg.provenance_id,
+                                filepath=ptf_ref_bg.filepath + "_offset_bg",
+                                md5sum=uuid.uuid4()
+                               )
+        offset_bg.insert()
+
+        offset_zp = ptf_ref_zp.copy()
+        offset_zp._id = uuid.uuid4()
+        offset_zp.background_id = offset_bg.id
+        offset_zp.wcs_id = offset_wcs.id
+        offset_zp.insert()
+
+        # Have to have reproducible Reference ids for the cache to work
+        new_ref = Reference( _id='227165ca-01ab-4dae-b76d-744040c1735e',
+                             zp_id=offset_zp.id,
+                             provenance_id=ptf_ref.provenance_id
+                            )
+        new_ref.insert()
+
+        yield new_ref
+
+    finally:
+        if offset_image is not None:
+            offset_image.delete_from_disk_and_database()
+            # (Database cascade will also delete new_ref and other data products)
 
 
 @pytest.fixture(scope='session')

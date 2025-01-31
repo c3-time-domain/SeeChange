@@ -1084,6 +1084,7 @@ class CoaddPipeline:
                    'zp': self.photometor.pars.get_critical_pars() }
         self.datastore.make_prov_tree( steps, parses, upstream_steps=upstream_steps, starting_point=coadd_prov )
 
+        return self.datastore.prov_tree
 
     def override_parameters(self, **kwargs):
         """Override the parameters of this pipeline and its sub objects. """

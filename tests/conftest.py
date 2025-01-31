@@ -388,7 +388,7 @@ def provenance_base(code_version):
 @pytest.fixture
 def provenance_extra( provenance_base ):
     p = Provenance(
-        process="test_base_process",
+        process="test_extra_process",
         code_version_id=provenance_base.code_version_id,
         parameters={"test_parameter": uuid.uuid4().hex},
         upstreams=[provenance_base],

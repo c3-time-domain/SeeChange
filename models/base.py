@@ -2202,7 +2202,8 @@ class FourCorners:
             return objs
 
     @classmethod
-    def _find_potential_overlapping_temptable( cls, fcobj, session, prov_id=None ):
+    def _find_potential_overlapping_temptable( cls, fcobj, session, prov_id=None,
+                                               fromclause=None, provtable='i' ):
         """Internal.
 
         Given a FourCorners object fcobj, will return all objects of
@@ -2225,6 +2226,14 @@ class FourCorners:
              id or ids of the provenance of cls objects to search; if
              None, won't filter on provenance
 
+          fromclause : str, default None
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
+
+          provtable : str, default 'i'
+             Complicated.  Used in Image.find_images.  WARNING.  Misuse
+             of this can totally Bobby Tables the database.  Be good.
+
         """
 
         session.execute( sa.text( "DROP TABLE IF EXISTS temp_find_overlapping" ) )
@@ -2236,37 +2245,40 @@ class FourCorners:
 
         query = ( "SELECT i._id, i.ra_corner_00, i.ra_corner_01, i.ra_corner_10, i.ra_corner_11, "
                   "       i.dec_corner_00, i.dec_corner_01, i.dec_corner_10, i.dec_corner_11 "
-                  "INTO TEMP TABLE temp_find_overlapping "
-                  f"FROM {cls.__tablename__} i "
-                  "WHERE ( "
-                  "  ( i.maxdec >= :mindec AND i.mindec <= :maxdec ) "
-                  "  AND "
-                  "  ( ( ( i.maxra >= i.minra AND :maxra >= :minra ) AND "
-                  "      i.maxra >= :minra AND i.minra <= :maxra ) "
-                  "    OR "
-                  "    ( i.maxra < i.minra AND :maxra < :minra ) "   # both include RA=0, will overlap in RA
-                  "    OR "
-                  "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra <= 180. ) AND "
+                  "INTO TEMP TABLE temp_find_overlapping " )
+        if fromclause is not None:
+            query += fromclause + " "
+        else:
+            query += f"FROM {cls.__tablename__} i "
+        query += ( "WHERE ( "
+                   "  ( i.maxdec >= :mindec AND i.mindec <= :maxdec ) "
+                   "  AND "
+                   "  ( ( ( i.maxra >= i.minra AND :maxra >= :minra ) AND "
+                   "      i.maxra >= :minra AND i.minra <= :maxra ) "
+                   "    OR "
+                   "    ( i.maxra < i.minra AND :maxra < :minra ) "   # both include RA=0, will overlap in RA
+                   "    OR "
+                   "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra <= 180. ) AND "
+                   "      i.maxra >= :minra ) "
+                   "    OR "
+                   "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra > 180. ) AND "
+                   "      i.minra <= :maxra ) "
+                   "    OR "
+                   "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra <= 180. ) AND "
+                   "      i.minra <= :maxra ) "
+                   "    OR "
+                   "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra > 180. ) AND "
                   "      i.maxra >= :minra ) "
-                  "    OR "
-                  "    ( ( i.maxra < i.minra AND :maxra >= :minra AND :minra > 180. ) AND "
-                  "      i.minra <= :maxra ) "
-                  "    OR "
-                  "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra <= 180. ) AND "
-                  "      i.minra <= :maxra ) "
-                  "    OR "
-                  "    ( ( i.maxra >= i.minra AND :maxra < :minra AND i.maxra > 180. ) AND "
-                  "      i.maxra >= :minra ) "
-                  "  )"
-                  ") " )
+                   "  )"
+                   ") " )
         subdict = { 'minra': fcobj.minra, 'maxra': fcobj.maxra,
                     'mindec': fcobj.mindec, 'maxdec': fcobj.maxdec }
         if prov_id is not None:
             if isinstance( prov_id, str ):
-                query += " AND provenance_id=:prov"
+                query += f" AND {provtable}.provenance_id=:prov"
                 subdict['prov'] = prov_id
             elif isinstance( prov_id, list ):
-                query += " AND provenance_id IN :prov"
+                query += f" AND {provtable}.provenance_id IN :prov"
                 subdict['prov'] = tuple( prov_id )
             else:
                 raise TypeError( "prov_id must be a a str or a list of str" )

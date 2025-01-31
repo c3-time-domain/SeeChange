@@ -300,8 +300,8 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
         #  the same random seed.
         random.seed( os.urandom(4) )
         try:
-            SCLogger.info( f"Trying to get CalibratorFileDownloadLock for "
-                           f"{instrument} {section} {calibset} {calibtype}" )
+            SCLogger.debug( f"Trying to get CalibratorFileDownloadLock for "
+                            f"{instrument} {section} {calibset} {calibtype}" )
             while ( lockid is None ) and ( not fail ):
                 # Try to create the lock
                 with SmartSession(session) as sess:
@@ -350,8 +350,8 @@ class CalibratorFileDownloadLock(Base, UUIDMixin):
         finally:
             if lockid is not None:
                 with SmartSession(session) as sess:
-                    SCLogger.info( f"Deleting calibfile_downloadlock {lockid} for "
-                                   f"{instrument} {section} {calibset} {calibtype}" )
+                    SCLogger.debug( f"Deleting calibfile_downloadlock {lockid} for "
+                                    f"{instrument} {section} {calibset} {calibtype}" )
                     sess.connection().execute( sa.text( 'DELETE FROM calibfile_downloadlock WHERE _id=:id' ),
                                                { 'id': lockid } )
                     sess.commit()

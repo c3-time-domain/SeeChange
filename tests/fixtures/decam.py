@@ -722,13 +722,8 @@ def decam_reference( decam_elais_e1_two_references ):
 
 @pytest.fixture(scope='session')
 def get_cached_decam_image( code_version, decam_cache_dir, download_url, datastore_factory ):
-    # Note that the "preprocessing" value may well be a lie.  Sometimes these images
-    #   were produced other ways.  But, oh well, this is just a test.
-    improv = Provenance( process="preprocessing",
-                         parameters={ "calibset": "externally_supplied",
-                                      "flattype": "externally_supplied",
-                                      "preprocessing": "noirlab_instcal",
-                                      "steps_required": ["overscan", "linearity", "flat", "fringe"] },
+    improv = Provenance( process="acquired",
+                         parameters={},
                          code_version_id=code_version.id,
                          upstreams=[],
                          is_testing=True )
