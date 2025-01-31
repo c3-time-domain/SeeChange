@@ -80,6 +80,9 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
         ds.make_prov_tree( somesteps, pars )
         assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
 
+        # TODO : explicitly passing an upstream_steps
+        # Passing a starting_point prov
+
     finally:
         if len(provs_created) > 0:
             with Psycopg2Connection() as conn:

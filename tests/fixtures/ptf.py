@@ -384,7 +384,8 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         ds = ptf_reference_image_datastores[0]
         improv = Provenance.get( ds.image.provenance_id )
         srcprov = Provenance.get( ds.sources.provenance_id )
-        warped_prov, warped_sources_prov = aligner.get_provenances( [improv, srcprov], srcprov )
+        ( warped_prov, warped_sources_prov, warped_bg_prov,
+          warped_wcs_prov, warped_zp_prov ) = aligner.get_provenances( [improv, srcprov], srcprov )
 
         with open(os.path.join(cache_dir, 'manifest.txt')) as f:
             filenames = f.read().splitlines()
@@ -397,9 +398,12 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
             ds.sources = copy_from_cache( SourceList, cache_dir, sourcesfile )
             ds.sources.provenance_id = warped_sources_prov.id
             ds.bg = copy_from_cache( Background, cache_dir, bgfile, add_to_dict={ 'image_shape': ds.image.data.shape } )
+            ds.bg.provenance_id = warped_bg_prov.id
             ds.psf = copy_from_cache( PSF, cache_dir, psffile )
             ds.wcs = copy_from_cache( WorldCoordinates, cache_dir, wcsfile )
+            ds.wcs.provenance_id = warped_wcs_prov.id
             ds.zp = copy_from_cache( ZeroPoint, cache_dir, imfile + '.zp' )
+            ds.zp.provenance_id = warped_zp_prov.id
 
             output_dses.append( ds )
 
@@ -415,9 +419,9 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         for ds in coadder.aligned_datastores:
             ds.image.save( overwrite=True )
             ds.sources.save( image=ds.image, overwrite=True )
-            ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
             ds.psf.save( image=ds.image, sources=ds.sources, overwrite=True )
-            ds.wcs.save( image=ds.image, sources=ds.sources, overwrite=True )
+            ds.bg.save( image=ds.image, overwrite=True )
+            ds.wcs.save( image=ds.image, overwrite=True )
 
             if not env_as_bool( "LIMIT_CACHE_USAGE" ):
                 copy_to_cache( ds.image, cache_dir )

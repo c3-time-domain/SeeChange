@@ -660,14 +660,16 @@ class DataStore:
             self.report.upsert()
 
 
-    def make_prov_tree( self, steps, pars, provtag=None, ok_no_ref_prov=False, upstream_steps=None ):
+    def make_prov_tree( self, steps, pars, provtag=None, ok_no_ref_prov=False, upstream_steps=None,
+                        starting_point=None ):
         """Create the DataStore's provenance tree.
 
         Also creates provenances and saves them to the database if
         they're not there already.
 
-        Will base the provenance tree off of self.exposure if that's
-        defined, otherwise off of self.image.
+        Will base the provenance tree off of starting_point if that's
+        given, otherwise off of the provenance of self.exposure if
+        that's defined, otherwise off of the provenance of self.image.
 
         As a side effect, if 'subtraction' is in the steps, it tries to
         identify a reference for the image based on
@@ -709,6 +711,10 @@ class DataStore:
              are keys earlier in the dict.  There is a default built in
              that is usually what you want to use.
 
+          starting_point: Provenance or None
+             The provenance that the tree starts from; the first
+             step in steps will base put this into its upstreams.
+
         """
 
         # Make a copy of steps so we can modify it
@@ -733,8 +739,8 @@ class DataStore:
 
         if upstream_steps is not None:
             if ( ( not isinstance( upstream_steps, dict ) ) or
-                 ( not all( isinstance( k, str ) ) for k in upstream_steps.keys() ) or
-                 ( not all( isinstance( v, list ) ) for v in upstream_steps.values() ) or
+                 ( not all( isinstance( k, str ) for k in upstream_steps.keys() ) ) or
+                 ( not all( isinstance( v, list ) for v in upstream_steps.values() ) ) or
                  ( not all( all( isinstance( vv, str ) for vv in v ) for v in upstream_steps.values() ) ) ):
                 raise TypeError( "upstream_steps must be a dict of str: list of str" )
             k0 = next( iter( upstream_steps.keys() ) )
@@ -769,7 +775,11 @@ class DataStore:
             # and we'll add a fake injector key.)
 
         # Get started with the passed Exposure (usual case) or Image
-        if self.exposure is not None:
+        if starting_point is not None:
+            if not isinstance( starting_point, Provenance ):
+                raise TypeError( f"starting_point must be a Provenance, not a {type(starting_point)}" )
+            provs['starting_point'] = starting_point
+        elif self.exposure is not None:
             if not isinstance( self.exposure, Exposure ):
                 raise TypeError( f"DataStore's exposure field is a {type(self.exposure)}, not Exposure!" )
             provs['starting_point'] = Provenance.get( self.exposure.provenance_id )
@@ -781,7 +791,8 @@ class DataStore:
                 SCLogger.warning( "'report' was in steps but starting from an Image; removing 'report' from steps" )
                 steps = [ s for s in steps if s != 'report' ]
         else:
-            raise RuntimeError( "DataStore make_prov_tree requires either exposure or image to be set" )
+            raise RuntimeError( "make_prov_tree requires either a starting_point, or the "
+                                "DataStore must have either an exposure or an image" )
         code_version = CodeVersion.get_by_id( provs['starting_point'].code_version_id )
         is_testing  = provs['starting_point'].is_testing
 

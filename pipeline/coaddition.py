@@ -1024,11 +1024,11 @@ class CoaddPipeline:
             raise TypeError( "Must pass a list of DataStore objects to CoaddPipeline.run" )
 
         self.datastore = DataStore()
-        self.datastore.prov_tree = self.make_provenance_tree( data_store_list )
+        self.make_provenance_tree( data_store_list )
 
         # check if this exact coadd image already exists in the DB
         with SmartSession() as dbsession:
-            coadd_prov = self.datastore.prov_tree['coaddition']
+            coadd_prov = self.datastore.prov_tree['starting_point']
             coadd_image = Image.get_coadd_from_components( [ d.zp for d in data_store_list ],
                                                            coadd_prov, session=dbsession)
 
@@ -1039,7 +1039,7 @@ class CoaddPipeline:
             # the self.aligned_datastores is None unless you explicitly pass in the pre-aligned images to save time
             self.datastore.image = self.coadder.run( data_store_list,
                                                      aligned_datastores=aligned_datastores,
-                                                     coadd_provenance=self.datastore.prov_tree['coaddition'] )
+                                                     coadd_provenance=self.datastore.prov_tree['starting_point'] )
             self.aligned_datastores = self.coadder.aligned_datastores
 
 
@@ -1064,58 +1064,25 @@ class CoaddPipeline:
         return self.datastore
 
     def make_provenance_tree( self, data_store_list, upstream_provs=None, code_version_id=None ):
-        """Make a provenance tree for all coadded data products."""
+        """Make a provenance tree in self.datastore for all coadded data products."""
 
         # NOTE I'm not handling the "test_parameter" thing here, may need to.
         # (But see Issue #408)
-        coadd_prov, code_version = self.coadder.get_coadd_prov( data_store_list, upstream_provs=upstream_provs,
-                                                                code_version_id=code_version_id )
+        coadd_prov, _code_version = self.coadder.get_coadd_prov( data_store_list, upstream_provs=upstream_provs,
+                                                                 code_version_id=code_version_id )
         coadd_prov.insert_if_needed()
 
-        pars_dict = self.extractor.pars.get_critical_pars()
-        extract_prov = Provenance(
-            code_version_id=code_version.id,
-            process='extraction',
-            upstreams=[ coadd_prov ],
-            parameters=pars_dict,
-            is_testing="test_parameter" in pars_dict,
-        )
-        extract_prov.insert_if_needed()
-        pars_dict = self.backgrounder.pars.get_critical_pars()
-        bg_prov = Provenance(
-            code_version_id=code_version.id,
-            process='backgrounding',
-            upstreams= [ extract_prov ],
-            parameters=pars_dict,
-            is_testing="test_parameter" in pars_dict,
-        )
-        bg_prov.insert_if_needed()
-        pars_dict = self.astrometor.pars.get_critical_pars()
-        wcs_prov = Provenance(
-            code_version_id=code_version.id,
-            process='wcs',
-            upstreams=[ extract_prov],
-            parameters=pars_dict,
-            is_testing="test_parameter" in pars_dict,
-        )
-        wcs_prov.insert_if_needed()
-        pars_dict =self.photometor.pars.get_critical_pars()
-        zp_prov = Provenance(
-            code_version_id=code_version.id,
-            process='zp',
-            upstreams=[ extract_prov, bg_prov ],
-            parameters=pars_dict,
-            is_testing="test_parameter" in pars_dict,
-        )
-        zp_prov.insert_if_needed()
-
-
-        return { 'coaddition': coadd_prov,
-                 'extraction': extract_prov,
-                 'backgrounding': bg_prov,
-                 'wcs': wcs_prov,
-                 'zp': zp_prov
-                }
+        steps = [ 'extraction', 'backgrounding', 'wcs', 'zp' ]
+        upstream_steps = { 'extraction': [],
+                           'backgrounding': [ 'extraction' ],
+                           'wcs': [ 'extraction' ],
+                           'zp': [ 'wcs', 'backgrounding' ]
+                          }
+        parses = { 'extraction': self.extractor.pars.get_critical_pars(),
+                   'backgrounding': self.backgrounder.pars.get_critical_pars(),
+                   'wcs': self.astrometor.pars.get_critical_pars(),
+                   'zp': self.photometor.pars.get_critical_pars() }
+        self.datastore.make_prov_tree( steps, parses, upstream_steps=upstream_steps, starting_point=coadd_prov )
 
 
     def override_parameters(self, **kwargs):
