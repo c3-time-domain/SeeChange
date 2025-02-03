@@ -428,6 +428,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
                 copy_to_cache( ds.bg, cache_dir )
                 copy_to_cache( ds.psf, cache_dir )
                 copy_to_cache( ds.wcs, cache_dir )
+                _ = ds.zp.id
                 copy_to_cache( ds.zp, cache_dir, filepath=ds.image.filepath+'.zp.json' )
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):

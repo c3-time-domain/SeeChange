@@ -653,9 +653,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     SCLogger.debug('make_datastore loading subtraction image from cache: {sub_cache_path}" ')
                     tmpsubim =  copy_from_cache(Image, cache_dir, sub_cache_path, symlink=True)
                     tmpsubim.provenance_id = ds.prov_tree['subtraction'].id
-                    # These next two should have been saved to the cache?  I hope.
-                    # tmpsubim.ref_id = ref.id
-                    # tmpsubim.new_image_id == <something>
+                    tmpsubim._ref_id = ds.reference.id
+                    tmpsubim._new_zp_id = ds.zp.id
                     tmpsubim.save(verify_md5=False)  # make sure it is also saved to archive
                     ds.sub_image = tmpsubim
                     if p.subtractor.pars.method == 'zogy':
