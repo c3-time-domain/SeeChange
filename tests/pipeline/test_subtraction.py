@@ -129,7 +129,7 @@ def test_subtraction_ptf_hotpants( ptf_ref, ptf_supernova_image_datastores ):
 
     # no region should have more than 10000 pixels masked
     assert max(region_pixel_counts) < 10000
-    # No more than ~3% pixels masked.  (Hotpants method seems to maks more than zogy.)
+    # No more than ~3% pixels masked.  (Hotpants method seems to mask more than zogy.)
     assert np.sum(region_pixel_counts) / ds.sub_image.data.size < 0.031
 
     # check that a visually-identified blank region really is 0, and that

@@ -69,7 +69,9 @@ def make_template_bank(imsize=15, psf_sigma=1.0):
 
 
 def test_detection_ptf_supernova(detector, ptf_subtraction1_datastore, blocking_plots, cache_dir):
-    ds = detector.run( ptf_subtraction1_datastore )
+    ds = ptf_subtraction1_datastore
+    ds.edit_prov_tree( 'detection', detector.pars.get_critical_pars(), new_step=True )
+    ds = detector.run( ds )
 
     try:
         assert ds.detections is not None
@@ -159,7 +161,7 @@ def test_warnings_and_exceptions( decam_datastore_through_subtraction ):
     detector = ds._pipeline.detector
     if not SKIP_WARNING_TESTS:
         detector.pars.inject_warnings = 1
-        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+        ds._pipeline.make_provenance_tree( ds )
 
         with pytest.warns(UserWarning) as record:
             detector.run( ds )
@@ -169,6 +171,6 @@ def test_warnings_and_exceptions( decam_datastore_through_subtraction ):
     ds.detections = None
     detector.pars.inject_warnings = 0
     detector.pars.inject_exceptions = 1
-    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+    ds._pipeline.make_provenance_tree( ds )
     with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'detection'."):
         ds = detector.run( ds )
