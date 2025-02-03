@@ -259,7 +259,7 @@ def pipeline_factory(
         if provtag is not None:
             kwargs['pipeline'] = { 'provenance_tag': provtag }
         p = Pipeline(**kwargs)
-        p.pars.save_before_subtraction = False
+        p.pars.save_before_subtraction = True # Pipeline doesn't work any more if you don't do this
         p.pars.save_at_finish = False
         p.preprocessor = preprocessor_factory()
         p.backgrounder = backgrounder_factory()

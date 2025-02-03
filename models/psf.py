@@ -538,7 +538,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def get_upstreams( self, session=None ):
         """Get the source list that is associated with this PSF."""
         with SmartSession(session) as session:
-            return SourceList.get_by_id( self.sources_id, session=session )
+            return [ SourceList.get_by_id( self.sources_id, session=session ) ]
 
 
     def get_downstreams( self, session=None ):

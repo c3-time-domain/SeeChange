@@ -11,7 +11,7 @@ def test_warnings_and_exceptions( decam_datastore_through_detection ):
 
     if not SKIP_WARNING_TESTS:
         cutter.pars.inject_warnings = 1
-        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+        ds._pipeline.make_provenance_tree( ds )
 
         with pytest.warns(UserWarning) as record:
             cutter.run( ds )
@@ -21,6 +21,6 @@ def test_warnings_and_exceptions( decam_datastore_through_detection ):
     cutter.pars.inject_warnings = 0
     cutter.pars.inject_exceptions = 1
     ds.cutouts = None
-    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+    ds._pipeline.make_provenance_tree( ds )
     with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'cutting'."):
         ds = cutter.run( ds )

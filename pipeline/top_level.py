@@ -56,10 +56,11 @@ class ParsPipeline(Parameters):
             'save_before_subtraction',
             True,
             bool,
-            'Save intermediate images to the database, '
-            'after doing extraction, background, and astro/photo calibration, '
-            'if there is no reference, will not continue to doing subtraction'
-            'but will still save the products up to that point. ',
+            "Save intermediate images to the database, "
+            "after doing extraction, background, and astro/photo calibration, "
+            "if there is no reference, will not continue to doing subtraction "
+            "but will still save the products up to that point. "
+            "(It's possible the pipeline won't work if this is False...)",
             critical=False,
         )
 

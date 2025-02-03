@@ -9,6 +9,7 @@ from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import Provenance, ProvenanceTag
 from models.exposure import Exposure
 from models.image import Image
+from models.reference import image_subtraction_components
 from models.calibratorfile import CalibratorFile
 from models.source_list import SourceList
 from models.psf import PSF
@@ -18,6 +19,7 @@ from models.cutouts import Cutouts
 from models.measurements import Measurements
 from models.report import Report
 
+from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
 
 from util.logger import SCLogger
@@ -83,12 +85,16 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, ds):
         assert ds.wcs.id == wcs.id
 
         # find the ZeroPoint object
-        zp = session.scalars( sa.select(ZeroPoint).where(ZeroPoint.sources_id == sources.id) ).first()
+        zp = session.scalars( sa.select(ZeroPoint).where(ZeroPoint.wcs_id == wcs.id) ).first()
         assert zp is not None
         assert ds.zp.id == zp.id
 
         # find the subtraction image
-        sub = session.query( Image ).filter( Image.new_image_id==im.id ).filter( Image.ref_id==ref_id ).first()
+        sub = ( session.query( Image )
+                .join( image_subtraction_components,
+                       sa.and_( image_subtraction_components.c.image_id==Image._id,
+                                image_subtraction_components.c.ref_id==ref_id ) )
+                .filter( image_subtraction_components.c.new_zp_id==zp._id ) ).first()
         assert sub is not None
         assert ds.sub_image.id == sub.id
 
@@ -144,11 +150,9 @@ def test_parameters( test_config ):
     # Verify that manual override works for all parts of pipeline
     overrides = {
         'preprocessing': { 'steps': [ 'overscan', 'linearity'] },
-        'extraction': {
-            'sources': {'threshold': 3.14 },
-            'wcs': {'cross_match_catalog': 'override'},
-            'zp': {'cross_match_catalog': 'override'},
-        },
+        'extraction': {'threshold': 3.14 },
+        'wcs': {'cross_match_catalog': 'override'},
+        'zp': {'cross_match_catalog': 'override'},
         'subtraction': { 'method': 'override' },
         'detection': { 'threshold': 3.14 },
         'cutting': { 'cutout_size': 666 },
@@ -164,9 +168,9 @@ def test_parameters( test_config ):
     pipeline = Pipeline( **overrides )
 
     assert check_override(overrides['preprocessing'], pipeline.preprocessor.pars)
-    assert check_override(overrides['extraction']['sources'], pipeline.extractor.pars)
-    assert check_override(overrides['extraction']['wcs'], pipeline.astrometor.pars)
-    assert check_override(overrides['extraction']['zp'], pipeline.photometor.pars)
+    assert check_override(overrides['extraction'], pipeline.extractor.pars)
+    assert check_override(overrides['wcs'], pipeline.astrometor.pars)
+    assert check_override(overrides['zp'], pipeline.photometor.pars)
     assert check_override(overrides['subtraction'], pipeline.subtractor.pars)
     assert check_override(overrides['detection'], pipeline.detector.pars)
     assert check_override(overrides['cutting'], pipeline.cutter.pars)
@@ -295,7 +299,6 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
     try:  # cleanup the file at the end
         p = Pipeline( pipeline={'provenance_tag': 'test_bitflag_propagation'} )
         p.subtractor.pars.refset = 'test_refset_decam'
-        p.pars.save_before_subtraction = False
         exposure.set_badness( 'banding' )  # add a bitflag to check for propagation
 
         # first run the pipeline and check for basic propagation of the single bitflag
@@ -440,18 +443,10 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.sources.get_upstreams(session=session)] == [ds.image.id]
             assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
-            assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.sources.id]
-            assert ( set( upstream.id for upstream in ds.reference.get_upstreams(session=session) )
-                     == { ds.reference.image_id, ds.reference.sources_id } )
-            assert set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ]) == set([
-                ds.reference.id,
-                ds.image.id,
-                ds.sources.id,
-                ds.psf.id,
-                ds.bg.id,
-                ds.wcs.id,
-                ds.zp.id,
-            ])
+            assert ( set( [upstream.id for upstream in ds.zp.get_upstreams(session=session)] )
+                     == { ds.wcs.id, ds.bg.id } )
+            assert ( set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ])
+                     == { ds.reference.id, ds.zp.id } )
             assert [upstream.id for upstream in ds.detections.get_upstreams(session=session)] == [ds.sub_image.id]
             assert [upstream.id for upstream in ds.cutouts.get_upstreams(session=session)] == [ds.detections.id]
 
@@ -479,17 +474,12 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             # assert len(exp_downstreams) == 2
             assert ds.image.id in exp_downstreams
 
-            assert set([downstream.id for downstream in ds.image.get_downstreams(session=session)]) == set([
-                ds.sources.id,
-                ds.psf.id,
-                ds.bg.id,
-                ds.wcs.id,
-                ds.zp.id,
-                ds.sub_image.id
-            ])
-            assert [downstream.id for downstream in ds.sources.get_downstreams(session=session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.psf.get_downstreams(session=session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.wcs.get_downstreams(session=session)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.image.get_downstreams(session=session)] == [ds.sources.id]
+            assert ( set( [downstream.id for downstream in ds.sources.get_downstreams(session=session)] )
+                     == { ds.wcs.id, ds.bg.id, ds.psf.id } )
+            assert [downstream.id for downstream in ds.psf.get_downstreams(session=session)] == []
+            assert [downstream.id for downstream in ds.bg.get_downstreams(session=session)] == [ds.zp.id]
+            assert [downstream.id for downstream in ds.wcs.get_downstreams(session=session)] == [ds.zp.id]
             assert [downstream.id for downstream in ds.zp.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.reference.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.sub_image.get_downstreams(session=session)] == [ds.detections.id]
@@ -529,16 +519,19 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
         assert all( [ pid in ptagprovids for pid in provids ] )
         return ptags
 
-    provs = p.make_provenance_tree( decam_exposure )
+    ds = DataStore( decam_exposure, 'S2' )
+    provs = p.make_provenance_tree( ds )
     assert isinstance(provs, dict)
+    assert provs == ds.prov_tree
 
     # Make sure the ProvenanceTag got created properly
     ptags = check_prov_tag( provs.values(), 'pipeline_for_tests' )
 
     t_start = datetime.datetime.utcnow()
-    ds = p.run(decam_exposure, 'S2')  # the data should all be there so this should be quick
+    ds = p.run( ds )    # the data should all be there so this should be quick
     t_end = datetime.datetime.utcnow()
 
+    assert decam_exposure.provenance_id == provs['starting_point'].id
     assert ds.image.provenance_id == provs['preprocessing'].id
     assert ds.sources.provenance_id == provs['extraction'].id
     assert ds.reference.provenance_id == provs['referencing'].id
@@ -557,7 +550,7 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
         assert abs(report.finish_time - t_end) < datetime.timedelta(seconds=1)
 
     # Make sure that the provenance tags are reused if we ask for the same thing
-    newprovs = p.make_provenance_tree( decam_exposure )
+    newprovs = p.make_provenance_tree( ds )
     provids = []
     for prov in provs.values():
         if isinstance( prov, list ):
@@ -578,11 +571,11 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
     # Do this by creating a new pipeline with inconsistent parameters but asking
     # for the same provenance tag.
     newp = Pipeline( pipeline={'provenance_tag': 'pipeline_for_tests'},
-                     extraction={'sources': { 'threshold': 42. } } )
+                     extraction={ 'threshold': 42. } )
     with pytest.raises( RuntimeError,
                         match=( 'The following provenances do not match the existing provenance '
                                 'for tag pipeline_for_tests' ) ):
-        newp.make_provenance_tree( decam_exposure )
+        newp.make_provenance_tree( ds )
 
 
 # This test is really slow because it runs the pipeline repeatedly to test
@@ -703,7 +696,8 @@ def test_multiprocessing_make_provenances_and_exposure(decam_exposure, decam_ref
     pipeline_for_tests.subtractor.pars.refset = 'test_refset_decam'
 
     def make_provenances(exposure, pipeline, queue):
-        provs = pipeline.make_provenance_tree(exposure)
+        ds = DataStore( exposure, 'S2' )
+        provs = pipeline.make_provenance_tree( ds )
         queue.put(provs)
 
     queue = SimpleQueue()
@@ -713,7 +707,8 @@ def test_multiprocessing_make_provenances_and_exposure(decam_exposure, decam_ref
         process_list.append(p)
 
     # also run this on the main process
-    provs = pipeline_for_tests.make_provenance_tree(decam_exposure)
+    ds = DataStore( decam_exposure, 'S2' )
+    provs = pipeline_for_tests.make_provenance_tree( ds )
 
     for p in process_list:
         p.join()

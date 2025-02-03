@@ -9,7 +9,7 @@ from tests.conftest import SKIP_WARNING_TESTS
 
 
 # @pytest.mark.flaky(max_runs=3)
-@pytest.mark.skip( reason="This test will get wholly rewritten with Issue #398" )
+@pytest.mark.skip( reason="This test will get wholly rewritten with Issue #404" )
 def test_measuring( decam_default_calibrators, decam_datastore_through_cutouts ):
     ds = decam_datastore_through_cutouts
     measurer = ds._pipeline.measurer
@@ -236,7 +236,7 @@ def test_warnings_and_exceptions( decam_datastore_through_cutouts ):
 
     if not SKIP_WARNING_TESTS:
         measurer.pars.inject_warnings = 1
-        ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+        ds._pipeline.make_provenance_tree( ds )
 
         with pytest.warns(UserWarning) as record:
             measurer.run( ds )
@@ -246,6 +246,6 @@ def test_warnings_and_exceptions( decam_datastore_through_cutouts ):
     measurer.pars.inject_exceptions = 1
     measurer.pars.inject_warnings = 0
     ds.measurements = None
-    ds.prov_tree = ds._pipeline.make_provenance_tree( ds.exposure )
+    ds._pipeline.make_provenance_tree( ds )
     with pytest.raises(Exception, match="Exception injected by pipeline parameters in process 'measuring'."):
         ds = measurer.run( ds )

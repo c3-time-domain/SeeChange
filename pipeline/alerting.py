@@ -13,6 +13,7 @@ import sqlalchemy as sa
 
 from models.base import SmartSession
 from models.image import Image
+from models.reference import image_subtraction_components
 from models.source_list import SourceList
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
@@ -246,11 +247,21 @@ class Alerting:
             #   alerts, we can just use the sub image.
 
             with SmartSession() as sess:
-                # Get all previous sources with the same provenance.  Need to
-                # join to Image (we'll be joining to the sub image,
-                # because the cutouts source list is the detections, and
-                # the detections image is the sub image) to get
-                # mjd and filter.
+                # Get all previous sources with the same provenance.
+                # The cutouts parent is a SourceList that is
+                #   detections on the sub image, so it's parent
+                #   is the sub image.  We need that for mjd and filter.
+                # But, also, we need to get the sub image's parent
+                #   zeropoint, which is the zeropoint of the new
+                #   image that went into the sub image.  In subtraction,
+                #   we normalize the sub image so it has the same
+                #   zeropoint as the new image, so that's also the
+                #   right zeropoint to use with the Measurements
+                #   that we pull out.
+                # And, finally, we have to get the DeepScore objects
+                #   associated with the previous measurements.
+                #   That's not upstream of anything, so we have to
+                #   include the DeepScore provenance in the join condition.
 
                 # TODO -- handle previous_sources_days
 
@@ -258,8 +269,9 @@ class Alerting:
                 q = ( sess.query( Measurements, DeepScore, Image, ZeroPoint )
                       .join( Cutouts, Measurements.cutouts_id==Cutouts._id )
                       .join( SourceList, Cutouts.sources_id==SourceList._id )
-                      .join( ZeroPoint, ZeroPoint.sources_id==SourceList._id )
                       .join( Image, SourceList.image_id==Image._id )
+                      .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
+                      .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id )
                       .join( DeepScore, sa.and_( DeepScore.measurements_id==Measurements._id,
                                                  DeepScore.provenance_id==scr.provenance_id ),
                              isouter=True )
