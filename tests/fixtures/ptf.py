@@ -504,6 +504,11 @@ def ptf_ref(
             must_run_coadd = False
 
             coadd_image = copy_from_cache(Image, ptf_cache_dir, cache_base_name)
+            upstrzpids = [ d.zp.id for d in ptf_reference_image_datastores ]
+            dexen = list( range( len(ptf_reference_image_datastores) ) )
+            dexen.sort( key=lambda x: ptf_reference_image_datastores[x].image.mjd )
+            upstrzpids = [ upstrzpids[i] for i in dexen ]
+            coadd_image._coadd_component_zp_ids = upstrzpids
             coadd_datastore = DataStore( coadd_image )
 
             coadd_datastore.sources = copy_from_cache(
