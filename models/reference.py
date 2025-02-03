@@ -14,7 +14,16 @@ from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 
-
+# It's a little bit excessive to have this table, since there is a 1:1
+# correspondence between a sub image and it's parent reference, and
+# between a sub image and it's parent new zp.  We could just have had a
+# "ref_id" and "new_zp_id" field as part of Image.  However, that would
+# lead to circular table definitions, as Image includes Reference which
+# includes Image.  This may be OK -- it's not really circular, since the
+# Image of a Reference is not the same as the Image that the Reference
+# is a Reference of.  However, alembic was spazzing out about the
+# definition.  This also saves us from storing a new_zp_id and ref_id
+# from images that aren't subtractions.
 image_subtraction_components = sa.Table(
     'image_subtraction_components',
     Base.metadata,

@@ -273,7 +273,7 @@ class Exposures( BaseView ):
             q = ( 'SELECT e._id, e.filepath, e.mjd, e.airmass, e.target, e.project, '
                   '       e._filter, e.filter_array, e.exp_time, '
                   '       i._id AS imgid, i.fwhm_estimate as fwhm_estimate, i.lim_mag_estimate as lim_mag_estimate, '
-                  '       s._id AS subid, sl._id AS slid, sl.num_sources, '
+                  '       s._id AS subid, sl._id AS slid, ssl.num_sources, '
                   '       COUNT(m._id) AS num_measurements '
                   'INTO TEMP TABLE temp_imgs '
                   'FROM exposures e '
@@ -303,23 +303,24 @@ class Exposures( BaseView ):
                   ') i ON i.exposure_id=e._id '
                   'LEFT JOIN ( '
                   '  SELECT sli._id, sli.image_id FROM source_lists sli '
-                  '  INNER JOIN provenance_tags slipt ON slipt.provenacne_id=sli.provenacne_id '
+                  '  INNER JOIN provenance_tags slipt ON slipt.provenance_id=sli.provenance_id '
                   '                                   AND slipt.tag=%(provtag)s '
-                  ') sl ON sli.image_id=i._id '
+                  ') sl ON sl.image_id=i._id '
                   'LEFT JOIN ('
-                  '  SELECT wc._id, wc.sources_id FROM world_coordiantes wc '
-                  '  INNER JOIN provenance_tags wcpt ON wcpt.provenance_id=wc.provenacne_id '
+                  '  SELECT wc._id, wc.sources_id FROM world_coordinates wc '
+                  '  INNER JOIN provenance_tags wcpt ON wcpt.provenance_id=wc.provenance_id '
                   '                                  AND wcpt.tag=%(provtag)s '
-                  ') w ON w.sources_id=sl.id '
+                  ') w ON w.sources_id=sl._id '
                   'LEFT JOIN ('
                   '  SELECT zp._id, zp.wcs_id FROM zero_points zp '
                   '  INNER JOIN provenance_tags zppt ON zppt.provenance_id=zp.provenance_id '
                   '                                  AND zppt.tag=%(provtag)s '
-                  ') z ON z.wcs_id=w.id '
+                  ') z ON z.wcs_id=w._id '
                   'LEFT JOIN ( '
-                  '  SELECT su._id, su.new_zp_id FROM images su '
+                  '  SELECT su._id, isc.new_zp_id FROM images su '
                   '  INNER JOIN provenance_tags supt ON supt.provenance_id=su.provenance_id '
                   '                                  AND supt.tag=%(provtag)s '
+                  '  INNER JOIN image_subtraction_components isc ON su._id=isc.image_id '
                   ') s ON s.new_zp_id=z._id '
                   'LEFT JOIN ( '
                   '  SELECT ssli._id, ssli.image_id, ssli.num_sources FROM source_lists ssli '
@@ -330,7 +331,7 @@ class Exposures( BaseView ):
                   '  SELECT cu._id, cu.sources_id FROM cutouts cu '
                   '  INNER JOIN provenance_tags cupt ON cu.provenance_id=cupt.provenance_id '
                   '                                  AND cupt.tag=%(provtag)s '
-                  ') c ON c.sources_id=sl._id '
+                  ') c ON c.sources_id=ssl._id '
                   'LEFT JOIN ( '
                   '  SELECT meas._id, meas.cutouts_id FROM measurements meas '
                   '  INNER JOIN provenance_tags mept ON mept.provenance_id=meas.provenance_id '
@@ -355,7 +356,7 @@ class Exposures( BaseView ):
                 subdict['t1'] = t1
                 _and = 'AND '
 
-        q += 'GROUP BY e._id, i._id, i.fwhm_estimate, i.lim_mag_estimate, s._id, sl._id, sl.num_sources '
+        q += 'GROUP BY e._id, i._id, i.fwhm_estimate, i.lim_mag_estimate, s._id, ssl._id, ssl.num_sources '
 
         cursor.execute( q, subdict )
 
@@ -495,24 +496,43 @@ class ExposureImages( BaseView ):
         # ****
 
         # Step 2: count measurements by joining temp_exposure_images to many things.
-        q = ( 'SELECT i._id, s._id AS subid, sl.num_sources AS numsources, COUNT(m._id) AS nummeasurements '
+        q = ( 'SELECT i._id, s._id AS subid, ssl.num_sources AS numsources, COUNT(m._id) AS nummeasurements '
               'INTO TEMP TABLE temp_exposure_images_counts '
               'FROM temp_exposure_images i '
-              'INNER JOIN images s ON s.is_sub AND s.new_image_id=i._id '
-              'INNER JOIN provenance_tags spt ON spt.provenance_id=s.provenance_id AND spt.tag=%(provtag)s '
               'LEFT JOIN ( '
-              '  SELECT sli._id, sli.image_id, sli.num_sources FROM source_lists sli '
-              '  INNER JOIN provenance_tags slpt ON slpt.provenance_id=sli.provenance_id AND slpt.tag=%(provtag)s '
-              ') sl ON sl.image_id=s._id '
+              '  SELECT sli._id, sli.image_id FROM source_lists sli '
+              '  INNER JOIN provenance_tags slipt ON slipt.provenance_id=sli.provenance_id '
+              '                                   AND slipt.tag=%(provtag)s '
+              ') sl ON sl.image_id=i._id '
+              'LEFT JOIN ( '
+              '  SELECT wcsi._id, wcsi.sources_id FROM world_coordinates wcsi '
+              '  INNER JOIN provenance_tags wcsipt ON wcsipt.provenance_id=wcsi.provenance_id '
+              '                                    AND wcsipt.tag=%(provtag)s '
+              ') wcs ON wcs.sources_id=sl._id '
+              'LEFT JOIN ( '
+              '  SELECT zpi._id, zpi.wcs_id FROM zero_points zpi '
+              '  INNER JOIN provenance_tags zpipt ON zpipt.provenance_id=zpi.provenance_id '
+              '                                   AND zpipt.tag=%(provtag)s '
+              ') zp ON zp.wcs_id=wcs._id '
+              'LEFT JOIN image_subtraction_components isc ON isc.new_zp_id=zp._id '
+              'LEFT JOIN ( '
+              '   SELECT si._id, si.is_sub FROM images si '
+              '   INNER JOIN provenance_tags sipt ON sipt.provenance_id=si.provenance_id '
+              '                                   AND sipt.tag=%(provtag)s '
+              ') s ON s.is_sub AND s._id=isc.image_id '
+              'LEFT JOIN ( '
+              '  SELECT ssli._id, ssli.image_id, ssli.num_sources FROM source_lists ssli '
+              '  INNER JOIN provenance_tags sslpt ON sslpt.provenance_id=ssli.provenance_id AND sslpt.tag=%(provtag)s '
+              ') ssl ON ssl.image_id=s._id '
               'LEFT JOIN ('
               '  SELECT cu._id, cu.sources_id FROM cutouts cu '
               '  INNER JOIN provenance_tags cupt ON cupt.provenance_id=cu.provenance_id AND cupt.tag=%(provtag)s '
-              ') c ON c.sources_id=sl._id '
+              ') c ON c.sources_id=ssl._id '
               'LEFT JOIN ('
               '  SELECT me._id, me.cutouts_id FROM measurements me '
               '  INNER JOIN provenance_tags mept ON mept.provenance_id=me.provenance_id AND mept.tag=%(provtag)s '
               ') m ON m.cutouts_id=c._id '
-              'GROUP BY i._id, s._id, sl.num_sources '
+              'GROUP BY i._id, s._id, ssl.num_sources '
              )
         # app.logger.debug( f"exposure_images counting sources: query {cursor.mogrify(q,subdict)}" )
         cursor.execute( q, subdict )
@@ -624,21 +644,19 @@ class PngCutoutsForSubImage( BaseView ):
         aperradses = {}
         apercorses = {}
 
-        q = ( 'SELECT s._id AS subid, z.zp, z.dzp, z.aper_cor_radii, z.aper_cors, '
+        q = ( 'SELECT s._id AS subid, zp.zp, zp.dzp, zp.aper_cor_radii, zp.aper_cors, '
               '  i._id AS imageid, i.bkg_mean_estimate '
               'FROM images s '
               )
         if not issubid:
             # If we got an exposure id, make sure only to get subtractions of the requested provenance
             q += 'INNER JOIN provenance_tags spt ON s.provenance_id=spt.provenance_id AND spt.tag=%(provtag)s '
-        q +=  ( 'INNER JOIN images i ON s.new_image_id=i._id '
-                'INNER JOIN source_lists sl ON sl.image_id=i._id '
-                'INNER JOIN provenance_tags slpt ON sl.provenance_id=slpt.provenance_id AND slpt.tag=%(provtag)s '
-                'INNER JOIN zero_points z ON sl._id=z.sources_id ' )
-        # (Don't need to check provenance tag of zeropoint since we have a
-        # 1:1 relationship between zeropoints and source lists.  Don't need
-        # to check image provenance, because there will be a single image id
-        # upstream of each sub id.
+        # Track our way back up from the subtraction to the new image
+        q +=  ( 'INNER JOIN image_subtraction_components isc ON isc.image_id=s._id '
+                'INNER JOIN zero_points zp ON isc.new_zp_id=zp._id '
+                'INNER JOIN world_coordinates wcs ON zp.wcs_id=wcs._id '
+                'INNER JOIN source_lists sl ON wcs.sources_id=sl._id '
+                'INNER JOIN images i ON sl.image_id=i._id ' )
 
         if issubid:
             q += 'WHERE s._id=%(subid)s '

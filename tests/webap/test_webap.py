@@ -163,6 +163,9 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         provs = Provenance.get_batch( [ ds.exposure.provenance_id,
                                         ds.image.provenance_id,
                                         ds.sources.provenance_id,
+                                        ds.bg.provenance_id,
+                                        ds.wcs.provenance_id,
+                                        ds.zp.provenance_id,
                                         ds.reference.provenance_id,
                                         ds.sub_image.provenance_id,
                                         ds.detections.provenance_id,
@@ -265,8 +268,8 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         assert cols[0].text == 'c4d_211025_044847_ori.fits.fz'
         assert cols[2].text == 'ELAIS-E1'
         assert cols[5].text == '1'    # n_images
-        assert cols[6].text == '264'  # detections
-        assert cols[7].text == '10'    # sources
+        assert cols[6].text == '266'  # detections
+        assert cols[7].text == '9'    # sources
 
         # ======================================================================
         # ======================================================================
@@ -299,7 +302,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         imagesdiv = subcontentdiv.find_element( By.XPATH, "./div" )
         assert imagesdiv.get_attribute('id') == 'exposureimagesdiv'
         assert re.search( r"^Exposure has 1 images and 1 completed subtractions.*"
-                          r"\s10 out of 264 detections pass preliminary cuts",
+                          r"\s9 out of 266 detections pass preliminary cuts",
                           imagesdiv.text, re.DOTALL ) is not None
         imagestab = imagesdiv.find_element( By.TAG_NAME, 'table' )
         rows = imagestab.find_elements( By.TAG_NAME, 'tr' )
@@ -323,7 +326,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         assert sourcesdiv.get_attribute('id') == "exposurecutoutsdiv"
         sourcestable = sourcesdiv.find_element( By.TAG_NAME, 'table' )
         rows = sourcestable.find_elements( By.TAG_NAME, 'tr' )
-        assert len(rows) == 11
+        assert len(rows) == 10
 
         # OMG writing these tests is exhausting.  There is still lots more to do:
         # * actually look at the rows of the sources table
