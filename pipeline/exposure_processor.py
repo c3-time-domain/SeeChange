@@ -104,7 +104,7 @@ class ExposureProcessor:
             pipeline = Pipeline()
             if ( self.through_step is not None ) and ( self.through_step != 'exposure' ):
                 pipeline.pars.through_step = self.through_step
-            ds = pipeline.run( self.exposure, chip, save_intermediate_products=False )
+            ds = pipeline.run( self.exposure, chip )
             ds.save_and_commit()
             SCLogger.setLevel( origloglevel )
             SCLogger.info( f"...done processing chip {chip} in process {me.name} PID {me.pid}." )
