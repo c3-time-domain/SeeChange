@@ -2,7 +2,6 @@ import pytest
 import uuid
 import os
 import io
-import re
 import shutil
 import base64
 import hashlib
@@ -446,6 +445,10 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         ds.delete_everything()
 
 
+# Much like in datastore_factory, instead of running the ref_maker object that
+# we get, we reimplement some stuff inside it so we can use the cache.  This
+# makes fixtures more fragile... if ref_maker changes, we have to change
+# the fixture too.
 @pytest.fixture
 def ptf_ref(
         refmaker_factory,
@@ -456,21 +459,11 @@ def ptf_ref(
         code_version
 ):
     SCLogger.debug( f"Making ptf_ref from {[i.image.filepath for i in ptf_reference_image_datastores]}" )
-    refmaker = refmaker_factory('test_ref_ptf', 'PTF', provtag='ptf_ref')
+    SCLogger.debug( f"zp ids are { [ i.zp.id for i in ptf_reference_image_datastores ] } " )
+    refmaker = refmaker_factory('test_ref_ptf', 'PTF', ptf_reference_image_datastores[0].zp.provenance_id,
+                                provtag='ptf_ref')
+    refmaker.setup_provenances()
     pipe = refmaker.coadd_pipeline
-
-    ds0 = ptf_reference_image_datastores[0]
-    origimprov = Provenance.get( ds0.image.provenance_id )
-    origsrcprov = Provenance.get( ds0.sources.provenance_id )
-    upstream_provs = [ origimprov, origsrcprov ]
-    im_prov = Provenance(
-        process='coaddition',
-        parameters=pipe.coadder.pars.get_critical_pars(),
-        upstreams=upstream_provs,
-        code_version_id=code_version.id,
-        is_testing=True,
-    )
-    im_prov.insert_if_needed()
 
     # Copying code from Image.invent_filepath so that
     #   we know what the filenames will be
@@ -482,24 +475,14 @@ def ptf_ref(
     utag = base64.b32encode(utag.digest()).decode().lower()
     utag = f'u-{utag[:6]}'
 
-    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{im_prov.id[:6]}_{utag}'
-
-    # this provenance is used for sources, psf, wcs, zp
-    sources_prov = Provenance(
-        process='extraction',
-        parameters=pipe.extractor.pars.get_critical_pars(),
-        upstreams=[ im_prov ],
-        code_version_id=code_version.id,
-        is_testing=True,
-    )
-    sources_prov.insert_if_needed()
+    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{refmaker.coadd_im_prov.id[:6]}_{utag}'
 
     extensions = [
         '',
-        f'.sources_{sources_prov.id[:6]}.fits',
-        f'.psf_{sources_prov.id[:6]}',
-        f'.bg_{sources_prov.id[:6]}.h5',
-        f'.wcs_{sources_prov.id[:6]}.txt',
+        f'.sources_{refmaker.coadd_ex_prov.id[:6]}.fits',
+        f'.psf_{refmaker.coadd_ex_prov.id[:6]}',
+        f'.bg_{refmaker.coadd_bg_prov.id[:6]}.h5',
+        f'.wcs_{refmaker.coadd_wcs_prov.id[:6]}.txt',
         '.zp'
     ]
     filenames = [os.path.join(ptf_cache_dir, cache_base_name) + f'{ext}.json' for ext in extensions]
@@ -519,43 +502,20 @@ def ptf_ref(
             SCLogger.debug( f"ptf_ref loading reference from cache (cache_base_name={cache_base_name})" )
             must_run_coadd = False
 
-
-            # get the image:
             coadd_image = copy_from_cache(Image, ptf_cache_dir, cache_base_name)
-            # We're supposed to load this property by running Image.from_images(), but directly
-            # access the underscore variable here as a hack since we loaded from the cache.
-            coadd_image._coadd_component_ids = [ d.image.id for d in ptf_reference_image_datastores ]
-            coadd_image.provenance_id = im_prov.id
-            coadd_image.ref_image_id = ptf_reference_image_datastores[-1].image.id
-
             coadd_datastore = DataStore( coadd_image )
 
-            # get the source list:
             coadd_datastore.sources = copy_from_cache(
-                SourceList, ptf_cache_dir, cache_base_name + f'.sources_{sources_prov.id[:6]}.fits'
+                SourceList, ptf_cache_dir, cache_base_name + f'.sources_{refmaker.coadd_ex_prov.id[:6]}.fits'
             )
-            coadd_datastore.sources.image_id = coadd_image.id
-            coadd_datastore.sources.provenance_id = sources_prov.id
-
-            # get the PSF:
             coadd_datastore.psf = copy_from_cache( PSF, ptf_cache_dir,
-                                                   cache_base_name + f'.psf_{sources_prov.id[:6]}' )
-            coadd_datastore.psf.sources_id = coadd_datastore.sources.id
-
-            # get the background:
+                                                   cache_base_name + f'.psf_{refmaker.coadd_ex_prov.id[:6]}' )
             coadd_datastore.bg = copy_from_cache( Background, ptf_cache_dir,
-                                                  cache_base_name + f'.bg_{sources_prov.id[:6]}.h5',
+                                                  cache_base_name + f'.bg_{refmaker.coadd_bg_prov.id[:6]}.h5',
                                                   add_to_dict={ 'image_shape': coadd_datastore.image.data.shape } )
-            coadd_datastore.bg.sources_id = coadd_datastore.sources.id
-
-            # get the WCS:
             coadd_datastore.wcs = copy_from_cache( WorldCoordinates, ptf_cache_dir,
-                                                   cache_base_name + f'.wcs_{sources_prov.id[:6]}.txt' )
-            coadd_datastore.wcs.sources_id = coadd_datastore.sources.id
-
-            # get the zero point:
+                                                   cache_base_name + f'.wcs_{refmaker.coadd_wcs_prov.id[:6]}.txt' )
             coadd_datastore.zp = copy_from_cache( ZeroPoint, ptf_cache_dir, cache_base_name + '.zp' )
-            coadd_datastore.zp.sources_id = coadd_datastore.sources.id
 
             # Make sure it's all in the database
             coadd_datastore.save_and_commit()
@@ -566,9 +526,9 @@ def ptf_ref(
         coadd_datastore.save_and_commit()
 
         # Check that the filename came out what we expected above
-        mtch = re.search( r'_([a-zA-Z0-9\-]+)$', coadd_datastore.image.filepath )
-        if mtch.group(1) != utag:
-            raise ValueError( f"fixture cache error: filepath utag is {mtch.group(1)}, expected {utag}" )
+        if coadd_datastore.image.filepath != cache_base_name:
+            raise ValueError( f"fixture cache error: expected base name {cache_base_name}, "
+                              f"got {coadd_datastore.image.filepath}" )
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):
             # save all products into cache:
@@ -579,23 +539,12 @@ def ptf_ref(
             copy_to_cache(coadd_datastore.wcs, ptf_cache_dir)
             copy_to_cache(coadd_datastore.zp, ptf_cache_dir, cache_base_name + '.zp.json')
 
-    parms = dict( refmaker.pars.get_critical_pars() )
-    parms[ 'test_parameter' ] = 'test_value'
-    refprov = Provenance(
-        code_version_id=code_version.id,
-        process='referencing',
-        parameters=parms,
-        upstreams = [ im_prov, sources_prov ],
-        is_testing=True
-    )
-    refprov.insert_if_needed()
     # Have to have reproducible Reference ids for the cache to work
     ref = Reference(
         _id = 'f2f8f6f1-26a9-44f1-9b8e-37b12bec7722',
         zp_id=coadd_datastore.zp.id,
-        provenance_id=refprov.id
+        provenance_id=refmaker.ref_prov.id
     )
-    ref.provenance_id=refprov.id
     ref.insert()
 
     # Since we didn't actually run the RefMaker we got from refmaker_factory, we may still need
@@ -604,7 +553,7 @@ def ptf_ref(
     must_delete_refset = False
     refset = RefSet.get_by_name( 'test_refset_ptf' )
     if refset is None:
-        refset = RefSet( name='test_refset_ptf', provenance_id=refprov.id )
+        refset = RefSet( name='test_refset_ptf', provenance_id=refmaker.ref_prov.id )
         refset.insert()
         must_delete_refset = True
 
@@ -696,8 +645,8 @@ def ptf_ref_offset(ptf_ref):
 
 
 @pytest.fixture(scope='session')
-def ptf_refset(refmaker_factory):
-    refmaker = refmaker_factory('test_refset_ptf', 'PTF', 'ptf_refset')
+def ptf_refset(refmaker_factory, provenance_base):
+    refmaker = refmaker_factory('test_refset_ptf', 'PTF', provenance_base.id, 'ptf_refset')
     refmaker.pars.save_new_refs = True
 
     refmaker.make_refset()  # this makes a refset without making any references

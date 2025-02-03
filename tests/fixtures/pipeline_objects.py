@@ -319,8 +319,11 @@ def coadd_pipeline_for_tests(coadd_pipeline_factory):
 @pytest.fixture(scope='session')
 def refmaker_factory(test_config, pipeline_factory, coadd_pipeline_factory):
 
-    def make_refmaker(name, instrument, provtag='refmaker_factory'):
-        maker = RefMaker(maker={'name': name, 'instrument': instrument})
+    def make_refmaker(name, instrument, component_zp_prov_id, provtag='refmaker_factory'):
+        maker = RefMaker( maker={ 'name': name,
+                                  'instrument': instrument,
+                                  'zp_prov_id': component_zp_prov_id
+                                 } )
         maker.pars._enforce_no_new_attrs = False
         maker.pars.test_parameter = maker.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True

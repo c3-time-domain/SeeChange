@@ -449,26 +449,23 @@ def test_coaddition_pipeline_outputs(ptf_reference_image_datastores, ptf_aligned
             coadd_ds.delete_everything()
 
 
-def test_coadded_reference(ptf_ref):
-    ref_image = Image.get_by_id( ptf_ref.image_id )
-    assert ref_image.filepath is not None
-    assert ref_image.type == 'ComSci'
+def test_coadded_reference(ptf_ref, ptf_reference_image_datastores):
+    assert ptf_ref.image.filepath is not None
+    assert ptf_ref.image.type == 'ComSci'
 
-    ref_sources, ref_bg, ref_psf, ref_wcs, ref_zp = ptf_ref.get_ref_data_products()
-
-    assert isinstance(ref_sources, SourceList)
-    assert isinstance(ref_psf, PSF)
-    assert isinstance(ref_bg, Background)
-    assert isinstance(ref_wcs, WorldCoordinates)
-    assert isinstance(ref_zp, ZeroPoint)
+    assert isinstance(ptf_ref.sources, SourceList)
+    assert isinstance(ptf_ref.psf, PSF)
+    assert isinstance(ptf_ref.bg, Background)
+    assert isinstance(ptf_ref.wcs, WorldCoordinates)
+    assert isinstance(ptf_ref.zp, ZeroPoint)
 
     ref_prov = Provenance.get( ptf_ref.provenance_id )
-    # refimg_prov = Provenance.get( ref_image.provenance_id )
-
-    assert ref_image.provenance_id in [ p.id for p in ref_prov.upstreams ]
-    assert ref_sources.provenance_id in [ p.id for p in ref_prov.upstreams ]
+    assert len( ref_prov.upstreams ) == 1
+    assert ref_prov.upstreams[0].id == ptf_ref.zp.provenance_id
+    improv = Provenance.get( ptf_ref.image.provenance_id )
+    assert len( improv.upstreams ) == 1
+    assert improv.upstreams[0].id == ptf_reference_image_datastores[0].zp.provenance_id
     assert ref_prov.process == 'referencing'
-
     assert ref_prov.parameters['test_parameter'] == 'test_value'
 
 

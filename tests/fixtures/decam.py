@@ -672,6 +672,8 @@ def decam_ref_datastore( decam_elais_e1_two_refs_datastore ):
     return decam_elais_e1_two_refs_datastore[0]
 
 
+# TODO -- the provenance upstreams are now wrong after PR #407
+# (It may be possible to go back to refmaker_factory?)
 @pytest.fixture
 def decam_elais_e1_two_references( decam_elais_e1_two_refs_datastore ):
     refs = []

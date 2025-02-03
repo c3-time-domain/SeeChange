@@ -202,6 +202,13 @@ def datastore_factory(data_dir, pipeline_factory, request):
         #   results.  (The fixture is still kind of slow because even
         #   restoring the cache takes time — ~tens of seconds for a full
         #   subtraction/measurement datastore.)
+        # Note that we access the .id field of lots of things before copying
+        #   them to the cache.  The reason for that is that we want the
+        #   uuid to be generated before it's saved to the cache.  Some later
+        #   steps may behave differently based on that id.  For instance, the
+        #   invent_filepath method of image will based the "utag" part of the
+        #   filepath on the uuids of the zeropoints that went into a coadd,
+        #   or of the reference and zeropoint that went into a subtraction.
 
         p = pipeline_factory( provtag )
         ds._pipeline = p
@@ -370,6 +377,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     # Image copying to cache happens after the zp step.
                     # However, verify that the thing we will copy to the cache matches
                     #   what was expected.
+                    _ = ds.image.id
                     output_path = copy_to_cache( ds.image, cache_dir,
                                                  dont_actually_copy_just_return_json_filepath=True )
                     if ( ( image_cache_path is not None ) and
@@ -461,10 +469,12 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.update_report( 'extraction' )
 
                 if use_cache:
+                    _ = ds.sources.id
                     output_path = copy_to_cache(ds.sources, cache_dir)
                     if output_path.resolve() != sources_cache_path.resolve():
                         warnings.warn(f'cache path {sources_cache_path} does not match output path {output_path}')
 
+                    _ = ds.psf.id
                     output_path = copy_to_cache(ds.psf, cache_dir)
                     if output_path.resolve() != psf_cache_path.resolve():
                         warnings.warn(f'cache path {psf_cache_path} does not match output path {output_path}')
@@ -494,6 +504,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.bg.save( image=ds.image, overwrite=True )
                 ds.update_report( 'backgrounding' )
                 if use_cache:
+                    _ = ds.bg.id
                     output_path = copy_to_cache(ds.bg, cache_dir)
                     if output_path.resolve() != bg_cache_path.resolve():
                         warnings.warn(f'cache path {bg_cache_path} does not match output path {output_path}')
@@ -520,6 +531,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.wcs.save( image=ds.image, overwrite=True )
                 ds.update_report( 'astrocal' )
                 if use_cache:
+                    _ = ds.wcs.id
                     output_path = copy_to_cache(ds.wcs, cache_dir)
                     if output_path.resolve() != wcs_cache_path.resolve():
                         warnings.warn(f'cache path {wcs_cache_path} does not match output path {output_path}')
@@ -542,6 +554,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds = p.photometor.run(ds)
                 ds.update_report( 'photocal' )
                 if use_cache:
+                    _ = ds.zp.id
                     output_path = copy_to_cache(ds.zp, cache_dir, zp_cache_path)
                     if output_path.resolve() != zp_cache_path.resolve():
                         warnings.warn(f'cache path {zp_cache_path} does not match output path {output_path}')
@@ -553,6 +566,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         # *Now* copy the image to cache, including the estimates for lim_mag, fwhm, etc.
         if ( not env_as_bool("LIMIT_CACHE_USAGE") ) and ( not image_was_loaded_from_cache ):
+            _ = ds.image.id
             output_path = copy_to_cache(ds.image, cache_dir)
 
         ############ Now do subtraction / detection / measurement / etc. ##############
@@ -684,6 +698,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.sub_image.save(verify_md5=False)  # make sure it is also saved to archive
                 ds.update_report( 'subtraction' )
                 if use_cache:
+                    _ = ds.sub_image.id
                     output_path = copy_to_cache(ds.sub_image, cache_dir)
                     if output_path.resolve() != sub_cache_path.resolve():
                         raise ValueError( f'cache path {sub_cache_path} does not match output path {output_path}' )
@@ -701,15 +716,18 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     #  we should be saving it.)
                     SCLogger.debug( "make_datastore saving aligned ref image to cache" )
                     ds.aligned_ref_image.save( no_archive=True )
+                    _ = ds.aligned_ref_image.id
                     outpath = copy_to_cache( ds.aligned_ref_image, cache_dir )
                     if outpath.resolve() != aligned_ref_cache_path.resolve():
                         warnings.warn( f"Aligned ref cache path {outpath} "
                                        f"doesn't match expected {aligned_ref_cache_path}" )
+                    _ = ds.aligned_ref_zp.id
                     outpath = copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=aligned_ref_zp_cache_path )
                     if outpath.resolve() != aligned_ref_zp_cache_path.resolve():
                         warnings.warn( f"Aligned ref zp cache path {outpath} "
                                        f"doesn't match expected {aligned_ref_zp_cache_path}" )
                     ds.aligned_ref_bg.save( no_archive=True, filename=f'{ds.aligned_ref_image.filepath}_bg.h5' )
+                    _ = ds.aligned_ref_bg.id
                     outpath = copy_to_cache( ds.aligned_ref_bg, cache_dir )
                     if outpath.resolve() != aligned_ref_bg_cache_path.resolve():
                         warnings.warn( f"Aligned ref bg cache path {outpath} "
@@ -735,6 +753,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.detections.save( image=ds.sub_image, verify_md5=False )
                 ds.update_report( 'detection' )
                 if use_cache:
+                    _ = ds.detections.id
                     outpath = copy_to_cache( ds.detections, cache_dir, detection_cache_path )
                     if outpath.resolve() != detection_cache_path.resolve():
                         warnings.warn( f"Detection cache path {outpath} "
@@ -761,6 +780,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 ds.cutouts.save( image=ds.sub_image, sources=ds.detections )
                 ds.update_report( 'cutting' )
                 if use_cache:
+                    _ = ds.cutouts.id
                     outpath = copy_to_cache(ds.cutouts, cache_dir)
                     if outpath.resolve() != cutouts_cache_path.resolve():
                         warnings.warn( f"Cutouts cache path {outpath} "
@@ -851,6 +871,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
             ):
             ds.finalize_report()
             if ds.report is not None:
+                _ = ds.report.id
                 output_path = copy_to_cache( ds.report, cache_dir, report_cache_path )
                 if output_path.resolve() != report_cache_path.resolve():
                     warnings.warn( f'report cache path {report_cache_path} does not match output path {output_path}' )
