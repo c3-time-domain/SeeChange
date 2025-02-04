@@ -1,33 +1,91 @@
 import pytest
+import uuid
 
 import numpy as np
 
 from models.fakeset import FakeSet
+from models.zero_point import ZeroPoint
+from models.world_coordinates import WorldCoordinates
+from models.source_list import SourceList
+from models.psf import PSF
+from models.image import Image
 
 
-def test_inject_fakes( decam_datastore_through_zp ):
-    ds = decam_datastore_through_zp
+def test_save_and_load( bogus_fakeset_saved ):
+    fakeset = FakeSet.get_by_id( bogus_fakeset_saved.id )
+    assert fakeset.zp_id == bogus_fakeset_saved.zp_id
+    assert fakeset.provenance_id == bogus_fakeset_saved.provenance_id
+    assert fakeset.random_seed is None
+    assert fakeset.fake_x is None
+    assert fakeset.fake_y is None
+    assert fakeset.fake_mag is None
 
-    # Hand-picked locations
-    # lim mag estimate is 23.22
-    xs = [  1127.68, 1658.71, 1239.56, 1601.83, 1531.19, 921.57 ]
-    ys = [  2018.91, 1998.84, 2503.77, 2898.47, 3141.27, 630.95  ]
-    mags = [ 20.32,  19.90,   23.00,   22.00,  21.00,    23.30 ]
+    fakeset.load()
+    assert fakeset.random_seed == bogus_fakeset_saved.random_seed
+    assert np.all( fakeset.fake_x == bogus_fakeset_saved.fake_x )
+    assert np.all( fakeset.fake_y == bogus_fakeset_saved.fake_y )
+    assert np.all( fakeset.fake_mag == bogus_fakeset_saved.fake_mag )
 
-    fakeset = FakeSet( zp_id=ds.zp.id )
-    # Load up the properties so we can cope with fakeset not being in the database
-    fakeset.zp = ds.get_zp()
-    fakeset.wcs = ds.get_wcs()
-    fakeset.sources = ds.get_sources()
-    fakeset.psf = ds.get_psf()
-    fakeset.image = ds.get_image()
 
-    fakeset.random_seed = 42
-    fakeset.fake_x = np.array( xs )
-    fakeset.fake_y = np.array( ys )
-    fakeset.fake_mag = np.array( mags )
+def test_properties( bogus_fakeset_saved ):
+    fakeset = FakeSet.get_by_id( bogus_fakeset_saved.id )
+    assert fakeset._zp is None
+    assert fakeset._wcs is None
+    assert fakeset._sources is None
+    assert fakeset._psf is None
+    assert fakeset.fake_x is None
+    assert fakeset.fake_y is None
+    assert fakeset.fake_mag is None
+    assert fakeset.random_seed is None
 
-    import pdb; pdb.set_trace()
+    def reset_fakeset_props():
+        fakeset._zp = None
+        fakeset._wcs = None
+        fakeset._sources = None
+        fakeset._psf = None
+        fakeset._image = None
+        fakeset.random_seed = None
+        fakeset.fake_x = None
+        fakeset.fake_y = None
+        fakeset.fake_mag = None
+
+    # Make sure we can't do bad things
+    for prop, cls in zip( [ 'zp', 'wcs', 'sources', 'psf', 'image' ],
+                          [ ZeroPoint, WorldCoordinates, SourceList, PSF, Image ] ):
+        reset_fakeset_props()
+        with pytest.raises( TypeError, match=f"{prop} must be a.*not a" ):
+            setattr( fakeset, prop, 5 )
+        obj = cls()
+        _ = obj.id
+        # PSF needs a bit of special handling in this test
+        if prop == 'psf':
+            obj.sources_id = uuid.uuid4()
+        with pytest.raises( ValueError, match=f"FakeSet's {prop} property has wrong id!" ):
+            setattr( fakeset, prop, obj )
+
+    # Now zero all those out and make sure we can do good things
+    for prop, cls in zip( [ 'zp', 'wcs', 'sources', 'psf', 'image' ],
+                          [ ZeroPoint, WorldCoordinates, SourceList, PSF, Image ] ):
+        reset_fakeset_props()
+        setattr( fakeset, prop, getattr( bogus_fakeset_saved, prop ) )
+
+    # If we set the image, the others should get loaded as it checks stuff
+    reset_fakeset_props()
+    fakeset.image = bogus_fakeset_saved.image
+    assert fakeset._zp is not None
+    assert fakeset._wcs is not None
+    assert fakeset._sources is not None
+    assert fakeset._image is not None
+
+    # Finally, make sure we can lazy load all the things
+    for prop in [ 'zp', 'wcs','sources', 'psf', 'image' ]:
+        reset_fakeset_props()
+        assert getattr( fakeset, prop ).id == getattr( bogus_fakeset_saved, prop ).id
+
+
+def test_inject_fakes( decam_fakeset ):
+    fakeset = decam_fakeset
+
     imagedata, weight = fakeset.inject_on_to_image()
 
     diffdata = imagedata - fakeset.image.data
@@ -35,7 +93,7 @@ def test_inject_fakes( decam_datastore_through_zp ):
 
     tmpimg = diffdata.copy()
     tmpwgt = diffweight.copy()
-    for x, y, mag in zip( xs, ys, mags ):
+    for x, y, mag in zip( fakeset.fake_x, fakeset.fake_y, fakeset.fake_mag ):
         xc = int( np.round( x ) )
         yc = int( np.round( y ) )
         clip = fakeset.psf.get_clip( x, y )
@@ -50,10 +108,17 @@ def test_inject_fakes( decam_datastore_through_zp ):
 
         flux = diffdata[ ymin:ymax, xmin:xmax ].sum()
         wpos = fakeset.image.weight[ ymin:ymax, xmin:xmax ] > 0.
+        # This is wonky. Because we've done a *perfect* subtraction,
+        #   we're just looking at the statistics of the injected fake.
+        #   So, the dflux is going to be smaller than the actual
+        #   uncertainty, because it doesn't include sky noise, and
+        #   we're usually sky dominated.
+        #   (Real tests of subtractons will come later when we actually
+        #   run subtractions with refs that aren't the image on to whic
+        #   the fake was injected.)
         dflux = np.sqrt( ( 1. / weight[ ymin:ymax, xmin:xmax ][wpos]
                            - 1. / fakeset.image.weight[ ymin:ymax, xmin:xmax ][wpos] ).sum() )
         expectedflux = 10 ** ( ( mag - fakeset.zp.zp ) / -2.5 )
-        import pdb; pdb.set_trace()
         assert flux == pytest.approx( expectedflux, abs=3.*dflux )
 
         # do this to make sure nothing outside the place where stuff got added was changed

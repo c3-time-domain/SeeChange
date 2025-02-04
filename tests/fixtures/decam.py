@@ -20,6 +20,7 @@ from models.image import Image
 from models.datafile import DataFile
 from models.reference import Reference
 from models.refset import RefSet
+from models.fakeset import FakeSet
 
 from improc.alignment import ImageAligner
 
@@ -851,3 +852,49 @@ def decam_17_offset_refs( get_cached_decam_image ):
 
     for ds in dses:
         ds.delete_everything()
+
+
+@pytest.fixture
+def decam_fakeset( decam_datastore_through_zp ):
+    ds = decam_datastore_through_zp
+
+    # Hand-picked locations
+    # lim mag estimate is 23.22
+    xs = [  1127.68, 1658.71, 1239.56, 1601.83, 1531.19, 921.57 ]
+    ys = [  2018.91, 1998.84, 2503.77, 2898.47, 3141.27, 630.95  ]
+    mags = [ 20.32,  19.90,   23.00,   22.00,  21.00,    23.30 ]
+
+    fakeset = FakeSet( zp_id=ds.zp.id )
+    # Load up the properties so we can cope with fakeset not being in the database
+    fakeset.zp = ds.get_zp()
+    fakeset.wcs = ds.get_wcs()
+    fakeset.sources = ds.get_sources()
+    fakeset.psf = ds.get_psf()
+    fakeset.image = ds.get_image()
+
+    fakeset.random_seed = 42
+    fakeset.fake_x = np.array( xs )
+    fakeset.fake_y = np.array( ys )
+    fakeset.fake_mag = np.array( mags )
+
+    yield fakeset
+
+    fakeset.delete_from_disk_and_database()
+
+
+@pytest.fixture
+def decam_fakeset_loaded( decam_fakeset, code_version ):
+    prov = Provenance( code_version_id=code_version.id,
+                       process='fakeinjection',
+                       parameters={ 'random_seed': decam_fakeset.random_seed },
+                       upstreams=[ Provenance.get( decam_fakeset.zp.provenance_id ) ],
+                       is_testing=True )
+    prov.insert_if_needed()
+    decam_fakeset.provenance_id = prov.id
+    decam_fakeset.save()
+    decam_fakeset.insert()
+
+    yield decam_fakeset
+
+    # decam_fakeset alreayd does delete_from_disk_and_database
+    pass

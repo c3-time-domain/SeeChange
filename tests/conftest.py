@@ -35,7 +35,13 @@ from models.object import Object
 from models.refset import RefSet
 from models.calibratorfile import CalibratorFileDownloadLock
 from models.user import AuthUser
+from models.image import Image
+from models.source_list import SourceList
 from models.psf import PSF
+from models.background import Background
+from models.world_coordinates import WorldCoordinates
+from models.zero_point import ZeroPoint
+from models.fakeset import FakeSet
 
 from util.archive import Archive
 from util.util import remove_empty_folders, env_as_bool
@@ -803,3 +809,188 @@ def browser():
     yield ff
     ff.close()
     ff.quit()
+
+
+# ======================================================================
+# Fake objects for testing stuff
+
+@pytest.fixture
+def bogus_image( code_version, provenance_base ):
+    img = Image( _id=uuid.UUID('13de30a0-cb73-40d7-a708-10354005b7e4'),
+                 format='fits',
+                 type='Sci',
+                 provenance_id=provenance_base.id,
+                 mjd=60000.,
+                 end_mjd=60000.00052,
+                 exp_time=45.,
+                 instrument='DemoInstrument',
+                 telescope='DemoTelescope',
+                 filter='r',
+                 section_id=1,
+                 project='test',
+                 target='test',
+                 filepath='fake_bogus_image.fits',
+                 md5sum=uuid.uuid4(),
+                 ra=120.,
+                 dec=5.,
+                 ra_corner_00=119.9,
+                 ra_corner_01=119.9,
+                 ra_corner_10=120.1,
+                 ra_corner_11=120.1,
+                 minra=110.9,
+                 maxra=120.1,
+                 dec_corner_00=4.9,
+                 dec_corner_10=4.9,
+                 dec_corner_01=5.1,
+                 dec_corner_11=5.1,
+                 mindec=4.9,
+                 maxdec=5.1
+                )
+    img.insert()
+
+    yield img
+
+    with SmartSession() as session:
+        session.execute( sa.delete( Image ).where( Image._id==img.id ) )
+        session.commit()
+
+
+@pytest.fixture
+def bogus_sources_and_psf( bogus_image ):
+    improv = Provenance.get( bogus_image.provenance_id )
+    prov = Provenance( code_version_id=improv.code_version_id,
+                       process='extraction',
+                       parameters={ 'method': 'sextractor' },
+                       upstreams=[ improv ],
+                       is_testing=True )
+    prov.insert_if_needed()
+    src = SourceList( _id=uuid.UUID('717d6591-0630-448a-9748-0097e40c8272'),
+                      image_id=bogus_image.id,
+                      format='sextrfits',
+                      num_sources=42,
+                      provenance_id=prov.id,
+                      filepath='fake_bogus_source_list.fits',
+                      md5sum=uuid.uuid4() )
+    src.insert()
+
+    psf = PSF( _id=uuid.UUID('c9e410de-a6d1-4db4-9b95-8ee866997784'),
+               format='psfex',
+               sources_id=src.id,
+               fwhm_pixels=2.5,
+               filepath='fake_bogus_psf.fits',
+               md5sum=uuid.uuid4() )
+    psf.insert()
+
+    yield src, psf
+
+    with SmartSession() as session:
+        session.execute( sa.delete( PSF ).where( PSF._id==psf.id ) )
+        session.execute( sa.delete( SourceList ).where( SourceList._id==src.id ) )
+        session.commit()
+
+
+@pytest.fixture
+def bogus_bg( bogus_sources_and_psf ):
+    bogus_sources, _ = bogus_sources_and_psf
+    srcprov = Provenance.get( bogus_sources.provenance_id )
+    prov = Provenance( code_verson_id=srcprov.code_version_id,
+                       process='backgrounding',
+                       parameters={ 'format': 'scalar' },
+                       upstreams=[ srcprov ],
+                       is_testing=True )
+    prov.insert_if_needed()
+    bg = Background( format='scalar',
+                     method='zero',
+                     sources_id=bogus_sources.id,
+                     value=0.,
+                     noise=1.,
+                     provenance_id=prov.id,
+                     image_shape=(256,256),
+                     filepath='fake_bogus_bg.h5',
+                     md5sum=uuid.uuid4() )
+    bg.insert()
+
+    yield bg
+
+    with SmartSession() as session:
+        session.execute( sa.delete( Background ).where( Background._id==bg.id ) )
+        session.commit()
+
+
+@pytest.fixture
+def bogus_wcs( bogus_sources_and_psf ):
+    bogus_sources, _ = bogus_sources_and_psf
+    srcprov = Provenance.get( bogus_sources.provenance_id )
+    prov = Provenance( code_verson_id=srcprov.code_version_id,
+                       process='astrocal',
+                       parameters={ 'solution_method': 'scamp' },
+                       upstreams=[ srcprov ],
+                       is_testing=True )
+    prov.insert_if_needed()
+    wcs = WorldCoordinates( sources_id=bogus_sources.id,
+                            provenance_id=prov.id,
+                            filepath='fake_bogus_wcs.txt',
+
+                            md5sum=uuid.uuid4() )
+    wcs.insert()
+
+    yield wcs
+
+    with SmartSession() as session:
+        session.execute( sa.delete( WorldCoordinates ).where( WorldCoordinates._id==wcs.id ) )
+        session.commit()
+
+
+@pytest.fixture
+def bogus_zp( bogus_wcs, bogus_bg ):
+    wcsprov = Provenance.get( bogus_wcs.provenance_id )
+    bgprov = Provenance.get( bogus_bg.provenance_id )
+    prov = Provenance( code_version_id=wcsprov.code_version_id,
+                       process='photocal',
+                       parameters={ 'cross_match_catalog': 'gaia_dr3' },
+                       upstreams=[ wcsprov, bgprov ],
+                       is_testing=True )
+    prov.insert_if_needed()
+    zp = ZeroPoint( wcs_id=bogus_wcs.id,
+                    background_id=bogus_bg.id,
+                    zp=25.,
+                    dzp=0.1,
+                    provenance_id=prov.id )
+    zp.insert()
+
+    yield zp
+
+    with SmartSession() as session:
+        session.execute( sa.delete( ZeroPoint ).where( ZeroPoint._id==zp.id ) )
+        session.commit()
+
+# ======================================================================a
+
+
+@pytest.fixture
+def bogus_fakeset_saved( bogus_zp ):
+    xs = [  1127.68, 1658.71, 1239.56, 1601.83, 1531.19, 921.57 ]
+    ys = [  2018.91, 1998.84, 2503.77, 2898.47, 3141.27, 630.95  ]
+    mags = [ 20.32,  19.90,   23.00,   22.00,  21.00,    23.30 ]
+
+    zpprov = Provenance.get( bogus_zp.provenance_id )
+    prov = Provenance( code_version_id=zpprov.code_version_id,
+                       process='fakeinjection',
+                       parameters={ 'random_seed': 42 },
+                       upstreams=[ zpprov ],
+                       is_testing=True )
+    prov.insert_if_needed()
+    fakeset = FakeSet( zp_id=bogus_zp.id,
+                       provenance_id=prov.id )
+    fakeset.random_seed = 42
+    fakeset.fake_x = np.array( xs )
+    fakeset.fake_y = np.array( ys )
+    fakeset.fake_mag = np.array( mags )
+
+    fakeset.filepath = "bogus_fakeset.h5"
+    fakeset.save()
+    fakeset.insert()
+
+    yield fakeset
+
+    fakeset.delete_from_disk_and_database()
