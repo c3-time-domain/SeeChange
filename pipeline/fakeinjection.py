@@ -215,12 +215,12 @@ class FakeInjector:
                 ny = fakes.image.shape[0]
 
             for i in range(len(self.pars.num_fakes)):
+                m = m_of_F( rng.uniform() )
                 if rng.uniform() < self.pars.hostless_frac:
                     x = rng.uniform( nx )
                     y = rng.uniform( ny )
                 else:
                     raise NotImplementedError( "Fakes near hosts not implemented yet." )
-                m = m_of_F( rng.uniform() )
 
                 fakes.fake_x[i] = x
                 fakes.fake_y[i] = y
