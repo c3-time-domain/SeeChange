@@ -143,16 +143,15 @@ class FakeInjector:
                 raise ValueError( f'min_fake_mag must be < max_fake_mag, but got (min, max) = '
                                   f'({self.pars.min_fake_mag}, {self.pars.max_fake_mag})' )
 
-            # get provenance for this step.  It's not in the DataStore's
-            #   provenance tree because of the whole handling of
-            #   random_seed
-            random_seed = self.random_seed
+            # Figure out our random seed
+            random_seed = self.pars.random_seed
             if random_seed == 0:
                 rng = np.random.rng()
                 random_seed = rng.integers( 2147483647 )
 
-            # Look for an existing FakeSet
-
+            # get provenance for this step.  It's not in the DataStore's
+            #   provenance tree because of the whole handling of
+            #   random_seed.
             params = self.pars.get_critical_pars()
             params['random_seed'] = random_seed
             zpprov = Provenance.get( zp.provenance_id )
@@ -160,6 +159,9 @@ class FakeInjector:
                                process=self.pars.process,
                                params=params,
                                upstreams=[zpprov] )
+
+            # Look for an existing FakeSet
+
             with SmartSession() as session:
                 fakes = ( session.query( FakeSet )
                           .filter( FakeSet.zp_id==zp.id )
@@ -216,6 +218,7 @@ class FakeInjector:
 
             for i in range(len(self.pars.num_fakes)):
                 m = m_of_F( rng.uniform() )
+
                 if rng.uniform() < self.pars.hostless_frac:
                     x = rng.uniform( nx )
                     y = rng.uniform( ny )
