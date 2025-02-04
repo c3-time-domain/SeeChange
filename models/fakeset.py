@@ -1,0 +1,337 @@
+import pathlib
+
+import numpy as np
+import h5py
+
+import sqlalchemy as sa
+import sqlalchemy.orm as orm
+
+from util.util import asUUID
+
+from models.image import Image
+from models.source_list import SourceList
+from models.psf import PSF
+from models.world_coordinates import WorldCoordinates
+from models.zero_point import ZeroPoint
+from models.base import (
+    Base,
+    SeeChangeBase,
+    UUIDMixin,
+    FileOnDiskMixin,
+    SmartSession
+)
+
+
+class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
+    __tablename__ = 'fake_sets'
+
+    zp_id = sa.Column(
+        sa.ForeignKey( 'zero_points._id', ondelete='CASCADE', name='fake_sets_zp_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc="ID of the zeropoint (and thus sources and image) this fake set goes with"
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey( 'provenances._id', ondelete="CASCADE", name='fake_sets_provenance_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc="ID of the provenance of this fake set."
+    )
+
+
+    @property
+    def zp( self ):
+        if self._zp is None:
+            self._load_upstreams()
+        return self._zp
+
+    @zp.setter
+    def zp( self, val ):
+        if not isinstance( val, ZeroPoint ):
+            raise TypeError( f"zp must be a ZeroPoint, not a {type(val)}" )
+        self._zp = val
+        self._check_upstreams()
+
+
+    @property
+    def wcs( self ):
+        if self._wcs is None:
+            self._load_upstreams()
+        return self._wcs
+
+    @wcs.setter
+    def wcs( self, val ):
+        if not isinstance( val, WorldCoordinates ):
+            raise TypeError( f"wcs must be a WorldCoordinates, not a {type(val)}" )
+        self._wcs = val
+        self._check_upstreams()
+
+
+    @property
+    def sources( self ):
+        if self._sources is None:
+            self._load_upstreams()
+        return self._sources
+
+    @sources.setter
+    def sources( self, val ):
+        if not isinstance( val, SourceList):
+            raise TypeError( f"sources must be a SourceList, not a {type(val)}" )
+        self._sources = val
+        self._check_upstreams()
+
+
+    @property
+    def psf( self ):
+        if self._psf is None:
+            self._load_upstreams()
+        return self._psf
+
+    @psf.setter
+    def psf( self, val ):
+        if not isinstance( val, PSF ):
+            raise TypeError( f"psf must be a PSF, not a {type(val)}" )
+        self._psf = val
+        self._check_upstreams()
+
+
+    @property
+    def image( self ):
+        if self._image is None:
+            self._load_upstreams()
+        return self._image
+
+    @image.setter
+    def image( self, val ):
+        if not isinstance( val, Image ):
+            raise TypeError( f"image must be an Image, not a {type(val)}" )
+        self._image = val
+        self._check_upstreams()
+
+
+    def _check_upstreams( self ):
+        if ( self._zp is not None ) and ( asUUID( self._zp.id ) != asUUID( self.zp_id ) ):
+            raise ValueError( "FakeSet's zp property has wrong id!" )
+        if ( self._wcs is not None ) and ( asUUID( self._wcs.id ) != asUUID( self.zp.wcs_id ) ):
+            raise ValueError( "FakeSet's wcs property has wrong id!" )
+        if ( self._sources is not None ) and ( asUUID( self._sources.id ) != asUUID( self.wcs.sources_id ) ):
+            raise ValueError( "FakeSet's sources property has wrong id!" )
+        if ( self._psf is not None ) and ( asUUID( self._psf.sources_id ) != asUUID( self.sources.id ) ):
+            raise ValueError( "FakeSet's psf property has wrong id!" )
+        if ( self._image is not None ) and ( asUUID( self._image.id ) != asUUID( self.sources.image_id ) ):
+            raise ValueError( "FakeSet's image property has wrong id!" )
+
+
+    def _load_upstreams( self, session=None ):
+        if any( [ i is None for i in [ self._zp, self._wcs, self._sources, self._psf, self._image ] ] ):
+            with SmartSession( session ) as sess:
+                if self._zp is None:
+                    self._zp = ZeroPoint.get_by_id( self.zp_id, session=sess )
+                if self._wcs is None:
+                    self._wcs = WorldCoordinates.get_by_id( self._zp.wcs_idm, session=sess )
+                if self._sources is None:
+                    self._sources = SourceList.get_by_id( self._wcs.sources_id, session=sess )
+                if self._psf is None:
+                    self._psf = sess.query( PSF ).filter( PSF.sources_id==self._sources.id ).first()
+                if self._image is None:
+                    self._image = Image.get_by_id( self._sources.image_id, session=sess )
+
+        self._check_upstreams()
+
+
+    def __init__( self, *args, **kwargs ):
+        FileOnDiskMixin.__init__( self, *args, **kwargs )
+        SeeChangeBase.__init__( self )
+
+        self._provenance = None
+        self._zp = None
+        self._wcs = None
+        self._psf = None
+        self._sources = None
+        self._image = None
+
+        self.random_seed = None
+        self.fake_x = None
+        self.fake_y = None
+        self.fake_mag = None
+
+        self.set_attributes_from_dict( kwargs )
+
+
+    @orm.reconstructor
+    def init_on_load( self ):
+        SeeChangeBase.init_on_load( self )
+        FileOnDiskMixin.init_on_load( self )
+
+        self._provenance = None
+        self._zp = None
+        self._wcs = None
+        self._psf = None
+        self._sources = None
+        self._image = None
+
+        self.random_seed = None
+        self.fake_x = None
+        self.fake_y = None
+        self.fake_mag = None
+
+
+    def invent_filepath( self, image=None, provenance=None ):
+        """Create a relative filepath for the object."""
+
+        # Note that while we base the filepath on the image, the
+        #  zp is in fact included in there, because our provenance
+        #  will be different for different zp provenances.
+
+        image = self.image if image is None else image
+        provid = self.provenance_id if provenance is None else provenance.id
+
+        if image is None:
+            raise RuntimeError( "Can't invent a fakes filepath without an image" )
+        if provid is None:
+            raise RuntimeError( "Can't invent a fakes filepath without a provenance id" )
+
+        filepath = image.filepath
+        if filepath is None:
+            filepath = image.invent_filepath()
+
+        filepath += ".fakes_" + provid[:6] + ".h5"
+
+        return filepath
+
+
+    def load( self, download=True, always_verify_md5=False, filepath=None ):
+        if filepath is None:
+            filepath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5, nofile=False )
+
+        with h5py.File( filepath, 'r' ) as h5f:
+            if 'fakeset' not in h5f:
+                raise ValueError( "No fakeset group found in file." )
+            self.random_seed = h5f['fakeset'].attrs['random_seed']
+            self.fake_x = h5f['fakeset/x'][:]
+            self.fake_y = h5f['fakeset/y'][:]
+            self.fake_mag = h5f['fakeset/mag'][:]
+
+
+    def save( self, filename=None, **kwargs ):
+        """Save definition of fakes to an HDF5 file.
+
+        Parameters
+        ----------
+          filename : str or Path
+             The path of the file to write, relative to the local store
+             root.  If None, will call invent_filepath() to get a
+             filestore-standard filename and directory.  If not None,
+             will set self.filepath to this.  Usually you want this to
+             be None.
+
+        Additional parameters are passed on to FileOnDiskMixin.save()
+
+        """
+
+        if any( getattr( self, att ) is None for att in [ 'random_seed', 'fake_x', 'fake_y', 'fake_mag' ] ):
+            raise RuntimeError( "Can't save fake set unless all of random_seed, fake_x, fake_y, fake_mag are set." )
+
+        if filename is not None:
+            filename = pathlib.Path( filename )
+            if not filename.name.endswith( ".h5" ):
+                filename = filename.parent / f"{filename.name}.h5"
+            self.filepath = filename
+        else:
+            filename = pathlib.Path( self.invent_filepath() )
+
+        ofpath = pathlib.Path( self.local_path ) / filename
+
+        with h5py.File( ofpath, 'w' ) as h5f:
+            fakesetgrp = h5f.create_group( 'fakeset' )
+            fakesetgrp.attrs['random_seed'] = self.random_seed
+            fakesetgrp.create_dataset( 'x', data=self.fake_x )
+            fakesetgrp.create_dataset( 'y', data=self.fake_y )
+            fakesetgrp.create_dataset( 'mag', data=self.fake_mag )
+
+
+    def inject_on_to_image( self, imagedata=None, weight=None ):
+        """Inject fakes in to an image
+
+        Adds psf's rendered at each (x, y), scaled by each flux
+        (calculated from the mag and self.zp) for the fakes to the image
+        data, and flux*psf/gain to the image variance (1./weight).
+        (Where the psf comes out negative, weight is not mnodified.)
+
+        Parameters
+        ----------
+          image : 2d numpy.array or None
+            The image data to inject fakes on to.  Will modify this
+            array, so send in a copy if you car.  If None, will load the
+            image data from self.image and make a copy.  Assumes that
+            the shape is the same as the shape of self.image.data, and
+            that the gain of self.image is right.
+
+          weight : 2d numpy.array or None
+            The image weights to inject inverse fake pixel value
+            variances on to.  Will modify this array, so send in a copy
+            if you care.  If None, will load the image weight data from
+            self.image and make a copy.
+
+
+        Returns
+        -------
+          imagedata, weight
+
+            Modified 2d numpy arrays
+
+        """
+
+        if any( getattr( self, att ) is None for att in [ 'random_seed', 'fake_x', 'fake_y', 'fake_mag' ] ):
+            self.load()
+
+        imagedata = np.copy(self.image.data) if imagedata is None else imagedata
+        weight = np.copy(self.image.weight) if weight is None else weight
+        instr = self.image.instrument_object
+
+        rng = np.random.default_rng( self.random_seed )
+
+        fake_fluxen = 10 ** ( ( self.fake_mag - self.zp.zp ) / -2.5 )
+        for x, y, flux in zip( self.fake_x, self.fake_y, fake_fluxen ):
+            xc = int( np.round( x ) )
+            yc = int( np.round( y ) )
+            clip = self.psf.get_clip( x, y, flux=flux )
+            xmin = xc - clip.shape[1] // 2
+            xmax = xmin + clip.shape[1]
+            ymin = yc - clip.shape[0] // 2
+            ymax = ymin + clip.shape[0]
+            # The usual verbose dealing with edge-case edge cases
+            clipxmin = 0
+            clipxmax = clip.shape[1]
+            clipymin = 0
+            clipymax = clip.shape[0]
+            if xmin < 0:
+                clipxmin = -xmin
+                xmin = 0
+            if ymin < 0:
+                clipymin = -ymin
+                ymin = 0
+            if xmax > imagedata.shape[1]:
+                clipxmax -= ( xmax - imagedata.shape[1] )
+                xmax = imagedata.shape[1]
+            if ymax > imagedata.shape[0]:
+                clipymax -= ( ymax - imagedata.shape[0] )
+                ymax = imagedata.shape[0]
+
+            # Scatter the psf by its Poisson noises
+            # Slight issue here: if the clip spans an amp boundry, then the
+            # gains are wrong for some pixels.  ¯\_(ツ)_/¯
+            sigma = clip / instr.get_gain_at_pixel( self.image, x, y )
+            sigma[ sigma < 0. ] = 0.
+            sigma = np.sqrt( sigma )
+            clip += rng.normal( scale=sigma )
+
+            imagedata[ ymin:ymax, xmin:xmax ] += clip[ clipymin:clipymax, clipxmin:clipxmax ]
+            wgood = ( ( weight[ ymin:ymax, xmin:xmax ] > 0 ) & ( clip[ clipymin:clipymax, clipxmin:clipxmax ] > 0. ) )
+            weight[ ymin:ymax, xmin:xmax ][wgood] = 1. / (
+                1. / weight[ ymin:ymax, xmin:xmax ][wgood]
+                + ( clip[ clipymin:clipymax, clipxmin:clipxmax ][wgood]
+                    / instr.get_gain_at_pixel( self.image, x, y ) ) )
+
+        return imagedata, weight
