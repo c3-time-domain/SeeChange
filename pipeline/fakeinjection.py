@@ -5,7 +5,7 @@ import numpy as np
 from util.util import env_as_bool
 from util.logger import SCLogger
 
-from models.Provenance import Provenance
+from models.provenance import Provenance
 from models.fakeset import FakeSet
 from models.base import SmartSession
 
@@ -35,11 +35,11 @@ class ParsFakeInjector(Parameters):
             critical=True
         )
 
-        self.mag_rel_zp = self.add_par(
-            'mag_rel_zp',
+        self.mag_rel_limmag = self.add_par(
+            'mag_rel_limmag',
             True,
             bool,
-            'Is min/max_fake_mag relative to the image zeropoint, or straight-up magnitude?',
+            'Is min/max_fake_mag relative to the image lim_mag_estimate, or straight-up magnitude?',
             critical=True
         )
 
@@ -118,7 +118,7 @@ class FakeInjector:
     def run( self, *args, **kwargs ):
         """Figure out the fakes to inject on to an image.
 
-        Sets ds.fakes.  Doesn't actually do injection; to
+        Sets ds.fakes to a FakeSet.  Doesn't actually do injection; to
         do that, call ds.fakes.inject_on_to_image()
 
         """
@@ -133,6 +133,7 @@ class FakeInjector:
                 tracemalloc.reset_peak()
 
             ds = DataStore.from_args( *args, **kwargs )
+            image = ds.get_image()
             zp = ds.get_zp()
             if zp is None:
                 raise ValueError( "Need to be able to get ds.zp for fake definition" )
@@ -146,7 +147,7 @@ class FakeInjector:
             # Figure out our random seed
             random_seed = self.pars.random_seed
             if random_seed == 0:
-                rng = np.random.rng()
+                rng = np.random.default_rng()
                 random_seed = rng.integers( 2147483647 )
 
             # get provenance for this step.  It's not in the DataStore's
@@ -156,7 +157,7 @@ class FakeInjector:
             params['random_seed'] = random_seed
             zpprov = Provenance.get( zp.provenance_id )
             prov = Provenance( code_version_id=Provenance.get_code_version().id,
-                               process=self.pars.process,
+                               process=self.pars.get_process_name(),
                                params=params,
                                upstreams=[zpprov] )
 
@@ -198,9 +199,9 @@ class FakeInjector:
             r = self.pars.mag_prob_ratio
             m0 = self.pars.min_fake_mag
             m1 = self.pars.max_fake_mag
-            if self.pars.mag_rel_zp:
-                m0 += zp.zp
-                m1 += zp.zp
+            if self.pars.mag_rel_limmag:
+                m0 += image.lim_mag_estimate
+                m1 += image.lim_mag_estimate
             if r != 1:
                 b = 2 * (m1 - r*m0) / ( (r+1) * (m1-m0)**2 )
                 s = 2 * (r-1) / ( (r+1) * (m1-m0)**2 )
@@ -213,15 +214,15 @@ class FakeInjector:
 
             rng = np.random.default_rng( random_seed )
             if self.pars.hostless_frac > 0.:
-                nx = fakes.image.shape[1]
-                ny = fakes.image.shape[0]
+                nx = fakes.image.data.shape[1]
+                ny = fakes.image.data.shape[0]
 
-            for i in range(len(self.pars.num_fakes)):
+            for i in range( self.pars.num_fakes ):
                 m = m_of_F( rng.uniform() )
 
                 if rng.uniform() < self.pars.hostless_frac:
-                    x = rng.uniform( nx )
-                    y = rng.uniform( ny )
+                    x = rng.uniform( 0., float(nx) )
+                    y = rng.uniform( 0., float(ny) )
                 else:
                     raise NotImplementedError( "Fakes near hosts not implemented yet." )
 

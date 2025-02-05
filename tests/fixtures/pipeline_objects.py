@@ -14,6 +14,7 @@ from pipeline.subtraction import Subtractor
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
 from pipeline.scoring import Scorer
+from pipeline.fakeinjection import FakeInjector
 from pipeline.top_level import Pipeline
 from pipeline.ref_maker import RefMaker
 
@@ -238,6 +239,27 @@ def scorer_factory(test_config):
 @pytest.fixture
 def scorer(scorer_factory):
     return scorer_factory()
+
+
+@pytest.fixture(scope='session')
+def fakeinjector_factory( test_config ):
+
+    def make_fakeinjector():
+        injector = FakeInjector( **test_config.value('fakeinjection') )
+        injector.pars._enforce_no_new_attrs = False
+        injector.pars.test_parameter = injector.pars.add_par(
+            'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
+        )
+        injector.pars._enforce_no_new_attrs = True
+
+        return injector
+
+    return make_fakeinjector
+
+
+@pytest.fixture
+def fakeinjector( fakeinjector_factory ):
+    return fakeinjector_factory()
 
 
 @pytest.fixture(scope='session')

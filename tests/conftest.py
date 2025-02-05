@@ -48,6 +48,8 @@ from util.util import remove_empty_folders, env_as_bool
 from util.retrydownload import retry_download
 from util.logger import SCLogger
 
+from pipeline.data_store import DataStore, ProvenanceTree
+
 # Set this to False to avoid errors about things left over in the database and archive
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
@@ -829,8 +831,7 @@ def bogus_image( code_version, provenance_base ):
                  section_id=1,
                  project='test',
                  target='test',
-                 filepath='fake_bogus_image.fits',
-                 md5sum=uuid.uuid4(),
+                 filepath='fake_bogus_image',
                  ra=120.,
                  dec=5.,
                  ra_corner_00=119.9,
@@ -844,15 +845,36 @@ def bogus_image( code_version, provenance_base ):
                  dec_corner_01=5.1,
                  dec_corner_11=5.1,
                  mindec=4.9,
-                 maxdec=5.1
+                 maxdec=5.1,
+                 lim_mag_estimate=22.5,
+                 bkg_mean_estimate=0.,
+                 bkg_rms_estimate=1.,
+                 fhwm_estimate=2.35,
+                 airmass=1.2,
+                 sky_sub_done=True,
+                 astro_cal_done=True,
                 )
+
+    # Give the image some numpy arrays for things that will look at the size
+    img.header = fits.Header( { 'TESTKW': 'testval' } )
+    img.data = np.zeros( ( 1024, 1024 ), dtype=np.float32 )
+    img.weight = np.zeros( ( 1024, 1024 ), dtype=np.float32 )
+    img.flags = np.zeros( ( 1024, 1024 ), dtype=np.int16 )
+
+    img.save()
     img.insert()
 
     yield img
 
+    # Doing this manually rather than calling img.delete_from_disk_and_database
+    #   because of the bogus_datastore cleanup below
     with SmartSession() as session:
         session.execute( sa.delete( Image ).where( Image._id==img.id ) )
         session.commit()
+    for comp in img.components:
+        p = pathlib.Path( FileOnDiskMixin.local_path ) / f'fake_bogus_image.{comp}.fits'
+        if p.is_file():
+            p.unlink()
 
 
 @pytest.fixture
@@ -963,6 +985,34 @@ def bogus_zp( bogus_wcs, bogus_bg ):
     with SmartSession() as session:
         session.execute( sa.delete( ZeroPoint ).where( ZeroPoint._id==zp.id ) )
         session.commit()
+
+
+@pytest.fixture
+def bogus_datastore( bogus_image, bogus_sources_and_psf, bogus_bg, bogus_wcs, bogus_zp ):
+    ds = DataStore()
+    ds.image = bogus_image
+    ds.sources = bogus_sources_and_psf[0]
+    ds.psf = bogus_sources_and_psf[1]
+    ds.bg = bogus_bg
+    ds.wcs = bogus_wcs
+    ds.zp = bogus_zp
+    ds.edit_prov_tree( ProvenanceTree( { 'starting_point': Provenance.get( ds.image.provenance_id ),
+                                         'extraction': Provenance.get( ds.sources.provenance_id ),
+                                         'backgrounding': Provenance.get( ds.bg.provenance_id ),
+                                         'wcs': Provenance.get( ds.wcs.provenance_id ),
+                                         'zp': Provenance.get( ds.zp.provenance_id ) },
+                                       upstream_steps = { 'starting_point': [],
+                                                          'extraction': ['starting_point'],
+                                                          'backgrounding': ['extraction'],
+                                                          'wcs': ['extraction'],
+                                                          'zp': ['wcs', 'backgrounding'] } ) )
+
+    yield ds
+
+    # Do this just in case other stuff got added
+    ds.delete_everything()
+
+
 
 # ======================================================================a
 
