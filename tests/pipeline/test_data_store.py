@@ -21,6 +21,8 @@ from models.provenance import Provenance, ProvenanceTag
 from pipeline.data_store import DataStore, ProvenanceTree
 from pipeline.top_level import Pipeline
 
+# delete this comment in a future PR
+# (It is here to try to work around a github hang.)
 
 def test_make_prov_tree( decam_exposure, decam_reference ):
     provs_created = set()
