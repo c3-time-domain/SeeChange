@@ -877,7 +877,7 @@ def bogus_image( code_version, provenance_base ):
         p = pathlib.Path( FileOnDiskMixin.local_path ) / f'fake_bogus_image.{comp}.fits'
         if p.is_file():
             p.unlink()
-        archive.delete( str(p), okifmissing=True )
+        archive.delete( f'fake_bogus_image.{comp}.fits', okifmissing=True )
 
 
 @pytest.fixture
