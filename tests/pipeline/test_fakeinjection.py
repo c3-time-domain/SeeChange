@@ -23,6 +23,7 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # Do
     ds = fakeinjector.run( ds )
+    seed0 = ds.fakes.random_seed
     assert isinstance( ds.fakes, FakeSet )
     assert len( ds.fakes.fake_x ) == n
     assert len( ds.fakes.fake_y ) == n
@@ -41,6 +42,7 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
     # Put in a dim/bright ratio of 2
     fakeinjector.pars.mag_prob_ratio = 2.
     ds = fakeinjector.run( ds )
+    assert ds.fakes.random_seed == seed0
     assert len( ds.fakes.fake_x ) == n
     assert len( ds.fakes.fake_y ) == n
     assert len( ds.fakes.fake_mag ) == n
