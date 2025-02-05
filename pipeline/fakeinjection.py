@@ -92,7 +92,7 @@ class ParsFakeInjector(Parameters):
             critical=True
         )
 
-        # MORE PARAMETERS ABOUT DISTANCE FROM CENTER
+        # MORE PARAMETERS ABOUT DISTANCE FROM CENTER ETC. (Issue #410)
 
         self._enforce_no_new_attrs = True
         self.override( kwargs )
@@ -224,7 +224,7 @@ class FakeInjector:
                     x = rng.uniform( 0., float(nx) )
                     y = rng.uniform( 0., float(ny) )
                 else:
-                    raise NotImplementedError( "Fakes near hosts not implemented yet." )
+                    raise NotImplementedError( "Fakes near hosts not implemented yet.  (Issue #410.)" )
 
                 fakes.fake_x[i] = x
                 fakes.fake_y[i] = y
