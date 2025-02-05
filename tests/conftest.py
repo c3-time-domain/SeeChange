@@ -25,7 +25,8 @@ from models.base import (
     Psycopg2Connection,
     CODE_ROOT,
     get_all_database_objects,
-    setup_warning_filters
+    setup_warning_filters,
+    get_archive_object
 )
 from models.knownexposure import KnownExposure, PipelineWorker
 from models.provenance import CodeVersion, CodeHash, Provenance
@@ -871,10 +872,12 @@ def bogus_image( code_version, provenance_base ):
     with SmartSession() as session:
         session.execute( sa.delete( Image ).where( Image._id==img.id ) )
         session.commit()
+    archive = get_archive_object()
     for comp in [ 'image', 'weight', 'flags' ]:
         p = pathlib.Path( FileOnDiskMixin.local_path ) / f'fake_bogus_image.{comp}.fits'
         if p.is_file():
             p.unlink()
+        archive.delete( str(p), okifmissing=True )
 
 
 @pytest.fixture
