@@ -871,7 +871,7 @@ def bogus_image( code_version, provenance_base ):
     with SmartSession() as session:
         session.execute( sa.delete( Image ).where( Image._id==img.id ) )
         session.commit()
-    for comp in img.components:
+    for comp in [ 'image', 'weight', 'flags' ]:
         p = pathlib.Path( FileOnDiskMixin.local_path ) / f'fake_bogus_image.{comp}.fits'
         if p.is_file():
             p.unlink()

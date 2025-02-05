@@ -22,7 +22,7 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
     maxmag = ds.image.lim_mag_estimate + fakeinjector.pars.max_fake_mag
 
     # Do
-    fakeinjector.run( ds )
+    ds = fakeinjector.run( ds )
     assert isinstance( ds.fakes, FakeSet )
     assert len( ds.fakes.fake_x ) == n
     assert len( ds.fakes.fake_y ) == n
@@ -40,7 +40,7 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # Put in a dim/bright ratio of 2
     fakeinjector.pars.mag_prob_ratio = 2.
-    fakeinjector.run( ds )
+    ds = fakeinjector.run( ds )
     assert len( ds.fakes.fake_x ) == n
     assert len( ds.fakes.fake_y ) == n
     assert len( ds.fakes.fake_mag ) == n
@@ -55,6 +55,22 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # ... and 0.5
     fakeinjector.pars.mag_prob_ratio = 0.5
-    fakeinjector.run( ds )
+    ds = fakeinjector.run( ds )
     hist, _binedges = np.histogram( ds.fakes.fake_mag, range=(minmag, maxmag) )
     assert hist[0] / hist[-1] == pytest.approx( 2., rel=2.*np.sqrt( 1./hist[-1] + 1./hist[0] ) )
+
+    # Absolute magnitude range
+    fakeinjector.pars.min_fake_mag = 23.
+    fakeinjector.pars.max_fake_mag = 25.
+    fakeinjector.pars.mag_rel_limmag = False
+    ds = fakeinjector.run( ds )
+    assert np.all( ds.fakes.fake_mag >= 23. )
+    assert np.all( ds.fakes.fake_mag <= 25. )
+
+    # Random random seed
+    fakeinjector.pars.random_seed = 0
+    ds = fakeinjector.run( ds )
+    seed1 = ds.fakes.random_seed
+    ds = fakeinjector.run( ds )
+    # Technically, this is flaky, but it will only fail something like 1/2³¹ of the time, so whatevs.
+    assert ds.fakes.random_seed != seed1
