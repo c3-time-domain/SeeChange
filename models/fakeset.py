@@ -192,6 +192,7 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
         self.fake_x = None
         self.fake_y = None
         self.fake_mag = None
+        self.host_dex = None
 
         self.set_attributes_from_dict( kwargs )
 
@@ -212,6 +213,7 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
         self.fake_x = None
         self.fake_y = None
         self.fake_mag = None
+        self.host_dex = None
 
 
     def invent_filepath( self, image=None, provenance=None ):
@@ -249,6 +251,7 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
             self.fake_x = h5f['fakeset/x'][:]
             self.fake_y = h5f['fakeset/y'][:]
             self.fake_mag = h5f['fakeset/mag'][:]
+            self.host_dex = h5f['fakeset/mag'][:]
 
 
     def save( self, filename=None, **kwargs ):
@@ -267,8 +270,9 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
 
         """
 
-        if any( getattr( self, att ) is None for att in [ 'random_seed', 'fake_x', 'fake_y', 'fake_mag' ] ):
-            raise RuntimeError( "Can't save fake set unless all of random_seed, fake_x, fake_y, fake_mag are set." )
+        if any( getattr( self, att ) is None for att in [ 'random_seed', 'fake_x', 'fake_y', 'fake_mag', 'host_dex' ] ):
+            raise RuntimeError( "Can't save fake set unless all of random_seed, fake_x, fake_y, "
+                                "fake_mag, host_dex are set." )
 
         if filename is not None:
             filename = pathlib.Path( filename )
@@ -288,6 +292,7 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
             fakesetgrp.create_dataset( 'x', data=self.fake_x )
             fakesetgrp.create_dataset( 'y', data=self.fake_y )
             fakesetgrp.create_dataset( 'mag', data=self.fake_mag )
+            fakesetgrp.create_dataset( 'hostdex', data=self.host_dex )
 
 
     def inject_on_to_image( self, imagedata=None, weight=None ):

@@ -21,17 +21,17 @@ class ParsFakeInjector(Parameters):
             'min_fake_mag',
             -2.,
             float,
-            'Minimum (brightest) magnitude of fake to inject.  Relative to the image zeropoint if '
-            'mag_rel_zp is True, otherwise just the apparent magnitude.',
+            'Minimum (brightest) magnitude of fake to inject.  Relative to the image magnitude limit if '
+            'mag_rel_limmag is True, otherwise just the apparent magnitude.',
             critical=True
         )
 
         self.max_fake_mag = self.add_par(
             'max_fake_mag',
-            2.,
+            1.,
             float,
-            'Maximum (dimmest) magnitude of fake to inject.  Relative to the image zeropoint if '
-            'mag_rel_zp is True, otherwise just the apparent magnitude.',
+            'Maximum (dimmest) magnitude of fake to inject.  Relative to the image magnitlude limit if '
+            'mag_rel_limmag is True, otherwise just the apparent magnitude.',
             critical=True
         )
 
@@ -83,16 +83,30 @@ class ParsFakeInjector(Parameters):
             critical=True
         )
 
-        self.host_dmag = self.add_par(
-            'host_dmag',
-            2.,
+        self.host_minmag = self.add_par(
+            'host_minmag',
+            -3.,
             float,
-            "Place fakes on hosts that are within ± this many magnitudes of the fake's magnitude.  Make this -1. "
-            "to consider all host galaxies without regard to the magnitude of the galaxy.",
+            "Place fakes on hosts that are no brighter than this relative to the fake magnitude. ",
             critical=True
         )
 
-        # MORE PARAMETERS ABOUT DISTANCE FROM CENTER ETC. (Issue #410)
+        self.host_maxmag = self.add_par(
+            'host_maxmag',
+            0.5,
+            float,
+            "Place fakes on hosts that are no dimmer this relative to the fake magnitude. ",
+            critical=True
+        )
+
+        self.host_distscale = self.add_par(
+            'host_distscale',
+            1.,
+            float,
+            "Fakes placed on hosts will be placed in an exponential distribution with this length scale "
+            "away from the host from the center in units of the 1σ moment (I think).",
+            critical=True
+        )
 
         self._enforce_no_new_attrs = True
         self.override( kwargs )
@@ -113,6 +127,60 @@ class FakeInjector:
     def __init__( self, **kwargs ):
         self.pars = ParsFakeInjector( **kwargs )
         self.has_recalculated = False
+
+
+    def place_fake_on_host( self, ds, mag, rng ):
+        sources = ds.get_sources()
+        zp = ds.get_zp()
+        if sources.format != 'sextrfits':
+            raise RuntimeError( "Can only place fakes on hosts if source_list is from sextractor" )
+
+        if self._hosts_used is None:
+            # Initialize stuff based on the source list
+            self._hostmag = -2.5 * np.log10( sources.data['FLUX_AUTO'] ) + zp.zp
+            self._hostcand = np.where( ( ~np.isnan(self._hostmag) ) & ( ~sources.is_star ) & sources.good )[0]
+            self._hosts_used = []
+
+        possibilities = [ dex for dex in self._hostcand
+                          if ( ( dex not in self._hosts_used ) and
+                               ( self._hostmag[dex] >= ( mag + self.pars.host_minmag ) ) and
+                               ( self._hostmag[dex] <= ( mag + self.pars.host_maxmag ) ) ) ]
+        if len( possibilities ) == 0:
+            raise RuntimeError( "Failed to find suitable host for fake with magnitude {m}." )
+
+        dexdex = rng.integers( 0, len(possibilities) )
+        dex = possibilities[dexdex]
+        self._hosts_used.append( dex )
+
+        reldist = rng.exponential( scale=self.pars.host_distscale )
+        # This angle is relative to the host major axis
+        angle = rng.uniform( 0, 2*np.pi )
+        if sources.data['AWIN_IMAGE'][dex] <= 0.:
+            # punt
+            ecc = 0.
+            a = sources.data['FWHM_IMAGE'][dex] / 2.355
+            if a <= 0.:
+                raise ValueError( "Sextractor source has non-positive AWIN_IMAGE and FWHM_IMAGE" )
+        else:
+            a = sources.data['AWIN_IMAGE'][dex]
+            if sources.data['BWIN_IMAGE'][dex] >= a:
+                # punt
+                ecc = 0.
+            else:
+                ecc = np.sqrt( 1. - ( sources.data['BWIN_IMAGE'][dex] / a ) ** 2 )
+        hostsize = a * np.sqrt( 1. - ( ecc * np.sin( angle ) )**2. )
+        dist = reldist * hostsize
+        xp = dist * np.cos( angle )
+        yp = dist * np.sin( angle )
+        # Rotate to image plane
+        theta = sources.data['THETAWIN_IMAGE'][dex]
+        x = xp * np.cos( theta ) - yp * np.sin( theta )
+        y = xp * np.sin( theta ) + yp * np.cos( theta )
+
+        x += sources.x[dex]
+        y += sources.y[dex]
+
+        return x, y, dex
 
 
     def run( self, *args, **kwargs ):
@@ -180,6 +248,7 @@ class FakeInjector:
             fakes.fake_x = np.zeros( self.pars.num_fakes )
             fakes.fake_y = np.zeros( self.pars.num_fakes )
             fakes.fake_mag = np.zeros( self.pars.num_fakes )
+            fakes.host_dex = np.zeros( self.pars.num_fakes, dtype=int )
 
             # Probability distribution is:
             #    f(m) = b + s * m   for m0 ≤ m ≤ m1, 0 otherwise
@@ -217,18 +286,21 @@ class FakeInjector:
                 nx = fakes.image.data.shape[1]
                 ny = fakes.image.data.shape[0]
 
+            self._hosts_used = None
             for i in range( self.pars.num_fakes ):
                 m = m_of_F( rng.uniform() )
 
                 if rng.uniform() < self.pars.hostless_frac:
                     x = rng.uniform( 0., float(nx) )
                     y = rng.uniform( 0., float(ny) )
+                    hostdex = -1
                 else:
-                    raise NotImplementedError( "Fakes near hosts not implemented yet.  (Issue #410.)" )
+                    x, y, hostdex = self.place_fake_on_host( ds, m, rng )
 
                 fakes.fake_x[i] = x
                 fakes.fake_y[i] = y
                 fakes.fake_mag[i] = m
+                fakes.host_dex[i] = hostdex
 
             ds.fakes = fakes
 

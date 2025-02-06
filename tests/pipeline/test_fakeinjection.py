@@ -28,6 +28,7 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
     assert len( ds.fakes.fake_x ) == n
     assert len( ds.fakes.fake_y ) == n
     assert len( ds.fakes.fake_mag ) == n
+    assert np.all( ds.fakes.host_dex == -1 )
     assert np.all( ds.fakes.fake_x >= 0 )
     assert np.all( ds.fakes.fake_x < ds.image.data.shape[1] )
     assert np.all( ds.fakes.fake_y >= 0 )
@@ -76,3 +77,18 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
     ds = fakeinjector.run( ds )
     # Technically, this is flaky, but it will only fail something like 1/2³¹ of the time, so whatevs.
     assert ds.fakes.random_seed != seed1
+
+
+def test_fakeinjection_on_host( decam_datastore_through_zp, fakeinjector ):
+    ds = decam_datastore_through_zp
+
+    # Put only on hosts w/in 1 magnitudes of the fake's mag, scale parameter 1.
+    fakeinjector.pars.hostless_frac = 0.
+    fakeinjector.pars.host_minmag = -4.
+    fakeinjector.pars.host_maxmag = 0.5
+    fakeinjector.pars.host_distscale = 1.
+    fakeinjector.pars.num_fakes = 100
+
+    ds = fakeinjector.run( ds )
+    import pdb; pdb.set_trace()
+    pass
