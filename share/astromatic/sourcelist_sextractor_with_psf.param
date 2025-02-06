@@ -1,64 +1,84 @@
+# We don't include any magnitude keys, because extraction is done before
+# zeropointing.  We don't include any world keys, because extraction is
+# done before WCS determination.
+
 NUMBER
-# Commenting out mag because when we run sextractor, we don't have a zeropoint yet
-# MAG_AUTO
-# MAGERR_AUTO
 
 #
 # CENTROID_KEYS
 #
-XWIN_IMAGE
-YWIN_IMAGE
+# X_ and Y_ are isophotal.  XWIN_ and YWIN_ are windowed, and according to sextractor,
+#   should be more reliable.
+#
 X_IMAGE
 Y_IMAGE
+XWIN_IMAGE
+YWIN_IMAGE
 
 #
 # CENTROIDERR_KEYS
 #
 ERRX2_IMAGE
 ERRY2_IMAGE
-ERRAWIN_IMAGE
-ERRBWIN_IMAGE
-ERRTHETAWIN_IMAGE
+ERRX2WIN_IMAGE
+ERRY2WIN_IMAGE
 
+#
+# Postage stamp
+#
 VIGNET(20,20)
 
-# Take out the world fields.  The pipeline is going to generate the source
-#  list before it has a good WCS for the image, so these fields would be meaningless.
-# X_WORLD
-# Y_WORLD
-# ERRA_WORLD
-# ERRB_WORLD
-# ERRTHETA_WORLD
-ELONGATION
-
+#
+# Shape keys
+#
 AWIN_IMAGE
 BWIN_IMAGE
 FWHM_IMAGE
+THETA_IMAGE
+ERRAWIN_IMAGE
+ERRBWIN_IMAGE
+ERRTHETAWIN_IMAGE
+ELONGATION
 
-#
-# PHOTFLUX_KEY
-# PHOTFLUXERR_KEY
-#
-# (What even is this?  Look at the sextractor documentation to see if it
-# gives us any hints.)
+# "Total flux" integrating pixels with an aperture defined by Krons "first moment" algorithm;
+# see Sextractor manual.
 FLUX_AUTO
 FLUXERR_AUTO
 
 #
-# Advised additions (not mandatory)
+# Quality flags
 #
 FLAGS
 FLAGS_WEIGHT
 IMAFLAGS_ISO
+
+#
+# Flux parameters (but not actual flux)
+# 
 FLUX_RADIUS
 FLUX_MAX
 SNR_WIN
+
+#
+# Star identification
+#
 CLASS_STAR
 # Re: SPREAD_MODEL, see comments on SourceList.is_star
 # SPREAD_MODEL
 # SPREADERR_MODEL
+
+#
+# Aperture flux
+# Apertures will not be used directly from this file,
+#   but will be edited by the code; see pipeline/detection.py
 FLUX_APER
 FLUXERR_APER
+
+#
+# PSF position and flux
+# This file should be identical to sourcelist_sextractor.param
+#   except for the the addition of this last block.
+#
 XPSF_IMAGE
 YPSF_IMAGE
 FLUX_PSF

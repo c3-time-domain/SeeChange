@@ -450,6 +450,7 @@ class Detector:
                 psfnorm=psf_norm,
                 wcs=wcs,
                 tempname=tempnamebase,
+                seeing_fwhm=psf.fwhm_pixels * image.instrument_object.pixel_scale
             )
             SCLogger.debug( f"detection: sextractor found {len(sources.data)} sources on image {image.filepath}" )
 
@@ -475,7 +476,7 @@ class Detector:
         return sources, psf, bkg, bkgsig
 
     def _run_sextractor_once(self, image, apers=[5, ], psffile=None, psfnorm=3.0, wcs=None,
-                             tempname=None, do_not_cleanup=False):
+                             tempname=None, seeing_fwhm=1.2, do_not_cleanup=False):
         """Extract a SourceList from a FITS image using SExtractor.
 
         This function should not be called from outside this class.
@@ -515,6 +516,13 @@ class Detector:
             the sources file will also be automatically deleted; only if
             it is not None is the calling routine always responsible for
             deleting it.
+
+          seeing_fwhm: 1.2
+            An estimate of the image seeing in arcseconds.  This is used
+            in Sextractor's CLASS_STAR determination.  Ideally, it should
+            be within 20% of reality, but the first time you run this
+            you will probably have no idea.  1.2 is the Sextractor
+            default.
 
           do_not_cleanup: bool, default False
             This routine writes some temp files with the image, weight,
@@ -679,6 +687,7 @@ class Detector:
                      "-SATUR_LEVEL", str( image.instrument_object.average_saturation_limit( image ) ),
                      "-GAIN", "1.0",  # TODO: we should probably put the instrument gain here
                      "-STARNNW_NAME", nnw,
+                     "-SEEING_FWHM", str( seeing_fwhm ),
                      "-PIXEL_SCALE", str( image.instrument_object.pixel_scale ),
                      "-BACK_TYPE", "AUTO",
                      "-BACK_SIZE", str( image.instrument_object.background_box_size ),

@@ -12,10 +12,11 @@ import random
 
 import numpy as np
 
-from astropy.io import votable
+from astropy.io import votable, fits
 
 from models.base import FileOnDiskMixin, CODE_ROOT
 from models.provenance import Provenance
+from models.image import Image
 
 from tests.conftest import SKIP_WARNING_TESTS
 
@@ -123,14 +124,15 @@ def run_sextractor( image, extractor ):
     return sourcelist, sourcefile, bkg, bkgsig
 
 
-def test_sextractor_extract_once( decam_datastore, extractor ):
+def test_sextractor_extract_once( decam_datastore_through_preprocessing, extractor ):
+    ds = decam_datastore_through_preprocessing
     try:
         extractor.pars.method = 'sextractor'
         extractor.pars.subtraction = False
         extractor.pars.apers = [ 5. ]
         extractor.pars.threshold = 4.5
         extractor.pars.test_parameter = uuid.uuid4().hex
-        sourcelist, sourcefile, bkg, bkgsig = run_sextractor(decam_datastore.image, extractor)
+        sourcelist, sourcefile, bkg, bkgsig = run_sextractor(ds.image, extractor)
 
         assert bkg == pytest.approx( 650.0, abs=0.1 )
         assert bkgsig == pytest.approx( 13.2673, abs=0.01 )
@@ -160,14 +162,14 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
         #     f'\nsnr.mean()= {snr.mean()}'
         #     f'\nsnr.std()= {snr.std()}'
         # )
-        assert sourcelist.x.min() == pytest.approx( 17.16, abs=0.1 )
-        assert sourcelist.x.max() == pytest.approx( 2039.88, abs=0.1 )
-        assert sourcelist.y.min() == pytest.approx( 25.30, abs=0.1 )
+        assert sourcelist.x.min() == pytest.approx( 15.44, abs=0.1 )
+        assert sourcelist.x.max() == pytest.approx( 2039.97, abs=0.1 )
+        assert sourcelist.y.min() == pytest.approx( 25.18, abs=0.1 )
         assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
-        assert sourcelist.errx.min() == pytest.approx( 0.00083, abs=1e-4 )
-        assert sourcelist.errx.max() == pytest.approx( 0.695, abs=0.01 )
-        assert sourcelist.erry.min() == pytest.approx( 0.00138, abs=1e-3 )
-        assert sourcelist.erry.max() == pytest.approx( 0.744, abs=0.01 )
+        assert sourcelist.errx.min() == pytest.approx( 0.00182, abs=1e-4 )
+        assert sourcelist.errx.max() == pytest.approx( 1.298, abs=0.01 )
+        assert sourcelist.erry.min() == pytest.approx( 0.00096, abs=1e-4 )
+        assert sourcelist.erry.max() == pytest.approx( 1.306, abs=0.01 )
         assert ( np.sqrt( sourcelist.varx ) == sourcelist.errx ).all()
         assert ( np.sqrt( sourcelist.vary ) == sourcelist.erry ).all()
         assert sourcelist.apfluxadu()[0].min() == pytest.approx( -93.90485, rel=1e-5 )
@@ -178,7 +180,7 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
         assert snr.std() == pytest.approx( 181.7, abs=1. )
 
         # Test multiple apertures
-        sourcelist, _, _ = extractor._run_sextractor_once( decam_datastore.image, apers=[ 2., 5. ])
+        sourcelist, _, _ = extractor._run_sextractor_once( ds.image, apers=[ 2., 5. ])
 
         assert sourcelist.num_sources == 1311    # It *finds* the same things
         assert len(sourcelist.data) == sourcelist.num_sources
@@ -198,9 +200,9 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
         #     f'\nsourcelist.apfluxadu(apnum=0)[0].min()= {sourcelist.apfluxadu(apnum=0)[0].min()}'
         #     f'\nsourcelist.apfluxadu(apnum=0)[0].max()= {sourcelist.apfluxadu(apnum=0)[0].max()}'
         # )
-        assert sourcelist.x.min() == pytest.approx( 17.16, abs=0.1 )
-        assert sourcelist.x.max() == pytest.approx( 2039.88, abs=0.1 )
-        assert sourcelist.y.min() == pytest.approx( 25.30, abs=0.1 )
+        assert sourcelist.x.min() == pytest.approx( 15.44, abs=0.1 )
+        assert sourcelist.x.max() == pytest.approx( 2039.97, abs=0.1 )
+        assert sourcelist.y.min() == pytest.approx( 25.18, abs=0.1 )
         assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
         assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( -93.9048, rel=1e-5 )
         assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 2624645.25, rel=1e-5 )
@@ -212,8 +214,13 @@ def test_sextractor_extract_once( decam_datastore, extractor ):
             sourcefile.unlink( missing_ok=True )
 
 
-def test_run_psfex( decam_datastore, extractor ):
-    sourcelist = decam_datastore.sources
+# Egg, meet chicken.  decam_datastore_through_extraction will have
+#   run psfex already, because the extraction step does both
+#   source extraction and psf estimation.  But, we need the
+#   source extraction done to be able to test psfex, so, whatever.
+def test_run_psfex( decam_datastore_through_extraction, extractor ):
+    ds = decam_datastore_through_extraction
+    sourcelist = ds.sources
     tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
     temp_path = pathlib.Path( FileOnDiskMixin.temp_path )
     tmpsourcefile =  temp_path / f'{tempname}.sources.fits'
@@ -225,7 +232,7 @@ def test_run_psfex( decam_datastore, extractor ):
         extractor.pars.method = 'sextractor'
         extractor.pars.subtraction = False
         extractor.pars.threshold = 4.5
-        psf = extractor._run_psfex( tempname, decam_datastore.image )
+        psf = extractor._run_psfex( tempname, ds.image )
         assert psf._header['PSFAXIS1'] == 27
         assert psf._header['PSFAXIS2'] == 27
         assert psf._header['PSFAXIS3'] == 6
@@ -237,13 +244,13 @@ def test_run_psfex( decam_datastore, extractor ):
         assert not tmppsffile.exists()
         assert not tmppsfxmlfile.exists()
 
-        psf = extractor._run_psfex( tempname, decam_datastore.image, do_not_cleanup=True )
+        psf = extractor._run_psfex( tempname, ds.image, do_not_cleanup=True )
         assert tmppsffile.exists()
         assert tmppsfxmlfile.exists()
         tmppsffile.unlink()
         tmppsfxmlfile.unlink()
 
-        psf = extractor._run_psfex( tempname, decam_datastore.image, psf_size=26 )
+        psf = extractor._run_psfex( tempname, ds.image, psf_size=26 )
         assert psf._header['PSFAXIS1'] == 31
         assert psf._header['PSFAXIS1'] == 31
 
@@ -295,8 +302,8 @@ def test_extract_sources_sextractor( decam_datastore_through_preprocessing,
 
     assert sources.good.sum() == pytest.approx(975, rel=0.01)
     # This is what you get with CLASS_STAR; you'll get different values with SPREAD_MODEL
-    assert sources.is_star.sum() == pytest.approx(489, rel=0.01)
-    assert ( sources.good & sources.is_star ).sum() == pytest.approx(356, abs=5)
+    assert sources.is_star.sum() == pytest.approx(479, rel=0.01)
+    assert ( sources.good & sources.is_star ).sum() == pytest.approx(337, abs=5)
 
     try:  # make sure saving the PSF and source list goes as expected, and cleanup at the end
         sources.provenance_id = provenance_base.id
@@ -313,6 +320,78 @@ def test_extract_sources_sextractor( decam_datastore_through_preprocessing,
     finally:  # cleanup
         psf.delete_from_disk_and_database()
         sources.delete_from_disk_and_database()
+
+
+def test_compare_sep_sextractor( extractor ):
+    # This test was created to address Issue #341
+
+    # Create a small image with some Gaussians on it to see how sep and sextractor compare
+    skynoise = 20.
+    sig = 1.75
+    rng = np.random.default_rng( 42 )
+    data = rng.normal( scale=skynoise, size=(256, 256) )
+    var = np.full( (256, 256), skynoise**2 )
+
+    # Use non-integral spacing so that gaussians end up centered differently relative to pixels
+    xs, ys = np.meshgrid( np.arange( 25., 225., 21.173 ), np.arange( 25., 225., 21.173 ) )
+    xs = xs.flatten()
+    ys = ys.flatten()
+    clipxs, clipys = np.meshgrid( np.arange(25)-12, np.arange(25)-12 )
+    clipxs = clipxs.flatten()
+    clipys = clipys.flatten()
+    fluxen = np.arange( len(xs) ) * ( 200.*skynoise / len(xs) ) + 5.*skynoise
+    for x, y, flux in zip( xs, ys, fluxen ):
+        xc = int( round( x ) )
+        yc = int( round( y ) )
+        star = ( flux / np.sqrt(2.*np.pi*sig**2) *
+                   np.exp( -( clipxs**2/(2.*sig**2) + clipys**2/(2.*sig**2) ) ) )
+        star += rng.normal( scale=np.sqrt(star) )
+        starvar = star
+        starvar[ starvar <= 0. ] = 0.
+        data[ clipys+yc, clipxs+xc ] += star
+        var[ clipys+yc, clipxs+xc ] += starvar
+
+    image = Image( instrument='DECam' )
+    image.data = data
+    image.header = fits.Header( { 'SATURATE': 40000. } )
+    image.weight = 1./var
+    image.flags = np.zeros_like( image.data, dtype=np.uint16 )
+
+    sexsrc, _bkg, _bkgsig = extractor._run_sextractor_once( image )
+    sepsrc = extractor.extract_sources_sep( image )
+
+    # They won't necessarily find all the same things, because
+    # thresholds and such.  And, anyway, we don't expect the order of
+    # sources to be the same.  So, do a match.
+    dist = np.sqrt( ( sexsrc.x[:, np.newaxis] - sepsrc.x[np.newaxis, :] )**2 +
+                    ( sexsrc.y[:, np.newaxis] - sepsrc.y[np.newaxis, :] )**2 )
+    # Do a very conservative matching.
+    wsex, wsep = np.where( dist < 5. )
+
+    # Make sure positions are consistent.  Among other things,
+    #   this tells us that our handling of 1-offsets, x and y ordering,
+    #   are consistent.
+    assert np.all( np.fabs( sepsrc.x[wsep] - sexsrc.x[wsex] ) < 0.2 )
+    assert np.all( np.fabs( sepsrc.y[wsep] - sexsrc.y[wsex] ) < 0.2 )
+    assert np.all( dist[ wsex, wsep ] < 0.2 )
+
+    # Make sure fluxes are consistent
+    sepflux = sepsrc.data['flux']
+    # dsepflux = sepsrc.data['dflux'] ... sep doesn't give a flux uncertainty???
+    sexflux, dsexflux = sexsrc.apfluxadu()
+    sepflux = sepflux[wsep]
+    # dsepflux = dsepflux[wsep]
+    sexflux = sexflux[wsex]
+    dsexflux = dsexflux[wsex]
+
+    # ... really I was looking for relative consistency, but I'm
+    # surprsied that they're this close, given that the sextrator
+    # aperture was kinda random and is not aperture corrected, and I
+    # don't know what sep is doing.
+    assert ( sexflux / sepflux ).mean() == pytest.approx( 1.0, abs=0.02 )
+    assert ( sexflux / sepflux ).std() < 0.04
+    assert ( sexflux / sepflux ).min() > 0.9
+    assert ( sexflux / sepflux ).max() < 1.15
 
 
 def test_warnings_and_exceptions( decam_datastore_through_preprocessing ):

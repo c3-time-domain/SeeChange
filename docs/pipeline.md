@@ -1,6 +1,17 @@
 ## Pipeline in depth
 
-TBA
+TBA.
+
+In the meantime, some details:
+
+### Image positions
+
+Everywhere internally in the code (except where necessary for conversion to and from file formats), we store x and y positions on images according to the `astropy` standard.  That is:
+
+* The center of the lower-left pixel is `(0.0, 0.0)`.  (This is a somewhat perverse standard.  It would make sense if an astronomical image were sampling the distribution of light at points, but it's not; it's integrating in squares.  This means that the pixel coordinates of an image that is sixe `(nx,ny)` cover light on the detector plane in the range `(-0.5–(nx-0.5), -0.5–(ny-0.5)`.  Choosing half-pixel-positions to be centers of pixels would have made more sense, but, alas, integer pixel positions being the center of pixels is a convention that is long with us, so we're stuck with it.)
+* Images are stored in Y-major format.  This means that in a 1-d array of pixel values, incrementing the index of the array increases the x-coordinate by one, except at the end of the row where it increases the y-coordinate by one and resets x to 0.  2d Numpy arrays are stored, by default, in "first index major" order.  Numpy calls this "C" order, and documents it as row-major, assuming you are indexing 2d arrays as [row, column].  This means that to extract the value of a pixel at `(x,y)` in 2d numpy array `im`, you need to do `im[y,x]`.
+
+The FITS file format comes form an ancient human civilization that spoke FORTRAN.  While it also stores images in Y-major format, it defines the center of the lower-left pizel as being at (1.0, 1.0).  This means that when you look at WCSes in headers, or when you look at pixels using FITS coordinates (with tools like `ds9`), image coordinates will be off by one from our standard.  Fortunately, `astropy` converts all of this when reading and writing FITS images and WCSes, so for the most part we don't have to worry about it.  However, we _do_ have to worry about it when reading and writing files cerated by Sextractor.
 
 ### Database assumptions
 

@@ -30,8 +30,9 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     By default, uses SExtractor.
 
     Note that internal storage stores image coordinates using the numpy
-    convention, i.e. 0-offset.  The load() and save() methods have code
-    that converts to the standard sextractor 1-offset when reading and
+    convention, i.e. 0-offset, with the center of the lower-left pixel
+    being at (0.0, 0.0).  The load() and save() methods have code that
+    converts to the standard sextractor 1-offset when reading and
     writing FITS files, so this should hopefully be handled
     transparently.
 
@@ -203,9 +204,9 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     @property
     def x( self ):
-        """A numpy array with 0-offset based x values of sources"""
+        """A numpy array with 0-offset, n.0-pixel-center based x values of sources"""
         if self.format == 'sextrfits':
-            return self.data['X_IMAGE']
+            return self.data['XWIN_IMAGE']
         elif self.format == 'sepnpy':
             return self.data['x']
         elif self.format == 'filter':
@@ -215,9 +216,9 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     @property
     def y( self ):
-        """A numpy array with 0-0ffset based y values of sources"""
+        """A numpy array with 0-offset, n.0-pixel-center based y values of sources"""
         if self.format == 'sextrfits':
-            return self.data['Y_IMAGE']
+            return self.data['YWIN_IMAGE']
         elif self.format == 'sepnpy':
             return self.data['y']
         elif self.format == 'filter':
@@ -229,7 +230,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def varx( self ):
         """A numpy array with variances on y position"""
         if self.format == 'sextrfits':
-            return self.data['ERRY2_IMAGE']
+            return self.data['ERRX2WIN_IMAGE']
         elif self.foramt == 'sepnpy':
             # The sep documentation says this is "Second Moment Errors",
             # which may not really be what we want.
@@ -243,7 +244,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def vary( self ):
         """A numpy array with variances on x position"""
         if self.format == 'sextrfits':
-            return self.data['ERRX2_IMAGE']
+            return self.data['ERRY2WIN_IMAGE']
         elif self.foramt == 'sepnpy':
             # The sep documentation says this is "Second Moment Errors",
             # which may not really be what we want.
@@ -306,7 +307,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         empirically many objects have bit 0x8000 set; this probably is
         an issue having to do with signed vs. unsigned integers, and
         saving and loading of the FITS files, and should be
-        investigated).
+        investigated; Issue #112).
 
         """
 
@@ -333,17 +334,21 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
           https://sextractor.readthedocs.io/en/latest/Position.html#class-star-def
           https://sextractor.readthedocs.io/en/latest/Model.html#spread-model-def
 
-        SPREAD_MODEL is the more reliable one (based on the
-        documentation, and also based on experimentation with one test
-        image); CLASS_STAR that test images misses most of the stars.
-        However, SPREAD_MODEL takes a lot longer to run (see the
-        documentation linked above for a description of what it does).
-        Runtime on the test image goes from a few seconds to roughly a
-        minute.
+        SPREAD_MODEL is the more reliable one.  However, SPREAD_MODEL
+        takes a lot longer to run (see the documentation linked above
+        for a description of what it does).  Runtime on the test image
+        goes from a few seconds to roughly a minute.
 
         Right now, the code doesn't run SPREAD_MODEL, and the
-        classification below is based on CLASS_STAR.  As such, this
-        classification should not be considered very reliable.
+        classification below is based on CLASS_STAR.  The reliaibility
+        of CLASS_STAR depends on the PSF being realtively round, and
+        Sextractor being given the right pixel scale and seeing FWHM.
+        Hopefully in detection.py, our iteration of
+        sextractor->psfex->sextractor gets this good enough, by using
+        hte FWHM estimate that came out of the psfex step.  (Psfex
+        includes its own point-source-identifier, so it shouldn't depend
+        on the CLASS_STAR value in the input catalog being reliable.  I
+        hope.)
 
         """
 
@@ -363,7 +368,13 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         return self._is_star
 
     def apfluxadu( self, apnum=0, ap=None ):
-        """Return two numpy arrays with aperture flux values and errors
+        """Return two numpy arrays with aperture flux values and errors.
+
+        WARNING : looking at the Sextractor documentation, it looks like
+        the FLUX_APER fluxes are calculated at the X_IMAGE, Y_IMAGE
+        positions, whereas the XWIN_IMAGE, YWIN_IMAGE positions are
+        supposedly more reliable and are what this class returns in its
+        x and y properties.  Hopefully, the difference is not very big....
 
         Parameters
         ----------
@@ -428,6 +439,14 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         apercor will in general be negative because an aperture will
         have less than the total flux of a star.
 
+        WARNING : looking at the Sextractor documentation, it looks like
+        the FLUX_APER fluxes are calculated at the X_IMAGE, Y_IMAGE
+        positions, whereas the XWIN_IMAGE, YWIN_IMAGE positions are
+        supposedly more reliable and are what this class returns in its
+        x and y properties.  Hopefully, the difference is not very big....
+
+        This also depends on is_star being good; see Issue #381.
+
         Parameters
         ----------
           aper_num: int, default 0
@@ -455,7 +474,7 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         bigflux, bigfluxerr = self.apfluxadu( apnum=inf_aper_num )
         smallflux, smallfluxerr = self.apfluxadu( apnum=aper_num )
-        wgood = self.good & ( bigflux > 5.*bigfluxerr ) & ( smallflux > 5.*smallfluxerr )
+        wgood = self.is_star & self.good & ( bigflux > 5.*bigfluxerr ) & ( smallflux > 5.*smallfluxerr )
 
         if wgood.sum() < min_stars:
             raise RuntimeError( f'Only {wgood.sum()} stars, less than the minimum of {min_stars} '

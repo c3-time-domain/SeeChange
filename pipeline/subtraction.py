@@ -428,42 +428,18 @@ class Subtractor:
                 fits.writeto( outfile, noisedata )
 
             # Match _stars_ on the two images, to give the hotpants PSF
-            #   matching the best chance to succeed.  Of course,
-            #   this depends on sextractors CLASS_STAR being good,
-            #   which is dubious, but it's what we can do.
+            #   matching the best chance to succeed.
             # To do this, we need to figure out the ra and dec of the
             #   objects on both the new and the ref images using the
             #   current WCSes.
 
-            # wgood = new_sources.is_star & new_sources.good
-            # ...sextractor's CLASS_STAR is doing so terribly that we
-            #   sometimes aren't left with anything.  So, do a much
-            #   cheesier star/galaxy separator right here to make sure
-            #   we at least have something to work with: anything whose
-            #   FWHM is within 10% of the nominal image FWHM is, we shall
-            #   pretend, a star.  (Really, ought to be good enough for
-            #   what hotpants really needs.)  Hopefully the FWHM won't
-            #   vary too much across the image, or this could end up
-            #   throwing away all the stars in (say) one corner of the
-            #   image.
-            # This is going to crash if there isn't a FWHM_IMAGE
-            #   field in ref_sources and new_sources.  If that happens,
-            #   hopefully you came here and saw this comment.  Those
-            #   fields really should be there if sources were extracted
-            #   with sextractor, and right now there are lots of things
-            #   in the code that depend on stuff sextractor does that
-            #   sep doesn't.
-            width_ratio = new_sources.data['FWHM_IMAGE'] / new_psf.fwhm_pixels
-            wgood = ( width_ratio > 0.9 ) & ( width_ratio < 1.1 ) & ( new_sources.good )
-
+            wgood = new_sources.is_star & new_sources.good
             newstars = pandas.DataFrame( { 'x': new_sources.x[wgood],
                                            'y': new_sources.y[wgood],
                                            'flux': new_sources.psffluxadu()[0][wgood] } )
             newsc = new_wcs.wcs.pixel_to_world( newstars.x, newstars.y )
 
-            # wgood = ref_sources.is_star & ref_sources.good
-            width_ratio = ref_sources.data['FWHM_IMAGE'] / ref_psf.fwhm_pixels
-            wgood = ( width_ratio > 0.9 ) & ( width_ratio < 1.1 ) & ( ref_sources.good )
+            wgood = ref_sources.is_star & ref_sources.good
             refstars = pandas.DataFrame( { 'x': ref_sources.x[wgood],
                                            'y': ref_sources.y[wgood] } )
             refsc = ref_wcs.wcs.pixel_to_world( refstars.x, refstars.y )
@@ -499,7 +475,10 @@ class Subtractor:
             SCLogger.debug( f"_subtract_hotpants using {len(newstars)} stars for kernel determination" )
             with open( substamp_file, "w" ) as ofp:
                 for i in range(len(newstars)):
-                    ofp.write( f'{newstars.x[i]} {newstars.y[i]}\n' )
+                    # Add 1 to positions because the stampfile read by
+                    #   hotpants expects 1-indexed coordinates
+                    # ( https://github.com/acbecker/hotpants/blob/master/functions.c line 60 )
+                    ofp.write( f'{newstars.x[i]+1} {newstars.y[i]+1}\n' )
 
             com = [ 'hotpants',
                     '-inim', newim,
