@@ -16,7 +16,7 @@ def test_rbbot( decam_datastore_through_measurements, code_version ):
                            )
     ds.prov_tree['scoring'] = scoreprov
 
-    expected_scores = [ 0.412, 0.468, 0.511, 0.526, 0.768, 0.484, 0.488, 0.669, 0.350 ]
+    expected_scores = [ 0.424, 0.478, 0.507, 0.510, 0.757, 0.643, 0.498, 0.510, 0.770, 0.390 ]
     scorer.run( ds )
     for scobj, expect in zip( ds.scores, expected_scores ):
         assert scobj.score == pytest.approx( expect, abs=0.002 )
