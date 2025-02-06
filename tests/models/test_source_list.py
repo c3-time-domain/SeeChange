@@ -224,10 +224,10 @@ def test_read_sextractor( ztf_filepath_sources ):
     assert sources.good.sum() == 105
     assert sources.aper_rads == [ 1.0, 2.5 ]
     assert sources.inf_aper_num is None
-    assert sources.x[0] == pytest.approx( 798.24, abs=0.01 )
-    assert sources.y[0] == pytest.approx( 17.14, abs=0.01 )
-    assert sources.x[50] == pytest.approx( 899.33, abs=0.01 )
-    assert sources.y[50] == pytest.approx( 604.52, abs=0.01 )
+    assert sources.x[0] == pytest.approx( 798.29, abs=0.01 )
+    assert sources.y[0] == pytest.approx( 17.11, abs=0.01 )
+    assert sources.x[50] == pytest.approx( 899.29, abs=0.01 )
+    assert sources.y[50] == pytest.approx( 604.58, abs=0.01 )
     assert sources.apfluxadu()[0][0] == pytest.approx( 3044.9092, rel=1e-5 )
     assert sources.apfluxadu()[0][50] == pytest.approx( 165.99489, rel=1e-5 )
     assert sources.apfluxadu(apnum=0)[0][0] == pytest.approx( 3044.9092, rel=1e-5 )
@@ -257,16 +257,16 @@ def test_read_sextractor( ztf_filepath_sources ):
 
     # Poke directly into the data array as well
 
-    assert sources.data['X_IMAGE'][0] == sources.x[0]
-    assert sources.data['Y_IMAGE'][0] == sources.y[0]
-    assert sources.data['XWIN_IMAGE'][0] == pytest.approx( 798.29, abs=0.01 )
-    assert sources.data['YWIN_IMAGE'][0] == pytest.approx( 17.11, abs=0.01 )
+    assert sources.data['X_IMAGE'][0] == pytest.approx( 798.243, abs=0.01 )
+    assert sources.data['Y_IMAGE'][0] == pytest.approx( 17.137, abs=0.01 )
+    assert sources.data['XWIN_IMAGE'][0] == sources.x[0]
+    assert sources.data['YWIN_IMAGE'][0] == sources.y[0]
     assert sources.data['FLUX_APER'][0] == pytest.approx( np.array( [ 3044.9092, 9883.959 ] ), rel=1e-5 )
     assert sources.data['FLUXERR_APER'][0] == pytest.approx( np.array( [ 37.005665, 74.79863 ] ), rel=1e-5 )
-    assert sources.data['X_IMAGE'][50] == sources.x[50]
-    assert sources.data['Y_IMAGE'][50] == sources.y[50]
-    assert sources.data['XWIN_IMAGE'][50] == pytest.approx( 899.29, abs=0.01 )
-    assert sources.data['YWIN_IMAGE'][50] == pytest.approx( 604.58, abs=0.01 )
+    assert sources.data['X_IMAGE'][50] == pytest.approx( 899.333, abs=0.01 )
+    assert sources.data['Y_IMAGE'][50] == pytest.approx( 604.517, abs=0.01 )
+    assert sources.data['XWIN_IMAGE'][50] == sources.x[50]
+    assert sources.data['YWIN_IMAGE'][50] == sources.y[50]
     assert sources.data['FLUX_APER'][50] == pytest.approx( np.array( [ 165.99489, 432.86523 ] ), rel=1e-5 )
     assert sources.data['FLUXERR_APER'][50] == pytest.approx( np.array( [ 21.135862, 50.378757 ] ), rel=1e-5 )
 
