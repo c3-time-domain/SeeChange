@@ -251,7 +251,7 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
             self.fake_x = h5f['fakeset/x'][:]
             self.fake_y = h5f['fakeset/y'][:]
             self.fake_mag = h5f['fakeset/mag'][:]
-            self.host_dex = h5f['fakeset/mag'][:]
+            self.host_dex = h5f['fakeset/hostdex'][:]
 
 
     def save( self, filename=None, **kwargs ):

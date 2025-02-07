@@ -120,3 +120,11 @@ def test_fakeinjection_on_host( decam_datastore_through_zp, fakeinjector ):
     # fits.writeto( 'faked.fits', im, overwrite=True )
     # fits.writeto( 'im.fits', ds.get_image().data, overwrite=True )
     # fits.writeto( 'diff.fits', im - ds.image.data, overwrite=True )
+
+    # Make sure we can only inject a fraction of fakes near hosts if we want
+    for nearhostfrac in [ 0.35, 0.5, 0.75 ]:
+        fakeinjector.pars.hostless_frac = 1. - nearhostfrac
+        fakeinjector.pars.random_seed += 101
+        ds = fakeinjector.run( ds )
+        nwithhosts = ( fakes.host_dex >= 0 ).sum()
+        assert nwithhosts == pytest.approx( fakeinjector.pars.num_fakes * nearhostfrac, 2.*np.sqrt( nwithhosts ) )

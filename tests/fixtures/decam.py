@@ -863,6 +863,14 @@ def decam_fakeset( decam_datastore_through_zp ):
     xs = [  1127.68, 1658.71, 1239.56, 1601.83, 1531.19, 921.57 ]
     ys = [  2018.91, 1998.84, 2503.77, 2898.47, 3141.27, 630.95  ]
     mags = [ 20.32,  19.90,   23.00,   22.00,  21.00,    23.30 ]
+    # These host indexes into ds.sources were found manually.  It's
+    #   possible, indeed likely, that at some point in the future we'll
+    #   change some of the parameters to extraction, and then all of
+    #   these sources indexes will become wrong.  I don't think any of
+    #   the tests actually look at the values of these source indexes,
+    #   so that won't matter, but if you're anal, you might come in and
+    #   fix it.
+    hostdexen = [ 1191, 1274, 1923, 1329, 1421, -1 ]
 
     fakeset = FakeSet( zp_id=ds.zp.id )
     # Load up the properties so we can cope with fakeset not being in the database
@@ -876,6 +884,7 @@ def decam_fakeset( decam_datastore_through_zp ):
     fakeset.fake_x = np.array( xs )
     fakeset.fake_y = np.array( ys )
     fakeset.fake_mag = np.array( mags )
+    fakeset.host_dex = np.array( hostdexen )
 
     yield fakeset
 

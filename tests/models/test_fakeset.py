@@ -19,12 +19,14 @@ def test_save_and_load( bogus_fakeset_saved ):
     assert fakeset.fake_x is None
     assert fakeset.fake_y is None
     assert fakeset.fake_mag is None
+    assert fakeset.host_dex is None
 
     fakeset.load()
     assert fakeset.random_seed == bogus_fakeset_saved.random_seed
     assert np.all( fakeset.fake_x == bogus_fakeset_saved.fake_x )
     assert np.all( fakeset.fake_y == bogus_fakeset_saved.fake_y )
     assert np.all( fakeset.fake_mag == bogus_fakeset_saved.fake_mag )
+    assert np.all( fakeset.host_dex == bogus_fakeset_saved.host_dex )
 
 
 def test_properties( bogus_fakeset_saved ):
@@ -36,6 +38,7 @@ def test_properties( bogus_fakeset_saved ):
     assert fakeset.fake_x is None
     assert fakeset.fake_y is None
     assert fakeset.fake_mag is None
+    assert fakeset.host_dex is None
     assert fakeset.random_seed is None
 
     def reset_fakeset_props():
@@ -47,6 +50,7 @@ def test_properties( bogus_fakeset_saved ):
         fakeset.random_seed = None
         fakeset.fake_x = None
         fakeset.fake_y = None
+        fakeset.host_dex = None
         fakeset.fake_mag = None
 
     # Make sure we can't do bad things
