@@ -104,7 +104,7 @@ class ParsFakeInjector(Parameters):
             1.,
             float,
             "Fakes placed on hosts will be placed in an exponential distribution with this length scale "
-            "away from the host from the center in units of the 1σ moment (I think).",
+            "away from the host from the center in units of the 1σ moment (Sextractor AWIN_IMAGE/BWIN_IMAGE).",
             critical=True
         )
 

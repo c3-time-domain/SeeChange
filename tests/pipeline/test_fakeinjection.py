@@ -88,7 +88,35 @@ def test_fakeinjection_on_host( decam_datastore_through_zp, fakeinjector ):
     fakeinjector.pars.host_maxmag = 0.5
     fakeinjector.pars.host_distscale = 1.
     fakeinjector.pars.num_fakes = 100
+    fakeinjector.pars.random_seed = 31337
 
     ds = fakeinjector.run( ds )
-    import pdb; pdb.set_trace()
-    pass
+    fakes = ds.fakes
+    sources = ds.get_sources()
+    zp = ds.get_zp()
+    sourcemags = -2.5 * np.log10( sources.data['FLUX_AUTO'] ) + zp.zp
+    hostdist = np.sqrt( ( fakes.fake_x - sources.x[fakes.host_dex] )**2 +
+                        ( fakes.fake_y - sources.y[fakes.host_dex] )**2 )
+
+    assert len( fakes.fake_x ) == 100
+    assert np.all( fakes.host_dex >= 0 )
+    assert np.all( fakes.host_dex < len( sources.data ) )
+    assert np.all( sourcemags[fakes.host_dex] >= fakes.fake_mag + fakeinjector.pars.host_minmag )
+    assert np.all( sourcemags[fakes.host_dex] <= fakes.fake_mag + fakeinjector.pars.host_maxmag )
+    # This next number is kinda arbitrary.  I could dig into the host sizes and really look at it,
+    #   but for now just "is the fake close to its host".  (One could be really ambitious and
+    #   make sure that the distribution of positions relative to the host, taking into account
+    #   the host ellipticity and position angle, stastically matches an exponential distribution
+    #   with the desired distance scale.)
+    assert np.all( hostdist < 10. )
+
+    # Uncomment the following lines to visually inspect the inserted fakes.  Run
+    #    ds9 -zscale -lock frame image im.fits faked.fits diff.fits
+    # Look at "diff.fits" (scale it to 0:50 or 0:100 for a better view) to find
+    # where fakes were injected, and then look at im.fits (the original image) and
+    # fake.fits (the image plus the fake)
+    # from astropy.io import fits
+    # im, _ = fakes.inject_on_to_image()
+    # fits.writeto( 'faked.fits', im, overwrite=True )
+    # fits.writeto( 'im.fits', ds.get_image().data, overwrite=True )
+    # fits.writeto( 'diff.fits', im - ds.image.data, overwrite=True )
