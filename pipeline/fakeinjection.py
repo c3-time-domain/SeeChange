@@ -218,10 +218,10 @@ class FakeInjector:
         # Assuming that we aligned new to ref here
         import pdb; pdb.set_trace()
         fakeds.aligned_new_image = fakeds.image
-        fakeds.aligned_new_sources = ds.aligned_new_sources
-        fakeds.aligned_new_psf = ds.aligned_new_psf
-        fakeds.aligned_new_bg = ds.aligned_new_bg
-        fakeds.aligned_new_zp = ds.aligned_new_zp
+        fakeds.aligned_new_sources = ds.sources
+        fakeds.aligned_new_psf = ds.psf
+        fakeds.aligned_new_bg = ds.bg
+        fakeds.aligned_new_zp = ds.zp
         fakeds.aligned_ref_image = ds.aligned_ref_image
         fakeds.aligned_ref_sources = ds.aligned_ref_sources
         fakeds.aligned_ref_psf = ds.aligned_ref_psf
