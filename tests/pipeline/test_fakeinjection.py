@@ -5,8 +5,6 @@ from models.fakeset import FakeSet
 
 
 def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
-    ds = bogus_datastore
-
     # This test is with fully random positions
     fakeinjector.pars.hostless_frac = 1.
 
@@ -18,11 +16,11 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # Start tests with a flat magnitude probabilty distro, mag rel. limmag
     fakeinjector.pars.mag_prob_ratio = 1.
-    minmag = ds.image.lim_mag_estimate + fakeinjector.pars.min_fake_mag
-    maxmag = ds.image.lim_mag_estimate + fakeinjector.pars.max_fake_mag
+    minmag = bogus_datastore.image.lim_mag_estimate + fakeinjector.pars.min_fake_mag
+    maxmag = bogus_datastore.image.lim_mag_estimate + fakeinjector.pars.max_fake_mag
 
     # Do
-    ds = fakeinjector.run( ds )
+    ds = fakeinjector.run( bogus_datastore )
     seed0 = ds.fakes.random_seed
     assert isinstance( ds.fakes, FakeSet )
     assert len( ds.fakes.fake_x ) == n
@@ -40,9 +38,14 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
     assert np.all( np.isclose( hist, n/10., atol=2.*np.sqrt(n/10.), rtol=0.  ) )
     assert hist.mean() == pytest.approx( n/10., abs=2.*np.sqrt(n)/10. )
 
+    # ROB TODO BEFORE PR MERGE:
+    #  * Verify provenance tree got updated
+    #  * Verify image got updated
+    #  * Verify original datastore image and provenance tree not screwed up
+
     # Put in a dim/bright ratio of 2
     fakeinjector.pars.mag_prob_ratio = 2.
-    ds = fakeinjector.run( ds )
+    ds = fakeinjector.run( bogus_datastore )
     assert ds.fakes.random_seed == seed0
     assert len( ds.fakes.fake_x ) == n
     assert len( ds.fakes.fake_y ) == n
@@ -58,7 +61,7 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # ... and 0.5
     fakeinjector.pars.mag_prob_ratio = 0.5
-    ds = fakeinjector.run( ds )
+    ds = fakeinjector.run( bogus_datastore )
     hist, _binedges = np.histogram( ds.fakes.fake_mag, range=(minmag, maxmag) )
     assert hist[0] / hist[-1] == pytest.approx( 2., rel=2.*np.sqrt( 1./hist[-1] + 1./hist[0] ) )
 
@@ -72,9 +75,9 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # Random random seed
     fakeinjector.pars.random_seed = 0
-    ds = fakeinjector.run( ds )
+    ds = fakeinjector.run( bogus_datastore )
     seed1 = ds.fakes.random_seed
-    ds = fakeinjector.run( ds )
+    ds = fakeinjector.run( bogus_datastore )
     # Technically, this is flaky, but it will only fail something like 1/2³¹ of the time, so whatevs.
     assert ds.fakes.random_seed != seed1
 

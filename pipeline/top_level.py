@@ -15,6 +15,7 @@ from pipeline.detection import Detector
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
 from pipeline.scoring import Scorer
+from pipeline.fakeinjection import FakeInjector
 
 from models.base import SmartSession
 from models.exposure import Exposure
@@ -106,6 +107,18 @@ class ParsPipeline(Parameters):
             critical=False
         )
 
+        self.inject_fakes = self.add_par(
+            'inject_fakes',
+            False,
+            bool,
+            "Inject fake transients on the image?  If true, fake injection is controlled by "
+            "the configuration of the pipeline/fakeinjection.py/FakeInjector object which is "
+            "configured by default from the fakeinjection dictionary in the config yaml file. "
+            "Fake injection will only happen if the set of steps to do goes through at least "
+            "scoring.",
+            critical=False             # Non-critical because it doesn't affect any of the non-fake downstreams!
+        )
+
         self.generate_report = self.add_par(
             'generate_report',
             True,
@@ -195,7 +208,14 @@ class Pipeline:
         self.pars.add_defaults_to_dict(scoring_config)
         self.scorer = Scorer(**scoring_config)
 
-        # Other initializationj
+        # Fake injection
+        if self.pars.inject_fakes:
+            fakeinjection_config = config.value( 'fakeinjection', {} )
+            fakeinjection_config.update( kwargs.get( 'fakeinjection', {} ) )
+            self.pars.add_defaults_to_dict( fakeinjection_config )
+            self.fakeinjector = FakeInjector( **fakeinjection_config )
+
+        # Other initialization
         self._generate_report = self.pars.generate_report
 
     def override_parameters(self, **kwargs):
@@ -562,6 +582,43 @@ class Pipeline:
                         raise e
 
                     ds.runtimes['save_final'] = time.perf_counter() - t_start
+
+                # Parallel pipeline path for fake injection
+                # TODO : reporting here?  Thought may be required for
+                #   the report, because we repeat a bunch of steps.
+                if ( all( s in stepstodo
+                          for s in [ 'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ] )
+                     and ( self.pars.inject_fakes )
+                    ):
+                    t_start = time.perf_counter()
+
+                    SCLogger.info( f"Injecting fakes on to image id {ds.image.id}" )
+                    fakeds = self.fakeinjector.run( ds )
+
+                    SCLogger.info( f"Running subtraction with fake-injected image id {ds.image.id}" )
+                    fakeds = self.subtractor.run( fakeds )
+
+                    SCLogger.info( f"Running detection on fake-injected subtraction of image id {ds.image.id}" )
+                    fakeds = self.detector.run( fakeds )
+
+                    SCLogger.info( f"Running cutting on fake-injected subtraction of image id {ds.image.id}" )
+                    fakeds = self.cutter.run( fakeds )
+
+                    SCLogger.info( f"Running measuring on fake-injected subtraction of image id {ds.image.id}" )
+                    fakeds = self.measurer.run( fakeds )
+
+                    SCLogger.info( f"Running scoring of detections on fake-injected subtraction "
+                                   f"of image id {ds.image.id}" )
+                    fakeds = self.scorer.run( fakeds )
+
+                    SCLogger.info( f"Looking to see which fakes are detected on fake-injected subtraction "
+                                   f"of image id {ds.image.id}" )
+                    ds.fakeanal = self.fakeinjector.analyze_fakes( ds )
+                    if self.pars_save_at_finish:
+                        ds.fake_anal.save()
+                        ds.fakeanal.insert()
+
+                    ds.runtimes['fakes'] = time.perf_counter() - t_start
 
                 ds.finalize_report()
 

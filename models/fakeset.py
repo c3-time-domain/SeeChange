@@ -389,3 +389,111 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
     def get_downstreams( self, sesson=None ):
         """fakeset has no downstreams; difference images with fakes should not be saved to the database.  I hope."""
         return []
+
+
+
+class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
+    __tablename__ = 'fake_analysis'
+
+    fakeset_id = sa.Column(
+        sa.ForeignKey( 'fakeset._id', ondelete='CASCADE', name='fake_analysis_fake_sets_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc="ID of the fakeset that this is an analysis of"
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey( 'provenances._id', ondelete='CASCADE', name='fake_analysis_provenance_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc="ID of the provenance of this fake analysis"
+    )
+
+    @property
+    def fakeset( self ):
+        if self._fakeset is None:
+            self._fakeset = FakeSet.get_by_id( self.fakeset_id )
+        return self._fakeset
+
+    @fakeset.setter
+    def fakeset( self, val ):
+        if not isinstance( val, FakeSet ):
+            raise TypeError( f"fakeset must be a FakeSet, not a {type(val)}" )
+        if self.fakeset_id != val.id:
+            raise ValueError( f"fakeset id {val.id} does not match fakeset_id {self.fakeset_id}" )
+        self._fakeset = val
+
+    def initdata( self ):
+        # Arrays of things that correspond to the arrays in self.fakeset
+        self.is_detected = None
+        self.is_kept = None
+        self.is_bad = None
+        self.flux_psf = None
+        self.flux_psf_err = None
+        self.flux_apertures = None
+        self.flux_apertures_err = None
+        self.bkg_per_pix = None
+        self.aper_radii = None
+        self.best_aperture = None
+        self.center_x_pixel = None
+        self.center_y_pixel = None
+        self.x = None
+        self.y = None
+        self.gfit_x = None
+        self.gfit_y = None
+        self.major_width = None
+        self.minor_width = None
+        self.position_angle = None
+        self.psf_fit_flags = None
+        self.nbadpix = None
+        self.negfrac = None
+        self.negfluxfrac = None
+        self.is_bad = None
+        self.deepscore_algorithm = None
+        self.deepscore_info = None
+        self.score = None
+
+
+    def __init__( self, *args, **kwargs ):
+        FileOnDiskMixin.__init__( self, *args, **kwargs )
+        SeeChangeBase.__init__( self )
+
+        self._provenance = None
+        self._fakeset = None
+        self.set_attributes_from_dict( kwargs )
+        self.initdata()
+
+    @orm.reconstructor
+    def init_on_load( self ):
+        SeeChangeBase.init_on_load( self )
+        FileOnDiskMixin.init_on_load( self )
+
+        self.provenacne = None
+        self._fakeset = None
+        self.initdata()
+
+    def invent_filepath( self, fakeset=None, provenance=None ):
+        """Create a relative filepath for the object"""
+
+        fakeset = self.fakeset if fakeset is None else fakeset
+        provid = self.provenance_id if provenance is None else provenance.id
+
+        if fakeset is None:
+            raise RuntimeError( "Can't invent a fakeanalysis filepath without a root fakeset" )
+        if provid is None:
+            raise RuntimeError( "Can't invent a fakeanalysis filepath without a provenance id" )
+
+        filepath = fakeset.filepath
+        if filepath is None:
+            filepath = fakeset.invent_filepath()
+        if filepath[-3:] == '.h5':
+            filepath = filepath[:-3]
+        filepath += ".analysis_" + provid[:6] + ".h5"
+
+        return filepath
+
+    def save( self, filename=None, **kwargs ):
+        raise NotImplementedError( "todo" )
+
+    def load( self, download=True, always_verify_md5=False, filepath=None ):
+        raise NotImplementedError( "todo" )

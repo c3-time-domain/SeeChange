@@ -1,4 +1,5 @@
 import time
+import uuid
 
 import numpy as np
 
@@ -6,11 +7,11 @@ from util.util import env_as_bool
 from util.logger import SCLogger
 
 from models.provenance import Provenance
-from models.fakeset import FakeSet
+from models.fakeset import FakeSet, FakeAnalysis
 from models.base import SmartSession
 
 from pipeline.parameters import Parameters
-from pipeline.data_store import DataStore
+from pipeline.data_store import DataStore, ProvenanceTree
 
 
 class ParsFakeInjector(Parameters):
@@ -108,6 +109,15 @@ class ParsFakeInjector(Parameters):
             critical=True
         )
 
+        self.detection_pixel_range = self.add_par(
+            'detection_pixel_range',
+            2.,
+            float,
+            "When determining if a fake was detected, look for detections within this many pixels "
+            "of the fake's injected position",
+            critical=True
+        )
+
         self._enforce_no_new_attrs = True
         self.override( kwargs )
 
@@ -183,11 +193,52 @@ class FakeInjector:
         return x, y, dex
 
 
-    def run( self, *args, **kwargs ):
-        """Figure out the fakes to inject on to an image.
+    def create_new_datastore( self, ds, fakeprov ):
+        fakeds = DataStore()
+        fakeds.provenance_tree = ProvenanceTree( ds.prov_tree, ds.prov_tree.upstream_steps )
 
-        Sets ds.fakes to a FakeSet.  Doesn't actually do injection; to
-        do that, call ds.fakes.inject_on_to_image()
+        fakeds.upstream_steps['fakeinjection'] = [ 'zp' ]
+        if 'subtraction' in fakeds.upstream_steps:
+            fakeds.upstream_steps['subtraction'] = [ 'referencing', 'fakeinjection' ]
+        fakeds.edit_prov_tree( 'fakeinjection', fakeprov, new_step=True )
+
+        fakeds.image = ds.image.copy( ds.image, no_copy_data=True )
+        fakeds.image._id = uuid.uuid4()
+        # Copy the other things directly, because we want them as-is
+        # But, be careful not to modify any of these in fakeds!
+        fakeds.sources = ds.sources
+        fakeds.bg = ds.bg
+        fakeds.wcs = ds.wcs
+        fakeds.zp = ds.zp
+        fakeds.reference = ds.reference
+
+        return fakeds
+
+
+    def run( self, *args, **kwargs ):
+        """Inject fakes on to an image.
+
+        Unlike most pipeline objects, this will not return the passed
+        DataStore.  It will always make a new datastore, but then point
+        the sources, bg, wcs, and zp properties to the same objects as
+        the passed DataStore.  It will make a new image object that's a
+        clone of the image object in the data store, but with fakes
+        injected on to the image and weight data, and with its id and
+        provenance updated so as not to accidentally ovefwrite the real
+        image.  It will also adjust the ProvenanceTree so the upstream
+        of the subtraction includes the fake process, with downstreams
+        updated accordingly.
+
+        To work, the passed data store must have all of its image,
+        sources, bg, wcs, zp, and reference fields set (i.e. not be
+        None).
+
+        The returned data store should *not* be saved anywhere.  We
+        don't save fakes to the database.
+
+        WARNING : this code (in particular in create_new_datastore)
+        assumes that the provenance tree upstreams of the DataStore
+        matches the default that's created in DataStore.make_prov_tree.
 
         """
 
@@ -221,6 +272,9 @@ class FakeInjector:
             # get provenance for this step.  It's not in the DataStore's
             #   provenance tree because of the whole handling of
             #   random_seed.
+            # NOTE: we're going to be creating lots of new provenances
+            #   if we use a random random seed (i.e. self.pars.ranadom_seed=0).
+            #   This might create performace issues; see Issue #416.
             params = self.pars.get_critical_pars()
             params['random_seed'] = random_seed
             zpprov = Provenance.get( zp.provenance_id )
@@ -228,6 +282,10 @@ class FakeInjector:
                                process=self.pars.get_process_name(),
                                params=params,
                                upstreams=[zpprov] )
+            prov.insert_if_needed()
+
+            origds = ds
+            ds = self.create_new_datastore( origds, prov )
 
             # Look for an existing FakeSet
 
@@ -304,6 +362,9 @@ class FakeInjector:
 
             ds.fakes = fakes
 
+            ds.image.data, ds.image.weight = ds.fakes.inject_on_to_image()
+            ds.image.flags = origds.image.flags
+
             ds.runtimes['fakeinjection'] = time.perf_counter() + t_start
             if env_as_bool('SEECHANGE_TRACEMALLOC'):
                 import tracemalloc
@@ -316,3 +377,74 @@ class FakeInjector:
             if ds is not None:
                 ds.exceptions.append( e )
             raise
+
+
+    def analyze_fakes( self, ds ):
+        """Get fakes that were detected, and measurements attributes.
+
+        Looks at the passed datastore and tries to find fakes.
+
+        """
+
+        fakesetprov = Provenance.get( ds.fakeset.provenance_id )
+        prov = Provenance(
+            code_version_id = fakesetprov.code_version_id,
+            process = 'fakeanalysis',
+            params={},
+            upstreams=[fakesetprov]
+        )
+        prov.insert_if_needed()
+        fakeanal = FakeAnalysis( fakset_id=ds.fakeset.id, provenance_id=prov.id )
+        fakeanal.is_detected = np.full( ds.fakeset.fakes_x.shape, False, dtype=bool )
+        fakeanal.is_kept = np.full( ds.fakeset.fakes_x.shape, False, dtype=bool )
+        fakeanal.is_bad = np.full( ds.fakeset.fakes_x.shape, False, dtype=bool )
+        fakeanal.nbadpix = np.full( ds.fakeset.fakes_x.shape, -32767, dtype=int )
+        fakeanal.psf_fit_flags = np.full( ds.fakeset.fakes_x.shape, 0, dtype=int )
+        fakeanal.center_x_pixel = np.full( ds.fakeset.fakes_x.shape, -32767, dtype=int )
+        fakeanal.center_y_pixel = np.full( ds.fakeset.fakes_x.shape, -32767, dtype=int )
+        fakeanal.deepscore_algorithm = np.full( ds.fakeset.fakes_x.shape, 0, dtype=int )
+        for prop in [ 'flux_psf', 'flux_psf_err', 'bkg_per_pix', 'best_aperture',
+                      'x', 'y', 'gfit_x', 'gfit_y', 'major_width', 'minor_width',
+                      'position_angle', 'negfrac', 'negfluxfrac', 'score' ]:
+            setattr( fakeanal, prop, np.full( ds.fakeset.fakes_x.shape, np.nan, dtype=np.float32 ) )
+
+
+        # Find the index into measurements and into all_measurements that correspond
+        # to each fake
+        allmeasx = np.array( [ m.x for m in ds.all_measurements ] )
+        allmeasy = np.array( [ m.y for m in ds.all_measurements ] )
+        allmeasdist = np.sqrt( ( ds.fakeset.fake_x[ :, np.new_index ] - allmeasx[ np.new_index, : ] ) ** 2  +
+                               ( ds.fakeset.fake_y[ :, np.new_index ] - allmeasy[ np.new_index, : ] ) ** 2 )
+
+
+        for n, (fake_x, fake_y), in enumerate( zip( ds.fakeset.fake_x, ds.fakeset.fake_y ) ):
+            allmeasmatch = np.where( allmeasdist[ n, : ] < self.pars.detection_pixel_range )[0]
+            if len(allmeasmatch) == 0:
+                continue
+            if len( allmeasmatch ) > 1:
+                # Pick the closest one
+                dex = np.argmin( allmeasdist[ n, : ][ allmeasmatch ] )
+                allmeasmatch = allmeasmatch[ dex ]
+            else:
+                allmeasmatch = allmeasmatch[ 0 ]
+
+            fakeanal.is_detected[ n ] = True
+            for prop in [ 'is_bad', 'nbadpix', 'psf_fit_flags', 'center_x_pixel', 'center_y_pixel',
+                          'flux_psf', 'flux_psf_err', 'bkg_per_pix', 'best_aperture',
+                          'x', 'y', 'gfit_x', 'gfit_y', 'major_width', 'minor_width',
+                          'position_angle', 'negfrac', 'negfluxfrac' ]:
+                getattr( fakeanal, prop )[n] = getattr( ds.all_measurements[ allmeasmatch ], prop )
+
+
+            measmatch = np.where( ds.measurements.index_in_sources
+                                 == ds.all_measurements[allmeasmatch].index_in_sources )[0]
+            if len( measmatch ) == 0 :
+                continue
+            if len( measmatch ) > 1:
+                raise RuntimeError( "This should never happen." )
+
+            fakeanal.is_kept = True
+            fakeanal.deepscore_algorithm = ds.scorelist[ measmatch ]._algorithm
+            fakeanal.score = ds.scorelist[ measmatch ].score
+
+        return fakeanal
