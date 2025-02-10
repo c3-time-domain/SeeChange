@@ -250,6 +250,7 @@ pipeline:
   save_before_subtraction: true
   save_at_finish: true
   provenance_tag: current
+  inject_fakes: false
 
 # ======================================================================
 # Preprocessing

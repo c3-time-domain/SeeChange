@@ -4,7 +4,13 @@ import numpy as np
 from models.fakeset import FakeSet
 
 
-def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
+def test_hostless_fakeinjection( decam_datastore_through_zp, fakeinjector ):
+    origds = decam_datastore_through_zp
+    origimmean = origds.image.data.mean()
+    origimstd = origds.image.data.std()
+    origwtmean = origds.image.weight.mean()
+    origwtstd = origds.image.weight.std()
+    
     # This test is with fully random positions
     fakeinjector.pars.hostless_frac = 1.
 
@@ -16,11 +22,11 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # Start tests with a flat magnitude probabilty distro, mag rel. limmag
     fakeinjector.pars.mag_prob_ratio = 1.
-    minmag = bogus_datastore.image.lim_mag_estimate + fakeinjector.pars.min_fake_mag
-    maxmag = bogus_datastore.image.lim_mag_estimate + fakeinjector.pars.max_fake_mag
+    minmag = origds.image.lim_mag_estimate + fakeinjector.pars.min_fake_mag
+    maxmag = origds.image.lim_mag_estimate + fakeinjector.pars.max_fake_mag
 
     # Do
-    ds = fakeinjector.run( bogus_datastore )
+    ds = fakeinjector.run( origds )
     seed0 = ds.fakes.random_seed
     assert isinstance( ds.fakes, FakeSet )
     assert len( ds.fakes.fake_x ) == n
@@ -38,14 +44,33 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
     assert np.all( np.isclose( hist, n/10., atol=2.*np.sqrt(n/10.), rtol=0.  ) )
     assert hist.mean() == pytest.approx( n/10., abs=2.*np.sqrt(n)/10. )
 
-    # ROB TODO BEFORE PR MERGE:
-    #  * Verify provenance tree got updated
-    #  * Verify image got updated
-    #  * Verify original datastore image and provenance tree not screwed up
+    # Make sure the image actually changed.  Image mean should have gone up from
+    #   the injection sources, weight should have gone down from increased variance
+    #   from injected sources.
+    assert ds.image.data.mean() > origimmean
+    assert ds.image.weight.mean() < origwtmean
 
+    # Make sure that the fake data store's provenance tree got properly edited
+    assert ds.prov_tree != origds.prov_tree
+    assert 'fakeinjection' in ds.prov_tree
+    assert 'fakeinjection' in ds.prov_tree.upstream_steps
+    assert ds.prov_tree.upstream_steps['fakeinjection' ] == [ 'zp' ]
+    assert [ p.id for p in ds.prov_tree['fakeinjection'].upstreams ] == [ ds.prov_tree['zp'].id ]
+    assert ds.prov_tree.upstream_steps['subtraction'] == [ 'referencing', 'fakeinjection' ]
+    assert ( set( p.id for p in ds.prov_tree['subtraction'].upstreams )
+             ==  { ds.prov_tree['referencing'].id, ds.prov_tree['fakeinjection'].id } )
+    for step in [ 'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ]:
+        assert ds.prov_tree[step].id != origds.prov_tree[step].id
+
+    # Make sure the original datastore's image didn't get munged
+    assert origds.image.data.mean() == origimmean
+    assert origds.image.data.std() == origimstd
+    assert origds.image.weight.mean() == origwtmean
+    assert origds.image.weight.std() == origwtstd
+    
     # Put in a dim/bright ratio of 2
     fakeinjector.pars.mag_prob_ratio = 2.
-    ds = fakeinjector.run( bogus_datastore )
+    ds = fakeinjector.run( origds )
     assert ds.fakes.random_seed == seed0
     assert len( ds.fakes.fake_x ) == n
     assert len( ds.fakes.fake_y ) == n
@@ -61,7 +86,7 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # ... and 0.5
     fakeinjector.pars.mag_prob_ratio = 0.5
-    ds = fakeinjector.run( bogus_datastore )
+    ds = fakeinjector.run( origds )
     hist, _binedges = np.histogram( ds.fakes.fake_mag, range=(minmag, maxmag) )
     assert hist[0] / hist[-1] == pytest.approx( 2., rel=2.*np.sqrt( 1./hist[-1] + 1./hist[0] ) )
 
@@ -75,9 +100,9 @@ def test_hostless_fakeinjection( bogus_datastore, fakeinjector ):
 
     # Random random seed
     fakeinjector.pars.random_seed = 0
-    ds = fakeinjector.run( bogus_datastore )
+    ds = fakeinjector.run( origds )
     seed1 = ds.fakes.random_seed
-    ds = fakeinjector.run( bogus_datastore )
+    ds = fakeinjector.run( origds )
     # Technically, this is flaky, but it will only fail something like 1/2³¹ of the time, so whatevs.
     assert ds.fakes.random_seed != seed1
 
@@ -131,3 +156,24 @@ def test_fakeinjection_on_host( decam_datastore_through_zp, fakeinjector ):
         ds = fakeinjector.run( ds )
         nwithhosts = ( fakes.host_dex >= 0 ).sum()
         assert nwithhosts == pytest.approx( fakeinjector.pars.num_fakes * nearhostfrac, 2.*np.sqrt( nwithhosts ) )
+
+
+def test_fake_analysis( decam_datastore ):
+    ds = decam_datastore
+    
+    # Just running the pipeline that datastore_factory put in the datastore should do what we want
+    ds._pipeline.pars.inject_fakes = True
+    ds._pipeline.subtractor.pars.trust_aligned_images = True
+    ds._pipeline.fakeinjector.pars.hostless_frac=0.35
+    ds._pipeline.fakeinjector.pars.random_seed = 42
+    ds._pipeline.fakeinjector.pars.num_fakes = 100
+    ds._pipeline.fakeinjector.pars.host_distscale = 1.
+    ds._pipeline.fakeinjector.pars.host_minmag = -4.
+    ds._pipeline.fakeinjector.pars.host_maxmag = 0.5
+
+    import pdb; pdb.set_trace()
+    ds = ds._pipeline.run( ds )
+
+    import pdb; pdb.set_trace()
+    pass
+    

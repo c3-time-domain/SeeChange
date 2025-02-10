@@ -9,6 +9,7 @@ from util.logger import SCLogger
 from models.provenance import Provenance
 from models.fakeset import FakeSet, FakeAnalysis
 from models.base import SmartSession
+from models.image import Image
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore, ProvenanceTree
@@ -195,23 +196,37 @@ class FakeInjector:
 
     def create_new_datastore( self, ds, fakeprov ):
         fakeds = DataStore()
-        fakeds.provenance_tree = ProvenanceTree( ds.prov_tree, ds.prov_tree.upstream_steps )
+        fakeds.edit_prov_tree( ProvenanceTree( ds.prov_tree, ds.prov_tree.upstream_steps ) )
 
-        fakeds.upstream_steps['fakeinjection'] = [ 'zp' ]
-        if 'subtraction' in fakeds.upstream_steps:
-            fakeds.upstream_steps['subtraction'] = [ 'referencing', 'fakeinjection' ]
-        fakeds.edit_prov_tree( 'fakeinjection', fakeprov, new_step=True )
+        fakeds.prov_tree.upstream_steps['fakeinjection'] = [ 'zp' ]
+        if 'subtraction' in fakeds.prov_tree.upstream_steps:
+            fakeds.prov_tree.upstream_steps['subtraction'] = [ 'referencing', 'fakeinjection' ]
+        fakeds.edit_prov_tree( 'fakeinjection', prov=fakeprov, new_step=True )
 
-        fakeds.image = ds.image.copy( ds.image, no_copy_data=True )
+        fakeds.image = Image.copy_image( ds.image, no_copy_data=True )
         fakeds.image._id = uuid.uuid4()
-        # Copy the other things directly, because we want them as-is
+        # Copy the other things directly, because we want them as-is, so no need to use more memory.
         # But, be careful not to modify any of these in fakeds!
         fakeds.sources = ds.sources
+        fakeds.psf = ds.psf
         fakeds.bg = ds.bg
         fakeds.wcs = ds.wcs
         fakeds.zp = ds.zp
         fakeds.reference = ds.reference
 
+        # Copy aligned images
+        # Assuming that we aligned new to ref here
+        import pdb; pdb.set_trace()
+        fakeds.aligned_new_image = fakeds.image
+        fakeds.aligned_new_sources = ds.aligned_new_sources
+        fakeds.aligned_new_psf = ds.aligned_new_psf
+        fakeds.aligned_new_bg = ds.aligned_new_bg
+        fakeds.aligned_new_zp = ds.aligned_new_zp
+        fakeds.aligned_ref_image = ds.aligned_ref_image
+        fakeds.aligned_ref_sources = ds.aligned_ref_sources
+        fakeds.aligned_ref_psf = ds.aligned_ref_psf
+        fakeds.aligned_ref_pz = ds.aligned_ref_zp
+        
         return fakeds
 
 
@@ -386,7 +401,7 @@ class FakeInjector:
 
         """
 
-        fakesetprov = Provenance.get( ds.fakeset.provenance_id )
+        fakesetprov = Provenance.get( ds.fakes.provenance_id )
         prov = Provenance(
             code_version_id = fakesetprov.code_version_id,
             process = 'fakeanalysis',
@@ -394,30 +409,30 @@ class FakeInjector:
             upstreams=[fakesetprov]
         )
         prov.insert_if_needed()
-        fakeanal = FakeAnalysis( fakset_id=ds.fakeset.id, provenance_id=prov.id )
-        fakeanal.is_detected = np.full( ds.fakeset.fakes_x.shape, False, dtype=bool )
-        fakeanal.is_kept = np.full( ds.fakeset.fakes_x.shape, False, dtype=bool )
-        fakeanal.is_bad = np.full( ds.fakeset.fakes_x.shape, False, dtype=bool )
-        fakeanal.nbadpix = np.full( ds.fakeset.fakes_x.shape, -32767, dtype=int )
-        fakeanal.psf_fit_flags = np.full( ds.fakeset.fakes_x.shape, 0, dtype=int )
-        fakeanal.center_x_pixel = np.full( ds.fakeset.fakes_x.shape, -32767, dtype=int )
-        fakeanal.center_y_pixel = np.full( ds.fakeset.fakes_x.shape, -32767, dtype=int )
-        fakeanal.deepscore_algorithm = np.full( ds.fakeset.fakes_x.shape, 0, dtype=int )
+        fakeanal = FakeAnalysis( fakset_id=ds.fakes.id, provenance_id=prov.id )
+        fakeanal.is_detected = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
+        fakeanal.is_kept = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
+        fakeanal.is_bad = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
+        fakeanal.nbadpix = np.full( ds.fakes.fake_x.shape, -32767, dtype=int )
+        fakeanal.psf_fit_flags = np.full( ds.fakes.fake_x.shape, 0, dtype=int )
+        fakeanal.center_x_pixel = np.full( ds.fakes.fake_x.shape, -32767, dtype=int )
+        fakeanal.center_y_pixel = np.full( ds.fakes.fake_x.shape, -32767, dtype=int )
+        fakeanal.deepscore_algorithm = np.full( ds.fakes.fake_x.shape, 0, dtype=int )
         for prop in [ 'flux_psf', 'flux_psf_err', 'bkg_per_pix', 'best_aperture',
                       'x', 'y', 'gfit_x', 'gfit_y', 'major_width', 'minor_width',
                       'position_angle', 'negfrac', 'negfluxfrac', 'score' ]:
-            setattr( fakeanal, prop, np.full( ds.fakeset.fakes_x.shape, np.nan, dtype=np.float32 ) )
+            setattr( fakeanal, prop, np.full( ds.fakes.fake_x.shape, np.nan, dtype=np.float32 ) )
 
 
         # Find the index into measurements and into all_measurements that correspond
         # to each fake
         allmeasx = np.array( [ m.x for m in ds.all_measurements ] )
         allmeasy = np.array( [ m.y for m in ds.all_measurements ] )
-        allmeasdist = np.sqrt( ( ds.fakeset.fake_x[ :, np.new_index ] - allmeasx[ np.new_index, : ] ) ** 2  +
-                               ( ds.fakeset.fake_y[ :, np.new_index ] - allmeasy[ np.new_index, : ] ) ** 2 )
+        allmeasdist = np.sqrt( ( ds.fakes.fake_x[ :, np.newaxis ] - allmeasx[ np.newaxis, : ] ) ** 2  +
+                               ( ds.fakes.fake_y[ :, np.newaxis ] - allmeasy[ np.newaxis, : ] ) ** 2 )
+        measindex = np.array( m.index_in_sources for m in ds.measurements )
 
-
-        for n, (fake_x, fake_y), in enumerate( zip( ds.fakeset.fake_x, ds.fakeset.fake_y ) ):
+        for n, (fake_x, fake_y), in enumerate( zip( ds.fakes.fake_x, ds.fakes.fake_y ) ):
             allmeasmatch = np.where( allmeasdist[ n, : ] < self.pars.detection_pixel_range )[0]
             if len(allmeasmatch) == 0:
                 continue
@@ -435,9 +450,7 @@ class FakeInjector:
                           'position_angle', 'negfrac', 'negfluxfrac' ]:
                 getattr( fakeanal, prop )[n] = getattr( ds.all_measurements[ allmeasmatch ], prop )
 
-
-            measmatch = np.where( ds.measurements.index_in_sources
-                                 == ds.all_measurements[allmeasmatch].index_in_sources )[0]
+            measmatch = np.where( measindex == ds.all_measurements[allmeasmatch].index_in_sources )[0]
             if len( measmatch ) == 0 :
                 continue
             if len( measmatch ) > 1:

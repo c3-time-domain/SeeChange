@@ -208,12 +208,13 @@ class Pipeline:
         self.pars.add_defaults_to_dict(scoring_config)
         self.scorer = Scorer(**scoring_config)
 
-        # Fake injection
-        if self.pars.inject_fakes:
-            fakeinjection_config = config.value( 'fakeinjection', {} )
-            fakeinjection_config.update( kwargs.get( 'fakeinjection', {} ) )
-            self.pars.add_defaults_to_dict( fakeinjection_config )
-            self.fakeinjector = FakeInjector( **fakeinjection_config )
+        # fake injection
+        # (Make the object even if self.pars.inject_fakes is false
+        # because one of our tests wants to use it.)
+        fakeinjection_config = config.value( 'fakeinjection', {} )
+        fakeinjection_config.update( kwargs.get( 'fakeinjection', {} ) )
+        self.pars.add_defaults_to_dict( fakeinjection_config )
+        self.fakeinjector = FakeInjector( **fakeinjection_config )
 
         # Other initialization
         self._generate_report = self.pars.generate_report
@@ -594,6 +595,10 @@ class Pipeline:
 
                     SCLogger.info( f"Injecting fakes on to image id {ds.image.id}" )
                     fakeds = self.fakeinjector.run( ds )
+                    ds.fakes = fakeds.fakes
+                    if self.pars.save_at_finish:
+                        ds.fakes.save()
+                        ds.fakes.insert()
 
                     SCLogger.info( f"Running subtraction with fake-injected image id {ds.image.id}" )
                     fakeds = self.subtractor.run( fakeds )
@@ -613,7 +618,7 @@ class Pipeline:
 
                     SCLogger.info( f"Looking to see which fakes are detected on fake-injected subtraction "
                                    f"of image id {ds.image.id}" )
-                    ds.fakeanal = self.fakeinjector.analyze_fakes( ds )
+                    ds.fakeanal = self.fakeinjector.analyze_fakes( fakeds )
                     if self.pars_save_at_finish:
                         ds.fake_anal.save()
                         ds.fakeanal.insert()

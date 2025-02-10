@@ -396,7 +396,7 @@ class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
     __tablename__ = 'fake_analysis'
 
     fakeset_id = sa.Column(
-        sa.ForeignKey( 'fakeset._id', ondelete='CASCADE', name='fake_analysis_fake_sets_id_fkey' ),
+        sa.ForeignKey( 'fake_sets._id', ondelete='CASCADE', name='fake_analysis_fake_sets_id_fkey' ),
         nullable=False,
         index=True,
         doc="ID of the fakeset that this is an analysis of"
