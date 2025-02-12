@@ -15,7 +15,6 @@ from astropy.io import fits, votable
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import env_as_bool
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -215,7 +214,7 @@ class Detector:
             try:
                 ds = DataStore.from_args(*args, **kwargs)
                 t_start = time.perf_counter()
-                if env_as_bool('SEECHANGE_TRACEMALLOC'):
+                if ds.update_memory_usages:
                     import tracemalloc
                     tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -261,8 +260,9 @@ class Detector:
                 detections._upstream_bitflag |= ds.sub_image.bitflag
                 ds.detections = detections
 
-                ds.runtimes['detection'] = time.perf_counter() - t_start
-                if env_as_bool('SEECHANGE_TRACEMALLOC'):
+                if ds.update_runtimes:
+                    ds.runtimes['detection'] = time.perf_counter() - t_start
+                if ds.update_memory_usages:
                     import tracemalloc
                     ds.memory_usages['detection'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
@@ -279,7 +279,7 @@ class Detector:
                 prov = ds.get_provenance('extraction', self.pars.get_critical_pars())
 
                 t_start = time.perf_counter()
-                if env_as_bool('SEECHANGE_TRACEMALLOC'):
+                if ds.update_memory_usages:
                     import tracemalloc
                     tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -322,8 +322,9 @@ class Detector:
                 if ds.image.fwhm_estimate is None:
                     ds.image.fwhm_estimate = psf.fwhm_pixels * ds.image.instrument_object.pixel_scale
 
-                ds.runtimes['extraction'] = time.perf_counter() - t_start
-                if env_as_bool('SEECHANGE_TRACEMALLOC'):
+                if ds.update_runtimes:
+                    ds.runtimes['extraction'] = time.perf_counter() - t_start
+                if ds.update_memory_usages:
                     import tracemalloc
                     ds.memory_usages['extraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 

@@ -13,7 +13,6 @@ from models.deepscore import DeepScore
 from models.enums_and_bitflags import DeepscoreAlgorithmConverter
 
 from util.config import Config
-from util.util import env_as_bool
 from util.logger import SCLogger
 
 
@@ -141,7 +140,7 @@ class Scorer:
         try:
             ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_memory_usages:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -215,8 +214,9 @@ class Scorer:
 
             ds.scores = scores
 
-            ds.runtimes['scoring'] = time.perf_counter() - t_start
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_runtimes:
+                ds.runtimes['scoring'] = time.perf_counter() - t_start
+            if ds.update_memory_usages:
                 import tracemalloc
                 ds.memory_usages['scoring'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
 

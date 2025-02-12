@@ -21,7 +21,6 @@ from models.measurements import Measurements
 from models.deepscore import DeepScore
 from models.object import Object
 from util.config import Config
-from util.util import env_as_bool
 
 
 # Alerting doesn't work with the Parameters system because there's no Provenance associated with it,
@@ -99,7 +98,7 @@ class Alerting:
             return
 
         t_start = time.perf_counter()
-        if env_as_bool('SEECHANGE_TRACEMALLOC'):
+        if ds.update_memory_usages:
             import tracemalloc
             tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -121,8 +120,9 @@ class Alerting:
             else:
                 raise RuntimeError( "This should never happen." )
 
-        ds.runtimes[ 'alerting' ] = time.perf_counter() - t_start
-        if env_as_bool('SEECHANGE_TRACEMALLOC'):
+        if ds.update_runtimes:
+            ds.runtimes[ 'alerting' ] = time.perf_counter() - t_start
+        if ds.update_memory_usages:
             import tracemalloc
             ds.memory_usages['alerting'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
 

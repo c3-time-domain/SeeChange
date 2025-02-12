@@ -10,7 +10,7 @@ def test_hostless_fakeinjection( decam_datastore_through_zp, fakeinjector ):
     origimstd = origds.image.data.std()
     origwtmean = origds.image.weight.mean()
     origwtstd = origds.image.weight.std()
-    
+
     # This test is with fully random positions
     fakeinjector.pars.hostless_frac = 1.
 
@@ -67,7 +67,7 @@ def test_hostless_fakeinjection( decam_datastore_through_zp, fakeinjector ):
     assert origds.image.data.std() == origimstd
     assert origds.image.weight.mean() == origwtmean
     assert origds.image.weight.std() == origwtstd
-    
+
     # Put in a dim/bright ratio of 2
     fakeinjector.pars.mag_prob_ratio = 2.
     ds = fakeinjector.run( origds )
@@ -160,9 +160,10 @@ def test_fakeinjection_on_host( decam_datastore_through_zp, fakeinjector ):
 
 def test_fake_analysis( decam_datastore ):
     ds = decam_datastore
-    
+
     # Just running the pipeline that datastore_factory put in the datastore should do what we want
     ds._pipeline.pars.inject_fakes = True
+    ds._pipeline.pars.save_at_finish = True
     ds._pipeline.subtractor.pars.trust_aligned_images = True
     ds._pipeline.fakeinjector.pars.hostless_frac=0.35
     ds._pipeline.fakeinjector.pars.random_seed = 42
@@ -172,8 +173,66 @@ def test_fake_analysis( decam_datastore ):
     ds._pipeline.fakeinjector.pars.host_maxmag = 0.5
 
     import pdb; pdb.set_trace()
+
+    # This will be relatively fast, since all of the things before fake injection have
+    #   already been run.  It will now just run the fake injection and analysis step
+    #   as we set ds._pipeline.pars.inject_fakes to True.  (It should have defaulted
+    #   to False unless the config files have been messed up.)
     ds = ds._pipeline.run( ds )
 
-    import pdb; pdb.set_trace()
-    pass
-    
+    props = [ 'is_detected', 'is_kept', 'is_bad', 'flux_psf', 'flux_psf_err', 'best_aperture',
+              'bkg_per_pix', 'center_x_pixel', 'center_y_pixel', 'x', 'y', 'gfit_x', 'gfit_y',
+              'major_width', 'minor_width', 'position_angle', 'psf_fit_flags',
+              'nbadpix', 'negfrac', 'negfluxfrac', 'is_bad', 'deepscore_algorithm', 'score' ]
+    origprop = {}
+    for prop in props:
+        assert isinstance( getattr( ds.fakeanal, prop ), np.ndarray )
+        assert getattr( ds.fakeanal, prop ).shape == ds.fakes.fake_mag.shape
+        origprop[ prop ] = getattr( ds.fakeanal, prop )
+
+    # Make sure the file was saved and that loading it works.
+    # (This test, perhaps, belongs in models/test_fakeset.py,
+    # but that would probably mean running the fixture again,
+    # so may as well put it here.)
+
+    # Check some actual values.  Things that weren't detected
+    #   will have NaN in the fake analysis arrays, so chuck
+    #   those.
+
+    wbad = np.isnan( ds.fakeanal.flux_psf )
+    wgood = ~wbad
+    injectm = ds.fakes.fake_mag[wgood]
+    m = -2.5 * np.log10( ds.fakeanal.flux_psf[wgood] ) + ds.zp.zp
+    dm = 2.5 / np.log(10) * ds.fakeanal.flux_psf_err[wgood] / ds.fakeanal.flux_psf[wgood]
+    diffm = m - injectm
+    reldiffm = diffm / dm
+
+    # Magnitude residual should mostly be within 3σ of injected fake
+    #   mag.  As of the writing of this comment, using the random seed
+    #   above, there are three residuals around ~4σ
+    assert ( np.abs(reldiffm) <= 3. ).sum() >= ( wgood.sum() - 3 )
+    assert np.abs( reldiffm.mean() ) < 2.* ( reldiffm.std() / np.sqrt( len(reldiffm) ) )
+
+    # Most of the things not detected should be dim
+    assert ( ds.fakes.fake_mag[wbad] >= ds.image.lim_mag_estimate ).sum() >= wbad.sum() - 4
+
+    # Things detected should be brighter on average than things not detected
+    assert ds.fakes.fake_mag[wgood].mean() < ds.fakes.fake_mag[wbad].mean() - 1.
+
+    # Look at the things with the "kept" flag.  (is_bad will just be ~is_kept given the default thresholds)
+
+    wkept = ds.fakeanal.is_kept
+    # Nothing "kept" should have a NaN analysis flux
+    assert not np.any( np.isnan( ds.fakeanal.flux_psf[wkept] ) )
+
+    # Things kept should be brighter on average than things not kept
+    assert ds.fakes.fake_mag[wkept].mean() < ds.fakes.fake_mag[ wgood & ~wkept ].mean() - 1.
+
+    injectm = ds.fakes.fake_mag[wkept]
+    m = -2.5 * np.log10( ds.fakeanal.flux_psf[wkept] ) + ds.zp.zp
+    dm = 2.5 / np.log(10) * ds.fakeanal.flux_psf_err[wkept] / ds.fakeanal.flux_psf[wkept]
+    diffm = m - injectm
+    reldiffm = diffm / dm
+
+    assert ( np.abs( reldiffm ) >= 3 ).sum() <= 1
+    assert np.abs( reldiffm.mean() ) < reldiffm.std() / np.sqrt( len(reldiffm) )

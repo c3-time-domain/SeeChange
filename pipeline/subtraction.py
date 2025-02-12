@@ -28,7 +28,6 @@ from improc.inpainting import Inpainter
 from improc.alignment import ImageAligner
 from improc.tools import sigma_clipping
 
-from util.util import env_as_bool
 from util.fits import save_fits_image_file
 from util.logger import SCLogger
 from util.exceptions import SubprocessFailure
@@ -93,7 +92,7 @@ class ParsSubtractor(Parameters):
             "trust that they're the right thing and don't recalculate alignments.",
             critical=False
         )
-        
+
         self._enforce_no_new_attrs = True
 
         self.override(kwargs)
@@ -574,7 +573,7 @@ class Subtractor:
         try:
             ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_memory_usages:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -618,7 +617,6 @@ class Subtractor:
             if self.has_recalculated:
 
                 # See if we have to align the images
-                import pdb; pdb.set_trace()
                 if ( self.pars.trust_aligned_images and
                      isinstance( ds.aligned_new_image, Image ) and
                      isinstance( ds.aligned_new_sources, SourceList ) and
@@ -629,7 +627,7 @@ class Subtractor:
                      isinstance( ds.aligned_ref_sources, SourceList ) and
                      isinstance( ds.aligned_ref_psf, PSF ) and
                      isinstance( ds.aligned_ref_bg, Background ) and
-                     isinstance( ds.aligned_ref_pz, ZeroPoint )
+                     isinstance( ds.aligned_ref_zp, ZeroPoint )
                     ):
                     SCLogger.debug( "Aligned images already present, not recalculating them.")
                 else:
@@ -640,7 +638,8 @@ class Subtractor:
                         # In *lots* of places the code makes the assumption that we align the ref to the new.
                         # If we ever want to be able to align the new to the ref, we have to go all the way
                         # through the code and find every place it might affect.
-                        SCLogger.error( "Aligning new to ref will violate assumptions in detection.py and measuring.py" )
+                        SCLogger.error( "Aligning new to ref will violate assumptions in detection.py,"
+                                        "measuring.py, fakeinjection.py, and probably elsewhere." )
                         raise RuntimeError( "Aligning new to ref not supported; align ref to new instead" )
 
                         for needed in [ ds.image, ds.sources, ds.bg, ds.wcs, ds.zp, ds.ref_image, ds.ref_sources ]:
@@ -790,8 +789,9 @@ class Subtractor:
 
                 ds.sub_image = sub_image
 
-            ds.runtimes['subtraction'] = time.perf_counter() - t_start
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_runtime:
+                ds.runtimes['subtraction'] = time.perf_counter() - t_start
+            if ds.update_memory_usages:
                 import tracemalloc
                 ds.memory_usages['subtraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 

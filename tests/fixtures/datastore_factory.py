@@ -619,33 +619,24 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 f = f[:-9]                         # strip the u-tag
                 f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
                 filename_aligned_ref = pathlib.Path( f )
+                filename_aligned_ref_sources = pathlib.Path( f'{f}_sources.fits' )
+                filename_aligned_ref_psf = pathlib.Path( f'{f}.psf' )
                 filename_aligned_ref_bg = pathlib.Path( f'{f}_bg' )
 
                 aligned_ref_cache_path = ( cache_dir / filename_aligned_ref.parent /
                                            f'{filename_aligned_ref.name}.json' )
+                aligned_ref_sources_cache_path = ( cache_dir / filename_aligned_ref_sources.parent /
+                                                   f'{filename_aligned_ref_sources.name}.json' )
+                aligned_ref_psf_cache_path = ( cache_dir / filename_aligned_ref_psf.parent /
+                                               f'{filename_aligned_ref_psf.name}.json' )
                 aligned_ref_bg_cache_path = ( cache_dir / filename_aligned_ref_bg.parent /
                                               f'{filename_aligned_ref_bg.name}.h5.json' )
                 aligned_ref_zp_cache_path = ( cache_dir / filename_aligned_ref.parent /
                                               f'{filename_aligned_ref.name}.zp.json' )
 
-                # Commenting this out -- we know that we're aligning to new,
-                #   do don't waste cache on aligned_new
-                # prov_aligned_new = Provenance(
-                #     code_version_id=code_version.id,
-                #     parameters=ds.prov_tree['subtraction'].parameters['alignment'],
-                #     upstreams=bothprovs,
-                #     process='alignment',
-                #     is_testing=True,
-                # )
-                # f = ds.image.invent_filepath()
-                # f = f.replace('ComSci', 'Warped')
-                # f = f.replace('Sci', 'Warped')
-                # f = f[:-6] + prov_aligned_new.id[:6]
-                # filename_aligned_new = f
-
                 SCLogger.debug( f'make_datastore searching for subtraction cache including {sub_cache_path}' )
-                files_needed = [ sub_cache_path, aligned_ref_cache_path,
-                                 aligned_ref_bg_cache_path, aligned_ref_zp_cache_path ]
+                files_needed = [ sub_cache_path, aligned_ref_cache_path, aligned_ref_sources_cache_path,
+                                 aligned_ref_psf_cache_path, aligned_ref_bg_cache_path, aligned_ref_zp_cache_path ]
                 if p.subtractor.pars.method == 'zogy':
                     files_needed.extend( [ zogy_score_cache_path, zogy_alpha_cache_path ] )
 
@@ -661,8 +652,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         ds.zogy_score = np.load( zogy_score_cache_path )
                         ds.zogy_alpha = np.load( zogy_alpha_cache_path )
 
-                    ds.aligned_new_image = ds.image
-
                     SCLogger.debug('loading aligned reference image from cache. ')
                     image_aligned_ref = copy_from_cache( Image, cache_dir, aligned_ref_cache_path, symlink=True )
                     image_aligned_ref.provenance_id = prov_aligned_ref.id
@@ -677,10 +666,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     #  (We've added bg and zp because specific tests need them.)
                     ds.aligned_ref_image = image_aligned_ref
 
+                    ds.aligned_ref_sources = copy_from_cache( SourceList, cache_dir, aligned_ref_sources_cache_path,
+                                                              symlink=True )
+                    ds.aligned_ref_psf = copy_from_cache( PSF, cache_dir, aligned_ref_psf_cache_path,
+                                                          symlink=True )
                     ds.aligned_ref_bg = copy_from_cache( Background, cache_dir, aligned_ref_bg_cache_path,
                                                          symlink=True )
                     ds.aligned_ref_zp = copy_from_cache( ZeroPoint, cache_dir, aligned_ref_zp_cache_path, symlink=True )
                     ds.aligned_new_image = ds.image
+                    ds.aligned_new_sources = ds.sources
                     ds.aligned_new_bg = ds.bg
                     ds.aligned_new_zp = ds.zp
 
@@ -720,6 +714,21 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if outpath.resolve() != aligned_ref_cache_path.resolve():
                         warnings.warn( f"Aligned ref cache path {outpath} "
                                        f"doesn't match expected {aligned_ref_cache_path}" )
+                    ds.aligned_ref_sources.filepath = str( filename_aligned_ref_sources )
+                    ds.aligned_ref_sources.save( no_archive=True )
+                    _ = ds.aligned_ref_sources.id
+                    outpath = copy_to_cache( ds.aligned_ref_sources, cache_dir,
+                                             filepath=aligned_ref_sources_cache_path )
+                    if outpath.resolve() != aligned_ref_sources_cache_path.resolve():
+                        warnings.warn( f"Aligned ref sources cache path {outpath} "
+                                       f"doesn't match expected {aligned_ref_sources_cache_path}" )
+                    ds.aligned_ref_psf.save( no_archive=True, filename=str( filename_aligned_ref_psf ) )
+                    _ = ds.aligned_ref_psf.id
+                    outpath = copy_to_cache( ds.aligned_ref_psf, cache_dir,
+                                             filepath=aligned_ref_psf_cache_path )
+                    if outpath.resolve() != aligned_ref_psf_cache_path.resolve():
+                        warnings.warn( f"Aligned ref psf cache path {outpath} "
+                                       f"doesn't match expected {aligned_ref_psf_cache_path}" )
                     _ = ds.aligned_ref_zp.id
                     outpath = copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=aligned_ref_zp_cache_path )
                     if outpath.resolve() != aligned_ref_zp_cache_path.resolve():
@@ -731,6 +740,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if outpath.resolve() != aligned_ref_bg_cache_path.resolve():
                         warnings.warn( f"Aligned ref bg cache path {outpath} "
                                        f"doesn't match expected {aligned_ref_bg_cache_path}" )
+                    import pdb; pdb.set_trace()
 
         ############ detecting to create a source list ############
 

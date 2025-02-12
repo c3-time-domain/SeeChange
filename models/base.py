@@ -67,7 +67,9 @@ psycopg2.extensions.register_adapter( np.int32, _adapt_numpy_int_psycopg2 )
 CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 #
 # # printout the list of relevant environmental variables:
-# print("SeeChange environment variables:")
+# import io
+# strio = io.StringIO()
+# strio.write( "SeeChange environment variables:\n" )
 # for key in [
 #     'INTERACTIVE',
 #     'LIMIT_CACHE_USAGE',
@@ -75,7 +77,8 @@ CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 #     'RUN_SLOW_TESTS',
 #     'SEECHANGE_TRACEMALLOC',
 # ]:
-#     print(f'{key}: {os.getenv(key)}')
+#     strio.write( f'   {key}: {os.getenv(key)}\n' )
+# SCLogger.info( strio.getvalue() )
 
 
 # This is a list of warnings that are categorically ignored in the pipeline. Beware:

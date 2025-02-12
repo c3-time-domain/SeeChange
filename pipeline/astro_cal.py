@@ -5,7 +5,6 @@ import improc.scamp
 
 from util.exceptions import CatalogNotFoundError, SubprocessFailure, BadMatchException
 from util.logger import SCLogger
-from util.util import env_as_bool
 
 from models.world_coordinates import WorldCoordinates
 
@@ -276,7 +275,7 @@ class AstroCalibrator:
         try:
             ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_memory_usages:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -309,8 +308,9 @@ class AstroCalibrator:
                     image.set_corners_from_header_wcs(wcs=ds.wcs.wcs, setradec=True)
                     image.astro_cal_done = True
 
-                ds.runtimes['astrocal'] = time.perf_counter() - t_start
-                if env_as_bool('SEECHANGE_TRACEMALLOC'):
+                if ds.update_runtimes:
+                    ds.runtimes['astrocal'] = time.perf_counter() - t_start
+                if ds.update_memory_usages:
                     import tracemalloc
                     ds.memory_usages['astrocal'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 

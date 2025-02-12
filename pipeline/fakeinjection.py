@@ -3,7 +3,6 @@ import uuid
 
 import numpy as np
 
-from util.util import env_as_bool
 from util.logger import SCLogger
 
 from models.provenance import Provenance
@@ -196,17 +195,32 @@ class FakeInjector:
 
     def create_new_datastore( self, ds, fakeprov ):
         fakeds = DataStore()
-        fakeds.edit_prov_tree( ProvenanceTree( ds.prov_tree, ds.prov_tree.upstream_steps ) )
 
+        # Copy the reporting conditions
+        fakeds.update_runtimes = ds.update_runtimes
+        fakeds.update_memory_usages = ds.update_memory_usages
+
+        # Make the provenance tree right
+
+        fakeds.edit_prov_tree( ProvenanceTree( ds.prov_tree, ds.prov_tree.upstream_steps ) )
         fakeds.prov_tree.upstream_steps['fakeinjection'] = [ 'zp' ]
         if 'subtraction' in fakeds.prov_tree.upstream_steps:
             fakeds.prov_tree.upstream_steps['subtraction'] = [ 'referencing', 'fakeinjection' ]
         fakeds.edit_prov_tree( 'fakeinjection', prov=fakeprov, new_step=True )
 
+        # Copy of all data products.  For Image, we need to make a new
+        #   one, because we're going to inject fakes.  Make sure it
+        #   doesn't have the same uuid as ds.image so we don't
+        #   accidentally overwrite it.  For the other data products,
+        #   we're just going to use them as-is, so we don't have to
+        #   waste memory doing a deep copy, just point back to the data
+        #   product in ds.  (fakeds.image and following data products
+        #   are *not* saved to the disk or database, except for
+        #   ds.fakeanal, so we don't need to worry about the upstreams
+        #   of things like fakeds.sources being wrong.)
+
         fakeds.image = Image.copy_image( ds.image, no_copy_data=True )
         fakeds.image._id = uuid.uuid4()
-        # Copy the other things directly, because we want them as-is, so no need to use more memory.
-        # But, be careful not to modify any of these in fakeds!
         fakeds.sources = ds.sources
         fakeds.psf = ds.psf
         fakeds.bg = ds.bg
@@ -214,9 +228,8 @@ class FakeInjector:
         fakeds.zp = ds.zp
         fakeds.reference = ds.reference
 
-        # Copy aligned images
+        # Copy aligned images over to fakeds
         # Assuming that we aligned new to ref here
-        import pdb; pdb.set_trace()
         fakeds.aligned_new_image = fakeds.image
         fakeds.aligned_new_sources = ds.sources
         fakeds.aligned_new_psf = ds.psf
@@ -225,8 +238,9 @@ class FakeInjector:
         fakeds.aligned_ref_image = ds.aligned_ref_image
         fakeds.aligned_ref_sources = ds.aligned_ref_sources
         fakeds.aligned_ref_psf = ds.aligned_ref_psf
-        fakeds.aligned_ref_pz = ds.aligned_ref_zp
-        
+        fakeds.aligned_ref_bg = ds.aligned_ref_bg
+        fakeds.aligned_ref_zp = ds.aligned_ref_zp
+
         return fakeds
 
 
@@ -262,7 +276,7 @@ class FakeInjector:
         ds = None
         try:
             t_start = time.perf_counter()
-            if env_as_bool( 'SEECHANGE_TRACEMALLOC' ):
+            if ds.update_memory_usages:
                 import tracemalloc
                 tracemalloc.reset_peak()
 
@@ -380,8 +394,9 @@ class FakeInjector:
             ds.image.data, ds.image.weight = ds.fakes.inject_on_to_image()
             ds.image.flags = origds.image.flags
 
-            ds.runtimes['fakeinjection'] = time.perf_counter() + t_start
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_runtimes:
+                ds.runtimes['fakeinjection'] = time.perf_counter() + t_start
+            if ds.update_memory_usages:
                 import tracemalloc
                 ds.memory_usages['fakeinjection'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
@@ -430,7 +445,7 @@ class FakeInjector:
         allmeasy = np.array( [ m.y for m in ds.all_measurements ] )
         allmeasdist = np.sqrt( ( ds.fakes.fake_x[ :, np.newaxis ] - allmeasx[ np.newaxis, : ] ) ** 2  +
                                ( ds.fakes.fake_y[ :, np.newaxis ] - allmeasy[ np.newaxis, : ] ) ** 2 )
-        measindex = np.array( m.index_in_sources for m in ds.measurements )
+        measindex = np.array( [ m.index_in_sources for m in ds.measurements ] )
 
         for n, (fake_x, fake_y), in enumerate( zip( ds.fakes.fake_x, ds.fakes.fake_y ) ):
             allmeasmatch = np.where( allmeasdist[ n, : ] < self.pars.detection_pixel_range )[0]
@@ -455,9 +470,10 @@ class FakeInjector:
                 continue
             if len( measmatch ) > 1:
                 raise RuntimeError( "This should never happen." )
+            measmatch = measmatch[0]
 
-            fakeanal.is_kept = True
-            fakeanal.deepscore_algorithm = ds.scorelist[ measmatch ]._algorithm
-            fakeanal.score = ds.scorelist[ measmatch ].score
+            fakeanal.is_kept[ n ] = True
+            fakeanal.deepscore_algorithm[ n ] = ds.scores[ measmatch ]._algorithm
+            fakeanal.score[ n ] = ds.scores[ measmatch ].score
 
         return fakeanal

@@ -4,7 +4,7 @@ import sqlalchemy as sa
 import uuid
 # import traceback
 
-from util.util import listify, asUUID
+from util.util import listify, asUUID, env_as_bool
 from util.logger import SCLogger
 
 from models.base import SmartSession, FileOnDiskMixin, FourCorners
@@ -641,6 +641,10 @@ class DataStore:
         self.memory_usages = {}  # for each process step, the peak memory usage in MB
         self.products_committed = ''  # a comma separated list of object names (e.g., "image, sources") saved to DB
         self.report = None  # keep a reference to the report object for this run
+
+        # These are flags that tell processes running the data store some things to do nor not do
+        self.update_runtimes = True
+        self.update_memory_usages = env_as_bool( 'SEECHANGE_TRACEMALLOC' )
 
         self.parse_args(*args, **kwargs)
 

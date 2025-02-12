@@ -132,3 +132,6 @@ def test_inject_fakes( decam_fakeset ):
     # Now make sure nothing outside the place where stuff got added was changed
     assert np.all( tmpimg == 0. )
     assert np.all( tmpwgt == 0. )
+
+
+# FakeAnalysis is tested in pipeline/test_fakeinjection.py

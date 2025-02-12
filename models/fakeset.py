@@ -430,11 +430,8 @@ class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
         self.is_bad = None
         self.flux_psf = None
         self.flux_psf_err = None
-        self.flux_apertures = None
-        self.flux_apertures_err = None
-        self.bkg_per_pix = None
-        self.aper_radii = None
         self.best_aperture = None
+        self.bkg_per_pix = None
         self.center_x_pixel = None
         self.center_y_pixel = None
         self.x = None
@@ -450,7 +447,6 @@ class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
         self.negfluxfrac = None
         self.is_bad = None
         self.deepscore_algorithm = None
-        self.deepscore_info = None
         self.score = None
 
 
