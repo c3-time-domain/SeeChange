@@ -2094,7 +2094,7 @@ class DataStore:
                 for d in self.deepscore_set.deepscores:
                     d.deepscoreset_id = self.deepscore_set.id
                 DeepScore.upsert_list( self.deepscore_set.deepscores, load_defaults=True )
-            commits.append( 'scores' )
+            commits.append( 'deepscore_set' )
 
         self.products_committed = ",".join( commits )
 
