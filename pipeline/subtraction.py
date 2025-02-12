@@ -789,7 +789,7 @@ class Subtractor:
 
                 ds.sub_image = sub_image
 
-            if ds.update_runtime:
+            if ds.update_runtimes:
                 ds.runtimes['subtraction'] = time.perf_counter() - t_start
             if ds.update_memory_usages:
                 import tracemalloc

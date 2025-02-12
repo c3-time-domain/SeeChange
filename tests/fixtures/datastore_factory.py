@@ -172,7 +172,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
         else:
             raise RuntimeError( "Error, datastory_factory must start from either an exposure or an image." )
 
-        ds.update_runtime = True
+        ds.update_runtimes = True
         ds.update_memory_usages = env_as_bool( 'SEECHANGE_TRACEMALLOC' )
 
         # Set up the cache if appropriate

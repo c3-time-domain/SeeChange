@@ -538,7 +538,7 @@ class Pipeline:
                         SCLogger.error(e)
                         raise e
 
-                    if ds.update_runtime:
+                    if ds.update_runtimes:
                         ds.runtimes['save_intermediate'] = time.perf_counter() - t_start
 
                 # fetch reference images and subtract them, save subtracted Image objects to DB and disk
