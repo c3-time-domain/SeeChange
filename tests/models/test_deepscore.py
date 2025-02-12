@@ -65,8 +65,7 @@ def test_multiple_algorithms(decam_exposure, decam_reference, decam_default_cali
                          .filter( DeepScoreSet.measurementset_id==ds2.measurement_set.id )
                          .order_by( DeepScore.index_in_sources )
                         ).all()
-            assert len(dbscores) == len(ds2.measurements)
-            assert all( d.index_in_sources == m.index_in_sources for d, m in zip( dbscores, ds2.measurements ) )
+            assert len(dbscores) == 2 * len(ds2.measurements)   # 2x the deepscores for the same measurement set
 
     finally:
         if 'ds1' in locals():
