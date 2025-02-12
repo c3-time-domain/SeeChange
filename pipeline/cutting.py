@@ -161,9 +161,9 @@ class Cutter:
 
             ds.cutouts = cutouts
 
-            if ds.udpate_runtimes:
+            if ds.update_runtimes:
                 ds.runtimes['cutting'] = time.perf_counter() - t_start
-            if ds.udpate_memory_usages:
+            if ds.update_memory_usages:
                 import tracemalloc
                 ds.memory_usages['cutting'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 

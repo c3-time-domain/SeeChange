@@ -409,22 +409,39 @@ class FakeInjector:
             raise
 
 
-    def analyze_fakes( self, ds ):
-        """Get fakes that were detected, and measurements attributes.
+    def analyze_fakes( self, ds, origds ):
+        """Determine which fakes that were detected, and get measurements attributes of them.
 
-        Looks at the passed datastore and tries to find fakes.
+        Parameters
+        ----------
+          ds : DataStore
+            A DataStore fully processed through scoring.  Must have a
+            property "fakes" that is the FakeSet we're analyzing.  The
+            subtraction should have been done on an image with that
+            fakeset injected on to the image.
+
+          origds : DataStore
+            A DataStore fully processed through scoring.  This is the
+            DataStore of the subtraction (and following) on the original
+            image, *not* the image with injected fakes.  The parameters of
+            all the pipeline steps in ds and origds should be the same.
+
+        Returns
+        -------
+          FakeAnalysis
 
         """
 
         fakesetprov = Provenance.get( ds.fakes.provenance_id )
+        origscoreprov = Provenance.get( origds.get_scores()[0].provenance_id )
         prov = Provenance(
             code_version_id = fakesetprov.code_version_id,
             process = 'fakeanalysis',
             params={},
-            upstreams=[fakesetprov]
+            upstreams=[ fakesetprov, origscoreprov ]
         )
         prov.insert_if_needed()
-        fakeanal = FakeAnalysis( fakset_id=ds.fakes.id, provenance_id=prov.id )
+        fakeanal = FakeAnalysis( fakset_id=ds.fakes.id, orig_scores_id=origds.scores.id, provenance_id=prov.id )
         fakeanal.is_detected = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
         fakeanal.is_kept = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
         fakeanal.is_bad = np.full( ds.fakes.fake_x.shape, False, dtype=bool )

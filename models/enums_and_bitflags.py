@@ -554,8 +554,10 @@ pipeline_products_dict = {
     7: 'sub_image',
     8: 'detections',
     9: 'cutouts',
-    10: 'measurements',
-    11: 'scores',
+    10: 'measurement_set',
+    11: 'deepscore_set',
+    25: 'fakes',
+    26: 'fakeanal'
 }
 
 pipeline_products_inverse = {EnumConverter.c(v): k for k, v in pipeline_products_dict.items()}

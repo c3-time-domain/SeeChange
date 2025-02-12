@@ -431,19 +431,17 @@ class Cutouts(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             return session.scalars( sa.Select( SourceList ).where( SourceList._id == self.sources_id ) ).all()
 
     def get_downstreams( self, session=None):
-        """Return downstreams of this cutouts object.
+        """Return downstreams of this cutouts object, which will be MeasurentSet objects.
 
         Only gets immediate downstreams; does not recurse.  (As per the
         docstring in SeeChangeBase.get_downstreams.)
 
-        Returns a list of Measurements objects.
-
         """
 
         # Avoid circular imports
-        from models.measurements import Measurements
+        from models.measurements import MeasurementSet
 
         with SmartSession( session ) as sess:
-            measurements = sess.query( Measurements ).filter( Measurements.cutouts_id==self.id )
+            msets = sess.query( MeasurementSet ).filter( MeasurementSet.cutouts_id==self.id )
 
-        return list( measurements )
+        return list( msets )

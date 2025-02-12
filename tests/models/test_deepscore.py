@@ -13,10 +13,10 @@ def test_deepscore_saving(ptf_datastore, scorer):
     ## run the scorer on the measurements in the datastore
     ds = scorer.run(ds)
     ## check the scores are there
-    assert len(ds.scores) == len(ds.measurements)
+    assert len(ds.deepscores) == len(ds.measurements)
+    assert all( d.index_in_sources == m.index_in_sources for d, m in zip( ds.deepscores, ds.measurements ) )
     ## assert that the scores have not recalculated ( thus they were found on DB )
     assert not scorer.has_recalculated
-    assert len(ds.scores) == len(ds.measurements)
     ## try to commit and confirm there are no errors
     ds.save_and_commit()
 

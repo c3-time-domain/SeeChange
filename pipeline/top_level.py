@@ -629,7 +629,8 @@ class Pipeline:
 
                         SCLogger.info( f"Looking to see which fakes are detected on fake-injected subtraction "
                                        f"of image id {ds.image.id}" )
-                        ds.fakeanal = self.fakeinjector.analyze_fakes( fakeds )
+                        ds.fakeanal = self.fakeinjector.analyze_fakes( fakeds, ds )
+                        ds.fakeanal.orig_deepscore_set_id = ds.deepscore_set.id
                         if self.pars.save_at_finish:
                             ds.fakeanal.save()
                             ds.fakeanal.insert()

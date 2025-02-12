@@ -6,6 +6,7 @@ from improc.photometry import photometry_and_diagnostics
 
 from models.base import Psycopg2Connection
 from models.cutouts import Cutouts
+from models.measurements import MeasurementSet
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
@@ -200,11 +201,15 @@ class Measurer:
                 sub_psf = ds.psf
 
             # try to find some measurements in memory or in the database:
-            measurements_list = ds.get_measurements(prov)
+            measurement_set = ds.get_measurement_set( prov )
 
-            # note that if measurements_list is found, there will not be an all_measurements appended to datastore!
-            if measurements_list is None or len(measurements_list) == 0:  # must create a new list of Measurements
+            # note that if measurement_set is already in the datastore,
+            #  there will not be an all_measurements appended to datastore!
+            if measurement_set is None:
                 self.has_recalculated = True
+
+                measurement_set = MeasurementSet( cutouts_id=ds.cutouts.id, provenance_id=prov.id )
+
                 SCLogger.debug( f"Measurer performing measurements on {len(cutouts.co_dict)} cutouts" )
 
                 inner_annulus_px = self.pars.annulus_radii[0]
@@ -252,9 +257,8 @@ class Measurer:
                                                                distunit=self.pars.diag_box_halfsize_unit )
                 # Fill in some basic fields of the measurements
                 for i, m in enumerate( all_measurements ):
-                    m.cutouts_id = cutouts.id
+                    m.measurementset_id = measurement_set.id
                     m.index_in_sources = i
-                    m.provenance_id = prov.id
                     sc = new_wcs.wcs.pixel_to_world( m.x, m.y )
                     m.ra = sc.ra.deg
                     m.dec = sc.dec.deg
@@ -333,10 +337,12 @@ class Measurer:
                             m.associate_object( radius=self.pars.association_radius, connection=conn )
 
                 # Make sure the upstream bitflag is set for all measurements
+                measurement_set._upstream_bitflag = ds.cutouts.bitflag
                 for m in measurements:
                     m._upstream_bitflag = ds.cutouts.bitflag
 
-                ds.measurements = measurements
+                ds.measurement_set = measurement_set
+                measurement_set.measurements = measurements
 
                 SCLogger.debug( f"...done doing threshold cuts, {len(ds.measurements)} survived." )
 
