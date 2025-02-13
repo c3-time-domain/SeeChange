@@ -13,6 +13,8 @@ def test_deepscore_saving(ptf_datastore, scorer):
     ## run the scorer on the measurements in the datastore
     ds = scorer.run(ds)
     ## check the scores are there
+    assert isinstance( ds.deepscore_set, DeepScoreSet )
+    assert ds.deepscores == ds.deepscore_set.deepscores
     assert len(ds.deepscores) == len(ds.measurements)
     assert all( d.index_in_sources == m.index_in_sources for d, m in zip( ds.deepscores, ds.measurements ) )
     ## assert that the scores have not recalculated ( thus they were found on DB )

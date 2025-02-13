@@ -12,7 +12,7 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
     ds = ptf_datastore
 
     aper_radii = test_config.value('extraction.apertures')
-    ds.measurements = None
+    ds.measurement_set = None
     ds = measurer.run( ds )
     # check that the measurer actually loaded the measurements from db, and not recalculated
     # TODO -- testing that should be in pipeline/test_measuring.py.  We should just use
@@ -162,7 +162,7 @@ def test_filtering_measurements(ptf_datastore):
         ms = ( session.query( Measurements )
                .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
                .filter( Measurements.x > Measurements.center_x_pixel )
-               .filter( MeasurementSet.provenace_id == mset.provenance_id )
+               .filter( MeasurementSet.provenance_id == mset.provenance_id )
               ).all()
         assert len(ms) <= len(measurements)  # only some of the measurements have x > center_x_pixel
 

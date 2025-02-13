@@ -303,8 +303,8 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                         .join( Image, Image._id==isc.c.image_id )
                         .join( SourceList, SourceList.image_id==Image._id )
                         .join( Cutouts, Cutouts.sources_id==SourceList._id )
-                        .join( MeasurementSet, MeasurementSet.cutoust_id==Cutouts._id )
-                        .filter( MeasurementSet._id==self.cutouts_id )
+                        .join( MeasurementSet, MeasurementSet.cutouts_id==Cutouts._id )
+                        .filter( MeasurementSet._id==self.measurementset_id )
                        ).all()
             if len( zps ) > 1:
                 raise RuntimeError( "Found multiple zeropoints for Measurements, this shouldn't happen!" )
@@ -564,7 +564,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         super().__setattr__(key, value)
 
-    def get_data_from_cutouts( self, cutouts=None, detections=None ):
+    def get_data_from_cutouts( self, cutouts=None, detections=None, session=None ):
         """Populates this object with the cutout data arrays used in
         calculations. This allows us to use, for example, self.sub_data
         without having to look constantly back into the related Cutouts.
@@ -586,15 +586,22 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             already in the database.
 
         """
-        if cutouts is None:
-            cutouts = Cutouts.get_by_id( self.cutouts_id )
-            if cutouts is None:
-                raise RuntimeError( "Can't find cutouts associated with Measurements, can't load cutouts data." )
+        if ( cutouts is None ) or ( detections is None ):
+            with SmartSession( session ) as sess:
+                if cutouts is None:
+                    cutouts = ( sess.query( Cutouts )
+                                .join( MeasurementSet, MeasurementSet.cutouts_id==Cutouts._id )
+                                .filter( MeasurementSet._id==self.measurementset_id )
+                               ).first()
+                    if cutouts is None:
+                        raise RuntimeError( "Can't find cutouts associated with Measurements, "
+                                            "can't load cutouts data." )
 
-        if detections is None:
-            detections = SourceList.get_by_id( cutouts.sources_id )
-            if detections is None:
-                raise RuntimeError( "Can't find detections associated with Measurements, can't load cutouts data." )
+                if detections is None:
+                    detections = SourceList.get_by_id( cutouts.sources_id )
+                    if detections is None:
+                        raise RuntimeError( "Can't find detections associated with Measurements, "
+                                            "can't load cutouts data." )
 
         cutouts.load_all_co_data( sources=detections )
 
