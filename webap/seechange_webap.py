@@ -28,7 +28,7 @@ import flask.views
 from util.config import Config
 from util.util import asUUID
 from models.user import AuthUser
-from models.deepscore import DeepScore
+from models.deepscore import DeepScoreSet
 from models.base import SmartSession
 
 
@@ -335,10 +335,10 @@ class Exposures( BaseView ):
                   ') c ON c.sources_id=ssl._id '
                   'LEFT JOIN ( '
                   '  SELECT sms._id, sms.cutouts_id FROM measurement_sets sms '
-                  '  INNER JOIN provenance_tags mspt ON sms.provenancE_id==mspt.provenance _id '
+                  '  INNER JOIN provenance_tags mspt ON sms.provenance_id=mspt.provenance_id '
                   '                                  AND mspt.tag=%(provtag)s '
                   ') ms ON ms.cutouts_id=c._id '
-                  'LEFT JOIN measurements meas ON meas.measurementset_id=ms._id '
+                  'LEFT JOIN measurements m ON m.measurementset_id=ms._id '
                   'INNER JOIN provenance_tags ept ON ept.provenance_id=e.provenance_id AND ept.tag=%(provtag)s '
                  )
             subdict['provtag'] = data['provenancetag']
@@ -531,10 +531,10 @@ class ExposureImages( BaseView ):
               '  INNER JOIN provenance_tags cupt ON cupt.provenance_id=cu.provenance_id AND cupt.tag=%(provtag)s '
               ') c ON c.sources_id=ssl._id '
               'LEFT JOIN ( '
-              '  SELECT sms._id, sms._cutouts_id FROM measurement_sets sms '
+              '  SELECT sms._id, sms.cutouts_id FROM measurement_sets sms '
               '  INNER JOIN provenance_tags mspt ON mspt.provenance_id=sms.provenance_id AND mspt.tag=%(provtag)s '
               ') ms ON ms.cutouts_id=c._id '
-              'LEFT JOIN measurements me ON me.measurementset_id=ms._id '
+              'LEFT JOIN measurements m ON m.measurementset_id=ms._id '
               'GROUP BY i._id, s._id, ssl.num_sources '
              )
         # app.logger.debug( f"exposure_images counting sources: query {cursor.mogrify(q,subdict)}" )
@@ -734,7 +734,7 @@ class PngCutoutsForSubImage( BaseView ):
               'INNER JOIN source_lists sl ON c.sources_id=sl._id '
               'INNER JOIN images s ON sl.image_id=s._id '
               'INNER JOIN '
-              '  ( SELECT meas.cutouts_id AS meascutid, meas.index_in_sources, meas.ra, meas.dec, meas.is_bad, '
+              '  ( SELECT ms.cutouts_id AS meascutid, meas.index_in_sources, meas.ra, meas.dec, meas.is_bad, '
               '           meas.best_aperture, meas.flux_apertures[meas.best_aperture+1] AS flux, '
               '           meas.flux_apertures_err[meas.best_aperture+1] AS dflux, '
               '           meas.flux_psf AS psfflux, meas.flux_psf_err AS dpsfflux, '
@@ -747,11 +747,12 @@ class PngCutoutsForSubImage( BaseView ):
               '    INNER JOIN provenance_tags mpt ON ms.provenance_id=mpt.provenance_id AND mpt.tag=%(provtag)s '
               '    INNER JOIN objects obj ON meas.object_id=obj._id '
               '    LEFT JOIN '
-              '      ( SELECT ss.measurementset_id, s.index_in_sources, s.score, s._algorithm FROM deepscores s '
+              '      ( SELECT ss.measurementset_id, ss._algorithm, s.index_in_sources, s.score FROM deepscores s '
               '        INNER JOIN deepscore_sets ss ON s.deepscoreset_id=ss._id '
               '        INNER JOIN provenance_tags spt ON spt.provenance_id=ss.provenance_id AND spt.tag=%(provtag)s '
               '      ) AS score '
-              '      ON score.measurementset_id=ms._id AND score.index_in_sources=meas.index_in_sources ) '
+              '      ON score.measurementset_id=ms._id AND score.index_in_sources=meas.index_in_sources '
+             )
         if not nomeas:
             q += '    WHERE NOT meas.is_bad '
         q += ( '   ) AS m ON m.meascutid=c._id '
@@ -905,7 +906,7 @@ class PngCutoutsForSubImage( BaseView ):
                 retval['cutouts']['negfluxfrac'].append( row[cols['negfluxfrac']] )
                 retval['cutouts']['rb'].append( row[cols['score']] )
                 retval['cutouts']['rbcut'].append( None if row[cols['_algorithm']] is None
-                                                   else DeepScore.get_rb_cut( row[cols['_algorithm']] ) )
+                                                   else DeepScoreSet.get_rb_cut( row[cols['_algorithm']] ) )
                 retval['cutouts']['is_bad'].append( row[cols['is_bad']] )
                 retval['cutouts']['objname'].append( row[cols['name']] )
                 retval['cutouts']['is_test'].append( row[cols['is_test']] )
