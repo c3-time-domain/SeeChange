@@ -170,8 +170,8 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
                                         ds.sub_image.provenance_id,
                                         ds.detections.provenance_id,
                                         ds.cutouts.provenance_id,
-                                        ds.measurements[0].provenance_id,
-                                        ds.scores[0].provenance_id,
+                                        ds.measurement_set.provenance_id,
+                                        ds.deepscore_set.provenance_id,
                                         ds.report.provenance_id ] )
         ProvenanceTag.addtag( 'test_webap', provs )
 

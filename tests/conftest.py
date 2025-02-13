@@ -859,7 +859,7 @@ def bogus_image( code_version, provenance_base ):
     # Give the image some numpy arrays for things that will look at the size
     img.header = fits.Header( { 'TESTKW': 'testval' } )
     img.data = np.zeros( ( 1024, 1024 ), dtype=np.float32 )
-    img.weight = np.zeros( ( 1024, 1024 ), dtype=np.float32 )
+    img.weight = np.full( ( 1024, 1024 ), 0.01, dtype=np.float32 )
     img.flags = np.zeros( ( 1024, 1024 ), dtype=np.int16 )
 
     img.save()

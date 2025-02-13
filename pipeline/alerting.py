@@ -17,11 +17,10 @@ from models.reference import image_subtraction_components
 from models.source_list import SourceList
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
-from models.measurements import Measurements
-from models.deepscore import DeepScore
+from models.measurements import MeasurementSet, Measurements
+from models.deepscore import DeepScoreSet, DeepScore
 from models.object import Object
 from util.config import Config
-from util.util import env_as_bool
 
 
 # Alerting doesn't work with the Parameters system because there's no Provenance associated with it,
@@ -99,7 +98,7 @@ class Alerting:
             return
 
         t_start = time.perf_counter()
-        if env_as_bool('SEECHANGE_TRACEMALLOC'):
+        if ds.update_memory_usages:
             import tracemalloc
             tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -121,13 +120,14 @@ class Alerting:
             else:
                 raise RuntimeError( "This should never happen." )
 
-        ds.runtimes[ 'alerting' ] = time.perf_counter() - t_start
-        if env_as_bool('SEECHANGE_TRACEMALLOC'):
+        if ds.update_runtimes:
+            ds.runtimes[ 'alerting' ] = time.perf_counter() - t_start
+        if ds.update_memory_usages:
             import tracemalloc
             ds.memory_usages['alerting'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
 
 
-    def dia_source_alert( self, meas, score, img, zp=None, aperdex=None, fluxscale=None ):
+    def dia_source_alert( self, meas, score, img, deepscore_set, zp=None, aperdex=None, fluxscale=None ):
         # For snr, we're going to assume that the detection was approximately
         #   detection in a 1-FWHM aperture.  This isn't really right, but
         #   it should be approximately right.
@@ -163,8 +163,8 @@ class Alerting:
                  'psfFlux': meas.flux_psf * fluxscale,
                  'psfFluxErr':meas.flux_psf_err * fluxscale,
                  'rb': None if score is None else score.score,
-                 'rbcut': None if score is None else DeepScore.get_rb_cut( score.algorithm ),
-                 'rbtype': None if score is None else score.algorithm
+                 'rbcut': None if score is None else DeepScoreSet.get_rb_cut( deepscore_set.algorithm ),
+                 'rbtype': None if score is None else deepscore_set.algorithm
                 }
 
     def dia_object_alert( self, obj ):
@@ -179,14 +179,16 @@ class Alerting:
 
 
     def build_avro_alert_structures( self, ds, skip_bad=True ):
-        sub_image = ds.get_subtraction()
+        sub_image = ds.get_sub_image()
         image = ds.get_image()
         zp = ds.get_zp()
         detections = ds.get_detections()
-        measurements = ds.get_measurements()
+        measurement_set = ds.get_measurement_set()
+        measurements = measurement_set.measurements
         cutouts = ds.get_cutouts()
         cutouts.load_all_co_data( sources=detections )
-        scores = ds.get_scores()
+        deepscore_set = ds.get_deepscore_set()
+        scores = deepscore_set.deepscores
 
         if len(scores) == 0:
             # Nothing to do!
@@ -239,7 +241,8 @@ class Alerting:
                       'cutoutScience': newdata.tobytes(),
                       'cutoutTemplate': refdata.tobytes() }
 
-            alert['diaSource'] = self.dia_source_alert( meas, scr, image, zp=zp, aperdex=aperdex, fluxscale=fluxscale )
+            alert['diaSource'] = self.dia_source_alert( meas, scr, image, deepscore_set,
+                                                        zp=zp, aperdex=aperdex, fluxscale=fluxscale )
             alert['diaObject'] = self.dia_object_alert( Object.get_by_id( meas.object_id ) )
 
             # In Image.from_new_and_ref, we set a lot of the sub image's properties (crucially,
@@ -267,16 +270,20 @@ class Alerting:
 
                 prvimgids = {}
                 q = ( sess.query( Measurements, DeepScore, Image, ZeroPoint )
-                      .join( Cutouts, Measurements.cutouts_id==Cutouts._id )
+                      .join( MeasurementSet, Measurements.measurementset_id==Measurements._id )
+                      .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
                       .join( SourceList, Cutouts.sources_id==SourceList._id )
                       .join( Image, SourceList.image_id==Image._id )
                       .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
                       .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id )
-                      .join( DeepScore, sa.and_( DeepScore.measurements_id==Measurements._id,
-                                                 DeepScore.provenance_id==scr.provenance_id ),
+                      .join( DeepScoreSet, sa.and_( DeepScoreSet.measurementset_id==MeasurementSet._id,
+                                                    DeepScoreSet.provenance_id==deepscore_set.provenance_id ),
+                             isouter=True )
+                      .join( DeepScore, sa.and_( DeepScore.deepscoreset_id==DeepScoreSet._id,
+                                                 DeepScore.index_in_sources==Measurements.index_in_sources ),
                              isouter=True )
                       .filter( Measurements.object_id==meas.object_id )
-                      .filter( Measurements.provenance_id==meas.provenance_id )
+                      .filter( MeasurementSet.provenance_id==measurement_set.provenance_id )
                       .filter( Measurements._id!=meas.id )
                       .order_by( Image.mjd ) )
                 for prvmeas, prvscr, prvimg, prvzp in q.all():
@@ -322,7 +329,7 @@ class Alerting:
         for alert in avroalerts:
             rb = alert[ 'diaSource' ][ 'rb' ]
             rbmethod = alert[ 'diaSource' ][ 'rbtype' ]
-            cut = method['deepcut'] if method['deepcut'] is not None else DeepScore.get_rb_cut( rbmethod )
+            cut = method['deepcut'] if method['deepcut'] is not None else DeepScoreSet.get_rb_cut( rbmethod )
             if ( rb is not None ) and ( rb >= cut ):
                 msgio = io.BytesIO()
                 fastavro.write.schemaless_writer( msgio, method['schema'], alert )

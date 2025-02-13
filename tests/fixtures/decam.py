@@ -317,7 +317,10 @@ def decam_exposure( decam_exposure_factory ):
     # Lots of 'S3' in other fixtures have been
     #  changed to 'S2' to go along with this.
     # return decam_exposure_factory( 'c4d_230702_080904_ori.fits.fz' )
-    return decam_exposure_factory( 'c4d_211025_044847_ori.fits.fz' )
+    SCLogger.debug( "Making decam exposure..." )
+    ds = decam_exposure_factory( 'c4d_211025_044847_ori.fits.fz' )
+    SCLogger.debug( "...done making decam exposure.")
+    return ds
 
 
 @pytest.fixture

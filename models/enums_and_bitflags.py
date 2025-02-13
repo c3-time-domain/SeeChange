@@ -526,17 +526,18 @@ class BitFlagConverter( EnumConverter ):
 # the list of possible processing steps from a section of an exposure up to measurements, r/b scores, and report
 # Used by reports
 process_steps_dict = {
-    1: 'preprocessing',  # creates an Image from a section of the Exposure
-    2: 'extraction',     # creates a SourceList and a PSF from an Image
-    3: 'backgrounding',  # creates a Background, may have actually been done during extractin.
-    4: 'astrocal',      # creates a WorldCoordinates from the SourceList and GAIA catalogs
-    5: 'photocal',      # creates s ZeroPoint from the SourceList and GAIA catalogs
-    6: 'subtraction',    # creates a subtraction Image
-    7: 'detection',      # creates a SourceList from a subtraction Image
-    8: 'cutting',        # creates Cutouts from a subtraction Image
-    9: 'measuring',      # creates Measurements from Cutouts
+    1: 'preprocessing',   # creates an Image from a section of the Exposure
+    2: 'extraction',      # creates a SourceList and a PSF from an Image
+    3: 'backgrounding',   # creates a Background, may have actually been done during extractin.
+    4: 'astrocal',        # creates a WorldCoordinates from the SourceList and GAIA catalogs
+    5: 'photocal',        # creates s ZeroPoint from the SourceList and GAIA catalogs
+    6: 'subtraction',     # creates a subtraction Image
+    7: 'detection',       # creates a SourceList from a subtraction Image
+    8: 'cutting',         # creates Cutouts from a subtraction Image
+    9: 'measuring',       # creates Measurements from Cutouts
     10: 'scoring',        # creates DeepScore from Measurements
-    11: 'alerting',      # send alerts
+    11: 'fakeanalysis',   # inject fakes, resubtract, tabluate what's found
+    12: 'alerting',       # send alerts
     30: 'finalize'
 }
 process_steps_inverse = {EnumConverter.c(v): k for k, v in process_steps_dict.items()}
@@ -553,8 +554,10 @@ pipeline_products_dict = {
     7: 'sub_image',
     8: 'detections',
     9: 'cutouts',
-    10: 'measurements',
-    11: 'scores',
+    10: 'measurement_set',
+    11: 'deepscore_set',
+    25: 'fakes',
+    26: 'fakeanal'
 }
 
 pipeline_products_inverse = {EnumConverter.c(v): k for k, v in pipeline_products_dict.items()}

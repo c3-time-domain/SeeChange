@@ -26,6 +26,90 @@ from models.enums_and_bitflags import measurements_badness_inverse
 # from util.logger import SCLogger
 
 
+class MeasurementSet( Base, UUIDMixin, HasBitFlagBadness ):
+    # A measurement set is a way of having a single upstream for things
+    #   that depend on a wholse set of Measurements (like a ScoreSet,
+    #   and, depending on the ScoreSet, a Report, or a FakeAnalysis).
+
+    __tablename__ = 'measurement_sets'
+
+    @declared_attr
+    def __table_args__( cls ):  # noqa: N805
+        return (
+            UniqueConstraint('cutouts_id', 'provenance_id', name='_measurement_sets_uc'),
+        )
+    cutouts_id = sa.Column(
+        sa.ForeignKey('cutouts._id', ondelete="CASCADE", name='meas_set_cutouts_id_fkey'),
+        nullable=False,
+        index=True,
+        doc="ID of the cutouts object that this measurements object is associated with. "
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='meas_set_provenance_id_fkey'),
+        nullable=False,
+        index=True,
+        doc="ID of the provenance of this measurement set."
+    )
+
+    @property
+    def measurements( self ):
+        if self._measurements is None:
+            with SmartSession() as session:
+                self._measurements = list( session.scalars( sa.select( Measurements )
+                                                            .where( Measurements.measurementset_id == self._id )
+                                                            .order_by( Measurements.index_in_sources )
+                                                           ).all() )
+        return self._measurements
+
+    @measurements.setter
+    def measurements( self, val ):
+        if ( not isinstance( val, list ) ) or ( not all( isinstance( m, Measurements ) for m in val ) ):
+            raise TypeError( "measurements must be a list of Measurements" )
+        self._measurements = val
+        for m in self._measurements:
+            m.measurementset_id = self.id
+
+
+    def __init__( self, *args, **kwargs ):
+        SeeChangeBase.__init__( self )
+        self._measurements = None
+        self.set_attributes_from_dict( kwargs )
+
+    @orm.reconstructor
+    def init_on_load( self ):
+        SeeChangeBase.init_on_load( self )
+        self._measurements = None
+
+
+    def get_upstreams( self, session=None ):
+        """Return the upstreams of this MeasurementSet object.
+
+        Will be the Cutouts that these measurements are from.
+
+        """
+        with SmartSession( session ) as session:
+            return session.scalars( sa.Select( Cutouts ).where( Cutouts._id == self.cutouts_id ) ).all()
+
+    def get_downstreams( self, session=None ):
+        """Return the downstreams of this MeasurementSet object.
+
+        Includes any DeepScore objects, plus all Measurements that are
+        members of this set.
+
+        """
+        from models.deepscore import DeepScoreSet
+        with SmartSession( session ) as session:
+            downstreams = list( session.scalars( sa.Select( DeepScoreSet )
+                                                 .where( DeepScoreSet.measurementset_id == self.id )
+                                                ).all() )
+            downstreams.extend( list( session.scalars( sa.Select( Measurements )
+                                                       .where( Measurements.measurementset_id == self.id )
+                                                      ).all() ) )
+        return downstreams
+
+
+
 class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     __tablename__ = 'measurements'
@@ -34,20 +118,20 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def __table_args__( cls ):  # noqa: N805
         return (
             sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
-            UniqueConstraint('cutouts_id', 'index_in_sources', 'provenance_id',
-                             name='_measurements_cutouts_provenance_uc'),
+            UniqueConstraint('measurementset_id', 'index_in_sources', name='_measurements_uc'),
         )
 
-    cutouts_id = sa.Column(
-        sa.ForeignKey('cutouts._id', ondelete="CASCADE", name='measurements_cutouts_id_fkey'),
+    measurementset_id = sa.Column(
+        sa.ForeignKey( 'measurement_sets._id', ondelete="CASCADE", name="meas_meas_set_id_fkey" ),
         nullable=False,
         index=True,
-        doc="ID of the cutouts object that this measurements object is associated with. "
+        doc="ID of the Measurement Set this measurements object is a member of."
     )
 
     index_in_sources = sa.Column(
         sa.Integer,
         nullable=False,
+        index=True,
         doc=( "Index in the source list (of detections in the difference image) "
               "that corresponds to this Measurements; also (effectively) gives the cutout index." )
     )
@@ -57,13 +141,6 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
         nullable=False,  # every saved Measurements object must have an associated Object
         index=True,
         doc="ID of the object that this measurement is associated with. "
-    )
-
-    provenance_id = sa.Column(
-        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='measurements_provenance_id_fkey'),
-        nullable=False,
-        index=True,
-        doc="ID of the provenance of this measurement. "
     )
 
     flux_psf = sa.Column(
@@ -226,7 +303,8 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
                         .join( Image, Image._id==isc.c.image_id )
                         .join( SourceList, SourceList.image_id==Image._id )
                         .join( Cutouts, Cutouts.sources_id==SourceList._id )
-                        .filter( Cutouts._id==self.cutouts_id )
+                        .join( MeasurementSet, MeasurementSet.cutouts_id==Cutouts._id )
+                        .filter( MeasurementSet._id==self.measurementset_id )
                        ).all()
             if len( zps ) > 1:
                 raise RuntimeError( "Found multiple zeropoints for Measurements, this shouldn't happen!" )
@@ -249,6 +327,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     @property
     def flux(self):
+
         """The background subtracted aperture flux in the "best" aperture.  Does not aperture correct."""
         if self.best_aperture == -1:
             return self.flux_psf
@@ -471,8 +550,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     def __repr__(self):
         return (
-            f"<Measurements {self.id} "
-            f"from Cutouts {self.cutouts_id} "
+            f"<Measurements {self.id} in set {self.measurement_set} "
             f"(number {self.index_in_sources}) "
             f"at x,y= {self.center_x_pixel}, {self.center_y_pixel}>"
         )
@@ -486,7 +564,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         super().__setattr__(key, value)
 
-    def get_data_from_cutouts( self, cutouts=None, detections=None ):
+    def get_data_from_cutouts( self, cutouts=None, detections=None, session=None ):
         """Populates this object with the cutout data arrays used in
         calculations. This allows us to use, for example, self.sub_data
         without having to look constantly back into the related Cutouts.
@@ -508,15 +586,22 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             already in the database.
 
         """
-        if cutouts is None:
-            cutouts = Cutouts.get_by_id( self.cutouts_id )
-            if cutouts is None:
-                raise RuntimeError( "Can't find cutouts associated with Measurements, can't load cutouts data." )
+        if ( cutouts is None ) or ( detections is None ):
+            with SmartSession( session ) as sess:
+                if cutouts is None:
+                    cutouts = ( sess.query( Cutouts )
+                                .join( MeasurementSet, MeasurementSet.cutouts_id==Cutouts._id )
+                                .filter( MeasurementSet._id==self.measurementset_id )
+                               ).first()
+                    if cutouts is None:
+                        raise RuntimeError( "Can't find cutouts associated with Measurements, "
+                                            "can't load cutouts data." )
 
-        if detections is None:
-            detections = SourceList.get_by_id( cutouts.sources_id )
-            if detections is None:
-                raise RuntimeError( "Can't find detections associated with Measurements, can't load cutouts data." )
+                if detections is None:
+                    detections = SourceList.get_by_id( cutouts.sources_id )
+                    if detections is None:
+                        raise RuntimeError( "Can't find detections associated with Measurements, "
+                                            "can't load cutouts data." )
 
         cutouts.load_all_co_data( sources=detections )
 
@@ -624,18 +709,19 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
     def get_upstreams( self, session=None ):
         """Return the upstreams of this Measurements object.
 
-        Will be the Cutouts that these measurements are from.
+        Will be the MeasurementSet that this Measurements is a member of.
         """
 
         with SmartSession( session ) as session:
-            return session.scalars( sa.Select( Cutouts ).where( Cutouts._id == self.cutouts_id ) ).all()
+            return session.scalars( sa.Select( MeasurementSet )
+                                    .where( MeasurementSet._id == self.measurementset_id )
+                                   ).all()
+
 
     def get_downstreams( self, session=None ):
-        """Get downstream data products of this Measurements."""
-
-        # Measurements doesn't currently have downstreams; this will
-        #  change with the R/B score object.
+        """Measurements has no downstreams."""
         return []
+
 
     @classmethod
     def delete_list(cls, measurements_list):

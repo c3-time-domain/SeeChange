@@ -136,15 +136,15 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert rep.progress_steps == ( 'preprocessing, extraction, backgrounding, astrocal, photocal, '
                                        'subtraction, detection, cutting, measuring, scoring, finalize' )
         assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
-                                      'sub_image, detections, cutouts, measurements, scores')
+                                      'sub_image, detections, cutouts, measurement_set, deepscore_set')
         assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
         repprov = Provenance.get( rep.provenance_id )
-        assert repprov.upstreams[0].id == ds.scores[0].provenance_id
+        assert repprov.upstreams[0].id == ds.deepscore_set.provenance_id
         assert rep.num_prev_reports == 0
         ds.save_and_commit()
         rep.scan_datastore(ds)
         assert rep.products_committed == ('image, sources, psf, bg, wcs, zp, '
-                                          'sub_image, detections, cutouts, measurements, scores')
+                                          'sub_image, detections, cutouts, measurement_set, deepscore_set')
     finally:
         if 'ds' in locals():
             ds.delete_everything()

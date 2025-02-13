@@ -1,29 +1,32 @@
 import pytest
-import uuid
 import numpy as np
 
 import sqlalchemy as sa
-import psycopg2.errors
 
 from models.base import SmartSession
-from models.provenance import Provenance
 from models.image import Image  # noqa: F401
-from models.measurements import Measurements
+from models.measurements import MeasurementSet, Measurements
 
 
 def test_measurements_attributes(measurer, ptf_datastore, test_config):
     ds = ptf_datastore
 
     aper_radii = test_config.value('extraction.apertures')
-    ds.measurements = None
+    ds.measurement_set = None
     ds = measurer.run( ds )
     # check that the measurer actually loaded the measurements from db, and not recalculated
     # TODO -- testing that should be in pipeline/test_measuring.py.  We should just use
     #   here what the fixture gave us
+    assert isinstance( ds.measurement_set, MeasurementSet )
+    assert ds.measurements == ds.measurement_set.measurements
     assert len(ds.measurements) <= len(ds.cutouts.co_dict)  # not all cutouts have saved measurements
     assert len(ds.measurements) == len(ds.measurements)
     assert ds.measurements[0].from_db
     assert not measurer.has_recalculated
+
+    # Make sure they are sorted by index_in_sources
+    assert [ ds.measurements[i+1].index_in_sources > ds.measurements[i].index_in_sources
+             for i in range( len(ds.measurements) - 1 ) ]
 
     # Make sure positions are consistent with what's in detections
     # (They won't be identical because the positions are redetermined in measuring.py
@@ -141,8 +144,8 @@ def test_measurements_attributes(measurer, ptf_datastore, test_config):
 
 
 def test_filtering_measurements(ptf_datastore):
+    mset = ptf_datastore.measurement_set
     measurements = ptf_datastore.measurements
-    m = measurements[0]  # grab the first one as an example
 
     # test that we can filter on some measurements properties
     with SmartSession() as session:
@@ -156,9 +159,11 @@ def test_filtering_measurements(ptf_datastore):
         ms = session.scalars(sa.select(Measurements).where(Measurements.bkg_per_pix > 0)).all()
         assert len(ms) <= len(measurements)  # only some of the measurements have positive background
 
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.x > Measurements.center_x_pixel, Measurements.provenance_id == m.provenance_id
-        )).all()
+        ms = ( session.query( Measurements )
+               .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+               .filter( Measurements.x > Measurements.center_x_pixel )
+               .filter( MeasurementSet.provenance_id == mset.provenance_id )
+              ).all()
         assert len(ms) <= len(measurements)  # only some of the measurements have x > center_x_pixel
 
         # ms = session.scalars(sa.select(Measurements).where(
@@ -166,69 +171,42 @@ def test_filtering_measurements(ptf_datastore):
         # )).all()
         # assert len(ms) == len(measurements)  # all measurements have positive psf area
 
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.major_width >= 0, Measurements.provenance_id == m.provenance_id
-        )).all()
+        ms = ( session.query( Measurements )
+               .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+               .filter( Measurements.major_width >= 0 )
+               .filter( MeasurementSet.provenance_id == mset.provenance_id )
+              ).all()
         assert len(ms) == len(measurements)  # all measurements have positive width
 
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.psf_fit_flags != 0, Measurements.provenance_id == m.provenance_id
-        )).all()
+        ms = ( session.query( Measurements )
+               .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+               .filter( Measurements.psf_fit_flags != 0 )
+               .filter( MeasurementSet.provenance_id == mset.provenance_id )
+              ).all()
         assert len(ms) < len(measurements)   # Not all have psf fit flags set
         assert len(ms) > 0                   # ...but some did
 
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.nbadpix > 0, Measurements.provenance_id == m.provenance_id
-        )).all()
+        ms = ( session.query( Measurements )
+               .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+               .filter( Measurements.nbadpix > 0 )
+               .filter( MeasurementSet.provenance_id == mset.provenance_id )
+              ).all()
         assert len(ms) < len(measurements)   # Not all measurements had a bad pixel
         # assert len(ms) > 0                 # ...but some did
         #                                    # ...well, some did if the deletion_thresholds were all null...
 
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.negfrac > 0.2, Measurements.provenance_id == m.provenance_id
-        )).all()
+        ms = ( session.query( Measurements )
+               .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+               .filter( Measurements.negfrac > 0.2 )
+               .filter( MeasurementSet.provenance_id == mset.provenance_id )
+              ).all()
         assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.2
         assert len(ms) > 0                   # ...but some did
 
-        ms = session.scalars(sa.select(Measurements).where(
-            Measurements.negfluxfrac > 0.1, Measurements.provenance_id == m.provenance_id
-        )).all()
+        ms = ( session.query( Measurements )
+               .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+               .filter( Measurements.negfluxfrac > 0.1 )
+               .filter( MeasurementSet.provenance_id == mset.provenance_id )
+              ).all()
         assert len(ms) < len(measurements)   # Not all measurements had negfrac > 0.1
         assert len(ms) > 0                   # ...but some did
-
-
-def test_measurements_cannot_be_saved_twice(ptf_datastore):
-    m = ptf_datastore.measurements[0]  # grab the first measurement as an example
-    # test that we cannot save the same measurements object twice
-    m2 = Measurements()
-    for key, val in m.__dict__.items():
-        if key not in ['_id', '_sa_instance_state']:
-            setattr(m2, key, val)  # copy all attributes except the SQLA related ones and the ID
-
-    try:
-        with pytest.raises(
-                psycopg2.errors.UniqueViolation,
-                match='duplicate key value violates unique constraint "_measurements_cutouts_provenance_uc"'
-        ):
-            m2.insert()
-
-        # now change the provenance
-        mprov = Provenance.get( m.provenance_id )
-        prov = Provenance(
-            code_version_id=mprov.code_version_id,
-            process=mprov.process,
-            parameters=mprov.parameters,
-            upstreams=mprov.upstreams,
-            is_testing=True,
-        )
-        prov.parameters['test_parameter'] = uuid.uuid4().hex
-        prov.update_id()
-        prov.insert_if_needed()
-        m2.provenance_id = prov.id
-        m2.insert
-
-    finally:
-        if 'm2' in locals():
-            with SmartSession() as sess:
-                sess.execute( sa.delete( Measurements ).where( Measurements._id==m2.id ) )
-                sess.commit()

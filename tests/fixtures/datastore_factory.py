@@ -21,8 +21,8 @@ from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
-from models.measurements import Measurements
-from models.deepscore import DeepScore
+from models.measurements import Measurements, MeasurementSet
+from models.deepscore import DeepScore, DeepScoreSet
 from models.refset import RefSet
 from pipeline.data_store import DataStore
 
@@ -171,6 +171,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
             ds = DataStore( exporim )
         else:
             raise RuntimeError( "Error, datastory_factory must start from either an exposure or an image." )
+
+        ds.update_runtimes = True
+        ds.update_memory_usages = env_as_bool( 'SEECHANGE_TRACEMALLOC' )
 
         # Set up the cache if appropriate
         # cache_base_path is the path of the image cache file, minus .json, relative to cache_dir
@@ -619,33 +622,24 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 f = f[:-9]                         # strip the u-tag
                 f = f[:-6] + prov_aligned_ref.id[:6]  # replace the provenance ID
                 filename_aligned_ref = pathlib.Path( f )
+                filename_aligned_ref_sources = pathlib.Path( f'{f}_sources.fits' )
+                filename_aligned_ref_psf = pathlib.Path( f'{f}.psf' )
                 filename_aligned_ref_bg = pathlib.Path( f'{f}_bg' )
 
                 aligned_ref_cache_path = ( cache_dir / filename_aligned_ref.parent /
                                            f'{filename_aligned_ref.name}.json' )
+                aligned_ref_sources_cache_path = ( cache_dir / filename_aligned_ref_sources.parent /
+                                                   f'{filename_aligned_ref_sources.name}.json' )
+                aligned_ref_psf_cache_path = ( cache_dir / filename_aligned_ref_psf.parent /
+                                               f'{filename_aligned_ref_psf.name}.json' )
                 aligned_ref_bg_cache_path = ( cache_dir / filename_aligned_ref_bg.parent /
                                               f'{filename_aligned_ref_bg.name}.h5.json' )
                 aligned_ref_zp_cache_path = ( cache_dir / filename_aligned_ref.parent /
                                               f'{filename_aligned_ref.name}.zp.json' )
 
-                # Commenting this out -- we know that we're aligning to new,
-                #   do don't waste cache on aligned_new
-                # prov_aligned_new = Provenance(
-                #     code_version_id=code_version.id,
-                #     parameters=ds.prov_tree['subtraction'].parameters['alignment'],
-                #     upstreams=bothprovs,
-                #     process='alignment',
-                #     is_testing=True,
-                # )
-                # f = ds.image.invent_filepath()
-                # f = f.replace('ComSci', 'Warped')
-                # f = f.replace('Sci', 'Warped')
-                # f = f[:-6] + prov_aligned_new.id[:6]
-                # filename_aligned_new = f
-
                 SCLogger.debug( f'make_datastore searching for subtraction cache including {sub_cache_path}' )
-                files_needed = [ sub_cache_path, aligned_ref_cache_path,
-                                 aligned_ref_bg_cache_path, aligned_ref_zp_cache_path ]
+                files_needed = [ sub_cache_path, aligned_ref_cache_path, aligned_ref_sources_cache_path,
+                                 aligned_ref_psf_cache_path, aligned_ref_bg_cache_path, aligned_ref_zp_cache_path ]
                 if p.subtractor.pars.method == 'zogy':
                     files_needed.extend( [ zogy_score_cache_path, zogy_alpha_cache_path ] )
 
@@ -661,8 +655,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         ds.zogy_score = np.load( zogy_score_cache_path )
                         ds.zogy_alpha = np.load( zogy_alpha_cache_path )
 
-                    ds.aligned_new_image = ds.image
-
                     SCLogger.debug('loading aligned reference image from cache. ')
                     image_aligned_ref = copy_from_cache( Image, cache_dir, aligned_ref_cache_path, symlink=True )
                     image_aligned_ref.provenance_id = prov_aligned_ref.id
@@ -677,10 +669,15 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     #  (We've added bg and zp because specific tests need them.)
                     ds.aligned_ref_image = image_aligned_ref
 
+                    ds.aligned_ref_sources = copy_from_cache( SourceList, cache_dir, aligned_ref_sources_cache_path,
+                                                              symlink=True )
+                    ds.aligned_ref_psf = copy_from_cache( PSF, cache_dir, aligned_ref_psf_cache_path,
+                                                          symlink=True )
                     ds.aligned_ref_bg = copy_from_cache( Background, cache_dir, aligned_ref_bg_cache_path,
                                                          symlink=True )
                     ds.aligned_ref_zp = copy_from_cache( ZeroPoint, cache_dir, aligned_ref_zp_cache_path, symlink=True )
                     ds.aligned_new_image = ds.image
+                    ds.aligned_new_sources = ds.sources
                     ds.aligned_new_bg = ds.bg
                     ds.aligned_new_zp = ds.zp
 
@@ -720,6 +717,21 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if outpath.resolve() != aligned_ref_cache_path.resolve():
                         warnings.warn( f"Aligned ref cache path {outpath} "
                                        f"doesn't match expected {aligned_ref_cache_path}" )
+                    ds.aligned_ref_sources.filepath = str( filename_aligned_ref_sources )
+                    ds.aligned_ref_sources.save( no_archive=True )
+                    _ = ds.aligned_ref_sources.id
+                    outpath = copy_to_cache( ds.aligned_ref_sources, cache_dir,
+                                             filepath=aligned_ref_sources_cache_path )
+                    if outpath.resolve() != aligned_ref_sources_cache_path.resolve():
+                        warnings.warn( f"Aligned ref sources cache path {outpath} "
+                                       f"doesn't match expected {aligned_ref_sources_cache_path}" )
+                    ds.aligned_ref_psf.save( no_archive=True, filename=str( filename_aligned_ref_psf ) )
+                    _ = ds.aligned_ref_psf.id
+                    outpath = copy_to_cache( ds.aligned_ref_psf, cache_dir,
+                                             filepath=aligned_ref_psf_cache_path )
+                    if outpath.resolve() != aligned_ref_psf_cache_path.resolve():
+                        warnings.warn( f"Aligned ref psf cache path {outpath} "
+                                       f"doesn't match expected {aligned_ref_psf_cache_path}" )
                     _ = ds.aligned_ref_zp.id
                     outpath = copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=aligned_ref_zp_cache_path )
                     if outpath.resolve() != aligned_ref_zp_cache_path.resolve():
@@ -788,19 +800,27 @@ def datastore_factory(data_dir, pipeline_factory, request):
         ############ measuring to create measurements ############
 
         if 'measuring' in stepstodo:
+            measurement_set_cache_path = ( cache_dir / cache_sub_name.parent /
+                                           ( f'{cache_sub_name.name}.measurement_set_'
+                                             f'{ds.prov_tree["measuring"].id[:6]}.json' ) )
             all_measurements_cache_path = ( cache_dir / cache_sub_name.parent /
                                             ( f'{cache_sub_name.name}.all_measurements_'
                                               f'{ds.prov_tree["measuring"].id[:6]}.json' ) )
             measurements_cache_path = ( cache_dir / cache_sub_name.parent /
                                         f'{cache_sub_name.name}.measurements_{ds.prov_tree["measuring"].id[:6]}.json' )
 
-            SCLogger.debug( f'make_datastore searching cache for all measurements {all_measurements_cache_path} '
-                            f'and measurements {measurements_cache_path}' )
-            if use_cache and measurements_cache_path.is_file() and all_measurements_cache_path.is_file():
+            SCLogger.debug( 'make_datastore searching cache for measurements and associated' )
+            if ( use_cache and
+                 measurements_cache_path.is_file() and
+                 all_measurements_cache_path.is_file() and
+                 measurement_set_cache_path.is_file()
+                ):
                 SCLogger.debug( 'make_datastore loading measurements from cache.' )
-                ds.measurements = copy_list_from_cache(Measurements, cache_dir, measurements_cache_path)
-                [ setattr(m, 'provenance_id', ds.prov_tree['measuring'].id) for m in ds.measurements ]
-                [ setattr(m, 'cutouts_id', ds.cutouts.id) for m in ds.measurements ]
+                ds.measurement_set = copy_from_cache( MeasurementSet, cache_dir, measurement_set_cache_path )
+                ds.measurement_set.cutouts_id = ds.cutouts.id
+                ds.measurement_set.provenance_id = ds.prov_tree['measuring'].id
+                ds.measurement_set.measurements = copy_list_from_cache(Measurements, cache_dir, measurements_cache_path)
+                [ setattr(m, 'measurementset_id', ds.measurement_set.id) for m in ds.measurement_set.measurements ]
 
                 # Note that the actual measurement objects in the two lists
                 # won't be the same objects (they will be equivalent
@@ -810,7 +830,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # memory usage this shouldn't matter.
                 ds.all_measurements = copy_list_from_cache(Measurements, cache_dir, all_measurements_cache_path)
                 [ setattr(m, 'provenance_id', ds.prov_tree['measuring'].id) for m in ds.all_measurements ]
-                [ setattr(m, 'cutouts_id', ds.cutouts.id) for m in ds.all_measurements ]
 
                 # Because the Object association wasn't run, we have to do that manually
                 with Psycopg2Connection() as conn:
@@ -826,41 +845,34 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # assign each measurements an ID to be saved in cache - needed for scores cache
                 [m.id for m in ds.measurements]
                 if use_cache:
+                    copy_to_cache( ds.measurement_set, cache_dir, measurement_set_cache_path )
                     copy_list_to_cache(ds.all_measurements, cache_dir, all_measurements_cache_path)
                     copy_list_to_cache(ds.measurements, cache_dir, measurements_cache_path)
 
         if 'scoring' in stepstodo:
+            deepscore_set_cache_path = ( cache_dir / cache_sub_name.parent /
+                                         f'{cache_sub_name.name}.deepscore_set_{ds.prov_tree["scoring"].id[:6]}.json' )
             deepscores_cache_path = ( cache_dir / cache_sub_name.parent /
                                       f'{cache_sub_name.name}.deepscores_{ds.prov_tree["scoring"].id[:6]}.json' )
 
-            SCLogger.debug( f'make_datastore searching cache for deepscores {deepscores_cache_path}' )
-            needs_rerun = True
-            if use_cache and deepscores_cache_path.is_file():
-                # In order to load from cache, we must have the ability to point each score to
-                # the proper measurements. Currently, the only way I have to do this is using the
-                # score.measurements_id attribute, which requires that the measurements were also
-                # loaded from cache and have the same id as when the scores were saved.
-                SCLogger.debug( 'make_datastore checking measurement ids before loading scores from cache')
+            SCLogger.debug( f'make_datastore searching cache for deepscores {deepscores_cache_path} and '
+                            f'deepscore set {deepscore_set_cache_path}' )
+            if use_cache and deepscores_cache_path.is_file() and deepscore_set_cache_path.is_file():
+                deepscore_set = copy_from_cache( DeepScoreSet, cache_dir, deepscore_set_cache_path )
+                deepscore_set.measurementset_id = ds.measurement_set.id
+                deepscore_set.provenance_id = ds.prov_tree['scoring'].id
                 scores = copy_list_from_cache(DeepScore, cache_dir, deepscores_cache_path)
-                if ( set([str(score.measurements_id) for score in scores])
-                    .issubset(set([str(m.id) for m in ds.measurements])) ):
-                    SCLogger.debug( 'make_datastore loading scores from cache')
-                    ds.scores = scores
-                    [ setattr(score, 'provenance_id', ds.prov_tree['scoring'].id) for score in ds.scores ]
-                    # no need to set ids - we ensured they were loaded and preserved
-                    needs_rerun = False
-                else:
-                    SCLogger.debug( 'make_datastore failed to find same measurements and scores ids.')
-                    ds.scores = None
-
-            if needs_rerun: # cannot find scores on cache
+                deepscore_set.deepscores = scores
+                ds.deepscore_set = deepscore_set
+            else:
                 SCLogger.debug( "make_datastore running scorer to create scores" )
                 ds = p.scorer.run(ds)
                 ds.update_report( 'scoring' )
                 # assign each score an ID to be saved in cache
-                [sc.id for sc in ds.scores]
+                [sc.id for sc in ds.deepscores]
                 if use_cache:
-                    copy_list_to_cache(ds.scores, cache_dir, deepscores_cache_path)
+                    copy_to_cache( ds.deepscore_set, cache_dir, deepscore_set_cache_path )
+                    copy_list_to_cache( ds.deepscores, cache_dir, deepscores_cache_path )
 
         # If necessary, save the report to the cache
         if ( ( p._generate_report) and

@@ -4,7 +4,7 @@ import sqlalchemy as sa
 import uuid
 # import traceback
 
-from util.util import listify, asUUID
+from util.util import listify, asUUID, env_as_bool
 from util.logger import SCLogger
 
 from models.base import SmartSession, FileOnDiskMixin, FourCorners
@@ -18,9 +18,10 @@ from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference, image_subtraction_components
 from models.cutouts import Cutouts
-from models.measurements import Measurements
-from models.deepscore import DeepScore
+from models.measurements import Measurements, MeasurementSet
+from models.deepscore import DeepScore, DeepScoreSet
 from models.refset import RefSet
+from models.fakeset import FakeSet, FakeAnalysis
 
 # The products that are made at each processing step.
 # Usually it is only one, but sometimes there are multiple products for one step (e.g., extraction)
@@ -116,8 +117,10 @@ class DataStore:
         'sub_image',
         'detections',
         'cutouts',
-        'measurements',
-        'scores'
+        'measurement_set',
+        'deepscore_set',
+        'fakes',
+        'fakeanal'
     ]
 
     # these get cleared but not saved
@@ -140,6 +143,7 @@ class DataStore:
         'section_id',
         'image_id',
         'all_measurements',
+        'fakeanal',
         # Things specific to the zogy subtraction method
         'zogy_score',
         'zogy_alpha',
@@ -436,69 +440,112 @@ class DataStore:
     def cutouts( self, val ):
         if val is None:
             self._cutouts = None
-            self.measurements = None
+            self.measurement_set = None
         else:
             if self._detections is None:
                 raise RuntimeError( "Can't set DataStore cutouts until it has a detections" )
             if not isinstance( val, Cutouts ):
                 raise TypeError( f"DataStore.cutouts must be a Cutouts, not a {type(val)}" )
-            if ( ( self._measurements is not None ) and
-                 ( any( [ m.cutouts_id != val.id for m in self.measurements ] ) )
-                ):
-                raise ValueError( "Can't set a cutouts inconsistent with measurements" )
+            if ( self._measurement_set is not None ) and ( self._measurement_set.cutouts_id != val.id ):
+                raise ValueError( "Can't set a cutouts inconsistent with measurement set." )
             self._cutouts = val
             self._cutouts.detections_id = self._detections.id
 
     @property
-    def measurements( self ):
-        return self._measurements
+    def measurement_set( self ):
+        return self._measurement_set
 
-    @measurements.setter
-    def measurements( self, val ):
+    @measurement_set.setter
+    def measurement_set( self, val ):
         if val is None:
-            self._measurements = None
-            self.scores = None
+            self._measurement_set = None
+            self.deepscore_set = None
         else:
             if self._cutouts is None:
-                raise RuntimeError( "Can't set DataStore measurements until it has a cutouts" )
-            if not isinstance( val, list ):
-                raise TypeError( f"Datastore.measurements must be a list of Measurements, not a {type(val)}" )
-            wrongtypes = set( [ type(m) for m in val if not isinstance( m, Measurements ) ] )
-            if len(wrongtypes) > 0:
-                raise TypeError( f"Datastore.measurements must be a list of Measurements, but the passed list "
-                                 f"included {wrongtypes}" )
-            self._measurements = val
-            for m in self._measurements:
-                m.cutouts_id = self._cutouts.id
+                raise RuntimeError( "Can't set DataStore measurement_set until it has a cutouts" )
+            if not isinstance( val, MeasurementSet ):
+                raise TypeError( f"Datastore.measurement_set must be a MeasurementSet, not a {type(val)}" )
+            if ( self._deepscore_set is not None ) and ( self._deepscore_set.measurementset_id != val.id ):
+                raise ValueError( "Can't set a measurement_set inconsistent with deepscore_set" )
+            self._measurement_set = val
+            self._measurement_set.cutouts_id = self._cutouts.id
 
     @property
-    def scores( self ):
-        return self._scores
+    def measurements( self ):
+        if self.measurement_set is None:
+            return None
+        return self.measurement_set.measurements
 
-    @scores.setter
-    def scores( self, val ):
+
+    @property
+    def deepscore_set( self ):
+        return self._deepscore_set
+
+    @deepscore_set.setter
+    def deepscore_set( self, val ):
         if val is None:
-            self._scores = None
+            self._deepscore_set = None
         else:
-            if ( self._measurements is None ):
-                raise RuntimeError( " Can't set DataStore scores until it has measurements" )
-            if not isinstance( val, list ):
-                raise TypeError( f"Datastore.scores must be a list of scores, not a {type(val)}" )
-            wrongtypes = set( [ type(s) for s in val if not isinstance( s, DeepScore ) ] )
-            if len(wrongtypes) > 0:
-                raise TypeError( f"Datastore.scores must be a list of DeepScores, but the passed list "
-                                 f"included {wrongtypes}" )
+            if ( self._measurement_set is None ):
+                raise RuntimeError( "Can't set DataStore deepscore_set until it has a measurement_set" )
+            if not isinstance( val, DeepScoreSet ):
+                raise TypeError( f"Datastore.deepscore_set must be a DeepScoreSet, not a {type(val)}" )
 
             # ensure that there is a score for each measurement, otherwise reject
-            if ( len( val ) != len(self._measurements) ):
+            if ( len( val.deepscores ) != len( self.measurement_set.measurements ) ):
                 raise ValueError( "Score and measurements list not the same length" )
+            if not all( d.index_in_sources == m.index_in_sources
+                        for d, m in zip( val.deepscores, self.measurements ) ):
+                raise ValueError( "Score and measurements index_in_sources must match" )
 
-            # ensure that the scores relate to measurements in the datascore
-            if ( set([str(score.measurements_id) for score in val])
-                    .issubset(set([str(m.id) for m in self._measurements])) ):
-                self._scores = val
-            else:
-                raise RuntimeError( "Attempted to set scores corresponding to wrong measurements")
+            self._deepscore_set = val
+            self._deepscore_set.measurementset_id = self._measurement_set.id
+
+    @property
+    def deepscores( self ):
+        if self._deepscore_set is None:
+            return None
+        return self.deepscore_set.deepscores
+
+
+    @property
+    def fakes( self ):
+        return self._fakes
+
+    @fakes.setter
+    def fakes( self, val ):
+        if val is None:
+            self._fakes = None
+            self._fakeanal = None
+        else:
+            if self._zp is None:
+                raise RuntimeError( "Can't set DataStore fakes until it has a zp." )
+            if not isinstance( val, FakeSet ):
+                raise TypeError( f"DataStore.fakes must be a FakeSet, not a {type(val)}" )
+            if self._zp.id != val.zp_id:
+                raise ValueError( "Can't set a fakes inconsistent with zp" )
+            self._fakes = val
+
+    @property
+    def fakeanal( self ):
+        return self._fakeanal
+
+    @fakeanal.setter
+    def fakeanal( self, val ):
+        if val is None:
+            self._fakeanal = None
+        else:
+            if self._fakes is None:
+                raise RuntimeError( "Can't set DataStore fakeanal until it has fakes." )
+            if not isinstance( val, FakeAnalysis ):
+                raise TypeError( f"DataStore.fakeanal must be a FakeAnalysis, not a {type(val)}" )
+            if self._fakes.id != val.fakeset_id:
+                raise ValueError( "Can't set a fakeanal inconsistent with fakes" )
+            if val.orig_deepscore_set_id is None:
+                # No way to verify this, because the datastore doesn't have the original deescore set
+                raise ValueError( "fakeanal must have orig_deepscore_set_id set" )
+            self._fakeanal = val
+
 
     @staticmethod
     def from_args(*args, **kwargs):
@@ -612,9 +659,10 @@ class DataStore:
         self._sub_image = None  # subtracted image
         self._detections = None  # a SourceList object for sources detected in the subtraction image
         self._cutouts = None  # cutouts around sources
-        self._measurements = None  # photometry and other measurements for each source
-        self._objects = None  # a list of Object associations of Measurements
-        self._scores = None  # a list of r/b and ML/DL scores for Measurements
+        self._measurement_set = None  # photometry and other measurements for each source
+        self._deepscore_set = None  # a list of r/b and ML/DL scores for Measurements
+        self._fakes = None
+        self._fakeanal = None
 
         # these need to be added to the products_to_clear list
         self.reference = None
@@ -641,6 +689,10 @@ class DataStore:
         self.memory_usages = {}  # for each process step, the peak memory usage in MB
         self.products_committed = ''  # a comma separated list of object names (e.g., "image, sources") saved to DB
         self.report = None  # keep a reference to the report object for this run
+
+        # These are flags that tell processes running the data store some things to do nor not do
+        self.update_runtimes = True
+        self.update_memory_usages = env_as_bool( 'SEECHANGE_TRACEMALLOC' )
 
         self.parse_args(*args, **kwargs)
 
@@ -1562,7 +1614,7 @@ class DataStore:
         raise RuntimeError( "The code should never get to this line." )
 
 
-    def get_subtraction(self, provenance=None, reload=False, session=None):
+    def get_sub_image(self, provenance=None, reload=False, session=None):
         """Get a subtraction Image, either from memory or from database.
 
         If sub_image is not None, return that.  Otherwise, if
@@ -1655,28 +1707,51 @@ class DataStore:
         return self._get_data_product( "cutouts", Cutouts, "detections", Cutouts.sources_id, "cutting",
                                        provenance=provenance, reload=reload, session=session )
 
+    def get_measurement_set( self, provenance=None, reload=False, session=None ):
+        """Get the MeasurementsSet, either form memory, or from database."""
+        return self._get_data_product( "measurement_set", MeasurementSet, "cutouts", MeasurementSet.cutouts_id,
+                                       "measuring", is_list=False, provenance=provenance, reload=reload,
+                                       session=session  )
 
-    def get_measurements(self, provenance=None, reload=False, session=None):
-        """Get a list of Measurements, either from memory or from database."""
-        return self._get_data_product( "measurements", Measurements, "cutouts", Measurements.cutouts_id, "measuring",
-                                       is_list=True, provenance=provenance, reload=reload, session=session )
+    def get_deepscore_set( self, provenance=None, reload=False, session=None ):
+        """Get the DeepScore set, either from memory or from the database."""
+        return self._get_data_product( "deepscore_set", DeepScoreSet, "measurement_set",
+                                       DeepScoreSet.measurementset_id, "scoring", is_list=False,
+                                       provenance=provenance, reload=reload, session=session )
 
-    def get_scores(self, provenance=None, reload=False, session=None):
-        """Get a list of DeepScores, either from memory or from database"""
-        scores =  self._get_data_product( "scores", DeepScore, "measurements", DeepScore.measurements_id,
-                                      "scoring", is_list=True, upstream_is_list=True,
-                                      provenance=provenance, reload=reload, session=session)
+    def get_deepscores(self, provenance=None, reload=False, session=None):
+        """Get a list of DeepScores, either from memory or from database.
 
-        # sort the scores so the list order matches measurements
-        if scores is not None and len(scores) > 0:
+        By construction, will be sorted the same as self.measurements (by index_in_sources).
 
-            if len(scores) != len(self.measurements):
-                raise RuntimeError(f"get_scores found {len(scores)} scores for {len(self.measurements)} measurements")
+        """
+        return self.get_deepscore_set( self, provenance=provenance, reload=reload, session=session ).deepscores
 
-            m_ids = [str(m.id) for m in self.measurements]
-            scores.sort( key=lambda x: m_ids.index( str(x.measurements_id) ) )
+    def get_fakes( self, provenance=None, reload=False, session=None ):
+        """Get a FakeSet"""
 
-        return scores
+        return self._get_data_product( "fakes", FakeSet, "zp", FakeSet.zp_id, "fakeinjection",
+                                       match_prov=True, provenance=provenance, reload=reload, session=session )
+
+
+    def get_fakeanal( self, orig_deepscore_set_id, reload=False, session=None ):
+        if ( self._fakeanal is not None ) and ( not reload ):
+            return self._fakeanal
+
+        with SmartSession( session ) as session:
+            fakeset = self.get_fakes( session=session )
+            fakeanal = session.scalars( sa.select( FakeAnalysis )
+                                        .where( FakeAnalysis.fakeset_id == fakeset.id )
+                                        .where( FakeAnalysis.orig_deepscore_set_id == orig_deepscore_set_id )
+                                       ).all()
+            if len( fakeanal ) > 1:
+                raise RuntimeError( "This should never happen." )
+            elif len( fakeanal ) == 0:
+                self._fakeanal = None
+            else:
+                self._fakeanal = fakeanal
+
+        return self._fakeanal
 
 
     def get_all_data_products(self, output='dict', omit_exposure=False):
@@ -1750,10 +1825,14 @@ class DataStore:
         self.get_wcs( reload=reload )
         self.get_zp( reload=reload )
         self.get_reference( reload=reload )
-        self.get_subtraction( reload=reload )
+        self.get_sub_image( reload=reload )
         self.get_detections( reload=reload )
         self.get_cutouts( reload=reload )
-        self.get_measurements( reload=reload )
+        self.get_measurement_set( reload=reload )
+        _ = self.measurement_set.measurements   # Force the measurements to load
+        self.get_deespcore_set( reload=reload )
+        _ = self.deepscore_set.deepscores       # Force the deepscores to load
+
 
 
     def save_and_commit(self,
@@ -1849,6 +1928,7 @@ class DataStore:
             if isinstance( obj, FileOnDiskMixin ):
                 strio.write( f" with filepath {obj.filepath}" )
             elif isinstance( obj, list ):
+                raise RuntimeError( "There shouldn't be list objects any more; fix the code." )
                 strio.write( f" including types {set([type(i) for i in obj])}" )
             SCLogger.debug( strio.getvalue() )
 
@@ -1992,40 +2072,56 @@ class DataStore:
             self.cutouts.upsert( load_defaults=True )
             commits.append( 'cutouts' )
 
-        # track which score goes with which measurement
-        if ( ( ( self.measurements is not None ) and ( len(self.measurements) > 0 ) ) and
-             ( ( self.scores is not None ) and ( len(self.scores) > 0 ) ) ):
-
-            # make sure there is one score per measurement
-            if ( len( self.scores ) != len(self.measurements) ):
-                raise ValueError("Score and measurements list not the same length")
-
-            sm_index_list = []
-            m_ids = [str(m.id) for m in self.measurements]
-            for i, s in enumerate(self.scores):
-                if str(s.measurements_id) not in m_ids:
-                    raise ValueError("score points to nonexistant measurement")
-                sm_index_list.append(m_ids.index(str(s.measurements_id)))
-
         # measurements
-        if ( self.measurements is not None ) and ( len(self.measurements) > 0 ):
+        if self.measurement_set is not None:
             if self.cutouts is not None:
-                for m in self.measurements:
-                    m.cutouts_id = self.cutouts.id
-            Measurements.upsert_list( self.measurements, load_defaults=True )
+                self.measurement_set.cutouts_id = self.cutouts.id
             SCLogger.debug( "save_and_commit measurements" )
-            commits.append( 'measurements' )
+            self.measurement_set.upsert( load_defaults=True )
+            if len( self.measurement_set.measurements ) > 0:
+                for m in self.measurement_set.measurements:
+                    m.measurementset_id = self.measurement_set.id
+                Measurements.upsert_list( self.measurement_set.measurements, load_defaults=True )
+            commits.append( 'measurement_set' )
 
         # scores
-        if ( self.scores is not None ) and ( len(self.scores) > 0 ):
-            if ( self.measurements is not None ) and ( len(self.measurements) > 0 ):
-                for i, s in enumerate(self.scores):
-                    s.measurements_id = m_ids[sm_index_list[i]]
-            DeepScore.upsert_list( self.scores, load_defaults=True )
+        if self.deepscore_set is not None:
+            if self.measurement_set is not None:
+                self.deepscore_set.measurementset_id = self.measurement_set.id
             SCLogger.debug( "save_and_commit scores" )
-            commits.append( 'scores' )
+            self.deepscore_set.upsert( load_defaults=True )
+            if len( self.deepscore_set.deepscores ) > 0:
+                for d in self.deepscore_set.deepscores:
+                    d.deepscoreset_id = self.deepscore_set.id
+                DeepScore.upsert_list( self.deepscore_set.deepscores, load_defaults=True )
+            commits.append( 'deepscore_set' )
 
         self.products_committed = ",".join( commits )
+
+        # fakes
+        if self.fakes is not None:
+            if self.zp is not None:
+                self.fakes.zp_id = self.zp.id
+            SCLogger.debug( "save_and_commit fakes" )
+            self.fakes.upsert( load_defaults=True )
+            commits.append( "fakes" )
+
+        # fake analysis
+        if self.fakeanal is not None:
+            if self.fakes is not None:
+                self.fakeanal.fakeset_id = self.fakes.id
+            # NO!  Not setting orig_deepscore_set_id.  The deepscore set
+            #   in the DataStore is almost certainly *not* the original
+            #   deepscore set, but the one from the with-fakes
+            #   subtraction!  If somebody hasn't properly set
+            #   orig_deepscore_set_id, then we'll just get a database
+            #   error when we try to insert, which is fine.
+            #   pipeline/top_level.py does the right thing.
+            # if self.deepscore_set is not None:
+            #     self.fakeanal.orig_deepscore_set_id = ...uhoh
+            SCLogger.debug( "save_and_commit fakeanal" )
+            self.fakeanal.upsert( load_defaults=True )
+            commits.append( "fakeanal" )
 
 
     def delete_everything(self):
@@ -2101,6 +2197,7 @@ class DataStore:
             if self.exposure._header is not None:
                 self.exposure._header = None
 
+        # TODO : free() for fakes and fakeanal
         for prop in [ self._image, self.aligned_ref_image, self.aligned_new_image,
                       self.reference, self._sub_image,
                       self._bg, self.aligned_ref_bg, self.aligned_new_bg,
@@ -2109,6 +2206,11 @@ class DataStore:
                       self._wcs ]:
             if prop is not None:
                 prop.free()
+
+        if self.measurement_set is not None:
+            self.measurement_set._measurements = None
+        if self.deepscore_set is not None:
+            self.deepscore_set.deepscores = None
 
         if not not_zogy_specific_products:
             for prop in [ 'zogy_score', 'zogy_alpha', 'zogy_alpha_err', 'zogy_psf' ]:

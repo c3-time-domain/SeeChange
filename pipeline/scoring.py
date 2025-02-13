@@ -9,11 +9,10 @@ import torch
 
 import RBbot_inference
 
-from models.deepscore import DeepScore
+from models.deepscore import DeepScore, DeepScoreSet
 from models.enums_and_bitflags import DeepscoreAlgorithmConverter
 
 from util.config import Config
-from util.util import env_as_bool
 from util.logger import SCLogger
 
 
@@ -56,12 +55,7 @@ class Scorer:
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
 
-    def score_rbbot( self, ds, deepmodel, algo=None, prov=None, session=None ):
-        if prov is None:
-            raise ValueError( "provenance can't be None" )
-        if algo is None:
-            algo = self.pars.algorithm
-
+    def score_rbbot( self, ds, deepmodel, session=None ):
         if len(ds.measurements) == 0:
             SCLogger.debug( "No measurements, returning empty score list" )
             return []
@@ -120,9 +114,7 @@ class Scorer:
         SCLogger.debug( "Building DeepsScore objects" )
         scorelist = []
         for score, meas in zip( scores, ds.measurements ):
-            d = DeepScore.from_measurements( meas, provenance=prov )
-            d.algorithm = algo
-            d.score = score
+            d = DeepScore( index_in_sources=meas.index_in_sources, score=score )
             scorelist.append( d )
 
         SCLogger.debug( "score_rbbot done" )
@@ -141,7 +133,7 @@ class Scorer:
         try:
             ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_memory_usages:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -151,38 +143,41 @@ class Scorer:
             prov = ds.get_provenance('scoring', self.pars.get_critical_pars())
 
             # find the list of measurements
-            measurements = ds.get_measurements()
-            if measurements is None:
-                raise ValueError(
-                    f'Cannot find a measurements corresponding to '
-                    f'the datastore inputs: {ds.inputs_str}'
-                )
+            measurement_set = ds.get_measurement_set()
+            if measurement_set is None:
+                raise ValueError( f'Cannot find a measurement set corresponding to '
+                                  f'the datastore inputs: {ds.inputs_str}' )
+            measurements = measurement_set.measurements
 
             # find if these deepscores have already been made
-            scores = ds.get_scores( prov, reload=True )
+            deepscore_set = ds.get_deepscore_set( prov, reload=True )
 
-            if scores is None or len(scores) == 0:
+            if deepscore_set is not None:
+                scores = deepscore_set.deepscores
+            else:
                 self.has_recalculated = True
                 algo = self.pars.algorithm
+                deepscore_set = DeepScoreSet( measurementset_id=measurement_set.id,
+                                              provenance_id=prov.id,
+                                              algorithm=algo )
 
                 if ( algo == 'random' ) or ( algo =='allperfect' ):
                     scorelist = []
                     for m in measurements:
-                        d = DeepScore.from_measurements( m, provenance=prov )
-
+                        d = DeepScore( deepscoreset_id=deepscore_set.id, index_in_sources=m.index_in_sources )
                         if algo == 'random':
                             d.score = np.random.default_rng().random()
-                            d.algorithm = algo
 
                         elif algo == 'allperfect':
                             d.score = 1.0
-                            d.algorithm = algo
 
                         # add it to the list
                         scorelist.append( d )
 
                 elif algo[0:5] == 'RBbot':
-                    scorelist = self.score_rbbot( ds, algo, prov=prov )
+                    scorelist = self.score_rbbot( ds, algo )
+                    for score in scorelist:
+                        score.deepscoreset_id = deepscore_set.id
 
                 elif algo in DeepscoreAlgorithmConverter.dict_inverse:
                     raise NotImplementedError(f"algorithm {algo} isn't yet implemented")
@@ -193,30 +188,21 @@ class Scorer:
 
                 scores = scorelist
 
-            #   regardless of whether we loaded or calculated the scores, we need
-            # to update the bitflag
-
-            # NOTE: zip only works since get_scores ensures score are sorted to measurements
+            # NOTE: zip only works since deepscore and measurements both order themselves by index_in_sources
             for score, measurement in zip( scores, measurements ):
                 score._upstream_bitflag = 0
                 score._upstream_bitflag |= measurement.bitflag
 
-            # add the resulting scores to the ds
+            deepscore_set._upstream_bitflag = measurement_set.bitflag
+            for d in scores:
+                d._upstream_bitflag = measurement_set.bitflag
 
-            for score in scores:
-                if score.provenance_id is None:
-                    score.provenance_id = prov.id
-                else:
-                    if score.provenance_id != prov.id:
-                        raise ValueError(
-                                f'Provenance mismatch for cutout {score.provenance.id[:6]} '
-                                f'and preset provenance {prov.id[:6]}!'
-                            )
+            deepscore_set.deepscores = scores
+            ds.deepscore_set = deepscore_set
 
-            ds.scores = scores
-
-            ds.runtimes['scoring'] = time.perf_counter() - t_start
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_runtimes:
+                ds.runtimes['scoring'] = time.perf_counter() - t_start
+            if ds.update_memory_usages:
                 import tracemalloc
                 ds.memory_usages['scoring'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
 

@@ -15,6 +15,7 @@ from pipeline.detection import Detector
 from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
 from pipeline.scoring import Scorer
+from pipeline.fakeinjection import FakeInjector
 
 from models.base import SmartSession
 from models.exposure import Exposure
@@ -22,7 +23,6 @@ from models.report import Report
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import env_as_bool
 
 # describes the pipeline objects that are used to produce each step of the pipeline
 # if multiple objects are used in one step, replace the string with a sub-dictionary,
@@ -104,6 +104,18 @@ class ParsPipeline(Parameters):
             "any of preprocessing, backgrounding, extraction, wcs, zp, subtraction, detection, "
             "cutting, measuring, scoring",
             critical=False
+        )
+
+        self.inject_fakes = self.add_par(
+            'inject_fakes',
+            False,
+            bool,
+            "Inject fake transients on the image?  If true, fake injection is controlled by "
+            "the configuration of the pipeline/fakeinjection.py/FakeInjector object which is "
+            "configured by default from the fakeinjection dictionary in the config yaml file. "
+            "Fake injection will only happen if the set of steps to do goes through at least "
+            "scoring.",
+            critical=False             # Non-critical because it doesn't affect any of the non-fake downstreams!
         )
 
         self.generate_report = self.add_par(
@@ -195,7 +207,15 @@ class Pipeline:
         self.pars.add_defaults_to_dict(scoring_config)
         self.scorer = Scorer(**scoring_config)
 
-        # Other initializationj
+        # fake injection
+        # (Make the object even if self.pars.inject_fakes is false
+        # because one of our tests wants to use it.)
+        fakeinjection_config = config.value( 'fakeinjection', {} )
+        fakeinjection_config.update( kwargs.get( 'fakeinjection', {} ) )
+        self.pars.add_defaults_to_dict( fakeinjection_config )
+        self.fakeinjector = FakeInjector( **fakeinjection_config )
+
+        # Other initialization
         self._generate_report = self.pars.generate_report
 
     def override_parameters(self, **kwargs):
@@ -468,7 +488,7 @@ class Pipeline:
                 SCLogger.info(f"Pipeline starting with args {args}, kwargs {kwargs}, "
                               f"running through step {stepstodo[-1]}" )
 
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_memory_usages:
                 # ref: https://docs.python.org/3/library/tracemalloc.html#record-the-current-and-peak-size-of-all-traced-memory-blocks
                 import tracemalloc
                 tracemalloc.start()  # trace the size of memory that is being used
@@ -518,7 +538,8 @@ class Pipeline:
                         SCLogger.error(e)
                         raise e
 
-                    ds.runtimes['save_intermediate'] = time.perf_counter() - t_start
+                    if ds.update_runtimes:
+                        ds.runtimes['save_intermediate'] = time.perf_counter() - t_start
 
                 # fetch reference images and subtract them, save subtracted Image objects to DB and disk
                 if 'subtraction' in stepstodo:
@@ -561,7 +582,69 @@ class Pipeline:
                         SCLogger.error(e)
                         raise e
 
-                    ds.runtimes['save_final'] = time.perf_counter() - t_start
+                    if ds.update_runtimes:
+                        ds.runtimes['save_final'] = time.perf_counter() - t_start
+
+                # Parallel pipeline path for fake injection
+                if ( all( s in stepstodo
+                          for s in [ 'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ] )
+                     and ( self.pars.inject_fakes )
+                    ):
+                    t_start = time.perf_counter()
+                    if ds.update_memory_usages:
+                        import tracemalloc
+                        tracemalloc.reset_peak()   # start accounting for peak memory usage from here
+
+                    # Turn off runtime and memory usage tracking inside
+                    #  pipeline objects, because we want to do it as
+                    #  a block for fake analysis.
+                    orig_update_runtimes = ds.update_runtimes
+                    orig_update_memory_usages = ds.update_memory_usages
+                    try:
+                        ds.update_runtimes = False
+                        ds.update_memory_usages = False
+
+                        SCLogger.info( f"Injecting fakes on to image id {ds.image.id}" )
+                        fakeds = self.fakeinjector.run( ds )
+                        ds.fakes = fakeds.fakes
+                        if self.pars.save_at_finish:
+                            ds.fakes.save()
+                            ds.fakes.insert()
+
+                        SCLogger.info( f"Running subtraction with fake-injected image id {ds.image.id}" )
+                        fakeds = self.subtractor.run( fakeds )
+
+                        SCLogger.info( f"Running detection on fake-injected subtraction of image id {ds.image.id}" )
+                        fakeds = self.detector.run( fakeds )
+
+                        SCLogger.info( f"Running cutting on fake-injected subtraction of image id {ds.image.id}" )
+                        fakeds = self.cutter.run( fakeds )
+
+                        SCLogger.info( f"Running measuring on fake-injected subtraction of image id {ds.image.id}" )
+                        fakeds = self.measurer.run( fakeds )
+
+                        SCLogger.info( f"Running scoring of detections on fake-injected subtraction "
+                                       f"of image id {ds.image.id}" )
+                        fakeds = self.scorer.run( fakeds )
+
+                        SCLogger.info( f"Looking to see which fakes are detected on fake-injected subtraction "
+                                       f"of image id {ds.image.id}" )
+                        ds.fakeanal = self.fakeinjector.analyze_fakes( fakeds, ds )
+                        ds.fakeanal.orig_deepscore_set_id = ds.deepscore_set.id
+                        if self.pars.save_at_finish:
+                            ds.fakeanal.save()
+                            ds.fakeanal.insert()
+
+                        if orig_update_runtimes:
+                            ds.runtimes[ 'fakeanalysis' ] = time.perf_counter() - t_start
+                        if orig_update_memory_usages:
+                            import tracemalloc
+                            ds.memory_usages[ 'fakeanalysis' ] = tracemalloc.get_traced_memory()[1] / 1024**2  # in MiB
+
+                        ds.update_report( 'fakeanalysis' )
+                    finally:
+                        ds.update_runtimes = orig_update_runtimes
+                        ds.update_memory_usages = orig_update_memory_usages
 
                 ds.finalize_report()
 

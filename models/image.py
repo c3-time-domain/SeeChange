@@ -771,13 +771,27 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return new
 
     @classmethod
-    def copy_image(cls, image):
+    def copy_image (cls, image, no_copy_data=False ):
         """Make a new Image object with the same data as an existing Image object.
 
         This new object does not have a provenance.  It should be used
         only as a working copy, not to be saved back into the database.
         The filepath is set to None and should be manually set to a new
         (unique) value so as not to overwrite the original.
+
+        Parameters
+        ----------
+           image : Image
+             The Image to copy
+
+           no_copy_data : bool, default False
+             Normally, the new Image has its data field (...but not its
+             weight or flags field...) filled with a copy of image.data.
+             If this is True, leave that field as None.
+
+        Returns
+        -------
+          Image
 
         """
         copy_attributes = cls.saved_components + [
@@ -820,7 +834,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         new = cls()
         for att in copy_attributes:
             if att == 'image':
-                if image.data is not None:
+                if ( not no_copy_data ) and ( image.data is not None ):
                     new.data = image.data.copy()
                 else:
                     new.data = None

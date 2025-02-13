@@ -16,7 +16,8 @@ from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
-from models.measurements import Measurements
+from models.measurements import Measurements, MeasurementSet
+from models.deepscore import DeepScore, DeepScoreSet
 from models.report import Report
 
 from pipeline.data_store import DataStore
@@ -119,14 +120,35 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, ds):
         assert ds.cutouts.id == cutouts.id
 
         # Measurements
-        measurements = session.scalars(
-            sa.select(Measurements).where(
-                Measurements.cutouts_id == cutouts.id,
-                Measurements.provenance_id == ds.measurements[0].provenance_id,
-            )
-        ).all()
+        measurement_set = session.scalars( sa.select( MeasurementSet )
+                                           .where( MeasurementSet.cutouts_id == cutouts.id,
+                                                   MeasurementSet.provenance_id == ds.measurement_set.provenance_id )
+                                          ).first()
+        assert ds.measurement_set.id == measurement_set.id
+
+        measurements = session.scalars( sa.select( Measurements )
+                                        .where( Measurements.measurementset_id == measurement_set.id )
+                                        .order_by( Measurements.index_in_sources )
+                                       ).all()
         assert len(measurements) > 0
         assert len(ds.measurements) == len(measurements)
+        assert all( ds.measurements[i].id == measurements[i].id for i in range(len(measurements)) )
+
+        # deepscores
+        deepscore_set = session.scalars( sa.select( DeepScoreSet )
+                                         .where( DeepScoreSet.measurementset_id == measurement_set.id,
+                                                 DeepScoreSet.provenance_id == ds.deepscore_set.provenance_id )
+                                        ).first()
+        assert ds.deepscore_set.id == deepscore_set.id
+
+        deepscores = session.scalars( sa.select( DeepScore )
+                                      .where( DeepScore.deepscoreset_id == deepscore_set.id )
+                                      .order_by( DeepScore.index_in_sources )
+                                     ).all()
+        assert len(deepscores) == len(measurements)
+        assert all( d.index_in_sources == m.index_in_sources for d, m in zip( deepscores, measurements ) )
+        assert len(deepscores) == len(ds.deepscores)
+        assert all( d.id == dsd.id for d, dsd in zip( deepscores, ds.deepscores ) )
 
 
 def test_parameters( test_config ):
@@ -245,7 +267,7 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             check_datastore_and_database_have_everything(exposure.id, sec_id, ref.id, ds)
 
         # feed the pipeline the same data, but missing the upstream data.
-        attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements', 'scores']
+        attributes = ['image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurement_set', 'deepscore_set']
 
         # TODO : put in the loop below a verification that the processes were
         #   not rerun, but products were just loaded from the database
@@ -314,12 +336,12 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.sub_image._upstream_bitflag == 2
         assert ds.detections._upstream_bitflag == 2
         assert ds.cutouts._upstream_bitflag == 2
+        assert ds.measurement_set._upstream_bitflag == 2
         for m in ds.measurements:
             assert m._upstream_bitflag == 2
-        # ...why is ds.scores None?  Shouldn't the run
-        #   of the pipeline have run deepscoring?
-        # for s in ds.scores:
-        #     assert s._upstream_bitflag == 2
+        assert ds.deepscore_set._upstream_bitflag == 2
+        for d in ds.deepscores:
+            assert d._upstream_bitflag == 2
 
         # test part 2: Add a second bitflag partway through and check it propagates to downstreams
 
@@ -337,8 +359,8 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         ds.sub_image = None
         ds.detections = None
         ds.cutouts = None
-        ds.measurements = None
-        ds.scores = None
+        ds.measurement_set = None
+        ds.deepscore_set = None
 
         ds.sources._set_bitflag( 2 ** 17 )  # bitflag 2**17 is 'many sources'
         desired_bitflag = 2 ** 1 + 2 ** 17  # bitflag for 'banding' and 'many sources'
@@ -350,12 +372,12 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.sub_image._upstream_bitflag == desired_bitflag
         assert ds.detections._upstream_bitflag == desired_bitflag
         assert ds.cutouts._upstream_bitflag == desired_bitflag
+        assert ds.measurement_set._upstream_bitflag == desired_bitflag
         for m in ds.measurements:
             assert m._upstream_bitflag == desired_bitflag
-        # ...why is ds.scores None?  Shouldn't the run
-        #   of the pipeline have run deepscoring?
-        # for s in ds.scores:
-        #     assert s._upstream_bitflag == desired_bitflag
+        assert ds.deepscore_set._upstream_bitflag == desired_bitflag
+        for d in ds.deepscores:
+            assert d._upstream_bitflag == desired_bitflag
         assert ds.image.bitflag == 2  # not in the downstream of sources
 
         # test part 3: test update_downstream_badness() function by adding and removing flags
@@ -377,11 +399,15 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.get_psf( reload=True ).bitflag == desired_bitflag
         assert ds.get_wcs( reload=True ).bitflag == desired_bitflag
         assert ds.get_zp( reload=True ).bitflag == desired_bitflag
-        assert ds.get_subtraction( reload=True ).bitflag == desired_bitflag
+        assert ds.get_sub_image( reload=True ).bitflag == desired_bitflag
         assert ds.get_detections( reload=True ).bitflag == desired_bitflag
         assert ds.get_cutouts( reload=True ).bitflag == desired_bitflag
-        for m in ds.get_measurements( reload=True ):
+        assert ds.get_measurement_set( reload=True ).bitflag == desired_bitflag
+        for m in ds.measurements:
             assert m.bitflag == desired_bitflag
+        assert ds.get_deepscore_set( reload=True ).bitflag == desired_bitflag
+        for d in ds.deepscores:
+            assert d.bitflag == desired_bitflag
 
         # remove the bitflag and check that it disappears in downstreams
         ds.image._set_bitflag( 0 )  # remove 'bad subtraction'
@@ -394,11 +420,15 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.get_psf( reload=True ).bitflag == desired_bitflag
         assert ds.get_wcs( reload=True ).bitflag == desired_bitflag
         assert ds.get_zp( reload=True ).bitflag == desired_bitflag
-        assert ds.get_subtraction( reload=True ).bitflag == desired_bitflag
+        assert ds.get_sub_image( reload=True ).bitflag == desired_bitflag
         assert ds.get_detections( reload=True ).bitflag == desired_bitflag
         assert ds.get_cutouts( reload=True ).bitflag == desired_bitflag
-        for m in ds.get_measurements( reload=True ):
+        assert ds.get_measurement_set( reload=True ).bitflag == desired_bitflag
+        for m in ds.measurements:
             assert m.bitflag == desired_bitflag
+        assert ds.get_deepscore_set( reload=True ).bitflag == desired_bitflag
+        for d in ds.deepscores:
+            assert d.bitflag == desired_bitflag
 
 
         # TODO : adjust ds.sources's bitflag, and make sure that it
@@ -449,10 +479,15 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
                      == { ds.reference.id, ds.zp.id } )
             assert [upstream.id for upstream in ds.detections.get_upstreams(session=session)] == [ds.sub_image.id]
             assert [upstream.id for upstream in ds.cutouts.get_upstreams(session=session)] == [ds.detections.id]
-
+            assert [upstream.id for upstream in ds.measurement_set.get_upstreams(session=session)] == [ds.cutouts.id]
             for measurement in ds.measurements:
-                assert [upstream.id for upstream in measurement.get_upstreams(session=session)] == [ds.cutouts.id]
-
+                assert ( [upstream.id for upstream in measurement.get_upstreams(session=session)]
+                         == [ds.measurement_set.id] )
+            assert ( [upstream.id for upstream in ds.deepscore_set.get_upstreams(session=session)]
+                     == [ds.measurement_set.id] )
+            for deepscore in ds.deepscores:
+                assert ( [upstream.id for upstream in deepscore.get_upstreams(session=session)]
+                         == [ds.deepscore_set.id] )
 
             # test get_downstreams
             # When this test is run by itself, the exposure only has a
@@ -484,8 +519,18 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [downstream.id for downstream in ds.reference.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.sub_image.get_downstreams(session=session)] == [ds.detections.id]
             assert [downstream.id for downstream in ds.detections.get_downstreams(session=session)] == [ds.cutouts.id]
-            measurement_ids = set([measurement.id for measurement in ds.measurements])
-            assert set([downstream.id for downstream in ds.cutouts.get_downstreams(session=session)]) == measurement_ids
+            assert ( [downstream.id for downstream in ds.cutouts.get_downstreams(session=session)] ==
+                     [ds.measurement_set.id] )
+            ms_dstrs = set( measurement.id for measurement in ds.measurements )
+            ms_dstrs.add( ds.deepscore_set.id )
+            assert ( set( downstream.id for downstream in ds.measurement_set.get_downstreams(session=session) )
+                     == ms_dstrs )
+            assert all ( m.get_downstreams(session=session) == [] for m in ds.measurements )
+            ds_dstrs = set( deepscore.id for deepscore in ds.deepscores )
+            assert ( set( downstream.id for downstream in ds.deepscore_set.get_downstreams(session=session) )
+                     == ds_dstrs )
+            assert all( d.get_downstreams(session=session) == [] for d in ds.deepscores )
+
 
     finally:
         if 'ds' in locals():
@@ -538,7 +583,8 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
     assert ds.sub_image.provenance_id == provs['subtraction'].id
     assert ds.detections.provenance_id == provs['detection'].id
     assert ds.cutouts.provenance_id == provs['cutting'].id
-    assert ds.measurements[0].provenance_id == provs['measuring'].id
+    assert ds.measurement_set.provenance_id == provs['measuring'].id
+    assert ds.deepscore_set.provenance_id == provs['scoring'].id
 
     with SmartSession() as session:
         report = session.scalars(

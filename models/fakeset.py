@@ -5,6 +5,8 @@ import h5py
 
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
+from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.schema import UniqueConstraint
 
 from util.util import asUUID
 
@@ -13,6 +15,7 @@ from models.source_list import SourceList
 from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
+from models.deepscore import DeepScoreSet
 from models.base import (
     Base,
     SeeChangeBase,
@@ -388,4 +391,157 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
 
     def get_downstreams( self, sesson=None ):
         """fakeset has no downstreams; difference images with fakes should not be saved to the database.  I hope."""
+        return []
+
+
+
+class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
+    # Analysis of fakes
+    # Does not have a provenance because there will be exactly one FakeAnalyis for a (FakeSet, DeepScoreSet) pair.
+    # The parmeters that go into the FakeAnalysis will be in the FakeSet's provenance.
+
+    __tablename__ = 'fake_analysis'
+
+    @declared_attr
+    def __table_args__( cls ):  # noqa: N805
+        return (
+            UniqueConstraint( 'fakeset_id', 'orig_deepscore_set_id', name="fake_analysis_uic" ),
+        )
+
+    fakeset_id = sa.Column(
+        sa.ForeignKey( 'fake_sets._id', ondelete='CASCADE', name='fake_analysis_fake_sets_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc="ID of the fakeset that this is an analysis of"
+    )
+
+    orig_deepscore_set_id = sa.Column(
+        sa.ForeignKey( 'deepscore_sets._id', ondelete='CASCADE', name='fake_anal_deepscore_set_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc=( "ID of the deepscore set of the not-with-fakes subtraction.  This is an upstream of the "
+              "FakeAnalysis because the same pipeline parameters will have been run on the injected-fakes "
+              "image thorugh scoring, but none of those data products get saved.  Making the original "
+              "deepscore set an upstream uniqely associates this fake analysis with everything it "
+              "needs to be associated with." )
+    )
+
+    @property
+    def fakeset( self ):
+        if self._fakeset is None:
+            self._fakeset = FakeSet.get_by_id( self.fakeset_id )
+        return self._fakeset
+
+    @fakeset.setter
+    def fakeset( self, val ):
+        if not isinstance( val, FakeSet ):
+            raise TypeError( f"fakeset must be a FakeSet, not a {type(val)}" )
+        if self.fakeset_id != val.id:
+            raise ValueError( f"fakeset id {val.id} does not match fakeset_id {self.fakeset_id}" )
+        self._fakeset = val
+
+    def initdata( self ):
+        # Arrays of things that correspond to the arrays in self.fakeset
+        self.arrayprops = [
+            'is_detected',
+            'is_kept',
+            'is_bad',
+            'flux_psf',
+            'flux_psf_err',
+            'best_aperture',
+            'bkg_per_pix',
+            'center_x_pixel',
+            'center_y_pixel',
+            'x',
+            'y',
+            'gfit_x',
+            'gfit_y',
+            'major_width',
+            'minor_width',
+            'position_angle',
+            'psf_fit_flags',
+            'nbadpix',
+            'negfrac',
+            'negfluxfrac',
+            'deepscore_algorithm',
+            'score'
+        ]
+        for prop in self.arrayprops:
+            setattr( self, prop, None )
+
+    def __init__( self, *args, **kwargs ):
+        FileOnDiskMixin.__init__( self, *args, **kwargs )
+        SeeChangeBase.__init__( self )
+
+        self._fakeset = None
+        self.set_attributes_from_dict( kwargs )
+        self.initdata()
+
+    @orm.reconstructor
+    def init_on_load( self ):
+        SeeChangeBase.init_on_load( self )
+        FileOnDiskMixin.init_on_load( self )
+
+        self._fakeset = None
+        self.initdata()
+
+    def invent_filepath( self, fakeset=None, orig_deepscore_set=None, provenance=None ):
+        """Create a relative filepath for the object"""
+
+        fakeset = self.fakeset if fakeset is None else fakeset
+        if orig_deepscore_set is None:
+            orig_deepscore_set = DeepScoreSet.get_by_id( self.orig_deepscore_set_id )
+
+        if fakeset is None:
+            raise RuntimeError( "Can't invent a fakeanalysis filepath without a root fakeset" )
+        if orig_deepscore_set is None:
+            raise RuntimeError( "Can't invent a fakeanalysis filepath without a parent deepscore set" )
+
+        filepath = fakeset.filepath
+        if filepath is None:
+            filepath = fakeset.invent_filepath()
+        if filepath[-3:] == '.h5':
+            filepath = filepath[:-3]
+        filepath += "_deepscoreset_" + orig_deepscore_set.provenance_id[:6] + "_analysis.h5"
+
+        return filepath
+
+    def save( self, filename=None, **kwargs ):
+        if any( getattr( self, att ) is None for att in self.arrayprops ):
+            raise RuntimeError( "Can't save fakes analysis unless all properties are set." )
+        if filename is not None:
+            filename = pathlib.Path( filename )
+            if not filename.name.endswidth( ".h5" ):
+                filename = filename.parent / f"{filename.name}.h5"
+        elif self.filepath is not None:
+            filename = pathlib.Path( self.filepath )
+        else:
+            filename = pathlib.Path( self.invent_filepath() )
+        self.filepath = str( filename )
+
+        ofpath = pathlib.Path( self.local_path ) / filename
+
+        with h5py.File( ofpath, 'w' ) as h5f:
+            grp = h5f.create_group( 'fakeanal' )
+            for prop in self.arrayprops:
+                grp.create_dataset( prop, data=getattr( self, prop ) )
+
+
+    def load( self, download=True, always_verify_md5=False, filepath=None ):
+        if filepath is None:
+            filepath = self.get_fullpath( download=download, always_verify_md5=always_verify_md5, nofile=False )
+
+        with h5py.File( filepath, 'r' ) as h5f:
+            if 'fakeanal' not in h5f:
+                raise ValueError( "No fakeanal group found in file." )
+            for prop in self.arrayprops:
+                setattr( self, prop, h5f[f"fakeanal/{prop}"][:] )
+
+    def get_upstreams( self, session=None ):
+        with SmartSession( session ) as session:
+            return session.scalars( sa.select( DeepScoreSet )
+                                    .where( DeepScoreSet._id == self.orig_deepscore_set_id )
+                                   ).all()
+
+    def get_downstreams( self, session=None ):
         return []

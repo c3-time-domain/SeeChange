@@ -17,6 +17,10 @@ from pipeline.data_store import DataStore
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.image import Image
+from models.source_list import SourceList
+from models.psf import PSF
+from models.background import Background
+from models.zero_point import ZeroPoint
 from models.refset import RefSet
 
 from improc.zogy import zogy_subtract, zogy_add_weights_flags
@@ -24,7 +28,6 @@ from improc.inpainting import Inpainter
 from improc.alignment import ImageAligner
 from improc.tools import sigma_clipping
 
-from util.util import env_as_bool
 from util.fits import save_fits_image_file
 from util.logger import SCLogger
 from util.exceptions import SubprocessFailure
@@ -79,6 +82,15 @@ class ParsSubtractor(Parameters):
             dict,
             'Inpainting parameters. ',
             critical=True
+        )
+
+        self.trust_aligned_images = self.add_par(
+            'trust_aligned_images',
+            True,
+            bool,
+            "If a passed datastore has aligned_* properties with the right types of objects, "
+            "trust that they're the right thing and don't recalculate alignments.",
+            critical=False
         )
 
         self._enforce_no_new_attrs = True
@@ -561,7 +573,7 @@ class Subtractor:
         try:
             ds = DataStore.from_args(*args, **kwargs)
             t_start = time.perf_counter()
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_memory_usages:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
@@ -587,7 +599,7 @@ class Subtractor:
 
                 prov = ds.get_provenance('subtraction', self.pars.get_critical_pars())
 
-                if ds.get_subtraction( prov, session=session ) is None:
+                if ds.get_sub_image( prov, session=session ) is None:
                     self.has_recalculated = True
                     image = ds.get_image(session=session)
                     zp = ds.get_zp(session=session)
@@ -604,69 +616,88 @@ class Subtractor:
 
             if self.has_recalculated:
 
-                # Align the images
-                to_index = self.pars.alignment_index
-                aligner = ImageAligner(**self.pars.alignment)
-                if to_index == 'ref':
-                    SCLogger.error( "Aligning new to ref will violate assumptions in detection.py and measuring.py" )
-                    raise RuntimeError( "Aligning new to ref not supported; align ref to new instead" )
-
-                    for needed in [ ds.image, ds.sources, ds.bg, ds.wcs, ds.zp, ds.ref_image, ds.ref_sources ]:
-                        if needed is None:
-                            raise RuntimeError( "Not all data products needed for alignment to ref "
-                                                "are present in the DataStore" )
-
-                    ( aligned_image, aligned_sources,
-                      aligned_bg, aligned_psf ) = aligner.run( ds.image, ds.sources, ds.bg, ds.psf, ds.wcs, ds.zp,
-                                                               ds.ref_image, ds.ref_sources )
-                    ds.aligned_new_image = aligned_image
-                    ds.aligned_new_sources = aligned_sources
-                    ds.aligned_new_bg = aligned_bg
-                    ds.aligned_new_psf = aligned_psf
-                    ds.aligned_new_zp = ds.zp
-                    ds.aligned_ref_image = ds.ref_image
-                    ds.aligned_ref_sources = ds.ref_sources
-                    ds.aligned_ref_bg = ds.ref_bg
-                    ds.aligned_ref_psf = ds.ref_psf
-                    ds.aligned_ref_zp = ds.ref_zp
-                    ds.aligned_wcs = ds.ref_wcs
-
-                elif to_index == 'new':
-                    SCLogger.debug( "Aligning ref to new" )
-
-                    for needed in [ ds.ref_image, ds.ref_sources, ds.ref_bg, ds.ref_wcs, ds.ref_zp,
-                                    ds.image, ds.sources ]:
-                        if needed is None:
-                            raise RuntimeError( "Not all data products needed for alignment to new "
-                                                "are present in the DataStore" )
-
-                    ( aligned_image, aligned_sources,
-                      aligned_bg, aligned_psf ) = aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg,
-                                                               ds.ref_psf, ds.ref_wcs, ds.ref_zp,
-                                                               ds.image, ds.sources )
-                    ds.aligned_new_image = ds.image
-                    ds.aligned_new_sources = ds.sources
-                    ds.aligned_new_bg = ds.bg
-                    ds.aligned_new_psf = ds.psf
-                    ds.aligned_new_zp = ds.zp
-                    ds.aligned_ref_image = aligned_image
-                    ds.aligned_ref_sources = aligned_sources
-                    ds.aligned_ref_bg = aligned_bg
-                    ds.aligned_ref_psf = aligned_psf
-                    ds.aligned_ref_zp = ds.ref_zp
-                    ds.aligned_wcs = ds.wcs
-
-                    # We are going to make the aligned ref image as *not* a coadd, because
-                    #   it's not a direct coadd, it's a warp of another image.  Scary.  But,
-                    #   these don't generally get saved to the database, so it shouldn't matter.
-                    #   (The test fixtures do care about this, as it affects filename munging.)
-                    ds.aligned_ref_image.is_coadd = False
-
+                # See if we have to align the images
+                if ( self.pars.trust_aligned_images and
+                     isinstance( ds.aligned_new_image, Image ) and
+                     isinstance( ds.aligned_new_sources, SourceList ) and
+                     isinstance( ds.aligned_new_psf, PSF ) and
+                     isinstance( ds.aligned_new_bg, Background ) and
+                     isinstance( ds.aligned_new_zp, ZeroPoint ) and
+                     isinstance( ds.aligned_ref_image, Image ) and
+                     isinstance( ds.aligned_ref_sources, SourceList ) and
+                     isinstance( ds.aligned_ref_psf, PSF ) and
+                     isinstance( ds.aligned_ref_bg, Background ) and
+                     isinstance( ds.aligned_ref_zp, ZeroPoint )
+                    ):
+                    SCLogger.debug( "Aligned images already present, not recalculating them.")
                 else:
-                    raise ValueError( f"alignment_index must be ref or new, not {to_index}" )
+                    # Align the images
+                    to_index = self.pars.alignment_index
+                    aligner = ImageAligner(**self.pars.alignment)
+                    if to_index == 'ref':
+                        # In *lots* of places the code makes the assumption that we align the ref to the new.
+                        # If we ever want to be able to align the new to the ref, we have to go all the way
+                        # through the code and find every place it might affect.
+                        SCLogger.error( "Aligning new to ref will violate assumptions in detection.py,"
+                                        "measuring.py, fakeinjection.py, and probably elsewhere." )
+                        raise RuntimeError( "Aligning new to ref not supported; align ref to new instead" )
 
-                del aligner
-                ImageAligner.cleanup_temp_images()
+                        for needed in [ ds.image, ds.sources, ds.bg, ds.wcs, ds.zp, ds.ref_image, ds.ref_sources ]:
+                            if needed is None:
+                                raise RuntimeError( "Not all data products needed for alignment to ref "
+                                                    "are present in the DataStore" )
+
+                        ( aligned_image, aligned_sources,
+                          aligned_bg, aligned_psf ) = aligner.run( ds.image, ds.sources, ds.bg, ds.psf, ds.wcs, ds.zp,
+                                                                   ds.ref_image, ds.ref_sources )
+                        ds.aligned_new_image = aligned_image
+                        ds.aligned_new_sources = aligned_sources
+                        ds.aligned_new_bg = aligned_bg
+                        ds.aligned_new_psf = aligned_psf
+                        ds.aligned_new_zp = ds.get_zp()
+                        ds.aligned_ref_image = ds.ref_image
+                        ds.aligned_ref_sources = ds.ref_sources
+                        ds.aligned_ref_bg = ds.ref_bg
+                        ds.aligned_ref_psf = ds.ref_psf
+                        ds.aligned_ref_zp = ds.ref_zp
+                        ds.aligned_wcs = ds.ref_wcs
+
+                    elif to_index == 'new':
+                        SCLogger.debug( "Aligning ref to new" )
+
+                        for needed in [ ds.ref_image, ds.ref_sources, ds.ref_bg, ds.ref_wcs, ds.ref_zp,
+                                        ds.image, ds.sources ]:
+                            if needed is None:
+                                raise RuntimeError( "Not all data products needed for alignment to new "
+                                                    "are present in the DataStore" )
+
+                        ( aligned_image, aligned_sources,
+                          aligned_bg, aligned_psf ) = aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg,
+                                                                   ds.ref_psf, ds.ref_wcs, ds.ref_zp,
+                                                                   ds.image, ds.sources )
+                        ds.aligned_new_image = ds.image
+                        ds.aligned_new_sources = ds.get_sources()
+                        ds.aligned_new_bg = ds.get_background()
+                        ds.aligned_new_psf = ds.get_psf()
+                        ds.aligned_new_zp = ds.get_zp()
+                        ds.aligned_ref_image = aligned_image
+                        ds.aligned_ref_sources = aligned_sources
+                        ds.aligned_ref_bg = aligned_bg
+                        ds.aligned_ref_psf = aligned_psf
+                        ds.aligned_ref_zp = ds.ref_zp
+                        ds.aligned_wcs = ds.wcs
+
+                        # We are going to make the aligned ref image as *not* a coadd, because
+                        #   it's not a direct coadd, it's a warp of another image.  Scary.  But,
+                        #   these don't generally get saved to the database, so it shouldn't matter.
+                        #   (The test fixtures do care about this, as it affects filename munging.)
+                        ds.aligned_ref_image.is_coadd = False
+
+                    else:
+                        raise ValueError( f"alignment_index must be ref or new, not {to_index}" )
+
+                    del aligner
+                    ImageAligner.cleanup_temp_images()
 
                 SCLogger.debug( "Alignment complete" )
 
@@ -758,8 +789,9 @@ class Subtractor:
 
                 ds.sub_image = sub_image
 
-            ds.runtimes['subtraction'] = time.perf_counter() - t_start
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if ds.update_runtimes:
+                ds.runtimes['subtraction'] = time.perf_counter() - t_start
+            if ds.update_memory_usages:
                 import tracemalloc
                 ds.memory_usages['subtraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
