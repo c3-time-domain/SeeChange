@@ -463,7 +463,6 @@ class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
             'nbadpix',
             'negfrac',
             'negfluxfrac',
-            'is_bad',
             'deepscore_algorithm',
             'score'
         ]
@@ -486,23 +485,24 @@ class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
         self._fakeset = None
         self.initdata()
 
-    def invent_filepath( self, fakeset=None, provenance=None ):
+    def invent_filepath( self, fakeset=None, orig_deepscore_set=None, provenance=None ):
         """Create a relative filepath for the object"""
 
         fakeset = self.fakeset if fakeset is None else fakeset
-        provid = self.provenance_id if provenance is None else provenance.id
+        if orig_deepscore_set is None:
+            orig_deepscore_set = DeepScoreSet.get_by_id( self.orig_deepscore_set_id )
 
         if fakeset is None:
             raise RuntimeError( "Can't invent a fakeanalysis filepath without a root fakeset" )
-        if provid is None:
-            raise RuntimeError( "Can't invent a fakeanalysis filepath without a provenance id" )
+        if orig_deepscore_set is None:
+            raise RuntimeError( "Can't invent a fakeanalysis filepath without a parent deepscore set" )
 
         filepath = fakeset.filepath
         if filepath is None:
             filepath = fakeset.invent_filepath()
         if filepath[-3:] == '.h5':
             filepath = filepath[:-3]
-        filepath += ".analysis_" + provid[:6] + ".h5"
+        filepath += "_deepscoreset_" + orig_deepscore_set.provenance_id[:6] + "_analysis.h5"
 
         return filepath
 
@@ -513,18 +513,18 @@ class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
             filename = pathlib.Path( filename )
             if not filename.name.endswidth( ".h5" ):
                 filename = filename.parent / f"{filename.name}.h5"
-            elif self.filepath is not None:
-                filename = pathlib.Path( self.filepath )
-            else:
-                filename = pathlib.Path( self.invent_filepath() )
-            self.filepath = str( filename )
+        elif self.filepath is not None:
+            filename = pathlib.Path( self.filepath )
+        else:
+            filename = pathlib.Path( self.invent_filepath() )
+        self.filepath = str( filename )
 
         ofpath = pathlib.Path( self.local_path ) / filename
 
         with h5py.File( ofpath, 'w' ) as h5f:
             grp = h5f.create_group( 'fakeanal' )
             for prop in self.arrayprops:
-                grp.create_dataste( prop, data=getattr( self, prop ) )
+                grp.create_dataset( prop, data=getattr( self, prop ) )
 
 
     def load( self, download=True, always_verify_md5=False, filepath=None ):

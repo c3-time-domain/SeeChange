@@ -599,7 +599,7 @@ class Subtractor:
 
                 prov = ds.get_provenance('subtraction', self.pars.get_critical_pars())
 
-                if ds.get_subtraction( prov, session=session ) is None:
+                if ds.get_sub_image( prov, session=session ) is None:
                     self.has_recalculated = True
                     image = ds.get_image(session=session)
                     zp = ds.get_zp(session=session)

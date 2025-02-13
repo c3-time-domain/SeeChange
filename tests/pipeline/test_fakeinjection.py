@@ -1,7 +1,8 @@
 import pytest
+import pathlib
 import numpy as np
 
-from models.fakeset import FakeSet
+from models.fakeset import FakeSet, FakeAnalysis
 
 
 def test_hostless_fakeinjection( decam_datastore_through_zp, fakeinjector ):
@@ -172,8 +173,6 @@ def test_fake_analysis( decam_datastore ):
     ds._pipeline.fakeinjector.pars.host_minmag = -4.
     ds._pipeline.fakeinjector.pars.host_maxmag = 0.5
 
-    import pdb; pdb.set_trace()
-
     # This will be relatively fast, since all of the things before fake injection have
     #   already been run.  It will now just run the fake injection and analysis step
     #   as we set ds._pipeline.pars.inject_fakes to True.  (It should have defaulted
@@ -194,6 +193,15 @@ def test_fake_analysis( decam_datastore ):
     # (This test, perhaps, belongs in models/test_fakeset.py,
     # but that would probably mean running the fixture again,
     # so may as well put it here.)
+
+    filepath = pathlib.Path( ds.fakeanal.get_fullpath() )
+    assert filepath.is_file()
+    newanal = FakeAnalysis()
+    newanal.load( filepath=filepath, download=False, always_verify_md5=False )
+    for prop in newanal.arrayprops:
+        assert np.all( ( np.isclose( getattr( newanal, prop ), getattr( ds.fakeanal, prop ), rtol=1e-5, atol=0. ) )
+                         | ( np.isnan( getattr( newanal, prop ) ) & np.isnan( getattr( ds.fakeanal, prop ) ) ) )
+    del newanal
 
     # Check some actual values.  Things that weren't detected
     #   will have NaN in the fake analysis arrays, so chuck

@@ -276,11 +276,11 @@ class FakeInjector:
         ds = None
         try:
             t_start = time.perf_counter()
+            ds = DataStore.from_args( *args, **kwargs )
             if ds.update_memory_usages:
                 import tracemalloc
                 tracemalloc.reset_peak()
 
-            ds = DataStore.from_args( *args, **kwargs )
             image = ds.get_image()
             zp = ds.get_zp()
             if zp is None:
@@ -433,15 +433,17 @@ class FakeInjector:
         """
 
         fakesetprov = Provenance.get( ds.fakes.provenance_id )
-        origscoreprov = Provenance.get( origds.get_scores()[0].provenance_id )
+        origdeepscoresetprov = Provenance.get( origds.get_deepscore_set().provenance_id )
         prov = Provenance(
             code_version_id = fakesetprov.code_version_id,
             process = 'fakeanalysis',
             params={},
-            upstreams=[ fakesetprov, origscoreprov ]
+            upstreams=[ fakesetprov, origdeepscoresetprov ]
         )
         prov.insert_if_needed()
-        fakeanal = FakeAnalysis( fakset_id=ds.fakes.id, orig_scores_id=origds.scores.id, provenance_id=prov.id )
+        fakeanal = FakeAnalysis( fakeset_id=ds.fakes.id,
+                                 orig_deepscore_set_id=origds.deepscore_set.id,
+                                 provenance_id=prov.id )
         fakeanal.is_detected = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
         fakeanal.is_kept = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
         fakeanal.is_bad = np.full( ds.fakes.fake_x.shape, False, dtype=bool )
@@ -490,7 +492,7 @@ class FakeInjector:
             measmatch = measmatch[0]
 
             fakeanal.is_kept[ n ] = True
-            fakeanal.deepscore_algorithm[ n ] = ds.scores[ measmatch ]._algorithm
-            fakeanal.score[ n ] = ds.scores[ measmatch ].score
+            fakeanal.deepscore_algorithm[ n ] = ds.deepscore_set._algorithm
+            fakeanal.score[ n ] = ds.deepscores[ measmatch ].score
 
         return fakeanal

@@ -14,8 +14,8 @@ from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
-from models.measurements import Measurements
-from models.deepscore import DeepScore
+from models.measurements import MeasurementSet, Measurements
+from models.deepscore import DeepScore, DeepScoreSet
 from models.provenance import Provenance, ProvenanceTag
 
 from pipeline.data_store import DataStore, ProvenanceTree
@@ -295,14 +295,20 @@ def test_data_store( decam_datastore ):
     assert isinstance( ds.sub_image, Image )
     assert isinstance( ds.detections, SourceList )
     assert isinstance( ds.cutouts, Cutouts )
+    assert isinstance( ds.measurement_set, MeasurementSet )
+    assert ds.measurement_set.measurements == ds.measurements
     assert isinstance( ds.measurements, list )
-    assert all( [ isinstance( m, Measurements ) for m in ds.measurements ] )
+    assert all( isinstance( m, Measurements ) for m in ds.measurements )
     assert isinstance( ds.aligned_ref_image, Image )
     assert isinstance( ds.aligned_new_image, Image )
+    assert isinstance( ds.deepscore_set, DeepScoreSet )
+    assert ds.deepscore_set.deepscores == ds.deepscores
+    assert isinstance( ds.deepscores, list )
+    assert all( isinstance( d, DeepScore ) for d in ds.deepscores )
 
     # Test that if we set a property to None, the dependent properties cascade to None
 
-    props = [ 'image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurements' ]
+    props = [ 'image', 'sources', 'sub_image', 'detections', 'cutouts', 'measurement_set', 'deepscore_set' ]
     sourcesiblings = [ 'bg', 'psf', 'wcs', 'zp' ]
     origprops = { prop: getattr( ds, prop ) for prop in props }
     origprops.update( { prop: getattr( ds, prop ) for prop in sourcesiblings } )
@@ -373,8 +379,8 @@ def test_datastore_delete_everything(decam_datastore):
     det_path = det.get_fullpath()
     cutouts = decam_datastore.cutouts
     cutouts_file_path = cutouts.get_fullpath()
-    measurements_list = decam_datastore.measurements
-    scores_list = decam_datastore.scores
+    measurement_set = decam_datastore.measurement_set
+    deepscore_set = decam_datastore.deepscore_set
 
     # make sure we can delete everything
     decam_datastore.delete_everything()
@@ -403,9 +409,5 @@ def test_datastore_delete_everything(decam_datastore):
         assert session.scalars(sa.select(Image).where(Image._id == sub.id)).first() is None
         assert session.scalars(sa.select(SourceList).where(SourceList._id == det.id)).first() is None
         assert session.scalars(sa.select(Cutouts).where(Cutouts._id == cutouts.id)).first() is None
-        if len(measurements_list) > 0:
-            assert session.scalars(
-                sa.select(Measurements).where(Measurements._id == measurements_list[0].id)
-            ).first() is None
-        if len(scores_list) > 0:
-            assert session.scalars( sa.select(DeepScore).where(DeepScore._id == scores_list[0].id) ).first() is None
+        assert session.scalars(sa.select(MeasurementSet).where(MeasurementSet._id==measurement_set.id)).first() is None
+        assert session.scalars(sa.select(DeepScoreSet).where(DeepScoreSet._id==deepscore_set.id)).first() is None

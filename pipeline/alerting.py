@@ -179,7 +179,7 @@ class Alerting:
 
 
     def build_avro_alert_structures( self, ds, skip_bad=True ):
-        sub_image = ds.get_subtraction()
+        sub_image = ds.get_sub_image()
         image = ds.get_image()
         zp = ds.get_zp()
         detections = ds.get_detections()

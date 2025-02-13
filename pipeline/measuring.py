@@ -174,7 +174,7 @@ class Measurer:
             # get the provenance for this step:
             prov = ds.get_provenance('measuring', self.pars.get_critical_pars())
 
-            sub_image = ds.get_subtraction()
+            sub_image = ds.get_sub_image()
             if sub_image is None:
                 raise ValueError( "Can't perform measurements, DataStore is missing sub_image" )
 

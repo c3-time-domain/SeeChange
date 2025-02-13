@@ -462,7 +462,7 @@ class DataStore:
             self.deepscore_set = None
         else:
             if self._cutouts is None:
-                raise RuntimeError( "Can't set DataStore measurement set until it has a cutouts" )
+                raise RuntimeError( "Can't set DataStore measurement_set until it has a cutouts" )
             if not isinstance( val, MeasurementSet ):
                 raise TypeError( f"Datastore.measurement_set must be a MeasurementSet, not a {type(val)}" )
             if ( self._deepscore_set is not None ) and ( self._deepscore_set.measurementset_id != val.id ):
@@ -487,7 +487,7 @@ class DataStore:
             self._deepscore_set = None
         else:
             if ( self._measurement_set is None ):
-                raise RuntimeError( " Can't set DataStore deepscore set until it has a measurement set" )
+                raise RuntimeError( "Can't set DataStore deepscore_set until it has a measurement_set" )
             if not isinstance( val, DeepScoreSet ):
                 raise TypeError( f"Datastore.deepscore_set must be a DeepScoreSet, not a {type(val)}" )
 
@@ -1614,7 +1614,7 @@ class DataStore:
         raise RuntimeError( "The code should never get to this line." )
 
 
-    def get_subtraction(self, provenance=None, reload=False, session=None):
+    def get_sub_image(self, provenance=None, reload=False, session=None):
         """Get a subtraction Image, either from memory or from database.
 
         If sub_image is not None, return that.  Otherwise, if
@@ -1825,7 +1825,7 @@ class DataStore:
         self.get_wcs( reload=reload )
         self.get_zp( reload=reload )
         self.get_reference( reload=reload )
-        self.get_subtraction( reload=reload )
+        self.get_sub_image( reload=reload )
         self.get_detections( reload=reload )
         self.get_cutouts( reload=reload )
         self.get_measurement_set( reload=reload )

@@ -377,7 +377,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.get_psf( reload=True ).bitflag == desired_bitflag
         assert ds.get_wcs( reload=True ).bitflag == desired_bitflag
         assert ds.get_zp( reload=True ).bitflag == desired_bitflag
-        assert ds.get_subtraction( reload=True ).bitflag == desired_bitflag
+        assert ds.get_sub_image( reload=True ).bitflag == desired_bitflag
         assert ds.get_detections( reload=True ).bitflag == desired_bitflag
         assert ds.get_cutouts( reload=True ).bitflag == desired_bitflag
         for m in ds.get_measurements( reload=True ):
@@ -394,7 +394,7 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         assert ds.get_psf( reload=True ).bitflag == desired_bitflag
         assert ds.get_wcs( reload=True ).bitflag == desired_bitflag
         assert ds.get_zp( reload=True ).bitflag == desired_bitflag
-        assert ds.get_subtraction( reload=True ).bitflag == desired_bitflag
+        assert ds.get_sub_image( reload=True ).bitflag == desired_bitflag
         assert ds.get_detections( reload=True ).bitflag == desired_bitflag
         assert ds.get_cutouts( reload=True ).bitflag == desired_bitflag
         for m in ds.get_measurements( reload=True ):
