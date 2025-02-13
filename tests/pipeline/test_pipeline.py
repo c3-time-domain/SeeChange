@@ -486,7 +486,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert ( [upstream.id for upstream in ds.deepscore_set.get_upstreams(session=session)]
                      == [ds.measurement_set.id] )
             for deepscore in ds.deepscores:
-                assert ( upstream.id for upstream in deepscore.get_upstreams(session=session)
+                assert ( [upstream.id for upstream in deepscore.get_upstreams(session=session)]
                          == [ds.deepscore_set.id] )
 
             # test get_downstreams
@@ -526,8 +526,8 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert ( set( downstream.id for downstream in ds.measurement_set.get_downstreams(session=session) )
                      == ms_dstrs )
             assert all ( m.get_downstreams(session=session) == [] for m in ds.measurements )
-            ds_dstrs = set( deepscore.id for deepscore in ds.measurements )
-            assert ( set( downstream.id for downstream in ds.downstream_set.get_downstreams(session=session) )
+            ds_dstrs = set( deepscore.id for deepscore in ds.deepscores )
+            assert ( set( downstream.id for downstream in ds.deepscore_set.get_downstreams(session=session) )
                      == ds_dstrs )
             assert all( d.get_downstreams(session=session) == [] for d in ds.deepscores )
 
