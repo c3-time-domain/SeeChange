@@ -1570,11 +1570,17 @@ class DataStore:
                 #   randomly_pick_if_multiple=False edge case.
                 if ( not multiple_ok ) and ( min_overlap is not None ) and ( min_overlap > 0 ):
                     self.reference = None
-                    raise RuntimeError( f"More than one reference overlapped the image by at least {min_overlap}" )
+                    strio = io.StringIO()
+                    strio.write( f"More than one reference overlapped the image by at least {min_overlap}:\n" )
+                    for oopsi in sortdex:
+                        strio.write( f"  {ovfrac[oopsi]:.2f} : ref {refs[oopsi]._id}  img {imgs[oopsi].filepath}\n" )
+                    raise RuntimeError( strio.getvalue() )
+
                 if ( not randomly_pick_if_multiple ) and ( ovfrac[sortdex[0]] == ovfrac[sortdex[1]] ):
                     self.reference = None
                     raise RuntimeError( f"More than one reference had exactly the same overlap of "
                                         f"{ovfrac[sortdex[0]]}" )
+
                 self.reference = refs[ sortdex[0] ]
                 return self.reference
 

@@ -816,7 +816,25 @@ class Detector:
                         timeout=self.pars.sextractor_timeout
                     )
                     if res.returncode == 0:
-                        fwhmmaxtotry = [ fwhmmax ]
+                        success = True
+                        psfxml = votable.parse( psfxmlfile )
+                        psfstats = psfxml.get_table_by_index( 1 )
+                        last_psf_sampling = psf_sampling
+                        psf_sampling = psfstats.array['Sampling_Mean'][0]
+                        if psf_sampling <= 0:
+                            psf_sampling = last_psf_sampling
+                            success = False
+                        if success and ( psf_size is None ):
+                            last_usepsfsize = usepsfsize
+                            usepsfsize = int( np.ceil( psfstats.array['FWHM_FromFluxRadius_Mean'][0] * 5. ) )
+                            if usepsfsize <= 0:
+                                success = False
+                                usepsfsize = last_usepsfsize
+                            elif usepsfsize % 2 == 0:
+                                usepsfsize += 1
+                        if success:
+                            fwhmmaxtotry = [ fwhmmax ]
+                    if success:
                         break
                     else:
                         if fwhmmaxdex == len(fwhmmaxtotry) - 1:
@@ -826,13 +844,6 @@ class Detector:
                             raise RuntimeError( "Repeated failures from psfex call" )
                         SCLogger.warning( f"psfex failed with fwhmmax={fwhmmax}, trying {fwhmmaxtotry[fwhmmaxdex+1]}" )
 
-                psfxml = votable.parse( psfxmlfile )
-                psfstats = psfxml.get_table_by_index( 1 )
-                psf_sampling = psfstats.array['Sampling_Mean'][0]
-                if psf_size is None:
-                    usepsfsize = int( np.ceil( psfstats.array['FWHM_FromFluxRadius_Mean'][0] * 5. ) )
-                    if usepsfsize % 2 == 0:
-                        usepsfsize += 1
 
             psf = PSF( format="psfex", fwhm_pixels=float(psfstats.array['FWHM_FromFluxRadius_Mean'][0]) )
             psf.load( psfpath=psffile, psfxmlpath=psfxmlfile )

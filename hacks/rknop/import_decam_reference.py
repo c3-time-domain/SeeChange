@@ -1,5 +1,6 @@
 import argparse
 import uuid
+import pathlib
 
 import numpy
 
@@ -34,7 +35,8 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
                              upstreams=[] )
     image_prov.insert_if_needed()
 
-    SCLogger.info( "Reading image" )
+    SCLogger.info( f"Reading image {pathlib.Path(image).name}, weight {pathlib.Path(weight).name}, "
+                   f"and bpm {pathlib.Path(mask).name}" )
 
     with fits.open( image ) as img, fits.open( weight ) as wgt, fits.open( mask) as msk:
         img_hdr = img[ hdu ].header
@@ -89,7 +91,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
                    exp_time=img_hdr['EXPTIME'], # (same comment)
                    instrument='DECam',
                    telescope='CTIO-4m',
-                   filter=img_hdr['FILTER'],
+                   filter=img_hdr['FILTER'][0],
                    section_id=section_id,
                    project='DECAT-DDF',
                    target=target,
@@ -130,7 +132,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
     pipeline = Pipeline( pipeline={ 'provenance_tag': 'DECam_manual_refs',
                                     'through_step': 'zp',
                                     'generate_report': False } )
-    ds.prov_tree = pipeline.make_provenance_tree( image, ok_no_ref_prov=True )
+    ds.prov_tree = pipeline.make_provenance_tree( ds, ok_no_ref_prov=True, no_provtag=True )
 
     # Have to manually run the pipeline steps because pipeline.run()
     #   as it currently exists depends on starting from an Exposure
@@ -156,7 +158,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
 
     reference_prov = Provenance( process='manual_reference',
                                  parameters={},
-                                 upstreams=[image_prov, ds.prov_tree['extraction']] )
+                                 upstreams=[ds.prov_tree['zp']] )
     reference_prov.insert_if_needed()
 
     with Psycopg2Connection() as conn:
@@ -176,8 +178,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
                 raise ValueError( f"Refset {refset} provenance {row[1]} doesn't match "
                                   f"reference_prov.id {reference_prov.id}" )
 
-    ref = Reference( image_id=ds.image.id,
-                     sources_id=ds.sources.id,
+    ref = Reference( zp_id=ds.zp.id,
                      provenance_id=reference_prov.id )
     ref.insert()
 

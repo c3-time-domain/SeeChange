@@ -515,7 +515,12 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
         # wanted.  It can't handle any nans, and it wants a 1/σ image it
         # calls weight (yes, 1/σ, not 1/σ²).
         gcutout = np.copy( cutout ) - m.bkg_per_pix
-        bad = ( cutout_mask ) | ( np.isnan( gcutout ) ) | ( cutout_noise <= 0. ) | ( np.isnan(cutout_noise) )
+        bad = ( ( cutout_mask ) |
+                ( np.isnan( gcutout ) ) |
+                ( np.isinf( gcutout ) ) |
+                ( cutout_noise <= 0. ) |
+                ( np.isnan( cutout_noise ) ) |
+                ( np.isinf( cutout_noise ) ) )
         gcutout[ bad ] = 0.
         gcutout_weight = 1. / cutout_noise
         gcutout_weight[ bad ] = 0.
@@ -527,28 +532,42 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
         initgauss.y_fwhm.fixed = False
         initgauss.theta.fixed = False
         gfitter = astropy.modeling.fitting.TRFLSQFitter()
-        fitgauss = gfitter( initgauss, xvals, yvals, gcutout, weights=gcutout_weight )
-
-        theta = fitgauss.theta.value * np.pi / 180.
-        m.gfit_x = fitgauss.x_0.value + m.center_x_pixel - cutout.shape[1] // 2
-        m.gfit_y = fitgauss.y_0.value + m.center_y_pixel - cutout.shape[0] // 2
-        if fitgauss.x_fwhm > fitgauss.y_fwhm:
-            m.major_width = fitgauss.x_fwhm.value
-            m.minor_width = fitgauss.y_fwhm.value
-            theta -= np.pi/2.
-        else:
-            m.major_width = fitgauss.y_fwhm.value
-            m.minor_width = fitgauss.x_fwhm.value
-        # Try to make theta betwen -π/2 and π/2.
-        while theta >= np.pi:
-            theta -= 2. * np.pi
-        while theta < -np.pi:
-            theta += 2. * np.pi
-        if theta > np.pi/2:
-            theta -= np.pi
-        if theta <= -np.pi/2.:
-            theta += np.pi
-        m.position_angle = theta
+        try:
+            fitgauss = gfitter( initgauss, xvals, yvals, gcutout, weights=gcutout_weight )
+            theta = fitgauss.theta.value * np.pi / 180.
+            m.gfit_x = fitgauss.x_0.value + m.center_x_pixel - cutout.shape[1] // 2
+            m.gfit_y = fitgauss.y_0.value + m.center_y_pixel - cutout.shape[0] // 2
+            if fitgauss.x_fwhm > fitgauss.y_fwhm:
+                m.major_width = fitgauss.x_fwhm.value
+                m.minor_width = fitgauss.y_fwhm.value
+                theta -= np.pi/2.
+            else:
+                m.major_width = fitgauss.y_fwhm.value
+                m.minor_width = fitgauss.x_fwhm.value
+            # Try to make theta betwen -π/2 and π/2.
+            while theta >= np.pi:
+                theta -= 2. * np.pi
+            while theta < -np.pi:
+                theta += 2. * np.pi
+            if theta > np.pi/2:
+                theta -= np.pi
+            if theta <= -np.pi/2.:
+                theta += np.pi
+            m.position_angle = theta
+        except Exception:
+            # Sometimes the gaussian fitter fails.  I'm getting
+            #   exceptions saying that there are nan or inf values, but
+            #   I'm not seeing it when I look at the actual contents of
+            #   the array, so I don't know what's going on.  We're just
+            #   going to assume that this is a pathological case where
+            #   things are bad anyway and just fill in some values that
+            #   probably fail any cuts. It would be better to set a flag
+            #   saying the gaussian fit failed.  See Issue #422
+            m.gfit_x = -9999
+            m.gfit_y = -9999
+            m.major_width = 0.
+            m.minor_width = 0.
+            m.position_angle = 0.
 
         # Figure out positions on cutouts for the bad pixel and negative fraction diagnostics
         ixc = int( np.round( m.x ) - m.center_x_pixel + ( cutouts[i].shape[1] // 2 ) )

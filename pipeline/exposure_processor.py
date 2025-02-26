@@ -1,11 +1,20 @@
+import argparse
 import re
+import datetime
 import multiprocessing
 import multiprocessing.pool
 import logging
+import psutil
+
+import psycopg2
+import psycopg2.extras
 
 from util.logger import SCLogger
+from util.util import asUUID
 
+from models.base import Psycopg2Connection
 from models.instrument import get_instrument_instance
+from models.exposure import Exposure
 
 # Importing this because otherwise when I try to do something completly
 # unrelated to Object or Measurements, sqlalchemy starts objecting about
@@ -79,6 +88,12 @@ class ExposureProcessor:
         #   *Ideally* no data was loaded, only headers, so the amount of memory used is
         #   not significant, but we should investigate/verify this, and deal with it if
         #   that is not the case.
+
+    def set_existing_exposure( self, exposure_id ):
+        self.exposure = Exposure.get_by_id( exposure_id )
+        if self.exposure is None:
+            raise ValueError( f"Unknown exposure {exposure_id}" )
+
 
     def processchip( self, chip ):
         """Process a single chip of the exposure through the top level pipeline.
@@ -157,3 +172,138 @@ class ExposureProcessor:
                        f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
         SCLogger.info( f"Succeeded (maybe): {succeeded}" )
         SCLogger.info( f"Failed (definitely): {failed}" )
+
+
+# ======================================================================
+
+def main():
+    parser = argparse.ArgumentParser( 'exposure_processor', 'process a single known exposure' )
+    parser.add_argument( 'instrument', help='Name of the instrument of the known exposure' )
+    parser.add_argument( 'identifier', help='Identifier of the known exposure' )
+    parser.add_argument( '-c', '--cluster-id', default="manual",
+                         help="Cluster ID to mark as claiming the exposure in the knownexposures table" )
+    parser.add_argument( '-n', '--numprocs', default=None, type=int,
+                         help=( "Number of chip processors to run (defaults to number of physical "
+                                "system CPUs minus 1" ) )
+    parser.add_argument( '-t', '--through-step', default=None, help="Process through this step" )
+    parser.add_argument( '--chips', default=None, nargs='+', help="Only do these sensor sections (defaults to all)" )
+    parser.add_argument( '--cont', '--continue', default=False, action='store_true',
+                         help="If exposure already exists, try continuing it." )
+    parser.add_argument( '-d', '--delete', default=False, action='store_true',
+                         help="Delete exposure from disk and database before starting if it exists." )
+    parser.add_argument( '--really-delete', default=False, action='store_true',
+                         help="Must be specified if -d or --delete is specified for it to do its dirty work." )
+    parser.add_argument( '-l', '--log-level', default='warning',
+                         help="Log level (error, warning, info, or debug) (defaults to warning" )
+
+    args = parser.parse_args()
+
+    loglookup = { 'error': logging.ERROR,
+                  'warning': logging.WARNING,
+                  'info': logging.INFO,
+                  'debug': logging.DEBUG }
+    if args.log_level.lower() not in loglookup.keys():
+        raise ValueError( f"Unknown log level {args.log_level}" )
+    SCLogger.setLevel( loglookup[ args.log_level.lower() ] )
+
+    # Try to get the known exposure
+
+    instrument = None
+    identifier = None
+    exposureid = None
+    exposure_to_delete = None
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
+        cursor.execute( "LOCK TABLE knownexposures" )
+        cursor.execute( "SELECT * FROM knownexposures WHERE instrument=%(inst)s AND identifier=%(iden)s",
+                        { 'inst': args.instrument, 'iden': args.identifier } )
+        rows = cursor.fetchall()
+        if len(rows) == 0:
+            raise ValueError( f"Unknown known exposure with instrument {args.instrument} "
+                              f"and identifier {args.identifier}" )
+        if len(rows) > 1:
+            raise ValueError( f"Multiple known exposures with instrument {args.instrument} "
+                              f"and identifier {args.identifier}" )
+        row = rows[0]
+
+        if ( row['cluster_id'] is not None ) or ( row['claim_time'] is not None ):
+            raise RuntimeError( f"Known exposure with instrument {args.instrument} "
+                                f"and identifier {args.identifier} is claimed by "
+                                f"{row['cluster_id']} at {row['claim_time']}" )
+        instrument = row['instrument']
+        identifier = row['identifier']
+        params = {} if row['params'] is None else row['params']
+
+        # Check to see if the exposure already exists
+        cursor.execute( "SELECT _id FROM exposures WHERE instrument=%(inst)s AND origin_identifier=%(iden)s",
+                        { 'inst': args.instrument, 'iden': args.identifier } )
+        rows = cursor.fetchall()
+        if len(rows) > 1:
+            raise RuntimeError( f"Database corruption, multiple exposures with instrument {args.instrument} "
+                                f"and identifier {args.identifier}" )
+        if len(rows) == 1:
+            exposureid = asUUID( rows[0]['_id'] )
+
+        if exposureid is not None:
+            if args.delete and args.really_delete:
+                SCLogger.warning( f"There's already an exposure associated with instrument {args.instrument} "
+                                  f"and identifier {args.identifier}.  You specified --delete and --really-delete, "
+                                  f"so we will try to delete it...." )
+                exposure_to_delete = exposureid
+                exposureid = None
+            elif args.cont:
+                SCLogger.warning( f"There's already an exposure associated with instrument {args.instrument} "
+                                  f"and identifier {args.identifier}.  You specified --continue, so running "
+                                  f"the pipeline in hopes that picking up partway through really works." )
+            else:
+                raise ValueError( f"There's already an exposure associated with instrument {args.instrument} "
+                                  f"and identifier {args.identifier}, but you specified neither "
+                                  f"--continue nor --delete." )
+
+        cursor.execute( "UPDATE knownexposures SET cluster_id=%(clust)s, claim_time=%(t)s, exposure_id=%(exp)s "
+                        "WHERE instrument=%(inst)s AND identifier=%(iden)s",
+                        { 'inst': args.instrument,
+                          'iden': args.identifier,
+                          'clust': args.cluster_id,
+                          't': datetime.datetime.now( tz=datetime.UTC ),
+                          'exp': str(exposureid)
+                         } )
+        conn.commit()
+
+    # If we got this far, we have a known exposure to process, so process it
+
+    # Blow away existing exposure if user was foolish enough to request that
+    if exposure_to_delete is not None:
+        SCLogger.warning( f"Deleting exposure {exposure_to_delete} from disk and database!..." )
+        exposure = Exposure.get_by_id( exposure_to_delete )
+        exposure.delete_from_disk_and_database()
+        SCLogger.warning( "...done deleting exposure from disk and database." )
+
+    # Process the exposure
+    numprocs = args.numprocs if args.numprocs is not None else ( psutil.cpu_count( logical=False ) -1  )
+    SCLogger.info( f"Running with {numprocs} chip processors" )
+
+    processor = ExposureProcessor( instrument, identifier, params, numprocs,
+                                   onlychips=args.chips,
+                                   through_step=args.through_step,
+                                   worker_log_level=loglookup[args.log_level.lower()] )
+    if exposureid is None:
+        processor.download_and_load_exposure()
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "UPDATE knownexposures SET exposure_id=%(expid)s "
+                            "WHERE instrument=%(inst)s AND identifier=%(iden)s",
+                            { 'inst': args.instrument,
+                              'iden': args.idnetifier,
+                              'expid': str(processor.exposure.id) }
+                           )
+            conn.commit()
+    else:
+        processor.set_existing_exposure( exposureid )
+
+    processor()
+
+
+# ======================================================================
+if __name__ == "__main__":
+    main()

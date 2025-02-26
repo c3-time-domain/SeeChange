@@ -588,9 +588,13 @@ class Subtractor:
                 if refset is None:
                     raise ValueError(f'Cannot find a reference set with name {self.pars.refset}')
 
-                # TODO: we can add additional parameters of get_reference() that come from
-                #  the subtraction config, such as skip_bad, match_filter, ignore_target_and_section, min_overlap
-                ref = ds.get_reference(provenances=refset.provenance, session=session)
+                if self.pars.reference['must_match_section'] or self.pars.reference['must_match_target']:
+                    # TODO : just remove these options.  Issue #424
+                    SCLogger.warning( "must_match_section and must_match target are not implemented!" )
+                ref = ds.get_reference( provenances=refset.provenance,
+                                        min_overlap=self.pars.reference['minovfrac'],
+                                        match_instrument=self.pars.reference['must_match_instrument'],
+                                        session=session )
                 if ref is None:
                     raise ValueError(
                         f'Cannot find a reference image corresponding to the datastore inputs: {ds.inputs_str}; '

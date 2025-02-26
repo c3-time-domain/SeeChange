@@ -20,7 +20,7 @@ class ExposureLauncher:
     """
 
     def __init__( self, cluster_id, node_id, numprocs=None, verify=True, onlychips=None,
-                  through_step=None, worker_log_level=logging.WARNING ):
+                  through_step=None, max_run_time=None, worker_log_level=logging.WARNING ):
         """Make an ExposureLauncher.
 
         Parameters
@@ -60,6 +60,14 @@ class ExposureLauncher:
           in which case all we do is download the exposure and load it into the
           database.
 
+        max_run_time : float, default None
+          Normall, when youc all an ExposureLauncher it will loop
+          forever, asking the conductor for things to do.  If you set
+          this, it will run at most this many seconds before exiting.
+          Before asking the conductor for something to do, it will check
+          to see that it hasn't been running this long, and if it has,
+          it will exit.
+
         worker_log_level : log level, default logging.WARNING
           The log level for the worker processes.  Here so that you can
           have a different log level for the overall control process
@@ -74,6 +82,7 @@ class ExposureLauncher:
         self.node_id = node_id
         self.onlychips = onlychips
         self.through_step = through_step
+        self.max_run_time = max_run_time
         self.worker_log_level = worker_log_level
         self.conductor = ConductorConnector( verify=verify )
 
@@ -120,10 +129,17 @@ class ExposureLauncher:
 
         """
 
+        start_time = time.perf_counter()
         done = False
         n_processed = 0
         while not done:
             try:
+                run_time = time.perf_counter() - start_time
+                if ( self.max_run_time is not None ) and ( run_time > self.max_run_time ):
+                    SCLogger.info( f"ExposureLauncher has been running for {run_time:.0f} seconds, returning." )
+                    done = True
+                    continue
+
                 data = self.conductor.send( f'requestexposure/cluster_id={self.cluster_id}' )
 
                 if data['status'] == 'not available':
@@ -168,7 +184,7 @@ class ExposureLauncher:
 
                 n_processed += 1
                 if ( max_n_exposures is not None ) and ( n_processed >= max_n_exposures ):
-                    SCLogger.info( f"Hit max {n_processed} exposures, existing" )
+                    SCLogger.info( f"Hit max {n_processed} exposures, returning." )
                     done = True
 
             except Exception:
@@ -207,6 +223,11 @@ pipelines to process each of the chips in the exposure.
                          help="Name of the node (if applicable) where this is running" )
     parser.add_argument( "--numprocs", default=None, type=int,
                          help="Number of worker processes to run at once.  (Default: # of CPUS - 1.)" )
+    parser.add_argument( "-m", "--max-run-time", default=None, type=float,
+                         help=( "Maximum time to run before exiting.  If this is on a job that will get cancelled "
+                                "(e.g. one launched on a slurm queue), make sure this is less than the runtime "
+                                "of the job by an amount conservatively equal to what you'd need to process a "
+                                "single exposure." ) )
     parser.add_argument( "--noverify", default=False, action='store_true',
                          help="Don't verify the conductor's SSL certificate" )
     parser.add_argument( "-l", "--log-level", default="info",
@@ -218,7 +239,7 @@ pipelines to process each of the chips in the exposure.
     parser.add_argument( "-t", "--through-step", default=None,
                          help=( "Only run through this step; default=run everything.  Step can be "
                                 "exposure, preprocessing, backgrounding, extraction, wcs, zp, "
-                                "subtraction, detection, cutting, measuring" ) )
+                                "subtraction, detection, cutting, measuring, scoring" ) )
     args = parser.parse_args()
 
     loglookup = { 'error': logging.ERROR,
@@ -234,7 +255,7 @@ pipelines to process each of the chips in the exposure.
 
     elaunch = ExposureLauncher( args.cluster_id, args.node_id, numprocs=args.numprocs, onlychips=args.chips,
                                 verify=not args.noverify, through_step=args.through_step,
-                                worker_log_level=worker_log_level )
+                                max_run_time=args.max_run_time, worker_log_level=worker_log_level )
     elaunch.register_worker()
     try:
         elaunch()
