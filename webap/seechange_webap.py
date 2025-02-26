@@ -398,7 +398,8 @@ class Exposures( BaseView ):
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.
         q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, '
-               '  t.exp_time, t.seeingavg, t.limmagavg, t.num_subs, t.num_sources, t.num_measurements ' )
+               '  t.exp_time, t.seeingavg, t.limmagavg, t.num_subs, t.num_sources, t.num_measurements '
+               'ORDER BY t.mjd, t._filter, t.filter_array ')
 
         cursor.execute( q, subdict  )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
