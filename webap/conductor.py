@@ -14,6 +14,8 @@ from models.base import SmartSession
 from models.knownexposure import PipelineWorker, KnownExposure
 # NOTE: for get_instrument_instrance to work, must manually import all
 #  known instrument classes we might want to use here.
+# If models.instrument gets imported somewhere else before this file
+#  is imported, then even this won't work.  There must be a better way....
 import models.decam
 from models.instrument import get_instrument_instance
 
