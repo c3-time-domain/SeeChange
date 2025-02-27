@@ -5,7 +5,7 @@ import "./provenancetags.js";
 import "./exposuresearch.js";
 import "./exposurelist.js";
 import "./exposure.js";
-
+import "./conductor.js";
 
 // Everything is going in the seechange namespace
 //  (which is imported from seechange_ns.js so that
@@ -33,7 +33,7 @@ import "./exposure.js";
 //        Exposure List
 //        Exposure
 //     Provenance Tags
-//     
+//
 
 // **********************************************************************
 // **********************************************************************
@@ -89,6 +89,12 @@ seechange.Context = class
 
             this.frontpagetabs = new rkWebUtil.Tabbed( this.frontpagediv );
             this.frontpagetabs.div.setAttribute( 'id', 'frontpagetabs' );
+
+            if ( this.auth.usergroups.includes( 'admin' ) || this.auth.usergroups.includes( 'root' ) ) {
+                this.conductor = new seechange.Conductor( this );
+                this.conductor.render();
+                this.frontpagetabs.addTab( "conductor", "Conductor", this.conductor.div );
+            }
 
             this.exposuresearch = new seechange.ExposureSearch( this );
             this.exposuresearch.render();

@@ -162,14 +162,13 @@ webap:
   flask_secret_key_file: null
 
 # ======================================================================
-# Email for Conductor and Webap
+# Email for Webap
 #
-# These configs are only used by the conductor and webap; their
-# values do not matter for the main pipeline.  However, they must
-# be set properly in the config files used when building the Docker
-# image for the conductor and the webap.  The configs below are what's
-# needed for our test environment, and are definitely wrong for any
-# production environment.
+# These configs are only used by the webap; their values do not matter
+# for the main pipeline.  However, they must be set properly in the
+# config files used when building the Docker image for the conductor and
+# the webap.  The configs below are what's needed for our test
+# environment, and are definitely wrong for any production environment.
 
 email:
   email_from: 'Seechange <nobody@nowhere.org>'
