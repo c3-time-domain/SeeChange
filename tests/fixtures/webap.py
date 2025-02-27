@@ -35,8 +35,8 @@ def webap_admin_client( webap_url, admin_user ):
 def webap_browser_logged_in( browser, user ):
     cfg = Config.get()
     webap_url = cfg.value( 'webap.webap_url' )
-    username = cfg.value( 'conductor.username' )
-    password = cfg.value( 'conductor.password' )
+    username = 'test'
+    password = 'test_password'
     browser.get( webap_url )
     input_password = WebDriverWait( browser, timeout=5 ).until( lambda d: d.find_element( By.ID, 'login_password' ) )
     input_password.clear()

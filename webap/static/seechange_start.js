@@ -1,10 +1,10 @@
-import { seechange } from "./seechange.js"
+import { seechange } from "./seechange_ns.js"
+import "./seechange.js"
 
 // **********************************************************************
 // **********************************************************************
 // **********************************************************************
 // Here is the thing that will make the code run when the document has loaded
-// It only make sense when included in a HTML document after seechange.js.
 
 seechange.started = false
 
