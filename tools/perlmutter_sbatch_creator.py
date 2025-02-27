@@ -40,12 +40,12 @@ class PerlmutterSbatchCreator:
         self.scriptdir = direc / 'jobs_to_submit'
 
     def register_worker( self, replace=False ):
-        url = f'registerworker/cluster_id=perlmutter/node_id=sbatch_creator/replace={int(replace)}'
+        url = f'conductor/registerworker/cluster_id=perlmutter/node_id=sbatch_creator/replace={int(replace)}'
         data = self.conductor.send( url )
         self.pipelineworker_id = data['id']
 
     def unregister_worker( self ):
-        url = f'unregisterworker/{str(self.pipelineworker_id)}'
+        url = f'conductor/unregisterworker/{str(self.pipelineworker_id)}'
         SCLogger.info( f"Sending to {url}" )
         try:
             data = self.conductor.send( url )
@@ -55,7 +55,7 @@ class PerlmutterSbatchCreator:
             SCLogger.exception( f"Exception unregistering worker {self.pipelineworker_id}, continuing" )
 
     def send_heartbeat( self ):
-        url = f'workerheartbeat/{str(self.pipelineworker_id)}'
+        url = f'conductor/workerheartbeat/{str(self.pipelineworker_id)}'
         self.conductor.send( url )
 
     def __call__( self ):
@@ -69,7 +69,7 @@ class PerlmutterSbatchCreator:
                 time.sleep( self.sleeptime )
                 continue
 
-            data = self.conductor.send( 'requestexposure/cluster_id=perlmutter' )
+            data = self.conductor.send( 'conductor/requestexposure/cluster_id=perlmutter' )
 
             if data['status'] == 'not available':
                 SCLogger.info( f"No exposures avialable, sleeping {self.sleeptime} s" )

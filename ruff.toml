@@ -2,7 +2,6 @@
 exclude = [
     "temp/**",
     "extern/**",
-    "webap/rkwebutil/**",
     ".git",
     ".github",
     ".ruff_cache",

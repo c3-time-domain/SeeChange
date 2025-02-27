@@ -21,9 +21,9 @@ archive:
   token: insecure
 
 conductor:
-  conductor_url: https://conductor:8082/
-  username: test
-  password: test_password
+  conductor_url: https://webap:8081/
+  username: admin
+  password: admin
 
 webap:
   webap_url: https://webap:8081/

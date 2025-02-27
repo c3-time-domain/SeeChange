@@ -20,11 +20,11 @@ from baseview import BaseView, BadUpdaterReturnError
 
 class ConductorBaseView( BaseView ):
     _any_group_required = [ 'root', 'admin' ]
-    
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self.updater_socket_file = "/tmp/updater_socket"
-        
+
 
     def talk_to_updater( self, req, bsize=16384, timeout0=1, timeoutmax=16 ):
         sock = None

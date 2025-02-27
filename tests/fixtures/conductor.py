@@ -21,8 +21,8 @@ def conductor_url():
 
 
 @pytest.fixture
-def conductor_user( user ):
-    return user
+def conductor_user( admin_user ):
+    return admin_user
 
 
 @pytest.fixture
@@ -77,20 +77,25 @@ def conductor_browser_logged_in( browser, conductor_user ):
 @pytest.fixture
 def conductor_connector( conductor_user ):
     conductcon = ConductorConnector( verify=False )
-
     yield conductcon
-
     conductcon.send( 'auth/logout' )
 
 
 @pytest.fixture
+def conductor_connector_wrong_user( user ):
+    wrongconductcon = ConductorConnector( username='test', password='test_password', verify=False )
+    yield wrongconductcon
+    wrongconductcon.send( 'auth/logout' )
+
+
+@pytest.fixture
 def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_exposures_parameters ):
-    origstatus = conductor_connector.send( 'status' )
+    origstatus = conductor_connector.send( 'conductor/status' )
     del origstatus[ 'status' ]
     del origstatus[ 'lastupdate' ]
     del origstatus[ 'configchangetime' ]
 
-    data = conductor_connector.send( 'updateparameters/timeout=120/instrument=DECam/pause=true',
+    data = conductor_connector.send( 'conductor/updateparameters/timeout=120/instrument=DECam/pause=true',
                                      { 'updateargs': decam_raw_origin_exposures_parameters } )
     assert data['status'] == 'updated'
     assert data['instrument'] == 'DECam'
@@ -99,14 +104,14 @@ def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_expos
     assert data['hold'] == 0
     assert data['pause'] == 1
 
-    data = conductor_connector.send( 'forceupdate' )
+    data = conductor_connector.send( 'conductor/forceupdate' )
     assert data['status'] == 'forced update'
 
     yield True
 
     # Reset the conductor to no instrument
 
-    data = conductor_connector.send( 'updateparameters', origstatus )
+    data = conductor_connector.send( 'conductor/updateparameters', origstatus )
     assert data['status'] == 'updated'
     for kw in [ 'instrument', 'timeout', 'updateargs' ]:
         assert data[kw] == origstatus[kw]
