@@ -31,7 +31,8 @@ def test_webap_admin_required( webap_rkauth_client ):
     client = webap_rkauth_client
     res = client.post( "provtags" )
     assert res.status_code == 200
-    with pytest.raises( RuntimeError, match="Got response 500: Action requires admin" ):
+    with pytest.raises( RuntimeError, match=( "Got response 500: Action requires user to be in one of the groups "
+                                              "root, admin" ) ):
         res = client.post( "cloneprovtag/foo/bar" )
 
 
