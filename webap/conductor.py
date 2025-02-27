@@ -1,63 +1,30 @@
 import sys
 import pathlib
-import re
-import copy
-import datetime
-import logging
 import socket
 import json
+import datetime
 
-import flask
-import flask_session
-import flask.views
-
+import psycopg2
 import psycopg2.extras
 
-from models.base import SmartSession
-from models.instrument import get_instrument_instance
-from models.knownexposure import PipelineWorker, KnownExposure
+import flask
 
-# Need to make sure to load any instrument we might conceivably use, so
-#   that models.instrument's cache of instrument classes has them
-import models.decam  # noqa: F401
-# Have to import this because otherwise the Exposure foreign key in KnownExposure doesn't work
-import models.exposure  # noqa: F401
-
-from util.config import Config
 from util.util import asUUID
+from models.base import SmartSession
+from models.knownexposure import PipelineWorker, KnownExposure
+from models.instrument import get_instrument_instance
+
+sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
+from baseview import BaseView, BadUpdaterReturnError
 
 
-class BadUpdaterReturnError(Exception):
-    pass
-
-# ======================================================================
-
-
-class BaseView( flask.views.View ):
+class ConductorBaseView( BaseView ):
+    _any_group_required = [ 'root', 'admin' ]
+    
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self.updater_socket_file = "/tmp/updater_socket"
-
-    def check_auth( self ):
-        self.username = flask.session['username'] if 'username' in flask.session else '(None)'
-        self.displayname = flask.session['userdisplayname'] if 'userdisplayname' in flask.session else '(None)'
-        self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
-        return self.authenticated
-
-    def argstr_to_args( self, argstr, initargs={} ):
-        """Parse argstr as a bunch of /kw=val to a dictionary, update with request body if it's json."""
-
-        args = copy.deepcopy( initargs )
-        if argstr is not None:
-            for arg in argstr.split("/"):
-                match = re.search( '^(?P<k>[^=]+)=(?P<v>.*)$', arg )
-                if match is None:
-                    app.logger.error( f"error parsing url argument {arg}, must be key=value" )
-                    raise Exception( f'error parsing url argument {arg}, must be key=value' )
-                args[ match.group('k') ] = match.group('v')
-        if flask.request.is_json:
-            args.update( flask.request.json )
-        return args
+        
 
     def talk_to_updater( self, req, bsize=16384, timeout0=1, timeoutmax=16 ):
         sock = None
@@ -82,47 +49,26 @@ class BaseView( flask.views.View ):
                 except TimeoutError:
                     timeout *= 2
                     if timeout > timeoutmax:
-                        app.logger.exception( f"Timed out trying to talk to updater, "
-                                              f"last delay was {timeout/2} sec" )
+                        flask.current_app.logger.exception( f"Timed out trying to talk to updater, "
+                                                            f"last delay was {timeout/2} sec" )
                         raise BadUpdaterReturnError( "Connection to updater timed out" )
         except Exception as ex:
-            app.logger.exception( ex )
+            flask.current_app.logger.exception( ex )
             raise BadUpdaterReturnError( str(ex) )
         finally:
             if sock is not None:
                 sock.close()
 
+
     def get_updater_status( self ):
         return self.talk_to_updater( { 'command': 'status' } )
 
-    def dispatch_request( self, *args, **kwargs ):
-        if not self.check_auth():
-            return "Not logged in", 500
-        try:
-            return self.do_the_things( *args, **kwargs )
-        except BadUpdaterReturnError as ex:
-            return str(ex), 500
-        except Exception as ex:
-            app.logger.exception( str(ex) )
-            return f"Exception handling request: {ex}", 500
-
-# ======================================================================
-# /
-#
-# This is the only view that doesn't require authentication (Hence it
-# has its own dispatch_request method rather than calling the
-# do_the_things method in BaseView's dispatch_request.)
-
-
-class MainPage( BaseView ):
-    def dispatch_request( self ):
-        return flask.render_template( "conductor_root.html" )
 
 # ======================================================================
 # /status
 
 
-class GetStatus( BaseView ):
+class GetStatus( ConductorBaseView ):
     def do_the_things( self ):
         return self.get_updater_status()
 
@@ -130,7 +76,7 @@ class GetStatus( BaseView ):
 # /forceupdate
 
 
-class ForceUpdate( BaseView ):
+class ForceUpdate( ConductorBaseView ):
     def do_the_things( self ):
         return self.talk_to_updater( { 'command': 'forceupdate' } )
 
@@ -138,7 +84,7 @@ class ForceUpdate( BaseView ):
 # /updateparameters
 
 
-class UpdateParameters( BaseView ):
+class UpdateParameters( ConductorBaseView ):
     def do_the_things( self, argstr=None ):
         curstatus = self.get_updater_status()
         args = self.argstr_to_args( argstr )
@@ -146,7 +92,7 @@ class UpdateParameters( BaseView ):
             curstatus['status'] == 'unchanged'
             return curstatus
 
-        app.logger.debug( f"In UpdateParameters, argstr='{argstr}', args={args}" )
+        flask.current_app.logger.debug( f"In UpdateParameters, argstr='{argstr}', args={args}" )
 
         knownkw = [ 'instrument', 'timeout', 'updateargs', 'hold', 'pause' ]
         unknown = set()
@@ -178,7 +124,7 @@ class UpdateParameters( BaseView ):
 #   nexps int, optional number of exposures this pipeline worker can do at once (default 1)
 
 
-class RegisterWorker( BaseView ):
+class RegisterWorker( ConductorBaseView ):
     def do_the_things( self, argstr=None ):
         args = self.argstr_to_args( argstr, { 'node_id': None, 'replace': 0, 'nexps': 1 } )
         args['replace'] = int( args['replace'] )
@@ -227,7 +173,7 @@ class RegisterWorker( BaseView ):
 # Remove a Pipeline Worker registration.  Call with /unregsiterworker/n
 # where n is the integer ID of the pipeline worker.
 
-class UnregisterWorker( BaseView ):
+class UnregisterWorker( ConductorBaseView ):
     def do_the_things( self, pipelineworker_id ):
         with SmartSession() as session:
             pipelineworker_id = asUUID( pipelineworker_id )
@@ -245,7 +191,7 @@ class UnregisterWorker( BaseView ):
 #
 # Call at /workerheartbeat/n where n is the uuid of the pipeline worker
 
-class WorkerHeartbeat( BaseView ):
+class WorkerHeartbeat( ConductorBaseView ):
     def do_the_things( self, pipelineworker_id ):
         pipelineworker_id = asUUID( pipelineworker_id )
         with SmartSession() as session:
@@ -262,7 +208,7 @@ class WorkerHeartbeat( BaseView ):
 # /getworkers
 
 
-class GetWorkers( BaseView ):
+class GetWorkers( ConductorBaseView ):
     def do_the_things( self ):
         with SmartSession() as session:
             workers = session.query( PipelineWorker ).all()
@@ -273,7 +219,7 @@ class GetWorkers( BaseView ):
 # /requestexposure
 
 
-class RequestExposure( BaseView ):
+class RequestExposure( ConductorBaseView ):
     def do_the_things( self, argstr=None ):
         args = self.argstr_to_args( argstr )
         if 'cluster_id' not in args.keys():
@@ -322,7 +268,7 @@ class RequestExposure( BaseView ):
 # ======================================================================
 
 
-class GetKnownExposures( BaseView ):
+class GetKnownExposures( ConductorBaseView ):
     def do_the_things( self, argstr=None ):
         args = self.argstr_to_args( argstr, { "minmjd": None, "maxmjd": None } )
         args['minmjd'] = float( args['minmjd'] ) if args['minmjd'] is not None else None
@@ -347,16 +293,17 @@ class GetKnownExposures( BaseView ):
 # ======================================================================
 
 
-class HoldReleaseExposures( BaseView ):
+class HoldReleaseExposures( ConductorBaseView ):
     def hold_or_release( self, keids, hold ):
-        # app.logger.info( f"HoldOrReleaseExposures with hold={hold} and keids={keids}" )
+        # flask.current_app.logger.info( f"HoldOrReleaseExposures with hold={hold} and keids={keids}" )
         if len( keids ) == 0:
             return { 'status': 'ok', 'held': [], 'missing': [] }
         held = []
         with SmartSession() as session:
             q = session.query( KnownExposure ).filter( KnownExposure._id.in_( keids ) )
             todo = q.all()
-            # app.logger.info( f"HoldOrRelease got {len(todo)} things to {'hold' if hold else 'release'}" )
+            # flask.current_app.logger.info( f"HoldOrRelease got {len(todo)} things "
+            #                                f"to {'hold' if hold else 'release'}" )
             kes = { str(i._id) : i for i in todo }
             notfound = []
             for keid in keids:
@@ -385,62 +332,11 @@ class ReleaseExposures( HoldReleaseExposures ):
 
 
 # ======================================================================
-# Create and configure the web app
+# Create and configure the sub web ap (i.e. flask blueprint)
 
-cfg = Config.get()
-
-app = flask.Flask( __name__, instance_relative_config=True )
-# app.logger.setLevel( logging.INFO )
-app.logger.setLevel( logging.DEBUG )
-
-secret_key = cfg.value( 'conductor.flask_secret_key' )
-if secret_key is None:
-    with open( cfg.value( 'conductor.flask_secret_key_file' ) ) as ifp:
-        secret_key = ifp.readline().strip()
-
-app.config.from_mapping(
-    SECRET_KEY=secret_key,
-    SESSION_COOKIE_PATH='/',
-    SESSION_TYPE='filesystem',
-    SESSION_PERMANENT=True,
-    SESSION_FILE_DIR='/sessions',
-    SESSION_FILE_THRESHOLD=1000,
-)
-server_session = flask_session.Session( app )
-
-# Import and configure the auth subapp
-
-sys.path.insert( 0, pathlib.Path(__name__).parent )
-import rkauth_flask
-
-kwargs = {
-    'db_host': cfg.value( 'db.host' ),
-    'db_port': cfg.value( 'db.port' ),
-    'db_name': cfg.value( 'db.database' ),
-    'db_user': cfg.value( 'db.user' ),
-    'db_password': cfg.value( 'db.password' )
-}
-if kwargs['db_password'] is None:
-    if cfg.value( 'db.password_file' ) is None:
-        raise RuntimeError( 'In config, one of db.password or db.password_file must be specified' )
-    with open( cfg.value( 'db.password_file' ) ) as ifp:
-        kwargs[ 'db_password' ] = ifp.readline().strip()
-
-for attr in [ 'email_from', 'email_subject', 'email_system_name',
-              'smtp_server', 'smtp_port', 'smtp_use_ssl', 'smtp_username', 'smtp_password' ]:
-    kwargs[ attr ] = cfg.value( f'email.{attr}' )
-if ( kwargs['smtp_password'] ) is None and ( cfg.value('email.smtp_password_file') is not None ):
-    with open( cfg.value('email.smtp_password_file') ) as ifp:
-        kwargs['smtp_password'] = ifp.readline().strip()
-
-rkauth_flask.RKAuthConfig.setdbparams( **kwargs )
-
-app.register_blueprint( rkauth_flask.bp )
-
-# Configure urls
+bp = flask.Blueprint( 'conductor', __name__, url_prefix='/conductor' )
 
 urls = {
-    "/": MainPage,
     "/status": GetStatus,
     "/updateparameters": UpdateParameters,
     "/updateparameters/<path:argstr>": UpdateParameters,
@@ -467,4 +363,4 @@ for url, cls in urls.items():
         usedurls[ url ] += 1
         name = f"url.{usedurls[url]}"
 
-    app.add_url_rule( url, view_func=cls.as_view(name), methods=["GET", "POST"], strict_slashes=False )
+    bp.add_url_rule( url, view_func=cls.as_view(name), methods=["GET", "POST"], strict_slashes=False )
