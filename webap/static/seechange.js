@@ -639,9 +639,9 @@ seechange.Exposure = class
         li = rkWebUtil.elemaker( "li", ul );
         li.innerHTML = "<b>airmass:</b> " + this.airmass;
         li = rkWebUtil.elemaker( "li", ul );
-        li.innerHTML = "<b>avg. seeing (¨):</b> " + this.seeingavg;
+        li.innerHTML = "<b>avg. seeing (¨):</b> " + seechange.nullorfixed( this.seeingavg, 2 );
         li = rkWebUtil.elemaker( "li", ul );
-        li.innerHTML = "<b>avg. 5σ lim mag:</b> " + this.limmagavg;
+        li.innerHTML = "<b>avg. 5σ lim mag:</b> " + seechange.nullorfixed( this.limmagavg, 2 );
 
         this.tabs = new rkWebUtil.Tabbed( this.div );
 
