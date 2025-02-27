@@ -38,7 +38,7 @@ def test_exposure_launcher( conductor_connector,
     decam_exposure_name = 'c4d_230702_080904_ori.fits.fz'
 
     # Hold all exposures
-    data = conductor_connector.send( "getknownexposures" )
+    data = conductor_connector.send( "conductor/getknownexposures" )
     tohold = []
     idtodo = None
     for ke in data['knownexposures']:
@@ -47,7 +47,7 @@ def test_exposure_launcher( conductor_connector,
         else:
             tohold.append( ke['id'] )
     assert idtodo is not None
-    res = conductor_connector.send( "holdexposures/", { 'knownexposure_ids': tohold } )
+    res = conductor_connector.send( "conductor/holdexposures/", { 'knownexposure_ids': tohold } )
 
     # Make sure the right things got held
     with SmartSession() as session:
@@ -61,7 +61,7 @@ def test_exposure_launcher( conductor_connector,
 
     try:
         # Make sure the worker got registered properly
-        res = conductor_connector.send( "getworkers" )
+        res = conductor_connector.send( "conductor/getworkers" )
         assert len( res['workers'] ) == 1
         assert res['workers'][0]['cluster_id'] == 'testcluster'
         assert res['workers'][0]['node_id'] == 'testnode'

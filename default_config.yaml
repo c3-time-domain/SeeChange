@@ -117,8 +117,9 @@ archive: null
 # ======================================================================
 # Conductor
 #
-# The conductor is the service that the pipeline uses to figure out what
-# exposures are available and need processing.
+# The conductor is the service (running on the seechange webap) that the
+# pipeline uses to figure out what exposures are available and need
+# processing.
 #
 # (There will be other values set in a config file used by the actual
 # conductor.)
@@ -140,27 +141,17 @@ archive: null
 #     so that you don't have to put the password in an actual
 #     config file that might be publicly readable or that might
 #     get committed to a git archive.
-#
-#   flask_secret_key:
-#   flask_secret_key_file:
-#     These are only used by the conductor itself, and can
-#     be safely left as null for the main pipeline.  However,
-#     in the conductor config (conductor/seechange_conductor.yaml
-#     and conductor/local_overrides.yaml), this must be set to
-#     something real.
 
 conductor:
-  conductor_url: https://conductor:8082/
+  conductor_url: https://webap:8081/
   username: unknown
   password: null
   password_file: null
-  flask_secret_key: null
-  flask_secret_key_file: null
 
 # ======================================================================
 # Webap
 #
-# This config is not used by the main pipeline, only the wbap.
+# This config is not used by the main pipeline, only the webap.
 # When building the Dockerfile, those configs will be set from
 # webap/seechange_webap.yaml and webap/local_overrides.yaml
 # (though they include this file)

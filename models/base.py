@@ -373,21 +373,21 @@ def get_all_database_objects(display=False, session=None):
     from models.reference import Reference
     from models.refset import RefSet
     from models.instrument import SensorSection
-    from models.user import AuthUser, PasswordLink
+    from models.user import AuthUser, PasswordLink, AuthGroup
 
     models = [
         CodeHash, CodeVersion, Provenance, ProvenanceTag, DataFile, Exposure, Image,
         SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, DeepScore,
         Object, CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference,
-        RefSet, SensorSection, AuthUser, PasswordLink, KnownExposure, PipelineWorker
+        RefSet, SensorSection, AuthUser, AuthGroup, PasswordLink, KnownExposure, PipelineWorker
     ]
 
     output = {}
     with SmartSession(session) as session:
         for model in models:
-            # Note: AuthUser and PasswordLink have id instead of id_, because
+            # Note: AuthUser, AuthGroup, and PasswordLink have id instead of id_, because
             #  they need to be compatible with rkwebutil rkauth
-            if ( model == AuthUser ) or ( model == PasswordLink ):
+            if model in ( AuthUser, AuthGroup, PasswordLink ):
                 object_ids = session.scalars(sa.select(model.id)).all()
             else:
                 object_ids = session.scalars(sa.select(model._id)).all()

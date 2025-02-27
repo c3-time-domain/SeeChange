@@ -35,7 +35,7 @@ from models.exposure import Exposure
 from models.object import Object
 from models.refset import RefSet
 from models.calibratorfile import CalibratorFileDownloadLock
-from models.user import AuthUser
+from models.user import AuthUser, AuthGroup
 from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
@@ -769,7 +769,6 @@ def admin_user():
                          username='admin',
                          displayname='Admin User',
                          email='admin@mailhog',
-                         isadmin=True
                         )
         user.pubkey = '''-----BEGIN PUBLIC KEY-----
  MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAw+8D5eIkY1BKHkjmiifL
@@ -791,6 +790,16 @@ def admin_user():
                         "privkey": "6khe8cshsIFwnh7TXr/pqYwTv881hmohf2x6/MpBMHkn/hyp7XXsLcCpMuv64RUYzpnjakn9u8SFcLK24HYzWhR/zLc9EmI6VYeeznvtox99TmpW2re8/LaRPsjW8l8xKjLYaELMiZ+TdoF2jFJlTGa37cf5kh1Ns60BAny1ObU8eOrF3t3aVmXjERH6ygOKEZ7ZuE9oFYjFIclZlyQjsLswnCHVUqOQEDmmmnY9UDacluli9Vy0u5B0edimNmor6sjhifTajSpmg+B5eOYTatPslNvftMHTpj4LckJJvL+GeniiSslfpU77RdmiJID9ogJMAffbTdqjBuDqY7IheUuFwGWsQd0ODfWwFjosN8zytwRVhbqKq6Fdmyuf1zj7mo63UZCzyLDapxci0jN2/HJFklKAMa77ghCZ3WMkgxEgn7Q8jFvnwvGxO/okA3+eGZm1flXfz51REgJuyM0/PAf8XXVVLw9UK2l5v49t167AsVr2vlk0NuzrUYy62PEHDhdKpnNSxa44WWKfahk5PgYlQiaa/rA2WhxYp747zbJ+7JT0wZhowIT7vliQeJdGRMDix6Dx+4ysZl/cV/LZCBjEv7b0vNyNZ0dHx48kcifo1UCyHgX4BySahyylc4O6SX/yrO0Ej+KswhK56Ys0tY1djtoNQ/k9bs8ZEM/DEnKyLAmVH8IUJJfsMzw+O24QnLrL+lSXJ6J/yiIspL0fMty4RMprDLeWL26oxywn5n2yRstG4NSt1MjkQq0GzX1xnCdNkHsWYF0rkG7lHUK3FlIQqvG2jhp9bFNShMoiyj/C1D+5RFFMqtr5Z+IffhcYDPCr010p3nq8hOBbW1ybcJU+CxXE35DeaYv0DtCaRwK2+wTnPwsae/4yd1YJgeeqbmrBXddVQyJBwe6+4EhwxYbU4bxij60ltSkl7QpbCDfyH10UmpR/v3hkaC1JTMHo09NyYxOpsxGlXZJHBnxBkCdAvk/oIsBgBZkdsy7OdbRkGa2rCNtCsiEGXUO2ayLunEHf2Bb33JWylNy82NfDUKZdMRsrM62oxcv9pQ1Ro1eolgMzHlCJYm9BTOZD8jQaehb2ASOSYIgi1f2Q+n/6JT6ectdvtlCsMBokWR6L24yw9kZgxDpk9sruVlqBbstCiDDnaMUCUJEOfUImhOiZ6ieeKp0qVUlTtreYVGHJ41yA344+UMrrj6d8oOrZwiow66Q10ZTyTJoZuSKQqwfW24+qWjVg4D1NEdBQ/oqXIik3NdAiDHNM0PL5nPs7lL3eUkUAuuS8P00Ba26kjCWe9v30b4gJWa0d+CZYHjYTNIULKKwE0qiNg/oXoQOgKAyt8zcxHkxpOO5Gu2CopwlT6vu0DACbgZrW9hue6XquQZUcCxbVaCNuFfM+/VG2mLPgSUgaDmxLYd8FQCoMIG18SiT8noySsQCnB0x/q9xFQ6bWNN+udBq/mvNyckkz3h1Me+lCynh4RvvYeZCJFNXWwenHx312laXPy/THWpPzr+VP+oqIBIFoxWB/C78STW/uYa1ErUERQlBlapSHt8dvQfOMwlxPnNdgEc6AVkQ0iH80ZDog9yBK5JPaBZf91H2zSCJDf0VWwwo9BDIUm1BZEFCiyswfsKMjuZUpr7G2kpX07bLn/Sit6NG3MYX/T7djCqLzgF9mXEg4NBJyiT5gioLBawco3ZoN9U8RgvSdmrD/gIOq2x/pCkXdL5Pc6u/oeHWoW3gebjLCsFW2OzKXw7x4o6VZgz6YWdApAEMTr+OGy/Om0n5s7YeQNcSTTMn0stUNNO157TMIwpxrRwkNSbHhN25h5zcN+w7VlMQeXGrTreMaKvzvpYWPe2sBfxi8JSufn4EJDZHbTGgHAYmP6L0v1d9Urn2Sz3e2uF0boJ/V733FG7WYHBGEkj9T4xuqyIMnNmUNCa65Fhqvkujrtgw+hFB4jSN6jyEvMPMR43SDvWi1Xn8Yubjc86QJZATmvs1Xjl0LFk+6DBAZ/bmTUt3dMRA1GRSJdtlN1iyU/0JtLSSTZyijElvIlsaYK1LqGcoI2QNNtWPh6KYVHsNo7oCJ98N2OKR9S3So34NHbbI+mDMZR5QxaZrZY9de8veuQxJ4EzC5WfjZRGQ9YeJc9nTIoqsxD21wGLFbhd0cetpM07gj3PDWGpsJn/EoKQ5lRHTa/+BXEUTnqwsedIjMFzB8bNDRxAYjvO5RuaLjYSEzkzyCUzC6eYc1jXSFjNJbDLQN5NPbW1RjbWbU/TIS1v2/mvLbtVPKlUqmeAZmAJpKG5uafLetffObhfqnqNqBHLwKYPN/e//foie3iLj50U5xcCvxtOhUE8vaiAfnkSOAcngtSejOwKL27DVfygKKTlVK9krScDu9hU4/vQMLifwvZgYdYfqVTHmR1/e73HsB2EZOvA5nsbEFq204oAv3ftk2EOReSBSDVNyks+zYJ9RazOIplZCbVtsUgjg37abH0NMY3CSZBFHTcPSAqC6V5rQpTbmewn/RM/AJEwvEGCrhycWIYJS719YvLEffDiO1vtLv5cakgnbD6iKAAVWc5eWRpxv1Gku6ByJcTs4UQKdZB1pHbQEXaAuJ1qCmvZ/nvnFBRCCdrSN5eA2O4zOcJuxX7KcXX3cgHGn21UzTNiIxSZSfX5GP6cqutOYOfZZ/jv5ORelfOVYL31qxw7HUSSufI9CHG29NtpuL7KdtI0UiyMaz/6ls/YsU/kfdEiFYFw082TCkN9j1POgSvbWSA+f/scktIUc5BwYR1LPJ0JqA6pV4gNibc34dk59oWlLO6XTpQio+dPu0tuP2NICJQVfsNmHv7vZekn2PDmwyTFPw7YAklpVtJBvmu6COmQNJGSR3F2ZLxjUWcTOLn8ksxm+/0XTY4MLr/WeVYT0t0QGWy89fVImdFP2AkyQRRGyPMO3nftv+VXbW1pw+uj2JtOOYQ5EQq60KNkNUtHZ5OKqs3/sScFogUTQUH8YTNvI3OHV/WKnT4b1VqXo5JIvwsy+7g/caeyMwpm0sNWZAL36bWXsCd2Z/7jhLBtigFeZhR2vHZZruSwnbN8jnwS+pthDSJBwqnhoywhWTyoo3vlQqFHX9OF3Pa51bMPLB4Qi01VCBCKc1zLR/HAvshXUsaqCJWitt2ohRaeHpND2+Y8P7zYxrVtX9LgCZywmb3RhUVRqHUWg="  # noqa: E501
                         }
         session.add( user )
+
+        group = AuthGroup( id='d6de6f07-96e0-46a4-addd-56f6c29b47d3',
+                           name='admin',
+                           description='Admin Group' )
+        session.add( group )
+        session.commit()
+        session.execute( sa.text( "INSERT INTO auth_user_group(userid,groupid) VALUES(:user,:group)" ),
+                         { 'user': '684ece1d-c33a-4f80-b90e-646ae54021b7',
+                           'group': 'd6de6f07-96e0-46a4-addd-56f6c29b47d3' } )
+
         session.commit()
 
     yield True
@@ -799,6 +808,9 @@ def admin_user():
         user = session.query( AuthUser ).filter( AuthUser.username=='admin' ).all()
         for u in user:
             session.delete( u )
+        group = session.query( AuthGroup ).filter( AuthGroup.name=='admin' ).all()
+        for g in group:
+            session.delete( g )
         session.commit()
 
 

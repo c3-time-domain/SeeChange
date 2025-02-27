@@ -14,7 +14,6 @@ import logging
 import base64
 import uuid
 
-import simplejson
 import numpy
 import h5py
 import PIL
@@ -27,75 +26,10 @@ import flask.views
 
 from util.config import Config
 from util.util import asUUID
-from models.user import AuthUser
 from models.deepscore import DeepScoreSet
-from models.base import SmartSession
 
-
-class UUIDJSONEncoder( simplejson.JSONEncoder ):
-    def default( self, obj ):
-        if isinstance( obj, uuid.UUID ):
-            return str(obj)
-        else:
-            return super().default( obj )
-
-
-# ======================================================================
-
-class BaseView( flask.views.View ):
-    _admin_required = False
-
-    def __init__( self, *args, **kwargs ):
-        super().__init__( *args, **kwargs )
-
-    def check_auth( self ):
-        self.username = flask.session['username'] if 'username' in flask.session else '(None)'
-        self.displayname = flask.session['userdisplayname'] if 'userdisplayname' in flask.session else '(None)'
-        self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
-        self.user = None
-        if self.authenticated:
-            self.user = self.session.query( AuthUser ).filter( AuthUser.username==self.username ).first()
-            if self.user is None:
-                self.authenticated = False
-                raise ValueError( f"Error, failed to find user {self.username} in database" )
-        return self.authenticated
-
-    def dispatch_request( self, *args, **kwargs ):
-        # Webaps, where you expect the runtime to be short (ideally at
-        #  most seconds, or less!) is the use case where holding open a
-        #  database connection for the whole runtime actually might make
-        #  sense.
-
-        with SmartSession() as session:
-            self.session = session
-            # Also get the raw psycopg2 connection, because we need it
-            #   to be able to avoid dealing with SA where possible.
-            self.conn = session.bind.raw_connection()
-
-            if not self.check_auth():
-                return "Not logged in", 500
-            if ( self._admin_required ) and ( not self.user.isadmin ):
-                return "Action requires admin", 500
-            try:
-                retval = self.do_the_things( *args, **kwargs )
-                # Can't just use the default JSON handling, because it
-                #   writes out NaN which is not standard JSON and which
-                #   the javascript JSON parser chokes on.  Sigh.
-                if isinstance( retval, dict ) or isinstance( retval, list ):
-                    return ( simplejson.dumps( retval, ignore_nan=True, cls=UUIDJSONEncoder ),
-                             200, { 'Content-Type': 'application/json' } )
-                elif isinstance( retval, str ):
-                    return retval, 200, { 'Content-Type': 'text/plain; charset=utf-8' }
-                elif isinstance( retval, tuple ):
-                    return retval
-                else:
-                    return retval, 200, { 'Content-Type': 'application/octet-stream' }
-            except Exception as ex:
-                # sio = io.StringIO()
-                # traceback.print_exc( file=sio )
-                # app.logger.debug( sio.getvalue() )
-                app.logger.exception( str(ex) )
-                return str(ex), 500
+sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
+from baseview import BaseView
 
 
 # ======================================================================
@@ -164,7 +98,7 @@ class ProvTagInfo( BaseView ):
 # ======================================================================
 
 class CloneProvTag( BaseView ):
-    _admin_required = True
+    _any_group_required = [ 'root', 'admin' ]
 
     def do_the_things( self, existingtag, newtag, clobber=0 ):
         cursor = self.conn.cursor()
@@ -993,8 +927,10 @@ server_session = flask_session.Session( app )
 # Import and configure the auth subapp
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
 import rkauth_flask
+import conductor
 
 kwargs = {
+    'usegroups': True,
     'db_host': cfg.value( 'db.host' ),
     'db_port': cfg.value( 'db.port' ),
     'db_name': cfg.value( 'db.database' ),
@@ -1017,6 +953,7 @@ if ( kwargs['smtp_password'] ) is None and ( cfg.value('email.smtp_password_file
 rkauth_flask.RKAuthConfig.setdbparams( **kwargs )
 
 app.register_blueprint( rkauth_flask.bp )
+app.register_blueprint( conductor.bp )
 
 
 # Configure urls

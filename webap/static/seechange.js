@@ -8,6 +8,24 @@ var seechange = {};
 seechange.nullorfixed = function( val, num ) { return val == null ? null : val.toFixed(num); }
 
 // **********************************************************************
+// The organization of the webap on the screen, and in classes below,
+// is hierarchical.  At the top is Context.  (Above and outside
+// the hierarchy is user auth.)  Contextholds a tabbed div with several
+// broad "applications", and those applications have tabbed divs inside them.
+//
+//
+// Each class initializes itself with its constructor, and then actually
+// renders itself with render_page().
+//
+//   Context
+//     Conductor (admins only)
+//     Exposure Search
+//        Exposure List
+//        Exposure
+//     Provenance Tags
+//     
+
+// **********************************************************************
 // **********************************************************************
 // **********************************************************************
 // The global context

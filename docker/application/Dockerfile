@@ -26,11 +26,9 @@
 # base
 #   build
 #     included_code_build
-#       conductor_build
 #       webap_build
 #     build_selenium
 #   included_code
-#     conductor
 #     webap
 #   bindmount_code
 #   base_selenium
@@ -41,11 +39,9 @@
 #   base                0.89GB
 #   build               3.35GB
 #   included_code_build 3.45GB
-#   conductor_build     3.45GB
 #   webap_build
 #   build_selenium      3.43GB
 #   included_code       2.52GB
-#   conductor           2.52GB
 #   webap
 #   bindmount_code      2.52GB
 #   base_selenium       1.24GB
@@ -305,28 +301,6 @@ RUN ./configure --with-installdir=/seechange/lib
 RUN make install
 
 # ======================================================================
-# This is the target used to do a make install for the conductor's
-#   specific server and client code.
-
-FROM included_code_build AS conductor_build
-
-RUN mkdir -p /usr/src/seechange/conductor
-ADD conductor/ /usr/src/seechange/conductor/
-
-# Need special handling of symlinks, because the
-#  ADD above copied the links as is, but they point
-#  to something that won't exist at the destination.
-ADD conductor/rkauth_flask.py /usr/src/seechange/conductor/rkauth_flask.py
-ADD conductor/static/rkwebutil.js /usr/src/seechange/conductor/static/rkwebutil.js
-ADD conductor/static/rkauth.js /usr/src/seechange/conductor/static/rkauth.js
-ADD conductor/static/seechange.css /usr/src/seechange/conductor/static/seechange.css
-ADD conductor/static/resetpasswd_start.js /usr/src/seechange/conductor/static/resetpasswd_start.js
-
-WORKDIR /usr/src/seechange/conductor
-
-RUN make INSTALLDIR=/webservice_code install
-
-# ======================================================================
 # This is the target used to do a make install for the webap's
 #   specific server and client code.
 
@@ -334,6 +308,7 @@ FROM included_code_build AS webap_build
 
 RUN mkdir -p /usr/src/seechange/webap
 ADD webap/ /usr/src/seechange/webap/
+ADD extern/rkwebutil /usr/src/seechange/extern/rkwebutil
 
 WORKDIR /usr/src/seechange/webap
 RUN make INSTALLDIR=/webap_code install
@@ -380,35 +355,6 @@ CMD ["tail", "-f", "/etc/issue"]
 
 
 # ======================================================================
-# This is the target for the conductor
-
-FROM included_code AS conductor
-
-COPY --from=conductor_build /webservice_code/ /webservice_code/
-WORKDIR /webservice_code/
-RUN chmod 755 run_conductor.sh
-
-RUN mkdir /sessions
-RUN chmod 777 /sessions
-
-ADD conductor/seechange_conductor.yaml /seechange/seechange_conductor.yaml
-ADD conductor/local_overrides.yaml /seechange/local_overrides.yaml
-ADD conductor/local_augments.yaml /seechange/local_augments.yaml
-
-# Copy in the self-signed certificate we need to use in tests.
-# This should *not* be used in production, even though it's
-# sitting there in the image.
-COPY docker/application/conductor_bogus_key.pem /webservice_code/
-COPY docker/application/conductor_bogus_cert.pem /webservice_code/
-RUN chmod a+r /webservice_code/conductor*pem
-
-ENV SEECHANGE_CONFIG=/seechange/seechange_conductor.yaml
-ENV PYTHONPATH="/seechange/lib"
-
-CMD [ "./run_conductor.sh", "8080" ]
-
-
-# ======================================================================
 # This is the target for the webap
 
 FROM included_code AS webap
@@ -427,8 +373,8 @@ COPY webap/local_augments.yaml /seechange/local_augments.yaml
 # Copy in the self-signed certificate we need to use in tests.
 # This should *not* be used in production, even though it's
 # sitting there in the image.
-COPY docker/application/conductor_bogus_key.pem /webap_code/bogus_key.pem
-COPY docker/application/conductor_bogus_cert.pem /webap_code/bogus_cert.pem
+COPY docker/application/webap_bogus_key.pem /webap_code/bogus_key.pem
+COPY docker/application/webap_bogus_cert.pem /webap_code/bogus_cert.pem
 RUN chmod a+r /webap_code/bogus*pem
 
 ENV SEECHANGE_CONFIG=/seechange/seechange_webap.yaml

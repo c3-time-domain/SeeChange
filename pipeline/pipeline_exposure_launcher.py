@@ -89,12 +89,13 @@ class ExposureLauncher:
         self.conductor = ConductorConnector( verify=verify )
 
     def register_worker( self, replace=False ):
-        url = f'registerworker/cluster_id={self.cluster_id}/node_id={self.node_id}/nexps=1/replace={int(replace)}'
+        url = ( f'conductor/registerworker/cluster_id={self.cluster_id}/'
+                f'node_id={self.node_id}/nexps=1/replace={int(replace)}' )
         data = self.conductor.send( url )
         self.pipelineworker_id = data['id']
 
     def unregister_worker( self ):
-        url = f'unregisterworker/{str(self.pipelineworker_id)}'
+        url = f'conductor/unregisterworker/{str(self.pipelineworker_id)}'
         try:
             data = self.conductor.send( url )
             if data['status'] != 'worker deleted':
@@ -103,7 +104,7 @@ class ExposureLauncher:
             SCLogger.exception( f"Exception unregistering worker {self.pipelineworker_id}, continuing" )
 
     def send_heartbeat( self ):
-        url = f'workerheartbeat/{self.pipelineworker_id}'
+        url = f'conductor/workerheartbeat/{self.pipelineworker_id}'
         self.conductor.send( url )
 
     def __call__( self, max_n_exposures=None, die_on_exception=False ):
@@ -143,7 +144,7 @@ class ExposureLauncher:
                     continue
 
                 self.send_heartbeat()
-                data = self.conductor.send( f'requestexposure/cluster_id={self.cluster_id}' )
+                data = self.conductor.send( f'conductor/requestexposure/cluster_id={self.cluster_id}' )
 
                 if data['status'] == 'not available':
                     SCLogger.info( f'No exposures available, sleeping {self.sleeptime} s' )
