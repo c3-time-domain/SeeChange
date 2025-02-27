@@ -2,7 +2,7 @@
 	path = extern/nersc-upload-connector
 	url = https://github.com/c3-time-domain/nersc-upload-connector
 [submodule "webap/rkwebutil"]
-	path = webap/rkwebutil
+	path = extern/rkwebutil
 	url = https://github.com/rknop/rkwebutil.git
 [submodule "extern/nersc-desi-gaia-dr3-server"]
 	path = extern/nersc-desi-gaia-dr3-server
