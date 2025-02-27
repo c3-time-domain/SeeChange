@@ -12,6 +12,9 @@ import flask
 from util.util import asUUID
 from models.base import SmartSession
 from models.knownexposure import PipelineWorker, KnownExposure
+# NOTE: for get_instrument_instrance to work, must manually import all
+#  known instrument classes we might want to use here.
+import models.decam
 from models.instrument import get_instrument_instance
 
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
