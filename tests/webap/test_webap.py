@@ -150,7 +150,7 @@ def test_webap_projects( webap_rkauth_client, sim_exposure1 ):
 
 # This test is brobdingnagian because I just want to run the
 #    fixture once.  It will troll through the web interface a lot.
-def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user ):
+def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
     browser = webap_browser_logged_in
     ds = decam_datastore
     junkprov = None
