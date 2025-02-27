@@ -1,7 +1,9 @@
+import sys
 import time
 import psutil
 import logging
 import argparse
+import signal
 
 from util.conductor_connector import ConductorConnector
 from util.logger import SCLogger
@@ -91,14 +93,14 @@ class ExposureLauncher:
         data = self.conductor.send( url )
         self.pipelineworker_id = data['id']
 
-    def unregister_worker( self, replace=False ):
-        url = f'unregisterworker/pipelineworker_id={self.pipelineworker_id}'
+    def unregister_worker( self ):
+        url = f'unregisterworker/{str(self.pipelineworker_id)}'
         try:
             data = self.conductor.send( url )
             if data['status'] != 'worker deleted':
                 SCLogger.error( "Surprising response from conductor unregistering worker: {data}" )
         except Exception:
-            SCLogger.exception( "Exception unregistering worker, continuing" )
+            SCLogger.exception( f"Exception unregistering worker {self.pipelineworker_id}, continuing" )
 
     def send_heartbeat( self ):
         url = f'workerheartbeat/{self.pipelineworker_id}'
@@ -140,11 +142,11 @@ class ExposureLauncher:
                     done = True
                     continue
 
+                self.send_heartbeat()
                 data = self.conductor.send( f'requestexposure/cluster_id={self.cluster_id}' )
 
                 if data['status'] == 'not available':
                     SCLogger.info( f'No exposures available, sleeping {self.sleeptime} s' )
-                    self.send_heartbeat()
                     time.sleep( self.sleeptime )
                     continue
 
@@ -257,13 +259,19 @@ pipelines to process each of the chips in the exposure.
                                 verify=not args.noverify, through_step=args.through_step,
                                 max_run_time=args.max_run_time, worker_log_level=worker_log_level )
     elaunch.register_worker()
+
+    def goodbye( signum, frame ):
+        SCLogger.warning( "Got SIGINT, unregistering worker and exiting." )
+        sys.exit()
+
+    signal.signal( signal.SIGINT, goodbye )
+
     try:
         elaunch()
     finally:
         elaunch.unregister_worker()
 
+
 # ======================================================================
-
-
 if __name__ == "__main__":
     main()

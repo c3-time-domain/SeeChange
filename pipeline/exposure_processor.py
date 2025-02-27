@@ -1,3 +1,4 @@
+import sys
 import argparse
 import re
 import datetime
@@ -177,6 +178,8 @@ class ExposureProcessor:
 # ======================================================================
 
 def main():
+    sys.stderr.write( f"exposure_processor starting at {datetime.datetime.now(tz=datetime.UTC).isoformat()}\n" )
+
     parser = argparse.ArgumentParser( 'exposure_processor', 'process a single known exposure' )
     parser.add_argument( 'instrument', help='Name of the instrument of the known exposure' )
     parser.add_argument( 'identifier', help='Identifier of the known exposure' )
@@ -193,8 +196,13 @@ def main():
                          help="Delete exposure from disk and database before starting if it exists." )
     parser.add_argument( '--really-delete', default=False, action='store_true',
                          help="Must be specified if -d or --delete is specified for it to do its dirty work." )
-    parser.add_argument( '-l', '--log-level', default='warning',
-                         help="Log level (error, warning, info, or debug) (defaults to warning" )
+    parser.add_argument( '-l', '--log-level', default='info',
+                         help="Log level (error, warning, info, or debug) (defaults to info)" )
+    parser.add_argument( '-w', '--worker-log-level', default='warning',
+                         help="Log level for the chip worker subprocesses (defaults to warning)" )
+    parser.add_argument( '--assume-claimed', default=False, action='store_true',
+                         help=( "Normally, will object if somebody else has claimed this exposure. Set "
+                                "this flag to True to ignore claims in the knownexposures table." ) )
 
     args = parser.parse_args()
 
@@ -226,7 +234,7 @@ def main():
                               f"and identifier {args.identifier}" )
         row = rows[0]
 
-        if ( row['cluster_id'] is not None ) or ( row['claim_time'] is not None ):
+        if ( not args.assume_claimed) and ( ( row['cluster_id'] is not None ) or ( row['claim_time'] is not None ) ):
             raise RuntimeError( f"Known exposure with instrument {args.instrument} "
                                 f"and identifier {args.identifier} is claimed by "
                                 f"{row['cluster_id']} at {row['claim_time']}" )
@@ -260,14 +268,15 @@ def main():
                                   f"and identifier {args.identifier}, but you specified neither "
                                   f"--continue nor --delete." )
 
-        cursor.execute( "UPDATE knownexposures SET cluster_id=%(clust)s, claim_time=%(t)s, exposure_id=%(exp)s "
-                        "WHERE instrument=%(inst)s AND identifier=%(iden)s",
-                        { 'inst': args.instrument,
-                          'iden': args.identifier,
-                          'clust': args.cluster_id,
-                          't': datetime.datetime.now( tz=datetime.UTC ),
-                          'exp': str(exposureid)
-                         } )
+        if not args.assume_claimed:
+            cursor.execute( "UPDATE knownexposures SET cluster_id=%(clust)s, claim_time=%(t)s, exposure_id=%(exp)s "
+                            "WHERE instrument=%(inst)s AND identifier=%(iden)s",
+                            { 'inst': args.instrument,
+                              'iden': args.identifier,
+                              'clust': args.cluster_id,
+                              't': datetime.datetime.now( tz=datetime.UTC ),
+                              'exp': str(exposureid)
+                             } )
         conn.commit()
 
     # If we got this far, we have a known exposure to process, so process it
@@ -286,7 +295,7 @@ def main():
     processor = ExposureProcessor( instrument, identifier, params, numprocs,
                                    onlychips=args.chips,
                                    through_step=args.through_step,
-                                   worker_log_level=loglookup[args.log_level.lower()] )
+                                   worker_log_level=loglookup[args.worker_log_level.lower()] )
     if exposureid is None:
         processor.download_and_load_exposure()
         with Psycopg2Connection() as conn:
@@ -294,7 +303,7 @@ def main():
             cursor.execute( "UPDATE knownexposures SET exposure_id=%(expid)s "
                             "WHERE instrument=%(inst)s AND identifier=%(iden)s",
                             { 'inst': args.instrument,
-                              'iden': args.idnetifier,
+                              'iden': args.identifier,
                               'expid': str(processor.exposure.id) }
                            )
             conn.commit()
