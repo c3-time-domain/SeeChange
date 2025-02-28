@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 from models.base import FileOnDiskMixin
 from util.logger import SCLogger
-from util.util import UUIDJsonEncoder, asUUID
+from util.util import NumpyAndUUIDJsonEncoder, asUUID
 
 
 def copy_to_cache(FoD, cache_dir, filepath=None, dont_actually_copy_just_return_json_filepath=False ):
@@ -194,7 +194,7 @@ def copy_list_to_cache(obj_list, cache_dir, filepath=None):
 
     # overwrite the JSON file with the list of dictionaries for all the objects
     with open(jsonpath, 'w') as fp:
-        json.dump( [obj.to_dict() for obj in obj_list], fp, indent=2, cls=UUIDJsonEncoder )
+        json.dump( [obj.to_dict() for obj in obj_list], fp, indent=2, cls=NumpyAndUUIDJsonEncoder )
 
     return jsonpath
 

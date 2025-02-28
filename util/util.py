@@ -9,6 +9,7 @@ import dateutil.parser
 import uuid
 import json
 
+import numpy as np
 import sqlalchemy as sa
 
 from astropy.time import Time
@@ -25,8 +26,18 @@ def asUUID( id ):
     return uuid.UUID( id )
 
 
-class UUIDJsonEncoder(json.JSONEncoder):
+class NumpyAndUUIDJsonEncoder(json.JSONEncoder):
+    """Encodes UUID to strings, also encodes numpy stuff to python things."""
+
     def default(self, obj):
+        if isinstance( obj, np.integer ):
+            return int( obj )
+        if isinstance( obj, np.floating ):
+            return float( obj )
+        if isinstance( obj, np.bool_ ):
+            return bool( obj )
+        if isinstance( obj, np.ndarray ):
+            return obj.tolist()
         if isinstance(obj, uuid.UUID):
             return str(obj)
         return json.JSONEncoder.default(self, obj)

@@ -262,10 +262,11 @@ pipelines to process each of the chips in the exposure.
     elaunch.register_worker()
 
     def goodbye( signum, frame ):
-        SCLogger.warning( "Got SIGINT, unregistering worker and exiting." )
+        SCLogger.warning( "Got INT/TERM signal, unregistering worker and exiting." )
         sys.exit()
 
     signal.signal( signal.SIGINT, goodbye )
+    signal.signal( signal.SIGTERM, goodbye )
 
     try:
         elaunch()

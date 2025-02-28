@@ -224,10 +224,11 @@ Created scripts will be put in {script_and_log_dir}/jobstorun.
     sbatcher.register_worker()
 
     def goodbye( signum, frame ):
-        SCLogger.warning( "Got SIGINT, unregistering worker and exiting." )
+        SCLogger.warning( "Got INT/TERM signal, unregistering worker and exiting." )
         sys.exit()
 
     signal.signal( signal.SIGINT, goodbye )
+    signal.signal( signal.SIGTERM, goodbye )
 
     try:
         sbatcher()
