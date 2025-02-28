@@ -63,7 +63,7 @@ class ExposureLauncher:
           database.
 
         max_run_time : float, default None
-          Normall, when youc all an ExposureLauncher it will loop
+          Normally, when you call an ExposureLauncher it will loop
           forever, asking the conductor for things to do.  If you set
           this, it will run at most this many seconds before exiting.
           Before asking the conductor for something to do, it will check

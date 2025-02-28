@@ -80,9 +80,6 @@ jobs:
       #       setuptables.tags=ghcr.io/${{ github.repository_owner }}/runtests
       #       setuptables.cache-from=type=gha,scope=cached-seechange
       #       setuptables.cache-to=type=gha,scope=cached-seechange,mode=max
-      #       conductor.tags=ghcr.io/${{ github.repository_owner }}/conductor
-      #       conductor.cache-from=type=gha,scipe=cached-conductor
-      #       conductor.cache-to=type=gha,scope=cached-conductor,mode=max
       #       webap.tags=ghcr.io/${{ github.repository_owner }}/seechange-webap
       #       webap.cache-from=type=gha,scipe=cached-seechange-webap
       #       webap.cache-to=type=gha,scope=cached-seechange-webap,mode=max
@@ -95,7 +92,7 @@ jobs:
 
       - name: pull images
         run: |
-          docker compose pull archive postgres conductor mailhog webap runtests kafka-server
+          docker compose pull archive postgres mailhog webap runtests kafka-server
 
       # I would love to have a separate workflow that just pulls the one
       # image needed and runs the ruff linter, and have this workflow
