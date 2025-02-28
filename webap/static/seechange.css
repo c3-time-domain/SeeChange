@@ -110,6 +110,10 @@ div.vbox { display: flex;
            min-width: 0;
            min-height: 0; }
 
+div.subdiv { border: 2px solid var(--mostlyfull-color-border);
+             padding: 0.5ex;
+             margin: 1ex; }
+
 div.authdiv { color: var(--some-faded-color);
               font-size: 75% }
 

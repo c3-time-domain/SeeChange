@@ -509,6 +509,30 @@ seechange.Conductor = class
 
 }
 
+
+
+// **********************************************************************
+
+seechange.PipelineWorkers = class
+{
+    constructor( context, conductor )
+    {
+        this.context = context;
+        this.conductor = conductor;
+        this.div = rkWebUtil.elemaker( "div", null, { 'id': 'conductorworkers-div',
+                                                      'classes': [ 'conductorworkers' ] } )
+    };
+
+    render()
+    {
+        let self = this;
+
+        let p, span, hbox;
+
+        rkWebUtil.wipeDiv( this.div );
+        this.workersdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorworkers" ] } );
+        this.statusdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "subdiv" ] } );
+
 // **********************************************************************
 // **********************************************************************
 // **********************************************************************
