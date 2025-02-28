@@ -31,7 +31,7 @@ seechange.ExposureSearch = class
                                                   "attributes": { "type": "text",
                                                                   "size": 20 } } );
         this.startdatewid.addEventListener( "blur", function(e) {
-            rkWebUtil.validateWidgetDate( self.startdatewid );
+            rkWebUtil.validateWidgetDateUTC( self.startdatewid );
         } );
         p.appendChild( document.createTextNode( " to " ) );
         this.enddatewid = rkWebUtil.elemaker( "input", p,
@@ -39,7 +39,7 @@ seechange.ExposureSearch = class
                                                 "attributes": { "type": "text",
                                                                 "size": 20 } } );
         this.enddatewid.addEventListener( "blur", function(e) {
-            rkWebUtil.validateWidgetDate( self.enddatewid );
+            rkWebUtil.validateWidgetDateUTC( self.enddatewid );
         } );
         rkWebUtil.elemaker( "br", p );
         p.appendChild( document.createTextNode( "    (YYYY-MM-DD [HH:MM] — leave blank for no limit)" ) );

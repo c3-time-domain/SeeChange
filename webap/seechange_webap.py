@@ -299,13 +299,15 @@ class Exposures( BaseView ):
         # Now run a second query to count and sum those things
         # These numbers will be wrong (double-counts) if not filtering on a provenance tag, or if the
         #   provenance tag includes multiple provenances for a given step!
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, '
+              '  t._filter, t.filter_array, t.exp_time, '
               '  AVG(t.fwhm_estimate) AS seeingavg, AVG(t.lim_mag_estimate) AS limmagavg, '
               '  COUNT(t.subid) AS num_subs, SUM(t.num_sources) AS num_sources, '
               '  SUM(t.num_measurements) AS num_measurements '
               'INTO TEMP TABLE temp_imgs_2 '
               'FROM temp_imgs t '
-              'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time'
+              'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, '
+              '         t._filter, t.filter_array, t.exp_time'
              )
 
         cursor.execute( q )
@@ -317,7 +319,8 @@ class Exposures( BaseView ):
         #   that pokes into the jsonb column) may get really slow when
         #   tables are big.  Think about that.
         subdict = {}
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, '
+              '  t._filter, t.filter_array, t.exp_time, '
               '  t.seeingavg, t.limmagavg, t.num_subs, t.num_sources, t.num_measurements, '
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
@@ -327,16 +330,60 @@ class Exposures( BaseView ):
         if data['provenancetag'] is None:
             q += '  FROM reports re '
         else:
-            q += ( '  FROM ( SELECT subre.exposure_id, subre.section_id, '
-                   '                subre.success, subre.error_message, subre.start_time '
-                   '         FROM reports subre '
-                   '         WHERE %(provtag)s = ALL( '
-                   '           SELECT subrept.tag FROM provenance_tags subrept '
-                   '           INNER JOIN ( SELECT value FROM jsonb_each_text(subre.process_provid) ) subsubre '
-                   '           ON subsubre.value=subrept.provenance_id '
-                   '         ) '
-                   '       ) re ' )
+            # ZOMG
+            #
+            # The goal here is to find all the reports where *all* of the process_provid in the reports
+            # are tagged with provtag.  It's not good enough that some processes are tagged.  E.g.,
+            # you could easily have a report where all the steps through "subtraction" are tagged with
+            # both provtag1 and provtag2, but the later steps are tagged only with provtag2.
+            # If you're looking for a report where all steps are tagged with provtag1, then that report
+            # is not the one you're looking for.  (Jedi hand wave.)
+            #
+            # We do this, going from inside to out, by:
+
+            #      1. (subquery re2) explode the process_provid dictionary (it's a jsonb column) into lots of
+            #         rows— each row is expanded into separate rows for each process/provenance pair.  Join to
+            #         the provenance tags so we have a table of report*, process, provtag; report* is repeated
+            #         lots of times, at least once for each process in the report.  Process *might* be
+            #         repeated if the provenance id is tagged with multiple tags (which is common).
+            #
+            #      2. Set aggregate (array w/ distinct) all of the tags for a given (report*, process)
+            #         (subquery re1)
+            #
+            #      3. Array aggregate over processes, making a new array where each element is true
+            #         if the process associated with that element has provtag in its provtag array,
+            #         false otherwise
+            #         (subquery re)
+            #
+            #      4. Select out only the reports where every element from the previous step is true.
+            #         (subquery r)
+            q += ( '  FROM ( SELECT re1.exposure_id, re1.section_id, '
+                   '                re1.success, re1.error_message, re1.start_time, '
+                   '                array_agg(%(provtag)s=ANY(re1.tags)) AS gotem '
+                   '         FROM ( SELECT re2.exposure_id, re2.section_id, '
+                   '                       re2.success, re2.error_message, re2.start_time, '
+                   '                       re2.process, array_agg(re2.tag) as tags '
+                   '                FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
+                   '                              re3._id, re3.exposure_id, re3.section_id, '
+                   '                              re3.success, re3.error_message, re3.start_time, '
+                   '                              x.key AS process, r3pt.tag '
+                   '                       FROM reports re3 '
+                   '                       CROSS JOIN jsonb_each_text( re3.process_provid ) x '
+                   '                       INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id '
+                   '                       ORDER BY re3._id, r3pt.tag '
+                   '                     ) re2 '
+                   '                GROUP BY ( re2.exposure_id, re2.section_id, re2.success, '
+                   '                           re2.error_message, re2.start_time, re2.process ) '
+                   '              ) re1 '
+                   '         GROUP BY ( re1.exposure_id, re1.section_id, re1.success, re1.error_message, '
+                   '                    re1.start_time ) '
+                   '       ) re '
+                   '  WHERE true=ALL( gotem ) ' )
             subdict['provtag'] = data['provenancetag']
+        # Even after all of the above, it's still possible that we'll have multiple reports for a given
+        #   exposure_id and section_id, because it's possible that the pipeline was started, stopped, and
+        #   restarted; the restart would generate a new report.  So, order by start time desending,
+        #   and then above we distincted out on exposure_id and section_id to just take the most recent.
         q += '  ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
         q += ') r ON r.exposure_id=t._id '
         # I wonder if making a primary key on the temp table would be more efficient than
@@ -495,11 +542,10 @@ class ExposureImages( BaseView ):
 
         # Step 3: join to the report table.  Because we might have multiple reports
         #   for the same exposure/section/provenance tag, pick just the latest.
-        # As in the Exposures view, I worry that all the join sheanigans
-        #   (in particular, having to dig into the jsonb column) will get
-        #   slow when tables get big.  One has to hope that postgres will be
-        #   smart enough to filter the reports table on exposure_id and section_id before
-        #   the sorting.  (There may be some EXPLAIN and EXPLAIN ANALYIZE in my future....)
+        #
+        # This mess is very similar to the mess in Exposures, to make sure we're selecting
+        #   the right reports.
+
         q = ( 'SELECT i._id, r.error_step, r.error_type, r.error_message, r.warnings, r.start_time, r.finish_time, '
               '       r.process_memory, r.process_runtime, r.progress_steps_bitflag, r.products_exist_bitflag '
               'INTO TEMP TABLE temp_exposure_images_reports '
@@ -509,18 +555,36 @@ class ExposureImages( BaseView ):
               '         re.error_step, re.error_type, re.error_message, re.warnings, '
               '         re.process_memory, re.process_runtime, re.progress_steps_bitflag, re.products_exist_bitflag, '
               '         re.start_time, re.finish_time '
-              '  FROM ( SELECT subre.exposure_id, subre.section_id, subre.error_step, '
-              '                subre.error_type, subre.error_message, subre.warnings, '
-              '                subre.process_memory, subre.process_runtime, '
-              '                subre.progress_steps_bitflag, subre.products_exist_bitflag, '
-              '                subre.start_time, subre.finish_time '
-              '         FROM reports subre '
-              '         WHERE %(provtag)s = ALL( '
-              '           SELECT subrept.tag FROM provenance_tags subrept '
-              '           INNER JOIN ( SELECT value FROM jsonb_each_text(subre.process_provid) ) subsubre '
-              '           ON subsubre.value=subrept.provenance_id'
-              '         ) '
+              '  FROM ( SELECT re1.exposure_id, re1.section_id, re1.error_step, re1.error_type, re1.error_message, '
+              '                re1.warnings, re1.process_memory, re1.process_runtime, re1.progress_steps_bitflag, '
+              '                re1.products_exist_bitflag, re1.start_time, re1.finish_time, '
+              '                array_agg(%(provtag)s=ANY(re1.tags)) as gotem '
+              '         FROM ( SELECT re2.exposure_id, re2.section_id, re2.error_step, re2.error_type, '
+              '                       re2.error_message, re2.warnings, re2.process_memory, re2.process_runtime, '
+              '                       re2.progress_steps_bitflag, re2.products_exist_bitflag, re2.start_time, '
+              '                       re2.finish_time, array_agg(re2.tag) AS tags '
+              '                FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
+              '                              re3._id, re3.exposure_id, re3.section_id, re3.error_step, '
+              '                              re3.error_type, re3.error_message, re3.warnings, re3.process_memory, '
+              '                              re3.process_runtime, re3.progress_steps_bitflag, '
+              '                              re3.products_exist_bitflag, re3.start_time, re3.finish_time, '
+              '                              x.key AS process, r3pt.tag '
+              '                        FROM reports re3 '
+              '                        CROSS JOIN jsonb_each_text( re3.process_provid ) x '
+              '                        INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id '
+              '                        ORDER BY re3._id, r3pt.tag '
+              '                     ) re2 '
+              '                GROUP BY ( re2.exposure_id, re2.section_id, re2.error_step, re2.error_type, '
+              '                           re2.error_message, re2.warnings, re2.process_memory, '
+              '                           re2.process_runtime, re2.progress_steps_bitflag, '
+              '                           re2.products_exist_bitflag, re2.start_time, re2.finish_time ) '
+              '              ) re1 '
+              '         GROUP BY ( re1.exposure_id, re1.section_id, re1.error_step, re1.error_type, '
+              '                    re1.error_message, re1.warnings, re1.process_memory, re1.process_runtime, '
+              '                    re1.progress_steps_bitflag, re1.products_exist_bitflag, re1.start_time, '
+              '                    re1.finish_time ) '
               '       ) re '
+              '  WHERE true=ALL(gotem) '
               '  ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
               ') r ON r.exposure_id=i.exposure_id AND r.section_id=i.section_id ' )
         # app.logger.debug( f"exposure_images getting reports; query {cursor.mogrify(q,subdict)}" )

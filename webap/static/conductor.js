@@ -35,9 +35,6 @@ seechange.Conductor = class
 
         rkWebUtil.elemaker( "hr", this.contentdiv );
 
-        this.forceconductorpoll_p = rkWebUtil.elemaker( "p", this.contentdiv );
-        rkWebUtil.button( this.forceconductorpoll_p, "Force Conductor Poll", () => { self.force_conductor_poll(); } );
-
         p = rkWebUtil.elemaker( "p", this.contentdiv );
         rkWebUtil.button( p, "Refresh", () => { self.update_known_exposures(); } );
         p.appendChild( document.createTextNode( " known exposures taken from " ) );
@@ -122,6 +119,9 @@ seechange.Conductor = class
         tr = rkWebUtil.elemaker( "tr", table );
         th = rkWebUtil.elemaker( "th", tr, { "text": "Projects" } );
         td = rkWebUtil.elemaker( "td", tr, { "text": projects } );
+
+        this.forceconductorpoll_p = rkWebUtil.elemaker( "p", this.configdiv );
+        rkWebUtil.button( this.forceconductorpoll_p, "Force Conductor Poll", () => { self.force_conductor_poll(); } );
     }
 
     // **********************************************************************
@@ -483,13 +483,10 @@ seechange.PipelineWorkers = class
     render()
     {
         let self = this;
-        let hbox, h3;
 
         rkWebUtil.wipeDiv( this.div );
-        hbox = rkWebUtil.elemaker( "div", this.div, { "classes": [ "hbox" ] } );
+        let hbox = rkWebUtil.elemaker( "div", this.div, { "classes": [ "hbox" ] } );
         this.workersdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "subdiv" ] } );
-        h3 = rkWebUtil.elemaker( "h3", this.workersdiv, { "text": "KnownPipeline Workers" } );
-        rkWebUtil.button( h3, "Refresh", () => { self.update_workers(); } );
         this.statusdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "subdiv" ] } );
         this.update_workers();
     };
@@ -507,9 +504,12 @@ seechange.PipelineWorkers = class
     show_workers( data )
     {
         let self = this;
-        let table, tr, th, td, p;
+        let table, tr, th, td, p, h3;
 
         rkWebUtil.wipeDiv( this.workersdiv );
+
+        h3 = rkWebUtil.elemaker( "h3", this.workersdiv, { "text": "KnownPipeline Workers  " } );
+        rkWebUtil.button( h3, "Refresh", () => { self.update_workers(); } );
 
         table = rkWebUtil.elemaker( "table", this.workersdiv, { "classes": [ "borderedcells" ] } );
         tr = rkWebUtil.elemaker( "tr", table );
