@@ -12,7 +12,7 @@ from models.source_list import SourceList
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
-from models.measurements import Measurements
+from models.measurements import Measurements, MeasurementSet
 from models.knownexposure import PipelineWorker
 from pipeline.pipeline_exposure_launcher import ExposureLauncher
 
@@ -91,7 +91,11 @@ def test_exposure_launcher( conductor_connector,
             assert sub0 is not None
             assert sub1 is not None
 
-            measq = session.query( Measurements ).join( Cutouts ).join( SourceList ).join( Image )
+            measq = ( session.query( Measurements )
+                      .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+                      .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
+                      .join( SourceList, Cutouts.sources_id==SourceList._id )
+                      .join( Image, SourceList.image_id==Image._id ) )
             meas0 = measq.filter( Image._id==sub0.id ).all()
             meas1 = measq.filter( Image._id==sub1.id ).all()
             assert len(meas0) == 2

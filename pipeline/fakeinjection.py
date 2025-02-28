@@ -309,7 +309,7 @@ class FakeInjector:
             zpprov = Provenance.get( zp.provenance_id )
             prov = Provenance( code_version_id=Provenance.get_code_version().id,
                                process=self.pars.get_process_name(),
-                               params=params,
+                               parameters=params,
                                upstreams=[zpprov] )
             prov.insert_if_needed()
 

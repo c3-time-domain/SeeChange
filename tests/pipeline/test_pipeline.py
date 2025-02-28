@@ -691,7 +691,6 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
             # these are used to find the report later on
             exp_id = ds.exposure_id
             sec_id = ds.section_id
-            prov_id = ds.report.provenance_id
 
             # set the error instead
             getattr(p, obj).pars.inject_warnings = False
@@ -709,11 +708,9 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
                     sa.select(Report).where(
                         Report.exposure_id == exp_id,
                         Report.section_id == sec_id,
-                        Report.provenance_id == prov_id
                     ).order_by(Report.start_time.desc())
                 ).all()
                 report = reports[0]  # the last report is the one we just generated
-                assert len(reports) - 1 == report.num_prev_reports
                 assert not report.success
                 assert report.error_step == process_step
                 assert report.error_type == 'RuntimeError'

@@ -310,25 +310,35 @@ class Exposures( BaseView ):
 
         cursor.execute( q )
 
-        # Run a third query to count reports
+        # Run a third query to count reports.  Because there might be
+        #   lots of reports for the same exposure, we're just going to
+        #   count the latest one that matches the expected provenance tag.
+        # WORRY : all of these join shenanigans (in particular, the one
+        #   that pokes into the jsonb column) may get really slow when
+        #   tables are big.  Think about that.
         subdict = {}
         q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
               '  t.seeingavg, t.limmagavg, t.num_subs, t.num_sources, t.num_measurements, '
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
               'FROM temp_imgs_2 t '
-             )
+              'LEFT JOIN ( '
+              '  SELECT DISTINCT ON(re.exposure_id, re.section_id) re.exposure_id, re.success, re.error_message ' )
         if data['provenancetag'] is None:
-            q += 'LEFT JOIN reports r ON r.exposure_id=t._id '
+            q += '  FROM reports re '
         else:
-            q += ( 'LEFT JOIN ( '
-                   '  SELECT re.exposure_id, re.success, re.error_message '
-                   '  FROM reports re '
-                   '  INNER JOIN provenance_tags rept ON rept.provenance_id=re.provenance_id '
-                   '                                  AND rept.tag=%(provtag)s '
-                   ') r ON r.exposure_id=t._id '
-                  )
+            q += ( '  FROM ( SELECT subre.exposure_id, subre.section_id, '
+                   '                subre.success, subre.error_message, subre.start_time '
+                   '         FROM reports subre '
+                   '         WHERE %(provtag)s = ALL( '
+                   '           SELECT subrept.tag FROM provenance_tags subrept '
+                   '           INNER JOIN ( SELECT value FROM jsonb_each_text(subre.process_provid) ) subsubre '
+                   '           ON subsubre.value=subrept.provenance_id '
+                   '         ) '
+                   '       ) re ' )
             subdict['provtag'] = data['provenancetag']
+        q += '  ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
+        q += ') r ON r.exposure_id=t._id '
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.
         q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, '
@@ -483,22 +493,40 @@ class ExposureImages( BaseView ):
         # app.logger.debug( f"Got {cursor.fetchone()[0]} rows with counts" )
         # ****
 
-        # Step 3: join to the report table.  This one is probably mergeable with step 1.
-        q = ( 'SELECT i._id, r.error_step, r.error_type, r.error_message, r.warnings, '
+        # Step 3: join to the report table.  Because we might have multiple reports
+        #   for the same exposure/section/provenance tag, pick just the latest.
+        # As in the Exposures view, I worry that all the join sheanigans
+        #   (in particular, having to dig into the jsonb column) will get
+        #   slow when tables get big.  One has to hope that postgres will be
+        #   smart enough to filter the reports table on exposure_id and section_id before
+        #   the sorting.  (There may be some EXPLAIN and EXPLAIN ANALYIZE in my future....)
+        q = ( 'SELECT i._id, r.error_step, r.error_type, r.error_message, r.warnings, r.start_time, r.finish_time, '
               '       r.process_memory, r.process_runtime, r.progress_steps_bitflag, r.products_exist_bitflag '
               'INTO TEMP TABLE temp_exposure_images_reports '
               'FROM temp_exposure_images i '
               'INNER JOIN ( '
-              '  SELECT re.exposure_id, re.section_id, '
+              '  SELECT DISTINCT ON(re.exposure_id, re.section_id) re.exposure_id, re.section_id, '
               '         re.error_step, re.error_type, re.error_message, re.warnings, '
-              '         re.process_memory, re.process_runtime, re.progress_steps_bitflag, re.products_exist_bitflag '
-              '  FROM reports re '
-              '  INNER JOIN provenance_tags rept ON rept.provenance_id=re.provenance_id AND rept.tag=%(provtag)s '
-              ') r ON r.exposure_id=i.exposure_id AND r.section_id=i.section_id '
-             )
+              '         re.process_memory, re.process_runtime, re.progress_steps_bitflag, re.products_exist_bitflag, '
+              '         re.start_time, re.finish_time '
+              '  FROM ( SELECT subre.exposure_id, subre.section_id, subre.error_step, '
+              '                subre.error_type, subre.error_message, subre.warnings, '
+              '                subre.process_memory, subre.process_runtime, '
+              '                subre.progress_steps_bitflag, subre.products_exist_bitflag, '
+              '                subre.start_time, subre.finish_time '
+              '         FROM reports subre '
+              '         WHERE %(provtag)s = ALL( '
+              '           SELECT subrept.tag FROM provenance_tags subrept '
+              '           INNER JOIN ( SELECT value FROM jsonb_each_text(subre.process_provid) ) subsubre '
+              '           ON subsubre.value=subrept.provenance_id'
+              '         ) '
+              '       ) re '
+              '  ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
+              ') r ON r.exposure_id=i.exposure_id AND r.section_id=i.section_id ' )
         # app.logger.debug( f"exposure_images getting reports; query {cursor.mogrify(q,subdict)}" )
         cursor.execute( q, subdict )
-        # Again, we will get an error here if there are multiple rows for a given image
+        # Again, we will get an error here if there are multiple rows for a given image.
+        #   Because of the distinct on exposure_id/section_id, I don't think that should happen.
         cursor.execute( "ALTER TABLE temp_exposure_images_reports ADD PRIMARY KEY(_id)" )
         # ****
         # cursor.execute( "SELECT COUNT(*) FROM temp_exposure_images_reports" )
@@ -517,7 +545,7 @@ class ExposureImages( BaseView ):
         fields = ( '_id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
                    'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate',
                    'numsources', 'nummeasurements', 'subid',
-                   'error_step', 'error_type', 'error_message', 'warnings',
+                   'error_step', 'error_type', 'error_message', 'warnings', 'start_time', 'finish_time',
                    'process_memory', 'process_runtime', 'progress_steps_bitflag', 'products_exist_bitflag' )
 
         retval = { 'status': 'ok',
@@ -541,7 +569,10 @@ class ExposureImages( BaseView ):
             retval['name'].append( row[columns['filepath']] if match is None else match.group(1) )
             for field in fields:
                 rfield = 'id' if field == '_id' else field
-                retval[rfield].append( row[columns[field]] )
+                if ( rfield in ( 'start_time', 'finish_time' ) ) and ( row[columns[field]] is not None ):
+                    retval[rfield].append( row[columns[field]].isoformat() )
+                else:
+                    retval[rfield].append( row[columns[field]] )
 
         if len(multiples) != 0:
             return { 'status': 'error',

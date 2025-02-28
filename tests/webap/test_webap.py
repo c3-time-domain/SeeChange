@@ -150,7 +150,28 @@ def test_webap_projects( webap_rkauth_client, sim_exposure1 ):
 
 # This test is brobdingnagian because I just want to run the
 #    fixture once.  It will troll through the web interface a lot.
-def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
+
+# Note that the admin_user fixture is there even though it's not
+#    actually used in the test because it's convenient to use this test
+#    to set up something of an environment for testing the web ap
+#    interactively; just run
+#        pytest --trace webap/test_webap.py:test_webap
+#    and wait for the fixtures to finish.  (The --trace option tells
+#    pytest to drop into the debugger at the beginning of each test, but
+#    after the fixtures have run.)  Then, assuming you're running inside
+#    a docker compose environment on your desktop, point your browser at
+#    localhost:8081 (or whatever port you configured in your .env file).
+#    If you edit the webap code and want to see the changes, you don't
+#    have to blow away your whole docker compose environment.  Just, outside
+#    the docker environment but in the tests directory, run
+#      docker compose down webap    (maybe with -v)
+#      docker compose build webap
+#      docker compose up -d webap
+#   Then, to see server-side errors,
+#      docker compose logs webap
+#   I wonder if all this comment shoudl be put in the "Testing tips" part
+#   of our documentation....
+def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user ):
     browser = webap_browser_logged_in
     ds = decam_datastore
     junkprov = None
@@ -172,8 +193,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
                                         ds.detections.provenance_id,
                                         ds.cutouts.provenance_id,
                                         ds.measurement_set.provenance_id,
-                                        ds.deepscore_set.provenance_id,
-                                        ds.report.provenance_id ] )
+                                        ds.deepscore_set.provenance_id ] )
         ProvenanceTag.addtag( 'test_webap', provs )
 
         # Create a throwaway provenance and provenance tag so we can test

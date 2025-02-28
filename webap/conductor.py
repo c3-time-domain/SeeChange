@@ -16,7 +16,7 @@ from models.knownexposure import PipelineWorker, KnownExposure
 #  known instrument classes we might want to use here.
 # If models.instrument gets imported somewhere else before this file
 #  is imported, then even this won't work.  There must be a better way....
-import models.decam
+import models.decam # noqa: F401
 from models.instrument import get_instrument_instance
 
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )

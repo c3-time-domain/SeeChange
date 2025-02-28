@@ -24,10 +24,12 @@ seechange.Conductor = class
         rkWebUtil.wipeDiv( this.div );
         this.frontpagediv = rkWebUtil.elemaker( "div", this.div );
 
+        this.pipelineworkers = new seechange.PipelineWorkers( this.context, this );
+
         hbox = rkWebUtil.elemaker( "div", this.frontpagediv, { "classes": [ "hbox" ] } );
 
         this.configdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorconfig" ] } );
-        this.workersdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorworkers" ] } );
+        hbox.appendChild( this.pipelineworkers.div );
 
         this.contentdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
 
@@ -47,7 +49,7 @@ seechange.Conductor = class
         this.knownexpdiv = rkWebUtil.elemaker( "div", this.contentdiv );
 
         this.show_config_status();
-        this.update_workers_div();
+        this.pipelineworkers.render();
     }
 
     // **********************************************************************
@@ -295,54 +297,6 @@ seechange.Conductor = class
 
     // **********************************************************************
 
-    update_workers_div()
-    {
-        let self = this;
-        rkWebUtil.wipeDiv( this.workersdiv );
-        rkWebUtil.elemaker( "h3", this.workersdiv, { "text": "Known Pipeline Workers" } );
-        this.connector.sendHttpRequest( "conductor/getworkers", {}, (data) => { self.show_workers(data); } );
-    }
-
-    // **********************************************************************
-
-    show_workers( data )
-    {
-        let self = this;
-        let table, tr, th, td, p;
-
-        p = rkWebUtil.elemaker( "p", this.workersdiv );
-        rkWebUtil.button( p, "Refresh", () => { self.update_workers_div(); } );
-
-        table = rkWebUtil.elemaker( "table", this.workersdiv, { "classes": [ "borderedcells" ] } );
-        tr = rkWebUtil.elemaker( "tr", table );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "id" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "cluster_id" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "node_id" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "nexps" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "last heartbeat" } );
-
-        let grey = 0;
-        let coln = 3;
-        for ( let worker of data['workers'] ) {
-            if ( coln == 0 ) {
-                grey = 1 - grey;
-                coln = 3;
-            }
-            coln -= 1;
-            tr = rkWebUtil.elemaker( "tr", table );
-            if ( grey ) tr.classList.add( "greybg" );
-            td = rkWebUtil.elemaker( "td", tr, { "text": worker.id } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": worker.cluster_id } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": worker.node_id } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": worker.nexps } );
-            td = rkWebUtil.elemaker( "td", tr,
-                                     { "text": rkWebUtil.dateUTCFormat(
-                                         rkWebUtil.parseDateAsUTC( worker.lastheartbeat ) ) } );
-        }
-    }
-
-    // **********************************************************************
-
     update_known_exposures()
     {
         let self = this;
@@ -519,19 +473,76 @@ seechange.PipelineWorkers = class
     {
         this.context = context;
         this.conductor = conductor;
+        this.connector = this.context.connector;
         this.div = rkWebUtil.elemaker( "div", null, { 'id': 'conductorworkers-div',
                                                       'classes': [ 'conductorworkers' ] } )
     };
 
+    // **********************************************************************
+
     render()
     {
         let self = this;
-
-        let p, span, hbox;
+        let hbox, h3;
 
         rkWebUtil.wipeDiv( this.div );
-        this.workersdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorworkers" ] } );
+        hbox = rkWebUtil.elemaker( "div", this.div, { "classes": [ "hbox" ] } );
+        this.workersdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "subdiv" ] } );
+        h3 = rkWebUtil.elemaker( "h3", this.workersdiv, { "text": "KnownPipeline Workers" } );
+        rkWebUtil.button( h3, "Refresh", () => { self.update_workers(); } );
         this.statusdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "subdiv" ] } );
+        this.update_workers();
+    };
+
+    // **********************************************************************
+
+    update_workers()
+    {
+        let self = this;
+        this.connector.sendHttpRequest( "conductor/getworkers", {}, (data) => { self.show_workers(data); } );
+    }
+
+    // **********************************************************************
+
+    show_workers( data )
+    {
+        let self = this;
+        let table, tr, th, td, p;
+
+        rkWebUtil.wipeDiv( this.workersdiv );
+
+        table = rkWebUtil.elemaker( "table", this.workersdiv, { "classes": [ "borderedcells" ] } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "id" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "cluster_id" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "node_id" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "nexps" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "last heartbeat" } );
+
+        let grey = 0;
+        let coln = 3;
+        for ( let worker of data['workers'] ) {
+            if ( coln == 0 ) {
+                grey = 1 - grey;
+                coln = 3;
+            }
+            coln -= 1;
+            tr = rkWebUtil.elemaker( "tr", table );
+            if ( grey ) tr.classList.add( "greybg" );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.cluster_id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.node_id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": worker.nexps } );
+            td = rkWebUtil.elemaker( "td", tr,
+                                     { "text": rkWebUtil.dateUTCFormat(
+                                         rkWebUtil.parseDateAsUTC( worker.lastheartbeat ) ) } );
+        }
+    }
+
+}
+
+
+
 
 // **********************************************************************
 // **********************************************************************

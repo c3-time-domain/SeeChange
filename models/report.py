@@ -3,6 +3,7 @@ import time
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
 from models.base import Base, SeeChangeBase, UUIDMixin
 from models.enums_and_bitflags import (
@@ -28,7 +29,7 @@ class Report(Base, UUIDMixin):
 
     exposure_id = sa.Column(
         sa.ForeignKey('exposures._id', ondelete='CASCADE', name='reports_exposure_id_fkey'),
-        nullable=False,
+        nullable=True,
         index=True,
         doc=(
             "ID of the exposure for which the report was made. "
@@ -37,11 +38,25 @@ class Report(Base, UUIDMixin):
 
     section_id = sa.Column(
         sa.Text,
-        nullable=False,
+        nullable=True,
         index=True,
         doc=(
             "ID of the section of the exposure for which the report was made. "
         )
+    )
+
+    # Not making this a formal foreign key, because in at least one case
+    #   in our tests the image is not yet committed to the database when
+    #   we try to save the report to the database.  (Originally, reports
+    #   assumed they came off of an exposure, and the pipeline assumes
+    #   exposure are committed before starting.  The pipeline is able to
+    #   run on an image that's committed to the database, however.)
+    image_id = sa.Column(
+        # sa.ForeignKey( 'images._id', ondelete='CASCADE', name='reports_image_id_fkey' ),
+        sqlUUID,
+        nullable=True,
+        index=True,
+        doc="ID of the image for which the report was made.  Report has (exposure_id,sectionid) XOR image_id."
     )
 
     start_time = sa.Column(
@@ -67,27 +82,21 @@ class Report(Base, UUIDMixin):
     success = sa.Column(
         sa.Boolean,
         nullable=False,
-        index=True,
+        index=False,
         server_default='false',
         doc=(
             "Whether the processing of this section was successful. "
         )
     )
 
-    num_prev_reports = sa.Column(
-        sa.Integer,
-        nullable=False,
-        server_default=sa.sql.elements.TextClause( '0' ),
-        doc=(
-            "Number of previous reports for this exposure, section, and provenance. "
-        )
-    )
-
-    worker_id = sa.Column(
+    # These next two are not a composite foreign key because
+    #   PipelineWorkers only holds active workers, and we want to be
+    #   able to see reports for workers that have exited.
+    cluster_id = sa.Column(
         sa.Text,
         nullable=True,
         doc=(
-            "ID of the worker/process that ran this section. "
+            "ID of the cluster that ran this section (see PipelineWorker). "
         )
     )
 
@@ -95,7 +104,7 @@ class Report(Base, UUIDMixin):
         sa.Text,
         nullable=True,
         doc=(
-            "ID of the node where the worker/process ran this section. "
+            "ID of the node where the worker/process ran this section (see PipelineWorker). "
         )
     )
 
@@ -140,6 +149,13 @@ class Report(Base, UUIDMixin):
         )
     )
 
+    process_provid = sa.Column(
+        JSONB,
+        nullable=True,
+        index=False,
+        doc="Dictionary of process→provenance_id for the provenances used in pipeline process."
+    )
+
     process_memory = sa.Column(
         JSONB,
         nullable=False,
@@ -162,7 +178,7 @@ class Report(Base, UUIDMixin):
         sa.BIGINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( '0' ),
-        index=True,
+        index=False,
         doc='Bitflag recording what processing steps have already been applied to this section. '
     )
 
@@ -188,7 +204,7 @@ class Report(Base, UUIDMixin):
         sa.BIGINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( '0' ),
-        index=True,
+        index=False,
         doc='Bitflag recording which pipeline products were not None when the pipeline finished. '
     )
 
@@ -216,7 +232,7 @@ class Report(Base, UUIDMixin):
         sa.BIGINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( '0' ),
-        index=True,
+        index=False,
         doc='Bitflag recording which pipeline products were not None when the pipeline finished. '
     )
 
@@ -240,28 +256,15 @@ class Report(Base, UUIDMixin):
         """
         self.products_committed_bitflag |= string_to_bitflag(value, pipeline_products_inverse)
 
-    provenance_id = sa.Column(
-        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='reports_provenance_id_fkey'),
-        nullable=False,
-        index=True,
-        doc=(
-            "ID of the provenance of this report. "
-            "The provenance has upstreams that point to the "
-            "measurements and R/B score objects that themselves "
-            "point back to all the other provenances that were "
-            "used to produce this report. "
-        )
-    )
-
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # do not pass kwargs to Base.__init__, as there may be non-column attributes
 
         # verify these attributes get their default even if the object is not committed to DB
         self.success = False
-        self.num_prev_reports = 0
         self.progress_steps_bitflag = 0
         self.products_exist_bitflag = 0
         self.products_committed_bitflag = 0
+        self.process_provid = {}
         self.process_memory = {}
         self.process_runtime = {}
 

@@ -819,7 +819,6 @@ class DataStore:
                 'cutting': ['detection'],
                 'measuring': ['cutting'],
                 'scoring': ['measuring'],
-                'report': ['scoring']
             }
             # Put code here to modify upstream_steps based on things in pars
             # (This will happen with fake injection in a future PR.; the
@@ -839,9 +838,6 @@ class DataStore:
             if not isinstance( self.image, Image ):
                 raise TypeError( f"DataStore's image field is a {type(self.image)}, not Image!" )
             provs['starting_point'] = Provenance.get( self.image.provenance_id )
-            if 'report' in steps:
-                SCLogger.warning( "'report' was in steps but starting from an Image; removing 'report' from steps" )
-                steps = [ s for s in steps if s != 'report' ]
         else:
             raise RuntimeError( "make_prov_tree requires either a starting_point, or the "
                                 "DataStore must have either an exposure or an image" )
@@ -857,7 +853,8 @@ class DataStore:
             refset = RefSet.get_by_name( refset_name )
             if refset is None:
                 if ok_no_ref_prov:
-                    SCLogger.warning( "No ref provenance found, not generating provenances subtraction or later steps" )
+                    SCLogger.warning( "No ref provenance found, "
+                                      "not generating provenances for subtraction or later steps" )
                     subdex = steps.index( 'subtraction' )
                     steps = steps[:subdex]
                 else:
