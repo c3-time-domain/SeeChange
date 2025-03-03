@@ -27,6 +27,7 @@ import flask.views
 from util.config import Config
 from util.util import asUUID
 from models.deepscore import DeepScoreSet
+from models.fakeset import FakeSet, FakeAnalysis
 
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
 from baseview import BaseView
@@ -995,6 +996,99 @@ class PngCutoutsForSubImage( BaseView ):
         return retval
 
 
+# ======================================================================
+
+class FakeAnalysisData( BaseView ):
+    def do_the_things( self, expid, provtag, sectionid=None ):
+        cursor = self.conn.cursor()
+        expid = asUUID( expid )
+
+        # Applying the provenance tag filter to the deepscore set, because
+        #   that's the lowest thing down on the chain.  (FakeSet and
+        #   FakeAnalysis provenances don't get tagged.)
+        q = ( "SELECT fa._id AS fakeanal_id, fa.filepath AS fakeanal_filepath, "
+              "       fs._id AS faeset_id, fs.filepath AS fakeset_filepath, "
+              "       i.section_id, zp.zp "
+              "FROM fake_analysis fa "
+              "INNER JOIN ( "
+              "  SELECT dsi._id, dsi.measurementset_id FROM deepscore_sets dsi "
+              "  INNER JOIN provenance_tags dsipt ON dsipt.provenance_id=dsi.provenance_id AND dsipt.tag=%(provtag)s "
+              ") ds ON fa.orig_deepscore_set_id=ds._id "
+              "INNER JOIN mmeasurement_sets ms ON ds.measurementset_id=ms._id "
+              "INNER JOIN cutouts cu ON ms.cutouts_id=cu._id "
+              "INNER JOIN source_lists d ON cu.sources_id=d._id "
+              "INNER JOIN images su ON d.image_id=su._id "
+              "INNER JOIN image_subtraction_components isc ON su._id=isc.image_id "
+              "INNER JOIN zero_points zp ON isc.new_zp_id=zp._id "
+              "INNER JOIN world_coordinates wc ON ON zp.wcs_id=wc._id "
+              "INNER JOIN source_lsits s ON wc.sources_id=s._id "
+              "INNER JOIN images i ON s.image_id=i._id "
+              "INNER JOIN fake_sets fs ON fs._id=fa.fakeset_id AND fs.zp_id=zp._id "
+              "WHERE i.exposure_id=%(expid)s "
+             )
+        subdict = { 'provtag': provtag, 'expid': expid }
+        if sectionid is not None:
+            q += " AND i.section_id_=%(secid)s"
+            subdict['secid'] = sectionid
+
+        cursor.execute( q, subdict )
+        columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+        rows = cursor.fetchall()
+
+        # It's possible we'll get multple rows back even with a single section id, because somebody
+        #   could have rerun the pipeline using a different random seed for the fake injection.
+        #   So, each value in the sections dictionary is itself an array.  (Which will contain a
+        #   dictionary of values, many of which are arrays.  dict→dict→array→dict→arrays.... ufda.)
+
+        retval = { 'status': 'ok',
+                   'sections': {} }
+        
+        # Reading files directly from the archive because the web ap mounts the archive directory
+        for row in rows:
+            secid = row[columns['section_id']]
+            if secid  not in retval['sections']:
+                retval['sections'][secid] = []
+            fakeset = FakeSet.get_by_id( row[columns['fakeset_id']], session=self.session )
+            fakeset.load( filepath=pathlib.Path( cfg.value( 'archive.local_read_dir' ) ) / fakeset.filepath )
+            fakeanal = FakeAnalysis.get_by_id( row[columns['fakeanal_id']], session=self.session )
+            fakeanal.load( filepath=pathlib.Path( cfg.value( 'archive.local_read_dir' ) ) / fakeanal.filepath )
+            zp = row[columns['zp']]
+            # Just sticking numpy arrays directly, in hopes that the json encoding that flask
+            #   does handles this right....
+            fakeinfo = { 'random_seed': fakeset.random_seed,
+                         'fake_x': fakeset.fake_x,
+                         'fake_y': fakeset.fake_y,
+                         'fake_mag': fakeset.fake_mag,
+                         'is_detected': fakeanal.is_detected,
+                         'is_kept': fakeanal.is_kept,
+                         'is_bad': fakeanal.is_bad,
+                         'mag_psf': -2.5 * numpy.log10( fakeanal.flux_psf ) + zp,
+                         'mag_psf_err': 2.5 / numpy.log(10) * fakeanal.flux_psf_err / fakeanal.flux_psf,
+                         'center_x_pixel': fakeanal.center_x_pixel,
+                         'center_y_pixel': fakeanal.center_y_pixel,
+                         'x': fakeanal.x,
+                         'y': fakeanal.y,
+                         'gfit_x': fakeanal.gfit_x,
+                         'gfit_y': fakeanal.gfit_y,
+                         'major_width': fakeanal.major_width,
+                         'minor_width': fakeanal.minor_width,
+                         'position_angle': fakeanal.position_angle,
+                         'psf_fit_flags': fakeanal.psf_fit_flags,
+                         'nbadpix': fakeanal.nbadpix,
+                         'negfrac': fakeanal.negfrac,
+                         'negfluxfrac': fakeanal.negfluxfrac,
+                         'deepscore_algorithm': fakeanal.deepscore_algorithm,
+                         'score': fakeanal.score
+                        }
+            retval['sections'][secid].append( fakeinfo )
+
+        return retval
+            
+
+
+    
+# =====================================================================
+# =====================================================================
 # =====================================================================
 # Create and configure the flask app
 
@@ -1067,6 +1161,8 @@ urls = {
     "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>": PngCutoutsForSubImage,
     ( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"
       "<int:limit>/<int:offset>" ): PngCutoutsForSubImage,
+    "/fakeanalysisdata/<expid>/<provtag>": FakeAnalysisData,
+    "/fakeanalysisdata/<expid>/<provtag>/<sectionid>": FakeAnalysisData,
 }
 
 usedurls = {}

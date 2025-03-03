@@ -5,10 +5,40 @@ import { seechange } from "./seechange_ns.js"
 
 seechange.Exposure = class
 {
-    constructor( exposurelist, context, parentdiv, id, name, mjd, airmass, filter, seeingavg, limmagavg,
+    // data is what is filled by the exposure_images/ api endpoint
+    //   (ExpousreImages in seechange_webap.py.)  It is a dictionary
+    //   with contents:
+    //      status: 'ok',
+    //      provenncetag: provenance tag (str)
+    //      name: exposure name (str)
+    //      id: array of image uuids
+    //      ra: array of image ras (array of float)
+    //      dec: array of image decs (array of floats)
+    //      gallat: array of galactic latitudes (array of floats)
+    //      section_id: array of image section ids (array of str)
+    //      fwhm_estimate: array of image fwhm estimates (array of float)
+    //      zero_point_estimate: array of image zeropoints (array of float)
+    //      lim_mag_estimate: array of image limiting magnitudes (array of float)
+    //      bkg_mean_estimate: array of image sky levels (array of float)
+    //      bkt_rms_estimate: array of image 1σ sky noise levels (array of float)
+    //      numsources: array of number of sources on each difference image (array of int)
+    //      nummeasurements: array of number of sources that passed initial cuts on each diff im (array of int)
+    //      subid: uuid of the difference image
+    //      error_step: step where the pipeline errored out (str or null)
+    //      error_type: class of python exception raised where hte pipeline errored out (str or null)
+    //      error_message: error message(s) given with exception(s) (str or null)
+    //      warnings: warnings issued during pipeline (str or null)
+    //      start_time: when pipeline on this image begam
+    //      end_time: when pipeline on this image finished
+    //      process_memory: empty dictionary, or dictionary of process: MB of peak memory usage
+    //                      (only filled if SEECHANGE_TRACEMALLOC env var was set when pipeline was run)
+    //      process_runtime: dictionary of process: sections runtime for pipeline segments
+    //      process_setps_bitflag: bitflag of which pipeline steps completed
+    //      products_exist_bitflag: bitflag of which data products were saved to database/archive
+
+    constructor( context, parentdiv, id, name, mjd, airmass, filter, seeingavg, limmagavg,
                  target, project, exp_time, data )
     {
-        this.exposurelist = exposurelist;
         this.context = context;
         this.parentdiv = parentdiv;
         this.id = id;
@@ -26,8 +56,12 @@ seechange.Exposure = class
         this.tabs = null;
         this.imagesdiv = null;
         this.cutoutsdiv = null;
-        this.cutoutsallimages_checkbox = null;
+
         this.cutoutsimage_checkboxes = {};
+        this.cutoutssansmeasurements_checkbox = null;
+        this.cutoutssansmeasurements_label = null;
+        this.cutoutsimage_dropdown = null;
+
         this.cutouts = {};
         this.cutouts_pngs = {};
     };
@@ -45,7 +79,8 @@ seechange.Exposure = class
         8: 'cutting',
         9: 'measuring',
         10: 'scoring',
-        11: 'alerting',
+        11: 'fakeanalysis',
+        12: 'alerting',
         30: 'finalize'
     };
 
@@ -60,8 +95,12 @@ seechange.Exposure = class
         9: 'cutouts',
         10: 'measurements',
         11: 'scores',
+        25: 'fakes',
+        26: 'fakeanalysis'
     };
 
+
+    // ****************************************
 
     render_page()
     {
@@ -78,11 +117,11 @@ seechange.Exposure = class
 
         var h2, h3, ul, li, table, tr, td, th, hbox, p, span, tiptext, ttspan;
 
-        // rkWebUtil.elemaker( "p", this.div, { "text": "[Back to exposure list]",
-        //                                      "classes": [ "link" ],
-        //                                      "click": () => { self.exposurelist.render_page(); } } );
-
         h2 = rkWebUtil.elemaker( "h2", this.div, { "text": "Exposure " + this.name } );
+
+
+
+
         ul = rkWebUtil.elemaker( "ul", this.div );
         li = rkWebUtil.elemaker( "li", ul );
         li.innerHTML = "<b>provenance tag:</b> " + this.data.provenancetag;
@@ -124,27 +163,6 @@ seechange.Exposure = class
                                 { "text": ( totnsources.toString() + " out of " +
                                             totncutouts.toString() + " detections pass preliminary cuts " +
                                             "(i.e. are \"sources\")." ) } );
-
-        p = rkWebUtil.elemaker( "p", this.imagesdiv );
-
-        this.cutoutsallimages_checkbox =
-            rkWebUtil.elemaker( "input", p, { "attributes":
-                                              { "type": "radio",
-                                                "id": "cutouts_all_images",
-                                                "name": "whichimages_cutouts_checkbox",
-                                                "checked": "checked" } } );
-        rkWebUtil.elemaker( "span", p, { "text": " Show sources for all images" } );
-        p.appendChild( document.createTextNode( "      " ) );
-
-        this.cutoutssansmeasurements_checkbox =
-            rkWebUtil.elemaker( "input", p, { "attributes":
-                                              { "type": "checkbox",
-                                                "id": "cutouts_sans_measurements",
-                                                "name": "cutouts_sans_measurements_checkbox" } } );
-        rkWebUtil.elemaker( "label", p, { "text": ( "Show detections that failed the preliminary cuts " +
-                                                    "(i.e. aren't sources)" ),
-                                          "attributes": { "for": "cutouts_sans_measurements_checkbox" } } );
-
 
         table = rkWebUtil.elemaker( "table", this.imagesdiv, { "classes": [ "exposurelist" ] } );
         tr = rkWebUtil.elemaker( "tr", table );
@@ -250,71 +268,93 @@ seechange.Exposure = class
         this.tabs.addTab( "Cutouts", "Sources", this.cutoutsdiv, false, ()=>{ self.update_cutouts() } );
     };
 
+    // ****************************************
 
     update_cutouts()
     {
         var self = this;
+        let p;
 
         rkWebUtil.wipeDiv( this.cutoutsdiv );
 
-        let withnomeas = this.cutoutssansmeasurements_checkbox.checked ? 1 : 0;
-
-        if ( this.cutoutsallimages_checkbox.checked ) {
-            rkWebUtil.elemaker( "p", this.cutoutsdiv,
-                                { "text": "Sources for all successfully completed chips" } );
-            let div = rkWebUtil.elemaker( "div", this.cutoutsdiv );
-            rkWebUtil.elemaker( "p", div,
-                                { "text": "...updating cutouts...",
-                                  "classes": [ "bold", "italic", "warning" ] } )
-
-            // TODO : offset and limit
-
-            let prop = "cutouts_for_all_images_for_exposure_" + withnomeas;
-            if ( this.cutouts_pngs.hasOwnProperty( prop ) ) {
-                this.show_cutouts_for_image( div, prop, this.cutouts_pngs[ prop ] );
-            }
-            else {
-                this.context.connector.sendHttpRequest(
-                    "png_cutouts_for_sub_image/" + this.id + "/" + this.data.provenancetag + "/0/" + withnomeas,
-                    {},
-                    (data) => { self.show_cutouts_for_image( div, prop, data ); }
-                );
-            }
-        }
-        else {
+        p = rkWebUtil.elemaker( "p", this.cutoutsdiv, { "text": "Sources for " } )
+        if ( this.cutoutsimage_dropdown == null ) {
+            this.cutoutsimage_dropdown = rkWebUtil.elemaker( "select", p, { "change": () => self.select_cutouts() } );
+            rkWebUtil.elemaker( "option", this.cutoutsimage_dropdown, { "text": "<Choose Image For Cutouts>",
+                                                                        "attributes": {
+                                                                            "value": "_select_image",
+                                                                            "selected": 1 } } );
+            rkWebUtil.elemaker( "option", this.cutoutsimage_dropdown, { "text": "All Successful Images",
+                                                                        "attributes": { "value": "_all_images" } } );
             for ( let i in this.data['id'] ) {
-                if ( this.cutoutsimage_checkboxes[this.data['id'][i]].checked ) {
-                    rkWebUtil.elemaker( "p", this.cutoutsdiv,
-                                        { "text": "Sources for chip " + this.data['section_id'][i]
-                                          + " (image " + this.data['name'][i] + ")" } );
-
-                    let div = rkWebUtil.elemaker( "div", this.cutoutsdiv, { 'id': 'exposureactualcutoutsdiv' } );
-                    rkWebUtil.elemaker( "p", div,
-                                        { "text": "...updating cutouts...",
-                                          "classes": [ "bold", "italic", "warning" ] } )
-
-                    // TODO : offset and limit
-
-                    let prop = this.data['id'][i].toString() + "_" + withnomeas;
-
-                    if ( this.cutouts_pngs.hasOwnProperty( prop ) ) {
-                        this.show_cutouts_for_image( div, prop, this.cutouts_pngs[ prop ] );
-                    }
-                    else {
-                        this.context.connector.sendHttpRequest(
-                            "png_cutouts_for_sub_image/" + this.data['subid'][i] + "/" + this.data.provenancetag +
-                                "/1/" + withnomeas,
-                            {},
-                            (data) => { self.show_cutouts_for_image( div, prop, data ); }
-                        );
-                    }
-
-                    return;
-                }
+                rkWebUtil.elemaker( "option", this.cutoutsimage_dropdown, { "text": this.data["section_id"][i],
+                                                                            "attributes": {
+                                                                                "value": this.data["subid"][i] } }  );
             }
+        } else {
+            p.appendChild( this.cutoutsimage_dropdown );
+        }
+        p.appendChild( document.createTextNode( "    " ) );
+
+        let withnomeas = 0;
+        if ( this.cutoutssansmeasurements_checkbox == null ) {
+            this.cutoutssansmeasurements_checkbox =
+                rkWebUtil.elemaker( "input", p, { "change": () => self.select_cutouts(),
+                                                  "attributes":
+                                                  { "type": "checkbox",
+                                                    "id": "cutouts_sans_measurements",
+                                                    "name": "cutouts_sans_measurements_checkbox" } } );
+            this.cutoutssansmeasurements_label =
+                rkWebUtil.elemaker( "label", p, { "text": ( "Show detections that failed the preliminary cuts " +
+                                                            "(i.e. aren't sources) " +
+                                                            "(Ignored for \"All Successful Images\")" ),
+                                                  "attributes": { "for": "cutouts_sans_measurements_checkbox" } } );
+        } else {
+            p.appendChild( this.cutoutssansmeasurements_checkbox );
+            p.appendChild( this.cutoutssansmeasurements_label );
+            withnomeas = this.cutoutssansmeasurements_checkbox.checked ? 1 : 0;
+        }
+
+        this.cutouts_content_div = rkWebUtil.elemaker( "div", this.cutoutsdiv );
+
+        // Issue a change event on the chip dropdown to make sure
+        //   the images are rendered if necessary.
+        this.cutoutsimage_dropdown.dispatchEvent( new Event('change') );
+    }
+
+    // ****************************************
+    // TODO : implement limit and offset in this and the next method
+
+    select_cutouts()
+    {
+        let self = this;
+
+        rkWebUtil.wipeDiv( this.cutouts_content_div );
+
+        let dex = this.cutoutsimage_dropdown.value.toString();
+        if ( dex == "_select_image" )
+            return;
+
+        let url = "png_cutouts_for_sub_image/";
+        if ( dex == "_all_images" ) {
+            url += this.id + "/" + this.data.provenancetag + "/0/0";
+            dex += "/0/0";
+        } else {
+            let sansmeas = ( this.cutoutssansmeasurements_checkbox.checked  ? 1 : 0 ).toString();
+            url += dex + "/" + this.data.provenancetag + "/1/" + sansmeas;
+            dex += "/1/" + sansmeas;
+        }
+
+        if ( this.cutouts_pngs.hasOwnProperty( dex ) ) {
+            this.show_cutouts_for_image( this.cutouts_content_div, dex, this.cutouts_pngs[dex] );
+        } else {
+            this.context.connector.sendHttpRequest( url, {},
+                                                    (data) => { self.show_cutouts_for_image( this.cutouts_content_div,
+                                                                                             dex, data ) } );
         }
     };
 
+    // ****************************************
 
     show_cutouts_for_image( div, dex, indata )
     {

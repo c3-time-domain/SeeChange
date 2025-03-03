@@ -27,15 +27,25 @@ from util.logger import SCLogger
 # run by default when run locally.  This env var is set in the github
 # actions workflows.
 
+# The user and admin_user fixtures are included not because they are needed,
+# but because setting a breakpoint at the end of this test and running it
+# is a convenient way to set something up for playing around with the
+# web ap interactively.  Including those users as fixtures doesn't slow
+# the test down significantly, but does mean that every time I want to
+# do this, I don't have to remember to put the users there in addition
+# to putting in the breakpoint.
 @pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
 def test_exposure_launcher( conductor_connector,
                             conductor_config_for_decam_pull,
-                            decam_elais_e1_two_references ):
+                            decam_elais_e1_two_references,
+                            user, admin_user ):
     # This is just a basic test that the exposure launcher runs.  It does
     # run in parallel, but only two chips.  On my desktop, it takes about 2
     # minutes.  There aren't tests of failure modes written (yet?).
 
     decam_exposure_name = 'c4d_230702_080904_ori.fits.fz'
+    # If we use this next exposure, it has DC21cyddn from decat-ddf on chip S2
+    decam_exposure = 'c4d_211014_051411_ori.fits.fz'
 
     # Hold all exposures
     data = conductor_connector.send( "conductor/getknownexposures" )

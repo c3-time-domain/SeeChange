@@ -159,7 +159,7 @@ seechange.ExposureList = class
 
     actually_show_exposure( id, name, mjd, airmass, filter, seeingavg, limmagavg, target, project, exp_time, data )
     {
-        let exp = new seechange.Exposure( this, this.context, this.exposurediv,
+        let exp = new seechange.Exposure( this.context, this.exposurediv,
                                           id, name, mjd, airmass, filter, seeingavg, limmagavg,
                                           target, project, exp_time, data );
         this.exposure_displays[id] = exp;
