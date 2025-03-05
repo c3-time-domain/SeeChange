@@ -6,7 +6,7 @@ import psycopg2.errors
 
 from astropy.time import Time
 
-from models.base import SmartSession
+from models.base import SmartSession, Psycopg2Connection
 from models.provenance import Provenance
 from models.measurements import Measurements
 from models.object import Object
@@ -36,6 +36,51 @@ def test_object_creation():
         assert obj2.name == obj.name
         # Fix this when object naming is re-implemented
         # assert re.match(r'\w+\d{4}\w+', obj2.name)
+
+
+def test_generate_names():
+    try:
+        # make sure that things in the year range 3500 aren't in the object_name_max_used table
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "SELECT * FROM object_name_max_used WHERE year>=3500 AND year<3600" )
+            rows = cursor.fetchall()
+            if len(rows) > 0:
+                raise RuntimeError( "object_name_max_used table has rows in the range [3500,3600). "
+                                    "This shouldn't be.  Make sure another test isn't doing this." )
+
+        names = Object.generate_names( number=3, year=3500, formatstr="test_gen_name%y%a" )
+        assert names == [ "test_gen_name00a", "test_gen_name00b", "test_gen_name00c" ]
+        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%y%a" )
+        assert names == [ "test_gen_name01a", "test_gen_name01b", "test_gen_name01c" ]
+        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%Y%a" )
+        assert names == [ "test_gen_name3501d", "test_gen_name3501e", "test_gen_name3501f" ]
+        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%Y%a" )
+        assert names == [ "test_gen_name3501g", "test_gen_name3501h", "test_gen_name3501i" ]
+        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%Y_%n" )
+        assert names == [ "test_gen_name3501_9", "test_gen_name3501_10", "test_gen_name3501_11" ]
+        names = Object.generate_names( number=1, year=3502, formatstr="test_gen_name%Y%A" )
+        assert names == [ "test_gen_name3502A" ]
+
+        names = Object.generate_names( number=26**3, year=3503, formatstr="test_gen_name%Y%a" )
+        assert names[0] == "test_gen_name3503a"
+        assert names[25] == "test_gen_name3503z"
+        assert names[1*26 + 0] == "test_gen_name3503ba"
+        assert names[1*26 + 25] == "test_gen_name3503bz"
+        assert names[2*26 + 0] == "test_gen_name3503ca"
+        assert names[25*26 + 25] == "test_gen_name3503zz"
+        assert names[1*(26**2) + 0*26 + 0] == "test_gen_name3503baa"
+        assert names[25*(26**2) + 0*26 + 0] ==  "test_gen_name3503zaa"
+        assert names[25*(26**2) + 25*26 + 25] == "test_gen_name3503zzz"
+
+    finally:
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "DELETE FROM object_name_max_used WHERE year>=3500 AND year<3600" )
+            cursor.execute( "DELETE FROM objects WHERE name LIKE 'test_gen_name35%' "
+                            "                       OR name LIKE 'test_gen_name00%'"
+                            "                       OR name LIKE 'test_gen_name01%'" )
+            conn.commit()
 
 
 # ...what does this next test have to do with Object?

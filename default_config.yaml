@@ -425,6 +425,14 @@ scoring:
   rbbot_model_dir: /seechange/share/RBbot_models
 
 # ======================================================================
+# Object configuration
+#
+# namefmt = format string for names
+
+object:
+  namefmt: obj%Y%a
+
+# ======================================================================
 # Alert generation
 #
 # Set "send_alerts" to false to completely disable alert generation.

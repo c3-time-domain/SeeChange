@@ -44,8 +44,6 @@ def test_exposure_launcher( conductor_connector,
     # minutes.  There aren't tests of failure modes written (yet?).
 
     decam_exposure_name = 'c4d_230702_080904_ori.fits.fz'
-    # If we use this next exposure, it has DC21cyddn from decat-ddf on chip S2
-    decam_exposure = 'c4d_211014_051411_ori.fits.fz'
 
     # Hold all exposures
     data = conductor_connector.send( "conductor/getknownexposures" )
@@ -110,6 +108,8 @@ def test_exposure_launcher( conductor_connector,
             meas1 = measq.filter( Image._id==sub1.id ).all()
             assert len(meas0) == 2
             assert len(meas1) == 3
+
+            import pdb; pdb.set_trace()
 
     finally:
         # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,

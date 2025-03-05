@@ -1042,7 +1042,7 @@ class FakeAnalysisData( BaseView ):
 
         retval = { 'status': 'ok',
                    'sections': {} }
-        
+
         # Reading files directly from the archive because the web ap mounts the archive directory
         for row in rows:
             secid = row[columns['section_id']]
@@ -1083,10 +1083,10 @@ class FakeAnalysisData( BaseView ):
             retval['sections'][secid].append( fakeinfo )
 
         return retval
-            
 
 
-    
+
+
 # =====================================================================
 # =====================================================================
 # =====================================================================

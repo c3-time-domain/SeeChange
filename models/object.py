@@ -1,6 +1,5 @@
-import datetime
+import uuid
 import operator
-from functools import partial
 import numpy as np
 from collections import defaultdict
 
@@ -10,11 +9,20 @@ from sqlalchemy.ext.declarative import declared_attr
 from astropy.time import Time
 from astropy.coordinates import SkyCoord
 
-from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, SpatiallyIndexed
+from models.base import Base, SeeChangeBase, SmartSession, Psycopg2Connection, UUIDMixin, SpatiallyIndexed
 from models.image import Image
 from models.cutouts import Cutouts
 from models.source_list import SourceList
 from models.measurements import Measurements
+from util.config import Config
+
+
+object_name_max_used = sa.Table(
+    'object_name_max_used',
+    Base.metadata,
+    sa.Column( 'year', sa.Integer, primary_key=True ),
+    sa.Column( 'maxnum', sa.Integer, server_default=sa.sql.elements.TextClause('0') )
+)
 
 
 class Object(Base, UUIDMixin, SpatiallyIndexed):
@@ -295,142 +303,163 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
         return ra_mean, dec_mean
 
-    @staticmethod
-    def make_naming_function(format_string):
-        """Generate a function that will translate a serial number into a name.
+    @classmethod
+    def associate_measurements( cls, measurements, radius, year=0, save_updated_measurements=False,
+                                is_testing=False, is_fake=False, no_new=False ):
+        """Associate an object with each member of a list of measurements.
 
-        The possible format specifiers are:
-        - <instrument> : the (short) instrument name
-        - <yyyy> : the year of the object's creation in four digits
-        - <yy> : the year of the object's creation in two digits
-        - <mm> : the month of the object's creation in two digits
-        - <dd> : the day of the object's creation in two digits
-        - <alpha> : a lowercase set of letters, starting with a..z and then aa..az..zz then aaa..zzz, etc.
-        - <ALPHA> : an uppercase set of letters, starting with A..Z and then AA..AZ..ZZ then AAA..ZZZ, etc.
-        - <number> : a number that increments by one for each object created
+        Will create new objects (saving them to the database) unless
+        no_new is True.  Will not save updated measurements to the
+        database unless save_updated_measurements is True.  Will set the
+        object_id field of measurements for which an existing object was
+        found, and also for objects for which a new object was created.
+        If no_new is True, the object_id field of measurements for which
+        no existing object was found will be left as is (presumably
+        None).
 
-        The function takes the Object, that must already have a created_at datetime and numeric (autoincrementing) id.
-        The second argument to the function is the ID of the last object from last year/month/day (if using that).
         """
-        def name_func(obj, starting_id=0, fmt=''):
-            # get the current year, month, and day
-            replacements = {}
-            replacements['yyyy'] = str(obj.created_at.year)
-            replacements['yy'] = f'{obj.created_at.year % 100:02d}'
-            replacements['mm'] = f'{obj.created_at.month:02d}'
-            replacements['dd'] = f'{obj.created_at.day:02d}'
 
-            replacements['number'] = obj.id - starting_id
+        if ( not no_new ) and ( year <= 0 ):
+            raise ValueError( "Need to pass a year >=0 unless no_new is true" )
 
-            if obj.measurements is None or len(obj.measurements) == 0:
-                replacements['instrument'] = 'UNK'
-            else:
-                replacements['instrument'] = obj.measurements[0].instrument_object.get_short_instrument_name()
+        with Psycopg2Connection() as conn:
+            neednew = []
+            cursor = conn.cursor()
+            for m in measurements:
+                cursor.execute( ( "SELECT _id  FROM objects WHERE "
+                                  "  q3c_radial_query( ra, dec, %(ra)s, %(dec)s, %(radius)s ) "
+                                  "  AND is_fake=%(fake)s AND is_test=%(test)s" ),
+                                { 'ra': m.ra, 'dec': m.dec, 'radius': radius/3600.,
+                                  'fake': is_fake, 'test': False } )
+                rows = cursor.fetchall()
+                if len(rows) > 0:
+                    m.object_id = rows[0][0]
+                    if save_updated_measurements:
+                        cursor.execute( "UPDATE measurements SET object_id=%(objid)s WHERE _id=%(measid)s",
+                                        { 'objid': m.object_id, 'measid': m.id } )
+                else:
+                    neednew.append( m )
 
-            # generate the alpha part
-            num_to_letters = replacements['number']
-            need_letters = 0
-            while num_to_letters >= 1:
-                num_to_letters //= 26
-                need_letters += 1
+            # Commit here because we might be about to rollback!
+            if save_updated_measurements:
+                conn.commit()
 
-            if need_letters == 0:
-                need_letters = 1  # avoid the case where the number is 0, and then no letters are given
+            if ( not no_new ) and ( len(neednew) > 0 ):
+                names = cls.generate_names( number=len(neednew), year=year, connection=conn )
+                # Rollback in order to remove the lock generate_names claimed on object_name_max_used
+                conn.rollback()
+                cursor = conn.cursor()
+                for name, m in zip( names, neednew ):
+                    objid = uuid.uuid4()
+                    cursor.execute( ( "INSERT INTO objects(_id,ra,dec,name,is_test,is_fake,is_bad) "
+                                      "VALUES(%(id)s, %(ra)s, %(dec)s, %(name)s, %(testing)s, %(fake)s, FALSE)" ),
+                                    { 'id': objid, 'name': name, 'ra': m.ra, 'dec': m.dec,
+                                      'testing': is_testing, 'fake': is_fake } )
+                    m.object_id = objid
+                conn.commit()
 
-            alpha = ''
-            for i in range(need_letters):
-                alpha += chr(((replacements['number']) // 26 ** i) % 26 + ord('a'))
+    @classmethod
+    def generate_names( cls, number=1, year=0, month=0, day=0, formatstr=None, connection=None ):
+        """Generate one or more names for an object based on the time of discovery.
 
-            alpha = alpha[::-1]  # reverse the string
-            replacements['alpha'] = alpha
+        Valid things in format specifier that will be replaced are:
+          %y - 2-digit year
+          %Y - 4-digit year
+          %m - 2-digit month (not supported)
+          %d - 2-digit day (not supported)
+          %a - set of lowercase letters, starting with a..z, then aa..az..zz, then aaa..aaz..zzz, etc.
+          %A - set of uppercase letters, similar
+          %n - an integer that starts at 0 and increments with each object added
+          %l - a randomly generated letter
 
-            # generate the ALPHA part
-            replacements['ALPHA'] = alpha.upper()
+        It doesn't make sense to use more than one of (%a, %A, %n).
 
-            for key in ['instrument', 'yyyy', 'yy', 'mm', 'dd', 'alpha', 'ALPHA', 'number']:
-                fmt = fmt.replace(f'<{key}>', str(replacements[key]))
-
-            return fmt
-
-        return partial(name_func, fmt=format_string)
-
-    @staticmethod
-    def get_last_id_for_naming(convention, present_time=None, session=None):
-        """Get the ID of the last object before the given date (defaults to now).
-o
-        Will query the database for an object with a created_at which is the last before
-        the start of this year, month or day (depending on what exists in the naming convention).
-        Will return the ID of that object, or 0 if no object exists.
-
-        Parameters
-        ----------
-        convention: str
-            The naming convention that will be used to generate the name.
-            Example: SomeText_<instrument>_<yyyy><mm>_<number>
-        present_time: datetime.datetime, optional
-            The time to use as the present time. Defaults to now.
-        session: sqlalchemy.orm.session.Session, optional
-            The session to use for the query. If not given, will open a new session
-            that will be automatically closed at the end of this function.
-
-        Returns
-        -------
-        int
-            The ID of the last object before the given date.
         """
-        raise RuntimeError( "This no longer works now that we're not using numeric ids. (Issue #347.)" )
 
-        if present_time is None:
-            present_time = datetime.datetime.utcnow()
+        if formatstr is None:
+            formatstr = Config.get().value( 'object.namefmt' )
 
-        # figure out what the time frame should be:
-        if '<yyyy>' in convention:
-            start_time = datetime.datetime(present_time.year, 1, 1)
-        elif '<mm>' in convention:
-            start_time = datetime.datetime(present_time.year, present_time.month, 1)
-        elif '<dd>' in convention:
-            start_time = datetime.datetime(present_time.year, present_time.month, present_time.day)
-        else:
-            return 0  # if none of these format specifiers are present, just assume there is no last object
+        if ( ( ( ( "%y" in formatstr ) or ( "%Y" in formatstr ) ) and ( year <= 0 ) )
+             or
+             ( ( "%m" in formatstr ) and ( year <= 0 ) )
+             or
+             ( ( "%d" in formatstr ) and ( day <= 0 ) ) ):
+            raise ValueError( f"Invalid year/month/day {year}/{month}/{day} given format string {formatstr}" )
 
-        with SmartSession(session) as session:
-            last_obj = session.scalars(
-                sa.select(Object).where(Object.created_at < start_time).order_by(Object.created_at.desc())
-            ).first()
-            if last_obj is None:
-                return 0
-            return last_obj.id
+        if ( "%m" in formatstr ) or ( "%d" in formatstr ):
+            raise NotImplementedError( "Month and day in format string not supported." )
 
+        if ( "%l" in formatstr ):
+            raise NotImplementedError( "%l isn't implemented" )
 
-# Issue #347 ; we may just delete the stuff below, or modify it.
+        firstnum = None
+        if ( ( "%a" in formatstr ) or ( "%A" in formatstr ) or ( "%n" in formatstr ) ):
+            if year <= 0:
+                raise ValueError( "Use of %a, %A, or %n requires year > 0" )
+            with Psycopg2Connection( connection ) as conn:
+                cursor = conn.cursor()
+                cursor.execute( "LOCK TABLE object_name_max_used" )
+                cursor.execute( "SELECT year, maxnum FROM object_name_max_used WHERE year=%(year)s",
+                                { 'year': year } )
+                rows = cursor.fetchall()
+                if len(rows) == 0:
+                    firstnum = 0
+                    cursor.execute( "INSERT INTO object_name_max_used(year, maxnum) VALUES (%(year)s,%(num)s)",
+                                    { 'year': year, 'num': number-1 } )
+                else:
+                    # len(rows) will never be >1 because year is the primary key
+                    firstnum = rows[0][1] + 1
+                    cursor.execute( "UPDATE object_name_max_used SET maxnum=%(num)s WHERE year=%(year)s",
+                                    { 'year': year, 'num': firstnum + number - 1 } )
+                conn.commit()
 
-# # add an event listener to catch objects before insert and generate a name for them
-# @sa.event.listens_for(Object, 'before_insert')
-# def generate_object_name(mapper, connection, target):
-#     if target.name is None:
-#         target.name = 'placeholder'
+        names = []
 
+        for num in range( firstnum, firstnum + number ):
+            # Convert the number to a sequence of letters.  This is not
+            # exactly base 26, mapping 0=a to 25=z in each place,
+            # beacuse leading a's are *not* leading zeros.  aa is not
+            # 00, which is what a straight base26 number using symbols a
+            # through z would give.  aa is the first thing after z, so
+            # aa is 26.
+            # The first 26 work:
+            #     a = 0*26⁰
+            #     z = 25*26⁰
+            # but then:
+            #    aa = 1*26¹ + 0*26⁰
+            # not 0*26¹ + 0*26⁰.  It gets worse:
+            #    za = 26*26¹ + 0*26⁰ = 1*26² + 0*26¹ + 0*26⁰
+            # and
+            #    zz = 26*26¹ + 25*26⁰ = 1*26² + 0*26¹ + 25*26⁰
+            # The sadness only continues:
+            #   aaa = 1*26² + 1*26¹ + 0*26⁰
+            #   azz = 1*26² + 26*26² + 25*26⁰ = 2*26² + 0*26¹ + 25*26⁰
+            #   baa = 2*26² + 1*26¹ + 0*26⁰
+            # ... so it's not really a base 26 number.
+            #
+            # To deal with this, we're not going to use all the
+            # available namespace.  who cares, right?  If somebody
+            # cares, they can deal with it.  We're just never going to
+            # have a leading a.  So, afer z comes ba.  There is no aa
+            # through az.  Except for the very first a, there will never
+            # be a leading a.
 
-# @sa.event.listens_for(sa.orm.session.Session, 'after_flush_postexec')
-# def receive_after_flush_postexec(session, flush_context):
-#     cfg = config.Config.get()
-#     convention = cfg.value('object_naming_function', '<instrument><yyyy><alpha>')
-#     naming_func = Object.make_naming_function(convention)
-#     # last_id = Object.get_last_id_for_naming(convention, session=session)
-#     last_id = 666
+            letters = ""
+            letnum = num
+            while letnum > 0:
+                dig26it = letnum % 26
+                thislet = "abcdefghijklmnopqrstuvwxyz"[ dig26it ]
+                letters = thislet + letters
+                letnum //= 26
+            letters = letters if len(letters) > 0 else 'a'
 
-#     for obj in session.identity_map.values():
-#         if isinstance(obj, Object) and (obj.name is None or obj.name == 'placeholder'):
-#             obj.name = naming_func(obj, last_id)
-#             # print(f'Object ID: {obj.id} Name: {obj.name}')
+            name = formatstr
+            name = name.replace( "%y", f"{year%100:02d}" )
+            name = name.replace( "%Y", f"{year:04d}" )
+            name = name.replace( "%n", f"{num}" )
+            name = name.replace( "%a", letters )
+            name = name.replace( "%A", letters.upper() )
 
+            names.append( name )
 
-# If __name__ == '__main__':
-#     import datetime
-
-#     obj = Object()
-#     obj.created_at = datetime.datetime.utcnow()
-#     obj.id = 130
-
-#     fun = Object.make_naming_function('SeeChange<instrument>_<yyyy><alpha>')
-#     print(fun(obj))
+        return names
