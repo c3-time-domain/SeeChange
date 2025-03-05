@@ -1,7 +1,7 @@
 """object_naming
 
 Revision ID: b80115874d51
-Revises: 3f0b9d0c4f76
+Revises: 8a9305b0daca
 Create Date: 2025-03-04 15:00:57.881739
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'b80115874d51'
-down_revision = '3f0b9d0c4f76'
+down_revision = '8a9305b0daca'
 branch_labels = None
 depends_on = None
 
