@@ -614,48 +614,6 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
             setattr( self, f"_{att}", co_data_dict.get(att) )
 
 
-    def associate_object(self, radius, is_testing=False, is_fake=False, no_new=False, connection=None):
-        """Find or create a new object and associate it with this measurement.
-
-        If no Object is found, a new one is created and saved to the
-        database. Its coordinates will be identical to those of this
-        Measurements object.
-
-        This should only be done for measurements that have passed
-        deletion_threshold preliminary cuts, which mostly rules out
-        obvious artifacts.  Measurements which do pass those thresholds
-        and are saved still do get an object associated with them.  Good
-        objects will eventually have a mix of "good" and "bad"
-        measurements assocated with them, as there will be some low S/N
-        detections that will randomly not pass some of the thresholds.
-        (If the "bad" and "deletion" thresholds are the same, then no
-        is_bad measurements will get saved to the database in the first
-        place.)
-
-        Parameters
-        ----------
-          radius: float
-            Distance in arcseconds an existing Object must be within
-            compared to (self.ra, self.dec) to be considered the same
-            object.
-
-          is_testing: bool, default False
-            Set to True if the provenance of the measurement is a
-            testing provenance.
-
-          is_fake: bool, default False
-            Set to True if this is a measurement of a fake.
-
-          no_new: bool, default False
-             If True, and an existing object is not found, do not create
-             a new object; leave the object field of the Measurements
-             object at None.
-
-          connection: psycopg2 connection or None
-
-        """
-        raise RuntimeError( "Don't call this, call Object.associate_measurements" )
-
     def _get_inverse_badness(self):
         return measurements_badness_inverse
 

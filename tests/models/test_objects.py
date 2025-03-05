@@ -148,15 +148,24 @@ def test_filtering_measurements_on_object(sim_lightcurves):
             m2.provenance_id = prov.id
             m2.ra += 0.05 * i / 3600.0  # move the RA by less than one arcsec
             m2.ra = m2.ra % 360.0  # make sure RA is in range
-            m2.associate_object(session)
-            m2 = session.merge(m2)
             new_measurements.append(m2)
+
+        # Associate with 1.0" radius.
+        Object.associate_measurements( measurements, 1.0, year=2000 )
+        # Make sure measurement objects are properly saved to the database after association
+        # (Or, anyway, the mysterious and rather annoying SQLAlchemy equivalent.)
+        new_new_measurements = []
+        for m in new_measurements:
+            m2 = session.merge( m )
+            new_new_measurements.append( m2 )
+        new_measurements = new_new_measurements
 
         session.commit()
         session.refresh(obj)
         all_ids = [m.id for m in new_measurements + measurements]
         all_ids.sort()
         assert set([m.id for m in obj.measurements]) == set(all_ids)
+
 
     assert all([m.id is not None for m in new_measurements])
     assert all([m.id != m2.id for m, m2 in zip(new_measurements, measurements)])
@@ -272,51 +281,3 @@ def test_filtering_measurements_on_object(sim_lightcurves):
         # get the new and only if not found go to the old
         found = obj.get_measurements_list(prov_hash_list=[prov.id, measurements[0].provenance.id])
         assert set([m.id for m in found]) == set(new_id_list)
-
-
-@pytest.mark.xfail( reason="Issue #345" )
-def test_separate_good_and_bad_objects(measurer, ptf_datastore):
-    assert False
-    measurements = ptf_datastore.measurements
-    m = measurements[0]  # grab the first one as an example
-
-    with SmartSession() as session:
-        m = session.merge(m)
-
-        prov=Provenance(
-            process=m.provenance.process,
-            upstreams=m.provenance.upstreams,
-            code_version_id=m.provenance.code_version_id,
-            parameters=m.provenance.parameters.copy(),
-            is_testing=True,
-        )
-        prov.parameters['test_parameter'] = uuid.uuid4().hex
-        prov.update_id()
-        obj1 = session.merge(m.object)
-
-        m2 = Measurements()
-        for key, value in m.__dict__.items():
-            if key not in [
-                '_sa_instance_state',
-                'id',
-                'created_at',
-                'modified',
-                'from_db',
-                'provenance',
-                'provenance_id',
-                'object',
-                'object_id',
-            ]:
-                setattr(m2, key, value)
-        m2.provenance = prov
-        m2.provenance_id = prov.id
-        m2.is_bad = not m.is_bad # flip the is_bad tag
-        m2.associate_object(session)
-        m2 = session.merge(m2)
-        obj2 = session.merge(m2.object)
-
-        # check we got a new obj, proper badness on each, one of each badness
-        assert obj1 is not obj2
-        assert obj1.is_bad == m.is_bad
-        assert obj2.is_bad == m2.is_bad
-        assert not obj1.is_bad == obj2.is_bad

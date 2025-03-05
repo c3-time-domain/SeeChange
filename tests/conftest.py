@@ -80,7 +80,7 @@ SKIP_WARNING_TESTS = False
 
 
 # this fixture should be the first thing loaded by the test suite
-# (session is the pytest session, not the SQLAlchemy session)
+# (session is the pytest session, not an SQLAlchemy session)
 def pytest_sessionstart(session):
     # Will be executed before the first test
     global SKIP_WARNING_TESTS
