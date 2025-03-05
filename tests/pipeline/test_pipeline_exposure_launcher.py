@@ -97,6 +97,8 @@ def test_exposure_launcher( conductor_connector,
             assert len(meas0) == 2
             assert len(meas1) == 3
 
+            import pdb; pdb.set_trace()
+
     finally:
         # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,
         #   that should cascade to most everything else.
