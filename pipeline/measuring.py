@@ -111,7 +111,7 @@ class ParsMeasurer(Parameters):
             'do_not_associate',
             False,
             bool,
-            'By default, associate_object is called for each measurement, which will commit new '
+            'By default, Object.associate_measurements is called for measurements, which will commit new '
             'Object rowss to the database.  Set this flag to skip this step.'
         )
 
