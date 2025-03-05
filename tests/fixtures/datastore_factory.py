@@ -7,6 +7,7 @@ import datetime
 
 import numpy as np
 
+import astropy.time
 import sqlalchemy as sa
 
 from models.base import SmartSession, Psycopg2Connection
@@ -837,7 +838,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # to the next, if things are loaded from the cache in a different order from
                 # that in which they were created.  Currently, no tests using cached datastores
                 # look at actual object names.)
-                Object.associate_measurements( ds.measurements, p.measurer.pars.association_radius,
+                year = int( np.floor( astropy.time.Time( ds.image.mjd, format='mjd' ).jyear ) )
+                Object.associate_measurements( ds.measurements, p.measurer.pars.association_radius, year=year,
                                                is_testing=ds.prov_tree['measuring'].is_testing )
 
             if ds.measurements is None:
