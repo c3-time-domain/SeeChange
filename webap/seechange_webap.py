@@ -660,7 +660,7 @@ class PngCutoutsForSubImage( BaseView ):
         # app.logger.debug( f"Getting measurements for sub images {subids}" )
         app.logger.debug( f"Getting measurements for {len(subids)} sub images" )
         q = ( 'SELECT m.ra AS measra, m.dec AS measdec, m.index_in_sources, m.best_aperture, '
-              '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, m.is_fake, '
+              '       m.flux, m.dflux, m.psfflux, m.dpsfflux, m.is_bad, m.name, m.is_test, '
               '       m.score, m._algorithm, m.center_x_pixel, m.center_y_pixel, m.x, m.y, m.gfit_x, m.gfit_y, '
               '       m.major_width, m.minor_width, m.position_angle, m.nbadpix, m.negfrac, m.negfluxfrac, '
               '       s._id AS subid, s.section_id '
@@ -676,7 +676,7 @@ class PngCutoutsForSubImage( BaseView ):
               '           meas.center_x_pixel, meas.center_y_pixel, meas.x, meas.y, meas.gfit_x, meas.gfit_y, '
               '           meas.major_width, meas.minor_width, meas.position_angle, '
               '           meas.nbadpix, meas.negfrac, meas.negfluxfrac, '
-              '           obj.name, obj.is_test, obj.is_fake, score.score, score._algorithm '
+              '           obj.name, obj.is_test, score.score, score._algorithm '
               '    FROM measurements meas '
               '    INNER JOIN measurement_sets ms ON meas.measurementset_id=ms._id '
               '    INNER JOIN provenance_tags mpt ON ms.provenance_id=mpt.provenance_id AND mpt.tag=%(provtag)s '
@@ -725,7 +725,6 @@ class PngCutoutsForSubImage( BaseView ):
                        'is_bad': [],
                        'objname': [],
                        'is_test': [],
-                       'is_fake': [],
                        'cutout_x': [],
                        'cutout_y': [],
                        'x': [],
@@ -825,7 +824,6 @@ class PngCutoutsForSubImage( BaseView ):
                 retval['cutouts']['is_bad'].append( True )
                 retval['cutouts']['objname'].append( None )
                 retval['cutouts']['is_test'].append( None )
-                retval['cutouts']['is_fake'].append( None )
                 flux = None
                 dflux = None
                 aperrad= 0.
@@ -845,7 +843,6 @@ class PngCutoutsForSubImage( BaseView ):
                 retval['cutouts']['is_bad'].append( row[cols['is_bad']] )
                 retval['cutouts']['objname'].append( row[cols['name']] )
                 retval['cutouts']['is_test'].append( row[cols['is_test']] )
-                retval['cutouts']['is_fake'].append( row[cols['is_fake']] )
 
                 if row[cols['psfflux']] is None:
                     flux = row[cols['flux']]

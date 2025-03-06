@@ -150,8 +150,7 @@ def test_filtering_measurements_on_object(sim_lightcurves):
             m2.ra = m2.ra % 360.0  # make sure RA is in range
             new_measurements.append(m2)
 
-        # Associate with 1.0" radius.
-        Object.associate_measurements( measurements, 1.0, year=2000 )
+        Object.associate_measurements( measurements, year=2000 )
         # Make sure measurement objects are properly saved to the database after association
         # (Or, anyway, the mysterious and rather annoying SQLAlchemy equivalent.)
         new_new_measurements = []

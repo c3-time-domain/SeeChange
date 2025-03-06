@@ -353,7 +353,6 @@ seechange.Exposure = class
             td = rkWebUtil.elemaker( "td", tr );
             if ( data.cutouts.objname[i] != null ) {
                 let text = "Object: " + data.cutouts.objname[i];
-                if ( data.cutouts.is_fake[i] ) text += " [FAKE]";
                 if ( data.cutouts.is_test[i] ) text += " [TEST]";
                 td.appendChild( document.createTextNode( text ) );
             }
