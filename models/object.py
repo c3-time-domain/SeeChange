@@ -20,7 +20,7 @@ from util.config import Config
 object_name_max_used = sa.Table(
     'object_name_max_used',
     Base.metadata,
-    sa.Column( 'year', sa.Integer, primary_key=True ),
+    sa.Column( 'year', sa.Integer, primary_key=True, autoincrement=False ),
     sa.Column( 'maxnum', sa.Integer, server_default=sa.sql.elements.TextClause('0') )
 )
 
@@ -47,13 +47,6 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         nullable=False,
         server_default='false',
         doc='Boolean flag to indicate if the object is a test object created during testing. '
-    )
-
-    is_fake = sa.Column(
-        sa.Boolean,
-        nullable=False,
-        server_default='false',
-        doc='Boolean flag to indicate if the object is a fake object that has been artificially injected. '
     )
 
     is_bad = sa.Column(
@@ -304,23 +297,66 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         return ra_mean, dec_mean
 
     @classmethod
-    def associate_measurements( cls, measurements, radius, year=0, save_updated_measurements=False,
-                                is_testing=False, is_fake=False, no_new=False ):
+    def associate_measurements( cls, measurements, radius=None, year=None, no_new=False, is_testing=False ):
         """Associate an object with each member of a list of measurements.
 
         Will create new objects (saving them to the database) unless
-        no_new is True.  Will not save updated measurements to the
-        database unless save_updated_measurements is True.  Will set the
-        object_id field of measurements for which an existing object was
-        found, and also for objects for which a new object was created.
-        If no_new is True, the object_id field of measurements for which
-        no existing object was found will be left as is (presumably
-        None).
+        no_new is True.
+
+        Does not update any of the measurements in the database.
+        Indeed, the measurements probably can't already be in the
+        database when this function is called, because the object_id
+        field is not nullable; this function would have to have been
+        called before the measurements were saved in the first place.
+        It is the responsibility of the calling function to actually
+        save the all the measurements in the measurements list to the
+        database (if it wants them saved).
+
+        Parameters
+        ----------
+          measurements : list of Measurements
+            The measurmentses with which to associate objects.
+
+          radius : float
+            The search radius in arseconds.  If an existing object is
+            within this distance on the sky of a Measurements' ra/dec,
+            then that Measurements will be associated with that object.
+            If None, will be set to measuring.association_radius in the
+            config.
+
+          year : int, default None
+            The year of the time of exposure of the image from which the
+            measurements come.  Needed to generate object names, so it
+            may be omitted if no_new is True.
+
+          no_new : bool, default False
+            Normally, if an existing object is not wthin radius of one
+            of the Measurements objects in the list given in the
+            measurements parameter, then a new object will be created at
+            the ra and dec of that Measurements and saved to the
+            database.  Set no_new to True to not create any new objects,
+            but to leave the object_id field of unassociated
+            Measurements objects as is (probably None).
+
+          is_testing : bool, default False
+            Never use this.  If True, the only associate measurements
+            with objects that have the is_test property set to True, and
+            set that property for any newly created objects.  (This
+            parameter is used in some of our tests, but should not be
+            used outside of that context.)
 
         """
 
-        if ( not no_new ) and ( year <= 0 ):
-            raise ValueError( "Need to pass a year >=0 unless no_new is true" )
+        if not no_new:
+            if year is None:
+                raise ValueError( "Need to pass a year unless no_new is true" )
+            else:
+                year = int( year )
+
+        if radius is None:
+            radius = Config.get().value( "measurements.association_radius" )
+        else:
+            radius = float( radius )
 
         with Psycopg2Connection() as conn:
             neednew = []
@@ -328,21 +364,13 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             for m in measurements:
                 cursor.execute( ( "SELECT _id  FROM objects WHERE "
                                   "  q3c_radial_query( ra, dec, %(ra)s, %(dec)s, %(radius)s ) "
-                                  "  AND is_fake=%(fake)s AND is_test=%(test)s" ),
-                                { 'ra': m.ra, 'dec': m.dec, 'radius': radius/3600.,
-                                  'fake': is_fake, 'test': False } )
+                                  "  AND is_test=%(test)s" ),
+                                { 'ra': m.ra, 'dec': m.dec, 'radius': radius/3600., 'test': is_testing } )
                 rows = cursor.fetchall()
                 if len(rows) > 0:
                     m.object_id = rows[0][0]
-                    if save_updated_measurements:
-                        cursor.execute( "UPDATE measurements SET object_id=%(objid)s WHERE _id=%(measid)s",
-                                        { 'objid': m.object_id, 'measid': m.id } )
                 else:
                     neednew.append( m )
-
-            # Commit here because we might be about to rollback!
-            if save_updated_measurements:
-                conn.commit()
 
             if ( not no_new ) and ( len(neednew) > 0 ):
                 names = cls.generate_names( number=len(neednew), year=year, connection=conn )
@@ -351,10 +379,9 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                 cursor = conn.cursor()
                 for name, m in zip( names, neednew ):
                     objid = uuid.uuid4()
-                    cursor.execute( ( "INSERT INTO objects(_id,ra,dec,name,is_test,is_fake,is_bad) "
-                                      "VALUES(%(id)s, %(ra)s, %(dec)s, %(name)s, %(testing)s, %(fake)s, FALSE)" ),
-                                    { 'id': objid, 'name': name, 'ra': m.ra, 'dec': m.dec,
-                                      'testing': is_testing, 'fake': is_fake } )
+                    cursor.execute( ( "INSERT INTO objects(_id,ra,dec,name,is_test,is_bad) "
+                                      "VALUES(%(id)s, %(ra)s, %(dec)s, %(name)s, %(testing)s, FALSE)" ),
+                                    { 'id': objid, 'name': name, 'ra': m.ra, 'dec': m.dec, 'testing': is_testing } )
                     m.object_id = objid
                 conn.commit()
 
