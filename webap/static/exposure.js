@@ -10,7 +10,7 @@ seechange.Exposure = class
     //   with contents:
     //      status: 'ok',
     //      provenncetag: provenance tag (str)
-    //      name: exposure name (str)
+    //      name: exposure name (str) -- this is the filepath in the database
     //      id: array of image uuids
     //      ra: array of image ras (array of float)
     //      dec: array of image decs (array of floats)
@@ -57,7 +57,6 @@ seechange.Exposure = class
         this.imagesdiv = null;
         this.cutoutsdiv = null;
 
-        this.cutoutsimage_checkboxes = {};
         this.cutoutssansmeasurements_checkbox = null;
         this.cutoutssansmeasurements_label = null;
         this.cutoutsimage_dropdown = null;
@@ -166,7 +165,6 @@ seechange.Exposure = class
 
         table = rkWebUtil.elemaker( "table", this.imagesdiv, { "classes": [ "exposurelist" ] } );
         tr = rkWebUtil.elemaker( "tr", table );
-        th = rkWebUtil.elemaker( "th", tr );
         th = rkWebUtil.elemaker( "th", tr, { "text": "name" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "section" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "α" } );
@@ -191,13 +189,10 @@ seechange.Exposure = class
                 fade = 1 - fade;
             }
             tr = rkWebUtil.elemaker( "tr", table, { "classes": [ fade ? "bgfade" : "bgwhite" ] } );
-            td = rkWebUtil.elemaker( "td", tr );
-            this.cutoutsimage_checkboxes[ this.data['id'][i] ] =
-                rkWebUtil.elemaker( "input", td, { "attributes":
-                                                   { "type": "radio",
-                                                     "id": this.data['id'][i],
-                                                     "name": "whichimages_cutouts_checkbox" } } )
-            td = rkWebUtil.elemaker( "td", tr, { "text": this.data['name'][i] } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": this.data['name'][i],
+                                                 "classes": [ "link" ],
+                                                 "click": function() { self.show_image_details( this.id[i] ) }
+                                               } );
             td = rkWebUtil.elemaker( "td", tr, { "text": this.data['section_id'][i] } );
             td = rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data["ra"][i], 4 ) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data["dec"][i], 4 ) } );
@@ -207,8 +202,16 @@ seechange.Exposure = class
                                      { "text": seechange.nullorfixed( this.data["zero_point_estimate"][i], 2 ) } );
             td = rkWebUtil.elemaker( "td", tr, { "text":
                                                  seechange.nullorfixed( this.data["lim_mag_estimate"][i], 1 ) } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": this.data["numsources"][i] } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": this.data["nummeasurements"][i] } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": this.data["numsources"][i],
+                                                 "classes": [ "link" ],
+                                                 "click": function() { self.update_cutouts( i, true );
+                                                                       self.tabs.selectTab( "Cutouts" ); }
+                                               } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": this.data["nummeasurements"][i],
+                                                 "classes": [ "link" ],
+                                                 "click": function() { self.update_cutouts( i, false );
+                                                                       self.tabs.selectTab( "Cutouts" ); }
+                                               } );
 
             td = rkWebUtil.elemaker( "td", tr );
             tiptext = "";
@@ -265,21 +268,25 @@ seechange.Exposure = class
         // TODO : buttons for next, prev, etc.
 
         this.tabs.addTab( "Images", "Images", this.imagesdiv, true );
-        this.tabs.addTab( "Cutouts", "Sources", this.cutoutsdiv, false, ()=>{ self.update_cutouts() } );
+
+        this.tabs.addTab( "Cutouts", "Sources", this.cutoutsdiv, false, ()=>{ self.select_cutouts() } );
+        this.create_cutouts_widgets();
     };
 
     // ****************************************
 
-    update_cutouts()
-    {
-        var self = this;
-        let p;
+    show_image_details( imageid ) {
+        window.alert( "show image details not impmlemented yet" );
+    };
 
-        rkWebUtil.wipeDiv( this.cutoutsdiv );
+    // ****************************************
 
-        p = rkWebUtil.elemaker( "p", this.cutoutsdiv, { "text": "Sources for " } )
+    create_cutouts_widgets() {
+        let self = this;
+
         if ( this.cutoutsimage_dropdown == null ) {
-            this.cutoutsimage_dropdown = rkWebUtil.elemaker( "select", p, { "change": () => self.select_cutouts() } );
+            this.cutoutsimage_dropdown = rkWebUtil.elemaker( "select", null,
+                                                             { "change": () => self.select_cutouts() } );
             rkWebUtil.elemaker( "option", this.cutoutsimage_dropdown, { "text": "<Choose Image For Cutouts>",
                                                                         "attributes": {
                                                                             "value": "_select_image",
@@ -291,49 +298,66 @@ seechange.Exposure = class
                                                                             "attributes": {
                                                                                 "value": this.data["subid"][i] } }  );
             }
-        } else {
-            p.appendChild( this.cutoutsimage_dropdown );
         }
-        p.appendChild( document.createTextNode( "    " ) );
-
-        let withnomeas = 0;
         if ( this.cutoutssansmeasurements_checkbox == null ) {
             this.cutoutssansmeasurements_checkbox =
-                rkWebUtil.elemaker( "input", p, { "change": () => self.select_cutouts(),
-                                                  "attributes":
-                                                  { "type": "checkbox",
-                                                    "id": "cutouts_sans_measurements",
-                                                    "name": "cutouts_sans_measurements_checkbox" } } );
+                rkWebUtil.elemaker( "input", null, { "change": () => { self.select_cutouts() },
+                                                     "attributes":
+                                                     { "type": "checkbox",
+                                                       "id": "cutouts_sans_measurements",
+                                                       "name": "cutouts_sans_measurements_checkbox" } } );
             this.cutoutssansmeasurements_label =
-                rkWebUtil.elemaker( "label", p, { "text": ( "Show detections that failed the preliminary cuts " +
-                                                            "(i.e. aren't sources) " +
-                                                            "(Ignored for \"All Successful Images\")" ),
-                                                  "attributes": { "for": "cutouts_sans_measurements_checkbox" } } );
-        } else {
-            p.appendChild( this.cutoutssansmeasurements_checkbox );
-            p.appendChild( this.cutoutssansmeasurements_label );
-            withnomeas = this.cutoutssansmeasurements_checkbox.checked ? 1 : 0;
+                rkWebUtil.elemaker( "label", null, { "text": ( "Show detections that failed the preliminary cuts " +
+                                                               "(i.e. aren't sources) " +
+                                                               "(Ignored for \"All Successful Images\")" ),
+                                                     "attributes": { "for": "cutouts_sans_measurements_checkbox" } } );
+        }
+    };
+
+    // ****************************************
+
+    update_cutouts( dex, sansmeasurements ) {
+        if ( dex != null ) {
+            let oldevent = this.cutoutsimage_dropdown.onchange;
+            this.cutoutsimage_dropdown.onchange = null;
+            this.cutoutsimage_dropdown.value = this.data["subid"][dex];
+            this.cutoutsimage_dropdown.onchange = oldevent;
         }
 
-        this.cutouts_content_div = rkWebUtil.elemaker( "div", this.cutoutsdiv );
+        if ( sansmeasurements != null ) {
+            let oldevent = this.cutoutssansmeasurements_checkbox.onchange;
+            this.cutoutssansmeasurements_checkbox.onchange = null;
+            this.cutoutssansmeasurements_checkbox.checked = sansmeasurements
+            this.cutoutssansmeasurements_checkbox.onchange = oldevent;
+        }
 
-        // Issue a change event on the chip dropdown to make sure
-        //   the images are rendered if necessary.
-        this.cutoutsimage_dropdown.dispatchEvent( new Event('change') );
+        this.select_cutouts;
     }
 
     // ****************************************
-    // TODO : implement limit and offset in this and the next method
 
     select_cutouts()
     {
         let self = this;
+        let p;
 
-        rkWebUtil.wipeDiv( this.cutouts_content_div );
+        rkWebUtil.wipeDiv( this.cutoutsdiv );
+
+        p = rkWebUtil.elemaker( "p", this.cutoutsdiv, { "text": "Sources for " } )
+        p.appendChild( this.cutoutsimage_dropdown );
+        p.appendChild( document.createTextNode( "    " ) );
+
+        p.appendChild( this.cutoutssansmeasurements_checkbox );
+        p.appendChild( this.cutoutssansmeasurements_label );
+
+        this.cutouts_content_div = rkWebUtil.elemaker( "div", this.cutoutsdiv );
 
         let dex = this.cutoutsimage_dropdown.value.toString();
         if ( dex == "_select_image" )
             return;
+
+        rkWebUtil.elemaker( "p", this.cutouts_content_div, { "text": "Loading cutouts...",
+                                                             "classes": [ "bold", "italic", "warning" ] } );
 
         let url = "png_cutouts_for_sub_image/";
         if ( dex == "_all_images" ) {
@@ -355,6 +379,8 @@ seechange.Exposure = class
     };
 
     // ****************************************
+    // TODO : implement limit and offset
+    //   (will require modifing select_cutouts too)
 
     show_cutouts_for_image( div, dex, indata )
     {

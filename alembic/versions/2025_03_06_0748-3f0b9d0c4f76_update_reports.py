@@ -1,7 +1,7 @@
 """update_reports
 
 Revision ID: 3f0b9d0c4f76
-Revises: 7b02f6010a57
+Revises: 2146f40eb298
 Create Date: 2025-02-28 15:51:30.856254 (but manually bumped for branch merging)
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '3f0b9d0c4f76'
-down_revision = '7b02f6010a57'
+down_revision = '2146f40eb298'
 branch_labels = None
 depends_on = None
 
