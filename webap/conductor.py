@@ -193,6 +193,11 @@ class UpdateParameters( ConductorBaseView ):
 
         for att, val in clsatttoset.items():
             setattr( self.__class__, att, val )
+        # Bools will have been passed as ints through the web interface, so make
+        #   sure they're really bools.  (This matters when passing to Postgres.)
+        self.__class__.pause_updates = bool( self.__class__.pause_updates )
+        self.__class__.hold_new_exposures = bool( self.__class__.hold_new_exposures )
+        self.__class__.picuppartial = bool( self.__class__.pickuppartial )
 
         updaterargs['command'] = 'updateparameters'
         res = self.talk_to_updater( updaterargs )
