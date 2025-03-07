@@ -66,7 +66,7 @@ services:
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
-      target: bindmount_code
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
@@ -85,30 +85,32 @@ services:
     ports:
       - "${MAILHOG_PORT:-8025}:8025"
 
-  conductor:
-    depends_on:
-      setuptables:
-        condition: service_completed_successfully
-      mailhog:
-        condition: service_started
-    image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange_conductor:${IMGTAG:-devshell}
+  kafka-zookeeper:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-devshell}
     build:
       context: ../
-      dockerfile: ./docker/application/Dockerfile
-      target: conductor
-    user: ${USERID:?err}:${GROUPID:?err}
-    ports:
-      - "${CONDUCTOR_PORT:-8082}:8082"
+      dockerfile: ./docker/test_kafka/Dockerfile
     healthcheck:
-      test: netcat -w 1 localhost 8082
+      test: netcat -w 1 localhost 2181 || exit 1
       interval: 5s
       timeout: 10s
       retries: 5
-    volumes:
-      - type: volume
-        source: conductor-sessions
-        target: /sessions
-    command: [ "./run_conductor.sh", "8082", "1" ]
+    entrypoint: [ "bin/zookeeper-server-start.sh", "config/zookeeper.properties" ]
+
+  kafka-server:
+    depends_on:
+       kafka-zookeeper:
+         condition: service_healthy
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-devshell}
+    build:
+      context: ../
+      dockerfile: ./docker/test_kafka/Dockerfile
+    healthcheck:
+      test: netcat -w 1 localhost 9092 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    entrypoint: [ "bin/kafka-server-start.sh", "config/server.properties" ]
 
   webap:
     depends_on:
@@ -118,7 +120,9 @@ services:
         condition: service_completed_successfully
     image: gchr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-devshell}
     build:
-      context: ../webap
+      context: ../
+      dockerfile: ./docker/application/Dockerfile
+      target: webap
     user: ${USERID:-0}:${GROUPID:-0}
     ports:
       - "${WEBAP_PORT:-8081}:8081"
@@ -131,17 +135,17 @@ services:
       - type: volume
         source: devshell-archive-storage
         target: /archive-storage
-      - type: bind
-        source: ../tests/webap_secrets
-        target: /secrets
-    entrypoint: [ "gunicorn", "-w", "4", "-b", "0.0.0.0:8081", "--timeout", "0", "seechange_webap:app" ]
+      - type: volume
+        source: devshell-webap-sessions
+        target: /sessions
+    entrypoint: [ "./run_webap.sh", "8081", "1" ]
 
   make_data_dir:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
-      target: bindmount_code
+      target: test_bindmount
     volumes:
       - type: bind
         source: ..
@@ -150,11 +154,12 @@ services:
     user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: bash -c "mkdir -p /seechange/devshell/temp_data"
 
-  seechange:
+  shell:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
       SEECHANGE_TEST_ARCHIVE_DIR: /archive_storage/base
@@ -167,7 +172,7 @@ services:
         condition: service_completed_successfully
       webap:
         condition: service_healthy
-      conductor:
+      kafka-server:
         condition: service_healthy
     volumes:
       - type: bind
@@ -180,12 +185,12 @@ services:
     user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: [ "tail", "-f", "/etc/issue" ]
 
-  seechange_nodb:
+  shell_nodb:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
-      target: bindmount_code
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
@@ -199,12 +204,12 @@ services:
     user: ${USERID:?err}:${GROUPID:?err}
     entrypoint: [ "tail", "-f", "/etc/issue" ]
 
-  seechange_nomigrate:
+  shell_nomigrate:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-devshell}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
-      target: bindmount_code
+      target: test_bindmount
     environment:
       SEECHANGE_CONFIG: /seechange/devshell/seechange_devshell.yaml
     depends_on:
@@ -227,4 +232,4 @@ secrets:
 volumes:
   devshell-archive-storage:
   seechange-devshell-postgres-dbdata:
-  conductor-sessions:
+  devshell-webap-sessions:

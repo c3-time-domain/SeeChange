@@ -516,7 +516,6 @@ seechange.PipelineWorkers = class
         th = rkWebUtil.elemaker( "th", tr, { "text": "id" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "cluster_id" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "node_id" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "nexps" } );
         th = rkWebUtil.elemaker( "th", tr, { "text": "last heartbeat" } );
 
         let grey = 0;
@@ -532,7 +531,6 @@ seechange.PipelineWorkers = class
             td = rkWebUtil.elemaker( "td", tr, { "text": worker.id } );
             td = rkWebUtil.elemaker( "td", tr, { "text": worker.cluster_id } );
             td = rkWebUtil.elemaker( "td", tr, { "text": worker.node_id } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": worker.nexps } );
             td = rkWebUtil.elemaker( "td", tr,
                                      { "text": rkWebUtil.dateUTCFormat(
                                          rkWebUtil.parseDateAsUTC( worker.lastheartbeat ) ) } );

@@ -28,6 +28,7 @@ from util.config import Config
 from util.util import asUUID
 from models.deepscore import DeepScoreSet
 from models.fakeset import FakeSet, FakeAnalysis
+from models.report import Report
 
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
 from baseview import BaseView
@@ -326,66 +327,11 @@ class Exposures( BaseView ):
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
               'FROM temp_imgs_2 t '
-              'LEFT JOIN ( '
-              '  SELECT DISTINCT ON(re.exposure_id, re.section_id) re.exposure_id, re.success, re.error_message ' )
-        if data['provenancetag'] is None:
-            q += '  FROM reports re '
-        else:
-            # ZOMG
-            #
-            # The goal here is to find all the reports where *all* of the process_provid in the reports
-            # are tagged with provtag.  It's not good enough that some processes are tagged.  E.g.,
-            # you could easily have a report where all the steps through "subtraction" are tagged with
-            # both provtag1 and provtag2, but the later steps are tagged only with provtag2.
-            # If you're looking for a report where all steps are tagged with provtag1, then that report
-            # is not the one you're looking for.  (Jedi hand wave.)
-            #
-            # We do this, going from inside to out, by:
-
-            #      1. (subquery re2) explode the process_provid dictionary (it's a jsonb column) into lots of
-            #         rows— each row is expanded into separate rows for each process/provenance pair.  Join to
-            #         the provenance tags so we have a table of report*, process, provtag; report* is repeated
-            #         lots of times, at least once for each process in the report.  Process *might* be
-            #         repeated if the provenance id is tagged with multiple tags (which is common).
-            #
-            #      2. Set aggregate (array w/ distinct) all of the tags for a given (report*, process)
-            #         (subquery re1)
-            #
-            #      3. Array aggregate over processes, making a new array where each element is true
-            #         if the process associated with that element has provtag in its provtag array,
-            #         false otherwise
-            #         (subquery re)
-            #
-            #      4. Select out only the reports where every element from the previous step is true.
-            #         (subquery r)
-            q += ( '  FROM ( SELECT re1.exposure_id, re1.section_id, '
-                   '                re1.success, re1.error_message, re1.start_time, '
-                   '                array_agg(%(provtag)s=ANY(re1.tags)) AS gotem '
-                   '         FROM ( SELECT re2.exposure_id, re2.section_id, '
-                   '                       re2.success, re2.error_message, re2.start_time, '
-                   '                       re2.process, array_agg(re2.tag) as tags '
-                   '                FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
-                   '                              re3._id, re3.exposure_id, re3.section_id, '
-                   '                              re3.success, re3.error_message, re3.start_time, '
-                   '                              x.key AS process, r3pt.tag '
-                   '                       FROM reports re3 '
-                   '                       CROSS JOIN jsonb_each_text( re3.process_provid ) x '
-                   '                       INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id '
-                   '                       ORDER BY re3._id, r3pt.tag '
-                   '                     ) re2 '
-                   '                GROUP BY ( re2.exposure_id, re2.section_id, re2.success, '
-                   '                           re2.error_message, re2.start_time, re2.process ) '
-                   '              ) re1 '
-                   '         GROUP BY ( re1.exposure_id, re1.section_id, re1.success, re1.error_message, '
-                   '                    re1.start_time ) '
-                   '       ) re '
-                   '  WHERE true=ALL( gotem ) ' )
-            subdict['provtag'] = data['provenancetag']
-        # Even after all of the above, it's still possible that we'll have multiple reports for a given
-        #   exposure_id and section_id, because it's possible that the pipeline was started, stopped, and
-        #   restarted; the restart would generate a new report.  So, order by start time desending,
-        #   and then above we distincted out on exposure_id and section_id to just take the most recent.
-        q += '  ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
+              'LEFT JOIN ( ' )
+        subq, subsubdict = Report.query_for_reports( prov_tag=data['provenancetag'],
+                                                     fields=[ 'exposure_id', 'success', 'error_message' ] )
+        q += subq
+        subdict.update( subsubdict )
         q += ') r ON r.exposure_id=t._id '
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.

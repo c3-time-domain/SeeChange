@@ -1,4 +1,5 @@
 import time
+import re
 
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -105,14 +106,6 @@ class Report(Base, UUIDMixin):
         nullable=True,
         doc=(
             "ID of the node where the worker/process ran this section (see PipelineWorker). "
-        )
-    )
-
-    cluster_id = sa.Column(
-        sa.Text,
-        nullable=True,
-        doc=(
-            "ID of the cluster where the worker/process ran this section. "
         )
     )
 
@@ -235,6 +228,133 @@ class Report(Base, UUIDMixin):
         index=False,
         doc='Bitflag recording which pipeline products were not None when the pipeline finished. '
     )
+
+    @classmethod
+    def query_for_reports( cls, prov_tag=None, section_id=None, fields=None ):
+        """Return a SQL query to find reports.
+
+        Returns a query that, when passed, will find all of the most
+        recent reports for each section_id for a given exposure where
+        all of the process provenance ids in that report match the
+        desired provenance tag.
+
+        You might wrap this inside a JOIN or a SELECT ... FROM (...) where
+        join on, or where on, exposure_id.
+
+        See seechange_webap.py::Exposures for an example of usage.
+
+        Parameters
+        ----------
+          prov_tag : str, default None
+            The provenance tag that all processes in the report must
+            have provenances tagged with.  Omitted, then just will get
+            the most recent report for the exposure regardless of
+            provenances.
+
+          section_id : str, default None
+            The section to find reports.  If not given, will get reports
+            for all sections of the requested exposure.
+
+          fields : str, default None
+            Fields of the report table you want.  If not given you, you
+            get all of them except for process_provid.  This can NOT
+            include process_provid.
+
+        Returns
+        -------
+          str, dict
+
+          A query and a subdict.  The query is useful for adding to a
+          query string as a subquery, and the dict ius useful for
+          updating a substitution dict, to pass to psycopg2's
+          cursor.execute.
+
+        """
+
+        # ZOMG
+        #
+        # The goal here is to find all the reports where *all* of the process_provid in the reports
+        # are tagged with provtag.  It's not good enough that some processes are tagged.  E.g.,
+        # you could easily have a report where all the steps through "subtraction" are tagged with
+        # both provtag1 and provtag2, but the later steps are tagged only with provtag2.
+        # If you're looking for a report where all steps are tagged with provtag1, then that report
+        # is not the one you're looking for.  (Jedi hand wave.)
+        #
+        # We do this, going from inside to out, by:
+
+        #      1. (subquery re2) explode the process_provid dictionary (it's a jsonb column) into lots of
+        #         rows— each row is expanded into separate rows for each process/provenance pair.  Join to
+        #         the provenance tags so we have a table of report*, process, provtag; report* is repeated
+        #         lots of times, at least once for each process in the report.  Process *might* be
+        #         repeated if the provenance id is tagged with multiple tags (which is common).
+        #
+        #      2. Set aggregate (array w/ distinct) all of the tags for a given (report*, process)
+        #         (subquery re1)
+        #
+        #      3. Array aggregate over processes, making a new array where each element is true
+        #         if the process associated with that element has provtag in its provtag array,
+        #         false otherwise
+        #         (subquery re)
+        #
+        #      4. Select out only the reports where every element from the previous step is true.
+        #         (subquery r)
+
+        # NOTE : keep this synced with the fields that exist in reports
+        allfields = [ '_id', 'exposure_id', 'section_id', 'image_id', 'start_time', 'finish_time',
+                      'success', 'cluster_id', 'node_id', 'error_step', 'error_type', 'error_message',
+                      'warnings', 'process_memory', 'process_runtime', 'progress_steps_bitflag' ]
+        fields = allfields if fields is None else fields
+
+        if not all( [ isinstance( field, str ) for field in fields ] ):
+            raise ValueError( "Each field in fields must be a string" )
+        if len(fields) < 1:
+            raise ValueError( "If fields is not None, it must be a list with at least one element." )
+        alphanum = re.compile( '^[a-z0-9_]+' )
+        if not all( [ alphanum.search(field) for field in fields ] ):
+            raise ValueError( "Each field in fields must be a sequence of [a-z0-9_]" )
+        disallowed_fields = [ 'process_provid' ]
+        if any( [ f in [ disallowed_fields ] for f in fields ] ):
+            raise ValueError( f"Fields selected cannot include any of {', '.join(disallowed_fields)}" )
+
+        subdict = {}
+        q = "SELECT DISTINCT ON(re.exposure_id, re.section_id) "
+        q += ",".join( [ "re.{f}" for f in fields ] )
+
+        if prov_tag is None:
+            'FROM reports re '
+            if section_id is not None:
+                q += '   WHERE section)id=%(secid)s ) re '
+                subdict[ 'secid' ] = section_id
+        else:
+            if "_id" not in fields:
+                fields.insert( 0, '_id' )
+            fields1 = ",".join( [ "re1.{f}" for f in fields ] )
+            fields2 = ",".join( [ "re2.{f}" for f in fields ] )
+            fields3 = ",".join( [ "re3.{f}" for f in fields ] )
+            q += ( f'FROM ( SELECT {fields1}, array_agg(%(provtag)s=ANY(re1.tags)) AS gotem '
+                   f'       FROM ( SELECT {fields2}, array_agg(re2.tag) as tags '
+                   f'              FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
+                   f'                            {fields3}, x.key AS process, r3pt.tag '
+                   f'                     FROM reports re3 '
+                   f'                     CROSS JOIN jsonb_each_text( re3.process_provid ) x '
+                   f'                     INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id ' )
+            if section_id is not None:
+                q += '                     WHERE section_id=%(secid)s '
+                subdict[ 'secid' ] = section_id
+            q += ( '                     ORDER BY re3._id, r3pt.tag '
+                   '                   ) re2 '
+                   '              GROUP BY ( re2.exposure_id, re2.section_id, re2.success, '
+                   '                         re2.error_message, re2.start_time, re2.process ) '
+                   '            ) re1 '
+                   '       GROUP BY ( re1.exposure_id, re1.section_id, re1.success, re1.error_message, '
+                   '                  re1.start_time ) '
+                   '     ) re '
+                   'WHERE true=ALL( gotem ) ' )
+        q += 'ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
+        subdict[ 'provtag' ] = prov_tag
+
+        return q, subdict
+
 
     @property
     def products_committed(self):
