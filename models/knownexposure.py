@@ -1,4 +1,5 @@
 import sqlalchemy as sa
+from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
@@ -85,6 +86,7 @@ class KnownExposure(Base, UUIDMixin):
         tn = cls.__tablename__
         return (
             sa.Index(f"{tn}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+            UniqueConstraint( 'instrument', 'identifier', name='_ke_unique_inst_ident' )
         )
 
     def calculate_coordinates(self):

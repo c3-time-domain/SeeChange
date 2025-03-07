@@ -304,6 +304,13 @@ class Report(Base, UUIDMixin):
                       'success', 'cluster_id', 'node_id', 'error_step', 'error_type', 'error_message',
                       'warnings', 'process_memory', 'process_runtime', 'progress_steps_bitflag' ]
         fields = allfields if fields is None else fields
+        badfields = set()
+        # Make sure we aren't going to be bobble tablesed
+        for f in fields:
+            if f not in allfields:
+                badfields.add( f )
+        if len(badfields) != 0:
+            raise ValueError( f"Invalid fields: {','.join(badfields)}" )
 
         if not all( [ isinstance( field, str ) for field in fields ] ):
             raise ValueError( "Each field in fields must be a string" )
@@ -311,6 +318,7 @@ class Report(Base, UUIDMixin):
             raise ValueError( "If fields is not None, it must be a list with at least one element." )
         alphanum = re.compile( '^[a-z0-9_]+' )
         if not all( [ alphanum.search(field) for field in fields ] ):
+            # This should be redundant, but, you know, Bobble Tables is a monster
             raise ValueError( "Each field in fields must be a sequence of [a-z0-9_]" )
         disallowed_fields = [ 'process_provid' ]
         if any( [ f in [ disallowed_fields ] for f in fields ] ):
@@ -318,38 +326,41 @@ class Report(Base, UUIDMixin):
 
         subdict = {}
         q = "SELECT DISTINCT ON(re.exposure_id, re.section_id) "
-        q += ",".join( [ "re.{f}" for f in fields ] )
+        q += ",".join( [ f"re.{f}" for f in fields ] )
 
         if prov_tag is None:
-            'FROM reports re '
+            ' FROM reports re '
             if section_id is not None:
                 q += '   WHERE section)id=%(secid)s ) re '
                 subdict[ 'secid' ] = section_id
         else:
-            if "_id" not in fields:
-                fields.insert( 0, '_id' )
-            fields1 = ",".join( [ "re1.{f}" for f in fields ] )
-            fields2 = ",".join( [ "re2.{f}" for f in fields ] )
-            fields3 = ",".join( [ "re3.{f}" for f in fields ] )
-            q += ( f'FROM ( SELECT {fields1}, array_agg(%(provtag)s=ANY(re1.tags)) AS gotem '
-                   f'       FROM ( SELECT {fields2}, array_agg(re2.tag) as tags '
-                   f'              FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
-                   f'                            {fields3}, x.key AS process, r3pt.tag '
-                   f'                     FROM reports re3 '
-                   f'                     CROSS JOIN jsonb_each_text( re3.process_provid ) x '
-                   f'                     INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id ' )
+            for f in [ "_id", "section_id", "start_time" ]:
+                if f not in fields:
+                    fields.insert( 0, f )
+            fields1 = ",".join( [ f"re1.{f}" for f in fields ] )
+            fields2_list = [ f for f in fields ]                # (What's the elegant python way to copy a list?)
+            for f in [ 'exposure_id', 'section_id', 'success', 'error_message', 'start_time' ]:
+                if f not in fields2_list:
+                    fields2_list.append( f )
+            fields2 = ",".join( [ f"re2.{f}" for f in fields2_list ] )
+            fields3 = ",".join( [ f"re3.{f}" for f in fields2_list ] )
+            q += ( f' FROM ( SELECT {fields1}, array_agg(%(provtag)s=ANY(re1.tags)) AS gotem '
+                   f'        FROM ( SELECT {fields2}, array_agg(re2.tag) as tags '
+                   f'               FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
+                   f'                             {fields3}, x.key AS process, r3pt.tag '
+                   f'                      FROM reports re3 '
+                   f'                      CROSS JOIN jsonb_each_text( re3.process_provid ) x '
+                   f'                      INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id ' )
             if section_id is not None:
-                q += '                     WHERE section_id=%(secid)s '
+                q += '                      WHERE section_id=%(secid)s '
                 subdict[ 'secid' ] = section_id
-            q += ( '                     ORDER BY re3._id, r3pt.tag '
-                   '                   ) re2 '
-                   '              GROUP BY ( re2.exposure_id, re2.section_id, re2.success, '
-                   '                         re2.error_message, re2.start_time, re2.process ) '
-                   '            ) re1 '
-                   '       GROUP BY ( re1.exposure_id, re1.section_id, re1.success, re1.error_message, '
-                   '                  re1.start_time ) '
-                   '     ) re '
-                   'WHERE true=ALL( gotem ) ' )
+            q += ( f'                      ORDER BY re3._id, r3pt.tag '
+                   f'                    ) re2 '
+                   f'               GROUP BY ( {fields2} )'
+                   f'             ) re1 '
+                   f'        GROUP BY ( {fields1} ) '
+                   f'      ) re '
+                   f'WHERE true=ALL( gotem ) ' )
         q += 'ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
         subdict[ 'provtag' ] = prov_tag
 

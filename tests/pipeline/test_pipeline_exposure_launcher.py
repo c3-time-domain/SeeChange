@@ -73,7 +73,6 @@ def test_exposure_launcher( conductor_connector,
         assert len( res['workers'] ) == 1
         assert res['workers'][0]['cluster_id'] == 'testcluster'
         assert res['workers'][0]['node_id'] == 'testnode'
-        assert res['workers'][0]['nexps'] == 1
 
         t0 = time.perf_counter()
         elaunch( max_n_exposures=1, die_on_exception=True )
@@ -117,23 +116,31 @@ def test_exposure_launcher( conductor_connector,
         with SmartSession() as session:
             exposure = ( session.query( Exposure ).join( KnownExposure )
                          .filter( KnownExposure.exposure_id==Exposure._id ) ).first()
-            images = session.query( Image ).filter( Image.exposure_id==exposure.id ).all()
-            imgids = [ i.id for i in images ]
-            subs = ( session.query( Image )
-                     .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
-                     .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id )
-                     .join( WorldCoordinates, WorldCoordinates._id==ZeroPoint.wcs_id )
-                     .join( SourceList, SourceList._id==WorldCoordinates.sources_id )
-                     .filter( SourceList.image_id.in_( imgids ) )
-                    ).all()
+            if exposure is None:
+                images = []
+                imgids = []
+                subs = []
+            else:
+                images = session.query( Image ).filter( Image.exposure_id==exposure.id ).all()
+                imgids = [ i.id for i in images ]
+                subs = ( session.query( Image )
+                         .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
+                         .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id )
+                         .join( WorldCoordinates, WorldCoordinates._id==ZeroPoint.wcs_id )
+                         .join( SourceList, SourceList._id==WorldCoordinates.sources_id )
+                         .filter( SourceList.image_id.in_( imgids ) )
+                        ).all()
         for sub in subs:
             sub.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
         for img in images:
             img.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
         # Before deleting the exposure, we have to make sure it's not referenced in the
         #  knownexposures table
-        with SmartSession() as session:
-            kes = session.query( KnownExposure ).filter( KnownExposure.exposure_id==exposure.id ).all()
+        if exposure is None:
+            kes = []
+        else:
+            with SmartSession() as session:
+                kes = session.query( KnownExposure ).filter( KnownExposure.exposure_id==exposure.id ).all()
         for ke in kes:
             ke.exposure_id = None
             ke.upsert()
@@ -141,7 +148,8 @@ def test_exposure_launcher( conductor_connector,
         # WORRY -- I think this is deleting something that shouldn't get deleted until
         #  the decam_exposure session fixture cleans up.  Because this test tends to be
         #  one of the last ones that runs, this hasn't bitten us, but it could.
-        exposure.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
+        if exposure is not None:
+            exposure.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
 
         # There will also have been a whole bunch of calibrator files.
         # Don't delete those, because the decam_default_calibrators

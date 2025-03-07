@@ -197,7 +197,7 @@ class UpdateParameters( ConductorBaseView ):
         #   sure they're really bools.  (This matters when passing to Postgres.)
         self.__class__.pause_updates = bool( self.__class__.pause_updates )
         self.__class__.hold_new_exposures = bool( self.__class__.hold_new_exposures )
-        self.__class__.picuppartial = bool( self.__class__.pickuppartial )
+        self.__class__.pickuppartial = bool( self.__class__.pickuppartial )
 
         updaterargs['command'] = 'updateparameters'
         res = self.talk_to_updater( updaterargs )
@@ -209,13 +209,13 @@ class UpdateParameters( ConductorBaseView ):
             cursor = conn.cursor()
             cursor.execute( "UPDATE conductor_config SET instrument_name=%(inst)s, updateargs=%(upda)s, "
                             "                            update_timeout=%(updt)s, pause_updates=%(pause)s, "
-                            "                            hold_new_newxposures=%(hold)s, configchangetime=%(t)s, "
+                            "                            hold_new_exposures=%(hold)s, configchangetime=%(t)s, "
                             "                            throughstep=%(through)s, pickuppartial=%(partial)s ",
                             { 'inst': res['instrument'],
                               'upda': res['updateargs'],
                               'updt': res['timeout'],
-                              'pause': res['pause'],
-                              'hold': res['hold'],
+                              'pause': bool( res['pause'] ),
+                              'hold': bool( res['hold'] ),
                               't': res['configchangetime'],
                               'through': self.__class__.throughstep,
                               'partial': self.__class__.pickuppartial } )
@@ -375,7 +375,7 @@ class RequestExposure( ConductorBaseView ):
 
 
 # ======================================================================
-
+# /getknownexposures
 
 class GetKnownExposures( ConductorBaseView ):
     def do_the_things( self, argstr=None ):

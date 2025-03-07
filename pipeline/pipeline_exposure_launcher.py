@@ -86,6 +86,7 @@ class ExposureLauncher:
         self.through_step = through_step
         self.max_run_time = max_run_time
         self.worker_log_level = worker_log_level
+        self.verify = verify
         self.conductor = ConductorConnector( verify=verify )
 
     def register_worker( self, replace=False ):
@@ -171,7 +172,9 @@ class ExposureLauncher:
                                                         self.numprocs,
                                                         onlychips=self.onlychips,
                                                         through_step=self.through_step,
+                                                        verify=self.verify,
                                                         worker_log_level=self.worker_log_level )
+                exposure_processor.start_work()
                 SCLogger.info( f'Downloading and loading exposure {knownexp.identifier}...' )
                 exposure_processor.download_and_load_exposure()
                 SCLogger.info( '...downloaded.  Launching process to handle all chips.' )
@@ -183,6 +186,7 @@ class ExposureLauncher:
                     session.commit()
 
                 exposure_processor()
+                exposure_processor.finish_work()
                 SCLogger.info( f"Done processing exposure {exposure_processor.exposure.origin_identifier}" )
 
                 n_processed += 1
