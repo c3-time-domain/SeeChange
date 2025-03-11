@@ -19,6 +19,7 @@ pandas==2.2.3
 photutils==2.1.0
 psutil==6.1.1
 psycopg2==2.9.10
+pyarrow==19.0.1
 pycryptodome==3.21.0
 pytest==8.3.4
 pytest-timestamper==0.0.10
