@@ -18,7 +18,7 @@
 # variable SEECHANGE_CONFIG, which by default is this file.  This and
 # any other included config file is a yaml file, but it can't be just
 # any yaml file; the top level must be a dictionary.
-# 
+#
 # A config file has three special options (only two of which actually
 # show up in this file you're reading right now); each of those is a
 # list of file paths relative to the directory where this file is found.
@@ -142,7 +142,7 @@
 #     above, or just use "local_overrides.yaml" and put in any config
 #     options that you want changed, and then read everything above
 #     if it does not behave as you expected.
-#  
+#
 #
 # WARNING : python's yaml reading is broken.  It will read 1e10 as a
 # string, not a float.  Write 1.0e+10 to make it work right.  There are
@@ -176,7 +176,7 @@ configchoice:
   configs:
     galactic: default_config_galactic.yaml
     extragalactic: default_config_extragalactic.yaml
-  
+
 # ======================================================================
 # Paths
 
