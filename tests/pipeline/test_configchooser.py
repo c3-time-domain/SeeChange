@@ -2,9 +2,7 @@ from util.config import Config
 from pipeline.configchooser import ConfigChooser
 
 
-def test_config_chooser( decam_exposure ):
-    origra = decam_exposure.ra
-    origdec = decam_exposure.dec
+def test_config_chooser():
     try:
         origconfig = Config.get()
         assert origconfig.value( 'configchoice.choice_algorithm' ) == 'star_density'
@@ -51,6 +49,3 @@ def test_config_chooser( decam_exposure ):
         Config._default = None
         Config._configs = {}
         Config.init()
-        # Fix the session fixture we may have screwed up
-        decam_exposure.ra = origra
-        decam_exposure.dec = origdec
