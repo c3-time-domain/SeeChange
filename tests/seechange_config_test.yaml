@@ -5,6 +5,17 @@ overrides:
 augments:
   - local_augments.yaml
 
+
+configchoice:
+  config_dir: null
+  gaia_density_catalog: share/gaia_density/gaia_healpix_density.pq
+  choice_algorithm: star_density
+  star_mag_cutoff: 21
+  star_density_cutoff: ROB FIGURE THIS OUT
+  configs:
+    galactic: seechange_config_test_galactic.yaml
+    extragalactic: seechagne_config_test_extragalactic.yaml
+
 path:
   data_root: '/seechange/tests/temp_data'
   data_temp: '/seechange/tests/temp_data'

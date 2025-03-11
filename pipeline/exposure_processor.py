@@ -27,6 +27,7 @@ from models.exposure import Exposure
 import models.decam  # noqa: F401
 
 from pipeline.top_level import Pipeline
+from pipeline.configchooser import ConfigChooser
 
 
 class ExposureProcessor:
@@ -145,6 +146,10 @@ class ExposureProcessor:
         if self.through_step == 'exposure':
             SCLogger.info( "Only running through exposure, not launching any image processes" )
             return
+
+        # Update the config if necessary
+        config_chooser = ConfigChooser()
+        config_chooser.run( self.exposure )
 
         chips = self.instrument.get_section_ids()
         if self.onlychips is not None:

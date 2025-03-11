@@ -98,7 +98,7 @@ class Config:
     _configs = {}
 
     @staticmethod
-    def init( configfile=None, logger=logging.getLogger("main"), dirmap={} ):
+    def init( configfile=None, logger=logging.getLogger("main"), dirmap={}, reread=False, setdefault=False ):
         """Initialize configuration globally for process.
 
         Parameters
@@ -114,7 +114,7 @@ class Config:
             An ugly hack for changing the directories of imported files; see the static function dirmap.
 
         """
-        Config.get( configfile, logger=logger, dirmap=dirmap )
+        Config.get( configfile, logger=logger, dirmap=dirmap, reread=reread, setdefault=setdefault )
 
     @staticmethod
     def get( configfile=None, reread=False, logger=logging.getLogger("main"), dirmap={}, setdefault=False ):
@@ -315,7 +315,7 @@ class Config:
 
         * If the value is a dict, then merge the two dictionaries.  New
           keys are added.  When the key is present in both dictionaries,
-          toss out the old subtree in favor of the new one.
+          recurse.
         """
         augmentpath = pathlib.Path( augmentfile )
         if not augmentpath.is_absolute():

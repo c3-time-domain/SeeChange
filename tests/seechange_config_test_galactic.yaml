@@ -1,0 +1,33 @@
+preloads:
+  - seechange_config_test.yaml
+
+configchoice:
+  choice_algorithm: null
+  configs: null
+
+# TODO : Edit this (and default.yaml) appropriately when we address Issue #437.
+extraction:
+  threshold: 10.0
+
+wcs:
+  max_catalog_mag: [15., 16., 17.]
+  mag_range_catalog: 2.0
+
+zp:
+  max_catalog_mag: [17., 18., 19.]
+  mag_range_catalog: 3.0
+
+detection:
+  threshold: 10.0
+
+fakeinjection:
+  min_fake_mag: -4.
+  max_fake_mag: 1.
+  mag_rel_limmag: true
+  num_fakes: 400
+  mag_prob_ratio: 1.
+  random_seed: 0.
+  hostless_frac: 0.
+  host_minmag: -3.
+  host_maxmag: 1.
+  host_distcale: 0.
