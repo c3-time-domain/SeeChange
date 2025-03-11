@@ -2,6 +2,7 @@ import sys
 import logging
 import pathlib
 import pyarrow
+import pyarrow.parquet
 from astropy.table import Table
 
 _logger = logging.getLogger("main")
@@ -20,6 +21,7 @@ def main():
                17: [],
                18: [],
                19: [],
+               20: [],
                21: [],
                22: [] }
     for i in range( 0, 12288 ):
