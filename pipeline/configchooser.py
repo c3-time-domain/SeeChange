@@ -6,8 +6,9 @@ import healpy
 from util.config import Config
 from util.logger import SCLogger
 from models.base import CODE_ROOT
+from models.exposure import Exposure
+from models.image import Image
 from pipeline.parameters import Parameters
-from pipeline.data_store import DataStore
 
 
 class ParsConfigChooser( Parameters ):
@@ -82,30 +83,48 @@ class ConfigChooser:
         self.pars = ParsConfigChooser( **kwargs )
 
 
-    def run( self, *args, **kwargs ):
+    def run( self, *args ):
+        """Pass one of three things:
+
+        (1) ra, dec : float, float
+              Decimal degrees
+
+        (2) exposure : Exposure
+              An exposure, whose ra and dec fields will be read
+
+        (3) image : Image
+              An image, whose ra and dec fields will be read
         if self.pars.choice_algorithm is None:
             return
 
-        ds = None
+        Returns nothing.
+
+        """
+
         try:
-            ds = DataStore.from_args( *args, **kwargs )
+            if len( args ) == 1:
+                if isinstance( args[0], Exposure) or isinstance( args[0], Image ):
+                    ra = args[0].ra
+                    dec = args[0].dec
+                else:
+                    raise RuntimeError( "Pass ConfigChooser.run() (ra, dec), Exposure, or Image" )
+            elif len( args ) == 2:
+                ra = float( args[0] )
+                dec = float( args[1] )
+            else:
+                raise RuntimeError( "Pass ConfigChooser.run() (ra, dec), Exposure, or Image" )
 
             if self.pars.choice_algorithm == 'star_density':
-                self.set_config_based_on_datastore_star_density( ds )
+                self.set_config_based_on_star_density( ra, dec )
             else:
                 raise ValueError( f"Unknown ConfigChooser algorithm: {self.pars.choice_algorithm}" )
 
-            return ds
-
         except Exception as e:
             SCLogger.exception( f"Exception in ConfigChooser.run: {e}" )
-            if ds is not None:
-                ds.exceptions.append( e )
             raise
 
 
-    @classmethod
-    def set_config_based_on_star_density( cls, ra, dec, maglim, densitycut, tablefile ):
+    def set_config_based_on_star_density( self, ra, dec ):
         """Replaces the default config based on gaia stars / healpix at ra, dec.
 
         Decides if this is a galactic or extragalactic field by reading
@@ -124,18 +143,17 @@ class ConfigChooser:
           dec : float
             DEC in degrees
 
-          maglim : int
-            GAIA-G magnitude limit. Must be an integer in the range [16,22].
-
-          densitycut : int
-            Maximum number of stars for a field to be considered
-            extragalactic.  If the healpix has this many or more stars,
-            then the field will be considered galactic.
-
-          tablefile : path or str
-            Path where to find the Parquet file with the healpix gaia densities.
-
         """
+
+        cfg = Config.get()
+        if cfg.value( 'configchoice.config_dir' ) is not None:
+            tablefile = pathlib.Path( cfg.value( 'configchoice.config_dir' ) )
+        else:
+            tablefile = pathlib.Path( CODE_ROOT )
+        tablefile = tablefile / self.pars.gaia_density_catalog
+        maglim = self.pars.star_mag_cutoff
+        densitycut = self.pars.star_density_cutoff
+
         densitytab = pyarrow.parquet.read_table( tablefile ).to_pandas()
         if str(maglim) not in densitytab.columns:
             raise ValueError( f"Don't have densities for magnitude limit {maglim}" )
@@ -157,24 +175,3 @@ class ConfigChooser:
             configfile = cfg.value( 'configchoice.configs.extragalactic' )
         configfile = cfg._path.parent / configfile
         Config.init( configfile, reread=True, setdefault=True )
-
-
-    def set_config_based_on_datastore_star_density( self, ds ):
-        if ds.exposure is not None:
-            ra = ds.exposure.ra
-            dec = ds.exposure.dec
-        elif ds.image is not None:
-            ra = ds.image.ra
-            dec = ds.image.dec
-        else:
-            raise RuntimeError( "ConfigChooser star density choice requires either an exposure or an image" )
-
-        cfg = Config.get()
-        if cfg.value( 'configchoice.config_dir' ) is not None:
-            tablefile = pathlib.Path( cfg.value( 'configchoice.config_dir' ) )
-        else:
-            tablefile = pathlib.Path( CODE_ROOT )
-        tablefile = tablefile / self.pars.gaia_density_catalog
-        maglim = self.pars.star_mag_cutoff
-        densitycut = self.pars.star_density_cutoff
-        self.set_config_based_on_star_density( ra, dec, maglim, densitycut, tablefile )

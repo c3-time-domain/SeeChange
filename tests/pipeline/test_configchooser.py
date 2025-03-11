@@ -2,9 +2,7 @@ from util.config import Config
 from pipeline.configchooser import ConfigChooser
 
 
-def test_config_chooser( decam_exposure ):
-    origra = decam_exposure.ra
-    origdec = decam_exposure.dec
+def test_config_chooser():
     try:
         origconfig = Config.get()
         assert origconfig.value( 'configchoice.choice_algorithm' ) == 'star_density'
@@ -19,10 +17,8 @@ def test_config_chooser( decam_exposure ):
         # in our finally block below!)
 
         # An extragalactic field
-        decam_exposure.ra = 15
-        decam_exposure.dec = -15.
         chooser = ConfigChooser()
-        chooser.run( decam_exposure, 'N1' )
+        chooser.run( 15, -15. )
         exgalconfig = Config.get()
 
         assert exgalconfig.value( 'configchoice.choice_algorithm' ) is None
@@ -36,10 +32,8 @@ def test_config_chooser( decam_exposure ):
         Config.init()
 
         # A galactic field
-        decam_exposure.ra = 270.
-        decam_exposure.dec = -30.
         chooser = ConfigChooser()
-        chooser.run( decam_exposure, 'N1' )
+        chooser.run( 270., -30. )
         galconfig = Config.get()
 
         assert galconfig.value( 'configchoice.choice_algorithm' ) is None
@@ -55,6 +49,3 @@ def test_config_chooser( decam_exposure ):
         Config._default = None
         Config._configs = {}
         Config.init()
-        # Fix the session fixture we may have screwed up
-        decam_exposure.ra = origra
-        decam_exposure.dec = origdec
