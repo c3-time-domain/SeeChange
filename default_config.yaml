@@ -171,8 +171,8 @@ configchoice:
   config_dir: null
   gaia_density_catalog: share/gaia_density/gaia_healpix_density.pq
   choice_algorithm: star_density
-  star_mag_cutoff: 21
-  star_density_cutoff: ROB FIGURE THIS OUT
+  star_mag_cutoff: 20
+  star_density_cutoff: 1e5    # TODO : better determine this value  (1e5 is at least vaugely plausible)
   configs:
     galactic: default_config_galactic.yaml
     extragalactic: default_config_extragalactic.yaml

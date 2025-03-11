@@ -8,7 +8,7 @@ from astropy.table import Table
 _logger = logging.getLogger("main")
 _logout = logging.StreamHandler( sys.stderr )
 _logger.addHandler( _logout )
-_formatter = logging.Formatter( f'[%(asctime)s - %(levelname)s] - %(message)s',
+_formatter = logging.Formatter( '[%(asctime)s - %(levelname)s] - %(message)s',
                                 datefmt='%Y-%m-%d %H:%M:%S' )
 _logout.setFormatter( _formatter )
 _logger.setLevel( logging.INFO )

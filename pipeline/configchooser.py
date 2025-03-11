@@ -29,7 +29,7 @@ class ParsConfigChooser( Parameters ):
 
         self.star_mag_cutoff = self.add_par(
             'star_mag_cutoff',
-            21,
+            20,
             int,
             "Magnitude cutoff to look at star density",
             critical=True
@@ -37,9 +37,10 @@ class ParsConfigChooser( Parameters ):
 
         # For the healpix(32,nest=True) healpix, each healpix is about 110' (1.8°) on a side,
         #   so each healpix is roughly 3.4 square degrees.
+        # TODO : look more carefully to choose this number
         self.star_density_cutoff = self.add_par(
             'star_density_cutoff',
-            666,
+            1e5,
             float,
             ( "Star densities in stars/healpix at or above this value will lead to the "
               "choice of the 'galactic' config; otherwise, the 'extragalactic' config." ),
@@ -136,7 +137,7 @@ class ConfigChooser:
 
         """
         densitytab = pyarrow.parquet.read_table( tablefile ).to_pandas()
-        if maglim not in densitytab.columns:
+        if str(maglim) not in densitytab.columns:
             raise ValueError( f"Don't have densities for magnitude limit {maglim}" )
 
         hp = healpy.ang2pix( 32, ra, dec, nest=True, lonlat=True )
@@ -146,7 +147,7 @@ class ConfigChooser:
         if len(row) > 1:
             raise ValueError( f"Healpix {hp} shows up in gaia density table more than once; this shouldn't happen." )
 
-        dens = row[ maglim ]
+        dens = row[ str(maglim) ].values[ 0 ]
 
         cfg = Config.get()
 
@@ -154,7 +155,7 @@ class ConfigChooser:
             configfile = cfg.value( 'configchoice.configs.galactic' )
         else:
             configfile = cfg.value( 'configchoice.configs.extragalactic' )
-        configfile = cfg._path.parent() / configfile
+        configfile = cfg._path.parent / configfile
         Config.init( configfile, reread=True, setdefault=True )
 
 
