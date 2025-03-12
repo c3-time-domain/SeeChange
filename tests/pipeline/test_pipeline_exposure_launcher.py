@@ -1,5 +1,5 @@
-import pytest
-import os
+# import pytest
+# import os
 import time
 import logging
 
@@ -27,7 +27,7 @@ from util.logger import SCLogger
 # run by default when run locally.  This env var is set in the github
 # actions workflows.
 
-@pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
+# @pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
 def test_exposure_launcher( conductor_connector,
                             conductor_config_for_decam_pull,
                             decam_elais_e1_two_references ):

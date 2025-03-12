@@ -149,13 +149,10 @@ class Reference(Base, UUIDMixin, HasBitFlagBadness):
         with SmartSession( session ) as sess:
             self._zp = ZeroPoint.get_by_id( self.zp_id, session=sess )
             self._wcs = WorldCoordinates.get_by_id( self._zp.wcs_id, session=sess )
-            self._bg = Background.get_by_id( self._zp.background_id, session=sess )
-            if self._bg.sources_id != self._wcs.sources_id:
-                raise RuntimeError( f"Database corruption.  Zeropoint {self._zp.id} has wcs {self._wcs.id} and "
-                                    f"background {self._bg.id}, but the wcs and bg don't have the same sources_id" )
             self._sources = SourceList.get_by_id( self._wcs.sources_id, session=sess )
             self._image = Image.get_by_id( self._sources.image_id, session=sess)
             self._psf = sess.query( PSF ).filter( PSF.sources_id==self._sources.id ).first()
+            self._bg = sess.query( Background ).filter( Background.sources_id==self._sources.id ).first()
 
 
     def get_upstreams( self, session=None ):

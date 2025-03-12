@@ -76,7 +76,9 @@ class Backgrounder:
         """Calculate the background for the given image.
 
         Arguments are parsed by the DataStore.parse_args() method.
-        Returns a DataStore object with the products of the processing.
+
+        Returns a Background object.
+
         """
         self.has_recalculated = False
 
@@ -141,28 +143,13 @@ class Backgrounder:
             # Not updating the background upstream bitflags here; that will be done
             #   in detection.py, which is probably what this was called from anyway.
 
-            # TODO ROB DELETE THE FOLLOWING CODE BEFORE PR MERGE
-            # sources = ds.get_sources()
-            # if sources is None:
-            #     raise ValueError(f'Cannot find a SourceList corresponding to the datastore inputs: {ds.inputs_str}')
-            # psf = ds.get_psf()
-            # if psf is None:
-            #     raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.inputs_str}')
-
-            # bg._upstream_bitflag = 0
-            # bg._upstream_bitflag |= ds.image.bitflag
-            # bg._upstream_bitflag |= sources.bitflag
-            # bg._upstream_bitflag |= psf.bitflag
-
-            ds.bg = bg
-
             if ds.update_runtimes:
                 ds.runtimes['backgrounding'] = time.perf_counter() - t_start
             if ds.update_memory_usages:
                 import tracemalloc
                 ds.memory_usages['backgrounding'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
 
-            return ds
+            return bg
 
         except Exception as e:
             SCLogger.exception( f"Exception in Backgrounder.run: {e}" )

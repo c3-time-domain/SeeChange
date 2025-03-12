@@ -473,8 +473,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.sources.get_upstreams(session=session)] == [ds.image.id]
             assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
-            assert ( set( [upstream.id for upstream in ds.zp.get_upstreams(session=session)] )
-                     == { ds.wcs.id, ds.bg.id } )
+            assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.wcs.id]
             assert ( set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ])
                      == { ds.reference.id, ds.zp.id } )
             assert [upstream.id for upstream in ds.detections.get_upstreams(session=session)] == [ds.sub_image.id]
@@ -513,7 +512,6 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert ( set( [downstream.id for downstream in ds.sources.get_downstreams(session=session)] )
                      == { ds.wcs.id, ds.bg.id, ds.psf.id } )
             assert [downstream.id for downstream in ds.psf.get_downstreams(session=session)] == []
-            assert [downstream.id for downstream in ds.bg.get_downstreams(session=session)] == [ds.zp.id]
             assert [downstream.id for downstream in ds.wcs.get_downstreams(session=session)] == [ds.zp.id]
             assert [downstream.id for downstream in ds.zp.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.reference.get_downstreams(session=session)] == [ds.sub_image.id]
@@ -657,7 +655,6 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
         obj_to_process_step = {
             'preprocessor': 'preprocessing',
             'extractor': 'extraction',
-            'backgrounder': 'backgrounding',
             'astrometor': 'astrocal',
             'photometor': 'photocal',
             'subtractor': 'subtraction',
