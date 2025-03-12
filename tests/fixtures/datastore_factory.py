@@ -504,36 +504,6 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         warnings.warn( f'cache_path {bg_cache_path} does not match output path {output_path}' )
 
 
-        # ########## Background ##########
-
-        # if 'bg' in stepstodo:
-        #     filename_barf = ds.prov_tree['backgrounding'].id[:6]
-        #     bg_cache_path = ( cache_dir / cache_base_path.parent /
-        #                       f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
-        #     if use_cache and found_sources_in_cache:
-        #         # try to get the background from cache
-        #         SCLogger.debug( f'make_datastore searching cache for background {bg_cache_path}' )
-        #         if bg_cache_path.is_file():
-        #             SCLogger.debug('make_datastore loading background from cache. ')
-        #             ds.bg = copy_from_cache( Background, cache_dir, bg_cache_path,
-        #                                      add_to_dict={ 'image_shape': ds.image.data.shape },
-        #                                      symlink=True )
-        #             ds.bg.sources_id = ds.sources.id
-        #             # make sure this is saved to the archive as well
-        #             ds.bg.save( image=ds.image, verify_md5=False, overwrite=True )
-
-
-        #     if ds.bg is None:
-        #         SCLogger.debug('make_datastore running background estimation')
-        #         ds = p.backgrounder.run(ds)
-        #         ds.bg.save( image=ds.image, overwrite=True )
-        #         ds.update_report( 'backgrounding' )
-        #         if use_cache:
-        #             _ = ds.bg.id
-        #             output_path = copy_to_cache(ds.bg, cache_dir)
-        #             if output_path.resolve() != bg_cache_path.resolve():
-        #                 warnings.warn(f'cache path {bg_cache_path} does not match output path {output_path}')
-
         ########## Astrometric calibration ##########
 
         if 'wcs' in stepstodo:

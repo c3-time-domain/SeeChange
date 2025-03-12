@@ -60,22 +60,6 @@ def extractor(extractor_factory):
     return extractor_factory()
 
 
-# @pytest.fixture(scope='session')
-# def backgrounder_factory(test_config):
-
-#     def make_backgrounder():
-#         bg = Backgrounder(**test_config.value('backgrounding'))
-#         bg.pars._enforce_no_new_attrs = False
-#         bg.pars.test_parameter = bg.pars.add_par(
-#             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
-#         )
-#         bg.pars._enforce_no_new_attrs = True
-
-#         return bg
-
-#     return make_backgrounder
-
-
 @pytest.fixture(scope='session')
 def astrometor_factory(test_config):
 
