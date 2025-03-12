@@ -361,19 +361,6 @@ class Config:
     def value( self, field, default=NoValue(), struct=None ):
         """Get a value from the config structure.
 
-        Parameters
-        ----------
-        field: str
-            See below
-
-        struct: dict, default None
-            If passed, use this dictionary in place of the object's own
-            config dictionary.  Avoid use.
-
-        Returns
-        -------
-        int, float, str, list, or dict
-
         For trees, separate fields by periods.  If there is
         an array somewhere in the tree, then the array index
         as a number is the field for that branch.
@@ -401,6 +388,24 @@ class Config:
         You can also specify a branch to get back the rest of the
         subtree; for instance configobj.value( "dict1.dict2" ) would
         return the dictionary { "sub1": "2level1", "sub2": "2level2" }.
+
+        Parameters
+        ----------
+        field: str
+            See below
+
+        struct: dict, default None
+            If passed, use this dictionary in place of the object's own
+            config dictionary.  Avoid use.
+
+        Returns
+        -------
+        int, float, str, list, or dict
+
+        If a list or dict, you get a deep copy of the original list or
+        dict.  As such, it's safe to modify the return value without
+        worrying about changing the internal config.  (If you want to
+        change the internal config, use set_value().)
 
         """
 

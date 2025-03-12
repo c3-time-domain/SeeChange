@@ -1318,10 +1318,10 @@ class DataStore:
         return self._get_data_product( 'psf', PSF, 'sources', PSF.sources_id, 'extraction',
                                        match_prov=False, provenance=provenance, reload=reload, session=session )
 
-    def get_background(self, session=None, reload=False, provenance=None):
+    def get_background(self, session=None, reload=False):
         """Get a Background object, either from memory or from the database."""
         return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'backgrounding',
-                                       match_prov=True, provenance=provenance, reload=reload, session=session )
+                                       match_prov=False, reload=reload, session=session )
 
     def get_wcs(self, session=None, reload=False, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""

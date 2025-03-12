@@ -33,7 +33,7 @@ class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
     @declared_attr
     def __table_args__(cls):   # noqa: N805
         return (
-            UniqueConstraint( 'wcs_id', 'background_id', 'provenance_id', name='_zp_wcs_bg_provenance_uc' ),
+            UniqueConstraint( 'wcs_id', 'provenance_id', name='_zp_wcs_provenance_uc' ),
         )
 
     # Note that the sources_id of both the upstream wcs and background must be the same
@@ -43,13 +43,6 @@ class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
         nullable=False,
         index=True,
         doc="ID of the wcs this zero point is based on."
-    )
-
-    background_id = sa.Column(
-        sa.ForeignKey('backgrounds._id', ondelete='CASCADE', name='zp_background_id_fkey' ),
-        nullable=False,
-        index=True,
-        doc="ID of the background this zero point is based on."
     )
 
     zp = sa.Column(
@@ -140,14 +133,12 @@ class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
 
 
     def get_upstreams(self, session=None):
-        """Get the WCS and Background that are upstream to this ZeroPoint."""
-        from models.background import Background
+        """Get the WCS that is upstream to this ZeroPoint."""
         from models.world_coordinates import WorldCoordinates
         with SmartSession(session) as session:
-            bgs = list( session.scalars( sa.select(Background).where( Background._id==self.background_id ) ).all() )
-            wcses = list( session.scalars( sa.select(WorldCoordinates)
-                                           .where( WorldCoordinates._id==self.wcs_id ) ).all() )
-            return bgs + wcses
+            return list( session.scalars( sa.select(WorldCoordinates)
+                                          .where( WorldCoordinates._id==self.wcs_id ) ).all() )
+
 
     def get_downstreams(self, session=None):
         """Get any downstreams of this ZeroPoint.

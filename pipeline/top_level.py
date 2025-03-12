@@ -7,7 +7,6 @@ import sqlalchemy as sa
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
-from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 from pipeline.subtraction import Subtractor
@@ -31,7 +30,6 @@ from util.logger import SCLogger
 _PROCESS_OBJECTS = {
     'preprocessing': 'preprocessor',
     'extraction': 'extractor',
-    'bg': 'backgrounder',
     'wcs': 'astrometor',
     'zp': 'photometor',
     'subtraction': 'subtractor',
@@ -57,7 +55,7 @@ class ParsPipeline(Parameters):
             True,
             bool,
             "Save intermediate images to the database, "
-            "after doing extraction, background, and astro/photo calibration, "
+            "after doing extraction and astro/photo calibration, "
             "if there is no reference, will not continue to doing subtraction "
             "but will still save the products up to that point. "
             "(It's possible the pipeline won't work if this is False...)",
@@ -101,7 +99,7 @@ class ParsPipeline(Parameters):
             None,
             ( None, str ),
             "Stop after this step.  None = run the whole pipeline.  String values can be "
-            "any of preprocessing, backgrounding, extraction, wcs, zp, subtraction, detection, "
+            "any of preprocessing, extraction, wcs, zp, subtraction, detection, "
             "cutting, measuring, scoring",
             critical=False
         )
@@ -135,7 +133,7 @@ class ParsPipeline(Parameters):
 
 
 class Pipeline:
-    ALL_STEPS = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp', 'subtraction',
+    ALL_STEPS = [ 'preprocessing', 'extraction', 'wcs', 'zp', 'subtraction',
                   'detection', 'cutting', 'measuring', 'scoring', ]
 
     def __init__(self, **kwargs):
@@ -157,12 +155,6 @@ class Pipeline:
         extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
-
-        # background estimation using either sep or other methods
-        background_config = config.value('backgrounding', {})
-        background_config.update(kwargs.get('backgrounding', {}))
-        self.pars.add_defaults_to_dict(background_config)
-        self.backgrounder = Backgrounder(**background_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
         astrometor_config = config.value('wcs', {})
@@ -348,7 +340,6 @@ class Pipeline:
         # The contents of this dictionary must be synced with _PROCESS_OBJECTS above.
         return { 'preprocessing': self.preprocessor.pars.get_critical_pars(),
                  'extraction': self.extractor.pars.get_critical_pars(),
-                 'backgrounding': self.backgrounder.pars.get_critical_pars(),
                  'wcs': self.astrometor.pars.get_critical_pars(),
                  'zp': self.photometor.pars.get_critical_pars(),
                  'subtraction': self.subtractor.pars.get_critical_pars(),
@@ -503,17 +494,11 @@ class Pipeline:
                     ds.update_report('preprocessing')
                     SCLogger.info(f"preprocessing complete: image id = {ds.image.id}, filepath={ds.image.filepath}")
 
-                # extract sources and make a SourceList and PSF from the image
+                # extract sources and make a SourceList, PSF, and Background from the image
                 if 'extraction' in stepstodo:
                     SCLogger.info(f"extractor for image id {ds.image.id}")
                     ds = self.extractor.run(ds)
                     ds.update_report('extraction')
-
-                # find the background for this image
-                if 'backgrounding' in stepstodo:
-                    SCLogger.info(f"backgrounder for image id {ds.image.id}")
-                    ds = self.backgrounder.run(ds)
-                    ds.update_report('backgrounding')
 
                 # find astrometric solution, save WCS into Image object and FITS headers
                 if 'wcs' in stepstodo:

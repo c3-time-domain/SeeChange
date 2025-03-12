@@ -89,19 +89,16 @@ class Backgrounder:
 
             self.pars.do_warning_exception_hangup_injection_here()
 
-            # get the provenance for this step:
-            prov = ds.get_provenance('backgrounding', self.pars.get_critical_pars())
-
             # try to find the background object in memory or in the database:
-            bg = ds.get_background( provenance=prov )
+            bg = ds.get_background()
 
             if bg is None:  # need to produce a background object
                 self.has_recalculated = True
                 image = ds.get_image()
-                sources = ds.get_sources()
-                if ( image is None ) or ( sources is None ):
-                    raise RuntimeError( "Backgrounding can't proceed unless the DataStore "
-                                        "already has image and sources" )
+                # Maybe todo in the future: if we ever actually implement a background algorithm
+                #   that looks at sources for masking, check that sources exist too
+                if image is None:
+                    raise RuntimeError( "Backgrounding can't proceed unless the DataStore already has image" )
 
                 if self.pars.method == 'sep':
                     # Estimate the background mean and RMS with sep
@@ -123,7 +120,6 @@ class Backgrounder:
                     del fmask
                     del tmpimagedata
                     bg = Background(
-                        provenance_id=prov.id,
                         value=float(np.nanmedian(sep_bg_obj.back())),
                         noise=float(np.nanmedian(sep_bg_obj.rms())),
                         counts=sep_bg_obj.back(),
@@ -137,24 +133,26 @@ class Backgrounder:
                 else:
                     raise ValueError(f'Unknown background method "{self.pars.method}"')
 
-                bg.sources_id = sources.id
-
             # since these are "first look estimates" we don't update them if they are already set
             if ds.image.bkg_mean_estimate is None and ds.image.bkg_rms_estimate is None:
                 ds.image.bkg_mean_estimate = float( bg.value )
                 ds.image.bkg_rms_estimate = float( bg.noise )
 
-            sources = ds.get_sources()
-            if sources is None:
-                raise ValueError(f'Cannot find a SourceList corresponding to the datastore inputs: {ds.inputs_str}')
-            psf = ds.get_psf()
-            if psf is None:
-                raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.inputs_str}')
+            # Not updating the background upstream bitflags here; that will be done
+            #   in detection.py, which is probably what this was called from anyway.
 
-            bg._upstream_bitflag = 0
-            bg._upstream_bitflag |= ds.image.bitflag
-            bg._upstream_bitflag |= sources.bitflag
-            bg._upstream_bitflag |= psf.bitflag
+            # TODO ROB DELETE THE FOLLOWING CODE BEFORE PR MERGE
+            # sources = ds.get_sources()
+            # if sources is None:
+            #     raise ValueError(f'Cannot find a SourceList corresponding to the datastore inputs: {ds.inputs_str}')
+            # psf = ds.get_psf()
+            # if psf is None:
+            #     raise ValueError(f'Cannot find a PSF corresponding to the datastore inputs: {ds.inputs_str}')
+
+            # bg._upstream_bitflag = 0
+            # bg._upstream_bitflag |= ds.image.bitflag
+            # bg._upstream_bitflag |= sources.bitflag
+            # bg._upstream_bitflag |= psf.bitflag
 
             ds.bg = bg
 
