@@ -1,5 +1,5 @@
-# import pytest
-# import os
+import pytest
+import os
 import time
 import logging
 
@@ -26,8 +26,14 @@ from util.logger import SCLogger
 # env var that will cause it to get skipped on github actions, but to be
 # run by default when run locally.  This env var is set in the github
 # actions workflows.
+#
+# ...while the memory has been reduced a while back, for reasons I don't
+# understand, if you run this test in the context of all the other tests,
+# it hangs on the R/B step.  If you run this test all by itself, it
+# does not hang.  So, for now, keep skipping it on github, and run it
+# individually manually.
 
-# @pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
+@pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
 def test_exposure_launcher( conductor_connector,
                             conductor_config_for_decam_pull,
                             decam_elais_e1_two_references ):

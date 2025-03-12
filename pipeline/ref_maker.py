@@ -261,7 +261,6 @@ class RefMaker:
 
         self.coadd_im_prov = None
         self.coadd_ex_prov = None
-        self.coadd_bg_prov = None
         self.coadd_wcs_prov = None
         self.coadd_zp_prov = None
         self.ref_prov = None
@@ -304,7 +303,6 @@ class RefMaker:
         coadd_provs = self.coadd_pipeline.make_provenance_tree( None, upstream_provs=upstreams )
         self.coadd_im_prov = coadd_provs['starting_point']
         self.coadd_ex_prov = coadd_provs['extraction']
-        self.coadd_bg_prov = coadd_provs['backgrounding']
         self.coadd_wcs_prov = coadd_provs['wcs']
         self.coadd_zp_prov = coadd_provs['zp']
 
@@ -607,27 +605,19 @@ class RefMaker:
         dses = []
         improv = Provenance.get( images[0].provenance_id )
         zpprov = Provenance.get( self.pars.zp_prov_id )
-        if len( zpprov.upstreams ) != 2:
+        if ( len(zpprov.upstreams) != 1 ) or ( zpprov.upstreams[0].process != 'wcs' ):
             raise RuntimeError( "I don't know how to cope" )
-        if ( zpprov.upstreams[0].process == 'backgrounding' ) and ( zpprov.upstreams[1].process == 'wcs' ):
-            bgprov = zpprov.upstreams[0]
-            wcsprov = zpprov.upstreams[1]
-        elif ( zpprov.upstreams[0].process == 'wcs' ) and ( zpprov.upstreams[1].process == 'backgrounding' ):
-            bgprov = zpprov.upstreams[1]
-            wcsprov = zpprov.upstreams[0]
-        else:
-            raise RuntimeError( "I don't know how to cope" )
+        wcsprov = zpprov.upstreams[0]
         if ( len(wcsprov.upstreams) != 1 ) or ( wcsprov.upstreams[0].process != 'extraction' ):
             raise RuntimeError( "I don't know how to cope" )
         srcprov = wcsprov.upstreams[0]
         if ( len(srcprov.upstreams) != 1 ) or ( srcprov.upstreams[0].id != improv.id ):
             raise RuntimeError( "I don't know how to cope" )
-        provtree = ProvenanceTree( { p.process: p for p in [ improv, srcprov, bgprov, wcsprov, zpprov ] },
+        provtree = ProvenanceTree( { p.process: p for p in [ improv, srcprov, wcsprov, zpprov ] },
                                    upstream_steps={ improv.process: [ 'starting_point' ],
                                                     srcprov.process: [ improv.process ],
-                                                    bgprov.process: [ srcprov.process ],
                                                     wcsprov.process: [ srcprov.process ],
-                                                    zpprov.process: [ wcsprov.process, bgprov.process ] } )
+                                                    zpprov.process: [ wcsprov.process ] } )
         for im in images:
             inst = im.instrument
             if inst != self.pars.instrument:

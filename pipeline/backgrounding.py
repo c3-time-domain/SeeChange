@@ -42,17 +42,19 @@ class ParsBackgrounder(Parameters):
 
         self.sep_box_size = self.add_par(
             'sep_box_size',
-            128,
-            int,
-            'Size of the box in pixels to use for the background estimation using sep. ',
+            None,
+            ( int, None ),
+            ( "Size of the box in pixels to use for the background estimation using sep; "
+              "None = use instrument's background_box_size" ),
             critical=True
         )
 
         self.sep_filt_size = self.add_par(
             'sep_filt_size',
-            3,
-            int,
-            'Size of the filter to use for the background estimation using sep. ',
+            None,
+            ( int, None ),
+            ( "Size of the filter to use for the background estimation using sep; "
+              "None = use instruments' background_filt_size" ),
             critical=True
         )
 
@@ -105,7 +107,11 @@ class Backgrounder:
                 if self.pars.method == 'sep':
                     # Estimate the background mean and RMS with sep
                     boxsize = self.pars.sep_box_size
+                    if boxsize is None:
+                        boxsize = image.instrument_object.background_box_size
                     filtsize = self.pars.sep_filt_size
+                    if filtsize is None:
+                        filtsize = image.instrument_object.background_filt_size
                     SCLogger.debug("Backgrounder estimating sky level and RMS")
                     # Dysfunctionality alert: sep requires a *float* image for the mask
                     # IEEE 32-bit floats have 23 bits in the mantissa, so they should

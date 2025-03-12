@@ -7,7 +7,7 @@ import subprocess
 import numpy as np
 from numpy.fft import fft2, ifft2, fftshift
 
-from sep_pjw import Background
+import sep_pjw as sep
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.enums_and_bitflags import BitFlagConverter
@@ -17,7 +17,6 @@ from models.image import Image
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 from pipeline.detection import Detector
-from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 
@@ -157,7 +156,7 @@ class Coadder:
             The RMS of the background in the image.
         """
         if self.pars.noise_estimator == 'sep':
-            b = Background(data)
+            b = sep.Background(data)
             bkg = b.globalback
             sigma = b.globalrms
         elif self.pars.noise_estimator.startswith('sigma'):
@@ -965,13 +964,6 @@ class CoaddPipeline:
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
-        # background estimation
-        backgrounder_config = self.config.value('backgrounding', {})
-        backgrounder_config.update(self.config.value('coaddition.backgrounding', {}))  # override coadd specific pars
-        backgrounder_config.update(kwargs.get('backgrounding', {}))
-        self.pars.add_defaults_to_dict(backgrounder_config)
-        self.backgrounder = Backgrounder(**backgrounder_config)
-
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
         astrometor_config = self.config.value('wcs', {})
         astrometor_config.update(self.config.value('coaddition.wcs', {}))  # override coadd specific pars
@@ -1050,9 +1042,6 @@ class CoaddPipeline:
         self.datastore = self.extractor.run(self.datastore)
         if self.datastore.sources is None:
             raise RuntimeError( "CoaddPipeline failed to extract sources from coadded image." )
-        self.datastore = self.backgrounder.run(self.datastore)
-        if self.datastore.bg is None:
-            raise RuntimeError( "CoaddPipeline failed to measure background of coadded image." )
         self.datastore = self.astrometor.run(self.datastore)
         if self.datastore.wcs is None:
             raise RuntimeError( "CoaddPipline failed to solve for WCS of coadded image." )
@@ -1072,14 +1061,12 @@ class CoaddPipeline:
                                                                  code_version_id=code_version_id )
         coadd_prov.insert_if_needed()
 
-        steps = [ 'extraction', 'backgrounding', 'wcs', 'zp' ]
+        steps = [ 'extraction', 'wcs', 'zp' ]
         upstream_steps = { 'extraction': [],
-                           'backgrounding': [ 'extraction' ],
                            'wcs': [ 'extraction' ],
-                           'zp': [ 'wcs', 'backgrounding' ]
+                           'zp': [ 'wcs' ]
                           }
         parses = { 'extraction': self.extractor.pars.get_critical_pars(),
-                   'backgrounding': self.backgrounder.pars.get_critical_pars(),
                    'wcs': self.astrometor.pars.get_critical_pars(),
                    'zp': self.photometor.pars.get_critical_pars() }
         self.datastore.make_prov_tree( steps, parses, upstream_steps=upstream_steps, starting_point=coadd_prov )

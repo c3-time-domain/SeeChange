@@ -37,7 +37,6 @@ seechange.Exposure = class
     static process_steps = {
         1: 'preprocessing',
         2: 'extraction',
-        3: 'backgrounding',
         4: 'astrocal',
         5: 'photocal',
         6: 'subtraction',

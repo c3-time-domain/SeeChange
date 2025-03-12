@@ -99,7 +99,6 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
 
         assert p.preprocessor.has_recalculated
         assert p.extractor.has_recalculated
-        assert p.backgrounder.has_recalculated
         assert p.astrometor.has_recalculated
         assert p.photometor.has_recalculated
         assert p.subtractor.has_recalculated
@@ -133,7 +132,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         runtimes.pop('reporting')
         assert runtimes == ds.runtimes
         assert rep.process_memory == ds.memory_usages
-        assert rep.progress_steps == ( 'preprocessing, extraction, backgrounding, astrocal, photocal, '
+        assert rep.progress_steps == ( 'preprocessing, extraction, astrocal, photocal, '
                                        'subtraction, detection, cutting, measuring, scoring, finalize' )
         assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
                                       'sub_image, detections, cutouts, measurement_set, deepscore_set')
