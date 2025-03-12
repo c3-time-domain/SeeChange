@@ -5,7 +5,7 @@
 #   git archive.
 #
 # So how do you set up your own local config for your pipeline?  Before
-# doing that, it's worth understdanding how the config works, as you're
+# doing that, it's worth understanding how the config works, as you're
 # more likely to do it right.  If you don't want to understand, but just
 # want to get on with setting your config (and potentially breaking
 # things if you try to do anything complicated), skip the next section
@@ -51,7 +51,7 @@
 # get stuck in an infinite recursion when you try to read the config.
 # This will either lead to a python crash because it detects too many
 # recursion levels, or to a process crash if you run out of memory, or
-# to the end of the local Unviverse as you create a singularity and
+# to the end of the local Universe as you create a singularity and
 # nucleate a new Big Bang.  Just don't do that.  Keep it simple.
 #
 # Above, the words "augment" and "override" were used to describe how to
@@ -66,7 +66,7 @@
 #      When one config tree (the "right" tree) "augments" another (the
 #      "left" tree), generally speaking, stuff in the right tree is
 #      added to stuff in the left tree, but of course it's more
-#      copmlicated than that.  The augment process walks down the trees,
+#      complicated than that.  The augment process walks down the trees,
 #      from top to bottom.  It starts at the very top level, where the
 #      left dictionary and right dictionary are compared.
 #
@@ -101,7 +101,7 @@
 #           (scalar vs. list vs. dict), the new value *replaces* the old
 #           values.  This will never happen at the very top level,
 #           because both left and right are dictionaries at the top
-#           level.  This is exactly the same behavior as in agument.
+#           level.  This is exactly the same behavior as in augment.
 #
 #         * If the current item being compared is a dictionary, then
 #           the dictionaries are merged in exactly the same manner
