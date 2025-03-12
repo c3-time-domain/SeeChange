@@ -41,6 +41,14 @@ webap:
 
 pipeline:
   inject_fakes: false
+
+# Need the sep box and filt size for historical reasons
+#  (These used to be the defaults, so some test results
+#   depend on them.)
+extraction:
+  backgrounding:
+    sep_box_size: 128
+    sep_filt_size: 3
   
 subtraction:
   method: zogy

@@ -427,7 +427,6 @@ preprocessing:
 #   first make sure you configure sextractor to not do another
 #   background subtraction.)
 
-
 extraction:
   sequence: background_first
   method: sextractor
@@ -443,8 +442,8 @@ extraction:
     format: map
     method: sep
     poly_order: 1
-    sep_box_size: 128
-    sep_filt_size: 3
+    sep_box_size: null
+    sep_filt_size: null
 
 # ======================================================================
 # World Coordinates

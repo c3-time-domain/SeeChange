@@ -583,8 +583,8 @@ def ptf_ref_offset(ptf_ref):
         with SmartSession() as session:
             ptf_ref_zp = session.query( ZeroPoint ).filter( ZeroPoint._id==ptf_ref.zp_id ).first()
             ptf_ref_wcs = session.query( WorldCoordinates ).filter( WorldCoordinates._id==ptf_ref_zp.wcs_id ).first()
-            ptf_ref_bg = session.query( Background ).filter( Background._id==ptf_ref_zp.background_id ).first()
             ptf_ref_sources = session.query( SourceList ).filter( SourceList._id==ptf_ref_wcs.sources_id ).first()
+            ptf_ref_bg = session.query( Background ).filter( Background.sources_id==ptf_ref_sources._id ).first()
             ptf_ref_image = session.query( Image ).filter( Image._id==ptf_ref_sources.image_id ).first()
 
         offset_image = Image.copy_image( ptf_ref_image )
@@ -622,7 +622,6 @@ def ptf_ref_offset(ptf_ref):
                                 sources_id=offset_sources.id,
                                 value=ptf_ref_bg.value,
                                 noise=ptf_ref_bg.noise,
-                                provenance_id=ptf_ref_bg.provenance_id,
                                 filepath=ptf_ref_bg.filepath + "_offset_bg",
                                 md5sum=uuid.uuid4()
                                )
@@ -630,7 +629,6 @@ def ptf_ref_offset(ptf_ref):
 
         offset_zp = ptf_ref_zp.copy()
         offset_zp._id = uuid.uuid4()
-        offset_zp.background_id = offset_bg.id
         offset_zp.wcs_id = offset_wcs.id
         offset_zp.insert()
 

@@ -126,7 +126,8 @@ class ParsDetector(Parameters):
             'sextractor_back_type',
             'MANUAL',
             str,
-            "-BACK_TYPE parameter for sextractor: AUTO or MANUAL",
+            ( "-BACK_TYPE parameter for sextractor: AUTO or MANUAL.  You usually want this to be MANUAL ",
+              "(with sextractor_back_value=0) because background subtraction is run separately from sextractor" ),
             critical=True
         )
 
@@ -142,8 +143,8 @@ class ParsDetector(Parameters):
             'sextractor_back_size',
             None,
             ( int, None ),
-            ( "-BACK_SIZE parameter for sextractor.  Ignored if sexractor_back_type is MANUAL.  Defaults "
-              "to the Instrument's background_box_size" ),
+            ( "-BACK_SIZE parameter for sextractor.  Ignored if sexractor_back_type is MANUAL.  "
+              "Defaults to the Instrument's background_box_size" ),
             critical=True
         )
 
