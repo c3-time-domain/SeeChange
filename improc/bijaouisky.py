@@ -7,7 +7,6 @@ import numpy as np
 from scipy.signal import convolve2d
 from scipy.special import erfc
 from scipy.optimize import differential_evolution
-from scipy.optimize import minimize
 from scipy.optimize import curve_fit
 from numpy.polynomial.chebyshev import chebval2d
 
@@ -55,6 +54,9 @@ def fitfunc( params, adu, nI ):
     return val
 
 
+# This function is not used but leaving it here because
+#   it would be needed if moving from scipy.optimize.differential_evolution
+#   to some sort of gradient descent fitting method.
 def fitfunc_jac( params, adu, nI ):
     # NOTE!  Doesn't handle the hard edge for adu<0
     a = params[0]
@@ -111,6 +113,15 @@ def estimate_single_sky( image, bpm=None, bpmgrow=3, sigcut=5.0, lowsigcut=None,
     """Estimate the sky level of an image using Bijaoui, 1980, A&A, 84, 81
 
     https://adsabs.harvard.edu/full/1980A%26A....84...81B
+
+    DON'T USE THIS.  It systematically underestimates the sky value,
+    especially in sparse fields.  In crowded fields, it gets a whole
+    hell of a lot closer for both the sky background and the sky noise
+    than anything else I've tried, but if the field isn't crowded, this
+    algorithm as implemented here is a disaster.  This source file is left
+    here because it's used in
+      tests/improc/test_bijaouisky.py::test_various_algorithms
+    where you can see for yourself how it performs.
 
     The Bijaoui algorithm fits three parameters (s, σ, and a) to a
     histogram of pixel values in the image.  s is an estimator of the
@@ -268,9 +279,6 @@ def estimate_single_sky( image, bpm=None, bpmgrow=3, sigcut=5.0, lowsigcut=None,
         workers = workers if workers is not None else os.getenv( "OMP_NUM_THREADS", 1 )
         res = differential_evolution( fitfunc, bounds, args=(pixvals, hist), tol=1e-6,
                                       workers=workers )
-        # res = minimize( fitfunc_jac, np.array(_paramguess), args=(pixvals, hist), method='L-BFGS-B',
-        #                 jac=True, bounds=bounds )
-
         if not res.success:
             raise Exception( f'Bijaouisky minimization failiure: {res.message}' )
         a, σ, s = res.x
@@ -320,6 +328,8 @@ def estimate_smooth_sky( image, bpm=None, bpmgrow=3, sigcut=5.0, lowsigcut=None,
                          converge=0.01, maxiterations=5, workers=None,
                          order=2, cutshort=10 ):
     """Fit a 2-dimensional smooth sky to image.
+
+    DON'T USE THIS.  See docs on estimate_single_sky for explanation.
 
     Cuts image into roughly square boxes such that the short side of the
     image is divded into cutshort boxes.  Calls estimate_single_sky on

@@ -146,8 +146,8 @@ def test_sextractor_extract_once( decam_datastore_through_preprocessing, extract
                 #  to make sure all of that works.  Ideally, the sep background algorithm is
                 #  doing the same thing as the one included in sextractor.
                 extractor.pars.backgrounding = { 'format': 'map', 'method': 'sep',
-                                                 'sep_box_size': ds.image.instrument_object.background_box_size,
-                                                 'sep_filt_size': ds.image.instrument_object.background_filt_size }
+                                                 'box_size': ds.image.instrument_object.background_box_size,
+                                                 'filt_size': ds.image.instrument_object.background_filt_size }
                 extractor.pars.sextractor_back_type = 'MANUAL'
                 extractor.make_backgrounder()
                 bg = extractor.backgrounder.run( ds )

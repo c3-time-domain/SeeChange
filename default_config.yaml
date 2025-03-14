@@ -419,16 +419,7 @@ preprocessing:
 #  before finding sources.  Or you might want to iterate back and
 #  forth.)
 #
-# extraction.sequence is one of "background_first", "extraction_first",
-#   or "iterative", though "iterative" isn't yet supported.
-#
-# Make sure that the other parameters are consistent with
-#   your sequence.  (E.g., if you subtract the background
-#   first make sure you configure sextractor to not do another
-#   background subtraction.)
-
 extraction:
-  sequence: background_first
   method: sextractor
   measure_psf: true
   apertures: [1.0, 2.0, 3.0, 5.0]
@@ -442,8 +433,8 @@ extraction:
     format: map
     method: sep
     poly_order: 1
-    sep_box_size: null
-    sep_filt_size: null
+    box_size: null
+    filt_size: null
 
 # ======================================================================
 # World Coordinates

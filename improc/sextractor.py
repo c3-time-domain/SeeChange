@@ -386,6 +386,11 @@ def run_sextractor( imghdr, imagedata, weightdata, maskdata=None, outbase=None,
                             f"-------\nstdout:\n{res.stdout}" )
             raise RuntimeError( "Error return from source-extractor call" )
 
+        # Look for pixel stack overflow warnings in the sextractor output
+        err = res.stderr.decode( "utf-8" )
+        if "WARNING: Pixel stack overflow" in err:
+            raise RuntimeError( "Pixel stack overflow in sextractor" )
+
         # Get the background from the xml file that sextractor wrote
         sextrstat = votable.parse( tmpxml ).get_table_by_index( 1 )
         retval['bkg_mean'] = sextrstat.array['Background_Mean'][0][0]

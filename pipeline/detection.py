@@ -32,14 +32,6 @@ class ParsDetector(Parameters):
     def __init__(self, **kwargs):
         super().__init__()
 
-        self.sequence = self.add_par(
-            'sequence',
-            'background_first',
-            str,
-            "Sequence: background_first, extraction_first, or iterative",
-            critical=True
-        )
-
         self.method = self.add_par(
             'method', 'sextractor', str, 'Method to use (sextractor, sep, filter)', critical=True
         )
@@ -273,9 +265,8 @@ class Detector:
         self.has_recalculated = False
 
         if self.pars.subtraction:
-            if ( self.pars.sequence != "background_first" ) or ( self.backgrounder.pars.method != 'zero' ):
-                raise ValueError( "Running detection on a subtraction requires sequence=background_first "
-                                  "and backgrounding.method=zero" )
+            if  self.backgrounder.pars.method != 'zero':
+                raise ValueError( "Running detection on a subtraction requires backgrounding.method=zero" )
             try:
                 ds = DataStore.from_args(*args, **kwargs)
                 t_start = time.perf_counter()
@@ -343,17 +334,11 @@ class Detector:
                 ds = DataStore.from_args(*args, **kwargs)
                 prov = ds.get_provenance('extraction', self.pars.get_critical_pars())
 
-                if self.pars.sequence not in ( 'background_first', 'extraction_first', 'iterative' ):
-                    raise ValueError( f"Unknown sequence value {self.pars.sequence}" )
-                if self.pars.sequence == 'iterative':
-                    raise NotImplementedError( "Iterative detection/backgrounding sequence not supported" )
-
                 sources = ds.get_sources(provenance=prov)
                 psf = ds.get_psf(provenance=prov)
                 bg = ds.get_background()
 
-                if ( self.pars.sequence == 'background_first' ) and ( bg is None ):
-                    bg = self.backgrounder.run( ds )
+                bg = self.backgrounder.run( ds )
 
                 t_start = time.perf_counter()
                 if ds.update_memory_usages:
@@ -401,9 +386,6 @@ class Detector:
                 if ds.update_memory_usages:
                     import tracemalloc
                     ds.memory_usages['extraction'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2  # in MB
-
-                if ( self.pars.sequence == "extraction_first" ) and ( bg is None ):
-                    bg = self.backgrounder.run( ds )
 
                 bg.sources_id = sources.id
                 # See Issue #440

@@ -139,6 +139,96 @@ def find_and_apply_bscale( arr, rescut ):
     return bscale, bzero, quant
 
 
+def pepper_stars( xsize=2048, ysize=2048, skynoise=42., seeing=4.2, gain=1.,
+                  nstars=20000, minflux=0., fluxscale=20000., rng=None ):
+    """The quick and dirty simulator that plops symmetric gaussian stars down on a noisy sky.
+
+    Parameters
+    ----------
+      xsize, ysize : int, int
+         Size of the image to create.  (It will have shape (ysize, xsize.)
+
+      skynoise : float
+         Sky noise level in counts.  The sky background level will be
+         set to gain * skynoise**2.
+
+      seeing : float
+         FWHM in pixels of gaussians to inject.
+
+      gain : float
+         Assumed image gain in e-/adu.  Affects sky level and variance image.
+
+      nstars : int
+         Number of stars to inject.  (May be 0 if you want a boring image.)
+
+      minflux, fluxscale : float
+         Stars will be randomly generated with an exponential distribution
+         starting at minflux and flux scale length fluxscale
+
+      rng : numpy.random.Generator or None
+         Pass in the random number generator to use, e.g. if you want to
+         have reproducible simulated data from a fixed seed.  If this is None,
+         will just use np.random.default_rng().
+
+    Returns
+    -------
+      image, var : 2d numpy arrays
+        The image and the variance image.  (Do 1/var to get weight.)
+
+    """
+    if rng is None:
+        rng = np.default_rng()
+
+    sky = gain * ( skynoise ** 2 )
+    sigma = seeing / 2.35482
+    halfwid = int( np.ceil( 4. * seeing ) )
+    xvals, yvals = np.meshgrid( range(-halfwid, halfwid+1), range(-halfwid, halfwid+1) )
+
+    image = rng.normal( sky, skynoise, size=(ysize, xsize) )
+    var = np.full_like( image, skynoise*skynoise )
+
+    for n in range( nstars ):
+        x = rng.uniform( -2.*seeing, image.shape[1] + 2*seeing )
+        y = rng.uniform( -2.*seeing, image.shape[0] + 2*seeing )
+        ix = int( np.floor( x + 0.5 ) )
+        iy = int( np.floor( y + 0.5 ) )
+        curxvals = xvals + ( ix - x )
+        curyvals = yvals + ( iy - y )
+
+        flux = minflux + rng.exponential( fluxscale )
+        star = flux / ( 2. * np.pi * sigma**2 ) * np.exp( -( curxvals**2 + curyvals**2 ) / ( 2. *sigma**2 ) )
+        dstar = np.zeros_like( star )
+        dstar[ star >= 0. ] = np.sqrt( star[ star >=0. ] / gain )
+
+        x0 = 0
+        ix0 = ix - halfwid
+        x1 = 2 * halfwid + 1
+        ix1 = ix + halfwid + 1
+        y0 = 0
+        iy0 = iy - halfwid
+        y1 = 2 * halfwid + 1
+        iy1 = iy + halfwid + 1
+
+        if ix0 < 0:
+            x0 -= ix0
+            ix0 = 0
+        if iy0 < 0:
+            y0 -= iy0
+            iy0 = 0
+        if ix1 > image.shape[1]:
+            x1 -= ( ix1 - image.shape[1] )
+            ix1 = image.shape[1]
+        if iy1 > image.shape[0]:
+            y1 -= ( iy1 - image.shape[0] )
+            iy1 = image.shape[0]
+
+        image[ iy0:iy1, ix0:ix1 ] += star[ y0:y1, x0:x1 ]
+        var[ iy0:iy1, ix0:ix1 ] += dstar[ y0:y1, x0:x1 ] ** 2
+        image[ iy0:iy1, ix0:ix1 ] += rng.normal( 0., dstar[ y0:y1, x0:x1 ] )
+
+    return image, var
+
+
 def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotation=0.0, norm=1, imsize=None):
 
     """Create a small image of a Gaussian centered around the middle of the image.
