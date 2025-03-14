@@ -461,7 +461,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                 # try to get the background from the cache
                 bg_cache_path = ( cache_dir / cache_base_path.parent /
-                                  f'{cache_base_path.name}.bg_{filename_barf}.h5' )
+                                  f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
                 SCLogger.debug( 'make_datastore searching cache for bg {bg_cache_path}' )
                 if bg_cache_path.is_file():
                     SCLogger.debug( 'make_datastore loading bg from cache' )
