@@ -57,4 +57,4 @@ jobs:
       - name: run test
         run: |
           shopt -s nullglob
-          TEST_SUBFOLDER=$(ls tests/pipeline/test_{a..o}*.py) docker compose run -e SKIP_BIG_MEMORY=1 -e SKIP_NOIRLAB_DOWNLOADS=1 runtests
+          TEST_SUBFOLDER=$(ls tests/pipeline/test_{a..o}*.py tests/pipeline/test_p{a..h}*.py) docker compose run -e SKIP_BIG_MEMORY=1 -e SKIP_NOIRLAB_DOWNLOADS=1 runtests

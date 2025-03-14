@@ -2,12 +2,15 @@ import time
 
 import numpy as np
 
-import sep_pjw as sep
+from astropy.io import fits
+import sep
 
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
 from models.background import Background
+from improc.sextrsky import sextrsky
+from improc.sextractor import run_sextractor
 
 from util.logger import SCLogger
 
@@ -28,7 +31,7 @@ class ParsBackgrounder(Parameters):
             'method',
             'sep',
             str,
-            'Method to use to estimate the background. Choose: "sep" or "zero". ',
+            'Method to use to estimate the background. Choose: "iter_sextr", "sextr", "sep" or "zero". ',
             critical=True
         )
 
@@ -40,21 +43,29 @@ class ParsBackgrounder(Parameters):
             critical=True
         )
 
-        self.sep_box_size = self.add_par(
-            'sep_box_size',
+        self.box_size = self.add_par(
+            'box_size',
             None,
             ( int, None ),
-            ( "Size of the box in pixels to use for the background estimation using sep; "
+            ( "Size of the box in pixels to use for the background estimation using sep and sextractor-based methods; "
               "None = use instrument's background_box_size" ),
             critical=True
         )
 
-        self.sep_filt_size = self.add_par(
-            'sep_filt_size',
+        self.filt_size = self.add_par(
+            'filt_size',
             None,
             ( int, None ),
-            ( "Size of the filter to use for the background estimation using sep; "
+            ( "Size of the filter to use for the background estimation using sep and sextractor-based methods; "
               "None = use instruments' background_filt_size" ),
+            critical=True
+        )
+
+        self.iter_sextr_iterations = self.add_par(
+            'iter_sextr_iterations',
+            5,
+            int,
+            'Number of times to iterate object finding / object-rejected sky measurement for iter_sextr',
             critical=True
         )
 
@@ -73,6 +84,39 @@ class Backgrounder:
         # this is useful for tests, where we can know if
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
+
+
+    def iterative_sextractor( self, image, boxsize, filtsize ):
+        """Iterate running sextractor to find objects and running sextrsky to measure sky.
+
+        Each iteration (except for the first) uses the previous
+        iteration's sky map as the sky background.  Each iteration uses
+        the sextractor segmentation map as a mask to sextrsky.
+
+        """
+        sky = 0
+        for iter in range( self.pars.iter_sextr_iterations ):
+            # We don't know the seeing size when we're doing this, but since we
+            #   don't really care about star/galaxy separation anyway, I don't
+            #   think it matters
+            # Using a HUGE mem_pixstack here because this bg method is probably only
+            #   to be used in crowded fields, and we need a big mem_pixstack
+            #   to be able to find all the stars in such a field.
+            if iter == 0:
+                sextr_res = run_sextractor( image.header, image.data, image.weight, maskdata=image.flags,
+                                            back_type='AUTO', back_size=boxsize, back_filtersize=filtsize,
+                                            writeseg=True, timeout=300, mem_pixstack=10000000 )
+            else:
+                sextr_res = run_sextractor( image.header, image.data - sky, image.weight, maskdata=image.flags,
+                                            back_type='MANUAL', back_value=0.,
+                                            writeseg=True, timeout=300, mem_pixstack=10000000 )
+            with fits.open( sextr_res['segmentation'] ) as ifp:
+                objmask = ifp[0].data
+
+            sky, skysig = sextrsky( image.data, maskdata=objmask, boxsize=boxsize, filtsize=filtsize )
+
+        return sky, skysig
+
 
     def run(self, *args, **kwargs):
         """Calculate the background for the given image.
@@ -104,38 +148,59 @@ class Backgrounder:
                 if image is None:
                     raise RuntimeError( "Backgrounding can't proceed unless the DataStore already has image" )
 
-                if self.pars.method == 'sep':
-                    # Estimate the background mean and RMS with sep
-                    boxsize = self.pars.sep_box_size
+                if self.pars.method in ( 'sep', 'sextr', 'iter_sextr' ):
+                    boxsize = self.pars.box_size
                     if boxsize is None:
                         boxsize = image.instrument_object.background_box_size
-                    filtsize = self.pars.sep_filt_size
+                    filtsize = self.pars.filt_size
                     if filtsize is None:
                         filtsize = image.instrument_object.background_filt_size
-                    SCLogger.debug("Backgrounder estimating sky level and RMS")
-                    # Dysfunctionality alert: sep requires a *float* image for the mask
-                    # IEEE 32-bit floats have 23 bits in the mantissa, so they should
-                    # be able to precisely represent a 16-bit integer mask image
-                    # In any event, sep.Background uses >0 as "bad"
-                    fmask = np.array(image._flags, dtype=np.float32)
-                    # Further issue: sep requires native byte order.  image.data may
-                    # well not be in native byteorder.
-                    tmpimagedata = image.data.copy()
-                    if not tmpimagedata.dtype.isnative:
-                        tmpimagedata= tmpimagedata.byteswap().newbyteorder()
-                    sep_bg_obj = sep.Background(tmpimagedata, mask=fmask,
-                                                bw=boxsize, bh=boxsize, fw=filtsize, fh=filtsize)
-                    del fmask
-                    del tmpimagedata
-                    bg = Background(
-                        value=float(np.nanmedian(sep_bg_obj.back())),
-                        noise=float(np.nanmedian(sep_bg_obj.rms())),
-                        counts=sep_bg_obj.back(),
-                        rms=sep_bg_obj.rms(),
-                        format='map',
-                        method='sep',
-                        image_shape=image.data.shape
-                    )
+
+                    if self.pars.method == 'sep':
+                        SCLogger.debug("Backgrounder estimating sky level and RMS with sep")
+                        # Dysfunctionality alert: sep requires a *float* image for the mask
+                        # IEEE 32-bit floats have 23 bits in the mantissa, so they should
+                        # be able to precisely represent a 16-bit integer mask image
+                        # In any event, sep.Background uses >0 as "bad"
+                        fmask = np.array(image._flags, dtype=np.float32)
+                        # Further issue: sep requires native byte order.  image.data may
+                        # well not be in native byteorder.
+                        tmpimagedata = image.data.copy()
+                        if not tmpimagedata.dtype.isnative:
+                            tmpimagedata= tmpimagedata.byteswap().newbyteorder()
+                        sep_bg_obj = sep.Background(tmpimagedata, mask=fmask,
+                                                    bw=boxsize, bh=boxsize, fw=filtsize, fh=filtsize)
+                        del fmask
+                        del tmpimagedata
+                        bg = Background(
+                            value=float(np.nanmedian(sep_bg_obj.back())),
+                            noise=float(np.nanmedian(sep_bg_obj.rms())),
+                            counts=sep_bg_obj.back(),
+                            rms=sep_bg_obj.rms(),
+                            format='map',
+                            method='sep',
+                            image_shape=image.data.shape
+                        )
+
+                    elif self.pars.method in ( 'sextr', 'iter_sextr' ):
+                        if self.pars.method == 'sextr':
+                            SCLogger.debug( "Backgrounder estimating sky level and RMS with sextrsky" )
+                            sky, skysig = sextrsky( image.data, image.flags, boxsize=boxsize, filtsize=filtsize )
+                        else:
+                            SCLogger.debug( "Backgrounder estimating sky level and RSM with iterative "
+                                            "sextrsky and sextractor to mask objects" )
+                            sky, skysig = self.iterative_sextractor( image, boxsize, filtsize )
+                        bg = Background( value = float( np.nanmedian( sky ) ),
+                                         noise = skysig,
+                                         counts = sky,
+                                         rms = np.full_like( sky, skysig, dtype=np.float32 ),
+                                         format='map',
+                                         method='sextr',
+                                         image_shape=image.data.shape )
+
+                    else:
+                        raise RuntimeError( "This should never happen." )
+
                 elif self.pars.method == 'zero':  # don't measure the b/g
                     bg = Background(value=0, noise=0, format='scalar', method='zero', image_shape=image.data.shape)
                 else:

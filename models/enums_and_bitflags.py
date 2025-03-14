@@ -270,6 +270,8 @@ class BackgroundMethodConverter( EnumConverter ):
     _dict = {
         0: 'zero',
         1: 'sep',
+        2: 'sextr',
+        3: 'iter_sextr',
     }
     _allowed_values = None
     _dict_filtered = None

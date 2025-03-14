@@ -3,7 +3,7 @@ import time
 
 import numpy as np
 
-import sep_pjw as sep
+import sep
 
 from models.base import SmartSession
 from models.image import Image

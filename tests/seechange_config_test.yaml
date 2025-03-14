@@ -47,8 +47,8 @@ pipeline:
 #   depend on them.)
 extraction:
   backgrounding:
-    sep_box_size: 128
-    sep_filt_size: 3
+    box_size: 128
+    filt_size: 3
   
 subtraction:
   method: zogy

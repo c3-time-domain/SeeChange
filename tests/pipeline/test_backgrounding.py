@@ -2,15 +2,22 @@ import pytest
 
 import numpy as np
 
+from astropy.io import fits
+
 from models.base import SmartSession
+from models.image import Image
 from models.background import Background
 from models.source_list import SourceList
 
-from improc.tools import sigma_clipping
+from pipeline.data_store import DataStore
+from pipeline.backgrounding import Backgrounder
+
+from improc.tools import sigma_clipping, pepper_stars
 
 from tests.conftest import SKIP_WARNING_TESTS
 
 
+# This tests the default method, which is 'sep'
 def test_measuring_background( decam_datastore_through_preprocessing ):
     ds = decam_datastore_through_preprocessing
 
@@ -47,6 +54,80 @@ def test_measuring_background( decam_datastore_through_preprocessing ):
     assert bg.method == 'zero'
     assert bg.value == 0
     assert bg.noise == 0
+
+
+def test_compare_sep_sextr( provenance_base, provenance_extra ):
+    rng = np.random.default_rng( 42 )
+    imagedata, var = pepper_stars( 2048, 2048, 42., 4.2, 1.0, 2000, 0., 20000, rng=rng )
+
+    image = Image( provenance_id=provenance_base.id )
+    image.header = fits.Header()
+    image.data = imagedata
+    image.weight = 1. / var
+    image.flags = np.zeros_like( imagedata, dtype=np.int16 )
+    ds = DataStore( image )
+    # Data Store gets all pissy in places if it doesn't have a provenance tree
+    ds.prov_tree = { 'preprocessing': provenance_base, 'extraction': provenance_extra }
+
+    sepbger = Backgrounder( method='sep', format='map', box_size=256, filt_size=3 )
+    sextrbger = Backgrounder( method='sextr', format='map', box_size=256, filt_size=3 )
+    iterbger = Backgrounder( method='iter_sextr', format='map', box_size=256, filt_size=3, iter_sextr_iterations=3 )
+
+    sepbg = sepbger.run( ds )
+    sextrbg = sextrbger.run( ds )
+    iterbg = iterbger.run( ds )
+
+    # There were not many stars in this sample image, so all these things should be very similar.
+    assert sepbg.noise == pytest.approx( sextrbg.noise, rel=0.01 )
+    assert sepbg.noise == pytest.approx( iterbg.noise, rel=0.01 )
+    assert sepbg.value == pytest.approx( sextrbg.value, abs=sextrbg.noise * 0.01 )
+    assert sepbg.value == pytest.approx( iterbg.value, abs=sextrbg.noise * 0.01 )
+
+    assert np.all( ( ( sepbg.counts - sextrbg.counts ) / sepbg.rms ) < 0.02 )
+    assert np.all( ( ( sepbg.counts - iterbg.counts ) / sepbg.rms ) < 0.02 )
+
+
+def test_compare_sep_sextr_crowded_image( provenance_base, provenance_extra ):
+    rng = np.random.default_rng( 42 )
+    imagedata, var = pepper_stars( 2048, 2048, 42., 4.2, 1.0, 200000, 0., 20000, rng=rng )
+    skynoise = 42.
+    skylevel = skynoise ** 2
+
+    image = Image( provenance_id=provenance_base.id )
+    image.header = fits.Header()
+    image.data = imagedata
+    image.weight = 1. / var
+    image.flags = np.zeros_like( imagedata, dtype=np.int16 )
+    ds = DataStore( image )
+    # Data Store gets all pissy in places if it doesn't have a provenance tree
+    ds.prov_tree = { 'preprocessing': provenance_base, 'extraction': provenance_extra }
+
+    sepbger = Backgrounder( method='sep', format='map', box_size=256, filt_size=3 )
+    sextrbger = Backgrounder( method='sextr', format='map', box_size=256, filt_size=3 )
+    iterbger = Backgrounder( method='iter_sextr', format='map', box_size=256, filt_size=3, iter_sextr_iterations=3 )
+
+    sepbg = sepbger.run( ds )
+    sextrbg = sextrbger.run( ds )
+    iterbg = iterbger.run( ds )
+
+    # In the croweded field, the iterative method should have done better, but
+    #   all will have overestimated both sky level and sky noise
+
+    assert sepbg.value > skylevel
+    assert sextrbg.value > skylevel
+    assert iterbg.value > skylevel
+    assert sepbg.noise > skynoise
+    assert sextrbg.noise > skynoise
+    assert iterbg.noise > skynoise
+
+    assert iterbg.value < sepbg.value
+    assert ( iterbg.value - skylevel ) / ( sepbg.value - skylevel ) < 0.3
+    assert iterbg.value < sextrbg.value
+    assert ( iterbg.value - skylevel ) / ( sextrbg.value - skylevel ) < 0.3
+    assert iterbg.noise < sepbg.noise
+    assert ( iterbg.noise - skynoise ) / ( sepbg.noise - skynoise ) < 0.1
+    assert iterbg.noise < sextrbg.noise
+    assert ( iterbg.noise - skynoise ) / ( sextrbg.noise - skynoise ) < 0.1
 
 
 def test_warnings_and_exceptions( decam_datastore_through_preprocessing ):
