@@ -132,7 +132,7 @@ class ParsDetector(Parameters):
         )
 
         self.sextractor_back_value = self.add_par(
-            'sextrator_back_value',
+            'sextractor_back_value',
             0,
             float,
             "-BACK_VALUE parameter for sextractor.  Ignored if sextractor_back_type is AUTO",
@@ -344,7 +344,7 @@ class Detector:
                 prov = ds.get_provenance('extraction', self.pars.get_critical_pars())
 
                 if self.pars.sequence not in ( 'background_first', 'extraction_first', 'iterative' ):
-                    raise ValueError( f"Known sequence value {self.pars.sequence}" )
+                    raise ValueError( f"Unknown sequence value {self.pars.sequence}" )
                 if self.pars.sequence == 'iterative':
                     raise NotImplementedError( "Iterative detection/backgrounding sequence not supported" )
 
