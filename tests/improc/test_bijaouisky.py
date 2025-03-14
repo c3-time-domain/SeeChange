@@ -7,6 +7,7 @@ import sep
 
 from improc.bijaouisky import estimate_single_sky, estimate_smooth_sky
 from improc.sextrsky import sextrsky
+from improc.sectractor import run_sextractor
 from util.logger import SCLogger
 
 
@@ -75,37 +76,42 @@ def test_various_algorithms():
         # For testing purposes
         fits.writeto( f"test_{nstars}.fits", data=image, overwrite=True )
 
-        SCLogger.debug( f"first sep background w/ nstars={nstars}" )
-        sep_raw_bg = sep.Background( image, bw=256, bh=256, fw=3, fh=3 )
-        fits.writeto( f"raw_seg_bkg_{nstars}.fits", sep_raw_bg.back(), overwrite=True )
+        SCLogger.debug( f"First sextractor run w/ nstars={nstars}..." )
+        first_sextr = run_sextractor( fits.Header(), image, 1./var, maskdata=None,
+                                      outbase="first_sextr_{nstars}",
+                                      seeing_fwhm=4.2, pixel_scale=1.0,
+                                      back_type="AUTO", back_size=256, back_filtersize=3,
+                                      writebg=True, seg=True, timeout=300 )
+        SCLogger.debug( f"...done first sextractor run w/ nstars={nstars}" )
+        with fits.open( first_sextr['segmentation'] ) as ifp:
+            objmask = ifp[0].data
+        with fits.open( first_sextr['bkg'] ) as ifp:
+            bg = ifp[0].data
 
-        sep_mask_globalbacks = []
-        sep_mask_globalrmses = []
         sextr_skys = []
         sextr_skysigs = []
-        lastback = sep_raw_bg.back()
-        for sepiter in range(8):
-            SCLogger.debug( f"sep extracting w/ nstars={nstars}, iteration {sepiter}" )
-            sep.set_extract_pixstack( 10000000 )
-            sep.set_sub_object_limit( 40960 )
-            stars, segment = sep.extract( image - lastback, var=var, thresh=5., segmentation_map=True )
-            fits.writeto( f"sep_seg_{nstars}_{sepiter}.fits", data=segment, overwrite=True )
+        niters = 8
+        for iter in range( niters ):
+            fmasked = ( objmask > 0 ).sum() / objmask.size
+            SCLogger.debug( f"sextrsky w/ nstars={nstars}, {fmasked:.2f} masked, iteration {iter}..." )
+            sky, skysig = sextrsky( image - bg, maskdata=objmask, boxsize=256, filtsize=3 )
+            fits.writeto( "setrsky_{nstars}_{iter}.fits", data=sky )
+            sextr_skys.append( np.median( sky ) )
+            sextr_skysigs.append( skysig )
+            SCLogger.debug( f"...done" )
 
-            SCLogger.debug( f"masked sep background w/ nstars={nstars}, iteration {sepiter}" )
-            sep_mask_bg = sep.Background( image, mask=segment, bw=256, bh=256, fw=3, fh=3 )
-            fits.writeto( f"mask_sep_bkg_{nstars}_{sepiter}.fits", sep_mask_bg.back(), overwrite=True )
-            fits.writeto( f"raw-mask_sep_bkg_{nstars}_{sepiter}.fits",
-                          sep_raw_bg.back() - sep_mask_bg.back(), overwrite=True )
-            sep_mask_globalbacks.append( sep_mask_bg.globalback )
-            sep_mask_globalrmses.append( sep_mask_bg.globalrms )
-
-            SCLogger.debug( f"masked sextrsky background w/ nstars={nstars}, iteration {sepiter}" )
-            masked_sextrsky, sextrskysig = sextrsky( image, maskdata=segment, sigcut=3, boxsize=256, filtsize=3 )
-            fits.writeto( f"mask_sextr_bkg_{nstars}_{sepiter}.fits", masked_sextrsky, overwrite=True )
-            sextr_skys.append( np.median( masked_sextrsky ) )
-            sextr_skysigs.append( sextrskysig )
-
-            lastback = masked_sextrsky
+            if iter < niters - 1:
+                SCLogger.debug( f"Sextractor iteration {iter} w/ nstars={nstars}..." )
+                sextr_res = run_sextractor( fits.Header(), image - bg, 1./var, maskdata=objmask,
+                                            outbase="sextractor_{nstars}_{iter}",
+                                            seeing_fwhm=4.2, pixel_scale=1.0,
+                                            back_type="AUTO", back_size=256, back_filtersize=3,
+                                            writebg=True, seg=True, timeout=300 )
+                SCLogger.debug( f"...done sextractor iteration {iter} w/ nstars={nstars}" )
+                with fits.open( sextr_res['segmentation'] ) as ifp:
+                    objmask = ifp[0].data
+                with fits.open( sextr_res['bkg'] ) as ifp:
+                    bg = ifp[0].data
 
         SCLogger.debug( f"bijaoui background w/ nstars={nstars}" )
         a, sigma, s = estimate_single_sky( image, figname="plot.png", maxiterations=40, converge=0.001,
@@ -116,13 +122,12 @@ def test_various_algorithms():
                                                  converge=0.001, sigcut=3., lowsigcut=5. )
 
         strio.write( f"\nBACKGROUND RESULTS FOR nstars={nstars}:\n" )
-        strio.write( f"          raw sep: bkg = {sep_raw_bg.globalback:8.2f}  rms = {sep_raw_bg.globalrms:8.2f}\n" )
-        for i in range( len( sep_mask_globalbacks ) ):
-            strio.write( f"    masked sep {i:2d}: bkg = {sep_mask_globalbacks[i]:8.2f}  "
-                         f"rms = {sep_mask_globalrmses[i]:8.2f}\n" )
-            strio.write( f"  masked sextr {i:2d}: bkg = {sextr_skys[i]:8.2f}  rms = {sextr_skysigs[i]:8.2f}\n" )
-        strio.write( f"          bijoaui: bkg = {s:8.2f}  rms = {sigma:8.2f}\n" )
-        strio.write( f"   masked bijaoui: bkg = {m_s:8.2f}  rms = {m_sigma:8.2f}\n" )
+        strio.write( f"  first sextractor: bkg = {first_sextr['bkg_mean']:8.2f}  "
+                     f"rms = {first_sextr['bkg_sig']:8.2f}\n" )
+        for i in range( niters ):
+            strio.write( f"   sextractor {i:2d}: bkg = {sextr_skys[i]:8.2f}  rms = {sextr_skysigs[i]:8.2f}"
+        strio.write( f"           bijoaui: bkg = {s:8.2f}  rms = {sigma:8.2f}\n" )
+        strio.write( f"    masked bijaoui: bkg = {m_s:8.2f}  rms = {m_sigma:8.2f}\n" )
 
     SCLogger.info( strio.getvalue() )
 

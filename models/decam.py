@@ -333,9 +333,15 @@ class DECam(Instrument):
         # BUT the images are flatfielded, so there's been some effective
         # gain adjustment.
         if ( x <= 2048 ):
-            return float( image.header[ 'GAINA' ] )
+            if 'GAINA' in image.header:
+                return float( image.header[ 'GAINA' ] )
+            else:
+                return self.gain
         else:
-            return float( image.header[ 'GAINB' ] )
+            if 'GAINB' in image.header:
+                return float( image.header[ 'GAINB' ] )
+            else:
+                return self.gain
 
     def average_gain( self, image, section_id=None ):
         if image is None:
