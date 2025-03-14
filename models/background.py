@@ -267,7 +267,7 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
           image: Image (optional)
              Ignored if filename is not None.  Otherwise, the Image to
              use in inventing the filepath.  If None, will try to load
-             it from the databse.  Use this for efficiency, or if you
+             it from the database.  Use this for efficiency, or if you
              know the image isn't yet in the database.
 
           sources: SourceList (optional)

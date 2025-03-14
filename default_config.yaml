@@ -412,7 +412,7 @@ preprocessing:
   steps_required: [ 'overscan', 'linearity', 'flat', 'fringe' ]
 
 # ======================================================================
-# Extraction and Backgrouding are done in one step.
+# Extraction and Backgrounding are done in one step.
 #
 # (Reason: you might want to find sources to mask them for finding
 #  the background.  Or, you might want to subtract the background

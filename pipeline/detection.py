@@ -143,7 +143,7 @@ class ParsDetector(Parameters):
             'sextractor_back_size',
             None,
             ( int, None ),
-            ( "-BACK_SIZE parameter for sextractor.  Ignored if sexractor_back_type is MANUAL.  "
+            ( "-BACK_SIZE parameter for sextractor.  Ignored if sextractor_back_type is MANUAL.  "
               "Defaults to the Instrument's background_box_size" ),
             critical=True
         )
