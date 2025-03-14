@@ -7,7 +7,7 @@ import subprocess
 import numpy as np
 from numpy.fft import fft2, ifft2, fftshift
 
-import sep_pjw as sep
+import sep
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.enums_and_bitflags import BitFlagConverter

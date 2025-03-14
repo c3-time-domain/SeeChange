@@ -223,7 +223,7 @@ def estimate_single_sky( image, bpm=None, bpmgrow=3, sigcut=5.0, lowsigcut=None,
         minrange = sguess - lowsigcut * σguess
         maxrange = sguess + sigcut * σguess
         if nbins is None:
-            nbins = 40 # max( 40, image.size // 8000 )
+            nbins = max( 40, image.size // 8000 )
         hist, bins = np.histogram( image, bins=nbins, range=( minrange, maxrange ) )
         pixvals = (bins[:-1] + bins[1:]) / 2.
         SCLogger.debug( f'Iteration {iteration} binsize: {pixvals[1]-pixvals[0]}' )
