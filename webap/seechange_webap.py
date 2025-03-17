@@ -591,7 +591,7 @@ class ExposureImages( BaseView ):
                                 f'that the reports table is not well-formed.  Or maybe something else. '
                                 f'offending images: {multiples}' ) }
 
-        app.logger.debug( f"exposure_images returning {retval}" )
+        # app.logger.debug( f"exposure_images returning {retval}" )
         return retval
 
 
@@ -600,7 +600,7 @@ class ExposureImages( BaseView ):
 class ExposureReports( BaseView ):
     def do_the_things( self, expid, provtag ):
         q, subdict = Report.query_for_reports( provtag )
-        q = f"SELECT e._id,r.* FROM exposures e INNER JOIN ({q}) r ON e._id=r.exposure_id WHERE e._id=%(expid)s";
+        q = f"SELECT e._id,r.* FROM exposures e INNER JOIN ({q}) r ON e._id=r.exposure_id WHERE e._id=%(expid)s"
         subdict['expid'] = expid
         cursor = self.conn.cursor()
         cursor.execute( q, subdict )
@@ -970,28 +970,28 @@ class FakeAnalysisData( BaseView ):
         #   that's the lowest thing down on the chain.  (FakeSet and
         #   FakeAnalysis provenances don't get tagged.)
         q = ( "SELECT fa._id AS fakeanal_id, fa.filepath AS fakeanal_filepath, "
-              "       fs._id AS faeset_id, fs.filepath AS fakeset_filepath, "
+              "       fs._id AS fakeset_id, fs.filepath AS fakeset_filepath, "
               "       i.section_id, zp.zp "
               "FROM fake_analysis fa "
               "INNER JOIN ( "
               "  SELECT dsi._id, dsi.measurementset_id FROM deepscore_sets dsi "
               "  INNER JOIN provenance_tags dsipt ON dsipt.provenance_id=dsi.provenance_id AND dsipt.tag=%(provtag)s "
               ") ds ON fa.orig_deepscore_set_id=ds._id "
-              "INNER JOIN mmeasurement_sets ms ON ds.measurementset_id=ms._id "
+              "INNER JOIN measurement_sets ms ON ds.measurementset_id=ms._id "
               "INNER JOIN cutouts cu ON ms.cutouts_id=cu._id "
               "INNER JOIN source_lists d ON cu.sources_id=d._id "
               "INNER JOIN images su ON d.image_id=su._id "
               "INNER JOIN image_subtraction_components isc ON su._id=isc.image_id "
               "INNER JOIN zero_points zp ON isc.new_zp_id=zp._id "
-              "INNER JOIN world_coordinates wc ON ON zp.wcs_id=wc._id "
-              "INNER JOIN source_lsits s ON wc.sources_id=s._id "
+              "INNER JOIN world_coordinates wc ON zp.wcs_id=wc._id "
+              "INNER JOIN source_lists s ON wc.sources_id=s._id "
               "INNER JOIN images i ON s.image_id=i._id "
               "INNER JOIN fake_sets fs ON fs._id=fa.fakeset_id AND fs.zp_id=zp._id "
               "WHERE i.exposure_id=%(expid)s "
              )
         subdict = { 'provtag': provtag, 'expid': expid }
         if sectionid is not None:
-            q += " AND i.section_id_=%(secid)s"
+            q += " AND i.section_id=%(secid)s"
             subdict['secid'] = sectionid
 
         cursor.execute( q, subdict )

@@ -27,7 +27,7 @@ def asUUID( id ):
 
 
 class NumpyAndUUIDJsonEncoder(json.JSONEncoder):
-    """Encodes UUID to strings, also encodes numpy stuff to python things."""
+    """Encodes UUID to strings, also encodes numpy stuff to python things, and datetime to a string."""
 
     def default(self, obj):
         if isinstance( obj, np.integer ):
@@ -40,6 +40,8 @@ class NumpyAndUUIDJsonEncoder(json.JSONEncoder):
             return obj.tolist()
         if isinstance(obj, uuid.UUID):
             return str(obj)
+        if isinstance(obj, datetime ):
+            return obj.isoformat()
         return json.JSONEncoder.default(self, obj)
 
 

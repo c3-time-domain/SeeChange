@@ -528,6 +528,27 @@ class Pipeline:
                           for s in [ 'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ] )
                      and ( self.pars.inject_fakes )
                     ):
+                    # Try to free up some memory of stuff we don't need any more in the datastore,
+                    #   to reduce overall memory usage.  (We're gonna create new copies of all of
+                    #   this with the fake subtraction.)
+                    # ...this doesn't do much.  The peak usage of fakeanalysis is still high (~900MB
+                    #   more than subtraction, for test decam images).  Maybe it's the large number
+                    #   of cutouts?  Dunno.  Probably worth looking into.  Python encourages you to
+                    #   waste memory by making it so convenient to stuff references to things all
+                    #   over the place.  Security schmeurity, there are advantages to the C way of
+                    #   doing things were you know you can free stuff and aren't dependent on a
+                    #   mysterious garbage collector and to keep your memory usage from getting out
+                    #   of hand.
+                    if ds.sub_image is not None:
+                        ds.sub_image.free()
+                        ds.sub_image = None
+                        # TODO : this is in the weeds.  This function shouldn't
+                        #   have to know about internals of subtraction methods
+                        #   Related to Issue #350.
+                        for prop in [ 'zogy_score', 'zogy_alpha', 'zogy_alpha_err', 'zogy_psf' ]:
+                            if hasattr( ds, prop ) and ( getattr( ds, prop ) is not None ):
+                                setattr( ds, prop, None )
+
                     t_start = time.perf_counter()
                     if ds.update_memory_usages:
                         import tracemalloc

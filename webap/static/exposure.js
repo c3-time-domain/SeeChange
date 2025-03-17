@@ -1,5 +1,6 @@
 import { rkWebUtil } from "./rkwebutil.js";
-import { seechange } from "./seechange_ns.js"
+import { SVGPlot } from "./svgplot.js";
+import { seechange } from "./seechange_ns.js";
 
 // **********************************************************************
 
@@ -61,8 +62,11 @@ seechange.Exposure = class
         this.cutoutssansmeasurements_label = null;
         this.cutoutsimage_dropdown = null;
 
+        this.sectionfordetails_dropdown = null;
+
         this.cutouts = {};
         this.cutouts_pngs = {};
+        this.fakeanalysis_data = {};
         this.reports = null;
         this.reports_subdiv = null;
     };
@@ -192,7 +196,10 @@ seechange.Exposure = class
             tr = rkWebUtil.elemaker( "tr", table, { "classes": [ fade ? "bgfade" : "bgwhite" ] } );
             td = rkWebUtil.elemaker( "td", tr, { "text": this.data['name'][i],
                                                  "classes": [ "link" ],
-                                                 "click": function() { self.show_image_details( this.id[i] ) }
+                                                 "click": function() {
+                                                     self.update_image_details( self.data.section_id[i] );
+                                                     self.tabs.selectTab( "Image Details" );
+                                                 }
                                                } );
             td = rkWebUtil.elemaker( "td", tr, { "text": this.data['section_id'][i] } );
             td = rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data["ra"][i], 4 ) } );
@@ -264,18 +271,19 @@ seechange.Exposure = class
         }
 
 
-        this.cutoutsdiv = rkWebUtil.elemaker( "div", null, { 'id': 'exposurecutoutsdiv' } );
-
         // TODO : buttons for next, prev, etc.
 
         this.tabs.addTab( "Images", "Images", this.imagesdiv, true );
 
-        let temp_remove_this = rkWebUtil.elemaker( "div", null, { "text": "TODO" } );
-        this.tabs.addTab( "Image Details", "Image Details", temp_remove_this, false );
+        this.image_details_div = rkWebUtil.elemaker( "div", null, { 'id': 'exposureimagedetaildiv' } );
+        this.tabs.addTab( "Image Details", "Image Details", this.image_details_div, false,
+                          () => { self.select_image_details() } );
+        this.create_image_details_widgets();
 
         this.reports_div = rkWebUtil.elemaker( "div", null, { 'id': 'exposurereportsdiv' } );
         this.tabs.addTab( "Reports", "Reports", this.reports_div, false, ()=>{ self.show_reports() } );
 
+        this.cutoutsdiv = rkWebUtil.elemaker( "div", null, { 'id': 'exposurecutoutsdiv' } );
         this.tabs.addTab( "Cutouts", "Sources", this.cutoutsdiv, false, ()=>{ self.select_cutouts() } );
         this.create_cutouts_widgets();
     };
@@ -489,6 +497,302 @@ seechange.Exposure = class
 
     // ****************************************
 
+    create_image_details_widgets() {
+        let self = this;
+
+        if ( this.sectionfordetails_dropdown == null ) {
+            this.sectionfordetails_dropdown = rkWebUtil.elemaker( "select", null,
+                                                                  { "change": () => self.select_section_details() } );
+            rkWebUtil.elemaker( "option", this.sectionfordetails_dropdown, { "text": "<Choose Section For Details>",
+                                                                             "attributes": {
+                                                                                 "value": "_select_section",
+                                                                                 "selected": 1 } } );
+            for ( let i in this.data['id'] ) {
+                rkWebUtil.elemaker( "option", this.sectionfordetails_dropdown, { "text": this.data["section_id"][i],
+                                                                                 "attributes": {
+                                                                                     "value": this.data["section_id"][i]
+                                                                                 } } );
+            }
+        }
+    }
+
+
+    // ****************************************
+
+    update_image_details( secid ) {
+        if ( secid != null ) {
+            let oldevent = this.sectionfordetails_dropdown.onchange;
+            this.sectionfordetails_dropdown.onchange = null;
+            this.sectionfordetails_dropdown.value = secid;
+            this.sectionfordetails_dropdown.onchange = oldevent;
+        }
+
+        this.select_image_details();
+    }
+
+    // ****************************************
+
+    select_image_details()
+    {
+        let self = this;
+        let p;
+
+        rkWebUtil.wipeDiv( this.image_details_div );
+
+        p = rkWebUtil.elemaker( "p", this.image_details_div, { "text": "Image details for " } );
+        p.appendChild( this.sectionfordetails_dropdown );
+
+        this.image_details_content_div = rkWebUtil.elemaker( "div", this.image_details_div );
+        let sec = this.sectionfordetails_dropdown.value.toString();
+        if ( sec == "_select_section" )
+            return;
+
+        if ( this.fakeanalysis_data.hasOwnProperty( sec ) ) {
+            this.show_image_details_for_section( this.image_details_content_div, sec, this.fakeanlaysis_data[sec] );
+        }
+        else {
+            let url = "fakeanalysisdata/" + this.id + "/" + this.data.provenancetag + "/" + sec;
+            this.context.connector.sendHttpRequest( url, {},
+                                                    (data) => { self.show_image_details_for_section(
+                                                        this.image_details_content_div,
+                                                        sec, data ) } );
+        }
+    }
+
+    // ****************************************
+
+    show_image_details_for_section( div, sec, indata )
+    {
+        let p, table, tr, th, td;
+
+        rkWebUtil.wipeDiv( div );
+
+        if ( ! this.fakeanalysis_data.hasOwnProperty( sec ) ) {
+            if ( indata.hasOwnProperty( "sections" ) ) {
+                if ( indata.sections.hasOwnProperty( sec ) ) {
+                    this.fakeanalysis_data[ sec ] = indata.sections[sec];
+                }
+            }
+        }
+
+        if ( ! this.fakeanalysis_data.hasOwnProperty( sec ) ) {
+            rkWebUtil.elemaker( "p", div, { "text": "No fake analysis for current section id " + sec,
+                                            "classes": [ "bad" ] } )
+            return;
+        }
+
+        var data = this.fakeanalysis_data[ sec ];
+
+        var dex = this.data.section_id.indexOf( sec );
+        if ( dex < 0 ) {
+            p = rkWebUtil.elemaker( "p", div, { "text": "Error: unknown section id " + sec,
+                                                "classes": [ "bad" ] } );
+            return;
+        }
+
+        table = rkWebUtil.elemaker( "table", div );
+
+        tr = rkWebUtil.elemaker( "tr", table )
+        rkWebUtil.elemaker( "th", tr, { "text": "Image ID" } );
+        rkWebUtil.elemaker( "td", tr, { "text": this.data.id[dex] } );
+
+        tr = rkWebUtil.elemaker( "tr", table );
+        rkWebUtil.elemaker( "th", tr, { "text": "RA" } );
+        rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data.ra[dex], 5 ) } );
+
+        tr = rkWebUtil.elemaker( "tr", table );
+        rkWebUtil.elemaker( "th", tr, { "text": "Dec" } );
+        rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data.dec[dex], 5 ) } );
+
+        tr = rkWebUtil.elemaker( "tr", table );
+        rkWebUtil.elemaker( "th", tr, { "text": "ZP" } );
+        rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data.zero_point_estimate[dex], 2 ) } );
+
+        tr = rkWebUtil.elemaker( "tr", table );
+        rkWebUtil.elemaker( "th", tr, { "text": "Lim. Mag." } );
+        rkWebUtil.elemaker( "td", tr, { "text": seechange.nullorfixed( this.data.lim_mag_estimate[dex], 2 ) } );
+
+        tr = rkWebUtil.elemaker( "tr", table );
+        rkWebUtil.elemaker( "th", tr, { "text": "Detections" } );
+        rkWebUtil.elemaker( "td", tr, { "text": this.data.numsources[dex] } );
+
+        tr = rkWebUtil.elemaker( "tr", table );
+        rkWebUtil.elemaker( "th", tr, { "text": "Sources" } );
+        rkWebUtil.elemaker( "td", tr, { "text": this.data.nummeasurements[dex] } );
+
+        // fakeanalysis_data is an array because it's possible that
+        //   multiple fake analyses were run on the same subtraction
+        //   (with all the same provenances, except for the provenance
+        //   of the fakes, which is troublesome and perhaps we should
+        //   think about that -- see Issue #444).  Combine them all
+        //   together here.
+
+        let fake_x = [];
+        let fake_y = [];
+        let fake_mag = [];
+        let is_detected = [];
+        let is_kept = [];
+        let is_bad = [];
+        let mag_psf = [];
+        let mag_psf_err = [];
+        let score = [];
+
+        for ( let row of data ) {
+            fake_x = fake_x.concat( row['fake_x'] );
+            fake_y = fake_y.concat( row['fake_y'] );
+            fake_mag = fake_mag.concat( row['fake_mag'] );
+            is_detected = is_detected.concat( row['is_detected'] );
+            is_kept = is_kept.concat( row['is_kept'] );
+            is_bad = is_bad.concat( row['is_bad'] );
+            mag_psf = mag_psf.concat( row['mag_psf'] );
+            mag_psf_err = mag_psf_err.concat( row['mag_psf_err'] );
+            score = score.concat( row['score'] )
+        }
+
+        // Histogram in steps of 0.25 mag
+        let dmag = 0.25;
+        let minmag = Math.floor( Math.min( ...fake_mag ) );
+        let maxmag = Math.ceil( Math.max( ...fake_mag ) + dmag );
+        let mags = [];
+        let all_magplotval = [];
+        let total = [];
+        let detected = [];
+        let kept = [];
+        for ( let mag = minmag ; mag < maxmag ; mag += dmag ) {
+            mags.push( mag );
+            // Where we want the histogram point to actually show up.
+            //  (Todo: implement step plots in svgplot.)
+            all_magplotval.push( mag + dmag / 2. );
+            total.push( 0 );
+            detected.push( 0 );
+            kept.push( 0 );
+        }
+        for ( let i in fake_mag ) {
+            let histdex = Math.floor( ( fake_mag[i] - minmag ) / dmag );
+            total[ histdex ] += 1;
+            if ( is_detected[i] ) detected[ histdex ] += 1;
+            if ( is_kept[i] ) kept[ histdex ] += 1;
+        }
+        let magplotval = [];
+        let fracdetected = [];
+        let dfracdetected = [];
+        let frackept = [];
+        let dfrackept = [];
+        for ( let i in all_magplotval ) {
+            if ( total[i] > 0 ) {
+                magplotval.push( all_magplotval[i] );
+                fracdetected.push( detected[i] / total[i] );
+                dfracdetected.push( Math.sqrt(detected[i]) / total[i] );
+                frackept.push( kept[i] / total[i] );
+                dfrackept.push( Math.sqrt(kept[i]) / total[i] );
+            }
+        }
+
+        // Also make det_ variables for the magnitudes of the
+        //   detected fakes.  (TODO: different datasets,
+        //   and thus colors, for kept vs. non-kept.  Also R/B?)
+        let det_fakemag = [];
+        let det_detmag = [];
+        let det_detmagerr = [];
+        let kept_fakemag = [];
+        let kept_detmag = [];
+        let kept_detmagerr = [];
+        for ( let i in fake_mag ) {
+            if ( is_detected[i] ) {
+                if ( is_kept[i] ) {
+                    kept_fakemag.push( fake_mag[i] );
+                    kept_detmag.push( mag_psf[i] - fake_mag[i] );
+                    kept_detmagerr.push( mag_psf_err[i] );
+                }
+                else {
+                    det_fakemag.push( fake_mag[i] );
+                    det_detmag.push( mag_psf[i] - fake_mag[i] );
+                    det_detmagerr.push( mag_psf_err[i] );
+                }
+            }
+        }
+
+        let hbox = rkWebUtil.elemaker( "div", div, { "classes": [ "hbox" ] } )
+
+        // Plot histogram of detected fakes
+        let dethist = new SVGPlot.Plot( { 'divid': 'svgplot-fake-hist-div-' + sec,
+                                          'svgid': 'svgplot-fake-hist-svg-' + sec,
+                                          'title': 'Detection of ' + mags.length.toString() + ' fakes',
+                                          'xtitle': 'Fake mag',
+                                          'ytitle': 'Frac. detected (red), kept (green)',
+                                        } );
+        dethist.topdiv.classList.add( "xmargin", "padhalfex", "mostlyborder" );
+        hbox.appendChild( dethist.topdiv );
+        let detected_dataset = new SVGPlot.Dataset( { 'name': 'fake hist detected',
+                                                      'x': magplotval,
+                                                      'y': fracdetected,
+                                                      'dy': dfracdetected,
+                                                      'color': '#cc0000',
+                                                      'linewid': 0 } );
+        dethist.addDataset( detected_dataset );
+        let kept_dataset = new SVGPlot.Dataset( { 'name': 'fake hist kept',
+                                                  'x': magplotval,
+                                                  'y': frackept,
+                                                  'dy': dfrackept,
+                                                  'color': '#008800',
+                                                  'linewid': 0 } );
+        dethist.addDataset( kept_dataset );
+        dethist.redraw();
+        let limmag_dataset = new SVGPlot.Dataset( { 'name': 'lim mag',
+                                                    'x': [ this.data.lim_mag_estimate[dex],
+                                                           this.data.lim_mag_estimate[dex] ],
+                                                    'y': [ 0, dethist.ymax ],
+                                                    'marker': null,
+                                                    'linewid': 2,
+                                                    'color': '#0000cc' } );
+        dethist.addDataset( limmag_dataset );
+        dethist.ymin = 0;
+
+        // Plot detected magnitude vs. original magnitude
+        let magvmag = new SVGPlot.Plot( { 'divid': 'svgplot-fake-magvmag-div-' + sec,
+                                          'svgid': 'svgplot-fake-magvmag-svg-' + sec,
+                                          'title': 'Detected mag. vs. fake mag.',
+                                          'xtitle': 'Fake mag',
+                                          'ytitle': 'Detected mag - Fake mag'
+                                        } );
+        magvmag.topdiv.classList.add( "xmargin", "padhalfex", "mostlyborder" );
+        hbox.appendChild( magvmag.topdiv );
+        let magvmag_det_dataset = new SVGPlot.Dataset( { 'name': 'magvmag detected',
+                                                         'x': det_fakemag,
+                                                         'y': det_detmag,
+                                                         'dy': det_detmagerr,
+                                                         'color': '#cc0000',
+                                                         'linewid': 0 } );
+        magvmag.addDataset( magvmag_det_dataset );
+        let magvmag_kept_dataset = new SVGPlot.Dataset( { 'name': 'magvmag kept',
+                                                          'x': kept_fakemag,
+                                                          'y': kept_detmag,
+                                                          'dy': kept_detmagerr,
+                                                          'color': '#008800',
+                                                          'marker': 'filledsquare',
+                                                          'linewid': 0 } );
+        magvmag.addDataset( magvmag_kept_dataset );
+        magvmag.redraw();
+        let hline = new SVGPlot.Dataset( { 'name': 'zero',
+                                           'x': [ magvmag.xmin, magvmag.xmax ],
+                                           'y': [ 0, 0 ],
+                                           'color': '#0000cc',
+                                           'marker': null,
+                                           'linewid': 2 } )
+        magvmag.addDataset( hline );
+        let vline = new SVGPlot.Dataset( { 'name': 'lim mag',
+                                           'x': [ this.data.lim_mag_estimate[dex],
+                                                  this.data.lim_mag_estimate[dex] ],
+                                           'y': [ magvmag.ymin, magvmag.ymax ],
+                                           'color': '#0000cc',
+                                           'marker': null,
+                                           'linewid': 2 } );
+        magvmag.addDataset( vline );
+        magvmag.redraw();
+    }
+
+    // ****************************************
+
     create_cutouts_widgets() {
         let self = this;
 
@@ -539,7 +843,7 @@ seechange.Exposure = class
             this.cutoutssansmeasurements_checkbox.onchange = oldevent;
         }
 
-        this.select_cutouts;
+        this.select_cutouts();
     }
 
     // ****************************************
