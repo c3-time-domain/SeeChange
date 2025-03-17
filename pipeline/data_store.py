@@ -29,8 +29,7 @@ _PROCESS_PRODUCTS = {
     'exposure': 'exposure',
     'preprocessing': 'image',
     'coaddition': 'image',
-    'extraction': ['sources', 'psf'],
-    'backgrounding': 'bg',
+    'extraction': ['sources', 'psf', 'bg'],
     'wcs': 'wcs',
     'zp': 'zp',
     'referencing': 'reference',
@@ -810,9 +809,8 @@ class DataStore:
                 'starting_point': [],
                 'preprocessing': ['starting_point'],
                 'extraction': ['preprocessing'],
-                'backgrounding':['extraction'],
                 'wcs':['extraction'],
-                'zp':['wcs', 'backgrounding'],
+                'zp':['wcs'],
                 'referencing': [],   # This is a special case; it *does* have upstreams, but outside the main pipeline
                 'subtraction': ['referencing', 'zp'],
                 'detection': ['subtraction'],
@@ -1315,10 +1313,10 @@ class DataStore:
         return self._get_data_product( 'psf', PSF, 'sources', PSF.sources_id, 'extraction',
                                        match_prov=False, provenance=provenance, reload=reload, session=session )
 
-    def get_background(self, session=None, reload=False, provenance=None):
+    def get_background(self, session=None, reload=False):
         """Get a Background object, either from memory or from the database."""
         return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'backgrounding',
-                                       match_prov=True, provenance=provenance, reload=reload, session=session )
+                                       match_prov=False, reload=reload, session=session )
 
     def get_wcs(self, session=None, reload=False, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""
@@ -1968,9 +1966,9 @@ class DataStore:
                         SCLogger.debug( f"self.sources={self.sources}" )
                         basicargs = { 'overwrite': overwrite, 'exists_ok': exists_ok, 'no_archive': no_archive }
                         # Various things need other things to invent their filepath
-                        if att == "psf":
+                        if att in [ "psf", "bg" ]:
                             obj.save( image=self.image, sources=self.sources, **basicargs )
-                        elif att in [ "sources", "bg", "wcs" ]:
+                        elif att in [ "sources", "wcs" ]:
                             obj.save( image=self.image, **basicargs )
                         elif att == "detections":
                             obj.save( image=self.sub_image, **basicargs )

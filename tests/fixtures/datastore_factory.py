@@ -425,7 +425,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                         shutil.copy2( ds.image.get_fullpath()[0],
                                       cache_dir / pth.parent / f'{pth.name}.image.fits.original' )
 
-        ############# extraction to create sources / PSF  #############
+        ############# extraction to create sources / PSF / background  #############
 
         if 'extraction' in stepstodo:
 
@@ -459,8 +459,21 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 else:
                     found_sources_in_cache = False
 
-            # if sources or psf is missing, have to redo the extraction step
-            if ds.sources is None or ds.psf is None:
+                # try to get the background from the cache
+                bg_cache_path = ( cache_dir / cache_base_path.parent /
+                                  f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
+                SCLogger.debug( 'make_datastore searching cache for bg {bg_cache_path}' )
+                if bg_cache_path.is_file():
+                    SCLogger.debug( 'make_datastore loading bg from cache' )
+                    ds.bg = copy_from_cache( Background, cache_dir, bg_cache_path, symlink=True )
+                    ds.bg.sources_id = ds.sources.id
+                    ds.bg.load()
+                    ds.bg.save( image=ds.image, sources=ds.sources, verify_md5=False, overwrite=True )
+                else:
+                    found_sources_in_cache = False
+
+            # if sources, psf, or bg is missing, have to redo the extraction step
+            if ( ds.sources is None ) or ( ds.psf is None ) or ( ds.bg is None ):
                 # Clear out the existing database records
                 for attr in [ 'zp', 'wcs', 'psf', 'bg', 'sources' ]:
                     if getattr( ds, attr ) is not None:
@@ -468,9 +481,10 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     setattr( ds, attr, None )
 
                 SCLogger.debug('make_datastore extracting sources. ')
-                ds = p.extractor.run(ds)
+                ds = p.extractor.run( ds )
                 ds.sources.save( image=ds.image, overwrite=True )
                 ds.psf.save( image=ds.image, sources=ds.sources, overwrite=True )
+                ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
                 ds.update_report( 'extraction' )
 
                 if use_cache:
@@ -484,35 +498,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if output_path.resolve() != psf_cache_path.resolve():
                         warnings.warn(f'cache path {psf_cache_path} does not match output path {output_path}')
 
-        ########## Background ##########
-
-        if 'bg' in stepstodo:
-            filename_barf = ds.prov_tree['backgrounding'].id[:6]
-            bg_cache_path = ( cache_dir / cache_base_path.parent /
-                              f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
-            if use_cache and found_sources_in_cache:
-                # try to get the background from cache
-                SCLogger.debug( f'make_datastore searching cache for background {bg_cache_path}' )
-                if bg_cache_path.is_file():
-                    SCLogger.debug('make_datastore loading background from cache. ')
-                    ds.bg = copy_from_cache( Background, cache_dir, bg_cache_path,
-                                             add_to_dict={ 'image_shape': ds.image.data.shape },
-                                             symlink=True )
-                    ds.bg.sources_id = ds.sources.id
-                    # make sure this is saved to the archive as well
-                    ds.bg.save( image=ds.image, verify_md5=False, overwrite=True )
-
-
-            if ds.bg is None:
-                SCLogger.debug('make_datastore running background estimation')
-                ds = p.backgrounder.run(ds)
-                ds.bg.save( image=ds.image, overwrite=True )
-                ds.update_report( 'backgrounding' )
-                if use_cache:
                     _ = ds.bg.id
-                    output_path = copy_to_cache(ds.bg, cache_dir)
+                    output_path = copy_to_cache( ds.bg, cache_dir )
                     if output_path.resolve() != bg_cache_path.resolve():
-                        warnings.warn(f'cache path {bg_cache_path} does not match output path {output_path}')
+                        warnings.warn( f'cache_path {bg_cache_path} does not match output path {output_path}' )
+
 
         ########## Astrometric calibration ##########
 

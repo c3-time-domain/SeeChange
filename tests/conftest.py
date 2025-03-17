@@ -979,17 +979,15 @@ def bogus_wcs( bogus_sources_and_psf ):
 
 
 @pytest.fixture
-def bogus_zp( bogus_wcs, bogus_bg ):
+def bogus_zp( bogus_wcs ):
     wcsprov = Provenance.get( bogus_wcs.provenance_id )
-    bgprov = Provenance.get( bogus_bg.provenance_id )
     prov = Provenance( code_version_id=wcsprov.code_version_id,
                        process='photocal',
                        parameters={ 'cross_match_catalog': 'gaia_dr3' },
-                       upstreams=[ wcsprov, bgprov ],
+                       upstreams=[ wcsprov ],
                        is_testing=True )
     prov.insert_if_needed()
     zp = ZeroPoint( wcs_id=bogus_wcs.id,
-                    background_id=bogus_bg.id,
                     zp=25.,
                     dzp=0.1,
                     provenance_id=prov.id )

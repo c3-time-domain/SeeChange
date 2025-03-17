@@ -76,7 +76,7 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
 
         # Make sure that the prov tree gets replaced and only some steps
         #   created if we give fewer than all steps
-        somesteps = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp' ]
+        somesteps = [ 'preprocessing', 'extraction', 'wcs', 'zp' ]
         ds.make_prov_tree( somesteps, pars )
         assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
 
@@ -105,13 +105,12 @@ def test_make_prov_tree_no_ref_prov( decam_exposure ):
         with pytest.raises( ValueError, match="No reference set with name test_refset_decam found in the database!" ):
             ds.make_prov_tree( Pipeline.ALL_STEPS, pars )
 
-        somesteps = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp' ]
+        somesteps = [ 'preprocessing', 'extraction', 'wcs', 'zp' ]
         ds.make_prov_tree( somesteps, pars )
         assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
 
         ds.make_prov_tree( Pipeline.ALL_STEPS, pars, ok_no_ref_prov=True )
-        assert set( ds.prov_tree.keys() ) == { 'starting_point', 'preprocessing', 'extraction',
-                                               'backgrounding', 'wcs', 'zp' }
+        assert set( ds.prov_tree.keys() ) == { 'starting_point', 'preprocessing', 'extraction', 'wcs', 'zp' }
 
     finally:
         if len(provs_created) > 0:

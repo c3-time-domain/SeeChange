@@ -270,6 +270,8 @@ class BackgroundMethodConverter( EnumConverter ):
     _dict = {
         0: 'zero',
         1: 'sep',
+        2: 'sextr',
+        3: 'iter_sextr',
     }
     _allowed_values = None
     _dict_filtered = None
@@ -527,8 +529,7 @@ class BitFlagConverter( EnumConverter ):
 # Used by reports
 process_steps_dict = {
     1: 'preprocessing',   # creates an Image from a section of the Exposure
-    2: 'extraction',      # creates a SourceList and a PSF from an Image
-    3: 'backgrounding',   # creates a Background, may have actually been done during extractin.
+    2: 'extraction',      # creates a SourceList, PSF, and Background from an Image
     4: 'astrocal',        # creates a WorldCoordinates from the SourceList and GAIA catalogs
     5: 'photocal',        # creates s ZeroPoint from the SourceList and GAIA catalogs
     6: 'subtraction',     # creates a subtraction Image

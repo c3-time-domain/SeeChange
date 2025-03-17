@@ -383,7 +383,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         ds = ptf_reference_image_datastores[0]
         improv = Provenance.get( ds.image.provenance_id )
         srcprov = Provenance.get( ds.sources.provenance_id )
-        ( warped_prov, warped_sources_prov, warped_bg_prov,
+        ( warped_prov, warped_sources_prov,
           warped_wcs_prov, warped_zp_prov ) = aligner.get_provenances( [improv, srcprov], srcprov )
 
         with open(os.path.join(cache_dir, 'manifest.txt')) as f:
@@ -397,7 +397,6 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
             ds.sources = copy_from_cache( SourceList, cache_dir, sourcesfile )
             ds.sources.provenance_id = warped_sources_prov.id
             ds.bg = copy_from_cache( Background, cache_dir, bgfile, add_to_dict={ 'image_shape': ds.image.data.shape } )
-            ds.bg.provenance_id = warped_bg_prov.id
             ds.psf = copy_from_cache( PSF, cache_dir, psffile )
             ds.wcs = copy_from_cache( WorldCoordinates, cache_dir, wcsfile )
             ds.wcs.provenance_id = warped_wcs_prov.id
@@ -419,7 +418,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
             ds.image.save( overwrite=True )
             ds.sources.save( image=ds.image, overwrite=True )
             ds.psf.save( image=ds.image, sources=ds.sources, overwrite=True )
-            ds.bg.save( image=ds.image, overwrite=True )
+            ds.bg.save( image=ds.image, sources=ds.sources, overwrite=True )
             ds.wcs.save( image=ds.image, overwrite=True )
 
             if not env_as_bool( "LIMIT_CACHE_USAGE" ):
@@ -482,7 +481,7 @@ def ptf_ref(
         '',
         f'.sources_{refmaker.coadd_ex_prov.id[:6]}.fits',
         f'.psf_{refmaker.coadd_ex_prov.id[:6]}',
-        f'.bg_{refmaker.coadd_bg_prov.id[:6]}.h5',
+        f'.bg_{refmaker.coadd_ex_prov.id[:6]}.h5',
         f'.wcs_{refmaker.coadd_wcs_prov.id[:6]}.txt',
         '.zp'
     ]
@@ -517,7 +516,7 @@ def ptf_ref(
             coadd_datastore.psf = copy_from_cache( PSF, ptf_cache_dir,
                                                    cache_base_name + f'.psf_{refmaker.coadd_ex_prov.id[:6]}' )
             coadd_datastore.bg = copy_from_cache( Background, ptf_cache_dir,
-                                                  cache_base_name + f'.bg_{refmaker.coadd_bg_prov.id[:6]}.h5',
+                                                  cache_base_name + f'.bg_{refmaker.coadd_ex_prov.id[:6]}.h5',
                                                   add_to_dict={ 'image_shape': coadd_datastore.image.data.shape } )
             coadd_datastore.wcs = copy_from_cache( WorldCoordinates, ptf_cache_dir,
                                                    cache_base_name + f'.wcs_{refmaker.coadd_wcs_prov.id[:6]}.txt' )
@@ -584,8 +583,8 @@ def ptf_ref_offset(ptf_ref):
         with SmartSession() as session:
             ptf_ref_zp = session.query( ZeroPoint ).filter( ZeroPoint._id==ptf_ref.zp_id ).first()
             ptf_ref_wcs = session.query( WorldCoordinates ).filter( WorldCoordinates._id==ptf_ref_zp.wcs_id ).first()
-            ptf_ref_bg = session.query( Background ).filter( Background._id==ptf_ref_zp.background_id ).first()
             ptf_ref_sources = session.query( SourceList ).filter( SourceList._id==ptf_ref_wcs.sources_id ).first()
+            ptf_ref_bg = session.query( Background ).filter( Background.sources_id==ptf_ref_sources._id ).first()
             ptf_ref_image = session.query( Image ).filter( Image._id==ptf_ref_sources.image_id ).first()
 
         offset_image = Image.copy_image( ptf_ref_image )
@@ -623,7 +622,6 @@ def ptf_ref_offset(ptf_ref):
                                 sources_id=offset_sources.id,
                                 value=ptf_ref_bg.value,
                                 noise=ptf_ref_bg.noise,
-                                provenance_id=ptf_ref_bg.provenance_id,
                                 filepath=ptf_ref_bg.filepath + "_offset_bg",
                                 md5sum=uuid.uuid4()
                                )
@@ -631,7 +629,6 @@ def ptf_ref_offset(ptf_ref):
 
         offset_zp = ptf_ref_zp.copy()
         offset_zp._id = uuid.uuid4()
-        offset_zp.background_id = offset_bg.id
         offset_zp.wcs_id = offset_wcs.id
         offset_zp.insert()
 

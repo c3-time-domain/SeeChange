@@ -26,6 +26,12 @@ from util.logger import SCLogger
 # env var that will cause it to get skipped on github actions, but to be
 # run by default when run locally.  This env var is set in the github
 # actions workflows.
+#
+# ...while the memory has been reduced a while back, for reasons I don't
+# understand, if you run this test in the context of all the other tests,
+# it hangs on the R/B step.  If you run this test all by itself, it
+# does not hang.  So, for now, keep skipping it on github, and run it
+# individually manually.
 
 # The user and admin_user fixtures are included not because they are needed,
 # but because setting a breakpoint at the end of this test and running it

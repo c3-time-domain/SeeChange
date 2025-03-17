@@ -1,0 +1,10 @@
+preloads:
+  - default_config.yaml
+overrides:
+  - local_overrides_extragalactic.yaml
+augments:
+  - local_augments_extragalactic.yaml
+
+configchoice:
+  choice_algorithm: null
+  configs: null

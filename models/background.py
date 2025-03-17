@@ -28,7 +28,7 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             CheckConstraint( sqltext='NOT(md5sum IS NULL AND '
                                '(md5sum_components IS NULL OR array_position(md5sum_components, NULL) IS NOT NULL))',
                                name=f'{cls.__tablename__}_md5sum_check' ),
-            UniqueConstraint('sources_id', 'provenance_id', name='_background_source_list_provenance_ud' )
+            UniqueConstraint('sources_id', name='_background_source_list_ud' )
         )
 
 
@@ -93,13 +93,6 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         index=True,
         nullable=False,
         doc="Noise RMS of the background (in units of counts), as a best representative value for the entire image."
-    )
-
-    provenance_id = sa.Column(
-        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='background_provenance_id_fkey'),
-        nullable=False,
-        index=True,
-        doc="ID of the provenance of this background. "
     )
 
     @property
@@ -238,7 +231,7 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         else:
             raise RuntimeError( f"Don't know how to subtract background of type {self.format}" )
 
-    def save( self, filename=None, image=None, **kwargs ):
+    def save( self, filename=None, image=None, sources=None, **kwargs ):
         """Write the Background to disk.
 
         May or may not upload to the archive and update the
@@ -272,10 +265,17 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
              filestore-standard filename and directory.
 
           image: Image (optional)
-             Ignored if filename is not None.  If filename is None,
-             will use this image's filepath to generate the background's
-             filepath.  If both filename and image are None, will try
-             to load the background's image from the database, if possible.
+             Ignored if filename is not None.  Otherwise, the Image to
+             use in inventing the filepath.  If None, will try to load
+             it from the database.  Use this for efficiency, or if you
+             know the image isn't yet in the database.
+
+          sources: SourceList (optional)
+             Ignored if filename is not None.  If filename is None, will
+             use this source list's provenance to generate the
+             background's filepath.  If None, will try to load it from
+             the database.  Use this for efficiency, or if you know the
+             source list isn't yet in the database.
 
           Additional arguments are passed on to FileOnDiskMixin.save()
 
@@ -296,17 +296,21 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 filename += '.h5'
             self.filepath = filename
         else:
-            if image is None:
+            if ( sources is None ) or ( image is None ):
                 with SmartSession() as session:
-                    image = ( session.query( Image )
-                              .join( SourceList, SourceList.image_id==Image._id )
-                              .filter( SourceList._id==self.sources_id )
-                             ).first()
-                if image is None:
-                    raise RuntimeError( "Can't invent Background filepath; can't find corresponding image." )
+                    if sources is None:
+                        sources = SourceList.get_by_id( self.sources_id, session=session )
+                        if sources is None:
+                            raise RuntimeError( "Can't invent Background filepath; "
+                                                "can't find corresponding source list." )
+                    if image is None:
+                        image = Image.get_by_id( sources.image_id, session=session )
+                        if image is None:
+                            raise RuntimeError( "Can't invent Background filepath; "
+                                                "can't find corresponding image." )
 
             self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
-            self.filepath += f'.bg_{self.provenance_id[:6]}.h5'
+            self.filepath += f'.bg_{sources.provenance_id[:6]}.h5'
 
         h5path = os.path.join( self.local_path, f'{self.filepath}')
 
@@ -468,11 +472,8 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             return session.scalars( sa.select(SourceList).where( SourceList._id == self.sources_id ) ).all()
 
     def get_downstreams(self, session=None):
-        """Get immediate downstreams of this background, which are zeropoints."""
-        from models.zero_point import ZeroPoint
-        with SmartSession(session) as session:
-            return session.scalars( sa.select(ZeroPoint).where( ZeroPoint.background_id == self._id ) ).all()
-
+        """Background has no downstreams."""
+        return []
 
     def to_dict( self ):
         # Background needs special handling for to_dict, at least for the

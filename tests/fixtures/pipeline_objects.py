@@ -6,7 +6,6 @@ from models.base import SmartSession
 
 from pipeline.preprocessing import Preprocessor
 from pipeline.detection import Detector
-from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 from pipeline.coaddition import Coadder, CoaddPipeline
@@ -59,22 +58,6 @@ def extractor_factory(test_config):
 @pytest.fixture
 def extractor(extractor_factory):
     return extractor_factory()
-
-
-@pytest.fixture(scope='session')
-def backgrounder_factory(test_config):
-
-    def make_backgrounder():
-        bg = Backgrounder(**test_config.value('backgrounding'))
-        bg.pars._enforce_no_new_attrs = False
-        bg.pars.test_parameter = bg.pars.add_par(
-            'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
-        )
-        bg.pars._enforce_no_new_attrs = True
-
-        return bg
-
-    return make_backgrounder
 
 
 @pytest.fixture(scope='session')
@@ -266,7 +249,6 @@ def fakeinjector( fakeinjector_factory ):
 def pipeline_factory(
         preprocessor_factory,
         extractor_factory,
-        backgrounder_factory,
         astrometor_factory,
         photometor_factory,
         subtractor_factory,
@@ -284,7 +266,6 @@ def pipeline_factory(
         p.pars.save_before_subtraction = True # Pipeline doesn't work any more if you don't do this
         p.pars.save_at_finish = False
         p.preprocessor = preprocessor_factory()
-        p.backgrounder = backgrounder_factory()
         p.extractor = extractor_factory()
         p.astrometor = astrometor_factory()
         p.photometor = photometor_factory()
@@ -315,7 +296,6 @@ def pipeline_for_tests(pipeline_factory):
 def coadd_pipeline_factory(
         coadder_factory,
         extractor_factory,
-        backgrounder_factory,
         astrometor_factory,
         photometor_factory,
         test_config,
@@ -324,7 +304,6 @@ def coadd_pipeline_factory(
         p = CoaddPipeline(**test_config.value('pipeline'))
         p.coadder = coadder_factory()
         p.extractor = extractor_factory()
-        p.backgrounder = backgrounder_factory()
         p.astrometor = astrometor_factory()
         p.photometor = photometor_factory()
 

@@ -98,7 +98,7 @@ class Config:
     _configs = {}
 
     @staticmethod
-    def init( configfile=None, logger=logging.getLogger("main"), dirmap={} ):
+    def init( configfile=None, logger=logging.getLogger("main"), dirmap={}, reread=False, setdefault=False ):
         """Initialize configuration globally for process.
 
         Parameters
@@ -114,7 +114,7 @@ class Config:
             An ugly hack for changing the directories of imported files; see the static function dirmap.
 
         """
-        Config.get( configfile, logger=logger, dirmap=dirmap )
+        Config.get( configfile, logger=logger, dirmap=dirmap, reread=reread, setdefault=setdefault )
 
     @staticmethod
     def get( configfile=None, reread=False, logger=logging.getLogger("main"), dirmap={}, setdefault=False ):
@@ -315,7 +315,7 @@ class Config:
 
         * If the value is a dict, then merge the two dictionaries.  New
           keys are added.  When the key is present in both dictionaries,
-          toss out the old subtree in favor of the new one.
+          recurse.
         """
         augmentpath = pathlib.Path( augmentfile )
         if not augmentpath.is_absolute():
@@ -361,19 +361,6 @@ class Config:
     def value( self, field, default=NoValue(), struct=None ):
         """Get a value from the config structure.
 
-        Parameters
-        ----------
-        field: str
-            See below
-
-        struct: dict, default None
-            If passed, use this dictionary in place of the object's own
-            config dictionary.  Avoid use.
-
-        Returns
-        -------
-        int, float, str, list, or dict
-
         For trees, separate fields by periods.  If there is
         an array somewhere in the tree, then the array index
         as a number is the field for that branch.
@@ -401,6 +388,24 @@ class Config:
         You can also specify a branch to get back the rest of the
         subtree; for instance configobj.value( "dict1.dict2" ) would
         return the dictionary { "sub1": "2level1", "sub2": "2level2" }.
+
+        Parameters
+        ----------
+        field: str
+            See below
+
+        struct: dict, default None
+            If passed, use this dictionary in place of the object's own
+            config dictionary.  Avoid use.
+
+        Returns
+        -------
+        int, float, str, list, or dict
+
+        If a list or dict, you get a deep copy of the original list or
+        dict.  As such, it's safe to modify the return value without
+        worrying about changing the internal config.  (If you want to
+        change the internal config, use set_value().)
 
         """
 

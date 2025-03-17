@@ -29,7 +29,7 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
     det.pars.subtraction = False
     det.pars.threshold = 3.0
     det.pars.test_parameter = uuid.uuid4().hex
-    sources, _, _, _ = det.extract_sources(decam_small_image)
+    sources, _, _, _ = det.extract_sources(decam_small_image, None)
 
     assert sources.num_sources == 46
     assert max(sources.data['flux']) == 52382.15625
@@ -59,7 +59,7 @@ def test_sep_find_sources_in_small_image(decam_small_image, extractor, blocking_
 
     # increasing the threshold should find fewer sources
     det.pars.threshold = 7.5
-    sources2, _, _, _ = det.extract_sources(decam_small_image)
+    sources2, _, _, _ = det.extract_sources(decam_small_image, None)
     assert sources2.num_sources < sources.num_sources
 
     # flux will change with new threshold, but not by more than 10%
@@ -79,7 +79,7 @@ def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
     extractor.pars.subtraction = False
     extractor.pars.threshold = 3.0
     extractor.pars.test_parameter = uuid.uuid4().hex
-    sources, _, _, _ = extractor.extract_sources(decam_small_image)
+    sources, _, _, _ = extractor.extract_sources(decam_small_image, None)
     prov = Provenance(
         process='extraction',
         code_version_id=provenance_base.code_version_id,
@@ -113,9 +113,9 @@ def test_sep_save_source_list(decam_small_image, provenance_base, extractor):
 
 
 # This is running sextractor in one particular way that is used by more than one test
-def run_sextractor( image, extractor ):
+def run_sextractor( image, bg, extractor ):
     tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
-    sourcelist, bkg, bkgsig = extractor._run_sextractor_once( image, tempname=tempname )
+    sourcelist, bkg, bkgsig = extractor._run_sextractor_once( image, bg, tempname=tempname )
     sourcefile = pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}.sources.fits"
     imagefile =  pathlib.Path( FileOnDiskMixin.temp_path ) / f"{tempname}.fits"
     assert not imagefile.exists()
@@ -126,92 +126,128 @@ def run_sextractor( image, extractor ):
 
 def test_sextractor_extract_once( decam_datastore_through_preprocessing, extractor ):
     ds = decam_datastore_through_preprocessing
-    try:
-        extractor.pars.method = 'sextractor'
-        extractor.pars.subtraction = False
-        extractor.pars.apers = [ 5. ]
-        extractor.pars.threshold = 4.5
-        extractor.pars.test_parameter = uuid.uuid4().hex
-        sourcelist, sourcefile, bkg, bkgsig = run_sextractor(ds.image, extractor)
+    for test_trials in range(2):
+        try:
+            extractor.pars.method = 'sextractor'
+            extractor.pars.subtraction = False
+            extractor.pars.apers = [ 5. ]
+            extractor.pars.threshold = 4.5
+            if test_trials == 0:
+                # Do a run of sextractor where we don't subtract a background a priori, but
+                #   use sextractor's built-in background subtraction.  (This isn't fully usable
+                #   for real in the pipeline, because at the moment we don't have code to recover
+                #   the background map that sextractor produces.)
+                extractor.pars.backgrounding = { 'format': 'scalar', 'method': 'zero' }
+                extractor.pars.sextractor_back_type = 'AUTO'
+                extractor.pars.test_parameter = uuid.uuid4().hex
+                bg = None
+            elif test_trials == 1:
+                # Now do a run of sextractor where we've subtracted the background ahead of time
+                #  to make sure all of that works.  Ideally, the sep background algorithm is
+                #  doing the same thing as the one included in sextractor.
+                extractor.pars.backgrounding = { 'format': 'map', 'method': 'sep',
+                                                 'box_size': ds.image.instrument_object.background_box_size,
+                                                 'filt_size': ds.image.instrument_object.background_filt_size }
+                extractor.pars.sextractor_back_type = 'MANUAL'
+                extractor.make_backgrounder()
+                bg = extractor.backgrounder.run( ds )
+                assert bg is not None
+            else:
+                raise RuntimeError( "This should never happen." )
 
-        assert bkg == pytest.approx( 650.0, abs=0.1 )
-        assert bkgsig == pytest.approx( 13.2673, abs=0.01 )
+            sourcelist, sourcefile, bkg, bkgsig = run_sextractor(ds.image, bg, extractor)
 
-        assert sourcelist.num_sources == 1311
-        assert len(sourcelist.data) == sourcelist.num_sources
-        assert sourcelist.aper_rads == [ 5. ]
+            if test_trials == 0:
+                assert bkg == pytest.approx( 650.0, abs=0.1 )
+                assert bkgsig == pytest.approx( 13.2673, abs=0.01 )
+            else:
+                assert bkg == 0.
+                # *slightly* different bkg sigma when using the sep background
+                #   than what sextractor got....  However, all the photometry
+                #   checks below come out the same, so  ¯\_(ツ)_/¯
+                assert bkgsig == pytest.approx( 13.2531, abs=0.01 )
 
-        assert sourcelist.info['SEXAPED1'] == 10.0
-        assert sourcelist.info['SEXAPED2'] == 0.
-        assert sourcelist.info['SEXBKGND'] == pytest.approx( 650.0, abs=0.1 )
+            assert sourcelist.num_sources == 1311
+            assert len(sourcelist.data) == sourcelist.num_sources
+            assert sourcelist.aper_rads == [ 5. ]
 
-        snr = sourcelist.apfluxadu()[0] / sourcelist.apfluxadu()[1]
-        # SCLogger.info(
-        #     f'\nsourcelist.x.min()= {sourcelist.x.min()}'
-        #     f'\nsourcelist.x.max()= {sourcelist.x.max()}'
-        #     f'\nsourcelist.y.min()= {sourcelist.y.min()}'
-        #     f'\nsourcelist.y.max()= {sourcelist.y.max()}'
-        #     f'\nsourcelist.errx.min()= {sourcelist.errx.min()}'
-        #     f'\nsourcelist.errx.max()= {sourcelist.errx.max()}'
-        #     f'\nsourcelist.erry.min()= {sourcelist.erry.min()}'
-        #     f'\nsourcelist.erry.max()= {sourcelist.erry.max()}'
-        #     f'\nsourcelist.apfluxadu()[0].min()= {sourcelist.apfluxadu()[0].min()}'
-        #     f'\nsourcelist.apfluxadu()[0].max()= {sourcelist.apfluxadu()[0].max()}'
-        #     f'\nsnr.min()= {snr.min()}'
-        #     f'\nsnr.max()= {snr.max()}'
-        #     f'\nsnr.mean()= {snr.mean()}'
-        #     f'\nsnr.std()= {snr.std()}'
-        # )
-        assert sourcelist.x.min() == pytest.approx( 15.44, abs=0.1 )
-        assert sourcelist.x.max() == pytest.approx( 2039.97, abs=0.1 )
-        assert sourcelist.y.min() == pytest.approx( 25.18, abs=0.1 )
-        assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
-        assert sourcelist.errx.min() == pytest.approx( 0.00182, abs=1e-4 )
-        assert sourcelist.errx.max() == pytest.approx( 1.298, abs=0.01 )
-        assert sourcelist.erry.min() == pytest.approx( 0.00096, abs=1e-4 )
-        assert sourcelist.erry.max() == pytest.approx( 1.306, abs=0.01 )
-        assert ( np.sqrt( sourcelist.varx ) == sourcelist.errx ).all()
-        assert ( np.sqrt( sourcelist.vary ) == sourcelist.erry ).all()
-        assert sourcelist.apfluxadu()[0].min() == pytest.approx( -93.90485, rel=1e-5 )
-        assert sourcelist.apfluxadu()[0].max() == pytest.approx( 2624645.2, rel=1e-5 )
-        assert snr.min() == pytest.approx( -0.806, abs=0.1 )
-        assert snr.max() == pytest.approx( 2222.799, abs=1. )
-        assert snr.mean() == pytest.approx( 56.63, abs=0.1 )
-        assert snr.std() == pytest.approx( 181.7, abs=1. )
+            assert sourcelist.info['SEXAPED1'] == 10.0
+            assert sourcelist.info['SEXAPED2'] == 0.
+            if test_trials == 0:
+                assert sourcelist.info['SEXBKGND'] == pytest.approx( 650.0, abs=0.1 )
+            else:
+                assert sourcelist.info['SEXBKGND'] == 0.
 
-        # Test multiple apertures
-        sourcelist, _, _ = extractor._run_sextractor_once( ds.image, apers=[ 2., 5. ])
+            snr = sourcelist.apfluxadu()[0] / sourcelist.apfluxadu()[1]
+            # SCLogger.info(
+            #     f'\nsourcelist.x.min()= {sourcelist.x.min()}'
+            #     f'\nsourcelist.x.max()= {sourcelist.x.max()}'
+            #     f'\nsourcelist.y.min()= {sourcelist.y.min()}'
+            #     f'\nsourcelist.y.max()= {sourcelist.y.max()}'
+            #     f'\nsourcelist.errx.min()= {sourcelist.errx.min()}'
+            #     f'\nsourcelist.errx.max()= {sourcelist.errx.max()}'
+            #     f'\nsourcelist.erry.min()= {sourcelist.erry.min()}'
+            #     f'\nsourcelist.erry.max()= {sourcelist.erry.max()}'
+            #     f'\nsourcelist.apfluxadu()[0].min()= {sourcelist.apfluxadu()[0].min()}'
+            #     f'\nsourcelist.apfluxadu()[0].max()= {sourcelist.apfluxadu()[0].max()}'
+            #     f'\nsnr.min()= {snr.min()}'
+            #     f'\nsnr.max()= {snr.max()}'
+            #     f'\nsnr.mean()= {snr.mean()}'
+            #     f'\nsnr.std()= {snr.std()}'
+            # )
+            assert sourcelist.x.min() == pytest.approx( 15.44, abs=0.1 )
+            assert sourcelist.x.max() == pytest.approx( 2039.97, abs=0.1 )
+            assert sourcelist.y.min() == pytest.approx( 25.18, abs=0.1 )
+            assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
+            assert sourcelist.errx.min() == pytest.approx( 0.00182, abs=1e-4 )
+            assert sourcelist.errx.max() == pytest.approx( 1.298, abs=0.01 )
+            assert sourcelist.erry.min() == pytest.approx( 0.00096, abs=1e-4 )
+            assert sourcelist.erry.max() == pytest.approx( 1.306, abs=0.01 )
+            assert ( np.sqrt( sourcelist.varx ) == sourcelist.errx ).all()
+            assert ( np.sqrt( sourcelist.vary ) == sourcelist.erry ).all()
+            assert sourcelist.apfluxadu()[0].min() == pytest.approx( -93.90485, rel=1e-5 )
+            assert sourcelist.apfluxadu()[0].max() == pytest.approx( 2624645.2, rel=1e-5 )
+            assert snr.min() == pytest.approx( -0.806, abs=0.1 )
+            assert snr.max() == pytest.approx( 2222.799, abs=1. )
+            assert snr.mean() == pytest.approx( 56.63, abs=0.1 )
+            assert snr.std() == pytest.approx( 181.7, abs=1. )
 
-        assert sourcelist.num_sources == 1311    # It *finds* the same things
-        assert len(sourcelist.data) == sourcelist.num_sources
-        assert sourcelist.aper_rads == [ 2., 5. ]
+            # Test multiple apertures
+            sourcelist, _, _ = extractor._run_sextractor_once( ds.image, bg, apers=[ 2., 5. ])
 
-        assert sourcelist.info['SEXAPED1'] == 4.0
-        assert sourcelist.info['SEXAPED2'] == 10.0
-        assert sourcelist.info['SEXBKGND'] == pytest.approx( 650.0, abs=0.1 )
+            assert sourcelist.num_sources == 1311    # It *finds* the same things
+            assert len(sourcelist.data) == sourcelist.num_sources
+            assert sourcelist.aper_rads == [ 2., 5. ]
 
-        # SCLogger.info(
-        #     f'\nsourcelist.x.min()= {sourcelist.x.min()}'
-        #     f'\nsourcelist.x.max()= {sourcelist.x.max()}'
-        #     f'\nsourcelist.y.min()= {sourcelist.y.min()}'
-        #     f'\nsourcelist.y.max()= {sourcelist.y.max()}'
-        #     f'\nsourcelist.apfluxadu(apnum=1)[0].min()= {sourcelist.apfluxadu(apnum=1)[0].min()}'
-        #     f'\nsourcelist.apfluxadu(apnum=1)[0].max()= {sourcelist.apfluxadu(apnum=1)[0].max()}'
-        #     f'\nsourcelist.apfluxadu(apnum=0)[0].min()= {sourcelist.apfluxadu(apnum=0)[0].min()}'
-        #     f'\nsourcelist.apfluxadu(apnum=0)[0].max()= {sourcelist.apfluxadu(apnum=0)[0].max()}'
-        # )
-        assert sourcelist.x.min() == pytest.approx( 15.44, abs=0.1 )
-        assert sourcelist.x.max() == pytest.approx( 2039.97, abs=0.1 )
-        assert sourcelist.y.min() == pytest.approx( 25.18, abs=0.1 )
-        assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
-        assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( -93.9048, rel=1e-5 )
-        assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 2624645.25, rel=1e-5 )
-        assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 155.472946, rel=1e-5 )
-        assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 513817.81, rel=1e-5 )
+            assert sourcelist.info['SEXAPED1'] == 4.0
+            assert sourcelist.info['SEXAPED2'] == 10.0
+            if test_trials == 0:
+                assert sourcelist.info['SEXBKGND'] == pytest.approx( 650.0, abs=0.1 )
+            else:
+                assert sourcelist.info['SEXBKGND'] == 0.
 
-    finally:  # cleanup temporary file
-        if 'sourcefile' in locals():
-            sourcefile.unlink( missing_ok=True )
+            # SCLogger.info(
+            #     f'\nsourcelist.x.min()= {sourcelist.x.min()}'
+            #     f'\nsourcelist.x.max()= {sourcelist.x.max()}'
+            #     f'\nsourcelist.y.min()= {sourcelist.y.min()}'
+            #     f'\nsourcelist.y.max()= {sourcelist.y.max()}'
+            #     f'\nsourcelist.apfluxadu(apnum=1)[0].min()= {sourcelist.apfluxadu(apnum=1)[0].min()}'
+            #     f'\nsourcelist.apfluxadu(apnum=1)[0].max()= {sourcelist.apfluxadu(apnum=1)[0].max()}'
+            #     f'\nsourcelist.apfluxadu(apnum=0)[0].min()= {sourcelist.apfluxadu(apnum=0)[0].min()}'
+            #     f'\nsourcelist.apfluxadu(apnum=0)[0].max()= {sourcelist.apfluxadu(apnum=0)[0].max()}'
+            # )
+            assert sourcelist.x.min() == pytest.approx( 15.44, abs=0.1 )
+            assert sourcelist.x.max() == pytest.approx( 2039.97, abs=0.1 )
+            assert sourcelist.y.min() == pytest.approx( 25.18, abs=0.1 )
+            assert sourcelist.y.max() == pytest.approx( 4087.88, abs=0.1 )
+            assert sourcelist.apfluxadu(apnum=1)[0].min() == pytest.approx( -93.9048, rel=1e-5 )
+            assert sourcelist.apfluxadu(apnum=1)[0].max() == pytest.approx( 2624645.25, rel=1e-5 )
+            assert sourcelist.apfluxadu(apnum=0)[0].min() == pytest.approx( 155.472946, rel=1e-5 )
+            assert sourcelist.apfluxadu(apnum=0)[0].max() == pytest.approx( 513817.81, rel=1e-5 )
+
+        finally:  # cleanup temporary file
+            if 'sourcefile' in locals():
+                sourcefile.unlink( missing_ok=True )
 
 
 # Egg, meet chicken.  decam_datastore_through_extraction will have
@@ -240,7 +276,7 @@ def test_run_psfex( decam_datastore_through_extraction, extractor ):
         assert psf._header['CHI2'] == pytest.approx( 0.97, abs=0.1 )
         bio = io.BytesIO( psf._info.encode( 'utf-8' ) )
         psfstats = votable.parse( bio ).get_table_by_index(1)
-        assert psfstats.array['FWHM_FromFluxRadius_Max'] == pytest.approx( 4.221, abs=0.01 )
+        assert psfstats.array['FWHM_FromFluxRadius_Max'] == pytest.approx( 4.204, abs=0.01 )
         assert not tmppsffile.exists()
         assert not tmppsfxmlfile.exists()
 
@@ -267,7 +303,10 @@ def test_extract_sources_sextractor( decam_datastore_through_preprocessing,
     extractor.pars.method = 'sextractor'
     extractor.measure_psf = True
     extractor.pars.threshold = 5.0
-    sources, psf, bkg, bkgsig = extractor.extract_sources( ds.image )
+    # Have to set sextractor subtract the background, because we aren't
+    #    running the part of the code that esimates the background
+    extractor.pars.sextractor_back_type = 'AUTO'
+    sources, psf, bkg, bkgsig = extractor.extract_sources( ds.image, None )
 
     assert bkg == pytest.approx( 650.0, abs=0.1 )
     assert bkgsig == pytest.approx( 13.2673, abs=0.01 )
@@ -325,6 +364,11 @@ def test_extract_sources_sextractor( decam_datastore_through_preprocessing,
 def test_compare_sep_sextractor( extractor ):
     # This test was created to address Issue #341
 
+    # Have to set sextractor subtract the background, because we aren't
+    #    running the part of the code that esimates the background
+    extractor.pars.sextractor_back_type = 'AUTO'
+    # Really ought to do the same thing for sep... but see Issue #441
+
     # Create a small image with some Gaussians on it to see how sep and sextractor compare
     skynoise = 20.
     sig = 1.75
@@ -357,7 +401,7 @@ def test_compare_sep_sextractor( extractor ):
     image.weight = 1./var
     image.flags = np.zeros_like( image.data, dtype=np.uint16 )
 
-    sexsrc, _bkg, _bkgsig = extractor._run_sextractor_once( image )
+    sexsrc, _bkg, _bkgsig = extractor._run_sextractor_once( image, None )
     sepsrc = extractor.extract_sources_sep( image )
 
     # They won't necessarily find all the same things, because

@@ -61,16 +61,6 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                                        upstreams=[provenance_extra],
                                        parameters={ 'kaglorky': 23 } )
             extrasrcprov.insert_if_needed( session=session )
-            basebgprov = Provenance( code_version_id=code_version.id,
-                                     process='backgrounding',
-                                     upstreams=[basesrcprov],
-                                     parameters={ 'kaglorky': 49152 } )
-            basebgprov.insert_if_needed()
-            extrabgprov = Provenance( code_version_id=code_version.id,
-                                     process='backgrounding',
-                                     upstreams=[extrasrcprov],
-                                     parameters={ 'kaglorky': 16384 } )
-            extrabgprov.insert_if_needed()
             basewcsprov = Provenance( code_version_id=code_version.id,
                                       process='wcs',
                                       upstreams=[basesrcprov],
@@ -83,12 +73,12 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
             extrawcsprov.insert_if_needed()
             basezpprov = Provenance( code_version_id=code_version.id,
                                      process='zp',
-                                     upstreams=[basebgprov, basewcsprov],
+                                     upstreams=[basewcsprov],
                                      parameters={ 'kaglorky': 31337 } )
             basezpprov.insert_if_needed()
             extrazpprov = Provenance( code_version_id=code_version.id,
                                        process='wcs',
-                                       upstreams=[extrabgprov, extrawcsprov],
+                                       upstreams=[extrawcsprov],
                                        parameters={ 'kaglorky': 8192 } )
             extrazpprov.insert_if_needed()
             baserefprov = Provenance( code_version_id=code_version.id,
@@ -159,14 +149,14 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src1 = SourceList( image_id=img1.id, provenance_id=basesrcprov.id, filepath='1.fits', **reusesrckw )
         src1.insert()
         srcstodel.add( src1.id )
-        bg1 = Background( sources_id=src1.id, provenance_id=basebgprov.id, filepath='bg1.fits', **reusebgkw )
+        bg1 = Background( sources_id=src1.id, filepath='bg1.fits', **reusebgkw )
         bg1.insert()
         bgstodel.add( bg1.id )
         wcs1 = WorldCoordinates( sources_id=src1.id, provenance_id=basewcsprov.id, filepath='wcs1.fits',
                                  **reusewcskw )
         wcs1.insert()
         wcsstodel.add( wcs1.id )
-        zp1 = ZeroPoint( background_id=bg1.id, wcs_id=wcs1.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp1 = ZeroPoint( wcs_id=wcs1.id, provenance_id=basezpprov.id, **reusezpkw )
         zp1.insert()
         zpstodel.add( zp1.id )
         ref1 = Reference( provenance_id=baserefprov.id, zp_id=zp1.id )
@@ -184,14 +174,14 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src2 = SourceList( image_id=img2.id, provenance_id=basesrcprov.id, filepath='2.fits', **reusesrckw )
         src2.insert()
         srcstodel.add( src2.id )
-        bg2 = Background( sources_id=src2.id, provenance_id=basebgprov.id, filepath='bg2.fits', **reusebgkw )
+        bg2 = Background( sources_id=src2.id, filepath='bg2.fits', **reusebgkw )
         bg2.insert()
         bgstodel.add( bg2.id )
         wcs2 = WorldCoordinates( sources_id=src2.id, provenance_id=basewcsprov.id, filepath='wcs2.fits',
                                  **reusewcskw )
         wcs2.insert()
         wcsstodel.add( wcs2.id )
-        zp2 = ZeroPoint( background_id=bg2.id, wcs_id=wcs2.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp2 = ZeroPoint( wcs_id=wcs2.id, provenance_id=basezpprov.id, **reusezpkw )
         zp2.insert()
         zpstodel.add( zp2.id )
         ref2 = Reference( provenance_id=baserefprov.id, zp_id=zp2.id )
@@ -209,14 +199,14 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         srcp = SourceList( image_id=imgp.id, provenance_id=extrasrcprov.id, filepath='p.fits', **reusesrckw )
         srcp.insert()
         srcstodel.add( srcp.id )
-        bgp = Background( sources_id=srcp.id, provenance_id=extrabgprov.id, filepath='bgp.fits', **reusebgkw )
+        bgp = Background( sources_id=srcp.id, filepath='bgp.fits', **reusebgkw )
         bgp.insert()
         bgstodel.add( bgp.id )
         wcsp = WorldCoordinates( sources_id=srcp.id, provenance_id=extrawcsprov.id, filepath='wcsp.fits',
                                  **reusewcskw )
         wcsp.insert()
         wcsstodel.add( wcsp.id )
-        zpp = ZeroPoint( background_id=bgp.id, wcs_id=wcsp.id, provenance_id=extrazpprov.id, **reusezpkw )
+        zpp = ZeroPoint( wcs_id=wcsp.id, provenance_id=extrazpprov.id, **reusezpkw )
         zpp.insert()
         zpstodel.add( zpp.id )
         refp = Reference( provenance_id=extrarefprov.id, zp_id=zpp.id )
@@ -235,14 +225,14 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src3 = SourceList( image_id=img3.id, provenance_id=basesrcprov.id, filepath='3.fits', **reusesrckw )
         src3.insert()
         srcstodel.add( src3.id )
-        bg3 = Background( sources_id=src3.id, provenance_id=basebgprov.id, filepath='bg3.fits', **reusebgkw )
+        bg3 = Background( sources_id=src3.id, filepath='bg3.fits', **reusebgkw )
         bg3.insert()
         bgstodel.add( bg3.id )
         wcs3 = WorldCoordinates( sources_id=src3.id, provenance_id=basewcsprov.id, filepath='wcs3.fits',
                                  **reusewcskw )
         wcs3.insert()
         wcsstodel.add( wcs3.id )
-        zp3 = ZeroPoint( background_id=bg3.id, wcs_id=wcs3.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp3 = ZeroPoint( wcs_id=wcs3.id, provenance_id=basezpprov.id, **reusezpkw )
         zp3.insert()
         zpstodel.add( zp3.id )
         ref3 = Reference( provenance_id=baserefprov.id, zp_id=zp3.id )
@@ -261,14 +251,14 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src4 = SourceList( image_id=img4.id, provenance_id=basesrcprov.id, filepath='4.fits', **reusesrckw )
         src4.insert()
         srcstodel.add( src4.id )
-        bg4 = Background( sources_id=src4.id, provenance_id=basebgprov.id, filepath='bg4.fits', **reusebgkw )
+        bg4 = Background( sources_id=src4.id, filepath='bg4.fits', **reusebgkw )
         bg4.insert()
         bgstodel.add( bg4.id )
         wcs4 = WorldCoordinates( sources_id=src4.id, provenance_id=basewcsprov.id, filepath='wcs4.fits',
                                  **reusewcskw )
         wcs4.insert()
         wcsstodel.add( wcs4.id )
-        zp4 = ZeroPoint( background_id=bg4.id, wcs_id=wcs4.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp4 = ZeroPoint( wcs_id=wcs4.id, provenance_id=basezpprov.id, **reusezpkw )
         zp4.insert()
         zpstodel.add( zp4.id )
         ref4 = Reference( provenance_id=baserefprov.id, zp_id=zp4.id )
@@ -287,14 +277,14 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
         src5 = SourceList( image_id=img5.id, provenance_id=basesrcprov.id, filepath='5.fits', **reusesrckw )
         src5.insert()
         srcstodel.add( src5.id )
-        bg5 = Background( sources_id=src5.id, provenance_id=basebgprov.id, filepath='bg5.fits', **reusebgkw )
+        bg5 = Background( sources_id=src5.id, filepath='bg5.fits', **reusebgkw )
         bg5.insert()
         bgstodel.add( bg5.id )
         wcs5 = WorldCoordinates( sources_id=src5.id, provenance_id=basewcsprov.id, filepath='wcs5.fits',
                                  **reusewcskw )
         wcs5.insert()
         wcsstodel.add( wcs5.id )
-        zp5 = ZeroPoint( background_id=bg5.id, wcs_id=wcs5.id, provenance_id=basezpprov.id, **reusezpkw )
+        zp5 = ZeroPoint( wcs_id=wcs5.id, provenance_id=basezpprov.id, **reusezpkw )
         zp5.insert()
         zpstodel.add( zp5.id )
         ref5 = Reference( provenance_id=baserefprov.id, zp_id=zp5.id )
@@ -506,7 +496,6 @@ def test_make_refset( code_version ):
                           coaddition={ 'method': 'zogy' } )
         assert maker.coadd_im_prov is None
         assert maker.coadd_ex_prov is None
-        assert maker.coadd_bg_prov is None
         assert maker.coadd_wcs_prov is None
         assert maker.coadd_zp_prov is None
         assert maker.ref_prov is None
@@ -565,7 +554,6 @@ def test_making_refsets_in_run( code_version ):
     # we still haven't run the maker, so everything is empty
     assert maker.coadd_im_prov is None
     assert maker.coadd_ex_prov is None
-    assert maker.coadd_bg_prov is None
     assert maker.coadd_wcs_prov is None
     assert maker.coadd_zp_prov is None
 
@@ -577,7 +565,6 @@ def test_making_refsets_in_run( code_version ):
     assert refset is not None  # can produce a reference set without finding a reference
     assert isinstance(maker.coadd_im_prov, Provenance)
     assert isinstance(maker.coadd_ex_prov, Provenance)
-    assert isinstance(maker.coadd_bg_prov, Provenance)
     assert isinstance(maker.coadd_wcs_prov, Provenance)
     assert isinstance(maker.coadd_zp_prov, Provenance)
 
@@ -701,16 +688,14 @@ def test_identify_images_to_coadd( provenance_base, provenance_extra ):
         src.insert()
         srcstodel.add( src.id )
         bg = Background( sources_id=src.id, method='zero', value=0., noise=1.,
-                         image_shape=(256,256), filepath=f'{filepath}_bg.fits', md5sum=uuid.uuid4(),
-                         provenance_id=provenance_base.id )
+                         image_shape=(256,256), filepath=f'{filepath}_bg.fits', md5sum=uuid.uuid4() )
         bg.insert()
         bgstodel.add( bg.id )
         wcs = WorldCoordinates( sources_id=src.id, filepath=f'{filepath}_wcs.fits', md5sum=uuid.uuid4(),
                                 provenance_id=provenance_base.id )
         wcs.insert()
         wcsstodel.add( wcs.id )
-        zp = ZeroPoint( wcs_id=wcs.id, background_id=bg.id, zp=25., dzp=0.1,
-                        provenance_id=kwargs['zp_provenance_id'] )
+        zp = ZeroPoint( wcs_id=wcs.id, zp=25., dzp=0.1, provenance_id=kwargs['zp_provenance_id'] )
         zp.insert()
         zpstodel.add( zp.id )
 

@@ -187,7 +187,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
              SourceList to use in inventing the filepath (needed to get
              the provenance). If None, will try to load it from the
              database.  Use this for efficiency, or if you know the
-             soruce list isn't yet in the databse.
+             source list isn't yet in the database.
 
           image: Image or None
              Ignored if filename is specified.  Otherwise, the Image to
