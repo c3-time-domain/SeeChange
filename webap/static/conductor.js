@@ -30,7 +30,7 @@ seechange.Conductor = class
 
         hbox = rkWebUtil.elemaker( "div", this.frontpagediv, { "classes": [ "hbox" ] } );
         this.pollingdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorconfig" ] } );
-        
+
         vbox = rkWebUtil.elemaker( "div", hbox, { "classes": [ "vbox", "conductorconfig" ] } );
         h3 = rkWebUtil.elemaker( "h3", vbox, { "text": "Pipeline Config  " } );
         rkWebUtil.button( h3, "Refresh", () => { self.show_config_status() } );
@@ -50,7 +50,7 @@ seechange.Conductor = class
                                                                              "id": "pickup_partial_checkbox",
                                                                              "name": "pickup_partial_checkbox" } } );
         p.appendChild( document.createTextNode( " run partially completed exposures?" ) );
-        
+
         hbox.appendChild( this.pipelineworkers.div );
 
         this.contentdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
@@ -370,7 +370,7 @@ seechange.Conductor = class
         p.appendChild( this.hide_exposure_details_checkbox );
         p.appendChild( document.createTextNode( "Hide exposure detail columns    " ) );
         hide_exposure_details = this.hide_exposure_details_checkbox.checked;
-        
+
         this.select_all_checkbox = rkWebUtil.elemaker( "input", p,
                                                        { "attributes": {
                                                              "type": "checkbox",
@@ -589,7 +589,7 @@ seechange.PipelineWorkers = class
 
 seechange.Conductor.ALL_STEPS = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp', 'subtraction',
                                   'detection', 'cutting', 'measuring', 'scoring', ];
-    
+
 
 // **********************************************************************
 // **********************************************************************
