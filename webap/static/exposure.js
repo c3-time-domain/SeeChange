@@ -63,6 +63,8 @@ seechange.Exposure = class
 
         this.cutouts = {};
         this.cutouts_pngs = {};
+        this.reports = null;
+        this.reports_subdiv = null;
     };
 
 
@@ -70,8 +72,8 @@ seechange.Exposure = class
     static process_steps = {
         1: 'preprocessing',
         2: 'extraction',
-        4: 'astrocal',
-        5: 'photocal',
+        4: 'wcs',
+        5: 'zp',
         6: 'subtraction',
         7: 'detection',
         8: 'cutting',
@@ -268,6 +270,12 @@ seechange.Exposure = class
 
         this.tabs.addTab( "Images", "Images", this.imagesdiv, true );
 
+        let temp_remove_this = rkWebUtil.elemaker( "div", null, { "text": "TODO" } );
+        this.tabs.addTab( "Image Details", "Image Details", temp_remove_this, false );
+
+        this.reports_div = rkWebUtil.elemaker( "div", null, { 'id': 'exposurereportsdiv' } );
+        this.tabs.addTab( "Reports", "Reports", this.reports_div, false, ()=>{ self.show_reports() } );
+
         this.tabs.addTab( "Cutouts", "Sources", this.cutoutsdiv, false, ()=>{ self.select_cutouts() } );
         this.create_cutouts_widgets();
     };
@@ -277,6 +285,207 @@ seechange.Exposure = class
     show_image_details( imageid ) {
         window.alert( "show image details not impmlemented yet" );
     };
+
+    // ****************************************
+
+    show_reports() {
+        let self = this;
+        let p, button;
+
+        rkWebUtil.wipeDiv( this.reports_div );
+        p = rkWebUtil.elemaker( "p", this.reports_div );
+        rkWebUtil.button( p, "Refresh", () => { self.update_reports() } );
+
+        if ( this.reports_subdiv != null ) {
+            this.reports_div.appendChild( this.reports_subdiv );
+        }
+        else {
+            this.reports_subdiv = rkWebUtil.elemaker( "div", this.reports_div );
+            this.update_reports();
+        }
+    }
+
+    // ****************************************
+
+    update_reports() {
+        let self = this;
+
+        rkWebUtil.wipeDiv( this.resports_subdiv );
+        rkWebUtil.elemaker( "p", this.reports_subdiv, { "text": "Loading reports...",
+                                                        "classes": [ "bold", "italic", "warning" ] } );
+        this.context.connector.sendHttpRequest( "exposure_reports/" + this.id + "/" + this.data.provenancetag,
+                                                {}, (data) => { self.render_reports(data) } );
+    }
+
+    // ****************************************
+
+    render_reports( data ) {
+        let self = this;
+        let h3, p, a, comma, text, table, tr, th, td, span, ttspan;
+
+        this.reports = data.reports;
+
+        rkWebUtil.wipeDiv( this.reports_subdiv );
+
+        // Sort the sections
+        let secs = Object.getOwnPropertyNames( this.reports );
+        secs.sort()
+
+        let innerhtml = "Jump to section: ";
+        comma = false;
+        for ( let secid of secs ) {
+            if ( comma ) innerhtml += ", ";
+            comma = true;
+            innerhtml += '<a href="#exposure-report-section-' + secid + '">' + secid + '</a>';
+        }
+        p = rkWebUtil.elemaker( "p", this.reports_subdiv );
+        p.innerHTML = innerhtml;
+
+        let fields = { 'image_id': "Image ID",
+                       'start_time': "Start Time",
+                       'finish_time': "Finish Time",
+                       'success': "Successful?",
+                       'cluster_id': "Cluster ID",
+                       'node_id': "Node ID",
+                       'progress_steps_bitflag': "Steps Completed",
+                       'products_exist_bitflag': "Existing Data Products",
+                       'products_committed_bitflag': "Committed Data Products",
+                       'process_provid': "Provenances",
+                       'process_memory': "Memory Usage",
+                       'process_runtime': "Runtimes",
+                       'warnings': "Warnings",
+                       'error': "Error",
+                     }
+        let steporder = { 'preprocessing': 0,
+                          'extraction': 1,
+                          'backgrounding': 2,
+                          'astrocal': 3,
+                          'photocal': 4,
+                          'save_intermediate': 5,
+                          'subtraction': 6,
+                          'detection': 7,
+                          'cutting': 8,
+                          'measuring': 9,
+                          'scoring': 10,
+                          'save_final': 11,
+                          'fakeanalysis': 12 };
+
+        for ( let secid of secs ) {
+            h3 = rkWebUtil.elemaker( "h3", this.reports_subdiv, { "text": "Section " + secid,
+                                                                  "attributes": {
+                                                                      "id": "exposure-report-section-" + secid,
+                                                                      "name": "exposure-report-section-" + secid
+                                                                  } } );
+            table = rkWebUtil.elemaker( "table", this.reports_subdiv );
+
+            for ( let field in fields ) {
+
+                if ( ( field == "warnings" ) && ( ( this.reports[secid][field] == null ) ||
+                                                  ( this.reports[secid][field].length == 0 ) ) )
+                    continue;
+
+                if ( ( field == "error" ) && ( this.reports[secid]['error_step'] == null  ) )
+                    continue;
+
+                tr = rkWebUtil.elemaker( "tr", table );
+                th = rkWebUtil.elemaker( "th", tr, { "text": fields[field] } );
+                if ( field == "error" ) th.classList.add( "bad" );
+                if ( field == "warnings" ) th.classList.add( "warning" );
+
+                if ( field == "progress_steps_bitflag" ) {
+                    comma = false;
+                    text = "";
+                    for ( let i in seechange.Exposure.process_steps ) {
+                        if ( this.reports[secid][field] & ( 2**i ) ) {
+                            if ( comma ) text += ", ";
+                            comma = true;
+                            text += seechange.Exposure.process_steps[i]
+                        }
+                    }
+                    td = rkWebUtil.elemaker( "td", tr, { "text": text } );
+                }
+                else if ( ( field == "products_exist_bitflag" ) || ( field == "products_committed_bitflag" ) ) {
+                    comma = false;
+                    text = "";
+                    for ( let i in seechange.Exposure.pipeline_products ) {
+                        if ( this.reports[secid][field] & ( 2**i ) ) {
+                            if ( comma ) text += ", ";
+                            comma = true;
+                            text += seechange.Exposure.pipeline_products[i];
+                        }
+                    }
+                    td = rkWebUtil.elemaker( "td", tr, { "text": text } );
+                }
+                else if ( field == "process_provid" ) {
+                }
+                else if ( ( field == "process_memory" ) || ( field == "process_runtime" ) ) {
+                    // We want the processes to show up in a certain order,
+                    //  so sort them using steporder (above) to define that order.
+                    let procs = Object.getOwnPropertyNames( this.reports[secid][field] );
+                    procs.sort( (a, b) => {
+                        if ( steporder.hasOwnProperty(a) && steporder.hasOwnProperty(b) ) {
+                            if ( steporder[a] < steporder[b] )
+                                return -1
+                            else if ( steporder[b] < steporder[a] )
+                                return 1
+                            else
+                                return 0;
+                        }
+                        else if ( steporder.hasOwnProperty(a) ) {
+                            return -1;
+                        }
+                        else if ( steporder.hasOwnProperty(b) ) {
+                            return 1;
+                        }
+                        else {
+                            return 0;
+                        }
+                    } );
+                    td = rkWebUtil.elemaker( "td", tr );
+                    let subtab = rkWebUtil.elemaker( "table", td, { "classes": [ "borderless" ] } );
+                    for ( let proc of procs ) {
+                        let subtr = rkWebUtil.elemaker( "tr", subtab );
+                        rkWebUtil.elemaker( "th", subtr, { "text": proc,
+                                                           "attributes": {
+                                                               "style": "text-align: right; padding-right: 1em"
+                                                           }
+                                                         } );
+                        if ( field == "process_memory" ) {
+                            rkWebUtil.elemaker( "td", subtr, {
+                                "text": seechange.nullorfixed( this.reports[secid][field][proc], 1 ) + " MiB"
+                            } );
+                        }
+                        else {
+                            rkWebUtil.elemaker( "td", subtr, {
+                                "text": seechange.nullorfixed( this.reports[secid][field][proc], 2 ) + " s"
+                            } );
+                        }
+                    }
+                }
+                else if ( field == "warnings" ) {
+                    td = rkWebUtil.elemaker( "td", tr );
+                    span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ],
+                                                             "text": "(hover to see)" } );
+                    ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+                    ttspan.innerHTML = this.reports[secid][field].replaceAll( "\n", "<br>" );
+                }
+                else if ( field == "error" ) {
+                    td = rkWebUtil.elemaker( "td", tr );
+                    span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ],
+                                                             "text": ( this.reports[secid]['error_type']
+                                                                       + " in step "
+                                                                       + this.reports[secid]['error_step'] )
+                                                           } );
+                    ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } );
+                    ttspan.innerHTML = this.reports[secid]['error_message'].replaceAll( "\n", "<br>" );
+                }
+                else {
+                    td = rkWebUtil.elemaker( "td", tr, { "text": this.reports[secid][field] } )
+                }
+            }
+        }
+    }
+
 
     // ****************************************
 

@@ -597,6 +597,26 @@ class ExposureImages( BaseView ):
 
 # ======================================================================
 
+class ExposureReports( BaseView ):
+    def do_the_things( self, expid, provtag ):
+        q, subdict = Report.query_for_reports( provtag )
+        q = f"SELECT e._id,r.* FROM exposures e INNER JOIN ({q}) r ON e._id=r.exposure_id WHERE e._id=%(expid)s";
+        subdict['expid'] = expid
+        cursor = self.conn.cursor()
+        cursor.execute( q, subdict )
+        columns = { cursor.description[i][0]: i for i in range( len(cursor.description) ) }
+        rows = cursor.fetchall()
+
+        retval = { 'status': 'ok',
+                   'reports': {} }
+        for row in rows:
+            retval['reports'][row[columns['section_id']]] = { c: row[columns[c]] for c in columns }
+
+        return retval
+
+
+# ======================================================================
+
 class PngCutoutsForSubImage( BaseView ):
     def do_the_things(  self, exporsubid, provtag, issubid, nomeas, limit=None, offset=0 ):
         exporsubid = asUUID( exporsubid )
@@ -1100,6 +1120,7 @@ urls = {
     "/projects": Projects,
     "/exposures": Exposures,
     "/exposure_images/<expid>/<provtag>": ExposureImages,
+    "/exposure_reports/<expid>/<provtag>": ExposureReports,
     "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>": PngCutoutsForSubImage,
     "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>": PngCutoutsForSubImage,
     ( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"

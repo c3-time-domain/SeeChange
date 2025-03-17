@@ -49,8 +49,8 @@ pipeline:
   #   here as a reminder to make the
   #   change if you're interactively
   #   futzing around with the webap.
-  inject_fakes: false
-  # inject_fakes: true
+  # inject_fakes: false
+  inject_fakes: true
 
 # Need the sep box and filt size for historical reasons
 #  (These used to be the defaults, so some test results

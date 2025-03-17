@@ -913,6 +913,8 @@ class SeeChangeBase:
                 value = [v.item() if isinstance(v, np.number) else v for v in value]
             if isinstance(value, dict):
                 value = {k: v.item() if isinstance(v, np.number) else v for k, v in value.items()}
+            if isinstance( value, datetime.datetime ):
+                value = value.isoformat()
 
             if key == 'md5sum' and value is not None:
                 if isinstance(value, UUID):
@@ -949,7 +951,7 @@ class SeeChangeBase:
                 value = value.isoformat()
 
             if isinstance(value, (datetime.datetime, np.ndarray)):
-                raise TypeError('Found some columns with non-standard types. Please parse all columns! ')
+                raise TypeError( f"Column {key} has type {type(value)} which I don't know how to parse." )
 
             output[key] = value
 

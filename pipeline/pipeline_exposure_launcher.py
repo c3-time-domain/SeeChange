@@ -170,6 +170,8 @@ class ExposureLauncher:
                                                         knownexp.identifier,
                                                         knownexp.params,
                                                         self.numprocs,
+                                                        self.cluster_id,
+                                                        self.node_id,
                                                         onlychips=self.onlychips,
                                                         through_step=self.through_step,
                                                         verify=self.verify,

@@ -97,6 +97,10 @@ table.borderedcells tr td { padding-left: 1ex;
 
 tr.greybg { background: var(--lots-faded-color); }
 
+table.borderless { border: none }
+table.borderless th { border: none; font-weight: bold }
+table.borderless td { border: none; padding: 0px }
+
 table.exposurelist td { border: 2px solid var(--half-faded-color); }
 tr.heldexposure { font-style: italic; color: var(--some-faded-color); }
 

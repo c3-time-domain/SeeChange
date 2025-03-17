@@ -1,6 +1,7 @@
 import re
 import copy
 import uuid
+import datetime
 import simplejson
 
 import flask
@@ -10,10 +11,12 @@ from models.base import SmartSession
 from models.user import AuthUser
 
 
-class UUIDJSONEncoder( simplejson.JSONEncoder ):
+class UUIDandDatetimeJSONEncoder( simplejson.JSONEncoder ):
     def default( self, obj ):
         if isinstance( obj, uuid.UUID ):
             return str(obj)
+        elif isinstance( obj, datetime.datetime ):
+            return obj.isoformat()
         else:
             return super().default( obj )
 
@@ -88,7 +91,7 @@ class BaseView( flask.views.View ):
                 #   writes out NaN which is not standard JSON and which
                 #   the javascript JSON parser chokes on.  Sigh.
                 if isinstance( retval, dict ) or isinstance( retval, list ):
-                    return ( simplejson.dumps( retval, ignore_nan=True, cls=UUIDJSONEncoder ),
+                    return ( simplejson.dumps( retval, ignore_nan=True, cls=UUIDandDatetimeJSONEncoder ),
                              200, { 'Content-Type': 'application/json' } )
                 elif isinstance( retval, str ):
                     return retval, 200, { 'Content-Type': 'text/plain; charset=utf-8' }
