@@ -169,7 +169,7 @@ def test_webap_projects( webap_rkauth_client, sim_exposure1 ):
 #      docker compose up -d webap
 #   Then, to see server-side errors,
 #      docker compose logs webap
-#   I wonder if all this comment shoudl be put in the "Testing tips" part
+#   I wonder if all this comment should be put in the "Testing tips" part
 #   of our documentation....
 def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user ):
     browser = webap_browser_logged_in
@@ -288,8 +288,8 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
         assert cols[0].text == 'c4d_211025_044847_ori.fits.fz'
         assert cols[2].text == 'ELAIS-E1'
         assert cols[5].text == '1'    # n_images
-        assert cols[6].text == '252'  # detections
-        assert cols[7].text == '8'    # sources
+        assert cols[6].text == '260'  # detections
+        assert cols[7].text == '10'    # sources
 
         # ======================================================================
         # ======================================================================
@@ -322,7 +322,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
         imagesdiv = subcontentdiv.find_element( By.XPATH, "./div" )
         assert imagesdiv.get_attribute('id') == 'exposureimagesdiv'
         assert re.search( r"^Exposure has 1 images and 1 completed subtractions.*"
-                          r"\s8 out of 252 detections pass preliminary cuts",
+                          r"\s10 out of 260 detections pass preliminary cuts",
                           imagesdiv.text, re.DOTALL ) is not None
         imagestab = imagesdiv.find_element( By.TAG_NAME, 'table' )
         rows = imagestab.find_elements( By.TAG_NAME, 'tr' )

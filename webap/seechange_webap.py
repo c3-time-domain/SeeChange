@@ -967,8 +967,8 @@ class FakeAnalysisData( BaseView ):
         expid = asUUID( expid )
 
         # Applying the provenance tag filter to the deepscore set, because
-        #   that's the lowest thing down on the chain.  (FakeSet and
-        #   FakeAnalysis provenances don't get tagged.)
+        #   that's the lowest thing down on the chain.  (FakeAnalysis doesn't
+        #   have a provenance, and FakeSet's provenance doesn't get tagged.)
         q = ( "SELECT fa._id AS fakeanal_id, fa.filepath AS fakeanal_filepath, "
               "       fs._id AS fakeset_id, fs.filepath AS fakeset_filepath, "
               "       i.section_id, zp.zp "
@@ -998,10 +998,10 @@ class FakeAnalysisData( BaseView ):
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
         rows = cursor.fetchall()
 
-        # It's possible we'll get multple rows back even with a single section id, because somebody
-        #   could have rerun the pipeline using a different random seed for the fake injection.
-        #   So, each value in the sections dictionary is itself an array.  (Which will contain a
-        #   dictionary of values, many of which are arrays.  dict→dict→array→dict→arrays.... ufda.)
+        # It's possible we'll get multple rows back even with a single section id, because somebody could have
+        #   rerun the pipeline using a different random seed for the fake injection.  (But see Issue #444.)
+        #   So, each value in the sections dictionary is itself an array.  (Which will contain a dictionary of
+        #   values, many of which are arrays.  dict→dict→array→dict→arrays.... ufda.)
 
         retval = { 'status': 'ok',
                    'sections': {} }

@@ -67,7 +67,7 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                                       parameters={ 'kaglorky': 32768 } )
             basewcsprov.insert_if_needed()
             extrawcsprov = Provenance( code_version_id=code_version.id,
-                                       process='astrlcal',
+                                       process='astrocal',
                                        upstreams=[extrasrcprov],
                                        parameters={ 'kaglorky': 4096 } )
             extrawcsprov.insert_if_needed()
