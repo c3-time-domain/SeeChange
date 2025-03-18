@@ -42,7 +42,8 @@ from util.logger import SCLogger
 # to putting in the breakpoint.
 @pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
 def test_exposure_launcher( conductor_connector,
-                            conductor_config_for_decam_pull,
+                            conductor_config_decam_pull_all_held,
+                            conductor_config,
                             decam_elais_e1_two_references,
                             user, admin_user ):
     # This is just a basic test that the exposure launcher runs.  It does
@@ -51,24 +52,22 @@ def test_exposure_launcher( conductor_connector,
 
     decam_exposure_name = 'c4d_230702_080904_ori.fits.fz'
 
-    # Hold all exposures
+    # Figoure out our known exposure id and unhold our exposure
     data = conductor_connector.send( "conductor/getknownexposures" )
-    tohold = []
     idtodo = None
-    for ke in data['knownexposures']:
+    for ke in data['knowexposures']:
         if ke['identifier'] == decam_exposure_name:
             idtodo = ke['id']
-        else:
-            tohold.append( ke['id'] )
     assert idtodo is not None
-    res = conductor_connector.send( "conductor/holdexposures/", { 'knownexposure_ids': tohold } )
+    res = conductor_connector.send( "conductor/releaseexposures/", { 'knownexposure_ids': [ idtodo ] } )
 
-    # Make sure the right things got held
+    # Make sure the right things are held
     with SmartSession() as session:
         kes = session.query( KnownExposure ).all()
     assert all( [ ke.hold for ke in kes if str(ke.id) != idtodo ] )
     assert all( [ not ke.hold for ke in kes if str(ke.id) == idtodo ] )
 
+    # Make our launcher
     elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'], verify=False,
                                 worker_log_level=logging.DEBUG )
     elaunch.register_worker()
@@ -141,22 +140,6 @@ def test_exposure_launcher( conductor_connector,
             sub.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
         for img in images:
             img.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
-        # Before deleting the exposure, we have to make sure it's not referenced in the
-        #  knownexposures table
-        if exposure is None:
-            kes = []
-        else:
-            with SmartSession() as session:
-                kes = session.query( KnownExposure ).filter( KnownExposure.exposure_id==exposure.id ).all()
-        for ke in kes:
-            ke.exposure_id = None
-            ke.upsert()
-
-        # WORRY -- I think this is deleting something that shouldn't get deleted until
-        #  the decam_exposure session fixture cleans up.  Because this test tends to be
-        #  one of the last ones that runs, this hasn't bitten us, but it could.
-        if exposure is not None:
-            exposure.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
 
         # There will also have been a whole bunch of calibrator files.
         # Don't delete those, because the decam_default_calibrators

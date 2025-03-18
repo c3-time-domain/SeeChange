@@ -14,6 +14,7 @@ from models.knownexposure import KnownExposure
 from pipeline.exposure_processor import ExposureProcessor
 from pipeline.top_level import Pipeline
 
+
 class ExposureLauncher:
     """A class that polls the conductor asking for things to do, launching a pipeline when one is found.
 
@@ -200,7 +201,7 @@ class ExposureLauncher:
                                                         self.cluster_id,
                                                         self.node_id,
                                                         onlychips=self.onlychips,
-                                                        through_step=self.through_step,
+                                                        through_step=through_step,
                                                         verify=self.verify,
                                                         worker_log_level=self.worker_log_level )
                 exposure_processor.start_work()
