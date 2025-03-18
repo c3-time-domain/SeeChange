@@ -826,8 +826,6 @@ class SeeChangeBase:
 
         """
 
-        SCLogger.debug( f"{self.__class__.__name__}.delete_from_disk_and_database {self.id}..." )
-
         if not remove_downstreams:
             warnings.warn( "Setting remove_downstreams to False in delete_from_disk_and_database "
                            "is probably a bad idea; see docstring." )
@@ -835,19 +833,16 @@ class SeeChangeBase:
         # Recursively remove downstreams first
 
         if remove_downstreams:
-            SCLogger.debug( f"Removing {self.__class__.__name__} downstreams" )
             downstreams = self.get_downstreams()
             if downstreams is not None:
                 for d in downstreams:
                     if hasattr( d, 'delete_from_disk_and_database' ):
                         d.delete_from_disk_and_database( remove_folders=remove_folders, archive=archive,
                                                          remove_downstreams=True )
-            SCLogger.debug( f"...done removing {self.__class__.__name__} downstreams" )
 
         # Remove files from archive
 
         if archive and hasattr( self, "filepath" ):
-            SCLogger.debug( f"Removing {self.__class__.__name__} from archive" )
             if self.filepath is not None:
                 if self.components is None:
                     self.archive.delete( self.filepath, okifmissing=True )
@@ -860,24 +855,18 @@ class SeeChangeBase:
             self.md5sum = None
             self.md5sum_components = None
 
-            SCLogger.debug( f"...done removing {self.__class__.__name__} from archive" )
-
         # Remove data from disk
 
         if hasattr( self, "remove_data_from_disk" ):
-            SCLogger.debug( f"Removing {self.__class__.__name__} from disk..." )
             self.remove_data_from_disk( remove_folders=remove_folders )
             # make sure these are set to null just in case we fail
             # to commit later on, we will at least know something is wrong
             self.components = None
             self.filepath = None
-            SCLogger.debug( f"...done removing {self.__class__.__name__} from disk." )
 
         # Finally, after everything is cleaned up, remove the database record
 
-        SCLogger.debug( f"Removing {self.__class__.__name__} from database..." )
         self._delete_from_database()
-        SCLogger.debug( f"...done removing {self.__class__.__name__} from database." )
 
 
     def to_dict(self):

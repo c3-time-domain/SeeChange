@@ -51,7 +51,7 @@ class Report(Base, UUIDMixin):
     #   we try to save the report to the database.  (Originally, reports
     #   assumed they came off of an exposure, and the pipeline assumes
     #   exposure are committed before starting.  The pipeline is able to
-    #   run on an image that's committed to the database, however.)
+    #   run on an image that's not committed to the database, however.)
     image_id = sa.Column(
         # sa.ForeignKey( 'images._id', ondelete='CASCADE', name='reports_image_id_fkey' ),
         sqlUUID,

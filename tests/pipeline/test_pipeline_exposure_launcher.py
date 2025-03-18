@@ -253,36 +253,10 @@ def test_exposure_launcher( conductor_connector,
             assert len(meas0) == 2
             assert len(meas1) == 4
 
-        import pdb; pdb.set_trace()
-        pass
-
     finally:
         # Deleting the exposure should cascade to everything else
 
         delete_exposure( decam_exposure_name )
-        # # Try to clean up everything.  If we delete the exposure, the two images and two subtraction images,
-        # #   that should cascade to most everything else.
-        # with SmartSession() as session:
-        #     exposure = ( session.query( Exposure ).join( KnownExposure )
-        #                  .filter( KnownExposure.exposure_id==Exposure._id ) ).first()
-        #     if exposure is None:
-        #         images = []
-        #         imgids = []
-        #         subs = []
-        #     else:
-        #         images = session.query( Image ).filter( Image.exposure_id==exposure.id ).all()
-        #         imgids = [ i.id for i in images ]
-        #         subs = ( session.query( Image )
-        #                  .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
-        #                  .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id )
-        #                  .join( WorldCoordinates, WorldCoordinates._id==ZeroPoint.wcs_id )
-        #                  .join( SourceList, SourceList._id==WorldCoordinates.sources_id )
-        #                  .filter( SourceList.image_id.in_( imgids ) )
-        #                 ).all()
-        # for sub in subs:
-        #     sub.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
-        # for img in images:
-        #     img.delete_from_disk_and_database( remove_folders=True, remove_downstreams=True, archive=True )
 
         # There will also have been a whole bunch of calibrator files.
         # Don't delete those, because the decam_default_calibrators

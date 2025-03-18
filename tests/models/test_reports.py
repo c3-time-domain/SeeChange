@@ -139,7 +139,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert rep.success
         assert asUUID( rep.exposure_id ) == asUUID( ds.exposure.id )
         assert rep.section_id == ds.section_id
-        assert rep.image_id is None
+        assert rep.image_id is not None
         assert set( rep.process_provid.keys() ) == set( ds.prov_tree.keys() )
         assert all( [ rep.process_provid[k] == ds.prov_tree[k].id for k in ds.prov_tree.keys() ] )
         runtimes = rep.process_runtime.copy()
@@ -156,7 +156,6 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert rep.products_committed == ('image, sources, psf, bg, wcs, zp, '
                                           'sub_image, detections, cutouts, measurement_set, deepscore_set')
     finally:
-        import pdb; pdb.set_trace()
         if 'ds' in locals():
             ds.delete_everything()
 

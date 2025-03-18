@@ -655,8 +655,8 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
         obj_to_process_step = {
             'preprocessor': 'preprocessing',
             'extractor': 'extraction',
-            'astrometor': 'astrocal',
-            'photometor': 'photocal',
+            'astrometor': 'wcs',
+            'photometor': 'zp',
             'subtractor': 'subtraction',
             'detector': 'detection',
             'cutter': 'cutting',
