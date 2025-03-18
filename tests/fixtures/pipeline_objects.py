@@ -64,7 +64,7 @@ def extractor(extractor_factory):
 def astrometor_factory(test_config):
 
     def make_astrometor():
-        astrom = AstroCalibrator(**test_config.value('wcs'))
+        astrom = AstroCalibrator(**test_config.value('astrocal'))
         astrom.pars._enforce_no_new_attrs = False
         astrom.pars.test_parameter = astrom.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -85,7 +85,7 @@ def astrometor(astrometor_factory):
 def photometor_factory(test_config):
 
     def make_photometor():
-        photom = PhotCalibrator(**test_config.value('zp'))
+        photom = PhotCalibrator(**test_config.value('photocal'))
         photom.pars._enforce_no_new_attrs = False
         photom.pars.test_parameter = photom.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True

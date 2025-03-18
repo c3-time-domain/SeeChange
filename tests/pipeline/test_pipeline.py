@@ -173,8 +173,8 @@ def test_parameters( test_config ):
     overrides = {
         'preprocessing': { 'steps': [ 'overscan', 'linearity'] },
         'extraction': {'threshold': 3.14 },
-        'wcs': {'cross_match_catalog': 'override'},
-        'zp': {'cross_match_catalog': 'override'},
+        'astrocal': {'cross_match_catalog': 'override'},
+        'photocal': {'cross_match_catalog': 'override'},
         'subtraction': { 'method': 'override' },
         'detection': { 'threshold': 3.14 },
         'cutting': { 'cutout_size': 666 },
@@ -191,8 +191,8 @@ def test_parameters( test_config ):
 
     assert check_override(overrides['preprocessing'], pipeline.preprocessor.pars)
     assert check_override(overrides['extraction'], pipeline.extractor.pars)
-    assert check_override(overrides['wcs'], pipeline.astrometor.pars)
-    assert check_override(overrides['zp'], pipeline.photometor.pars)
+    assert check_override(overrides['astrocal'], pipeline.astrometor.pars)
+    assert check_override(overrides['photocal'], pipeline.photometor.pars)
     assert check_override(overrides['subtraction'], pipeline.subtractor.pars)
     assert check_override(overrides['detection'], pipeline.detector.pars)
     assert check_override(overrides['cutting'], pipeline.cutter.pars)
@@ -655,8 +655,8 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
         obj_to_process_step = {
             'preprocessor': 'preprocessing',
             'extractor': 'extraction',
-            'astrometor': 'wcs',
-            'photometor': 'zp',
+            'astrometor': 'astrocal',
+            'photometor': 'photocal',
             'subtractor': 'subtraction',
             'detector': 'detection',
             'cutter': 'cutting',

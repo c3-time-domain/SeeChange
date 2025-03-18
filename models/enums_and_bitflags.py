@@ -530,8 +530,8 @@ class BitFlagConverter( EnumConverter ):
 process_steps_dict = {
     1: 'preprocessing',   # creates an Image from a section of the Exposure
     2: 'extraction',      # creates a SourceList, PSF, and Background from an Image
-    4: 'wcs',             # creates a WorldCoordinates from the SourceList and GAIA catalogs
-    5: 'zp',              # creates s ZeroPoint from the SourceList and GAIA catalogs
+    4: 'astrocal',        # creates a WorldCoordinates from the SourceList and GAIA catalogs
+    5: 'photocal',        # creates s ZeroPoint from the SourceList and GAIA catalogs
     6: 'subtraction',     # creates a subtraction Image
     7: 'detection',       # creates a SourceList from a subtraction Image
     8: 'cutting',         # creates Cutouts from a subtraction Image

@@ -55,8 +55,8 @@ def test_hostless_fakeinjection( decam_datastore_through_zp, fakeinjector ):
     assert ds.prov_tree != origds.prov_tree
     assert 'fakeinjection' in ds.prov_tree
     assert 'fakeinjection' in ds.prov_tree.upstream_steps
-    assert ds.prov_tree.upstream_steps['fakeinjection' ] == [ 'zp' ]
-    assert [ p.id for p in ds.prov_tree['fakeinjection'].upstreams ] == [ ds.prov_tree['zp'].id ]
+    assert ds.prov_tree.upstream_steps['fakeinjection' ] == [ 'photocal' ]
+    assert [ p.id for p in ds.prov_tree['fakeinjection'].upstreams ] == [ ds.prov_tree['photocal'].id ]
     assert ds.prov_tree.upstream_steps['subtraction'] == [ 'referencing', 'fakeinjection' ]
     assert ( set( p.id for p in ds.prov_tree['subtraction'].upstreams )
              ==  { ds.prov_tree['referencing'].id, ds.prov_tree['fakeinjection'].id } )

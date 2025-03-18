@@ -76,8 +76,8 @@ seechange.Exposure = class
     static process_steps = {
         1: 'preprocessing',
         2: 'extraction',
-        4: 'wcs',
-        5: 'zp',
+        4: 'astrocal',
+        5: 'photocal',
         6: 'subtraction',
         7: 'detection',
         8: 'cutting',

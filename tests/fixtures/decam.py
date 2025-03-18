@@ -477,18 +477,13 @@ def decam_datastore_through_extraction( decam_exposure, decam_partial_datastore_
 
 
 @pytest.fixture
-def decam_datastore_through_bg( decam_exposure, decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( decam_exposure, 'bg' )
-
-
-@pytest.fixture
 def decam_datastore_through_wcs( decam_exposure, decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( decam_exposure, 'wcs' )
+    return decam_partial_datastore_factory( decam_exposure, 'astrocal' )
 
 
 @pytest.fixture
 def decam_datastore_through_zp( decam_exposure, decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( decam_exposure, 'zp' )
+    return decam_partial_datastore_factory( decam_exposure, 'photocal' )
 
 
 @pytest.fixture

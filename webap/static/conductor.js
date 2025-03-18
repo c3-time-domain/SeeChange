@@ -652,7 +652,7 @@ seechange.PipelineWorkers = class
 // **********************************************************************
 // Keep this synced with top_leve.py::Pipeline::ALL_STEPS
 
-seechange.Conductor.ALL_STEPS = [ 'preprocessing', 'extraction', 'wcs', 'zp', 'subtraction',
+seechange.Conductor.ALL_STEPS = [ 'preprocessing', 'extraction', 'astrocal', 'photocal', 'subtraction',
                                   'detection', 'cutting', 'measuring', 'scoring', ];
 
 

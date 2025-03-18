@@ -73,7 +73,7 @@ class ExposureProcessor:
             SCLogger.info( f"Processing chip {chip} in process {me.name} PID {me.pid}" )
             pipeline = Pipeline( pipeline={ 'through_step': self.through_step } )
             kwargs = {}
-            if self.through_step in [ 'preprocessing', 'backgrounding', 'extraction', 'wcs', 'zp' ]:
+            if self.through_step in [ 'preprocessing', 'backgrounding', 'extraction', 'astrocal', 'photocal' ]:
                 kwargs['ok_no_ref_prov'] = True
             ds = pipeline.run( self.exposure, chip, **kwargs )
             ds.save_and_commit()

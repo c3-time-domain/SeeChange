@@ -267,7 +267,7 @@ class DECamRefFetcher:
             #   step.
             save_on_exception = True # False     # Only set to true for developing/debugging
             ds = DataStore( exposure, section_id )
-            pipeline = Pipeline( pipeline={ 'through_step': 'zp',
+            pipeline = Pipeline( pipeline={ 'through_step': 'photocal',
                                             'save_before_subtraction': True,
                                             'save_on_exception': save_on_exception, },
                                  preprocessing={ 'preprocessing': 'noirlab_instcal',

@@ -201,7 +201,7 @@ def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cach
         overrides={'extraction': {'threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
         bad_pixel_map=ptf_bad_pixel_map,
         provtag='ptf_datastore',
-        through_step='zp'
+        through_step='photocal'
     )
 
     # Just make sure through_step did what it was supposed to
@@ -681,7 +681,7 @@ def ptf_subtraction1_datastore( ptf_ref, ptf_supernova_image_datastores, subtrac
     ds.edit_prov_tree( 'referencing', prov=Provenance.get( ptf_ref.provenance_id ), new_step=True  )
     subprov = Provenance( process='subtraction',
                           parameters=subtractor.pars.get_critical_pars(),
-                          upstreams=[ds.prov_tree[p] for p in ['referencing','zp']],
+                          upstreams=[ds.prov_tree[p] for p in ['referencing','photocal']],
                           code_version_id=code_version.id,
                           is_testing=True )
     subprov.insert_if_needed()

@@ -124,11 +124,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
             in some tests).
 
           skip_sub: bool, default False
-            Equvialent through_step='zp'; ignored if through_step is not None
+            Equvialent through_step='photocal'; ignored if through_step is not None
 
           through_step: str, default None
             If passed, will only run processing through this step.  One
-            of preprocessing, extraction, bg, wcs, zp, subtraction,
+            of preprocessing, extraction, astrocal, photocal, subtraction,
             detection, cutting, measuring.  (Can't do extraction without
             psf, as those are done in a single function call.)
 
@@ -156,11 +156,11 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         cache_dir = pathlib.Path( cache_dir ) if cache_dir is not None else None
 
-        stepstodo = [ 'preprocessing', 'extraction', 'bg', 'wcs', 'zp',
+        stepstodo = [ 'preprocessing', 'extraction', 'astrocal', 'photocal',
                       'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ]
         if through_step is None:
             if skip_sub:
-                through_step = 'zp'
+                through_step = 'photocal'
             else:
                 through_step = 'scoring'
         dex = stepstodo.index( through_step )
@@ -379,7 +379,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     # Don't copy the image to the cache -- the image database record
                     #  is going to get further modified in subsequent setps.  We don't
                     #  want an incomplete cache if those steps aren't done.
-                    # Image copying to cache happens after the zp step.
+                    # Image copying to cache happens after the photocal step.
                     # However, verify that the thing we will copy to the cache matches
                     #   what was expected.
                     _ = ds.image.id
@@ -506,8 +506,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         ########## Astrometric calibration ##########
 
-        if 'wcs' in stepstodo:
-            filename_barf = ds.prov_tree['wcs'].id[:6]
+        if 'astrocal' in stepstodo:
+            filename_barf = ds.prov_tree['astrocal'].id[:6]
             wcs_cache_path = ( cache_dir / cache_base_path.parent /
                                f'{cache_base_path.name}.wcs_{filename_barf}.txt.json' )
             if use_cache and found_sources_in_cache:
@@ -533,7 +533,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
         ########## Photometric calibration ##########
 
-        if 'zp' in stepstodo:
+        if 'photocal' in stepstodo:
             zp_cache_path = ( cache_dir / cache_base_path.parent /
                               f'{cache_base_path.name}.zp.json' )
             if use_cache and found_sources_in_cache:

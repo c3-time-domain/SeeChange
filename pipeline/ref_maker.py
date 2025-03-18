@@ -303,8 +303,8 @@ class RefMaker:
         coadd_provs = self.coadd_pipeline.make_provenance_tree( None, upstream_provs=upstreams )
         self.coadd_im_prov = coadd_provs['starting_point']
         self.coadd_ex_prov = coadd_provs['extraction']
-        self.coadd_wcs_prov = coadd_provs['wcs']
-        self.coadd_zp_prov = coadd_provs['zp']
+        self.coadd_wcs_prov = coadd_provs['astrocal']
+        self.coadd_zp_prov = coadd_provs['photocal']
 
         pars = self.pars.get_critical_pars()
         code_version = Provenance.get_code_version()
@@ -605,7 +605,7 @@ class RefMaker:
         dses = []
         improv = Provenance.get( images[0].provenance_id )
         zpprov = Provenance.get( self.pars.zp_prov_id )
-        if ( len(zpprov.upstreams) != 1 ) or ( zpprov.upstreams[0].process != 'wcs' ):
+        if ( len(zpprov.upstreams) != 1 ) or ( zpprov.upstreams[0].process != 'astrocal' ):
             raise RuntimeError( "I don't know how to cope" )
         wcsprov = zpprov.upstreams[0]
         if ( len(wcsprov.upstreams) != 1 ) or ( wcsprov.upstreams[0].process != 'extraction' ):

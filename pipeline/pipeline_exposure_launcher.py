@@ -275,7 +275,7 @@ pipelines to process each of the chips in the exposure.
                          help="Only do these sensor sections (for debugging purposese)" )
     parser.add_argument( "-t", "--through-step", default=None,
                          help=( "Only run through this step; default=run everything.  Step can be "
-                                "exposure, preprocessing, extraction, wcs, zp, "
+                                "exposure, preprocessing, extraction, astrocal, photocal, "
                                 "subtraction, detection, cutting, measuring, scoring.  Will run "
                                 "through the earlier of this step or the through step given by the conductor." ) )
     args = parser.parse_args()

@@ -27,8 +27,8 @@ from util.logger import SCLogger
 _PROCESS_OBJECTS = {
     'preprocessing': 'preprocessor',
     'extraction': 'extractor',
-    'wcs': 'astrometor',
-    'zp': 'photometor',
+    'astrocal': 'astrometor',
+    'photocal': 'photometor',
     'subtraction': 'subtractor',
     'detection': 'detector',
     'cutting': 'cutter',
@@ -96,7 +96,7 @@ class ParsPipeline(Parameters):
             None,
             ( None, str ),
             "Stop after this step.  None = run the whole pipeline.  String values can be "
-            "any of preprocessing, extraction, wcs, zp, subtraction, detection, "
+            "any of preprocessing, extraction, astdrocal, photocal, subtraction, detection, "
             "cutting, measuring, scoring.  (See Pipeline.ALL_STEPS)",
             critical=False
         )
@@ -130,7 +130,7 @@ class ParsPipeline(Parameters):
 
 
 class Pipeline:
-    ALL_STEPS = [ 'preprocessing', 'extraction', 'wcs', 'zp', 'subtraction',
+    ALL_STEPS = [ 'preprocessing', 'extraction', 'astrocal', 'photocal', 'subtraction',
                   'detection', 'cutting', 'measuring', 'scoring', ]
 
     def __init__(self, **kwargs):
@@ -154,14 +154,14 @@ class Pipeline:
         self.extractor = Detector(**extraction_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometor_config = config.value('wcs', {})
-        astrometor_config.update(kwargs.get('wcs', {}))
+        astrometor_config = config.value('astrocal', {})
+        astrometor_config.update(kwargs.get('astrocal', {}))
         self.pars.add_defaults_to_dict(astrometor_config)
         self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photometor_config = config.value('zp', {})
-        photometor_config.update(kwargs.get('zp', {}))
+        photometor_config = config.value('photocal', {})
+        photometor_config.update(kwargs.get('photocal', {}))
         self.pars.add_defaults_to_dict(photometor_config)
         self.photometor = PhotCalibrator(**photometor_config)
 
@@ -329,8 +329,8 @@ class Pipeline:
         # The contents of this dictionary must be synced with _PROCESS_OBJECTS above.
         return { 'preprocessing': self.preprocessor.pars.get_critical_pars(),
                  'extraction': self.extractor.pars.get_critical_pars(),
-                 'wcs': self.astrometor.pars.get_critical_pars(),
-                 'zp': self.photometor.pars.get_critical_pars(),
+                 'astrocal': self.astrometor.pars.get_critical_pars(),
+                 'photocal': self.photometor.pars.get_critical_pars(),
                  'subtraction': self.subtractor.pars.get_critical_pars(),
                  'detection': self.detector.pars.get_critical_pars(),
                  'cutting': self.cutter.pars.get_critical_pars(),
@@ -475,8 +475,8 @@ class Pipeline:
 
                 process_objects = { 'preprocessing': self.preprocessor,
                                     'extraction': self.extractor,
-                                    'wcs': self.astrometor,
-                                    'zp': self.photometor,
+                                    'astrocal': self.astrometor,
+                                    'photocal': self.photometor,
                                     'subtraction': self.subtractor,
                                     'detection': self.detector,
                                     'cutting': self.cutter,
@@ -497,7 +497,7 @@ class Pipeline:
                             SCLogger.info( f"{step} complete for image {ds.image.id}" )
 
                         # Maybe we want to do an intermediate save after the zp step
-                        if ( step == 'zp' ) and self.pars.save_before_subtraction:
+                        if ( step == 'photocal' ) and self.pars.save_before_subtraction:
                             t_start = time.perf_counter()
                             try:
                                 SCLogger.info(f"Saving intermediate image for image id {ds.image.id}")

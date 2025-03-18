@@ -1012,13 +1012,13 @@ def bogus_datastore( bogus_image, bogus_sources_and_psf, bogus_bg, bogus_wcs, bo
     ds.edit_prov_tree( ProvenanceTree( { 'starting_point': Provenance.get( ds.image.provenance_id ),
                                          'extraction': Provenance.get( ds.sources.provenance_id ),
                                          'backgrounding': Provenance.get( ds.bg.provenance_id ),
-                                         'wcs': Provenance.get( ds.wcs.provenance_id ),
-                                         'zp': Provenance.get( ds.zp.provenance_id ) },
+                                         'astrocal': Provenance.get( ds.wcs.provenance_id ),
+                                         'photocal': Provenance.get( ds.zp.provenance_id ) },
                                        upstream_steps = { 'starting_point': [],
                                                           'extraction': ['starting_point'],
                                                           'backgrounding': ['extraction'],
-                                                          'wcs': ['extraction'],
-                                                          'zp': ['wcs', 'backgrounding'] } ) )
+                                                          'astrocal': ['extraction'],
+                                                          'photocal': ['astrocal'] } ) )
 
     yield ds
 
