@@ -1315,17 +1315,17 @@ class DataStore:
 
     def get_background(self, session=None, reload=False):
         """Get a Background object, either from memory or from the database."""
-        return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'backgrounding',
+        return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'extraction',
                                        match_prov=False, reload=reload, session=session )
 
     def get_wcs(self, session=None, reload=False, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""
-        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'wcs',
+        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'astrocal',
                                        match_prov=True, provenance=provenance, reload=reload, session=session )
 
     def get_zp(self, session=None, reload=False, provenance=None):
         """Get a zeropoint as a ZeroPoint object, from memory or from the database."""
-        return self._get_data_product( 'zp', ZeroPoint, 'wcs', ZeroPoint.wcs_id, 'zp',
+        return self._get_data_product( 'zp', ZeroPoint, 'wcs', ZeroPoint.wcs_id, 'photocal',
                                        match_prov=True, provenance=provenance, reload=reload, session=session )
 
 

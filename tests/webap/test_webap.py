@@ -346,7 +346,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
         assert sourcesdiv.get_attribute('id') == "exposurecutoutsdiv"
         sourcestable = sourcesdiv.find_element( By.TAG_NAME, 'table' )
         rows = sourcestable.find_elements( By.TAG_NAME, 'tr' )
-        assert len(rows) == 9
+        assert len(rows) == 11
 
         # OMG writing these tests is exhausting.  There is still lots more to do:
         # * actually look at the rows of the sources table
