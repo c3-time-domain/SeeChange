@@ -127,7 +127,7 @@ def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_expos
         session.commit()
 
 
-        # This next one doesn't restore state, be aware.  Treat it as
+# This next one doesn't restore state, be aware.  Treat it as
 #   a variant of conductor_config_for_decam_pull; don't use
 #   both fixtures in the same test.
 @pytest.fixture

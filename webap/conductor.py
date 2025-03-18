@@ -348,7 +348,7 @@ class RequestExposure( ConductorBaseView ):
                                 "WHERE _id=%(id)s",
                                 { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
                 cursor.execute( "SELECT throughstep FROM conductor_config" )
-                throughstep = cursor.fetchone()[0]
+                throughstep = cursor.fetchone()[ 'throughstep' ]
                 dbcon.commit()
 
         if knownexp_id is not None:

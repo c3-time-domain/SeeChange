@@ -187,7 +187,7 @@ class ExposureLauncher:
                         raise
                 if conddex is not None:
                     if mydex is not None:
-                        through_step = Pipeline.ALL_STEPS( min( conddex, mydex ) )
+                        through_step = Pipeline.ALL_STEPS[ min( conddex, mydex ) ]
                     else:
                         through_step = data['through_step']
                 elif mydex is not None:
