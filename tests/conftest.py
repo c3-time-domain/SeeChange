@@ -349,8 +349,28 @@ def rnd_str(n):
 
 
 @pytest.fixture(scope='session', autouse=True)
-def test_config():
+def session_config():
     return Config.get()
+
+    # PROBLEM -- if something
+    #  modifies the config, because
+    #  this is a session fixture, the
+    #  config won't get reset to default!
+    #  Think about how to handle this.
+
+
+@pytest.fixture( autouse=True )
+def test_config():
+    yield Config.get()
+
+    # Just in case the config got modified -- which it will if a
+    # pipeline ran, because it will have run a ConfigChooser -- reset
+    # the the global config to default.
+    test_config_file = os.getenv( "SEECHANGE_CONFIG", None )
+    if test_config_file is None:
+        test_config_file = str((pathlib.Path(__file__).parent.parent
+                                / 'tests' / 'seechange_config_test.yaml').resolve())
+    Config.get(configfile=test_config_file, reread=True, setdefault=True)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -473,24 +493,24 @@ def provenance_extraction(code_version):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def archive_path(test_config):
-    if test_config.value('archive.local_read_dir', None) is not None:
-        archivebase = test_config.value('archive.local_read_dir')
+def archive_path(session_config):
+    if session_config.value('archive.local_read_dir', None) is not None:
+        archivebase = session_config.value('archive.local_read_dir')
     elif os.getenv('SEECHANGE_TEST_ARCHIVE_DIR') is not None:
         archivebase = os.getenv('SEECHANGE_TEST_ARCHIVE_DIR')
     else:
         raise ValueError('No archive.local_read_dir in config, and no SEECHANGE_TEST_ARCHIVE_DIR env variable set')
 
     # archive.path_base is usually /test
-    archivebase = pathlib.Path(archivebase) / pathlib.Path(test_config.value('archive.path_base'))
+    archivebase = pathlib.Path(archivebase) / pathlib.Path(session_config.value('archive.path_base'))
     global ARCHIVE_PATH
     ARCHIVE_PATH = archivebase
     return archivebase
 
 
 @pytest.fixture(scope="session")
-def archive(test_config, archive_path):
-    archive_specs = test_config.value('archive')
+def archive(session_config, archive_path):
+    archive_specs = session_config.value('archive')
     if archive_specs is None:
         raise ValueError( "archive in config is None" )
     archive_specs[ 'logger' ] = SCLogger

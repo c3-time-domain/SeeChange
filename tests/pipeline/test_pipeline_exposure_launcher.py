@@ -117,11 +117,11 @@ def test_exposure_launcher_conductor_through_step( conductor_connector,
     try:
         unhold_decam_exposure( conductor_connector, decam_exposure_name )
 
-        conductor_connector.send( "/conductor/updateparameters/throughstep=zp" )
+        conductor_connector.send( "/conductor/updateparameters/throughstep=photocal" )
         with Psycopg2Connection() as conn:
             cursor = conn.cursor()
             cursor.execute( "SELECT throughstep FROM conductor_config" )
-            assert cursor.fetchone()[0] == 'zp'
+            assert cursor.fetchone()[0] == 'photocal'
 
         elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'], verify=False,
                                     worker_log_level=logging.DEBUG )
@@ -156,11 +156,11 @@ def test_exposure_launcher_through_step( conductor_connector,
     try:
         unhold_decam_exposure( conductor_connector, decam_exposure_name )
 
-        conductor_connector.send( "/conductor/updateparameters/throughstep=zp" )
+        conductor_connector.send( "/conductor/updateparameters/throughstep=photocal" )
         with Psycopg2Connection() as conn:
             cursor = conn.cursor()
             cursor.execute( "SELECT throughstep FROM conductor_config" )
-            assert cursor.fetchone()[0] == 'zp'
+            assert cursor.fetchone()[0] == 'photocal'
 
         elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'], verify=False,
                                     through_step='extraction', worker_log_level=logging.DEBUG )
