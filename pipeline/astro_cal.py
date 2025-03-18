@@ -282,7 +282,7 @@ class AstroCalibrator:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('wcs', self.pars.get_critical_pars())
+            prov = ds.get_provenance('astrocal', self.pars.get_critical_pars())
 
             # try to find the world coordinates in memory or in the database:
             wcs = ds.get_wcs( provenance=prov )
