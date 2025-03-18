@@ -44,12 +44,15 @@ seechange.Conductor = class
                                                   "name": "throughstep_select",
                                                   "selected": ( step=='scoring' ) ? 1 : 0 } } );
         }
-        p = rkWebUtil.elemaker( "p", vbox );
-        this.pickup_partial_checkbox = rkWebUtil.elemaker( "input", p,
-                                                           { "attributes": { "type": "checkbox",
-                                                                             "id": "pickup_partial_checkbox",
-                                                                             "name": "pickup_partial_checkbox" } } );
-        p.appendChild( document.createTextNode( " run partially completed exposures?" ) );
+
+        // UNCOMMENT ALL THIS WHEN IT'S ACTUALLY IMPLEMENTED -- see Issue #446
+        // The conductor doesn't currently consider this when choosing exposures to assign.
+        // p = rkWebUtil.elemaker( "p", vbox );
+        // this.pickup_partial_checkbox = rkWebUtil.elemaker( "input", p,
+        //                                                    { "attributes": { "type": "checkbox",
+        //                                                                      "id": "pickup_partial_checkbox",
+        //                                                                      "name": "pickup_partial_checkbox" } } );
+        // p.appendChild( document.createTextNode( " run partially completed exposures?" ) );
 
         hbox.appendChild( this.pipelineworkers.div );
 

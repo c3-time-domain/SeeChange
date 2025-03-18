@@ -12,7 +12,7 @@ from models.base import SmartSession
 from models.knownexposure import KnownExposure
 
 from pipeline.exposure_processor import ExposureProcessor
-
+from pipeline.top_level import Pipeline
 
 class ExposureLauncher:
     """A class that polls the conductor asking for things to do, launching a pipeline when one is found.
@@ -60,7 +60,9 @@ class ExposureLauncher:
         through_step : str or None
           Parameter passed on to top_level.py::Pipeline, unless it is "exposure"
           in which case all we do is download the exposure and load it into the
-          database.
+          database.  The conductor may also give us a through step.  The pipeline
+          will run through the *earlier* of this parameter, or the parameter
+          passed by the conductor, if both are present.
 
         max_run_time : float, default None
           Normally, when you call an ExposureLauncher it will loop
@@ -166,6 +168,31 @@ class ExposureLauncher:
                                             f"you should never see this error." )
                 knownexp = knownexp[0]
 
+                # Figure out what step we're supposed to run through
+                through_step = None
+                conddex = None
+                mydex = None
+                if self.through_step is not None:
+                    try:
+                        mydex = Pipeline.ALL_STEPS.index( self.through_step )
+                    except ValueError:
+                        SCLogger.error( f"Unknown step {self.through_step}" )
+                        raise
+                if 'through_step' in data:
+                    try:
+                        conddex = Pipeline.ALL_STEPS.index( data['through_step'] )
+                    except ValueError:
+                        SCLogger.error( f"Unknown step {data['through_step']} given by conductor!" )
+                        raise
+                if conddex is not None:
+                    if mydex is not None:
+                        through_step = Pipeline.ALL_STEPS( min( conddex, mydex ) )
+                    else:
+                        through_step = data['through_step']
+                elif mydex is not None:
+                    through_step = self.through_step
+
+                # Run
                 exposure_processor = ExposureProcessor( knownexp.instrument,
                                                         knownexp.identifier,
                                                         knownexp.params,
@@ -247,8 +274,9 @@ pipelines to process each of the chips in the exposure.
                          help="Only do these sensor sections (for debugging purposese)" )
     parser.add_argument( "-t", "--through-step", default=None,
                          help=( "Only run through this step; default=run everything.  Step can be "
-                                "exposure, preprocessing, backgrounding, extraction, wcs, zp, "
-                                "subtraction, detection, cutting, measuring, scoring" ) )
+                                "exposure, preprocessing, extraction, wcs, zp, "
+                                "subtraction, detection, cutting, measuring, scoring.  Will run "
+                                "through the earlier of this step or the through step given by the conductor." ) )
     args = parser.parse_args()
 
     loglookup = { 'error': logging.ERROR,

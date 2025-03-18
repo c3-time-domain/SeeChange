@@ -97,7 +97,7 @@ class ParsPipeline(Parameters):
             ( None, str ),
             "Stop after this step.  None = run the whole pipeline.  String values can be "
             "any of preprocessing, extraction, wcs, zp, subtraction, detection, "
-            "cutting, measuring, scoring",
+            "cutting, measuring, scoring.  (See Pipeline.ALL_STEPS)",
             critical=False
         )
 

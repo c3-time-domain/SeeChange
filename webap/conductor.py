@@ -333,43 +333,29 @@ class RequestExposure( ConductorBaseView ):
         args = self.argstr_to_args( argstr )
         if 'cluster_id' not in args.keys():
             return "cluster_id is required for RequestExposure", 500
-        # Using direct postgres here since I don't really know how to
-        #  lock tables with sqlalchemy.  There is with_for_udpate(), but
-        #  then the documentation has this red-backgrounded warning
-        #  that using this is not recommended when there are
-        #  relationships.  Since I can't really be sure what
-        #  sqlalchemy is actually going to do, just communicate
-        #  with the database the way the database was meant to
-        #  be communicated with.
         knownexp_id = None
-        with SmartSession() as session:
-            dbcon = None
-            cursor = None
-            try:
-                dbcon = session.bind.raw_connection()
-                cursor = dbcon.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
-                cursor.execute( "LOCK TABLE knownexposures" )
-                cursor.execute( "SELECT _id, cluster_id FROM knownexposures "
-                                "WHERE cluster_id IS NULL AND NOT hold "
-                                "ORDER BY mjd LIMIT 1" )
-                rows = cursor.fetchall()
-                if len(rows) > 0:
-                    knownexp_id = rows[0]['_id']
-                    cursor.execute( "UPDATE knownexposures "
-                                    "SET cluster_id=%(cluster_id)s, claim_time=NOW() "
-                                    "WHERE _id=%(id)s",
-                                    { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
-                    dbcon.commit()
-            except Exception:
-                raise
-            finally:
-                if cursor is not None:
-                    cursor.close()
-                if dbcon is not None:
-                    dbcon.rollback()
+        with Psycopg2Connection() as dbcon:
+            cursor = dbcon.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
+            cursor.execute( "LOCK TABLE knownexposures" )
+            cursor.execute( "SELECT _id, cluster_id FROM knownexposures "
+                            "WHERE cluster_id IS NULL AND NOT hold "
+                            "ORDER BY mjd LIMIT 1" )
+            rows = cursor.fetchall()
+            if len(rows) > 0:
+                knownexp_id = rows[0]['_id']
+                cursor.execute( "UPDATE knownexposures "
+                                "SET cluster_id=%(cluster_id)s, claim_time=NOW() "
+                                "WHERE _id=%(id)s",
+                                { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
+                cursor.execute( "SELECT throughstep FROM conductor_config" )
+                throughstep = cursor.fetchone()[0]
+                dbcon.commit()
 
         if knownexp_id is not None:
-            return { 'status': 'available', 'knownexposure_id': knownexp_id }
+            return { 'status': 'available',
+                     'knownexposure_id': knownexp_id,
+                     'through_step': throughstep
+                    }
         else:
             return { 'status': 'not available' }
 
