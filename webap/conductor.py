@@ -441,6 +441,40 @@ class ReleaseExposures( HoldReleaseExposures ):
 
 
 # ======================================================================
+
+class DeleteKnownExposures( ConductorBaseView ):
+    def do_the_things( self ):
+        args = flask.request.json
+        if 'knownexposure_ids' not in args:
+            return "Error, must pass knownexposure_ids in JSON post body", 500
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "DELETE FROM knownexposures WHERE _id IN %(expids)s",
+                            { 'expids': tuple( args['knownexposure_ids'] ) } )
+            ndel = cursor.rowcount
+            conn.commit()
+            return { 'status': 'ok', 'num_deleted': ndel }
+
+
+# ======================================================================
+
+class ClearClusterClaim( ConductorBaseView ):
+    def do_the_things( self ):
+        args = flask.request.json
+        if 'knownexposure_ids' not in args:
+            return "Error, must pass knownexposure_ids in JSON post body", 500
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "UPDATE knownexposures SET cluster_id=NULL, node_id=NULL, machine_name=NULL, "
+                            "  claim_time=NULL, start_time=NULL, release_time=NULL "
+                            "WHERE _id IN %(expids)s",
+                            { 'expids': tuple( args['knownexposure_ids'] ) } )
+            nmod = cursor.rowcount
+            conn.commit()
+            return { 'status': 'ok', 'num_cleared': nmod }
+
+
+# ======================================================================
 # Do initialization; create and configure the sub web ap (i.e. flask blueprint)
 
 ConductorBaseView.restore_conductor_state()
@@ -463,6 +497,8 @@ urls = {
     "/getknownexposures/<path:argstr>": GetKnownExposures,
     "/holdexposures": HoldExposures,
     "/releaseexposures": ReleaseExposures,
+    "/deleteknownexposures": DeleteKnownExposures,
+    "/clearclusterclaim": ClearClusterClaim,
 }
 
 usedurls = {}
