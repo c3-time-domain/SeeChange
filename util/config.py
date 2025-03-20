@@ -318,30 +318,6 @@ class Config:
             return Config( clone=Config._configs[configfile] )
 
 
-    @staticmethod
-    def clone( configfile=None, reread=False ):
-        """Returns a config object.
-
-        Parameters
-        ----------
-        configfile: str or Path, default None
-
-        reread: bool
-
-        Returns
-        -------
-            Config object
-
-        Will call "get" on the passed configfile, but will *not* return
-        the singleton object for that config file.  Rather, will make a
-        deep copy of it, and return that.  That gives you a config file
-        that you can muck about with to your heart's content without
-        worrying about messing things up elsewhere.
-        """
-
-        raise RuntimeError( "Don't use this, use Config.get() with static=False" )
-
-
     def __init__( self, configfile=None, clone=None ):
         """Don't call this, call static method Config.get().
 
