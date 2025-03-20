@@ -1,13 +1,10 @@
-import sys
 import os
 import pathlib
 import pytest
 
-_rundir = pathlib.Path(__file__).parent
-if str(_rundir.parent) not in sys.path:
-    sys.path.insert(0, str(_rundir.parent ) )
 from util import config
-# from util.logger import SCLogger
+
+_rundir = pathlib.Path(__file__).parent
 
 # A note about pytest: Things aren't completely sandboxed.  When I call
 # config.Config.get(), it sets Config._default, and that carries over
@@ -18,14 +15,16 @@ from util import config
 class TestConfig:
     @pytest.fixture(scope='class')
     def cfg(self):
-        # SCLogger.debug('setting up a config object with a spoof yaml file just for testing the config mechanism. ')
-        return config.Config.get(_rundir / 'test.yaml', setdefault=False)  # retain the default for other tests
+        # We don't want to set the default config, because the config
+        #   here is just for these tests.  All the other tests need
+        #   what's in tests/seechange_config_test.yaml
+        return config.Config.get(_rundir / 'test.yaml', setdefault=False)
 
     def test_default_default( self ):
         # make sure that when we load a config without parameters,
         # it uses the default config file
-        default_config_path = (_rundir.parent.parent / 'default_config.yaml').resolve()
-        default_config_path = os.getenv('SEECHANGE_CONFIG', default_config_path)
+        default_config_path = os.getenv( 'SEECHANGE_CONFIG' )
+        assert default_config_path is not None
         assert config.Config._default_default == str(default_config_path)
 
     def test_config_path( self, cfg ):
@@ -106,49 +105,58 @@ class TestConfig:
         assert cfg.value( 'nest.nest1.0.nest1a.foo', 'bar') == 'bar'
 
     def test_set(self, cfg):
+        clone = config.Config.get( cfg._path, static=False )
+        assert config.Config.get( cfg._path ) is cfg
+        assert config.Config.get( cfg._path ) is not clone
+
+        with pytest.raises( RuntimeError, match="Not permitted to modify static Config object." ):
+            cfg.set_value( 'mainscalar1', 'this_should_not_work' )
+        assert cfg.value( 'mainscalar1' ) != 'this_should_not_work'
+
         with pytest.raises( TypeError, match="Tried to add a non-integer field to a list." ):
-            cfg.set_value( 'settest.list.notanumber', 'kitten', appendlists=True )
+            clone.set_value( 'settest.list.notanumber', 'kitten', appendlists=True )
         with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
-            cfg.set_value( 'settest.0', 'puppy' )
+            clone.set_value( 'settest.0', 'puppy' )
         with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
-            cfg.set_value( 'settest.0.subset', 'bunny' )
+            clone.set_value( 'settest.0.subset', 'bunny' )
         with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
-            cfg.set_value( 'settest.dict.0', 'iguana' )
+            clone.set_value( 'settest.dict.0', 'iguana' )
         with pytest.raises( TypeError, match="Tried to add an integer field to a dict." ):
-            cfg.set_value( 'settest.dict.2.something', 'tarantula' )
+            clone.set_value( 'settest.dict.2.something', 'tarantula' )
 
-        cfg.set_value( 'settest.list.0', 'mouse', appendlists=True )
-        assert cfg.value('settest.list.2') == 'mouse'
-        cfg.set_value( 'settest.list.5', 'mongoose' )
-        assert cfg.value('settest.list') == [ 'mongoose' ]
+        clone.set_value( 'settest.list.0', 'mouse', appendlists=True )
+        assert clone.value('settest.list.2') == 'mouse'
+        assert cfg.value('settest.list') == [ 'a', 'b' ]
+        clone.set_value( 'settest.list.5', 'mongoose' )
+        assert clone.value('settest.list') == [ 'mongoose' ]
+        assert cfg.value('settest.list') == [ 'a', 'b' ]
 
-        cfg.set_value( 'settest.dict.newkey', 'newval' )
-        assert cfg.value( 'settest.dict' ) == { 'key1': 'val1',
+        clone.set_value( 'settest.dict.newkey', 'newval' )
+        assert clone.value( 'settest.dict' ) == { 'key1': 'val1',
                                                 'key2': 'val2',
                                                 'newkey': 'newval' }
-        assert cfg.value( 'settest.dict.newkey' ) == 'newval'
+        assert 'newkey' not in cfg.value( 'settest.dict' )
+        assert clone.value( 'settest.dict.newkey' ) == 'newval'
 
-        cfg.set_value( 'settest.dict2', 'scalar' )
-        assert cfg.value('settest.dict2') == 'scalar'
+        clone.set_value( 'settest.dict2', 'scalar' )
+        assert clone.value('settest.dict2') == 'scalar'
+        assert cfg.value( 'settest.dict2' ) == { 'key1': '2val1', 'key2': '2val2' }
 
-        cfg.set_value( 'settest.scalar', 'notathing' )
-        assert cfg.value('settest.scalar') == 'notathing'
+        clone.set_value( 'settest.scalar', 'notathing' )
+        assert clone.value('settest.scalar') == 'notathing'
+        assert cfg.value( 'settest.scalar' ) == 'thing'
 
-        cfg.set_value( 'settest.scalar.thing1', 'thing1' )
-        cfg.set_value( 'settest.scalar.thing2', 'thing2' )
-        assert cfg.value('settest.scalar') == { 'thing1': 'thing1', 'thing2': 'thing2' }
+        clone.set_value( 'settest.scalar.thing1', 'thing1' )
+        clone.set_value( 'settest.scalar.thing2', 'thing2' )
+        assert clone.value('settest.scalar') == { 'thing1': 'thing1', 'thing2': 'thing2' }
+        assert cfg.value( 'settest.scalar' ) == 'thing'
 
-        cfg.set_value( 'settest.scalar2.0.key', "that wasn't a scalar" )
-        assert cfg.value('settest.scalar2') == [ { "key": "that wasn't a scalar" } ]
+        clone.set_value( 'settest.scalar2.0.key', "that wasn't a scalar" )
+        assert clone.value('settest.scalar2') == [ { "key": "that wasn't a scalar" } ]
+        assert cfg.value( 'settest.scalar2' ) == 'foobar'
 
-        cfg.set_value( 'totallynewvalue.one', 'one' )
-        cfg.set_value( 'totallynewvalue.two', 'two' )
-        assert cfg.value('totallynewvalue') == { 'one': 'one', 'two': 'two' }
-
-    def test_clone( self, cfg ):
-        newconfig = config.Config.clone( _rundir / 'test.yaml' )
-        newconfig.set_value( 'clonetest2', 'manuallyset' )
-        assert cfg.value('clonetest1') == 'orig'
-        assert cfg.value('clonetest2') == 'orig'
-        assert newconfig.value('clonetest1') == 'orig'
-        assert newconfig.value('clonetest2') == 'manuallyset'
+        clone.set_value( 'totallynewvalue.one', 'one' )
+        clone.set_value( 'totallynewvalue.two', 'two' )
+        assert clone.value('totallynewvalue') == { 'one': 'one', 'two': 'two' }
+        with pytest.raises( ValueError, match="Field totallynewvalue doesn't exist" ):
+            _ = cfg.value( 'totallynewvalue' )

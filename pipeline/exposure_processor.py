@@ -12,6 +12,7 @@ import psycopg2.extras
 
 from util.logger import SCLogger
 from util.util import asUUID
+from util.config import Config
 
 from models.base import Psycopg2Connection
 from models.instrument import get_instrument_instance
@@ -147,37 +148,47 @@ class ExposureProcessor:
             SCLogger.info( "Only running through exposure, not launching any image processes" )
             return
 
-        # Update the config if necessary
-        config_chooser = ConfigChooser()
-        config_chooser.run( self.exposure )
+        origconfig = Config._default
+        try:
+            # Update the config if necessary.  This changes the global
+            #   config cache, which is scary, because we're changing it
+            #   based on the needs of the current exposure.  So, in
+            #   the finally block below, we try to restore the original
+            #   config.
+            config_chooser = ConfigChooser()
+            config_chooser.run( self.exposure )
 
-        chips = self.instrument.get_section_ids()
-        if self.onlychips is not None:
-            chips = [ c for c in chips if c in self.onlychips ]
-        self.results = {}
+            chips = self.instrument.get_section_ids()
+            if self.onlychips is not None:
+                chips = [ c for c in chips if c in self.onlychips ]
+            self.results = {}
 
-        if self.numprocs > 1:
-            SCLogger.info( f"Creating pool of {self.numprocs} processes to do {len(chips)} chips" )
-            with multiprocessing.pool.Pool( self.numprocs, maxtasksperchild=1 ) as pool:
+            if self.numprocs > 1:
+                SCLogger.info( f"Creating pool of {self.numprocs} processes to do {len(chips)} chips" )
+                with multiprocessing.pool.Pool( self.numprocs, maxtasksperchild=1 ) as pool:
+                    for chip in chips:
+                        pool.apply_async( self.processchip, ( chip, ), {}, self.collate )
+
+                    SCLogger.info( "Submitted all worker jobs, waiting for them to finish." )
+                    pool.close()
+                    pool.join()
+            else:
+                # This is useful for some debugging (though it can't catch
+                # process interaction issues (like database locks)).
+                SCLogger.info( f"Running {len(chips)} chips serially" )
                 for chip in chips:
-                    pool.apply_async( self.processchip, ( chip, ), {}, self.collate )
+                    self.collate( self.processchip( chip ) )
 
-                SCLogger.info( "Submitted all worker jobs, waiting for them to finish." )
-                pool.close()
-                pool.join()
-        else:
-            # This is useful for some debugging (though it can't catch
-            # process interaction issues (like database locks)).
-            SCLogger.info( f"Running {len(chips)} chips serially" )
-            for chip in chips:
-                self.collate( self.processchip( chip ) )
+            succeeded = { k for k, v in self.results.items() if v }
+            failed = { k for k, v in self.results.items() if not v }
+            SCLogger.info( f"{len(succeeded)+len(failed)} chips processed; "
+                           f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
+            SCLogger.info( f"Succeeded (maybe): {succeeded}" )
+            SCLogger.info( f"Failed (definitely): {failed}" )
 
-        succeeded = { k for k, v in self.results.items() if v }
-        failed = { k for k, v in self.results.items() if not v }
-        SCLogger.info( f"{len(succeeded)+len(failed)} chips processed; "
-                       f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
-        SCLogger.info( f"Succeeded (maybe): {succeeded}" )
-        SCLogger.info( f"Failed (definitely): {failed}" )
+        finally:
+            # Restore the global config we had before we ran this
+            Config.init( origconfig, setdefault=True )
 
 
 # ======================================================================
