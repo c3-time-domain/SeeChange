@@ -84,8 +84,8 @@ def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astro
         assert scold.dec.value == pytest.approx( scnew.dec.value, abs=1./3600. )
 
 
-def test_run_scamp( decam_datastore_through_bg, astrometor ):
-    ds = decam_datastore_through_bg
+def test_run_scamp( decam_datastore_through_extraction, astrometor ):
+    ds = decam_datastore_through_extraction
 
     # Get the md5sum and WCS from the image before we do things to it
     with open(ds.path_to_original_image, "rb") as ifp:
@@ -111,7 +111,7 @@ def test_run_scamp( decam_datastore_through_bg, astrometor ):
     # The datastore should object when it tries to get the provenance for astrometor
     # params that don't match what we started with
     with pytest.raises( ValueError, match=( "Passed pars_dict does not match parameters for "
-                                            "internal provenance of wcs" ) ):
+                                            "internal provenance of astrocal" ) ):
         ds = astrometor.run(ds)
 
     # Update the datastore's prov_tree so that it has the provenance we

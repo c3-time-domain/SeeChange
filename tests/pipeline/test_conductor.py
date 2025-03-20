@@ -198,13 +198,11 @@ def test_register_worker( conductor_connector ):
         assert data['status'] == 'added'
         assert data['cluster_id'] == 'test'
         assert data['node_id'] == 'testnode'
-        assert data['nexps'] == 10
 
         with SmartSession() as session:
             pw = session.query( PipelineWorker ).filter( PipelineWorker._id==data['id'] ).first()
             assert pw.cluster_id == 'test'
             assert pw.node_id == 'testnode'
-            assert pw.nexps == 10
             firstheartbeat = pw.lastheartbeat
 
         hb = conductor_connector.send( f'conductor/workerheartbeat/{data["id"]}' )
@@ -214,7 +212,6 @@ def test_register_worker( conductor_connector ):
             pw = session.query( PipelineWorker ).filter( PipelineWorker._id==data['id'] ).first()
             assert pw.cluster_id == 'test'
             assert pw.node_id == 'testnode'
-            assert pw.nexps == 10
             assert pw.lastheartbeat > firstheartbeat
 
         done = conductor_connector.send( f'conductor/unregisterworker/{data["id"]}' )

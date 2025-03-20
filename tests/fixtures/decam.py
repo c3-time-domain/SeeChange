@@ -786,7 +786,7 @@ def get_cached_decam_image( code_version, decam_cache_dir, download_url, datasto
 
         SCLogger.debug( f"Running datastore_factory for decam image {fname}" )
         ds = datastore_factory( img, cache_dir=decam_cache_dir,
-                                cache_base_name=f'{fname}_{provbarf}', through_step='zp',
+                                cache_base_name=f'{fname}_{provbarf}', through_step='photocal',
                                 provtag='cached_decam_image_getter' )
         SCLogger.debug( f"Done getting decam image {fname}" )
 
