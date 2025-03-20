@@ -6,120 +6,9 @@
 #
 # So how do you set up your own local config for your pipeline?  Before
 # doing that, it's worth understanding how the config works, as you're
-# more likely to do it right.  If you don't want to understand, but just
-# want to get on with setting your config (and potentially breaking
-# things if you try to do anything complicated), skip the next section
-# and search for CUSTOMIZING YOUR CONFIG below.
-#
-#
-# HOW THE CONFIG WORKS
-#
-# When the pipeline runs, it reads the config file in the environment
-# variable SEECHANGE_CONFIG, which by default is this file.  This and
-# any other included config file is a yaml file, but it can't be just
-# any yaml file; the top level must be a dictionary.
-#
-# A config file has three special options (only two of which actually
-# show up in this file you're reading right now); each of those is a
-# list of file paths relative to the directory where this file is found.
-#
-#   The "current working config" starts as an empty dictionary ({}).  When
-#      everything is done, it can be a big messy hierarchy.  Each key of
-#      the top level dictionary can have a value that is a scalar, a
-#      list, or a dictionary.  The structure is recursive; each element
-#      of each list can be a scalar, a list, or a dictionary, and the
-#      value associated with each key in each dictionary can itself be a
-#      scalar, a list, or a dictionary.
-#
-#   preloads is a list of files that are read, in order, *before* the
-#      current config file, populating the current working config.
-#      Files later in the list override files earlier in the list.
-#
-#   The current file is parsed next.  It overrides anything in the
-#      current working config (which will have been built from preload, if
-#      any).
-#
-#   augments is a list of files that are read next.  Those files are
-#      read in order, and augment the current working config.
-#
-#   overrides is a list off files that are read last.  Those files are
-#      read in order, and override the current working config.
-#
-# Any file that's read can itself have preloads, augments, and
-# overrides.  IMPORTANT: there is no circular inclusion detection, so if
-# you say file A augments file B and file B augments file A, you will
-# get stuck in an infinite recursion when you try to read the config.
-# This will either lead to a python crash because it detects too many
-# recursion levels, or to a process crash if you run out of memory, or
-# to the end of the local Universe as you create a singularity and
-# nucleate a new Big Bang.  Just don't do that.  Keep it simple.
-#
-# Above, the words "augment" and "override" were used to describe how to
-# combine information from two different files.  Exactly what happens is
-# complicated; if you *really* want to know, see
-#
-#   util/config.py::Config._merge_trees()
-#
-# Here's an attempt to define it:
-#
-#   augment
-#      When one config tree (the "right" tree) "augments" another (the
-#      "left" tree), generally speaking, stuff in the right tree is
-#      added to stuff in the left tree, but of course it's more
-#      complicated than that.  The augment process walks down the trees,
-#      from top to bottom.  It starts at the very top level, where the
-#      left dictionary and right dictionary are compared.
-#
-#         * If the current item being compared have different types
-#           (scalar vs. list vs. dict), the new value *replaces* the old
-#           values.  This will never happen at the very top level,
-#           because both left and right are dictionaries at the top
-#           level.
-#
-#         * If the item being compared is a dictionary, then merge the
-#           two dictionaries.  Keys in the right that don't show up in
-#           the left key have their key:value added wholesale to
-#           the left item.  If a key shows up in both the left and
-#           right trees, then recurse.  (So, the value of right[key]
-#           augments the value of left[key].)
-#
-#         * If the item being compared is a list, then then the
-#           right list extends the left list.  (Literally using
-#           list.extend().)
-#
-#         * If the item being compared is a scalar, then the right
-#           value replaces the left value.
-#
-#   override
-#      When one config tree (the "right" tree) "overrides" another (the
-#      "left" tree), generally speaking, stuff in the right tree
-#      replaces stuff in the left tree.  The override process walks down
-#      the trees, from top ot bottom.  It starts at the very top level,
-#      where the left dictionary and the right dictionary are compared.
-#
-#         * If the current item being compared have different types
-#           (scalar vs. list vs. dict), the new value *replaces* the old
-#           values.  This will never happen at the very top level,
-#           because both left and right are dictionaries at the top
-#           level.  This is exactly the same behavior as in augment.
-#
-#         * If the current item being compared is a dictionary, then
-#           the dictionaries are merged in exactly the same manner
-#           as "augment", with the modification that recursing down
-#           into the dictionary passes along the fact that we're
-#           overriding rather than augmenting.
-#
-#         * If the current item being compared is a list, then the
-#           right list *replaces* the left list.  (This could
-#           potentially throw away a gigantic hierarchy if lists
-#           and dicts and scalars from the left wide, which is as
-#           designed.)
-#
-#         * If the item being compared is a scalar, then the right value
-#
-# This can be very confusing, so keeping your config overrides and
-# augments simple is likely what you want.
-#
+# more likely to do it right.  In that vein, before reading CUSTOMIZING
+# YOUR CONFIG below, we strongly recommend reading the extensive
+# class docstring in util/config.py::Config
 #
 # CUSTOMIZING YOUR CONFIG
 #
@@ -166,6 +55,10 @@ augments:
 # a different one.  However, if you look at those different onces,
 # you will notice that they have this file as a preload, so this
 # file still largely applies.
+#
+# WARNING: some things should not be changed in the config files in
+# configchoice.configs.  At the very least, do not change
+# anything under path, db, archive, or storage.exposure.
 
 configchoice:
   config_dir: null

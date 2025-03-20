@@ -77,6 +77,11 @@ class ConfigChooser:
     "Config.get()") based on its configuration and the Image or Exposure
     in the passed DataStore.
 
+    USE THIS ONE WITH CARE.  Because the default config is a global
+    variable, you're making a mess when you use this.  Clean up after
+    yourself.  Currently, it's only used in
+    pipeline/exposure_processor.py, which does try to clean up.
+
     """
 
     def __init__( self, **kwargs ):
@@ -174,4 +179,4 @@ class ConfigChooser:
         else:
             configfile = cfg.value( 'configchoice.configs.extragalactic' )
         configfile = cfg._path.parent / configfile
-        Config.init( configfile, reread=True, setdefault=True )
+        Config.init( configfile, setdefault=True )

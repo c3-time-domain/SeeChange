@@ -1,9 +1,10 @@
 import os
-import logging
 import pathlib
 import types
 import copy
 import yaml
+
+from util.logger import SCLogger
 
 
 class NoValue:
@@ -17,41 +18,8 @@ class Config:
     interface. The top level of the yaml must be a dict. Only supports
     dicts, lists, and scalars.
 
-    CAVEATS:
-    Won't work with any old yaml file.  Top level must be a dictionary.
-    Don't name your dictionary fields as numbers, as the code will then
-    detect it as a list rather than a dict.
 
-    The yaml parser seems to be parsing "yyyy-mm-dd" strings as a
-    datetime.date; beware.
-
-    Three top-level fields have special handling.
-
-      preloads -- these config files will be loaded *before* processing
-                  the current file.
-
-      augments -- These config files will be read *after* processing the
-                  current file, extending lists but overriding other
-                  things (see below).
-
-      overrides -- These config files will be read *after* processing
-                   the current file and any augments, overriding
-                   anything already set.
-
-    Conflicts: when reading a new file (i.e. a later preload, the
-    current file when there is already data from preloads, or an
-    override or augment), conflicts (i.e. the same name-path appears in
-    both the current data and the new file) are handled by the "augment"
-    and "override" methods (see below).  Subsequent preloads, and the
-    current file following the preloads, are handled with "override".
-
-    Lots of copying is done on these merges, but hopefully we're not talking
-    huge amounts of data in config trees, so that's not a big deal.
-
-    Configs are *global* for the current running python session.  (The
-    config object for a given filename is a singleton.)
-
-    To use:
+    USAGE
 
     1. Optional: call Config.init(filename)
 
@@ -75,12 +43,21 @@ class Config:
 
        where fieldspec is just the field for a scalar, or .-separated
        fields for lists and dicts.  For lists, it must be a (0-offset)
-       integer index.  For example, if the yaml has:
+       integer index.  For example, if the yaml files includes:
 
-          database:
-             engine: postgresql
+         storage:
+           images:
+             format: fits
+             single_file: false
+             name_convention: "{inst_name}_{date}_{time}_{section_id}_{filter}_{im_type}_{prov_hash:.6s}"
 
-       then confobj.value("database.engine") will return "postgresql".
+       then confobj.value("storage.images.format") will return
+       "fits". You can also ask configobj.value for higher levels.  For
+       example, config.value("storage.images") will return a dictionary:
+          { "format": "fits",
+            "single_file": False,
+            "name_convention": "{inst_name}_{date}_{time}_{section_id}_{filter}_{im_type}_{prov_hash:.6s}"
+          }
 
     4. Change a config value with
 
@@ -89,178 +66,281 @@ class Config:
        This only changes it for the running session, it does *not*
        affect the YAML files in storage.
 
+
+    CONFIG FILES
+
+    This class reads yaml files (which can have other included yaml
+    file).  The top level structure of a config file must be a
+    dictionary.
+
+    When reading a config file, it is processed as follows:
+
+    The "current working config" starts as an empty dictionary ({}).
+    When everything is done, it can be a big messy hierarchy.  Each key
+    of the top level dictionary can have a value that is a scalar, a
+    list, or a dictionary.  The structure is recursive; each element of
+    each list can be a scalar, a list, or a dictionary, and the value
+    associated with each key in each dictionary can itself be a scalar,
+    a list, or a dictionary.
+
+    A config file has three special keys: preloads, augments, and
+    overrides.  The value associated with each key is a list of file
+    paths relative to the directory where this file is found.
+
+    preloads is a list of files that are read, in order, *before* the
+       current config file, populating the current working config.
+       Files later in the list override files earlier in the list.
+
+    The current file is parsed next.  It overrides anything in the
+       current working config (which will have been built from preload,
+       if any).
+
+    augments is a list of files that are read next.  Those files are
+       read in order, and augment the current working config.
+
+    overrides is a list off files that are read last.  Those files are
+       read in order, and override the current working config.
+
+    Any file that's read can itself have preloads, augments, and
+    overrides.  IMPORTANT: there is no circular inclusion detection, so
+    if you say file A augments file B and file B augments file A, you
+    will get stuck in an infinite recursion when you try to read the
+    config.  This will either lead to a python crash because it detects
+    too many recursion levels, or to a process crash if you run out of
+    memory, or to the end of the local Universe as you create a
+    singularity and nucleate a new Big Bang.  Just don't do that.  Keep
+    it simple.
+
+    Above, the words "augment" and "override" were used to describe how
+    to combine information from two different files.  Exactly what
+    happens is complicated; if you *really* want to know, see
+
+      util/config.py::Config._merge_trees()
+
+    Here's an attempt to define it:
+
+    augment
+       When one config tree (the "right" tree) "augments" another (the
+       "left" tree), generally speaking, stuff in the right tree is
+       added to stuff in the left tree, but of course it's more
+       complicated than that.  The augment process walks down the trees,
+       from top to bottom.  It starts at the very top level, where the
+       left dictionary and right dictionary are compared.
+
+          * If the current item being compared have different types
+            (scalar vs. list vs. dict), the new value *replaces* the old
+            values.  This will never happen at the very top level,
+            because both left and right are dictionaries at the top
+            level.
+
+          * If the item being compared is a dictionary, then merge the
+            two dictionaries.  Keys in the right that don't show up in
+            the left key have their key:value added wholesale to
+            the left item.  If a key shows up in both the left and
+            right trees, then recurse.  (So, the value of right[key]
+            augments the value of left[key].)
+
+          * If the item being compared is a list, then then the
+            right list extends the left list.  (Literally using
+            list.extend().)
+
+          * If the item being compared is a scalar, then the right
+            value replaces the left value.
+
+    override
+       When one config tree (the "right" tree) "overrides" another (the
+       "left" tree), generally speaking, stuff in the right tree
+       replaces stuff in the left tree.  The override process walks down
+       the trees, from top ot bottom.  It starts at the very top level,
+       where the left dictionary and the right dictionary are compared.
+
+          * If the current item being compared have different types
+            (scalar vs. list vs. dict), the new value *replaces* the old
+            values.  This will never happen at the very top level,
+            because both left and right are dictionaries at the top
+            level.  This is exactly the same behavior as in augment.
+
+          * If the current item being compared is a dictionary, then
+            the dictionaries are merged in exactly the same manner
+            as "augment", with the modification that recursing down
+            into the dictionary passes along the fact that we're
+            overriding rather than augmenting.
+
+          * If the current item being compared is a list, then the
+            right list *replaces* the left list.  (This could
+            potentially throw away a gigantic hierarchy if lists
+            and dicts and scalars from the left wide, which is as
+            designed.)
+
+          * If the item being compared is a scalar, then the right value
+
+    This can be very confusing, so keeping your config overrides and
+    augments simple is likely what you want.
+
+
+   WARNINGS
+
+    * Won't work with any old yaml file.  Top level must be a dictionary.
+      Don't name your dictionary fields as numbers, as the code will then
+      detect it as a list rather than a dict.
+
+    * The yaml parser seems to be parsing "yyyy-mm-dd" strings as a
+      datetime.date; beware.
+
+    * python's yaml reading of floats is broken.  It will read 1e10 as a
+      string, not a float.  Write 1.0e+10 to make it work right.  There
+      are two things here: the first is the + after e (which, I think
+      *is* part of the yaml spec, even though we can freely omit that +
+      in Python and C).  The second is the decimal point; the YAML spec
+      says it's not necessary, but python won't recognize it as a float
+      without it.
+
     """
 
-    top_level_config = str((pathlib.Path(__file__).parent.parent / "default_config.yaml").resolve())
-    _default_default = os.getenv('SEECHANGE_CONFIG', top_level_config)
+    # top_level_config is ill-considered.  It works if you are running
+    #   from the source tree, but if you're running an installed instance,
+    #   then it's not really pointing at the right place.  We should just
+    #   return an error if SEECHANGE_CONFIG is not set.
+    # top_level_config = str((pathlib.Path(__file__).parent.parent / "default_config.yaml").resolve())
+    # _default_default = os.getenv('SEECHANGE_CONFIG', top_level_config)
+    _default_default = os.getenv( 'SEECHANGE_CONFIG', None )
 
     _default = None
     _configs = {}
 
+
     @staticmethod
-    def init( configfile=None, logger=logging.getLogger("main"), dirmap={}, reread=False, setdefault=False ):
+    def init( configfile=None, setdefault=None ):
         """Initialize configuration globally for process.
 
         Parameters
         ----------
         configfile : str or pathlib.Path, default None
-            If None, will set the config file to the environmental
-            variable SEECHANGE_CONFIG, and if that is not defined,
-            will set to default_config.yaml in the top level of the project.
+            See documentation of the configfile parameter in Config.get
 
-        logger: logging object, default: getLogger("main")
-
-        dirmap: dict of { str: str }
-            An ugly hack for changing the directories of imported files; see the static function dirmap.
+        setdefault : bool, default None
+            See documentation of the setdefault parameter in Config.get
 
         """
-        Config.get( configfile, logger=logger, dirmap=dirmap, reread=reread, setdefault=setdefault )
+        Config.get( configfile, setdefault=setdefault )
+
 
     @staticmethod
-    def get( configfile=None, reread=False, logger=logging.getLogger("main"), dirmap={}, setdefault=False ):
+    def get( configfile=None, setdefault=None, static=True ):
         """Returns a Config object.
 
-        Paramaeters
+        Parameters
         -----------
         configfile : str or Pathlib.Path, default None
             The config file to read (if it hasn't been read before, or
             if reread is True).  If None, will return the default config
-            context for the current session (which is the one from the
-            first call to either get() or init().
+            context for the current session (which is normally the one
+            in the file pointed to by environment variable
+            SEECHANGE_CONFIG, but see "setdefault" below.  If that env
+            var is needed but not set, then an exception will be
+            raised).
 
-        reread : bool, default False
-            If True, reread the config file even if it has been read before.
+        setdefault : bool, default None
+            Avoid use of this, as it is mucking about with global
+            variables and as such can cause confusion.  If True, set the
+            Config object read by this method to be the session default
+            config.  If False, never set the Config object read by this
+            method to be the session default config.  If not specified,
+            which is usually what you want, then if configfile is None,
+            the configfile in SEECHANGE_CONFIG will be read and set to
+            the be the session default Config; if configfile is not
+            None, read that config file, but don't make it the session
+            default config.
 
-        dirmap: dict of { str: str }
-            See the dirmap static function
+            Normal usage of Config is to make a call early on to either
+            Config.init() or Config.get() without parameters.  That will
+            read the config file in SEECHANGE_CONFIG and make that the
+            default config for the process.  If, for some reason, you
+            want to read a different config file and make that the
+            default config file for the process, then pass a configfile
+            here and make setdefault True.  If, for some truly perverse
+            reason, you want to the config in SEECHANGE_CONFIG but not
+            set it to the session default, then call
+            Config.get(setdefault=False), and question your life
+            choices.
 
-        logger : a logging object, default getLogger("main")
+        static : bool, default True
+            If True (the default), then you get one of the config object
+            singletons described below.  In this case, it is not
+            permitted to modify the config.  If False, you get back a
+            clone of the config singleton, and that clone is not stored
+            anywhere other than the return value.  In this case, you may
+            modify the config.  Call Config.get(static=False) to get a
+            modifiable version of the default config.
 
         Returns
         -------
             Config object
 
-        Config objects are stored as an array of singletons.  That is,
-        if you pass a config file that has been passed before in the
-        current execution context, you'll get back exactly the same
-        object each time.  If you pass a config file that hasn't been
-        passed before, it will read the indicated configuration file,
-        cache an object associated with it for future calls, and return
-        that object.
-
-        If neither this method nor Config.init() has been called
-        previously, then the config object read this call will become
-        the default config object.
-
-        If "reread" is true, then the singleton object will be recreated
-        from the config files.
+        Config objects are stored as an array of singletons (as class
+        variables of the Config class).  That is, if you pass a config
+        file that has been passed before in the current execution
+        context, you'll get back exactly the same object each time
+        (unless static is True).  If you pass a config file that hasn't
+        been passed before, it will read the indicated configuration
+        file, cache an object associated with it for future calls, and
+        return that object (unless static is True, in which case the the
+        object is still cached, but you get a copy of that object).
 
         If you don't pass a config file, then you will get back the
         default config object.  If there is no default config object
         (because neither Config.get() nor Config.init() have been called
-        previously), an exception will be raised.
+        previously), and if the class is not configured with a "default
+        default", then an exception will be raised.
 
         """
         if configfile is None:
-            if Config._default is None:
+            if Config._default is not None:
+                configfile = Config._default
+            else:
                 if Config._default_default is None:
                     raise RuntimeError( 'No default config defined yet; run Config.init(configfile)' )
-                Config._default = Config._default_default
-            configfile = Config._default
+                configfile = Config._default_default
+                if setdefault is None:
+                    setdefault = True
 
         configfile = str( pathlib.Path(configfile).resolve() )
 
-        if reread or ( configfile not in Config._configs ):
-            Config._configs[configfile] = Config( configfile, logger=logger, dirmap=dirmap )
-            if Config._default is None:
-                Config._default = configfile
+        if configfile not in Config._configs:
+            Config._configs[configfile] = Config( configfile=configfile )
 
         if setdefault:
             Config._default = configfile
 
-        return Config._configs[configfile]
+        if static:
+            return Config._configs[configfile]
+        else:
+            return Config( clone=Config._configs[configfile] )
 
-    @staticmethod
-    def dirmap( filename, dirmap ):
-        """Map directories in while reading the config file.
 
-        Parameters
-        ----------
-        filename : str
-            A filename from the config file that starts with a directory that might be remapped
-
-        dirmap : dict of { str: str }
-
-        Returns
-        -------
-        str
-            Potentially modified filename
-
-        If the beginning of the string filename matches any of the keys
-        of dirmap, that part of the string will be replaced with the
-        value of the dict at that key.
-
-        This is kind of an ugly hack, but it was there so that I could
-        use the same config files both inside and outside a container,
-        with dirmap being used to tell the current session where
-        in-container config files can really be found.
-
-        """
-
-        for olddir, newdir in dirmap.items():
-            if filename[0:len(olddir)] == olddir:
-                filename = f"{newdir}{filename[len(olddir):]}"
-                break
-        return filename
-
-    @staticmethod
-    def clone( configfile=None, reread=False, logger=logging.getLogger("main"), dirmap={} ):
-        """Returns a config object.
+    def __init__( self, configfile=None, clone=None ):
+        """Don't call this, call static method Config.get().
 
         Parameters
         ----------
-        configfile: str or Path, default None
-
-        reread: bool
-
-        logger: a logging object, default getLogger("main")
-
-        dirmap: dict of str: str
-
-        Returns
-        -------
-            Config object
-
-        Will call "get" on the passed configfile, but will *not* return
-        the singleton object for that config file.  Rather, will make a
-        deep copy of it, and return that.  That gives you a config file
-        that you can muck about with to your heart's content without
-        worrying about messing things up elsewhere.
-        """
-        origconfig = Config.get( configfile, reread=reread, logger=logger, dirmap=dirmap )
-        return Config( configfile, clone=origconfig, dirmap=dirmap )
-
-    def __init__( self, configfile, clone=None, logger=logging.getLogger("main"), dirmap={} ):
-        """Don't call this, call static method Config.get() or Config.clone()
-
-        Parameters
-        ----------
-        configfile : str or Path
+        configfile : str or Path, or None
 
         clone : Config object, default None
 
-        logger : logging object, default getLogger("main")
-
-        dirmap : dict of { str: str }
-
         If clone is not None, return a deep copy of that.  Otherwise,
-        see get() for definition of the parameters.
+        read the config file in configfile and return that.  Only give
+        one of configfile or clone.
 
         """
 
-        self.logger = logger
+        self._static = True
+
+        if ( clone is None ) == ( configfile is None ):
+            raise ValueError( "Must specify exactly one of configfile or clone" )
+
         if clone is not None:
             self._data = copy.deepcopy( clone._data )
+            self._static = False
             return
 
         try:
@@ -277,33 +357,36 @@ class Config:
             for importfile in [ 'preloads', 'augments', 'overrides' ]:
                 if importfile in curfiledata:
                     if not isinstance( imports[importfile], list ):
-                        raise TypeError( 'preloads must be a list' )
-                    imports[importfile] = [ Config.dirmap( f, dirmap ) for f in curfiledata[importfile] ]
+                        raise TypeError( f'{importfile} must be a list' )
+                    imports[importfile] = curfiledata[importfile]
                     del curfiledata[importfile]
 
             for preloadfile in imports['preloads']:
-                self._override( preloadfile, dirmap=dirmap )
+                # Because self._data is currently {}, this
+                #   is just the same as setting self._data
+                #   to the result of reading preloadfile
+                self._override( preloadfile )
 
+            # Override the preloads with the current file
             self._data = Config._merge_trees( self._data, curfiledata )
 
             for augmentfile in imports['augments']:
-                self._augment( augmentfile, dirmap=dirmap )
+                self._augment( augmentfile )
 
             for overridefile in imports['overrides']:
-                self._override( overridefile, dirmap=dirmap )
+                self._override( overridefile )
 
         except Exception as e:
-            logger.exception( f'Exception trying to load config from {configfile}' )
+            SCLogger.exception( f'Exception trying to load config from {configfile}' )
             raise e
 
-    def _augment( self, augmentfile, dirmap={} ):
+
+    def _augment( self, augmentfile ):
         """Read file (or path) augmentfile and augment config data.  Intended for internal use only.
 
         Parameters
         ----------
         augmentfile: str or Path
-
-        dirmap: dict of { str: str }
 
         * If the old and new items have different types (scalar vs. list
           vs. dict), the new value replaces the old value.
@@ -321,20 +404,19 @@ class Config:
         if not augmentpath.is_absolute():
             augmentpath = ( self._path.parent / augmentfile ).resolve()
         if augmentpath.is_file():
-            self.logger.info( f'Reading file {augmentfile} as an augment. ' )
-            augment = Config( augmentpath, logger=self.logger, dirmap=dirmap )._data
+            SCLogger.info( f'Reading file {augmentfile} as an augment. ' )
+            augment = Config( augmentpath )._data
             self._data = Config._merge_trees( self._data, augment, augment=True )
         elif augmentfile is not None:
-            self.logger.info( f'Augment file {augmentfile} not found. ' )
+            SCLogger.info( f'Augment file {augmentfile} not found. ' )
 
-    def _override( self, overridefile, dirmap=dirmap ):
+    def _override( self, overridefile ):
         """Read file (or path) overridefile and override config data.  Intended for internal use only.
 
         Parameters
         ----------
         augmentfile: str or Path
 
-        dirmap: dict of { str: str }
         * If the old and new items have different types (scalar vs. list
           vs. dict), the new value replaces the old value.
 
@@ -352,11 +434,11 @@ class Config:
         if not overridepath.is_absolute():
             overridepath = ( self._path.parent / overridefile ).resolve()
         if overridepath.is_file():
-            self.logger.info(f'Reading file {overridepath} as an override. ')
-            override = Config( overridepath, logger=self.logger, dirmap=dirmap )._data
+            SCLogger.info(f'Reading file {overridepath} as an override. ')
+            override = Config( overridepath )._data
             self._data = Config._merge_trees( self._data, override )
         elif overridefile is not None:
-            self.logger.info( f'Override file {overridefile} not found. ' )
+            SCLogger.info( f'Override file {overridefile} not found. ' )
 
     def value( self, field, default=NoValue(), struct=None ):
         """Get a value from the config structure.
@@ -454,7 +536,11 @@ class Config:
         return return_value
 
     def set_value( self, field, value, structpass=None, appendlists=False ):
-        """Set a value in the singleton for the current session.
+        """Set a value in the config object.
+
+        If the config object was created with static=True (which is the
+        case for all the singleton objects stored in the Config class),
+        use of this method raises an exception.
 
         Parameters
         ----------
@@ -478,6 +564,9 @@ class Config:
         necessary.
 
         """
+
+        if self._static:
+            raise RuntimeError( "Not permitted to modify static Config object." )
 
         if structpass is None:
             structpass = types.SimpleNamespace()
@@ -607,5 +696,4 @@ class Config:
 
 
 if __name__ == "__main__":
-    import os
-    conf = Config.get()
+    Config.init()
