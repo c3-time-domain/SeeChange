@@ -19,10 +19,10 @@ from pipeline.ref_maker import RefMaker
 
 
 @pytest.fixture(scope='session')
-def preprocessor_factory(session_config):
+def preprocessor_factory(test_config):
 
     def make_preprocessor():
-        prep = Preprocessor(**session_config.value('preprocessing'))
+        prep = Preprocessor(**test_config.value('preprocessing'))
         prep.pars._enforce_no_new_attrs = False
         prep.pars.test_parameter = prep.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -40,10 +40,10 @@ def preprocessor(preprocessor_factory):
 
 
 @pytest.fixture(scope='session')
-def extractor_factory(session_config):
+def extractor_factory(test_config):
 
     def make_extractor():
-        extr = Detector(**session_config.value('extraction'))
+        extr = Detector(**test_config.value('extraction'))
         extr.pars._enforce_no_new_attrs = False
         extr.pars.test_parameter = extr.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -61,10 +61,10 @@ def extractor(extractor_factory):
 
 
 @pytest.fixture(scope='session')
-def astrometor_factory(session_config):
+def astrometor_factory(test_config):
 
     def make_astrometor():
-        astrom = AstroCalibrator(**session_config.value('astrocal'))
+        astrom = AstroCalibrator(**test_config.value('astrocal'))
         astrom.pars._enforce_no_new_attrs = False
         astrom.pars.test_parameter = astrom.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -82,10 +82,10 @@ def astrometor(astrometor_factory):
 
 
 @pytest.fixture(scope='session')
-def photometor_factory(session_config):
+def photometor_factory(test_config):
 
     def make_photometor():
-        photom = PhotCalibrator(**session_config.value('photocal'))
+        photom = PhotCalibrator(**test_config.value('photocal'))
         photom.pars._enforce_no_new_attrs = False
         photom.pars.test_parameter = photom.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -98,11 +98,11 @@ def photometor_factory(session_config):
 
 
 @pytest.fixture(scope='session')
-def coadder_factory(session_config):
+def coadder_factory(test_config):
 
     def make_coadder():
 
-        coadd = Coadder(**session_config.value('coaddition.coaddition'))
+        coadd = Coadder(**test_config.value('coaddition.coaddition'))
         coadd.pars._enforce_no_new_attrs = False
         coadd.pars.test_parameter = coadd.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -120,10 +120,10 @@ def coadder(coadder_factory):
 
 
 @pytest.fixture(scope='session')
-def subtractor_factory(session_config):
+def subtractor_factory(test_config):
 
     def make_subtractor():
-        sub = Subtractor(**session_config.value('subtraction'))
+        sub = Subtractor(**test_config.value('subtraction'))
         sub.pars._enforce_no_new_attrs = False
         sub.pars.test_parameter = sub.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -141,10 +141,10 @@ def subtractor(subtractor_factory):
 
 
 @pytest.fixture(scope='session')
-def detector_factory(session_config):
+def detector_factory(test_config):
 
     def make_detector():
-        det = Detector(**session_config.value('detection'))
+        det = Detector(**test_config.value('detection'))
         det.pars._enforce_no_new_attrs = False
         det.pars.test_parameter = det.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -162,10 +162,10 @@ def detector(detector_factory):
 
 
 @pytest.fixture(scope='session')
-def cutter_factory(session_config):
+def cutter_factory(test_config):
 
     def make_cutter():
-        cut = Cutter(**session_config.value('cutting'))
+        cut = Cutter(**test_config.value('cutting'))
         cut.pars._enforce_no_new_attrs = False
         cut.pars.test_parameter = cut.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -183,10 +183,10 @@ def cutter(cutter_factory):
 
 
 @pytest.fixture(scope='session')
-def measurer_factory(session_config):
+def measurer_factory(test_config):
 
     def make_measurer():
-        meas = Measurer(**session_config.value('measuring'))
+        meas = Measurer(**test_config.value('measuring'))
         meas.pars._enforce_no_new_attrs = False
         meas.pars.test_parameter = meas.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -204,10 +204,10 @@ def measurer(measurer_factory):
 
 
 @pytest.fixture(scope='session')
-def scorer_factory(session_config):
+def scorer_factory(test_config):
 
     def make_scorer():
-        scor = Scorer(**session_config.value('scoring'))
+        scor = Scorer(**test_config.value('scoring'))
         scor.pars._enforce_no_new_attrs = False
         scor.pars.test_parameter = scor.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -225,10 +225,10 @@ def scorer(scorer_factory):
 
 
 @pytest.fixture(scope='session')
-def fakeinjector_factory( session_config ):
+def fakeinjector_factory( test_config ):
 
     def make_fakeinjector():
-        injector = FakeInjector( **session_config.value('fakeinjection') )
+        injector = FakeInjector( **test_config.value('fakeinjection') )
         injector.pars._enforce_no_new_attrs = False
         injector.pars.test_parameter = injector.pars.add_par(
             'test_parameter', 'test_value', str, 'parameter to define unique tests', critical=True
@@ -256,7 +256,7 @@ def pipeline_factory(
         cutter_factory,
         measurer_factory,
         scorer_factory,
-        session_config,
+        test_config,
 ):
     def make_pipeline( provtag=None ):
         kwargs = {}
@@ -298,10 +298,10 @@ def coadd_pipeline_factory(
         extractor_factory,
         astrometor_factory,
         photometor_factory,
-        session_config,
+        test_config,
 ):
     def make_pipeline():
-        p = CoaddPipeline(**session_config.value('pipeline'))
+        p = CoaddPipeline(**test_config.value('pipeline'))
         p.coadder = coadder_factory()
         p.extractor = extractor_factory()
         p.astrometor = astrometor_factory()
@@ -318,7 +318,7 @@ def coadd_pipeline_for_tests(coadd_pipeline_factory):
 
 
 @pytest.fixture(scope='session')
-def refmaker_factory(session_config, pipeline_factory, coadd_pipeline_factory):
+def refmaker_factory(test_config, pipeline_factory, coadd_pipeline_factory):
 
     def make_refmaker(name, instrument, component_zp_prov_id, provtag='refmaker_factory'):
         maker = RefMaker( maker={ 'name': name,
@@ -331,7 +331,7 @@ def refmaker_factory(session_config, pipeline_factory, coadd_pipeline_factory):
         )
         maker.pars._enforce_no_new_attrs = True
         maker.coadd_pipeline = coadd_pipeline_factory()
-        maker.coadd_pipeline.override_parameters(**session_config.value('referencing.coaddition'))
+        maker.coadd_pipeline.override_parameters(**test_config.value('referencing.coaddition'))
 
         return maker
 

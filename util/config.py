@@ -404,11 +404,11 @@ class Config:
         if not augmentpath.is_absolute():
             augmentpath = ( self._path.parent / augmentfile ).resolve()
         if augmentpath.is_file():
-            SCLogger.info( f'Reading file {augmentfile} as an augment. ' )
+            SCLogger.debug( f'Reading file {augmentfile} as an augment. ' )
             augment = Config( augmentpath )._data
             self._data = Config._merge_trees( self._data, augment, augment=True )
         elif augmentfile is not None:
-            SCLogger.info( f'Augment file {augmentfile} not found. ' )
+            SCLogger.debug( f'Augment file {augmentfile} not found. ' )
 
     def _override( self, overridefile ):
         """Read file (or path) overridefile and override config data.  Intended for internal use only.
@@ -434,11 +434,11 @@ class Config:
         if not overridepath.is_absolute():
             overridepath = ( self._path.parent / overridefile ).resolve()
         if overridepath.is_file():
-            SCLogger.info(f'Reading file {overridepath} as an override. ')
+            SCLogger.debug(f'Reading file {overridepath} as an override. ')
             override = Config( overridepath )._data
             self._data = Config._merge_trees( self._data, override )
         elif overridefile is not None:
-            SCLogger.info( f'Override file {overridefile} not found. ' )
+            SCLogger.debug( f'Override file {overridefile} not found. ' )
 
     def value( self, field, default=NoValue(), struct=None ):
         """Get a value from the config structure.
