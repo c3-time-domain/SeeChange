@@ -179,4 +179,4 @@ class ConfigChooser:
         else:
             configfile = cfg.value( 'configchoice.configs.extragalactic' )
         configfile = cfg._path.parent / configfile
-        Config.init( configfile, reread=True, setdefault=True )
+        Config.init( configfile, setdefault=True )
