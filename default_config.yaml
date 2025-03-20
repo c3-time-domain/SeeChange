@@ -55,6 +55,10 @@ augments:
 # a different one.  However, if you look at those different onces,
 # you will notice that they have this file as a preload, so this
 # file still largely applies.
+#
+# WARNING: some things should not be changed in the config files in
+# configchoice.configs.  At the very least, do not change
+# anything under path, db, archive, or storage.exposure.
 
 configchoice:
   config_dir: null
