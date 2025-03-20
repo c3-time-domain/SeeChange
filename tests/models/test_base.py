@@ -582,17 +582,25 @@ def test_fileondisk_save_singlefile_noarchive( diskfile ):
     data1 = rng.uniform( size=32 ).tobytes()
     md5sum1 = hashlib.md5( data1 ).hexdigest()
 
-    cfg = config.Config.get()
-    origcfgarchive = cfg.value( 'archive' )
+    origcfgobj = config.Config._configs[ config.Config._default ]
     origarchive = models.base.ARCHIVE
     try:
+        cfg = config.Config.get( static=False )
+        # NEVER DO THIS.  For this test, I want to change the value of
+        #   'archive' in the default config, so I'm screwing around
+        #   with the internal structure of the Config class.  If you
+        #   find yourself doing this anywhere outside of a test like this,
+        #   then either rethink what you need, or submit issues suggesting
+        #   that the config system needs to be modified.  (This change
+        #   is undone in the finaly block below.)
+        config.Config._configs[ config.Config._default ] = cfg
         cfg.set_value( 'archive', None )
         models.base.ARCHIVE = None
         diskfile.save( data1, overwrite=False, exists_ok=False )
         assert diskfile.md5sum.hex == md5sum1
     finally:
-        cfg.set_value( 'archive', origcfgarchive )
         models.base.ARCHIVE = origarchive
+        config.Config._configs[ config.Config._default ] = origcfgobj
 
 
 def test_fileondisk_save_multifile( diskfile, archive, test_config):
@@ -736,10 +744,18 @@ def test_fileondisk_save_multifile_noarchive( diskfile ):
     md5sum2 = hashlib.md5( data2 ).hexdigest()
     assert md5sum1 != md5sum2
 
-    cfg = config.Config.get()
-    origcfgarchive = cfg.value( 'archive' )
+    origcfgobj = config.Config._configs[ config.Config._default ]
     origarchive = models.base.ARCHIVE
     try:
+        cfg = config.Config.get( static=False )
+        # NEVER DO THIS.  For this test, I want to change the value of
+        #   'archive' in the default config, so I'm screwing around
+        #   with the internal structure of the Config class.  If you
+        #   find yourself doing this anywhere outside of a test like this,
+        #   then either rethink what you need, or submit issues suggesting
+        #   that the config system needs to be modified.  (This change
+        #   is undone in the finaly block below.)
+        config.Config._configs[ config.Config._default ] = cfg
         cfg.set_value( 'archive', None )
         models.base.ARCHIVE = None
         diskfile.save( data1, component="_1.dat", overwrite=False, exists_ok=False )
@@ -747,8 +763,8 @@ def test_fileondisk_save_multifile_noarchive( diskfile ):
         assert diskfile.md5sum is None
         assert diskfile.md5sum_components == [ uuid.UUID(md5sum1), uuid.UUID(md5sum2) ]
     finally:
-        cfg.set_value( 'archive', origcfgarchive )
         models.base.ARCHIVE = origarchive
+        config.Config._configs[ config.Config._default ] = origcfgobj
 
 
 def test_fourcorners_sort_radec():

@@ -1,6 +1,6 @@
 services:
   make-archive-directories:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20250317}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -20,7 +20,7 @@ services:
     depends_on:
       make-archive-directories:
         condition: service_completed_successfully
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/upload-connector:${IMGTAG:-test20250317}
     build:
       context: ../extern/nersc-upload-connector
       args:
@@ -47,7 +47,7 @@ services:
     user: ${USERID:-0}:${GROUPID:-0}
 
   postgres:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/postgres:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/postgres:${IMGTAG:-test20250317}
     build:
       context: ../docker/postgres
     environment:
@@ -60,7 +60,7 @@ services:
       retries: 5
 
   setuptables:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -84,7 +84,7 @@ services:
         - "${MAILHOG_PORT:-8025}:8025"
 
   kafka-zookeeper:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/test_kafka/Dockerfile
@@ -99,7 +99,7 @@ services:
     depends_on:
        kafka-zookeeper:
          condition: service_healthy
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/kafka:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/test_kafka/Dockerfile
@@ -116,7 +116,7 @@ services:
         condition: service_completed_successfully
       make-archive-directories:
         condition: service_completed_successfully
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange-webap:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -139,7 +139,7 @@ services:
     entrypoint: [ "./run_webap.sh", "8081", "1" ]
 
   runtests:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -169,7 +169,7 @@ services:
     entrypoint: "pytest -v /seechange/$TEST_SUBFOLDER"
 
   runalltests:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -199,7 +199,7 @@ services:
     entrypoint: "pytest -v /seechange/tests"
 
   runruff:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile
@@ -217,7 +217,7 @@ services:
 
 
   shell:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250314}
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-c3-time-domain}/seechange:${IMGTAG:-test20250317}
     build:
       context: ../
       dockerfile: ./docker/application/Dockerfile

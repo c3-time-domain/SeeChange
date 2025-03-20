@@ -3,6 +3,7 @@ import pathlib
 import socket
 import json
 import datetime
+import traceback
 
 import psycopg2
 import psycopg2.extras
@@ -10,7 +11,7 @@ import psycopg2.extras
 import flask
 
 from util.util import asUUID
-from models.base import SmartSession
+from models.base import SmartSession, Psycopg2Connection
 from models.knownexposure import PipelineWorker, KnownExposure
 # NOTE: for get_instrument_instrance to work, must manually import all
 #  known instrument classes we might want to use here.
@@ -26,16 +27,69 @@ from baseview import BaseView, BadUpdaterReturnError
 class ConductorBaseView( BaseView ):
     _any_group_required = [ 'root', 'admin' ]
 
-    def __init__( self, *args, **kwargs ):
-        super().__init__( *args, **kwargs )
-        self.updater_socket_file = "/tmp/updater_socket"
+    updater_socket_file = "/tmp/updater_socket"
+
+    instrument_name = None
+    updateargs = None
+    update_timeout = 120
+    pause_updates = False
+    hold_new_exposures = False
+    configchangetime = None
+    throughstep = "scoring"
+    pickuppartial = False
+
+    @classmethod
+    def restore_conductor_state( cls ):
+        """This class method is called once upon module init."""
+
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "LOCK TABLE conductor_config" )
+            cursor.execute( "SELECT * FROM conductor_config" )
+            columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+            rows = cursor.fetchall()
+            if len( rows ) > 1:
+                raise RuntimeError( "Multiple rows in conductor config!" )
+            if len( rows ) == 0:
+                cursor.execute( "INSERT INTO conductor_config(instrument_name, updateargs, update_timeout, "
+                                "                             pause_updates, hold_new_exposures, configchangetime, "
+                                "                             throughstep, pickuppartial) "
+                                "VALUES( %(inst)s, %(upda)s, %(updt)s, %(pause)s, %(hold)s, "
+                                "        %(t)s, %(through)s, %(partial)s )",
+                                { 'inst': cls.instrument_name,
+                                  'upda': cls.updateargs,
+                                  'updt': cls.update_timeout,
+                                  'pause': cls.pause_updates,
+                                  'hold': cls.hold_new_exposures,
+                                  't': datetime.datetime.now( tz=datetime.UTC ),
+                                  'through': cls.throughstep,
+                                  'partial': cls.pickuppartial } )
+                conn.commit()
+            else:
+                row = rows[0]
+                cls.instrument_name = row[ columns[ 'instrument_name' ] ]
+                cls.updateargs = row[ columns[ 'updateargs' ] ]
+                cls.update_timeout = row[ columns[ 'update_timeout' ] ]
+                cls.pause_updates = row[ columns[ 'pause_updates' ] ]
+                cls.hold_new_exposures = row[ columns[ 'hold_new_exposures' ] ]
+                cls.configchangetime = row[ columns[ 'configchangetime' ] ]
+                cls.throughstep = row[ columns[ 'throughstep' ] ]
+                cls.pickuppartial = row[ columns[ 'pickuppartial' ] ]
+                msg = cls.talk_to_updater( { 'command': 'updateparameters',
+                                             'instrument': cls.instrument_name,
+                                             'updateargs': cls.updateargs,
+                                             'hold': cls.hold_new_exposures,
+                                             'pause': cls.pause_updates,
+                                             'timeout': cls.update_timeout } )
+                cls.confighcangetime = msg[ 'configchangetime' ]
 
 
-    def talk_to_updater( self, req, bsize=16384, timeout0=1, timeoutmax=16 ):
+    @classmethod
+    def talk_to_updater( cls, req, bsize=16384, timeout0=1, timeoutmax=16 ):
         sock = None
         try:
             sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM, 0 )
-            sock.connect( self.updater_socket_file )
+            sock.connect( cls.updater_socket_file )
             sock.send( json.dumps( req ).encode( "utf-8" ) )
             timeout = timeout0
             while True:
@@ -58,11 +112,23 @@ class ConductorBaseView( BaseView ):
                                                             f"last delay was {timeout/2} sec" )
                         raise BadUpdaterReturnError( "Connection to updater timed out" )
         except Exception as ex:
-            flask.current_app.logger.exception( ex )
+            # Need this next try because we call restore_conductor_state, which in turn
+            #   calls talk_to_updater, before the flask application is initialized,
+            #   so flask.current_app doesn't work yet.  (But we also call this a lot
+            #   once the flask app is started, and we want to use the logger then.)
+            try:
+                flask.current_app.logger.exception( ex )
+            except Exception:
+                sys.stderr.write( "Exception talking to updater during init\n" )
+                traceback.print_exception( ex, file=sys.stderr )
             raise BadUpdaterReturnError( str(ex) )
         finally:
             if sock is not None:
                 sock.close()
+
+
+    def __init__( self, *args, **kwargs ):
+        super().__init__( *args, **kwargs )
 
 
     def get_updater_status( self ):
@@ -75,7 +141,10 @@ class ConductorBaseView( BaseView ):
 
 class GetStatus( ConductorBaseView ):
     def do_the_things( self ):
-        return self.get_updater_status()
+        status = self.get_updater_status()
+        status[ 'throughstep' ] = self.__class__.throughstep
+        status[ 'pickuppartial' ] = self.__class__.pickuppartial
+        return status
 
 # ======================================================================
 # /forceupdate
@@ -85,9 +154,9 @@ class ForceUpdate( ConductorBaseView ):
     def do_the_things( self ):
         return self.talk_to_updater( { 'command': 'forceupdate' } )
 
+
 # ======================================================================
 # /updateparameters
-
 
 class UpdateParameters( ConductorBaseView ):
     def do_the_things( self, argstr=None ):
@@ -99,18 +168,58 @@ class UpdateParameters( ConductorBaseView ):
 
         flask.current_app.logger.debug( f"In UpdateParameters, argstr='{argstr}', args={args}" )
 
-        knownkw = [ 'instrument', 'timeout', 'updateargs', 'hold', 'pause' ]
+        updaterkw = [ 'instrument', 'timeout', 'updateargs', 'hold', 'pause' ]
+        clsatt = { 'instrument': 'instrument_name',
+                   'timeout': 'update_timeout',
+                   'updateargs': 'updateargs',
+                   'hold': 'hold_new_exposures',
+                   'pause': 'pause_updates',
+                   'throughstep': 'throughstep',
+                   'pickuppartial': 'pickuppartial' }
         unknown = set()
+        updaterargs = {}
+        clsatttoset = {}
         for arg, val in args.items():
-            if arg not in knownkw:
+            if ( arg not in updaterkw ) and ( arg not in clsatt ):
                 unknown.add( arg )
+            else:
+                if arg in updaterkw:
+                    updaterargs[arg] = val
+                if arg in clsatt.keys():
+                    clsatttoset[arg] = val
+
         if len(unknown) != 0:
             return f"Unknown arguments to UpdateParameters: {unknown}", 500
 
-        args['command'] = 'updateparameters'
-        res = self.talk_to_updater( args )
+        for att, val in clsatttoset.items():
+            setattr( self.__class__, att, val )
+        # Bools will have been passed as ints through the web interface, so make
+        #   sure they're really bools.  (This matters when passing to Postgres.)
+        self.__class__.pause_updates = bool( self.__class__.pause_updates )
+        self.__class__.hold_new_exposures = bool( self.__class__.hold_new_exposures )
+        self.__class__.pickuppartial = bool( self.__class__.pickuppartial )
+
+        updaterargs['command'] = 'updateparameters'
+        res = self.talk_to_updater( updaterargs )
         del curstatus['status']
         res['oldsconfig'] = curstatus
+
+        self.__class__.configchangetime = res['configchangetime']
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "UPDATE conductor_config SET instrument_name=%(inst)s, updateargs=%(upda)s, "
+                            "                            update_timeout=%(updt)s, pause_updates=%(pause)s, "
+                            "                            hold_new_exposures=%(hold)s, configchangetime=%(t)s, "
+                            "                            throughstep=%(through)s, pickuppartial=%(partial)s ",
+                            { 'inst': res['instrument'],
+                              'upda': res['updateargs'],
+                              'updt': res['timeout'],
+                              'pause': bool( res['pause'] ),
+                              'hold': bool( res['hold'] ),
+                              't': res['configchangetime'],
+                              'through': self.__class__.throughstep,
+                              'partial': self.__class__.pickuppartial } )
+            conn.commit()
 
         return res
 
@@ -126,14 +235,12 @@ class UpdateParameters( ConductorBaseView ):
 #   cluster_id str,
 #   node_id str, optional
 #   replace int, optional -- if non-zero, will replace an existing entry with this cluster/node
-#   nexps int, optional number of exposures this pipeline worker can do at once (default 1)
 
 
 class RegisterWorker( ConductorBaseView ):
     def do_the_things( self, argstr=None ):
-        args = self.argstr_to_args( argstr, { 'node_id': None, 'replace': 0, 'nexps': 1 } )
+        args = self.argstr_to_args( argstr, { 'node_id': None, 'replace': 0 } )
         args['replace'] = int( args['replace'] )
-        args['nexps'] = int( args['nexps'] )
         if 'cluster_id' not in args.keys():
             return "cluster_id is required for registerworker", 500
         with SmartSession() as session:
@@ -149,7 +256,6 @@ class RegisterWorker( ConductorBaseView ):
                              f"database needs to be cleaned up" ), 500
                 if args['replace']:
                     newworker = existing[0]
-                    newworker.nexps = args['nexps']
                     newworker.lastheartbeat = datetime.datetime.now()
                     status = 'updated'
                 else:
@@ -158,7 +264,6 @@ class RegisterWorker( ConductorBaseView ):
             else:
                 newworker = PipelineWorker( cluster_id=args['cluster_id'],
                                             node_id=args['node_id'],
-                                            nexps=args['nexps'],
                                             lastheartbeat=datetime.datetime.now() )
                 status = 'added'
             session.add( newworker )
@@ -168,8 +273,7 @@ class RegisterWorker( ConductorBaseView ):
         return { 'status': status,
                  'id': newworker.id,
                  'cluster_id': newworker.cluster_id,
-                 'node_id': newworker.node_id,
-                 'nexps': newworker.nexps }
+                 'node_id': newworker.node_id }
 
 
 # ======================================================================
@@ -229,49 +333,35 @@ class RequestExposure( ConductorBaseView ):
         args = self.argstr_to_args( argstr )
         if 'cluster_id' not in args.keys():
             return "cluster_id is required for RequestExposure", 500
-        # Using direct postgres here since I don't really know how to
-        #  lock tables with sqlalchemy.  There is with_for_udpate(), but
-        #  then the documentation has this red-backgrounded warning
-        #  that using this is not recommended when there are
-        #  relationships.  Since I can't really be sure what
-        #  sqlalchemy is actually going to do, just communicate
-        #  with the database the way the database was meant to
-        #  be communicated with.
         knownexp_id = None
-        with SmartSession() as session:
-            dbcon = None
-            cursor = None
-            try:
-                dbcon = session.bind.raw_connection()
-                cursor = dbcon.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
-                cursor.execute( "LOCK TABLE knownexposures" )
-                cursor.execute( "SELECT _id, cluster_id FROM knownexposures "
-                                "WHERE cluster_id IS NULL AND NOT hold "
-                                "ORDER BY mjd LIMIT 1" )
-                rows = cursor.fetchall()
-                if len(rows) > 0:
-                    knownexp_id = rows[0]['_id']
-                    cursor.execute( "UPDATE knownexposures "
-                                    "SET cluster_id=%(cluster_id)s, claim_time=NOW() "
-                                    "WHERE _id=%(id)s",
-                                    { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
-                    dbcon.commit()
-            except Exception:
-                raise
-            finally:
-                if cursor is not None:
-                    cursor.close()
-                if dbcon is not None:
-                    dbcon.rollback()
+        with Psycopg2Connection() as dbcon:
+            cursor = dbcon.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
+            cursor.execute( "LOCK TABLE knownexposures" )
+            cursor.execute( "SELECT _id, cluster_id FROM knownexposures "
+                            "WHERE cluster_id IS NULL AND NOT hold "
+                            "ORDER BY mjd LIMIT 1" )
+            rows = cursor.fetchall()
+            if len(rows) > 0:
+                knownexp_id = rows[0]['_id']
+                cursor.execute( "UPDATE knownexposures "
+                                "SET cluster_id=%(cluster_id)s, claim_time=NOW() "
+                                "WHERE _id=%(id)s",
+                                { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
+                cursor.execute( "SELECT throughstep FROM conductor_config" )
+                throughstep = cursor.fetchone()[ 'throughstep' ]
+                dbcon.commit()
 
         if knownexp_id is not None:
-            return { 'status': 'available', 'knownexposure_id': knownexp_id }
+            return { 'status': 'available',
+                     'knownexposure_id': knownexp_id,
+                     'through_step': throughstep
+                    }
         else:
             return { 'status': 'not available' }
 
 
 # ======================================================================
-
+# /getknownexposures
 
 class GetKnownExposures( ConductorBaseView ):
     def do_the_things( self, argstr=None ):
@@ -337,7 +427,43 @@ class ReleaseExposures( HoldReleaseExposures ):
 
 
 # ======================================================================
-# Create and configure the sub web ap (i.e. flask blueprint)
+
+class DeleteKnownExposures( ConductorBaseView ):
+    def do_the_things( self ):
+        args = flask.request.json
+        if 'knownexposure_ids' not in args:
+            return "Error, must pass knownexposure_ids in JSON post body", 500
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "DELETE FROM knownexposures WHERE _id IN %(expids)s",
+                            { 'expids': tuple( args['knownexposure_ids'] ) } )
+            ndel = cursor.rowcount
+            conn.commit()
+            return { 'status': 'ok', 'num_deleted': ndel }
+
+
+# ======================================================================
+
+class ClearClusterClaim( ConductorBaseView ):
+    def do_the_things( self ):
+        args = flask.request.json
+        if 'knownexposure_ids' not in args:
+            return "Error, must pass knownexposure_ids in JSON post body", 500
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "UPDATE knownexposures SET cluster_id=NULL, node_id=NULL, machine_name=NULL, "
+                            "  claim_time=NULL, start_time=NULL, release_time=NULL "
+                            "WHERE _id IN %(expids)s",
+                            { 'expids': tuple( args['knownexposure_ids'] ) } )
+            nmod = cursor.rowcount
+            conn.commit()
+            return { 'status': 'ok', 'num_cleared': nmod }
+
+
+# ======================================================================
+# Do initialization; create and configure the sub web ap (i.e. flask blueprint)
+
+ConductorBaseView.restore_conductor_state()
 
 bp = flask.Blueprint( 'conductor', __name__, url_prefix='/conductor' )
 
@@ -357,6 +483,8 @@ urls = {
     "/getknownexposures/<path:argstr>": GetKnownExposures,
     "/holdexposures": HoldExposures,
     "/releaseexposures": ReleaseExposures,
+    "/deleteknownexposures": DeleteKnownExposures,
+    "/clearclusterclaim": ClearClusterClaim,
 }
 
 usedurls = {}

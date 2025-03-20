@@ -965,16 +965,16 @@ class CoaddPipeline:
         self.extractor = Detector(**extraction_config)
 
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometor_config = self.config.value('wcs', {})
-        astrometor_config.update(self.config.value('coaddition.wcs', {}))  # override coadd specific pars
-        astrometor_config.update(kwargs.get('wcs', {}))
+        astrometor_config = self.config.value('astrocal', {})
+        astrometor_config.update(self.config.value('coaddition.astrocal', {}))  # override coadd specific pars
+        astrometor_config.update(kwargs.get('astrocal', {}))
         self.pars.add_defaults_to_dict(astrometor_config)
         self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photometor_config = self.config.value('zp', {})
-        photometor_config.update(self.config.value('coaddition.zp', {}))  # override coadd specific pars
-        photometor_config.update(kwargs.get('zp', {}))
+        photometor_config = self.config.value('photocal', {})
+        photometor_config.update(self.config.value('coaddition.photocal', {}))  # override coadd specific pars
+        photometor_config.update(kwargs.get('photocal', {}))
         self.pars.add_defaults_to_dict(photometor_config)
         self.photometor = PhotCalibrator(**photometor_config)
 
@@ -1061,14 +1061,14 @@ class CoaddPipeline:
                                                                  code_version_id=code_version_id )
         coadd_prov.insert_if_needed()
 
-        steps = [ 'extraction', 'wcs', 'zp' ]
+        steps = [ 'extraction', 'astrocal', 'photocal' ]
         upstream_steps = { 'extraction': [],
-                           'wcs': [ 'extraction' ],
-                           'zp': [ 'wcs' ]
+                           'astrocal': [ 'extraction' ],
+                           'photocal': [ 'astrocal' ]
                           }
         parses = { 'extraction': self.extractor.pars.get_critical_pars(),
-                   'wcs': self.astrometor.pars.get_critical_pars(),
-                   'zp': self.photometor.pars.get_critical_pars() }
+                   'astrocal': self.astrometor.pars.get_critical_pars(),
+                   'photocal': self.photometor.pars.get_critical_pars() }
         self.datastore.make_prov_tree( steps, parses, upstream_steps=upstream_steps, starting_point=coadd_prov )
 
         return self.datastore.prov_tree

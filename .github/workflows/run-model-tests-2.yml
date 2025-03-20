@@ -9,7 +9,7 @@ on:
 
 jobs:
   tests:
-    name: run tests in docker image
+    name: run model tests 2
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io

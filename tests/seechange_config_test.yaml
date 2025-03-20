@@ -40,7 +40,17 @@ webap:
   webap_url: https://webap:8081/
 
 pipeline:
+  # Leave this at false until we update
+  #   the datastore_factory.py fixture
+  #   to deal with the fake objects.
+  # (Possible other tests may need to
+  #   be updated too.)
+  # Leaving the commented-out "true"
+  #   here as a reminder to make the
+  #   change if you're interactively
+  #   futzing around with the webap.
   inject_fakes: false
+  # inject_fakes: true
 
 # Need the sep box and filt size for historical reasons
 #  (These used to be the defaults, so some test results
@@ -73,3 +83,16 @@ alerts:
       kafka_server: kafka-server
       kafka_topic_pattern: "test_topic_{barf}"
       previous_source_days: 30
+
+fakeinjection:
+  min_fake_mag: -2.
+  max_fake_mag: 1.
+  mag_rel_limmag: true
+  num_fakes: 100
+  mag_prob_ratio: 1.
+  random_seed: 0.
+  hostless_frac: 0.25
+  host_minmag: -3.
+  host_maxmag: 0.5
+  host_distscale: 1.
+  random_seed: 42

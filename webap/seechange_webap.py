@@ -27,6 +27,8 @@ import flask.views
 from util.config import Config
 from util.util import asUUID
 from models.deepscore import DeepScoreSet
+from models.fakeset import FakeSet, FakeAnalysis
+from models.report import Report
 
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
 from baseview import BaseView
@@ -299,36 +301,38 @@ class Exposures( BaseView ):
         # Now run a second query to count and sum those things
         # These numbers will be wrong (double-counts) if not filtering on a provenance tag, or if the
         #   provenance tag includes multiple provenances for a given step!
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, '
+              '  t._filter, t.filter_array, t.exp_time, '
               '  AVG(t.fwhm_estimate) AS seeingavg, AVG(t.lim_mag_estimate) AS limmagavg, '
               '  COUNT(t.subid) AS num_subs, SUM(t.num_sources) AS num_sources, '
               '  SUM(t.num_measurements) AS num_measurements '
               'INTO TEMP TABLE temp_imgs_2 '
               'FROM temp_imgs t '
-              'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time'
+              'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, '
+              '         t._filter, t.filter_array, t.exp_time'
              )
 
         cursor.execute( q )
 
-        # Run a third query to count reports
+        # Run a third query to count reports.  Because there might be
+        #   lots of reports for the same exposure, we're just going to
+        #   count the latest one that matches the expected provenance tag.
+        # WORRY : all of these join shenanigans (in particular, the one
+        #   that pokes into the jsonb column) may get really slow when
+        #   tables are big.  Think about that.
         subdict = {}
-        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, t.exp_time, '
+        q = ( 'SELECT t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, '
+              '  t._filter, t.filter_array, t.exp_time, '
               '  t.seeingavg, t.limmagavg, t.num_subs, t.num_sources, t.num_measurements, '
               '  SUM( CASE WHEN r.success THEN 1 ELSE 0 END ) as n_successim, '
               '  SUM( CASE WHEN r.error_message IS NOT NULL THEN 1 ELSE 0 END ) AS n_errors '
               'FROM temp_imgs_2 t '
-             )
-        if data['provenancetag'] is None:
-            q += 'LEFT JOIN reports r ON r.exposure_id=t._id '
-        else:
-            q += ( 'LEFT JOIN ( '
-                   '  SELECT re.exposure_id, re.success, re.error_message '
-                   '  FROM reports re '
-                   '  INNER JOIN provenance_tags rept ON rept.provenance_id=re.provenance_id '
-                   '                                  AND rept.tag=%(provtag)s '
-                   ') r ON r.exposure_id=t._id '
-                  )
-            subdict['provtag'] = data['provenancetag']
+              'LEFT JOIN ( ' )
+        subq, subsubdict = Report.query_for_reports( prov_tag=data['provenancetag'],
+                                                     fields=[ 'exposure_id', 'success', 'error_message' ] )
+        q += subq
+        subdict.update( subsubdict )
+        q += ') r ON r.exposure_id=t._id '
         # I wonder if making a primary key on the temp table would be more efficient than
         #    all these columns in GROUP BY?  Investigate this.
         q += ( 'GROUP BY t._id, t.filepath, t.mjd, t.airmass, t.target, t.project, t._filter, t.filter_array, '
@@ -483,22 +487,57 @@ class ExposureImages( BaseView ):
         # app.logger.debug( f"Got {cursor.fetchone()[0]} rows with counts" )
         # ****
 
-        # Step 3: join to the report table.  This one is probably mergeable with step 1.
-        q = ( 'SELECT i._id, r.error_step, r.error_type, r.error_message, r.warnings, '
+        # Step 3: join to the report table.  Because we might have multiple reports
+        #   for the same exposure/section/provenance tag, pick just the latest.
+        #
+        # This mess is very similar to the mess in Exposures, to make sure we're selecting
+        #   the right reports.
+
+        q = ( 'SELECT i._id, r.error_step, r.error_type, r.error_message, r.warnings, r.start_time, r.finish_time, '
               '       r.process_memory, r.process_runtime, r.progress_steps_bitflag, r.products_exist_bitflag '
               'INTO TEMP TABLE temp_exposure_images_reports '
               'FROM temp_exposure_images i '
               'INNER JOIN ( '
-              '  SELECT re.exposure_id, re.section_id, '
+              '  SELECT DISTINCT ON(re.exposure_id, re.section_id) re.exposure_id, re.section_id, '
               '         re.error_step, re.error_type, re.error_message, re.warnings, '
-              '         re.process_memory, re.process_runtime, re.progress_steps_bitflag, re.products_exist_bitflag '
-              '  FROM reports re '
-              '  INNER JOIN provenance_tags rept ON rept.provenance_id=re.provenance_id AND rept.tag=%(provtag)s '
-              ') r ON r.exposure_id=i.exposure_id AND r.section_id=i.section_id '
-             )
+              '         re.process_memory, re.process_runtime, re.progress_steps_bitflag, re.products_exist_bitflag, '
+              '         re.start_time, re.finish_time '
+              '  FROM ( SELECT re1.exposure_id, re1.section_id, re1.error_step, re1.error_type, re1.error_message, '
+              '                re1.warnings, re1.process_memory, re1.process_runtime, re1.progress_steps_bitflag, '
+              '                re1.products_exist_bitflag, re1.start_time, re1.finish_time, '
+              '                array_agg(%(provtag)s=ANY(re1.tags)) as gotem '
+              '         FROM ( SELECT re2.exposure_id, re2.section_id, re2.error_step, re2.error_type, '
+              '                       re2.error_message, re2.warnings, re2.process_memory, re2.process_runtime, '
+              '                       re2.progress_steps_bitflag, re2.products_exist_bitflag, re2.start_time, '
+              '                       re2.finish_time, array_agg(re2.tag) AS tags '
+              '                FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
+              '                              re3._id, re3.exposure_id, re3.section_id, re3.error_step, '
+              '                              re3.error_type, re3.error_message, re3.warnings, re3.process_memory, '
+              '                              re3.process_runtime, re3.progress_steps_bitflag, '
+              '                              re3.products_exist_bitflag, re3.start_time, re3.finish_time, '
+              '                              x.key AS process, r3pt.tag '
+              '                        FROM reports re3 '
+              '                        CROSS JOIN jsonb_each_text( re3.process_provid ) x '
+              '                        INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id '
+              '                        ORDER BY re3._id, r3pt.tag '
+              '                     ) re2 '
+              '                GROUP BY ( re2.exposure_id, re2.section_id, re2.error_step, re2.error_type, '
+              '                           re2.error_message, re2.warnings, re2.process_memory, '
+              '                           re2.process_runtime, re2.progress_steps_bitflag, '
+              '                           re2.products_exist_bitflag, re2.start_time, re2.finish_time ) '
+              '              ) re1 '
+              '         GROUP BY ( re1.exposure_id, re1.section_id, re1.error_step, re1.error_type, '
+              '                    re1.error_message, re1.warnings, re1.process_memory, re1.process_runtime, '
+              '                    re1.progress_steps_bitflag, re1.products_exist_bitflag, re1.start_time, '
+              '                    re1.finish_time ) '
+              '       ) re '
+              '  WHERE true=ALL(gotem) '
+              '  ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
+              ') r ON r.exposure_id=i.exposure_id AND r.section_id=i.section_id ' )
         # app.logger.debug( f"exposure_images getting reports; query {cursor.mogrify(q,subdict)}" )
         cursor.execute( q, subdict )
-        # Again, we will get an error here if there are multiple rows for a given image
+        # Again, we will get an error here if there are multiple rows for a given image.
+        #   Because of the distinct on exposure_id/section_id, I don't think that should happen.
         cursor.execute( "ALTER TABLE temp_exposure_images_reports ADD PRIMARY KEY(_id)" )
         # ****
         # cursor.execute( "SELECT COUNT(*) FROM temp_exposure_images_reports" )
@@ -517,7 +556,7 @@ class ExposureImages( BaseView ):
         fields = ( '_id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
                    'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate',
                    'numsources', 'nummeasurements', 'subid',
-                   'error_step', 'error_type', 'error_message', 'warnings',
+                   'error_step', 'error_type', 'error_message', 'warnings', 'start_time', 'finish_time',
                    'process_memory', 'process_runtime', 'progress_steps_bitflag', 'products_exist_bitflag' )
 
         retval = { 'status': 'ok',
@@ -541,7 +580,10 @@ class ExposureImages( BaseView ):
             retval['name'].append( row[columns['filepath']] if match is None else match.group(1) )
             for field in fields:
                 rfield = 'id' if field == '_id' else field
-                retval[rfield].append( row[columns[field]] )
+                if ( rfield in ( 'start_time', 'finish_time' ) ) and ( row[columns[field]] is not None ):
+                    retval[rfield].append( row[columns[field]].isoformat() )
+                else:
+                    retval[rfield].append( row[columns[field]] )
 
         if len(multiples) != 0:
             return { 'status': 'error',
@@ -549,7 +591,27 @@ class ExposureImages( BaseView ):
                                 f'that the reports table is not well-formed.  Or maybe something else. '
                                 f'offending images: {multiples}' ) }
 
-        app.logger.debug( f"exposure_images returning {retval}" )
+        # app.logger.debug( f"exposure_images returning {retval}" )
+        return retval
+
+
+# ======================================================================
+
+class ExposureReports( BaseView ):
+    def do_the_things( self, expid, provtag ):
+        q, subdict = Report.query_for_reports( provtag )
+        q = f"SELECT e._id,r.* FROM exposures e INNER JOIN ({q}) r ON e._id=r.exposure_id WHERE e._id=%(expid)s"
+        subdict['expid'] = expid
+        cursor = self.conn.cursor()
+        cursor.execute( q, subdict )
+        columns = { cursor.description[i][0]: i for i in range( len(cursor.description) ) }
+        rows = cursor.fetchall()
+
+        retval = { 'status': 'ok',
+                   'reports': {} }
+        for row in rows:
+            retval['reports'][row[columns['section_id']]] = { c: row[columns[c]] for c in columns }
+
         return retval
 
 
@@ -897,6 +959,99 @@ class PngCutoutsForSubImage( BaseView ):
         return retval
 
 
+# ======================================================================
+
+class FakeAnalysisData( BaseView ):
+    def do_the_things( self, expid, provtag, sectionid=None ):
+        cursor = self.conn.cursor()
+        expid = asUUID( expid )
+
+        # Applying the provenance tag filter to the deepscore set, because
+        #   that's the lowest thing down on the chain.  (FakeAnalysis doesn't
+        #   have a provenance, and FakeSet's provenance doesn't get tagged.)
+        q = ( "SELECT fa._id AS fakeanal_id, fa.filepath AS fakeanal_filepath, "
+              "       fs._id AS fakeset_id, fs.filepath AS fakeset_filepath, "
+              "       i.section_id, zp.zp "
+              "FROM fake_analysis fa "
+              "INNER JOIN ( "
+              "  SELECT dsi._id, dsi.measurementset_id FROM deepscore_sets dsi "
+              "  INNER JOIN provenance_tags dsipt ON dsipt.provenance_id=dsi.provenance_id AND dsipt.tag=%(provtag)s "
+              ") ds ON fa.orig_deepscore_set_id=ds._id "
+              "INNER JOIN measurement_sets ms ON ds.measurementset_id=ms._id "
+              "INNER JOIN cutouts cu ON ms.cutouts_id=cu._id "
+              "INNER JOIN source_lists d ON cu.sources_id=d._id "
+              "INNER JOIN images su ON d.image_id=su._id "
+              "INNER JOIN image_subtraction_components isc ON su._id=isc.image_id "
+              "INNER JOIN zero_points zp ON isc.new_zp_id=zp._id "
+              "INNER JOIN world_coordinates wc ON zp.wcs_id=wc._id "
+              "INNER JOIN source_lists s ON wc.sources_id=s._id "
+              "INNER JOIN images i ON s.image_id=i._id "
+              "INNER JOIN fake_sets fs ON fs._id=fa.fakeset_id AND fs.zp_id=zp._id "
+              "WHERE i.exposure_id=%(expid)s "
+             )
+        subdict = { 'provtag': provtag, 'expid': expid }
+        if sectionid is not None:
+            q += " AND i.section_id=%(secid)s"
+            subdict['secid'] = sectionid
+
+        cursor.execute( q, subdict )
+        columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+        rows = cursor.fetchall()
+
+        # It's possible we'll get multple rows back even with a single section id, because somebody could have
+        #   rerun the pipeline using a different random seed for the fake injection.  (But see Issue #444.)
+        #   So, each value in the sections dictionary is itself an array.  (Which will contain a dictionary of
+        #   values, many of which are arrays.  dict→dict→array→dict→arrays.... ufda.)
+
+        retval = { 'status': 'ok',
+                   'sections': {} }
+
+        # Reading files directly from the archive because the web ap mounts the archive directory
+        for row in rows:
+            secid = row[columns['section_id']]
+            if secid  not in retval['sections']:
+                retval['sections'][secid] = []
+            fakeset = FakeSet.get_by_id( row[columns['fakeset_id']], session=self.session )
+            fakeset.load( filepath=pathlib.Path( cfg.value( 'archive.local_read_dir' ) ) / fakeset.filepath )
+            fakeanal = FakeAnalysis.get_by_id( row[columns['fakeanal_id']], session=self.session )
+            fakeanal.load( filepath=pathlib.Path( cfg.value( 'archive.local_read_dir' ) ) / fakeanal.filepath )
+            zp = row[columns['zp']]
+            # Just sticking numpy arrays directly, in hopes that the json encoding that flask
+            #   does handles this right....
+            fakeinfo = { 'random_seed': fakeset.random_seed,
+                         'fake_x': fakeset.fake_x,
+                         'fake_y': fakeset.fake_y,
+                         'fake_mag': fakeset.fake_mag,
+                         'is_detected': fakeanal.is_detected,
+                         'is_kept': fakeanal.is_kept,
+                         'is_bad': fakeanal.is_bad,
+                         'mag_psf': -2.5 * numpy.log10( fakeanal.flux_psf ) + zp,
+                         'mag_psf_err': 2.5 / numpy.log(10) * fakeanal.flux_psf_err / fakeanal.flux_psf,
+                         'center_x_pixel': fakeanal.center_x_pixel,
+                         'center_y_pixel': fakeanal.center_y_pixel,
+                         'x': fakeanal.x,
+                         'y': fakeanal.y,
+                         'gfit_x': fakeanal.gfit_x,
+                         'gfit_y': fakeanal.gfit_y,
+                         'major_width': fakeanal.major_width,
+                         'minor_width': fakeanal.minor_width,
+                         'position_angle': fakeanal.position_angle,
+                         'psf_fit_flags': fakeanal.psf_fit_flags,
+                         'nbadpix': fakeanal.nbadpix,
+                         'negfrac': fakeanal.negfrac,
+                         'negfluxfrac': fakeanal.negfluxfrac,
+                         'deepscore_algorithm': fakeanal.deepscore_algorithm,
+                         'score': fakeanal.score
+                        }
+            retval['sections'][secid].append( fakeinfo )
+
+        return retval
+
+
+
+
+# =====================================================================
+# =====================================================================
 # =====================================================================
 # Create and configure the flask app
 
@@ -965,10 +1120,13 @@ urls = {
     "/projects": Projects,
     "/exposures": Exposures,
     "/exposure_images/<expid>/<provtag>": ExposureImages,
+    "/exposure_reports/<expid>/<provtag>": ExposureReports,
     "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>": PngCutoutsForSubImage,
     "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>": PngCutoutsForSubImage,
     ( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"
       "<int:limit>/<int:offset>" ): PngCutoutsForSubImage,
+    "/fakeanalysisdata/<expid>/<provtag>": FakeAnalysisData,
+    "/fakeanalysisdata/<expid>/<provtag>/<sectionid>": FakeAnalysisData,
 }
 
 usedurls = {}

@@ -166,18 +166,21 @@ def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
         im.delete_from_disk_and_database()
 
 
-def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
+def test_image_archive_singlefile(sim_image_uncommitted, archive):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
     rng = np.random.default_rng()
     im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.uint16)
 
     archive_dir = archive.test_folder_path
-    single_fileness = test_config.value('storage.images.single_file')
 
+    origcfgobj = Config._configs[ Config._default ]
     try:
-        # Do single file first
-        test_config.set_value('storage.images.single_file', True)
+        cfg = Config.get( static=False )
+        # NEVER DO THIS ; search for NEVER DO THIS in tests/models/test_base.py
+        Config._configs[ Config._default ] = cfg
+
+        cfg.set_value('storage.images.single_file', True)
 
         # Make sure that the archive is *not* written when we tell it not to.
         im.save( no_archive=True )
@@ -227,10 +230,10 @@ def test_image_archive_singlefile(sim_image_uncommitted, archive, test_config):
 
     finally:
         im.delete_from_disk_and_database()
-        test_config.set_value('storage.images.single_file', single_fileness)
+        Config._configs[ Config._default ] = origcfgobj
 
 
-def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
+def test_image_archive_multifile(sim_image_uncommitted, archive):
     im = sim_image_uncommitted
     im.data = np.float32( im.raw_data )
     rng = np.random.default_rng()
@@ -238,11 +241,13 @@ def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
     im.weight = None
 
     archive_dir = archive.test_folder_path
-    single_fileness = test_config.value('storage.images.single_file')
-
+    origcfgobj = Config._configs[ Config._default ]
     try:
-        # Now do multiple images
-        test_config.set_value('storage.images.single_file', False)
+        cfg = Config.get( static=False )
+        # NEVER DO THIS ; search for NEVER DO THIS in tests/models/test_base.py
+        Config._configs[ Config._default ] = cfg
+
+        cfg.set_value('storage.images.single_file', False)
 
         # Make sure that the archive is not written when we tell it not to
         im.save( no_archive=True )
@@ -304,7 +309,7 @@ def test_image_archive_multifile(sim_image_uncommitted, archive, test_config):
 
     finally:
         im.delete_from_disk_and_database()
-        test_config.set_value('storage.images.single_file', single_fileness)
+        Config._configs[ Config._default ] = origcfgobj
 
 
 def test_image_save_justheader( sim_image1 ):
@@ -386,8 +391,7 @@ def test_image_save_fpack( code_version ):
     saved_images = []
     prov = None
     rng = np.random.default_rng( 42 )
-    cfg = Config.get()
-    origfmt = cfg.value( 'storage.images.format' )
+    origcfgobj = Config._configs[ Config._default ]
     try:
         prov = Provenance( process="test", code_version_id=code_version.id, is_testing=True,
                            parameters={"gratuitous": rng.normal() } )
@@ -492,7 +496,12 @@ def test_image_save_fpack( code_version ):
 
         # Finally,  make sure that we save .fits.fz files if the config
         #   is set to do so
+
+        cfg = Config.get( static=False )
+        # NEVER DO THIS ; search for NEVER DO THIS in tests/models/test_base.py
+        Config._configs[ Config._default ] = cfg
         cfg.set_value( 'storage.images.format', 'fitsfz' )
+
         anotherim =Image.copy_image( im )
         anotherim.provenance_id = prov.id
         anotherim._format = None
@@ -514,7 +523,7 @@ def test_image_save_fpack( code_version ):
         assert filepath.stat().st_size / nonfzfilepath.stat().st_size < 0.2
 
     finally:
-        cfg.set_value( 'storage.images.format', origfmt )
+        Config._configs[ Config._default ] = origcfgobj
         for i in saved_images:
             i.delete_from_disk_and_database()
         if prov is not None:
@@ -998,7 +1007,7 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
             conn.commit()
 
 
-def test_image_filename_conventions(sim_image1, test_config):
+def test_image_filename_conventions(sim_image1):
 
     # sim_image1 was saved using the naming convention in the config file
     assert re.search(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.image\.fits', sim_image1.get_fullpath()[0])
@@ -1008,9 +1017,13 @@ def test_image_filename_conventions(sim_image1, test_config):
     original_filepath = sim_image1.filepath
 
     # try to set the name convention to None, to load the default hard-coded one
-    convention = test_config.value('storage.images.name_convention')
+    origcfgobj = Config._configs[ Config._default ]
     try:
-        test_config.set_value('storage.images.name_convention', None)
+        cfg = Config.get( static=False )
+        # NEVER DO THIS ; search for NEVER DO THIS in tests/models/test_base.py
+        Config._configs[ Config._default ] = cfg
+
+        cfg.set_value('storage.images.name_convention', None)
         sim_image1.save( no_archive=True )
         assert re.search(r'Demo_\d{8}_\d{6}_\d+_.+_.{6}\.image\.fits', sim_image1.get_fullpath()[0])
         for f in sim_image1.get_fullpath(as_list=True):
@@ -1021,7 +1034,7 @@ def test_image_filename_conventions(sim_image1, test_config):
                 os.rmdir(folder)
 
         new_convention = '{ra_int:03d}/foo_{date}_{time}_{section_id_int:02d}_{filter}'
-        test_config.set_value('storage.images.name_convention', new_convention)
+        cfg.set_value('storage.images.name_convention', new_convention)
         # invent_filepath will try to use the existing filepath value so we clear it first
         sim_image1.filepath = None
         sim_image1.save( no_archive=True )
@@ -1034,7 +1047,7 @@ def test_image_filename_conventions(sim_image1, test_config):
                 os.rmdir(folder)
 
         new_convention = 'bar_{date}_{time}_{section_id_int:02d}_{ra_int_h:02d}{dec_int:+03d}'
-        test_config.set_value('storage.images.name_convention', new_convention)
+        cfg.set_value('storage.images.name_convention', new_convention)
         sim_image1.filepath = None
         sim_image1.save( no_archive=True )
         assert re.search(r'bar_\d{8}_\d{6}_\d{2}_\d{2}[+-]\d{2}\.image\.fits', sim_image1.get_fullpath()[0])
@@ -1045,12 +1058,12 @@ def test_image_filename_conventions(sim_image1, test_config):
             if len(os.listdir(folder)) == 0:
                 os.rmdir(folder)
 
-    finally:  # return to the original convention
-        test_config.set_value('storage.images.name_convention', convention)
+    finally:
+        Config._configs[ Config._default ] = origcfgobj
         sim_image1.filepath = original_filepath  # this will allow the image to delete itself in the teardown
 
 
-def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
+def test_image_multifile(sim_image_uncommitted, provenance_base):
     im = sim_image_uncommitted
     im.data = np.float32(im.raw_data)
     rng = np.random.default_rng()
@@ -1058,11 +1071,14 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
     im.weight = None
     im.provenance_id = provenance_base.id
 
-    single_fileness = test_config.value('storage.images.single_file')  # store initial value
-
+    origcfgobj = Config._configs[ Config._default ]
     try:
+        cfg = Config.get( static=False )
+        # NEVER DO THIS ; search for NEVER DO THIS in tests/models/test_base.py
+        Config._configs[ Config._default ] = cfg
+
         # first use single file
-        test_config.set_value('storage.images.single_file', True)
+        cfg.set_value('storage.images.single_file', True)
         im.save( no_archive=True )
 
         assert re.match(r'\d{3}/Demo_\d{8}_\d{6}_\d+_.+_.{6}\.fits', im.filepath)
@@ -1086,7 +1102,7 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
             os.remove(f)
 
         # now test multiple files
-        test_config.set_value('storage.images.single_file', False)
+        cfg.set_value('storage.images.single_file', False)
         im.filepath = None
         im.save( no_archive=True )
 
@@ -1112,7 +1128,7 @@ def test_image_multifile(sim_image_uncommitted, provenance_base, test_config):
             assert np.array_equal(hdul[0].data, im.flags)
 
     finally:
-        test_config.set_value('storage.images.single_file', single_fileness)
+        Config._configs[ Config._default ] = origcfgobj
 
 
 # Note: ptf_datastore is a pretty heavyweight fixture, since it has to

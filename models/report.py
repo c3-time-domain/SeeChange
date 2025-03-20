@@ -1,8 +1,10 @@
 import time
+import re
 
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
 from models.base import Base, SeeChangeBase, UUIDMixin
 from models.enums_and_bitflags import (
@@ -28,7 +30,7 @@ class Report(Base, UUIDMixin):
 
     exposure_id = sa.Column(
         sa.ForeignKey('exposures._id', ondelete='CASCADE', name='reports_exposure_id_fkey'),
-        nullable=False,
+        nullable=True,
         index=True,
         doc=(
             "ID of the exposure for which the report was made. "
@@ -37,11 +39,25 @@ class Report(Base, UUIDMixin):
 
     section_id = sa.Column(
         sa.Text,
-        nullable=False,
+        nullable=True,
         index=True,
         doc=(
             "ID of the section of the exposure for which the report was made. "
         )
+    )
+
+    # Not making this a formal foreign key, because in at least one case
+    #   in our tests the image is not yet committed to the database when
+    #   we try to save the report to the database.  (Originally, reports
+    #   assumed they came off of an exposure, and the pipeline assumes
+    #   exposure are committed before starting.  The pipeline is able to
+    #   run on an image that's not committed to the database, however.)
+    image_id = sa.Column(
+        # sa.ForeignKey( 'images._id', ondelete='CASCADE', name='reports_image_id_fkey' ),
+        sqlUUID,
+        nullable=True,
+        index=True,
+        doc="ID of the image for which the report was made.  Report has (exposure_id,sectionid) XOR image_id."
     )
 
     start_time = sa.Column(
@@ -67,27 +83,21 @@ class Report(Base, UUIDMixin):
     success = sa.Column(
         sa.Boolean,
         nullable=False,
-        index=True,
+        index=False,
         server_default='false',
         doc=(
             "Whether the processing of this section was successful. "
         )
     )
 
-    num_prev_reports = sa.Column(
-        sa.Integer,
-        nullable=False,
-        server_default=sa.sql.elements.TextClause( '0' ),
-        doc=(
-            "Number of previous reports for this exposure, section, and provenance. "
-        )
-    )
-
-    worker_id = sa.Column(
+    # These next two are not a composite foreign key because
+    #   PipelineWorkers only holds active workers, and we want to be
+    #   able to see reports for workers that have exited.
+    cluster_id = sa.Column(
         sa.Text,
         nullable=True,
         doc=(
-            "ID of the worker/process that ran this section. "
+            "ID of the cluster that ran this section (see PipelineWorker). "
         )
     )
 
@@ -95,15 +105,7 @@ class Report(Base, UUIDMixin):
         sa.Text,
         nullable=True,
         doc=(
-            "ID of the node where the worker/process ran this section. "
-        )
-    )
-
-    cluster_id = sa.Column(
-        sa.Text,
-        nullable=True,
-        doc=(
-            "ID of the cluster where the worker/process ran this section. "
+            "ID of the node where the worker/process ran this section (see PipelineWorker). "
         )
     )
 
@@ -140,6 +142,13 @@ class Report(Base, UUIDMixin):
         )
     )
 
+    process_provid = sa.Column(
+        JSONB,
+        nullable=True,
+        index=False,
+        doc="Dictionary of process→provenance_id for the provenances used in pipeline process."
+    )
+
     process_memory = sa.Column(
         JSONB,
         nullable=False,
@@ -162,7 +171,7 @@ class Report(Base, UUIDMixin):
         sa.BIGINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( '0' ),
-        index=True,
+        index=False,
         doc='Bitflag recording what processing steps have already been applied to this section. '
     )
 
@@ -188,7 +197,7 @@ class Report(Base, UUIDMixin):
         sa.BIGINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( '0' ),
-        index=True,
+        index=False,
         doc='Bitflag recording which pipeline products were not None when the pipeline finished. '
     )
 
@@ -216,9 +225,149 @@ class Report(Base, UUIDMixin):
         sa.BIGINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( '0' ),
-        index=True,
+        index=False,
         doc='Bitflag recording which pipeline products were not None when the pipeline finished. '
     )
+
+    @classmethod
+    def query_for_reports( cls, prov_tag=None, section_id=None, fields=None ):
+        """Return a SQL query to find reports.
+
+        Returns a query that, when passed, will find all of the most
+        recent reports for each section_id for a given exposure where
+        all of the process provenance ids in that report match the
+        desired provenance tag.
+
+        You might wrap this inside a JOIN or a SELECT ... FROM (...) where
+        join on, or where on, exposure_id.
+
+        See seechange_webap.py::Exposures for an example of usage.
+
+        Parameters
+        ----------
+          prov_tag : str, default None
+            The provenance tag that all processes in the report must
+            have provenances tagged with.  Omitted, then just will get
+            the most recent report for the exposure regardless of
+            provenances.
+
+          section_id : str, default None
+            The section to find reports.  If not given, will get reports
+            for all sections of the requested exposure.
+
+          fields : str, default None
+            Fields of the report table you want.  If not given you, you
+            get all of them except for process_provid.  This can NOT
+            include process_provid.
+
+        Returns
+        -------
+          str, dict
+
+          A query and a subdict.  The query is useful for adding to a
+          query string as a subquery, and the dict ius useful for
+          updating a substitution dict, to pass to psycopg2's
+          cursor.execute.
+
+        """
+
+        # ZOMG
+        #
+        # The goal here is to find all the reports where *all* of the process_provid in the reports
+        # are tagged with provtag.  It's not good enough that some processes are tagged.  E.g.,
+        # you could easily have a report where all the steps through "subtraction" are tagged with
+        # both provtag1 and provtag2, but the later steps are tagged only with provtag2.
+        # If you're looking for a report where all steps are tagged with provtag1, then that report
+        # is not the one you're looking for.  (Jedi hand wave.)
+        #
+        # We do this, going from inside to out, by:
+
+        #      1. (subquery re2) explode the process_provid dictionary (it's a jsonb column) into lots of
+        #         rows— each row is expanded into separate rows for each process/provenance pair.  Join to
+        #         the provenance tags so we have a table of report*, process, provtag; report* is repeated
+        #         lots of times, at least once for each process in the report.  Process *might* be
+        #         repeated if the provenance id is tagged with multiple tags (which is common).
+        #
+        #      2. Set aggregate (array w/ distinct) all of the tags for a given (report*, process)
+        #         (subquery re1)
+        #
+        #      3. Array aggregate over processes, making a new array where each element is true
+        #         if the process associated with that element has provtag in its provtag array,
+        #         false otherwise
+        #         (subquery re)
+        #
+        #      4. Select out only the reports where every element from the previous step is true.
+        #         (subquery r)
+
+        # NOTE : keep this synced with the fields that exist in reports
+        # Could perhaps do this with introspection....
+        allfields = [ '_id', 'exposure_id', 'section_id', 'image_id', 'start_time', 'finish_time',
+                      'success', 'cluster_id', 'node_id', 'error_step', 'error_type', 'error_message',
+                      'warnings', 'process_memory', 'process_runtime', 'progress_steps_bitflag',
+                      'products_exist_bitflag', 'products_committed_bitflag' ]
+        fields = allfields if fields is None else fields
+        badfields = set()
+        # Make sure we aren't going to be bobble tablesed
+        for f in fields:
+            if f not in allfields:
+                badfields.add( f )
+        if len(badfields) != 0:
+            raise ValueError( f"Invalid fields: {','.join(badfields)}" )
+
+        if not all( [ isinstance( field, str ) for field in fields ] ):
+            raise ValueError( "Each field in fields must be a string" )
+        if len(fields) < 1:
+            raise ValueError( "If fields is not None, it must be a list with at least one element." )
+        alphanum = re.compile( '^[a-z0-9_]+' )
+        if not all( [ alphanum.search(field) for field in fields ] ):
+            # This should be redundant, but, you know, Bobble Tables is a monster
+            raise ValueError( "Each field in fields must be a sequence of [a-z0-9_]" )
+        disallowed_fields = [ 'process_provid' ]
+        if any( [ f in [ disallowed_fields ] for f in fields ] ):
+            raise ValueError( f"Fields selected cannot include any of {', '.join(disallowed_fields)}" )
+
+        subdict = {}
+        q = "SELECT DISTINCT ON(re.exposure_id, re.section_id) "
+        q += ",".join( [ f"re.{f}" for f in fields ] )
+
+        if prov_tag is None:
+            ' FROM reports re '
+            if section_id is not None:
+                q += '   WHERE section)id=%(secid)s ) re '
+                subdict[ 'secid' ] = section_id
+        else:
+            for f in [ "_id", "section_id", "start_time" ]:
+                if f not in fields:
+                    fields.insert( 0, f )
+            fields1 = ",".join( [ f"re1.{f}" for f in fields ] )
+            fields2_list = [ f for f in fields ]                # (What's the elegant python way to copy a list?)
+            for f in [ 'exposure_id', 'section_id', 'success', 'error_message', 'start_time' ]:
+                if f not in fields2_list:
+                    fields2_list.append( f )
+            fields2 = ",".join( [ f"re2.{f}" for f in fields2_list ] )
+            fields3 = ",".join( [ f"re3.{f}" for f in fields2_list ] )
+            q += ( f' FROM ( SELECT {fields1}, array_agg(%(provtag)s=ANY(re1.tags)) AS gotem '
+                   f'        FROM ( SELECT {fields2}, array_agg(re2.tag) as tags '
+                   f'               FROM ( SELECT DISTINCT ON( re3._id, x.key, r3pt.tag ) '
+                   f'                             {fields3}, x.key AS process, r3pt.tag '
+                   f'                      FROM reports re3 '
+                   f'                      CROSS JOIN jsonb_each_text( re3.process_provid ) x '
+                   f'                      INNER JOIN provenance_tags r3pt ON x.value=r3pt.provenance_id ' )
+            if section_id is not None:
+                q += '                      WHERE section_id=%(secid)s '
+                subdict[ 'secid' ] = section_id
+            q += ( f'                      ORDER BY re3._id, r3pt.tag '
+                   f'                    ) re2 '
+                   f'               GROUP BY ( {fields2} )'
+                   f'             ) re1 '
+                   f'        GROUP BY ( {fields1} ) '
+                   f'      ) re '
+                   f'WHERE true=ALL( gotem ) ' )
+        q += 'ORDER BY re.exposure_id, re.section_id, re.start_time DESC '
+        subdict[ 'provtag' ] = prov_tag
+
+        return q, subdict
+
 
     @property
     def products_committed(self):
@@ -240,28 +389,15 @@ class Report(Base, UUIDMixin):
         """
         self.products_committed_bitflag |= string_to_bitflag(value, pipeline_products_inverse)
 
-    provenance_id = sa.Column(
-        sa.ForeignKey('provenances._id', ondelete="CASCADE", name='reports_provenance_id_fkey'),
-        nullable=False,
-        index=True,
-        doc=(
-            "ID of the provenance of this report. "
-            "The provenance has upstreams that point to the "
-            "measurements and R/B score objects that themselves "
-            "point back to all the other provenances that were "
-            "used to produce this report. "
-        )
-    )
-
     def __init__(self, **kwargs):
         SeeChangeBase.__init__(self)  # do not pass kwargs to Base.__init__, as there may be non-column attributes
 
         # verify these attributes get their default even if the object is not committed to DB
         self.success = False
-        self.num_prev_reports = 0
         self.progress_steps_bitflag = 0
         self.products_exist_bitflag = 0
         self.products_committed_bitflag = 0
+        self.process_provid = {}
         self.process_memory = {}
         self.process_runtime = {}
 
@@ -305,11 +441,22 @@ class Report(Base, UUIDMixin):
             if getattr(ds, prod) is not None:
                 self.append_products_exist(prod)
 
+        # Make sure image id is set if appropriate
+        if ds.image is not None:
+            self.image_id = ds.image.id
+
+        # Set the cluster and node IDs if they're known
+        if hasattr( ds, 'cluster_id' ):
+            self.cluster_id = ds.cluster_id
+        if hasattr( ds, 'node_id' ):
+            self.node_id = ds.node_id
+
+        # Products that have been committed
         self.products_committed = ds.products_committed
 
         # store the runtime and memory usage statistics
-        self.process_runtime.update(ds.runtimes)  # update with new dictionary
-        self.process_memory.update(ds.memory_usages)  # update with new dictionary
+        self.process_runtime.update(ds.runtimes)
+        self.process_memory.update(ds.memory_usages)
 
         if process_step is not None:
             # append the newest step to the progress bitflag

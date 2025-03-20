@@ -130,7 +130,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
 
     ds = DataStore( image )
     pipeline = Pipeline( pipeline={ 'provenance_tag': 'DECam_manual_refs',
-                                    'through_step': 'zp',
+                                    'through_step': 'photocal',
                                     'generate_report': False } )
     ds.prov_tree = pipeline.make_provenance_tree( ds, ok_no_ref_prov=True, no_provtag=True )
 
@@ -158,7 +158,7 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
 
     reference_prov = Provenance( process='manual_reference',
                                  parameters={},
-                                 upstreams=[ds.prov_tree['zp']] )
+                                 upstreams=[ds.prov_tree['photocal']] )
     reference_prov.insert_if_needed()
 
     with Psycopg2Connection() as conn:

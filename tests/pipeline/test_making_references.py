@@ -62,22 +62,22 @@ def test_finding_references( code_version, provenance_base, provenance_extra ):
                                        parameters={ 'kaglorky': 23 } )
             extrasrcprov.insert_if_needed( session=session )
             basewcsprov = Provenance( code_version_id=code_version.id,
-                                      process='wcs',
+                                      process='astrocal',
                                       upstreams=[basesrcprov],
                                       parameters={ 'kaglorky': 32768 } )
             basewcsprov.insert_if_needed()
             extrawcsprov = Provenance( code_version_id=code_version.id,
-                                       process='wcs',
+                                       process='astrocal',
                                        upstreams=[extrasrcprov],
                                        parameters={ 'kaglorky': 4096 } )
             extrawcsprov.insert_if_needed()
             basezpprov = Provenance( code_version_id=code_version.id,
-                                     process='zp',
+                                     process='photocal',
                                      upstreams=[basewcsprov],
                                      parameters={ 'kaglorky': 31337 } )
             basezpprov.insert_if_needed()
             extrazpprov = Provenance( code_version_id=code_version.id,
-                                       process='wcs',
+                                       process='astrocal',
                                        upstreams=[extrawcsprov],
                                        parameters={ 'kaglorky': 8192 } )
             extrazpprov.insert_if_needed()
@@ -488,7 +488,7 @@ def test_make_refset( code_version ):
 
     try:
         # Make a fake zeropoint prov for refmaker to chew on
-        zpprov = Provenance( process='zp', code_version_id=code_version.id, parameters={}, upstreams=[] )
+        zpprov = Provenance( process='photocal', code_version_id=code_version.id, parameters={}, upstreams=[] )
         zpprov.insert_if_needed()
         provstodel.add( zpprov )
 
@@ -537,7 +537,7 @@ def test_make_refset( code_version ):
 
 def test_making_refsets_in_run( code_version ):
     # a zp prov for refmaker to chew on
-    zpprov = Provenance( process='zp', code_version_id=code_version.id, parameters={}, upstreams=[] )
+    zpprov = Provenance( process='photocal', code_version_id=code_version.id, parameters={}, upstreams=[] )
     zpprov.insert_if_needed()
 
     # make a new refset with a new name

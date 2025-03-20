@@ -13,7 +13,7 @@ from sqlalchemy.schema import UniqueConstraint
 import psycopg2.extras
 import psycopg2.errors
 
-from util.util import get_git_hash
+from util.util import get_git_hash, NumpyAndUUIDJsonEncoder
 from util.logger import SCLogger
 
 from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession, Psycopg2Connection
@@ -350,13 +350,13 @@ class Provenance(Base):
             upstream_hashes=[ u.id for u in self._upstreams ],  # this list is ordered by upstream ID
             code_version=self.code_version_id
         )
-        json_string = json.dumps(superdict, sort_keys=True)
+        json_string = json.dumps(superdict, sort_keys=True, cls=NumpyAndUUIDJsonEncoder)
 
         self._id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
     @classmethod
     def combined_upstream_hash( cls, upstreams ):
-        json_string = json.dumps( [ u.id for u in upstreams ], sort_keys=True)
+        json_string = json.dumps( [ u.id for u in upstreams ], sort_keys=True, cls=NumpyAndUUIDJsonEncoder)
         return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
 

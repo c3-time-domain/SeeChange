@@ -30,8 +30,8 @@ _PROCESS_PRODUCTS = {
     'preprocessing': 'image',
     'coaddition': 'image',
     'extraction': ['sources', 'psf', 'bg'],
-    'wcs': 'wcs',
-    'zp': 'zp',
+    'astrocal': 'wcs',
+    'photocal': 'zp',
     'referencing': 'reference',
     'subtraction': 'sub_image',
     'detection': 'detections',
@@ -809,15 +809,14 @@ class DataStore:
                 'starting_point': [],
                 'preprocessing': ['starting_point'],
                 'extraction': ['preprocessing'],
-                'wcs':['extraction'],
-                'zp':['wcs'],
+                'astrocal': ['extraction'],
+                'photocal': ['astrocal'],
                 'referencing': [],   # This is a special case; it *does* have upstreams, but outside the main pipeline
-                'subtraction': ['referencing', 'zp'],
+                'subtraction': ['referencing', 'photocal'],
                 'detection': ['subtraction'],
                 'cutting': ['detection'],
                 'measuring': ['cutting'],
                 'scoring': ['measuring'],
-                'report': ['scoring']
             }
             # Put code here to modify upstream_steps based on things in pars
             # (This will happen with fake injection in a future PR.; the
@@ -837,9 +836,6 @@ class DataStore:
             if not isinstance( self.image, Image ):
                 raise TypeError( f"DataStore's image field is a {type(self.image)}, not Image!" )
             provs['starting_point'] = Provenance.get( self.image.provenance_id )
-            if 'report' in steps:
-                SCLogger.warning( "'report' was in steps but starting from an Image; removing 'report' from steps" )
-                steps = [ s for s in steps if s != 'report' ]
         else:
             raise RuntimeError( "make_prov_tree requires either a starting_point, or the "
                                 "DataStore must have either an exposure or an image" )
@@ -855,7 +851,8 @@ class DataStore:
             refset = RefSet.get_by_name( refset_name )
             if refset is None:
                 if ok_no_ref_prov:
-                    SCLogger.warning( "No ref provenance found, not generating provenances subtraction or later steps" )
+                    SCLogger.warning( "No ref provenance found, "
+                                      "not generating provenances for subtraction or later steps" )
                     subdex = steps.index( 'subtraction' )
                     steps = steps[:subdex]
                 else:
@@ -1318,17 +1315,17 @@ class DataStore:
 
     def get_background(self, session=None, reload=False):
         """Get a Background object, either from memory or from the database."""
-        return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'backgrounding',
+        return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'extraction',
                                        match_prov=False, reload=reload, session=session )
 
     def get_wcs(self, session=None, reload=False, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""
-        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'wcs',
+        return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'astrocal',
                                        match_prov=True, provenance=provenance, reload=reload, session=session )
 
     def get_zp(self, session=None, reload=False, provenance=None):
         """Get a zeropoint as a ZeroPoint object, from memory or from the database."""
-        return self._get_data_product( 'zp', ZeroPoint, 'wcs', ZeroPoint.wcs_id, 'zp',
+        return self._get_data_product( 'zp', ZeroPoint, 'wcs', ZeroPoint.wcs_id, 'photocal',
                                        match_prov=True, provenance=provenance, reload=reload, session=session )
 
 
