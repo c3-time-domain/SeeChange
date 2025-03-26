@@ -169,7 +169,7 @@ def test_webap_projects( webap_rkauth_client, sim_exposure1 ):
 #      docker compose up -d webap
 #   Then, to see server-side errors,
 #      docker compose logs webap
-#   I wonder if all this comment shoudl be put in the "Testing tips" part
+#   I wonder if all this comment should be put in the "Testing tips" part
 #   of our documentation....
 def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user ):
     browser = webap_browser_logged_in
@@ -185,7 +185,6 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
         provs = Provenance.get_batch( [ ds.exposure.provenance_id,
                                         ds.image.provenance_id,
                                         ds.sources.provenance_id,
-                                        ds.bg.provenance_id,
                                         ds.wcs.provenance_id,
                                         ds.zp.provenance_id,
                                         ds.reference.provenance_id,
@@ -289,7 +288,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
         assert cols[0].text == 'c4d_211025_044847_ori.fits.fz'
         assert cols[2].text == 'ELAIS-E1'
         assert cols[5].text == '1'    # n_images
-        assert cols[6].text == '262'  # detections
+        assert cols[6].text == '260'  # detections
         assert cols[7].text == '10'    # sources
 
         # ======================================================================
@@ -323,24 +322,24 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
         imagesdiv = subcontentdiv.find_element( By.XPATH, "./div" )
         assert imagesdiv.get_attribute('id') == 'exposureimagesdiv'
         assert re.search( r"^Exposure has 1 images and 1 completed subtractions.*"
-                          r"\s10 out of 262 detections pass preliminary cuts",
+                          r"\s10 out of 260 detections pass preliminary cuts",
                           imagesdiv.text, re.DOTALL ) is not None
         imagestab = imagesdiv.find_element( By.TAG_NAME, 'table' )
         rows = imagestab.find_elements( By.TAG_NAME, 'tr' )
         assert len(rows) == 2
         cols = rows[1].find_elements( By.XPATH, "./*" )
-        assert re.search( r'^c4d_20211025_044847_S2_r_Sci', cols[1].text ) is not None
+        assert re.search( r'^c4d_20211025_044847_S2_r_Sci', cols[0].text ) is not None
 
         # ======================================================================
         # Sources
 
-        # Find the sources tab and click on that
-        subbuttonbox.find_element( By.XPATH, "./button[text()='Sources']" ).click()
+        # Click on the number of sources column in this row of the images table
+        cols[9].click()
         # Give it half a second to go at least get to the "loading" screen; that's
         #  all javascript with no server communcation, so should be fast.
         time.sleep( 0.5 )
         WebDriverWait( subcontentdiv, timeout=10 ).until(
-            lambda d: d.find_element( By.XPATH, ".//p[contains(.,'Sources for all successfully completed chips')]" ) )
+            lambda d: d.find_element( By.XPATH, ".//p[contains(.,'Sources for')]" ) )
 
         # Now the tab content div should have information about the sources
         sourcesdiv = subcontentdiv.find_element( By.XPATH, "./div" )
@@ -355,6 +354,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
         # * check whether you're searching for a single image vs. whole exposure sources
         # * provenance tags at top of page
         # * other things
+        # * ....lots of other things
 
     finally:
         # Clean up the junk Provenance, and the ProvenanceTags we created

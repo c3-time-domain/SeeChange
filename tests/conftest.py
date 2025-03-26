@@ -979,17 +979,15 @@ def bogus_wcs( bogus_sources_and_psf ):
 
 
 @pytest.fixture
-def bogus_zp( bogus_wcs, bogus_bg ):
+def bogus_zp( bogus_wcs ):
     wcsprov = Provenance.get( bogus_wcs.provenance_id )
-    bgprov = Provenance.get( bogus_bg.provenance_id )
     prov = Provenance( code_version_id=wcsprov.code_version_id,
                        process='photocal',
                        parameters={ 'cross_match_catalog': 'gaia_dr3' },
-                       upstreams=[ wcsprov, bgprov ],
+                       upstreams=[ wcsprov ],
                        is_testing=True )
     prov.insert_if_needed()
     zp = ZeroPoint( wcs_id=bogus_wcs.id,
-                    background_id=bogus_bg.id,
                     zp=25.,
                     dzp=0.1,
                     provenance_id=prov.id )
@@ -1014,13 +1012,13 @@ def bogus_datastore( bogus_image, bogus_sources_and_psf, bogus_bg, bogus_wcs, bo
     ds.edit_prov_tree( ProvenanceTree( { 'starting_point': Provenance.get( ds.image.provenance_id ),
                                          'extraction': Provenance.get( ds.sources.provenance_id ),
                                          'backgrounding': Provenance.get( ds.bg.provenance_id ),
-                                         'wcs': Provenance.get( ds.wcs.provenance_id ),
-                                         'zp': Provenance.get( ds.zp.provenance_id ) },
+                                         'astrocal': Provenance.get( ds.wcs.provenance_id ),
+                                         'photocal': Provenance.get( ds.zp.provenance_id ) },
                                        upstream_steps = { 'starting_point': [],
                                                           'extraction': ['starting_point'],
                                                           'backgrounding': ['extraction'],
-                                                          'wcs': ['extraction'],
-                                                          'zp': ['wcs', 'backgrounding'] } ) )
+                                                          'astrocal': ['extraction'],
+                                                          'photocal': ['astrocal'] } ) )
 
     yield ds
 

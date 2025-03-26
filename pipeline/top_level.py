@@ -5,7 +5,6 @@ import warnings
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 from pipeline.preprocessing import Preprocessor
-from pipeline.backgrounding import Backgrounder
 from pipeline.astro_cal import AstroCalibrator
 from pipeline.photo_cal import PhotCalibrator
 from pipeline.subtraction import Subtractor
@@ -28,9 +27,8 @@ from util.logger import SCLogger
 _PROCESS_OBJECTS = {
     'preprocessing': 'preprocessor',
     'extraction': 'extractor',
-    'bg': 'backgrounder',
-    'wcs': 'astrometor',
-    'zp': 'photometor',
+    'astrocal': 'astrometor',
+    'photocal': 'photometor',
     'subtraction': 'subtractor',
     'detection': 'detector',
     'cutting': 'cutter',
@@ -54,7 +52,7 @@ class ParsPipeline(Parameters):
             True,
             bool,
             "Save intermediate images to the database, "
-            "after doing extraction, background, and astro/photo calibration, "
+            "after doing extraction and astro/photo calibration, "
             "if there is no reference, will not continue to doing subtraction "
             "but will still save the products up to that point. "
             "(It's possible the pipeline won't work if this is False...)",
@@ -98,8 +96,8 @@ class ParsPipeline(Parameters):
             None,
             ( None, str ),
             "Stop after this step.  None = run the whole pipeline.  String values can be "
-            "any of preprocessing, backgrounding, extraction, wcs, zp, subtraction, detection, "
-            "cutting, measuring, scoring",
+            "any of preprocessing, extraction, astdrocal, photocal, subtraction, detection, "
+            "cutting, measuring, scoring.  (See Pipeline.ALL_STEPS)",
             critical=False
         )
 
@@ -132,7 +130,7 @@ class ParsPipeline(Parameters):
 
 
 class Pipeline:
-    ALL_STEPS = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp', 'subtraction',
+    ALL_STEPS = [ 'preprocessing', 'extraction', 'astrocal', 'photocal', 'subtraction',
                   'detection', 'cutting', 'measuring', 'scoring', ]
 
     def __init__(self, **kwargs):
@@ -155,21 +153,15 @@ class Pipeline:
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
-        # background estimation using either sep or other methods
-        background_config = config.value('backgrounding', {})
-        background_config.update(kwargs.get('backgrounding', {}))
-        self.pars.add_defaults_to_dict(background_config)
-        self.backgrounder = Backgrounder(**background_config)
-
         # astrometric fit using a first pass of sextractor and then astrometric fit to Gaia
-        astrometor_config = config.value('wcs', {})
-        astrometor_config.update(kwargs.get('wcs', {}))
+        astrometor_config = config.value('astrocal', {})
+        astrometor_config.update(kwargs.get('astrocal', {}))
         self.pars.add_defaults_to_dict(astrometor_config)
         self.astrometor = AstroCalibrator(**astrometor_config)
 
         # photometric calibration:
-        photometor_config = config.value('zp', {})
-        photometor_config.update(kwargs.get('zp', {}))
+        photometor_config = config.value('photocal', {})
+        photometor_config.update(kwargs.get('photocal', {}))
         self.pars.add_defaults_to_dict(photometor_config)
         self.photometor = PhotCalibrator(**photometor_config)
 
@@ -337,9 +329,8 @@ class Pipeline:
         # The contents of this dictionary must be synced with _PROCESS_OBJECTS above.
         return { 'preprocessing': self.preprocessor.pars.get_critical_pars(),
                  'extraction': self.extractor.pars.get_critical_pars(),
-                 'backgrounding': self.backgrounder.pars.get_critical_pars(),
-                 'wcs': self.astrometor.pars.get_critical_pars(),
-                 'zp': self.photometor.pars.get_critical_pars(),
+                 'astrocal': self.astrometor.pars.get_critical_pars(),
+                 'photocal': self.photometor.pars.get_critical_pars(),
                  'subtraction': self.subtractor.pars.get_critical_pars(),
                  'detection': self.detector.pars.get_critical_pars(),
                  'cutting': self.cutter.pars.get_critical_pars(),
@@ -484,9 +475,8 @@ class Pipeline:
 
                 process_objects = { 'preprocessing': self.preprocessor,
                                     'extraction': self.extractor,
-                                    'backgrounding': self.backgrounder,
-                                    'wcs': self.astrometor,
-                                    'zp': self.photometor,
+                                    'astrocal': self.astrometor,
+                                    'photocal': self.photometor,
                                     'subtraction': self.subtractor,
                                     'detection': self.detector,
                                     'cutting': self.cutter,
@@ -507,7 +497,7 @@ class Pipeline:
                             SCLogger.info( f"{step} complete for image {ds.image.id}" )
 
                         # Maybe we want to do an intermediate save after the zp step
-                        if ( step == 'zp' ) and self.pars.save_before_subtraction:
+                        if ( step == 'photocal' ) and self.pars.save_before_subtraction:
                             t_start = time.perf_counter()
                             try:
                                 SCLogger.info(f"Saving intermediate image for image id {ds.image.id}")
@@ -538,6 +528,27 @@ class Pipeline:
                           for s in [ 'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ] )
                      and ( self.pars.inject_fakes )
                     ):
+                    # Try to free up some memory of stuff we don't need any more in the datastore,
+                    #   to reduce overall memory usage.  (We're gonna create new copies of all of
+                    #   this with the fake subtraction.)
+                    # ...this doesn't do much.  The peak usage of fakeanalysis is still high (~900MB
+                    #   more than subtraction, for test decam images).  Maybe it's the large number
+                    #   of cutouts?  Dunno.  Probably worth looking into.  Python encourages you to
+                    #   waste memory by making it so convenient to stuff references to things all
+                    #   over the place.  Security schmeurity, there are advantages to the C way of
+                    #   doing things were you know you can free stuff and aren't dependent on a
+                    #   mysterious garbage collector and to keep your memory usage from getting out
+                    #   of hand.
+                    if ds.sub_image is not None:
+                        ds.sub_image.free()
+                        ds.sub_image = None
+                        # TODO : this is in the weeds.  This function shouldn't
+                        #   have to know about internals of subtraction methods
+                        #   Related to Issue #350.
+                        for prop in [ 'zogy_score', 'zogy_alpha', 'zogy_alpha_err', 'zogy_psf' ]:
+                            if hasattr( ds, prop ) and ( getattr( ds, prop ) is not None ):
+                                setattr( ds, prop, None )
+
                     t_start = time.perf_counter()
                     if ds.update_memory_usages:
                         import tracemalloc

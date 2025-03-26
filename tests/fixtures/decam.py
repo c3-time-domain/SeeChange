@@ -477,18 +477,13 @@ def decam_datastore_through_extraction( decam_exposure, decam_partial_datastore_
 
 
 @pytest.fixture
-def decam_datastore_through_bg( decam_exposure, decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( decam_exposure, 'bg' )
-
-
-@pytest.fixture
 def decam_datastore_through_wcs( decam_exposure, decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( decam_exposure, 'wcs' )
+    return decam_partial_datastore_factory( decam_exposure, 'astrocal' )
 
 
 @pytest.fixture
 def decam_datastore_through_zp( decam_exposure, decam_partial_datastore_factory ):
-    return decam_partial_datastore_factory( decam_exposure, 'zp' )
+    return decam_partial_datastore_factory( decam_exposure, 'photocal' )
 
 
 @pytest.fixture
@@ -791,7 +786,7 @@ def get_cached_decam_image( code_version, decam_cache_dir, download_url, datasto
 
         SCLogger.debug( f"Running datastore_factory for decam image {fname}" )
         ds = datastore_factory( img, cache_dir=decam_cache_dir,
-                                cache_base_name=f'{fname}_{provbarf}', through_step='zp',
+                                cache_base_name=f'{fname}_{provbarf}', through_step='photocal',
                                 provtag='cached_decam_image_getter' )
         SCLogger.debug( f"Done getting decam image {fname}" )
 

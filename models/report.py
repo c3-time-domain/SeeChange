@@ -51,7 +51,7 @@ class Report(Base, UUIDMixin):
     #   we try to save the report to the database.  (Originally, reports
     #   assumed they came off of an exposure, and the pipeline assumes
     #   exposure are committed before starting.  The pipeline is able to
-    #   run on an image that's committed to the database, however.)
+    #   run on an image that's not committed to the database, however.)
     image_id = sa.Column(
         # sa.ForeignKey( 'images._id', ondelete='CASCADE', name='reports_image_id_fkey' ),
         sqlUUID,
@@ -300,9 +300,11 @@ class Report(Base, UUIDMixin):
         #         (subquery r)
 
         # NOTE : keep this synced with the fields that exist in reports
+        # Could perhaps do this with introspection....
         allfields = [ '_id', 'exposure_id', 'section_id', 'image_id', 'start_time', 'finish_time',
                       'success', 'cluster_id', 'node_id', 'error_step', 'error_type', 'error_message',
-                      'warnings', 'process_memory', 'process_runtime', 'progress_steps_bitflag' ]
+                      'warnings', 'process_memory', 'process_runtime', 'progress_steps_bitflag',
+                      'products_exist_bitflag', 'products_committed_bitflag' ]
         fields = allfields if fields is None else fields
         badfields = set()
         # Make sure we aren't going to be bobble tablesed
@@ -439,11 +441,22 @@ class Report(Base, UUIDMixin):
             if getattr(ds, prod) is not None:
                 self.append_products_exist(prod)
 
+        # Make sure image id is set if appropriate
+        if ds.image is not None:
+            self.image_id = ds.image.id
+
+        # Set the cluster and node IDs if they're known
+        if hasattr( ds, 'cluster_id' ):
+            self.cluster_id = ds.cluster_id
+        if hasattr( ds, 'node_id' ):
+            self.node_id = ds.node_id
+
+        # Products that have been committed
         self.products_committed = ds.products_committed
 
         # store the runtime and memory usage statistics
-        self.process_runtime.update(ds.runtimes)  # update with new dictionary
-        self.process_memory.update(ds.memory_usages)  # update with new dictionary
+        self.process_runtime.update(ds.runtimes)
+        self.process_memory.update(ds.memory_usages)
 
         if process_step is not None:
             # append the newest step to the progress bitflag

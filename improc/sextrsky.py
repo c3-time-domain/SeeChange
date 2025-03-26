@@ -46,20 +46,25 @@ def single_sextrsky( imagedata, maskdata=None, sigcut=3 ):
         maskdata = np.zeros_like( imagedata, dtype=np.uint8 )
     w = maskdata == 0
     lastn = imagedata.size
+    nincreases = 0
     while not done:
         med = np.median( imagedata[ w ] )
         mean = np.mean( imagedata[ w ] )
         sdev = np.std( imagedata[ w ] )
         w = ( ( maskdata == 0 ) & ( np.abs( imagedata - med ) < sigcut * sdev ) )
-        SCLogger.debug( f'single_sextrsky: med={med:.2f}, mean={mean:.2f}, sdev={sdev:.2f}, n={w.sum()}' )
+        # SCLogger.debug( f'med={med:.2f}, mean={mean:.2f}, sdev={sdev:.2f}, n={w.sum()}' )
         if w.sum() > lastn:
-            SCLogger.warning( "single_sextrsky: n increased" )
+            SCLogger.warning(f"single_sextrsky: n increased from {lastn} to {w.sum()}" )
+            nincreases += 1
+            if nincreases > 10:
+                SCLogger.error( "single_sextrsky: n has increased 10 times.  Something is wrong." )
+                raise RuntimeError( "single_sextrsky: n has increased 10 times.  Something is wrong." )
         if w.sum() == lastn:
             done = True
         lastn = w.sum()
 
     if math.fabs( mean - med ) / mean > 0.3:
-        SCLogger.debug( f'mean={mean}, med={med}, using just median for sky estimate' )
+        # SCLogger.debug( f'mean={mean}, med={med}, using just median for sky estimate' )
         sky = med
     else:
         sky = 2.5*med - 1.5*mean
@@ -177,8 +182,6 @@ def sextrsky( imagedata, maskdata=None, sigcut=3, boxsize=200, filtsize=3 ):
 
     return sky, np.median(skysigvals)
 
-# ======================================================================
-
 
 def main():
     parser = argparse.ArgumentParser( description="Estimate image sky using sextractor algorithm" )
@@ -221,7 +224,7 @@ def main():
         skyim, sig = sextrsky( imagedata, bpmdata, sigcut=args.sigcut,
                                filtsize=args.filtsize, boxsize=args.boxwid )
         sky = np.median( skyim )
-    SCLogger.debug( f'Sky: {sky}; σ: {sig}' )
+    SCLogger.info( f'Sky: {sky}; σ: {sig}' )
 
     if args.output is not None:
         hdr = imageheader.copy()

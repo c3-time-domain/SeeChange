@@ -28,7 +28,9 @@ from models.exposure import Exposure
 # its cache of known instrument instances
 import models.decam  # noqa: F401
 
+from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
+from pipeline.configchooser import ConfigChooser
 
 
 class ExposureProcessor:
@@ -103,8 +105,8 @@ class ExposureProcessor:
             cursor = conn.cursor()
             cursor.execute( "LOCK TABLE knownexposures" )
             cursor.execute( "SELECT cluster_id FROM knownexposures "
-                            "WHERE instrument=%(inst)s AND identfiier=%(ident)s",
-                            { 'inst': self.instrument, 'ident': self.identifier } )
+                            "WHERE instrument=%(inst)s AND identifier=%(ident)s",
+                            { 'inst': self.instrument.name, 'ident': self.identifier } )
             rows = cursor.fetchall()
             if len(rows) == 0:
                 raise ValueError( f"Error, unknown known exposure with instrument {self.instrument} "
@@ -118,9 +120,9 @@ class ExposureProcessor:
 
             cursor.execute( "UPDATE knownexposures SET cluster_id=%(cluster)s, "
                             "  node_id=%(node)s, machine_name=%(machine)s, start_time=%(t)s, "
-                            "  release_time=NULL, provenance_tag=%(provtag)s' "
+                            "  release_time=NULL, provenance_tag=%(provtag)s "
                             "WHERE instrument=%(inst)s AND identifier=%(ident)s",
-                            { 'inst': self.instrument,
+                            { 'inst': self.instrument.name,
                               'ident': self.identifier,
                               'cluster': self.cluster_id,
                               'node': self.node_id,
@@ -135,7 +137,7 @@ class ExposureProcessor:
             cursor.execute( "LOCK TABLE knownexposures" )
             cursor.execute( "SELECT cluster_id, start_time FROM knownexposures "
                             "WHERE instrument=%(inst)s AND identifier=%(ident)s",
-                            { 'inst': self.instrument, 'ident': self.identifier } )
+                            { 'inst': self.instrument.name, 'ident': self.identifier } )
             rows = cursor.fetchall()
             if len(rows) == 0:
                 raise ValueError ( f"Error, unknown known exposure with instrument {self.instrument} "
@@ -144,15 +146,15 @@ class ExposureProcessor:
                 raise RuntimeError ( f"Error, multiple known exposures with instrument {self.instrument} "
                                      f"and identifier {self.identifier}; this should not happen" )
             if rows[0][0] != self.cluster_id:
-                raise ValueError( f"Error, known exposure with instrument {self.instrument} and identifier "
+                raise ValueError( f"Error, known exposure with instrument {self.instrument.name} and identifier "
                                   f"{self.identifier} is claimed by cluster {rows[0][0]}, not {self.cluster_id}" )
             if rows[0][1] is None:
-                raise ValueError( f"Error, known exposure with instrument {self.instrument} and identifier "
+                raise ValueError( f"Error, known exposure with instrument {self.instrument.name} and identifier "
                                   f"{self.identifier} has a null start time" )
 
-            cursor.execute( "UPDATE knownexposure SET release_time=%(t)s "
+            cursor.execute( "UPDATE knownexposures SET release_time=%(t)s "
                             "WHERE instrument=%(inst)s AND identifier=%(ident)s",
-                            { 'inst': self.instrument, 'ident': self.identifier,
+                            { 'inst': self.instrument.name, 'ident': self.identifier,
                               't': datetime.datetime.now( tz=datetime.UTC ) } )
             conn.commit()
 
@@ -198,7 +200,10 @@ class ExposureProcessor:
             pipeline = Pipeline()
             if ( self.through_step is not None ) and ( self.through_step != 'exposure' ):
                 pipeline.pars.through_step = self.through_step
-            ds = pipeline.run( self.exposure, chip )
+            ds = DataStore.from_args( self.exposure, chip )
+            ds.cluster_id = self.cluster_id
+            ds.node_id = self.node_id
+            ds = pipeline.run( ds )
             ds.save_and_commit()
             SCLogger.setLevel( origloglevel )
             SCLogger.info( f"...done processing chip {chip} in process {me.name} PID {me.pid}." )
@@ -224,33 +229,47 @@ class ExposureProcessor:
             SCLogger.info( "Only running through exposure, not launching any image processes" )
             return
 
-        chips = self.instrument.get_section_ids()
-        if self.onlychips is not None:
-            chips = [ c for c in chips if c in self.onlychips ]
-        self.results = {}
+        origconfig = Config._default
+        try:
+            # Update the config if necessary.  This changes the global
+            #   config cache, which is scary, because we're changing it
+            #   based on the needs of the current exposure.  So, in
+            #   the finally block below, we try to restore the original
+            #   config.
+            config_chooser = ConfigChooser()
+            config_chooser.run( self.exposure )
 
-        if self.numprocs > 1:
-            SCLogger.info( f"Creating pool of {self.numprocs} processes to do {len(chips)} chips" )
-            with multiprocessing.pool.Pool( self.numprocs, maxtasksperchild=1 ) as pool:
+            chips = self.instrument.get_section_ids()
+            if self.onlychips is not None:
+                chips = [ c for c in chips if c in self.onlychips ]
+            self.results = {}
+
+            if self.numprocs > 1:
+                SCLogger.info( f"Creating pool of {self.numprocs} processes to do {len(chips)} chips" )
+                with multiprocessing.pool.Pool( self.numprocs, maxtasksperchild=1 ) as pool:
+                    for chip in chips:
+                        pool.apply_async( self.processchip, ( chip, ), {}, self.collate )
+
+                    SCLogger.info( "Submitted all worker jobs, waiting for them to finish." )
+                    pool.close()
+                    pool.join()
+            else:
+                # This is useful for some debugging (though it can't catch
+                # process interaction issues (like database locks)).
+                SCLogger.info( f"Running {len(chips)} chips serially" )
                 for chip in chips:
-                    pool.apply_async( self.processchip, ( chip, ), {}, self.collate )
+                    self.collate( self.processchip( chip ) )
 
-                SCLogger.info( "Submitted all worker jobs, waiting for them to finish." )
-                pool.close()
-                pool.join()
-        else:
-            # This is useful for some debugging (though it can't catch
-            # process interaction issues (like database locks)).
-            SCLogger.info( f"Running {len(chips)} chips serially" )
-            for chip in chips:
-                self.collate( self.processchip( chip ) )
+            succeeded = { k for k, v in self.results.items() if v }
+            failed = { k for k, v in self.results.items() if not v }
+            SCLogger.info( f"{len(succeeded)+len(failed)} chips processed; "
+                           f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
+            SCLogger.info( f"Succeeded (maybe): {succeeded}" )
+            SCLogger.info( f"Failed (definitely): {failed}" )
 
-        succeeded = { k for k, v in self.results.items() if v }
-        failed = { k for k, v in self.results.items() if not v }
-        SCLogger.info( f"{len(succeeded)+len(failed)} chips processed; "
-                       f"{len(succeeded)} succeeded (maybe), {len(failed)} failed (definitely)" )
-        SCLogger.info( f"Succeeded (maybe): {succeeded}" )
-        SCLogger.info( f"Failed (definitely): {failed}" )
+        finally:
+            # Restore the global config we had before we ran this
+            Config.init( origconfig, setdefault=True )
 
 
 # ======================================================================

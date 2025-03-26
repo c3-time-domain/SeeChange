@@ -1,7 +1,10 @@
 import re
 import copy
 import uuid
+import datetime
 import simplejson
+
+import numpy as np
 
 import flask
 import flask.views
@@ -10,12 +13,24 @@ from models.base import SmartSession
 from models.user import AuthUser
 
 
-class UUIDJSONEncoder( simplejson.JSONEncoder ):
+# This is just like util/util.py:NumpyAndUUIDJsonEncoder,
+#   only here it derives from simplejson.JSONEncoder
+# Perhaps we should go to simplejson everywhere???
+class MyParticularJSONEncoder( simplejson.JSONEncoder ):
     def default( self, obj ):
-        if isinstance( obj, uuid.UUID ):
+        if isinstance( obj, np.integer ):
+            return int( obj )
+        if isinstance( obj, np.floating ):
+            return float( obj )
+        if isinstance( obj, np.bool_ ):
+            return bool( obj )
+        if isinstance( obj, np.ndarray ):
+            return obj.tolist()
+        if isinstance(obj, uuid.UUID):
             return str(obj)
-        else:
-            return super().default( obj )
+        if isinstance(obj, datetime.datetime ):
+            return obj.isoformat()
+        return super().default(self, obj)
 
 
 class BadUpdaterReturnError(Exception):
@@ -88,7 +103,7 @@ class BaseView( flask.views.View ):
                 #   writes out NaN which is not standard JSON and which
                 #   the javascript JSON parser chokes on.  Sigh.
                 if isinstance( retval, dict ) or isinstance( retval, list ):
-                    return ( simplejson.dumps( retval, ignore_nan=True, cls=UUIDJSONEncoder ),
+                    return ( simplejson.dumps( retval, ignore_nan=True, cls=MyParticularJSONEncoder ),
                              200, { 'Content-Type': 'application/json' } )
                 elif isinstance( retval, str ):
                     return retval, 200, { 'Content-Type': 'text/plain; charset=utf-8' }

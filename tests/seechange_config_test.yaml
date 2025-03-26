@@ -5,6 +5,17 @@ overrides:
 augments:
   - local_augments.yaml
 
+
+configchoice:
+  config_dir: null
+  gaia_density_catalog: share/gaia_density/gaia_healpix_density.pq
+  choice_algorithm: star_density
+  star_mag_cutoff: 20
+  star_density_cutoff: 1e5    # TODO : better determine this value  (1e5 is at least vaugely plausible)
+  configs:
+    galactic: seechange_config_test_galactic.yaml
+    extragalactic: seechange_config_test_extragalactic.yaml
+
 path:
   data_root: '/seechange/tests/temp_data'
   data_temp: '/seechange/tests/temp_data'
@@ -41,6 +52,14 @@ pipeline:
   inject_fakes: false
   # inject_fakes: true
 
+# Need the sep box and filt size for historical reasons
+#  (These used to be the defaults, so some test results
+#   depend on them.)
+extraction:
+  backgrounding:
+    box_size: 128
+    filt_size: 3
+  
 subtraction:
   method: zogy
   refset: test_refset_decam    # This is needed for the pipeline_exposure_launcher test

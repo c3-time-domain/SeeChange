@@ -244,7 +244,7 @@ class PhotCalibrator:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            prov = ds.get_provenance('zp', self.pars.get_critical_pars())
+            prov = ds.get_provenance('photocal', self.pars.get_critical_pars())
 
             image = ds.get_image()
             if image is None:

@@ -173,8 +173,8 @@ def test_parameters( test_config ):
     overrides = {
         'preprocessing': { 'steps': [ 'overscan', 'linearity'] },
         'extraction': {'threshold': 3.14 },
-        'wcs': {'cross_match_catalog': 'override'},
-        'zp': {'cross_match_catalog': 'override'},
+        'astrocal': {'cross_match_catalog': 'override'},
+        'photocal': {'cross_match_catalog': 'override'},
         'subtraction': { 'method': 'override' },
         'detection': { 'threshold': 3.14 },
         'cutting': { 'cutout_size': 666 },
@@ -191,8 +191,8 @@ def test_parameters( test_config ):
 
     assert check_override(overrides['preprocessing'], pipeline.preprocessor.pars)
     assert check_override(overrides['extraction'], pipeline.extractor.pars)
-    assert check_override(overrides['wcs'], pipeline.astrometor.pars)
-    assert check_override(overrides['zp'], pipeline.photometor.pars)
+    assert check_override(overrides['astrocal'], pipeline.astrometor.pars)
+    assert check_override(overrides['photocal'], pipeline.photometor.pars)
     assert check_override(overrides['subtraction'], pipeline.subtractor.pars)
     assert check_override(overrides['detection'], pipeline.detector.pars)
     assert check_override(overrides['cutting'], pipeline.cutter.pars)
@@ -473,8 +473,7 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert [upstream.id for upstream in ds.sources.get_upstreams(session=session)] == [ds.image.id]
             assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
             assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
-            assert ( set( [upstream.id for upstream in ds.zp.get_upstreams(session=session)] )
-                     == { ds.wcs.id, ds.bg.id } )
+            assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.wcs.id]
             assert ( set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ])
                      == { ds.reference.id, ds.zp.id } )
             assert [upstream.id for upstream in ds.detections.get_upstreams(session=session)] == [ds.sub_image.id]
@@ -513,7 +512,6 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             assert ( set( [downstream.id for downstream in ds.sources.get_downstreams(session=session)] )
                      == { ds.wcs.id, ds.bg.id, ds.psf.id } )
             assert [downstream.id for downstream in ds.psf.get_downstreams(session=session)] == []
-            assert [downstream.id for downstream in ds.bg.get_downstreams(session=session)] == [ds.zp.id]
             assert [downstream.id for downstream in ds.wcs.get_downstreams(session=session)] == [ds.zp.id]
             assert [downstream.id for downstream in ds.zp.get_downstreams(session=session)] == [ds.sub_image.id]
             assert [downstream.id for downstream in ds.reference.get_downstreams(session=session)] == [ds.sub_image.id]
@@ -657,7 +655,6 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
         obj_to_process_step = {
             'preprocessor': 'preprocessing',
             'extractor': 'extraction',
-            'backgrounder': 'backgrounding',
             'astrometor': 'astrocal',
             'photometor': 'photocal',
             'subtractor': 'subtraction',

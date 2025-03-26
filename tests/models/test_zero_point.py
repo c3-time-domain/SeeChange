@@ -74,18 +74,16 @@ def test_zeropoint_committing(provenance_base, provenance_extra):
 
         zp = ZeroPoint(zp=20.1, dzp=0.1)
         zp.wcs_id = ds.wcs.id
-        zp.background_id = ds.bg.id
         zp.provenance_id = provenance_extra.id
         zp.insert()
 
         # add a second ZeroPoint object and make sure we cannot accidentally commit it, too
         zp2 = ZeroPoint(zp=20.1, dzp=0.1)
         zp2.wcs_id = ds.wcs.id
-        zp2.background_id = ds.bg.id
         zp2.provenance_id = provenance_extra.id
 
         with pytest.raises( psycopg2.errors.UniqueViolation,
-                            match='duplicate key value violates unique constraint "_zp_wcs_bg_provenance_uc"' ):
+                            match='duplicate key value violates unique constraint "_zp_wcs_provenance_uc"' ):
             zp2.insert()
 
     finally:

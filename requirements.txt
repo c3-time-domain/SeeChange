@@ -19,6 +19,7 @@ pandas==2.2.3
 photutils==2.1.0
 psutil==6.1.1
 psycopg2==2.9.10
+pyarrow==19.0.1
 pycryptodome==3.21.0
 pytest==8.3.4
 pytest-timestamper==0.0.10
@@ -30,7 +31,7 @@ ruff==0.9.1
 simplejson==3.19.3
 scipy==1.15.1
 scikit-image==0.25.0
-sep-pjw==1.3.7
+sep==1.4.1
 shapely==2.0.6
 Sphinx==8.1.3
 SQLAlchemy==2.0.37

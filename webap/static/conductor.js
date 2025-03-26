@@ -30,7 +30,7 @@ seechange.Conductor = class
 
         hbox = rkWebUtil.elemaker( "div", this.frontpagediv, { "classes": [ "hbox" ] } );
         this.pollingdiv = rkWebUtil.elemaker( "div", hbox, { "classes": [ "conductorconfig" ] } );
-        
+
         vbox = rkWebUtil.elemaker( "div", hbox, { "classes": [ "vbox", "conductorconfig" ] } );
         h3 = rkWebUtil.elemaker( "h3", vbox, { "text": "Pipeline Config  " } );
         rkWebUtil.button( h3, "Refresh", () => { self.show_config_status() } );
@@ -44,13 +44,16 @@ seechange.Conductor = class
                                                   "name": "throughstep_select",
                                                   "selected": ( step=='scoring' ) ? 1 : 0 } } );
         }
-        p = rkWebUtil.elemaker( "p", vbox );
-        this.pickup_partial_checkbox = rkWebUtil.elemaker( "input", p,
-                                                           { "attributes": { "type": "checkbox",
-                                                                             "id": "pickup_partial_checkbox",
-                                                                             "name": "pickup_partial_checkbox" } } );
-        p.appendChild( document.createTextNode( " run partially completed exposures?" ) );
-        
+
+        // UNCOMMENT ALL THIS WHEN IT'S ACTUALLY IMPLEMENTED -- see Issue #446
+        // The conductor doesn't currently consider this when choosing exposures to assign.
+        // p = rkWebUtil.elemaker( "p", vbox );
+        // this.pickup_partial_checkbox = rkWebUtil.elemaker( "input", p,
+        //                                                    { "attributes": { "type": "checkbox",
+        //                                                                      "id": "pickup_partial_checkbox",
+        //                                                                      "name": "pickup_partial_checkbox" } } );
+        // p.appendChild( document.createTextNode( " run partially completed exposures?" ) );
+
         hbox.appendChild( this.pipelineworkers.div );
 
         this.contentdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
@@ -370,7 +373,7 @@ seechange.Conductor = class
         p.appendChild( this.hide_exposure_details_checkbox );
         p.appendChild( document.createTextNode( "Hide exposure detail columns    " ) );
         hide_exposure_details = this.hide_exposure_details_checkbox.checked;
-        
+
         this.select_all_checkbox = rkWebUtil.elemaker( "input", p,
                                                        { "attributes": {
                                                              "type": "checkbox",
@@ -385,13 +388,13 @@ seechange.Conductor = class
                 }
             } );
         p.appendChild( document.createTextNode( "      Apply to selected: " ) );
-        button = rkWebUtil.button( p, "Delete", () => { window.alert( "Not implemented." ) } );
+        button = rkWebUtil.button( p, "Delete", () => { self.delete_known_exposures() } );
         button.classList.add( "hmargin" );
         button = rkWebUtil.button( p, "Hold", () => { self.hold_release_exposures( true ); } );
         button.classList.add( "hmargin" );
         button = rkWebUtil.button( p, "Release", () => { self.hold_release_exposures( false ); } );
         button.classList.add( "hmargin" );
-        button = rkWebUtil.button( p, "Clear Cluster Claim", () => { window.alert( "Not implemented." ) } );
+        button = rkWebUtil.button( p, "Clear Cluster Claim", () => { self.clear_cluster_claim() } );
         button.classList.add( "hmargin" );
 
         table = rkWebUtil.elemaker( "table", this.knownexpdiv, { "classes": [ "borderedcells" ] } );
@@ -439,7 +442,7 @@ seechange.Conductor = class
             //     "click", () => {
             //         self.known_exposure_checkbox_manual_state[ ke.id ] =
             //             ( self.known_exposure_checkboxes[ ke.id ].checked ? 1 : 0 );
-            //         console.log( "Setting " + ke.id + " to " + self.known_exposures_checkboxes[ ke.id ].checked );
+            //         console.log( "Setting " + ke.id + " to " + self.known_exposure_checkboxes[ ke.id ].checked );
             //     } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.hold ? "***" : "" } );
             this.known_exposure_hold_tds[ ke.id ] = td;
@@ -507,8 +510,70 @@ seechange.Conductor = class
             console.log( "WARNING : tried to hold/release the following unknown knownexposures: " + data['missing'] );
     }
 
+    // **********************************************************************
 
+    delete_known_exposures()
+    {
+        let self = this;
 
+        let todel = [];
+        for ( let ke of this.known_exposures ) {
+            if ( this.known_exposure_checkboxes[ ke.id ].checked )
+                todel.push( ke.id );
+        }
+
+        if ( todel.length > 0 ) {
+            if ( window.confirm( "Delete " + todel.length.toString() + " known exposures? " +
+                                 "(This cannot be undone.)" ) )
+                this.connector.sendHttpRequest( "conductor/deleteknownexposures", { 'knownexposure_ids': todel },
+                                                (data) => { self.process_delete_known_exposures(data, todel) } );
+        }
+    }
+
+    // **********************************************************************
+
+    process_delete_known_exposures( data, todel )
+    {
+        for ( let keid of todel ) {
+            // Ugh, n²
+            let dex = 0;
+            while ( dex < this.known_exposures.length ) {
+                if ( this.known_exposures[dex].id == keid )
+                    this.known_exposures.splice( dex, 1 );
+                else
+                    dex += 1;
+            }
+            this.known_exposure_rows[ keid ].parentNode.removeChild( this.known_exposure_rows[ keid ] );
+            delete this.known_exposure_rows[ keid ];
+            delete this.known_exposure_checkboxes[ keid ];
+            delete this.known_exposure_hold_tds[ keid ];
+        }
+    }
+
+    // **********************************************************************
+
+    clear_cluster_claim()
+    {
+        let self = this;
+
+        let toclear = [];
+        for ( let ke of this.known_exposures) {
+            if ( this.known_exposure_checkboxes[ ke.id ].checked )
+                toclear.push( ke.id );
+        }
+
+        if ( toclear.length > 0 ) {
+            if ( window.confirm( "Clear cluster claim on " + toclear.length.toString() + " known exposures?" ) ) {
+                rkWebUtil.wipeDiv( this.knownexposidv );
+                rkWebUtil.elemaker( "p", this.knownexpdiv,
+                                    { "text": "Loading known exposures...",
+                                      "classes": [ "warning", "bold", "italic" ] } );
+                this.connector.sendHttpRequest( "/conductor/clearclusterclaim",
+                                                { 'knownexposure_ids': toclear },
+                                                (data) => { self.update_known_exposures() } );
+            }
+        }
+    }
 }
 
 
@@ -587,9 +652,9 @@ seechange.PipelineWorkers = class
 // **********************************************************************
 // Keep this synced with top_leve.py::Pipeline::ALL_STEPS
 
-seechange.Conductor.ALL_STEPS = [ 'preprocessing', 'extraction', 'backgrounding', 'wcs', 'zp', 'subtraction',
+seechange.Conductor.ALL_STEPS = [ 'preprocessing', 'extraction', 'astrocal', 'photocal', 'subtraction',
                                   'detection', 'cutting', 'measuring', 'scoring', ];
-    
+
 
 // **********************************************************************
 // **********************************************************************
