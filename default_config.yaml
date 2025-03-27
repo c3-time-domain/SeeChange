@@ -332,7 +332,7 @@ extraction:
 # ======================================================================
 # World Coordinates
 
-wcs:
+astrocal:
   cross_match_catalog: gaia_dr3
   solution_method: scamp
   max_catalog_mag: [22.0]
@@ -343,7 +343,7 @@ wcs:
 # ======================================================================
 # Zero Point
 
-zp:
+photocal:
   cross_match_catalog: gaia_dr3
   max_catalog_mag: [22.0]
   mag_range_catalog: 6.0
@@ -579,13 +579,13 @@ coaddition:
   backgrounding:
     format: map
     method: sep
-  wcs:
+  astrocal:
     cross_match_catalog: gaia_dr3
     solution_method: scamp
     max_catalog_mag: [22.0]
     mag_range_catalog: 6.0
     min_catalog_stars: 50
-  zp:
+  photocal:
     cross_match_catalog: gaia_dr3
     max_catalog_mag: [22.0]
     mag_range_catalog: 6.0
@@ -641,13 +641,13 @@ referencing:
 #      poly_order: 1
 #      sep_box_size: 128
 #      sep_filt_size: 3
-#    wcs:  # override the regular astrometric calibration parameters and the coadd extraction parameters
+#    astrocal:  # override the regular astrometric calibration parameters and the coadd extraction parameters
 #      cross_match_catalog: gaia_dr3
 #      solution_method: scamp
 #      max_catalog_mag: [22.0]
 #      mag_range_catalog: 6.0
 #      min_catalog_stars: 50
-#    zp:  # override the regular photometric calibration parameters and the coadd extraction parameters
+#    photocal:  # override the regular photometric calibration parameters and the coadd extraction parameters
 #      cross_match_catalog: gaia_dr3
 #      max_catalog_mag: [22.0]
 #      mag_range_catalog: 6.0

@@ -655,13 +655,13 @@ class ImageAligner:
                                          )
         tmp_astrometor = AstroCalibrator()
         warped_wcs_prov = Provenance( code_version_id=code_version.id,
-                                      process='wcs',
+                                      process='astrocal',
                                       parameters=tmp_astrometor.pars.get_critical_pars(),
                                       upstreams=[ warped_sources_prov ]
                                      )
         tmp_photometor = PhotCalibrator()
         warped_zp_prov = Provenance( code_version_id=code_version.id,
-                                     process='zp',
+                                     process='photocal',
                                      paramters=tmp_photometor.pars.get_critical_pars(),
                                      upstreams=[ warped_wcs_prov ]
                                     )

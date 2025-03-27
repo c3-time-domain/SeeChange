@@ -41,6 +41,7 @@ body { color: var(--main-color);
 .hmargin { margin-left: 0.5ex; margin-right: 0.5ex }
 .xmargin { margin-left: 1ex; margin-right: 1ex }
 .mmargin { margin-left: 1em; margin-right: 1em }
+.mostlyborder { border: 2px solid var(--mostlyfull-color-border); }
 
 .center { text-align: center }
 .vcenter { vertical-align: middle }
@@ -97,6 +98,10 @@ table.borderedcells tr td { padding-left: 1ex;
 
 tr.greybg { background: var(--lots-faded-color); }
 
+table.borderless { border: none }
+table.borderless th { border: none; font-weight: bold }
+table.borderless td { border: none; padding: 0px }
+
 table.exposurelist td { border: 2px solid var(--half-faded-color); }
 tr.heldexposure { font-style: italic; color: var(--some-faded-color); }
 
@@ -109,6 +114,10 @@ div.vbox { display: flex;
            flex-direction: column;
            min-width: 0;
            min-height: 0; }
+
+div.subdiv { border: 2px solid var(--mostlyfull-color-border);
+             padding: 0.5ex;
+             margin: 1ex; }
 
 div.authdiv { color: var(--some-faded-color);
               font-size: 75% }
@@ -129,3 +138,54 @@ div.conductorworkers { border: 4px inset var(--main-color);
                        margin: 1em;
                        width: fit-content; }
 
+
+
+div.svgplottopdiv { position: relative;
+                    display: flex;
+                    flex-direction: column;
+                    flex-grow: 0;
+                    flex-shrink: 0;
+                    min-width: 0;
+                    min-height: 0;
+                  }
+div.svgplotdiv { min-width: 0;
+                 min-height: 0;
+                 display: flex;
+                 flex-direction: row;
+                 flex-grow: 0;
+                 flex-shrink: 0; }
+
+svg.svgplotsvg { display: block;
+                 flex-grow: 1;
+                 flex-shrink: 1;
+                 min-width: 0;
+                 min-height: 0;
+               }
+
+div.svgplotbuttonbox { display: flex;
+                       flex-direction: row;
+                       min-width: 0;
+                       min-height: 0;
+                       margin-right: auto;
+                       margin-left: 0;
+                     }
+div.svgplotdocbox { display: flex;
+                    flex-direction: row;
+                    min-width: 0;
+                    min-heigth: 0;
+                    margin-left: auto;
+                    margin-right: 0;
+                  }
+
+div.svgplothbox { display: flex;
+                  flex-direction: row;
+                  justify-content: space-between;
+                  min-width: 0;
+                  min-height: 0;
+                  margin-top: 0.5ex;
+                  margin-bottom: 0.5ex;
+                }
+div.svgplotvbox { display: flex;
+                  flex-direction: column;
+                  min-width: 0;
+                  min-height: 0; }

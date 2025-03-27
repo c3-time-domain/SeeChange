@@ -125,3 +125,20 @@ def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_expos
         for ke in kes:
             session.delete( ke )
         session.commit()
+
+
+# This next one doesn't restore state, be aware.  Treat it as
+#   a variant of conductor_config_for_decam_pull; don't use
+#   both fixtures in the same test.
+@pytest.fixture
+def conductor_config_decam_pull_all_held( conductor_connector, conductor_config_for_decam_pull ):
+    data = conductor_connector.send( "conductor/getknownexposures" )
+    tohold = [ ke['id'] for ke in data['knownexposures'] ]
+    conductor_connector.send( "conductor/holdexposures/", { 'knownexposure_ids': tohold } )
+
+    # Make sure they all got held
+    with SmartSession() as session:
+        kes = session.query( KnownExposure ).all()
+    assert all( [ ke.hold for ke in kes ] )
+
+    return True

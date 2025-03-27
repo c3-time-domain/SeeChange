@@ -297,6 +297,9 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
             fakesetgrp.create_dataset( 'mag', data=self.fake_mag )
             fakesetgrp.create_dataset( 'hostdex', data=self.host_dex )
 
+        # Save the file to the archive and update the object accordingly
+        FileOnDiskMixin.save( self, ofpath, **kwargs )
+
 
     def inject_on_to_image( self, imagedata=None, weight=None ):
         """Inject fakes in to an image
@@ -525,6 +528,9 @@ class FakeAnalysis( Base, UUIDMixin, FileOnDiskMixin ):
             grp = h5f.create_group( 'fakeanal' )
             for prop in self.arrayprops:
                 grp.create_dataset( prop, data=getattr( self, prop ) )
+
+        # Save the file to the archive and update the object accordingly
+        FileOnDiskMixin.save( self, ofpath, **kwargs )
 
 
     def load( self, download=True, always_verify_md5=False, filepath=None ):

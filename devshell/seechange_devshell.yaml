@@ -1,3 +1,7 @@
+# This config file is almost identical to
+# ../tests/seechange_config_test.yaml.  The only difference as of this
+# writing is data_root and data_temp.
+
 preloads:
   - ../default_config.yaml
 overrides:
@@ -6,8 +10,8 @@ augments:
   - local_augments.yaml
 
 path:
-  data_root: 'devshell/temp_data'
-  data_temp: 'devshell/temp_data'
+  data_root: '/seechange/devshell/temp_data'
+  data_temp: '/seechange/devshell/temp_data'
 
 db:
   host: postgres
@@ -21,9 +25,59 @@ archive:
   token: insecure
 
 conductor:
-  conductor_url: https://conductor:8082/
-  username: test
-  password: test_password
+  conductor_url: https://webap:8081/
+  username: admin
+  password: admin
+
+webap:
+  webap_url: https://webap:8081/
+
+pipeline:
+  # Leave this at false until we update
+  #   the datastore_factory.py fixture
+  #   to deal with the fake objects.
+  # (Possible other tests may need to
+  #   be updated too.)
+  # Leaving the commented-out "true"
+  #   here as a reminder to make the
+  #   change if you're interactively
+  #   futzing around with the webap.
+  inject_fakes: false
+  # inject_fakes: true
 
 subtraction:
   method: zogy
+  refset: test_refset_decam    # This is needed for the pipeline_exposure_launcher test
+
+referencing:
+  coaddition:
+    coaddition:
+      method: zogy        # Many tests were written with this as the default
+
+scoring:
+  algorithm: RBbot-quiet-shadow-131-cut0.55
+
+alerts:
+  send_alerts: true
+  methods:
+    - name: test_alert_stream
+      method: kafka
+      enabled: true
+      deepcut: null
+      avro_schema: /seechange/share/avsc/ls4.v0_1.alert.avsc
+      kafka_server: kafka-server
+      kafka_topic_pattern: "test_topic_{barf}"
+      previous_source_days: 30
+
+fakeinjection:
+  min_fake_mag: -2.
+  max_fake_mag: 1.
+  mag_rel_limmag: true
+  num_fakes: 100
+  mag_prob_ratio: 1.
+  random_seed: 0.
+  hostless_frac: 0.25
+  host_minmag: -3.
+  host_maxmag: 0.5
+  host_distscale: 1.
+  random_seed: 42

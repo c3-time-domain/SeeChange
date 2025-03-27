@@ -20,6 +20,9 @@ def test_save_and_load( bogus_fakeset_saved ):
     assert fakeset.fake_y is None
     assert fakeset.fake_mag is None
     assert fakeset.host_dex is None
+    assert fakeset.md5sum is not None
+
+    # TODO: check that it got saved to the archive
 
     fakeset.load()
     assert fakeset.random_seed == bogus_fakeset_saved.random_seed

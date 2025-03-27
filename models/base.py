@@ -40,7 +40,7 @@ import util.config as config
 from util.archive import Archive
 from util.logger import SCLogger
 from util.radec import radec_to_gal_ecl
-from util.util import asUUID, UUIDJsonEncoder
+from util.util import asUUID, NumpyAndUUIDJsonEncoder
 
 # Postgres adapters to allow insertion of some numpy types
 import psycopg2.extensions
@@ -540,7 +540,7 @@ class SeeChangeBase:
                 val = datetime.datetime.now( tz=datetime.UTC )
 
             if isinstance( col.type, sqlalchemy.dialects.postgresql.json.JSONB ) and ( val is not None ):
-                val = json.dumps( val )
+                val = json.dumps( val, cls=NumpyAndUUIDJsonEncoder )
             elif isinstance( val, np.ndarray ):
                 val = list( val )
 
@@ -902,6 +902,8 @@ class SeeChangeBase:
                 value = [v.item() if isinstance(v, np.number) else v for v in value]
             if isinstance(value, dict):
                 value = {k: v.item() if isinstance(v, np.number) else v for k, v in value.items()}
+            if isinstance( value, datetime.datetime ):
+                value = value.isoformat()
 
             if key == 'md5sum' and value is not None:
                 if isinstance(value, UUID):
@@ -938,7 +940,7 @@ class SeeChangeBase:
                 value = value.isoformat()
 
             if isinstance(value, (datetime.datetime, np.ndarray)):
-                raise TypeError('Found some columns with non-standard types. Please parse all columns! ')
+                raise TypeError( f"Column {key} has type {type(value)} which I don't know how to parse." )
 
             output[key] = value
 
@@ -992,7 +994,7 @@ class SeeChangeBase:
         """
         with open(filename, 'w') as fp:
             try:
-                json.dump(self.to_dict(), fp, indent=2, cls=UUIDJsonEncoder)
+                json.dump(self.to_dict(), fp, indent=2, cls=NumpyAndUUIDJsonEncoder)
             except:
                 raise
 

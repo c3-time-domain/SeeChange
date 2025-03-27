@@ -9,11 +9,11 @@ configchoice:
 extraction:
   threshold: 10.0
 
-wcs:
+astrocal:
   max_catalog_mag: [15., 16., 17.]
   mag_range_catalog: 2.0
 
-zp:
+photocal:
   max_catalog_mag: [17., 18., 19.]
   mag_range_catalog: 3.0
 

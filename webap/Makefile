@@ -4,7 +4,7 @@ toinstall = seechange_webap.py baseview.py conductor.py updater.py rkauth_flask.
 	static/seechange.css static/seechange_ns.js static/seechange.js static/seechange_start.js \
 	static/provenancetags.js static/exposuresearch.js static/exposurelist.js static/exposure.js \
 	static/conductor.js \
-	static/rkwebutil.js static/rkauth.js static/resetpasswd_start.js \
+	static/rkwebutil.js static/svgplot.js static/rkauth.js static/resetpasswd_start.js \
 	static/favicon.ico \
 	templates/base.html templates/seechange_webap.html
 
@@ -20,6 +20,9 @@ rkauth_flask.py: ../extern/rkwebutil/rkauth_flask.py
 
 static/rkwebutil.js: ../extern/rkwebutil/rkwebutil.js
 	ln -s ../../extern/rkwebutil/rkwebutil.js static/rkwebutil.js
+
+static/svgplot.js: ../extern/rkwebutil/svgplot.js
+	ln -s ../../extern/rkwebutil/svgplot.js static/svgplot.js
 
 static/rkauth.js: ../extern/rkwebutil/rkauth.js
 	ln -s ../../extern/rkwebutil/rkauth.js static/rkauth.js

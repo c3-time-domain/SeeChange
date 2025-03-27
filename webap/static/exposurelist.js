@@ -59,11 +59,12 @@ seechange.ExposureList = class
         if ( ( this.fromtime == null ) && ( this.totime == null ) ) {
             h2.appendChild( document.createTextNode( " from all time" ) );
         } else if ( this.fromtime == null ) {
-            h2.appendChild( document.createTextNode( " up to " + this.totime ) );
+            h2.appendChild( document.createTextNode( " up to MJD " + this.totime.toFixed(2) ) );
         } else if ( this.totime == null ) {
-            h2.appendChild( document.createTextNode( " from " + this.fromtime + " on" ) );
+            h2.appendChild( document.createTextNode( " from MJD " + this.fromtime.toFixed(2) + " and later" ) );
         } else {
-            h2.appendChild( document.createTextNode( " from " + this.fromtime + " to " + this.totime ) );
+            h2.appendChild( document.createTextNode( " from MJD " + this.fromtime.toFixed(2) + " to "
+                                                     + this.totime.toFixed(2) ) );
         }
 
         if ( this.provtag == null ) {
@@ -159,7 +160,7 @@ seechange.ExposureList = class
 
     actually_show_exposure( id, name, mjd, airmass, filter, seeingavg, limmagavg, target, project, exp_time, data )
     {
-        let exp = new seechange.Exposure( this, this.context, this.exposurediv,
+        let exp = new seechange.Exposure( this.context, this.exposurediv,
                                           id, name, mjd, airmass, filter, seeingavg, limmagavg,
                                           target, project, exp_time, data );
         this.exposure_displays[id] = exp;

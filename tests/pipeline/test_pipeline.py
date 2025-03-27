@@ -173,8 +173,8 @@ def test_parameters( test_config ):
     overrides = {
         'preprocessing': { 'steps': [ 'overscan', 'linearity'] },
         'extraction': {'threshold': 3.14 },
-        'wcs': {'cross_match_catalog': 'override'},
-        'zp': {'cross_match_catalog': 'override'},
+        'astrocal': {'cross_match_catalog': 'override'},
+        'photocal': {'cross_match_catalog': 'override'},
         'subtraction': { 'method': 'override' },
         'detection': { 'threshold': 3.14 },
         'cutting': { 'cutout_size': 666 },
@@ -191,8 +191,8 @@ def test_parameters( test_config ):
 
     assert check_override(overrides['preprocessing'], pipeline.preprocessor.pars)
     assert check_override(overrides['extraction'], pipeline.extractor.pars)
-    assert check_override(overrides['wcs'], pipeline.astrometor.pars)
-    assert check_override(overrides['zp'], pipeline.photometor.pars)
+    assert check_override(overrides['astrocal'], pipeline.astrometor.pars)
+    assert check_override(overrides['photocal'], pipeline.photometor.pars)
     assert check_override(overrides['subtraction'], pipeline.subtractor.pars)
     assert check_override(overrides['detection'], pipeline.detector.pars)
     assert check_override(overrides['cutting'], pipeline.cutter.pars)
@@ -688,7 +688,6 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
             # these are used to find the report later on
             exp_id = ds.exposure_id
             sec_id = ds.section_id
-            prov_id = ds.report.provenance_id
 
             # set the error instead
             getattr(p, obj).pars.inject_warnings = False
@@ -706,11 +705,9 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
                     sa.select(Report).where(
                         Report.exposure_id == exp_id,
                         Report.section_id == sec_id,
-                        Report.provenance_id == prov_id
                     ).order_by(Report.start_time.desc())
                 ).all()
                 report = reports[0]  # the last report is the one we just generated
-                assert len(reports) - 1 == report.num_prev_reports
                 assert not report.success
                 assert report.error_step == process_step
                 assert report.error_type == 'RuntimeError'

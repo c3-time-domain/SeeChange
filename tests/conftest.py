@@ -55,8 +55,8 @@ from pipeline.data_store import DataStore, ProvenanceTree
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -1012,13 +1012,13 @@ def bogus_datastore( bogus_image, bogus_sources_and_psf, bogus_bg, bogus_wcs, bo
     ds.edit_prov_tree( ProvenanceTree( { 'starting_point': Provenance.get( ds.image.provenance_id ),
                                          'extraction': Provenance.get( ds.sources.provenance_id ),
                                          'backgrounding': Provenance.get( ds.bg.provenance_id ),
-                                         'wcs': Provenance.get( ds.wcs.provenance_id ),
-                                         'zp': Provenance.get( ds.zp.provenance_id ) },
+                                         'astrocal': Provenance.get( ds.wcs.provenance_id ),
+                                         'photocal': Provenance.get( ds.zp.provenance_id ) },
                                        upstream_steps = { 'starting_point': [],
                                                           'extraction': ['starting_point'],
                                                           'backgrounding': ['extraction'],
-                                                          'wcs': ['extraction'],
-                                                          'zp': ['wcs', 'backgrounding'] } ) )
+                                                          'astrocal': ['extraction'],
+                                                          'photocal': ['astrocal'] } ) )
 
     yield ds
 

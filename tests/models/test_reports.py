@@ -1,15 +1,14 @@
+import io
 import time
 import uuid
-
-from pprint import pprint
 
 import sqlalchemy as sa
 
 from models.base import SmartSession
-from models.provenance import Provenance
 from models.report import Report
 
-from util.util import env_as_bool
+from util.util import env_as_bool, asUUID
+from util.logger import SCLogger
 
 
 def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrators):
@@ -84,6 +83,8 @@ def test_report_bitflags(decam_exposure, decam_reference, decam_default_calibrat
     assert report.products_committed == 'sources, zp, sub_image, detections'
 
 
+# This test runs the pipeline on decam_exposure,and does not use the decam_datastore pipeline,
+#  so that measured times can be compared to elasped times in the test.
 def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_tests, decam_default_calibrators):
     p = pipeline_for_tests
     p.subtractor.pars.refset = 'test_refset_decam'
@@ -111,23 +112,36 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         peak_memory = 0
         for step in ds.runtimes.keys():  # also make sure all the keys are present in both dictionaries
             measured_time += ds.runtimes[step]
-            if env_as_bool('SEECHANGE_TRACEMALLOC'):
+            if env_as_bool('SEECHANGE_TRACEMALLOC') and ( step != 'save_intermediate' ):
                 peak_memory = max(peak_memory, ds.memory_usages[step])
 
-        print(f'total_time: {total_time:.1f}s')
-        print(f'measured_time: {measured_time:.1f}s')
-        pprint(ds.report.process_runtime, sort_dicts=False)
+        # Note that you won't actually see these outputs unless you give
+        #  --capture=tee-sys to pytest
+        SCLogger.info( f'Pipeline total runtime: {total_time:.1f}s' )
+        SCLogger.info( f'Pipeline measured runtime:: {measured_time:.1f}s' )
+        strio = io.StringIO()
+        for k, v in ds.report.process_runtime.items():
+            strio.write( f"        {k:24s} {v:6.1f} s\n" )
+        SCLogger.info( f"Pipeline process times:\n{strio.getvalue()}" )
         assert measured_time > 0.98 * total_time  # at least 98% of the time is accounted for
 
         if env_as_bool('SEECHANGE_TRACEMALLOC'):
-            print(f'peak_memory: {peak_memory:.1f}MB')
-            pprint(ds.memory_usages, sort_dicts=False)
-            assert 1000.0 < peak_memory < 10000.0  # memory usage is in MB, takes between 1 and 10 GB
+            SCLogger.info( f'Pipeline peak memory: {peak_memory:.1f}MB' )
+            strio.truncate( 0 )
+            for k, v in ds.report.process_memory.items():
+                strio.write( f"        {k:24s} {v:7.1f} MB\n" )
+            SCLogger.info( f"Pipeline process memory usages:\n{strio.getvalue()}" )
+            assert 1000.0 < peak_memory < 4000.0  # memory usage is in MB, takes between 1 and 4 GB
 
         with SmartSession() as session:
             rep = session.scalars(sa.select(Report).where(Report.exposure_id == decam_exposure.id)).one()
         assert rep is not None
         assert rep.success
+        assert asUUID( rep.exposure_id ) == asUUID( ds.exposure.id )
+        assert rep.section_id == ds.section_id
+        assert rep.image_id is not None
+        assert set( rep.process_provid.keys() ) == set( ds.prov_tree.keys() )
+        assert all( [ rep.process_provid[k] == ds.prov_tree[k].id for k in ds.prov_tree.keys() ] )
         runtimes = rep.process_runtime.copy()
         runtimes.pop('reporting')
         assert runtimes == ds.runtimes
@@ -137,9 +151,6 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
                                       'sub_image, detections, cutouts, measurement_set, deepscore_set')
         assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save
-        repprov = Provenance.get( rep.provenance_id )
-        assert repprov.upstreams[0].id == ds.deepscore_set.provenance_id
-        assert rep.num_prev_reports == 0
         ds.save_and_commit()
         rep.scan_datastore(ds)
         assert rep.products_committed == ('image, sources, psf, bg, wcs, zp, '

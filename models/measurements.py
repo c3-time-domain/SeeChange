@@ -546,7 +546,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
     def __repr__(self):
         return (
-            f"<Measurements {self.id} in set {self.measurement_set} "
+            f"<Measurements {self.id} in set {self.measurementset_id} "
             f"(number {self.index_in_sources}) "
             f"at x,y= {self.center_x_pixel}, {self.center_y_pixel}>"
         )

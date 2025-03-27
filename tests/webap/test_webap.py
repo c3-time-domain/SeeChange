@@ -150,7 +150,28 @@ def test_webap_projects( webap_rkauth_client, sim_exposure1 ):
 
 # This test is brobdingnagian because I just want to run the
 #    fixture once.  It will troll through the web interface a lot.
-def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
+
+# Note that the admin_user fixture is there even though it's not
+#    actually used in the test because it's convenient to use this test
+#    to set up something of an environment for testing the web ap
+#    interactively; just run
+#        pytest --trace webap/test_webap.py:test_webap
+#    and wait for the fixtures to finish.  (The --trace option tells
+#    pytest to drop into the debugger at the beginning of each test, but
+#    after the fixtures have run.)  Then, assuming you're running inside
+#    a docker compose environment on your desktop, point your browser at
+#    localhost:8081 (or whatever port you configured in your .env file).
+#    If you edit the webap code and want to see the changes, you don't
+#    have to blow away your whole docker compose environment.  Just, outside
+#    the docker environment but in the tests directory, run
+#      docker compose down webap    (maybe with -v)
+#      docker compose build webap
+#      docker compose up -d webap
+#   Then, to see server-side errors,
+#      docker compose logs webap
+#   I wonder if all this comment should be put in the "Testing tips" part
+#   of our documentation....
+def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user ):
     browser = webap_browser_logged_in
     ds = decam_datastore
     junkprov = None
@@ -171,8 +192,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
                                         ds.detections.provenance_id,
                                         ds.cutouts.provenance_id,
                                         ds.measurement_set.provenance_id,
-                                        ds.deepscore_set.provenance_id,
-                                        ds.report.provenance_id ] )
+                                        ds.deepscore_set.provenance_id ] )
         ProvenanceTag.addtag( 'test_webap', provs )
 
         # Create a throwaway provenance and provenance tag so we can test
@@ -308,18 +328,18 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         rows = imagestab.find_elements( By.TAG_NAME, 'tr' )
         assert len(rows) == 2
         cols = rows[1].find_elements( By.XPATH, "./*" )
-        assert re.search( r'^c4d_20211025_044847_S2_r_Sci', cols[1].text ) is not None
+        assert re.search( r'^c4d_20211025_044847_S2_r_Sci', cols[0].text ) is not None
 
         # ======================================================================
         # Sources
 
-        # Find the sources tab and click on that
-        subbuttonbox.find_element( By.XPATH, "./button[text()='Sources']" ).click()
+        # Click on the number of sources column in this row of the images table
+        cols[9].click()
         # Give it half a second to go at least get to the "loading" screen; that's
         #  all javascript with no server communcation, so should be fast.
         time.sleep( 0.5 )
         WebDriverWait( subcontentdiv, timeout=10 ).until(
-            lambda d: d.find_element( By.XPATH, ".//p[contains(.,'Sources for all successfully completed chips')]" ) )
+            lambda d: d.find_element( By.XPATH, ".//p[contains(.,'Sources for')]" ) )
 
         # Now the tab content div should have information about the sources
         sourcesdiv = subcontentdiv.find_element( By.XPATH, "./div" )
@@ -334,6 +354,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore ):
         # * check whether you're searching for a single image vs. whole exposure sources
         # * provenance tags at top of page
         # * other things
+        # * ....lots of other things
 
     finally:
         # Clean up the junk Provenance, and the ProvenanceTags we created

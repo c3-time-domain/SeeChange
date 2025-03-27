@@ -24,7 +24,7 @@ def test_config_chooser():
         assert exgalconfig.value( 'configchoice.choice_algorithm' ) is None
         assert exgalconfig.value( 'configchoice.configs' ) is None
         assert exgalconfig.value( 'extraction.threshold' ) == origconfig.value( 'extraction.threshold' )
-        assert exgalconfig.value( 'wcs.max_catalog_mag' ) == origconfig.value( 'wcs.max_catalog_mag' )
+        assert exgalconfig.value( 'astrocal.max_catalog_mag' ) == origconfig.value( 'astrocal.max_catalog_mag' )
 
         # Reset config before trying the next thing
         Config._default = None
@@ -40,8 +40,8 @@ def test_config_chooser():
         assert galconfig.value( 'configchoice.configs' ) is None
         assert galconfig.value( 'extraction.threshold' ) != origconfig.value( 'extraction.threshold' )
         assert galconfig.value( 'extraction.threshold' ) == 10.0
-        assert galconfig.value( 'wcs.max_catalog_mag' ) != origconfig.value( 'wcs.max_catalog_mag' )
-        assert galconfig.value( 'wcs.max_catalog_mag' ) == [15., 16., 17.]
+        assert galconfig.value( 'astrocal.max_catalog_mag' ) != origconfig.value( 'astrocal.max_catalog_mag' )
+        assert galconfig.value( 'astrocal.max_catalog_mag' ) == [15., 16., 17.]
 
     finally:
         # Poke into the internals of Config to make sure we

@@ -10,6 +10,7 @@ import psutil
 import psycopg2
 import psycopg2.extras
 
+from util.conductor_connector import ConductorConnector
 from util.logger import SCLogger
 from util.util import asUUID
 from util.config import Config
@@ -27,13 +28,15 @@ from models.exposure import Exposure
 # its cache of known instrument instances
 import models.decam  # noqa: F401
 
+from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
 from pipeline.configchooser import ConfigChooser
 
 
 class ExposureProcessor:
-    def __init__( self, instrument, identifier, params, numprocs, onlychips=None,
-                  through_step=None, worker_log_level=logging.WARNING ):
+    def __init__( self, instrument, identifier, params, numprocs, cluster_id,
+                  node_id, machine_name=None, onlychips=None,
+                  through_step=None, verify=True, worker_log_level=logging.WARNING ):
         """A class that processes all images in a single exposure, potentially using multiprocessing.
 
         This is used internally by ExposureLauncher; normally, you would not use it directly.
@@ -53,6 +56,12 @@ class ExposureProcessor:
           Number of worker processes (not including the manager process)
           to run at once.  0 or 1 = do all work in the main manager process.
 
+        cluster_id: str
+
+        node_id: str
+
+        machine_name: str or None
+
         onlychips : list, default None
           If not None, will only process the sensor sections whose names
           match something in this list.  If None, will process all
@@ -62,6 +71,11 @@ class ExposureProcessor:
         through_step : str or None
           Passed on to top_level.py::Pipeline
 
+        verify : bool, default True
+          Do we need to verify the SSL certificate of the Conductor?
+          (Usually you need this, but in our tests we use cheesy
+          self-signed certificates so need this.)
+
         worker_log_level : log level, default logging.WARNING
           The log level for the worker processes.  Here so that you can
           have a different log level for the overall control process
@@ -70,16 +84,80 @@ class ExposureProcessor:
         """
         self.instrument = get_instrument_instance( instrument )
         self.identifier = identifier
+        self.cluster_id = cluster_id
+        self.node_id = node_id
+        self.machine_name = machine_name
         self.params = params
         self.numprocs = numprocs
         self.onlychips = onlychips
         self.through_step = through_step
         self.worker_log_level = worker_log_level
+        self.provtag = Config.get().value( 'pipeline.provenance_tag' )
+        self.conductor = ConductorConnector( verify=verify )
 
     def cleanup( self ):
         """Do our best to free memory."""
 
         self.exposure = None   # Praying to the garbage collection gods
+
+    def start_work( self ):
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "LOCK TABLE knownexposures" )
+            cursor.execute( "SELECT cluster_id FROM knownexposures "
+                            "WHERE instrument=%(inst)s AND identifier=%(ident)s",
+                            { 'inst': self.instrument.name, 'ident': self.identifier } )
+            rows = cursor.fetchall()
+            if len(rows) == 0:
+                raise ValueError( f"Error, unknown known exposure with instrument {self.instrument} "
+                                  f"and identifier {self.identifier}" )
+            if len(rows) > 1:
+                raise RuntimeError( f"Error, multiple known exposures with instrument {self.instrument} "
+                                    f"and identifier {self. identifier}; this should not happen" )
+            if rows[0][0] != self.cluster_id:
+                raise ValueError ( f"Error, known exposure with instrument {self.instrument} and identifier "
+                                   f"{self.identifier} is claimed by cluster {rows[0][0]}, not {self.cluster_id}" )
+
+            cursor.execute( "UPDATE knownexposures SET cluster_id=%(cluster)s, "
+                            "  node_id=%(node)s, machine_name=%(machine)s, start_time=%(t)s, "
+                            "  release_time=NULL, provenance_tag=%(provtag)s "
+                            "WHERE instrument=%(inst)s AND identifier=%(ident)s",
+                            { 'inst': self.instrument.name,
+                              'ident': self.identifier,
+                              'cluster': self.cluster_id,
+                              'node': self.node_id,
+                              'machine': self.machine_name,
+                              't': datetime.datetime.now( tz=datetime.UTC ),
+                              'provtag': self.provtag } )
+            conn.commit()
+
+    def finish_work( self ):
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "LOCK TABLE knownexposures" )
+            cursor.execute( "SELECT cluster_id, start_time FROM knownexposures "
+                            "WHERE instrument=%(inst)s AND identifier=%(ident)s",
+                            { 'inst': self.instrument.name, 'ident': self.identifier } )
+            rows = cursor.fetchall()
+            if len(rows) == 0:
+                raise ValueError ( f"Error, unknown known exposure with instrument {self.instrument} "
+                                   f"and identifier {self.identifier}" )
+            if len(rows) > 1:
+                raise RuntimeError ( f"Error, multiple known exposures with instrument {self.instrument} "
+                                     f"and identifier {self.identifier}; this should not happen" )
+            if rows[0][0] != self.cluster_id:
+                raise ValueError( f"Error, known exposure with instrument {self.instrument.name} and identifier "
+                                  f"{self.identifier} is claimed by cluster {rows[0][0]}, not {self.cluster_id}" )
+            if rows[0][1] is None:
+                raise ValueError( f"Error, known exposure with instrument {self.instrument.name} and identifier "
+                                  f"{self.identifier} has a null start time" )
+
+            cursor.execute( "UPDATE knownexposures SET release_time=%(t)s "
+                            "WHERE instrument=%(inst)s AND identifier=%(ident)s",
+                            { 'inst': self.instrument.name, 'ident': self.identifier,
+                              't': datetime.datetime.now( tz=datetime.UTC ) } )
+            conn.commit()
+
 
     def download_and_load_exposure( self ):
         """Download the exposure and load it into the database (and archive)."""
@@ -122,7 +200,10 @@ class ExposureProcessor:
             pipeline = Pipeline()
             if ( self.through_step is not None ) and ( self.through_step != 'exposure' ):
                 pipeline.pars.through_step = self.through_step
-            ds = pipeline.run( self.exposure, chip )
+            ds = DataStore.from_args( self.exposure, chip )
+            ds.cluster_id = self.cluster_id
+            ds.node_id = self.node_id
+            ds = pipeline.run( ds )
             ds.save_and_commit()
             SCLogger.setLevel( origloglevel )
             SCLogger.info( f"...done processing chip {chip} in process {me.name} PID {me.pid}." )
@@ -201,6 +282,10 @@ def main():
     parser.add_argument( 'identifier', help='Identifier of the known exposure' )
     parser.add_argument( '-c', '--cluster-id', default="manual",
                          help="Cluster ID to mark as claiming the exposure in the knownexposures table" )
+    parser.add_argument( '--node', '--node-id', default="manual",
+                         help="Node ID to mark as claiming the exposure in the knownexposures table" )
+    parser.add_argument( '-m', '--machine', default="manual",
+                         help="Machine name to mark as claiming the exposure in the knownexposures table" )
     parser.add_argument( '-n', '--numprocs', default=None, type=int,
                          help=( "Number of chip processors to run (defaults to number of physical "
                                 "system CPUs minus 1" ) )
@@ -216,6 +301,8 @@ def main():
                          help="Log level (error, warning, info, or debug) (defaults to info)" )
     parser.add_argument( '-w', '--worker-log-level', default='warning',
                          help="Log level for the chip worker subprocesses (defaults to warning)" )
+    parser.add_argument( '--noverify', default=False, action='store_true',
+                         help="Don't verify Conductor's SSL certificate. Usually you don't want to specify this!" )
     parser.add_argument( '--assume-claimed', default=False, action='store_true',
                          help=( "Normally, will object if somebody else has claimed this exposure. Set "
                                 "this flag to True to ignore claims in the knownexposures table." ) )
@@ -236,6 +323,7 @@ def main():
     identifier = None
     exposureid = None
     exposure_to_delete = None
+
     with Psycopg2Connection() as conn:
         cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
         cursor.execute( "LOCK TABLE knownexposures" )
@@ -311,7 +399,9 @@ def main():
     processor = ExposureProcessor( instrument, identifier, params, numprocs,
                                    onlychips=args.chips,
                                    through_step=args.through_step,
+                                   verify=not args.noverify,
                                    worker_log_level=loglookup[args.worker_log_level.lower()] )
+    processor.start_work()
     if exposureid is None:
         processor.download_and_load_exposure()
         with Psycopg2Connection() as conn:
@@ -327,6 +417,8 @@ def main():
         processor.set_existing_exposure( exposureid )
 
     processor()
+    processor.finish_work()
+    SCLogger.info( "All done" )
 
 
 # ======================================================================
