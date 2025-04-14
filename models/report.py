@@ -340,7 +340,7 @@ class Report(Base, UUIDMixin):
                 if f not in fields:
                     fields.insert( 0, f )
             fields1 = ",".join( [ f"re1.{f}" for f in fields ] )
-            fields2_list = [ f for f in fields ]                # (What's the elegant python way to copy a list?)
+            fields2_list = list( fields )
             for f in [ 'exposure_id', 'section_id', 'success', 'error_message', 'start_time' ]:
                 if f not in fields2_list:
                     fields2_list.append( f )
