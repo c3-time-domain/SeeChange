@@ -4,12 +4,14 @@ import time
 import random
 import datetime
 
+import numpy as np
+import sqlalchemy as sa
+
 import fastavro
 import confluent_kafka
-
-import numpy as np
-
-import sqlalchemy as sa
+import hop
+import hop.auth
+import hop.models
 
 from models.base import SmartSession
 from models.image import Image
@@ -21,6 +23,7 @@ from models.measurements import MeasurementSet, Measurements
 from models.deepscore import DeepScoreSet, DeepScore
 from models.object import Object
 from util.config import Config
+from util.logger import SCLogger
 
 
 # Alerting doesn't work with the Parameters system because there's no Provenance associated with it,
@@ -28,7 +31,7 @@ from util.config import Config
 
 class Alerting:
 
-    known_methods = [ 'kafka' ]
+    known_methods = [ 'kafka', 'hopskotch' ]
 
     def __init__( self, send_alerts=None, methods=None ):
         """Initialize an Alerting object.
@@ -41,7 +44,7 @@ class Alerting:
              element for each method.  If None, will read
              alerts.send_alerts from config.
 
-          methods: list of dicts, default None
+          methods: dict, default None
              Configuration of alert sending methods.  If None, will read
              alerts.methods from config.
 
@@ -50,32 +53,40 @@ class Alerting:
         self.send_alerts = cfg.value( 'alerts.send_alerts' ) if send_alerts is None else send_alerts
         self.methods = cfg.value( 'alerts.methods' ) if methods is None else methods
 
-        if ( not isinstance( self.methods, list ) ) or ( not all( isinstance(m, dict) for m in self.methods ) ):
-            raise TypeError( "Alerting: methods must be a list of dicts." )
+        if ( not isinstance( self.methods, dict ) ):
+            raise TypeError( "Alerting: methods must be a dict." )
 
-        if not len( set( m['name'] for m in self.methods ) ) == len( self.methods ):
-            raise ValueError( "Alerting: all alert methods must have unique names" )
+        for methodname, methoddef in self.methods.items():
+            methoddef['name'] = methodname
 
-        for method in self.methods:
-            if 'method' not in method:
-                raise ValueError( f"'method' is not defined for (at least) alert method {method['name']}" )
+            if 'method' not in methoddef:
+                raise ValueError( f"'method' is not defined for (at least) alert method {methodname}" )
 
-            if method['method'] not in self.known_methods:
-                raise ValueError( f"Unknown alert method {method['method']}; known are {self.known_methods}" )
+            if methoddef['method'] not in self.known_methods:
+                raise ValueError( f"Unknown alert method {methoddef['method']}; known are {self.known_methods}" )
 
-            if 'enabled' not in method:
+            if 'enabled' not in methoddef:
                 raise ValueError( f"Each method must have a value for 'enabled'; (at least) "
-                                  f"{method['name']} does not." )
+                                  f"{methodname} does not." )
 
-            if method['method'] == 'kafka':
-                method['schema'] = fastavro.schema.load_schema( method['avro_schema'] )
+            if methoddef['method'] in ( 'kafka', 'hopskotch' ):
+                methoddef['schema'] = fastavro.schema.parse_schema(
+                    fastavro.schema.load_schema( methoddef['avro_schema'] ) )
 
-                now = datetime.datetime.now()
-                barf = "".join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=6 ) )
-                method['topic'] = method['kafka_topic_pattern'].format( year = now.year,
-                                                                        month = now.month,
-                                                                        day = now.day,
-                                                                        barf = barf )
+                if 'topic' not in methoddef:
+                    if 'topic_pattern' not in methoddef:
+                        raise ValueError( f"Each method must have either at topic or a topic_pattern; "
+                                          f"{methodname} does not." )
+                    now = datetime.datetime.now()
+                    barf = "".join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=6 ) )
+                    methoddef['topic'] = methoddef['kafka_topic_pattern'].format( year = now.year,
+                                                                                  month = now.month,
+                                                                                  day = now.day,
+                                                                                  barf = barf )
+                else:
+                    if 'topic_pattern' in methoddef:
+                        SCLogger.warning( f"topic_pattern for alert method {methodname} ignored because "
+                                          f"topic {methoddef['topic']} is given" )
 
 
 
@@ -104,18 +115,24 @@ class Alerting:
 
         # TODO: verify that datastore has measurements and scores
 
-        # If any of the methods are kafka, we will need to build avro alerts
+        # If any of the methods are kafka or hopskotch, we will need to build avro alerts
         avroalerts = None
-        if any( method['enabled'] and ( method['method'] == 'kafka' ) for method in self.methods ):
+        if any( method['enabled'] and
+                ( ( method['method'] == 'kafka' ) or ( method['method'] == 'hopskotch' ) )
+                for method in self.methods.values()
+               ):
             avroalerts = self.build_avro_alert_structures( ds, skip_bad=skip_bad )
 
         # Issue alerts for all methods
-        for method in self.methods:
+        for methodname, method in self.methods.items():
             if not method['enabled']:
                 continue
 
             if method['method'] == 'kafka':
                 self.send_kafka_alerts( avroalerts, method )
+
+            elif method['method'] == 'hopskotch':
+                self.send_hopskotch_alerts( avroalerts, method )
 
             else:
                 raise RuntimeError( "This should never happen." )
@@ -337,4 +354,56 @@ class Alerting:
                 nsent +=1
 
         producer.flush()
+        return nsent
+
+
+    def send_hopskotch_alerts( self, avroalerts, method ):
+        # WARNING : this function isn't tested in our tests; we'd have to
+        #   spin up a hopskotch server in order to do that, and that
+        #   sounds painful.
+        #
+        # In practice, as of this writing, we're using it with LS4 to
+        #   send to SCiMMA.  So, for now, make sure in production that
+        #   things are hooked up right (esp. auth and such) by sending
+        #   to a test topic before actually starting mass production.
+        # (Issue #445)
+        #
+        # NOTES ON ACTUALLY SETTING IT UP.
+        # (Todo: put this in our documentation somewhere.)
+        #
+        # * Log into SCiMMA, and go to https://www.scimma.org/hopauth/
+        # * Scroll down, find "Groups".  Find the "ls4" row, and
+        #   then click on the "tools" icon in the "Manage Topics" column.
+        # * Create the topic; make it public if appropriate.
+        # * Put the topic in the "topic" field of the
+        #   alert method config, remembering it sould begin with "ls4.".
+        # * Go back to https://www.scimma.org/hopauth/
+        # * Click on the "Manage" tools icon for the relevant credentials.
+        # * Scroll down under "Available Permissions", and find the
+        #   permissions for ls4.<topic> for the topic you just created.
+        # * Give the credentials both read and write permission
+        # * Put the credential name in the "auth_user" field
+        #   of the alert method config, and the password (which
+        #   you need to have saved when you made the credential)
+        #   in the "auth_password" field of the alert method config.
+
+        auth = hop.auth.Auth( method['auth_user'], method['auth_password'] )
+        stream = hop.Stream( auth=auth )
+
+        nsent = 0
+        server_url = method['server_url']
+        if server_url[-1] == '/':
+            server_url = server_url[:-1]
+
+        with stream.open( f"{server_url}/{method['topic']}", "w" ) as stream_writer:
+            for alert in avroalerts:
+                rb = alert[ 'diaSoruce' ][ 'rb' ]
+                rbmethod = alert[ 'diaSource' ][ 'rbtype' ]
+                cut = method['deepcut'] if method['deepcut'] is not None else DeepScoreSet.get_rb_cut( rbmethod )
+                if ( rb is not None ) and ( rb >= cut ):
+                    msgio = io.BytesIO()
+                    fastavro.write.schemaless_writer( msgio, method['schema'], alert )
+                    stream_writer.write( hop.models.Blob( msgio.getvalue() ) )
+                    nsent += 1
+
         return nsent

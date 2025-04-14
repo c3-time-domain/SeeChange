@@ -489,41 +489,66 @@ object:
 # Set "send_alerts" to false to completely disable alert generation.
 #
 # Alerts may go to multiple destinations, so the configuration includes
-# a list of dicts with parameters.  Those parameters include at least
-# 'method' and 'enabled'; method determines the actual code used to send
-# the alert.  enabled indicates whether this method is currently
-# used. deepcut is the scoring threshold (0-1) above which a detection
-# will be sent out as an alert.  Further parameters are method dependent.
-# The same method may show up more than once, e.g. if alerts are being
-# sent to multiple kafka servers, or if alerts are sent to multiple
-# different topics on the same kafka server with different parameters.
+# a dict of dicts with parmeters.  The key of the outer level dict is
+# the name of the method, and can be anything (as long as it's unique).
+# The inner level dicts have the parmeters that define that
+# alert-sending method.  Those parameters include at least 'method' and
+# 'enabled'; method determines the actual code used to send the alert.
+# enabled indicates whether this method is currently used. deepcut is
+# the scoring threshold (0-1) above which a detection will be sent out
+# as an alert.  Further parameters are method dependent.  The same
+# method may show up more than once, e.g. if alerts are being sent to
+# multiple kafka servers, or if alerts are sent to multiple different
+# topics on the same kafka server with different parameters.
 #
 # 'deepcut': if Null, use the nominal value for the algorithm
 # (in DeepScore.get_rb_cut).  If a float, use that.  This is the r/b
 # cut below which no alert will be generated.
 #
-# kafka_topic_pattern : TODO DOCS
+# kafka_topic_pattern : TODO DOCS.  Make sure that if you're using a
+# topic pattern, you have the ability to create new topics just
+# by sending messages to them.  If you have to create topics
+# out of band (e.g. which is the case with SCiMMA using the hopskotch
+# method), then you probably don't want to use a topic pattern, but
+# rather just give the topic that you created elsewhere.
+#
+# NOTE : for auth users and passwords, you may want to put them in a
+#   "secrets" file somewhere that gets included via the override or
+#   augment method.  (Quickly test your config to make sure it's doing
+#   what you think it's doing.)  Make sure not to commit any passwords
+#   to a git archive!
+#
 
 alerts:
   send_alerts: true
   methods:
-    - name: filtered_kafka_stream
+    filtered_kafka_stream:
       method: kafka
       enabled: false
       deepcut: null
       avro_schema: /seechange/share/avsc/alert.avsc
       kafka_server: kafka.server.com
-      kafka_topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"
+      topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"
       previous_source_days: 365
-    - name: junk_included_kafka_stream
+    junk_included_kafka_stream:
       method: kafka
       enabled: false
       deepcut: 0.
       avro_schema: /seechange/share/avsc/alert.avsc
       kafka_server: kafka.server.com
-      kafka_topic_pattern: "topic_with_junk_{year:04d}-{month:02d}-{day:02d}"
+      topic_pattern: "topic_with_junk_{year:04d}-{month:02d}-{day:02d}"
       previous_source_days: 365
-
+    filtered_hopskotch_stream:
+      method: hopskotch
+      enabled: false
+      deepcut: null
+      avro_schema: /seechange/share/avsc/alert.avsc
+      server_url: kafka://kafka.scimma.org/
+      auth_user: put_the_right_username_here
+      auth_password: put_the_right_password_here
+      topic: put_the_right_topic_here
+      previous_source_days: 30
+      
 # ======================================================================
 # Fake injection
 

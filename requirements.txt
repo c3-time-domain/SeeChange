@@ -13,6 +13,7 @@ fastavro==1.10.0
 gunicorn==23.0.0
 h5py==3.12.1
 healpy==1.18.0
+hop-client==0.11.0
 matplotlib==3.10.0
 numpy==2.2.1
 pandas==2.2.3
