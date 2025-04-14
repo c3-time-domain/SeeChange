@@ -96,7 +96,7 @@ class ParsPipeline(Parameters):
             None,
             ( None, str ),
             "Stop after this step.  None = run the whole pipeline.  String values can be "
-            "any of preprocessing, extraction, astdrocal, photocal, subtraction, detection, "
+            "any of preprocessing, extraction, astrocal, photocal, subtraction, detection, "
             "cutting, measuring, scoring.  (See Pipeline.ALL_STEPS)",
             critical=False
         )
@@ -306,7 +306,6 @@ class Pipeline:
                 report.start_time = datetime.datetime.now( tz=datetime.UTC )
                 report.process_provid = { k: v.id for k, v in provs.items() }
             except Exception as e:
-                import pdb; pdb.set_trace()
                 raise RuntimeError('Failed to create or merge a report for the exposure!') from e
 
             ds.report = report
@@ -570,7 +569,7 @@ class Pipeline:
                             ds.fakes.save()
                             ds.fakes.insert()
 
-                        for step, procobj in zip( [ 'subtraction', 'detection', 'cutting', 'masuring', 'scoring' ],
+                        for step, procobj in zip( [ 'subtraction', 'detection', 'cutting', 'measuring', 'scoring' ],
                                                   [ self.subtractor, self.detector, self.cutter,
                                                     self.measurer, self.scorer ] ):
                             SCLogger.info( f"Running {step} with fake-injected image id {ds.image.id}" )
