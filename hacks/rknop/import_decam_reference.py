@@ -140,9 +140,6 @@ def import_decam_reference( image, weight, mask, target, hdu, section_id, refset
     SCLogger.info( "Extracting" )
     pipeline.extractor.run( ds )
 
-    SCLogger.info( "Backgrounding" )
-    pipeline.backgrounder.run( ds )
-
     SCLogger.info( "Astrometric" )
     pipeline.astrometor.run( ds )
 
