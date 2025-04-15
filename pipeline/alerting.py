@@ -79,10 +79,10 @@ class Alerting:
                                           f"{methodname} does not." )
                     now = datetime.datetime.now()
                     barf = "".join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=6 ) )
-                    methoddef['topic'] = methoddef['kafka_topic_pattern'].format( year = now.year,
-                                                                                  month = now.month,
-                                                                                  day = now.day,
-                                                                                  barf = barf )
+                    methoddef['topic'] = methoddef['topic_pattern'].format( year = now.year,
+                                                                            month = now.month,
+                                                                            day = now.day,
+                                                                            barf = barf )
                 else:
                     if 'topic_pattern' in methoddef:
                         SCLogger.warning( f"topic_pattern for alert method {methodname} ignored because "

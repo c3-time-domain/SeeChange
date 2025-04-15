@@ -75,13 +75,13 @@ scoring:
 alerts:
   send_alerts: true
   methods:
-    - name: test_alert_stream
+    test_alert_stream:
       method: kafka
       enabled: true
       deepcut: null
       avro_schema: /seechange/share/avsc/ls4.v0_1.alert.avsc
       kafka_server: kafka-server
-      kafka_topic_pattern: "test_topic_{barf}"
+      topic_pattern: "test_topic_{barf}"
       previous_source_days: 30
 
 fakeinjection:
