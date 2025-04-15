@@ -35,7 +35,7 @@ class ConductorBaseView( BaseView ):
     pause_updates = False
     hold_new_exposures = False
     configchangetime = None
-    throughstep = "scoring"
+    throughstep = "alerting"
     pickuppartial = False
 
     @classmethod

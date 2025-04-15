@@ -42,7 +42,7 @@ seechange.Conductor = class
                                   "attributes": { "value": step,
                                                   "id": "throughstep_select",
                                                   "name": "throughstep_select",
-                                                  "selected": ( step=='scoring' ) ? 1 : 0 } } );
+                                                  "selected": ( step=='alerting' ) ? 1 : 0 } } );
         }
 
         // UNCOMMENT ALL THIS WHEN IT'S ACTUALLY IMPLEMENTED -- see Issue #446
@@ -650,10 +650,10 @@ seechange.PipelineWorkers = class
 }
 
 // **********************************************************************
-// Keep this synced with top_leve.py::Pipeline::ALL_STEPS
+// Keep this synced with top_level.py::Pipeline::ALL_STEPS
 
 seechange.Conductor.ALL_STEPS = [ 'preprocessing', 'extraction', 'astrocal', 'photocal', 'subtraction',
-                                  'detection', 'cutting', 'measuring', 'scoring', ];
+                                  'detection', 'cutting', 'measuring', 'scoring', 'alerting' ];
 
 
 // **********************************************************************
