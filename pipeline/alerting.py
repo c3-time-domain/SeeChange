@@ -91,7 +91,7 @@ class Alerting:
 
     def run( self, *args, **kwargs ):
         """Calls send.  (Need this method to work with pipeline/top_level.py.)"""
-        self.send( *args, **kwargs )
+        return self.send( *args, **kwargs )
 
 
     def send( self, ds, skip_bad=True ):
@@ -364,6 +364,9 @@ class Alerting:
         if avroalerts is None:
             return
 
+        SCLogger.info( f"Sending ≤{len(avroalerts)} alerts to kafka server "
+                       f"{method['kafka_server']}, topic {method['topic']}" )
+
         # TODO : put in a timeout for the server connection to fail, and
         #   test that it does in fact time out rather than hang forever
         #   if it tries to connect to a non-existent server.
@@ -383,6 +386,7 @@ class Alerting:
                 nsent +=1
 
         producer.flush()
+        SCLogger.info( f"Sent {nsent} alerts to kafka server {method['kafka_server']}, topic {method['topic']}" )
         return nsent
 
 
@@ -420,15 +424,17 @@ class Alerting:
         if avroalerts is None:
             return
 
-        auth = hop.auth.Auth( method['auth_user'], method['auth_password'] )
-        stream = hop.Stream( auth=auth )
-
-        nsent = 0
         server_url = method['server_url']
         if server_url[-1] == '/':
             server_url = server_url[:-1]
+        server_url = f"{server_url}/{method['topic']}"
 
-        with stream.open( f"{server_url}/{method['topic']}", "w" ) as stream_writer:
+        SCLogger.info( f"Sending ≤{len(avroalerts)} alerts to hopskotch server {server_url}" )
+
+        auth = hop.auth.Auth( method['auth_user'], method['auth_password'] )
+        stream = hop.Stream( auth=auth )
+        nsent = 0
+        with stream.open( server_url, "w" ) as stream_writer:
             for alert in avroalerts:
                 rb = alert[ 'diaSource' ][ 'rb' ]
                 rbmethod = alert[ 'diaSource' ][ 'rbtype' ]
@@ -439,4 +445,5 @@ class Alerting:
                     stream_writer.write( hop.models.Blob( msgio.getvalue() ) )
                     nsent += 1
 
+        SCLogger.info( f"Sent {nsent} alerts to hopskotch server {server_url}" )
         return nsent
