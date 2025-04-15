@@ -521,33 +521,38 @@ object:
 
 alerts:
   send_alerts: true
-  methods:
-    filtered_kafka_stream:
-      method: kafka
-      enabled: false
-      deepcut: null
-      avro_schema: /seechange/share/avsc/alert.avsc
-      kafka_server: kafka.server.com
-      topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"
-      previous_source_days: 365
-    junk_included_kafka_stream:
-      method: kafka
-      enabled: false
-      deepcut: 0.
-      avro_schema: /seechange/share/avsc/alert.avsc
-      kafka_server: kafka.server.com
-      topic_pattern: "topic_with_junk_{year:04d}-{month:02d}-{day:02d}"
-      previous_source_days: 365
-    filtered_hopskotch_stream:
-      method: hopskotch
-      enabled: false
-      deepcut: null
-      avro_schema: /seechange/share/avsc/alert.avsc
-      server_url: kafka://kafka.scimma.org/
-      auth_user: put_the_right_username_here
-      auth_password: put_the_right_password_here
-      topic: put_the_right_topic_here
-      previous_source_days: 30
+  methods: {}
+  # Don't want to have any methods in the default config,
+  #   because the way overriding works, it will still just
+  #   add to the "methods" dictionary!  Comments included
+  #   below for demo purposes.
+  # methods:
+  #   filtered_kafka_stream:
+  #     method: kafka
+  #     enabled: false
+  #     deepcut: null
+  #     avro_schema: /seechange/share/avsc/alert.avsc
+  #     kafka_server: kafka.server.com
+  #     topic_pattern: "topic_{year:04d}-{month:02d}-{day:02d}"
+  #     previous_source_days: 365
+  #   junk_included_kafka_stream:
+  #     method: kafka
+  #     enabled: false
+  #     deepcut: 0.
+  #     avro_schema: /seechange/share/avsc/alert.avsc
+  #     kafka_server: kafka.server.com
+  #     topic_pattern: "topic_with_junk_{year:04d}-{month:02d}-{day:02d}"
+  #     previous_source_days: 365
+  #   filtered_hopskotch_stream:
+  #     method: hopskotch
+  #     enabled: false
+  #     deepcut: null
+  #     avro_schema: /seechange/share/avsc/alert.avsc
+  #     server_url: kafka://kafka.scimma.org/
+  #     auth_user: put_the_right_username_here
+  #     auth_password: put_the_right_password_here
+  #     topic: put_the_right_topic_here
+  #     previous_source_days: 30
       
 # ======================================================================
 # Fake injection

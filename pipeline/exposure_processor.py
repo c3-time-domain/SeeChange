@@ -114,9 +114,9 @@ class ExposureProcessor:
             if len(rows) > 1:
                 raise RuntimeError( f"Error, multiple known exposures with instrument {self.instrument} "
                                     f"and identifier {self. identifier}; this should not happen" )
-            if rows[0][0] != self.cluster_id:
-                raise ValueError ( f"Error, known exposure with instrument {self.instrument} and identifier "
-                                   f"{self.identifier} is claimed by cluster {rows[0][0]}, not {self.cluster_id}" )
+            # if rows[0][0] != self.cluster_id:
+            #     raise ValueError ( f"Error, known exposure with instrument {self.instrument} and identifier "
+            #                        f"{self.identifier} is claimed by cluster {rows[0][0]}, not {self.cluster_id}" )
 
             cursor.execute( "UPDATE knownexposures SET cluster_id=%(cluster)s, "
                             "  node_id=%(node)s, machine_name=%(machine)s, start_time=%(t)s, "
@@ -338,10 +338,17 @@ def main():
                               f"and identifier {args.identifier}" )
         row = rows[0]
 
-        if ( not args.assume_claimed) and ( ( row['cluster_id'] is not None ) or ( row['claim_time'] is not None ) ):
-            raise RuntimeError( f"Known exposure with instrument {args.instrument} "
-                                f"and identifier {args.identifier} is claimed by "
-                                f"{row['cluster_id']} at {row['claim_time']}" )
+        if not args.assume_claimed:
+            if row['cluster_id'] is not None:
+                if row['release_time'] is None:
+                    raise RuntimeError( f"Known exposure with instrument {args.instrument} "
+                                        f"and identifier {args.identifier} is claimed by "
+                                        f"{row['cluster_id']} at {row['claim_time']}, and not released." )
+                else:
+                    SCLogger.warning( f"Known exposure with instrument {args.instrument} "
+                                      f"and identifier {args.identifier} was claimed by "
+                                      f"{row['cluster_id']} at {row['claim_time']} and released at "
+                                      f"{row['release_time']}.  Will potentially overwrite that claim." )
         instrument = row['instrument']
         identifier = row['identifier']
         params = {} if row['params'] is None else row['params']
@@ -373,11 +380,14 @@ def main():
                                   f"--continue nor --delete." )
 
         if not args.assume_claimed:
-            cursor.execute( "UPDATE knownexposures SET cluster_id=%(clust)s, claim_time=%(t)s, exposure_id=%(exp)s "
+            cursor.execute( "UPDATE knownexposures SET cluster_id=%(clust)s, node_id=%(node)s, "
+                            "machine_name=%(mach)s, claim_time=%(t)s, exposure_id=%(exp)s "
                             "WHERE instrument=%(inst)s AND identifier=%(iden)s",
                             { 'inst': args.instrument,
                               'iden': args.identifier,
                               'clust': args.cluster_id,
+                              'node': args.node,
+                              'mach': args.machine,
                               't': datetime.datetime.now( tz=datetime.UTC ),
                               'exp': str(exposureid)
                              } )
@@ -397,6 +407,7 @@ def main():
     SCLogger.info( f"Running with {numprocs} chip processors" )
 
     processor = ExposureProcessor( instrument, identifier, params, numprocs,
+                                   args.cluster_id, args.node, machine_name=args.machine,
                                    onlychips=args.chips,
                                    through_step=args.through_step,
                                    verify=not args.noverify,

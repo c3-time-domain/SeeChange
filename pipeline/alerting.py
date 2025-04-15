@@ -89,11 +89,18 @@ class Alerting:
                                           f"topic {methoddef['topic']} is given" )
 
 
+    def run( self, *args, **kwargs ):
+        """Calls send.  (Need this method to work with pipeline/top_level.py.)"""
+        self.send( *args, **kwargs )
+
 
     def send( self, ds, skip_bad=True ):
         """Send alerts from a fully processed DataStore.
 
         The DataStore must have run all the way through scoring.
+
+        Will read the 'alerts' section of the config file, and send
+        alerts through every method defined underneath alerts.method.
 
         Parmameters
         -----------
@@ -104,44 +111,63 @@ class Alerting:
             field is set to True.  If False, send alerts for all of
             ds.measurements.
 
+        Returns
+        -------
+          ds
+
+          The only changes that will have been made to the passed
+          DataStore are that a key will have been added to ds.runtimes
+          and ds.memory_usages if (respectively) ds.update_runtimes and
+          ds.update_memory_usages are true.  If there is an exception,
+          that will also be appended to ds.exceptions.
+
         """
         if not self.send_alerts:
             return
 
         t_start = time.perf_counter()
-        if ds.update_memory_usages:
-            import tracemalloc
-            tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
+        try:
+            if ds.update_memory_usages:
+                import tracemalloc
+                tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-        # TODO: verify that datastore has measurements and scores
+            # TODO: verify that datastore has measurements and scores
 
-        # If any of the methods are kafka or hopskotch, we will need to build avro alerts
-        avroalerts = None
-        if any( method['enabled'] and
-                ( ( method['method'] == 'kafka' ) or ( method['method'] == 'hopskotch' ) )
-                for method in self.methods.values()
-               ):
-            avroalerts = self.build_avro_alert_structures( ds, skip_bad=skip_bad )
+            # If any of the methods are kafka or hopskotch, we will need to build avro alerts
+            avroalerts = None
+            if any( method['enabled'] and
+                    ( ( method['method'] == 'kafka' ) or ( method['method'] == 'hopskotch' ) )
+                    for method in self.methods.values()
+                   ):
+                avroalerts = self.build_avro_alert_structures( ds, skip_bad=skip_bad )
 
-        # Issue alerts for all methods
-        for methodname, method in self.methods.items():
-            if not method['enabled']:
-                continue
+            # Issue alerts for all methods
+            for methodname, method in self.methods.items():
+                if not method['enabled']:
+                    continue
 
-            if method['method'] == 'kafka':
-                self.send_kafka_alerts( avroalerts, method )
+                if method['method'] == 'kafka':
+                    self.send_kafka_alerts( avroalerts, method )
 
-            elif method['method'] == 'hopskotch':
-                self.send_hopskotch_alerts( avroalerts, method )
+                elif method['method'] == 'hopskotch':
+                    self.send_hopskotch_alerts( avroalerts, method )
 
-            else:
-                raise RuntimeError( "This should never happen." )
+                else:
+                    raise RuntimeError( "This should never happen." )
 
-        if ds.update_runtimes:
-            ds.runtimes[ 'alerting' ] = time.perf_counter() - t_start
-        if ds.update_memory_usages:
-            import tracemalloc
-            ds.memory_usages['alerting'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
+            return ds
+
+        except Exception as e:
+            SCLogger.exception( f"Exception in Alering.send: {e}" )
+            ds.exceptions.append( e )
+            raise
+
+        finally:
+            if ds.update_runtimes:
+                ds.runtimes[ 'alerting' ] = time.perf_counter() - t_start
+            if ds.update_memory_usages:
+                import tracemalloc
+                ds.memory_usages['alerting'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
 
 
     def dia_source_alert( self, meas, score, img, deepscore_set, zp=None, aperdex=None, fluxscale=None ):
@@ -335,6 +361,9 @@ class Alerting:
     def send_kafka_alerts( self, avroalerts, method ):
         # TODO when appropriate : deal with login information etc.
 
+        if avroalerts is None:
+            return
+
         # TODO : put in a timeout for the server connection to fail, and
         #   test that it does in fact time out rather than hang forever
         #   if it tries to connect to a non-existent server.
@@ -360,16 +389,17 @@ class Alerting:
     def send_hopskotch_alerts( self, avroalerts, method ):
         # WARNING : this function isn't tested in our tests; we'd have to
         #   spin up a hopskotch server in order to do that, and that
-        #   sounds painful.
+        #   sounds painful.  (Issue #445)
         #
         # In practice, as of this writing, we're using it with LS4 to
         #   send to SCiMMA.  So, for now, make sure in production that
         #   things are hooked up right (esp. auth and such) by sending
         #   to a test topic before actually starting mass production.
-        # (Issue #445)
         #
-        # NOTES ON ACTUALLY SETTING IT UP.
-        # (Todo: put this in our documentation somewhere.)
+        # NOTES ON ACTUALLY SETTING IT UP FOR LS4.
+        # (Todo: put this in our documentation somewhere?  Or, better,
+        # put the genera procedure in our documentation somewhere, and
+        # create a "LS4 pipeline manager documentation" file!)
         #
         # * Log into SCiMMA, and go to https://www.scimma.org/hopauth/
         # * Scroll down, find "Groups".  Find the "ls4" row, and
@@ -387,6 +417,9 @@ class Alerting:
         #   you need to have saved when you made the credential)
         #   in the "auth_password" field of the alert method config.
 
+        if avroalerts is None:
+            return
+
         auth = hop.auth.Auth( method['auth_user'], method['auth_password'] )
         stream = hop.Stream( auth=auth )
 
@@ -397,7 +430,7 @@ class Alerting:
 
         with stream.open( f"{server_url}/{method['topic']}", "w" ) as stream_writer:
             for alert in avroalerts:
-                rb = alert[ 'diaSoruce' ][ 'rb' ]
+                rb = alert[ 'diaSource' ][ 'rb' ]
                 rbmethod = alert[ 'diaSource' ][ 'rbtype' ]
                 cut = method['deepcut'] if method['deepcut'] is not None else DeepScoreSet.get_rb_cut( rbmethod )
                 if ( rb is not None ) and ( rb >= cut ):

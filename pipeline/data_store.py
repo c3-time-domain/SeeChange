@@ -817,6 +817,7 @@ class DataStore:
                 'cutting': ['detection'],
                 'measuring': ['cutting'],
                 'scoring': ['measuring'],
+                'alerting': []
             }
             # Put code here to modify upstream_steps based on things in pars
             # (This will happen with fake injection in a future PR.; the
