@@ -162,7 +162,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._table = None
         self._info = None
 
-    def save( self, filename=None, image=None, sources=None, **kwargs ):
+    def save( self, filename=None, image=None, sources=None, filename_is_absolute=False, **kwargs ):
         """Write the PSF to disk.
 
         May or may not upload to the archive and update the
@@ -175,12 +175,15 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         Parameters
         ----------
-          filename: str or Path, or None
+          filename: str or None
              The path to the file to write, relative to the local store
              root.  Do not include the extension (e.g. '.psf') at the
              end of the name; that will be added automatically for all
-             extensions.  If None, will call image.invent_filepath() to get a
-             filestore-standard filename and directory.
+             extensions.  If None, will call image.invent_filepath() to
+             get a filestore-standard filename and directory.  The psf
+             object's filepath will be updated with the resultant path
+             (either from this parameter, or from invent_filepath()),
+             unless filename_is_absolute is True.
 
           sources: SourceList or None
              Ignored if filename is specified.  Otherwise, the
@@ -195,6 +198,14 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
              it from the database.  Use this for efficiency, or if you
              know the image isn't yet in the database.
 
+          filenamer_is_absolute : bool, default False
+             If False (default), then filename is relative to the local
+             store root.  If True, then filename is an absolute path
+             (and must be specified).  In this case, the psf object's
+             filepath will _not_ be updated.  You also almost always
+             want to include no_archive=True as an argument when doing
+             this.
+
           Additional arguments are passed on to FileOnDiskMixin.save
 
         """
@@ -207,8 +218,11 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         if filename is not None:
             if not filename.endswith('.psf'):
                 filename += '.psf'
-            self.filepath = filename
+            if not filename_is_absolute:
+                self.filepath = filename
         else:
+            if filename_is_absolute:
+                raise ValueError( "filename_is_absolute requires a non-None filename" )
             if ( sources is None ) or ( image is None ):
                 with SmartSession() as session:
                     if sources is None:
@@ -219,11 +233,16 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                     raise RuntimeError( "Can't invent PSF filepath; can't find either the corresponding "
                                         "SourceList or the corresponding Image." )
 
-            self.filepath = image.filepath if image.filepath is not None else image.invent_filepath()
-            self.filepath += f'.psf_{sources.provenance_id[:6]}'
+            filename = image.filepath if image.filepath is not None else image.invent_filepath()
+            filename += f'.psf_{sources.provenance_id[:6]}'
+            self.filepath = filename
 
-        psfpath = pathlib.Path( self.local_path ) / f'{self.filepath}.fits'
-        psfxmlpath = pathlib.Path( self.local_path ) / f'{self.filepath}.xml'
+        if filename_is_absolute:
+            psfpath = pathlib.Path( f'{filename}.fits' )
+            psfxmlpath = pathlib.Path( f'{filename}.xml' )
+        else:
+            psfpath = pathlib.Path( self.local_path ) / f'{filename}.fits'
+            psfxmlpath = pathlib.Path( self.local_path ) / f'{filename}.xml'
 
         # header0 = fits.Header( [ fits.Card( 'SIMPLE', 'T', 'This is a FITS file' ),
         #                          fits.Card( 'BITPIX', 8 ),

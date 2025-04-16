@@ -3,7 +3,10 @@ import pytest
 import shutil
 import datetime
 
+import numpy as np
+
 import sqlalchemy as sa
+import sqlalchemy.orm as orm
 
 from models.base import SmartSession, FileOnDiskMixin
 from models.provenance import Provenance, ProvenanceTag
@@ -234,11 +237,201 @@ def test_running_without_reference(decam_exposure, decam_default_calibrators, pi
         session.commit()
 
 
+def check_full_run_results( ds, exposure, sec_id, ref, expected ):
+    # Make sure that the provenances are all in the database
+    with SmartSession() as session:
+        for prov in ds.prov_tree.values():
+            provs = session.query( Provenance ).filter( Provenance._id==prov.id ).all()
+            assert len(provs) == 1
+
+    # Check that all the data products are in the database
+    check_datastore_and_database_have_everything( exposure.id, sec_id, ref.id, ds )
+
+    # Get the measurements and deepscores.
+    # Filter only on the DeepScoreSet provenance since that's the lowest
+    #   one down, so by going at upstreams from the DeepScoreSet we know
+    #   we're getting the right things.
+    # (This is perhaps gratuitous, since the measurements and deescores
+    #   should aready be in DataStore ds, but, well, I guess this is
+    #   also checking it all got saved right to the database.)
+    detections = orm.aliased( SourceList )
+    subim = orm.aliased( Image )
+    with SmartSession() as session:
+        res = ( session.query( MeasurementSet, DeepScoreSet )
+                .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
+                .join( detections, Cutouts.sources_id==detections._id )
+                .join( subim, detections.image_id==subim._id )
+                .join( image_subtraction_components, subim._id==image_subtraction_components.c.image_id )
+                .join( ZeroPoint, image_subtraction_components.c.new_zp_id==ZeroPoint._id )
+                .join( WorldCoordinates, ZeroPoint.wcs_id==WorldCoordinates._id )
+                .join( SourceList, WorldCoordinates.sources_id==SourceList._id )
+                .join( Image, SourceList.image_id==Image._id )
+                .filter( DeepScoreSet.measurementset_id==MeasurementSet._id )
+                .filter( DeepScoreSet.provenance_id==ds.prov_tree['scoring'].id )
+                .filter( Image.exposure_id==exposure.id )
+               ).all()
+        assert len(res) == 1
+        meas, deep = res[0]
+
+    # ---> REGRESSION TEST : look at some of the results to make
+    #   sure that things behaved as expected.  If not, then either
+    #   find the errors, or, if there no errors and it's legitimate
+    #   changes, then *some* process version numbers should be
+    #   bumped.  Good luck figuring out which one(s)!  (Hopefully,
+    #   other test failures will give you a clue.)  (This is
+    #   probably not a sufficient regression test; also
+    #   test_pipeline_exposure_launcher, with some checking of
+    #   measurements and scores there, should be run, at the very
+    #   least!)
+    #
+    # Since this is a regression test, you might argue that the abs= and rel=
+    # values in the pytest.approx calls below should be smaller.
+
+    assert len( meas.measurements ) == len( expected['x'] )
+    assert len( deep.deepscores ) == len( meas.measurements )
+    for m, d in zip( meas.measurements, deep.deepscores ):
+        # We don't care about things being in the same order, but the set of
+        #   measurements and deepscores should match.  Find the match based
+        #   on x and y being both within 0.05 of what's expected.
+        w = np.where( ( np.fabs( expected['x'] - m.x ) < 0.05 ) & ( np.fabs( expected['y'] - m.y ) < 0.05 ) )[0]
+        assert len(w) == 1
+        i = w[0]
+        assert expected['gfit_x'][i] == pytest.approx( m.gfit_x, abs=0.05 )
+        assert expected['gfit_y'][i] == pytest.approx( m.gfit_y, abs=0.05 )
+        assert expected['major_width'][i] == pytest.approx( m.major_width, abs=0.05 )
+        assert expected['minor_width'][i] == pytest.approx( m.minor_width, abs=0.05 )
+        assert expected['neg_frac'][i] == pytest.approx( m.negfrac, abs=0.02 )
+        assert expected['neg_flux_frac'][i] == pytest.approx( m.negfluxfrac, abs=0.05 )
+        assert expected['psf_flux_err'][i] == pytest.approx( m.flux_psf_err, rel=0.05 )
+        assert expected['psf_flux'][i] == pytest.approx( m.flux_psf, abs=m.flux_psf_err / 20. )
+        assert expected['aper_flux_err'][i] == pytest.approx( m.flux_apertures_err[0], rel=0.05 )
+        assert expected['aper_flux'][i] == pytest.approx( m.flux_apertures[0], abs=m.flux_apertures_err[0] / 20. )
+        assert expected['rb'][i] == pytest.approx( d.score, abs=0.1 )
+
+
+# The user fixture is here because this is a convenient test for looking
+#  to see what we've got on the weabp.  This will only work if you're
+#  running the tests on the dekstop or laptop you're sitting at.  Put a
+#  breakpoint at the end of the test, and then go log into the webap
+#  (which will be at https://localhost:8081, with 8081 replaced with the
+#  value of WEBAP_PORT If you set that when running the docker compose
+#  file), login in with username "test" and password "test_password",
+#  and check things out.
+def test_full_run_zogy( decam_exposure, decam_reference, decam_default_calibrators, user ):
+    # THis source at 1618.23, 1880,40 is a real SN
+    expected = {
+        'x':      np.array( [ 1407.86, 1451.27, 1450.29, 1618.23, 1440.11, 1357.60,  457.35, 1516.72 ] ),
+        'y':      np.array( [  756.24,  805.64, 1626.01, 1880.40, 2047.02, 3493.38, 4007.04, 4042.66 ] ),
+        'gfit_x':           [ 1407.53, 1450.10, 1449.61, 1618.22, 1439.95, 1357.17,  457.15, 1515.51 ],
+        'gfit_y':           [  756.24,  808.16, 1625.93, 1880.29, 2046.99, 3491.08, 4007.34, 4040.48 ],
+        'major_width': [ 7.00, 8.99, 6.12, 4.04, 4.04, 9.76, 4.57, 8.07 ],
+        'minor_width': [ 4.20, 7.11, 3.38, 3.10, 2.16, 4.25, 2.48, 7.66 ],
+        'neg_frac':      [ 0.27, 0.12, 0.11, 0.07, 0.28, 0.12, 0.21, 0.03 ],
+        'neg_flux_frac': [ 0.10, 0.12, 0.12, 0.03, 0.27, 0.10, 0.17, 0.05 ],
+        'psf_flux':      [ 78176., 8227., 9229., 2249., 835., 810., 3121., 21820. ],
+        'psf_flux_err':  [   390.,  146.,  145.,   96., 101.,  87.,  143.,   281. ],
+        'aper_flux':     [ 62767., 9852., 8466., 1728., 534., 987., 2447., 24947. ],
+        'aper_flux_err': [   559.,  207.,  188.,  106., 124., 101.,  148.,   266. ],
+        'rb': [ 0.420, 0.463, 0.507, 0.734, 0.624, 0.498, 0.595, 0.410 ]
+    }
+
+    try:
+        # subtraction.method zogy and detection.method filter should already
+        #   be in the defaults from the config file, but be explicit
+        #   here for clarity (and comparison to test_full_run_hotpants)
+        pipeline = Pipeline( subtraction={ 'method': 'zogy',
+                                           'refset': 'test_refset_decam' },
+                             detection={ 'method': 'filter' } )
+        ds = pipeline.run( decam_exposure, decam_reference.image.section_id )
+        ds.save_and_commit()
+        check_full_run_results( ds, decam_exposure, decam_reference.image.section_id, decam_reference, expected )
+
+    finally:
+        if 'ds' in locals():
+            ds.delete_everything()
+
+
+# See comment on test_full_run_zogy for the reason for the user fixture
+def test_full_run_hotpants( decam_exposure, decam_reference, decam_default_calibrators, user ):
+    # A lot of the stuff that pass the cuts is really bad -- lots of CRs getting through.
+    # I think they didn't get through with zogy because zogy effectively convolved them out
+    # a bit (as the ref had worse seeing the the new here), and the blurring led to
+    # Gaussian fits that did a better job of seeing very non-round things.  Perhaps thought
+    # required on our analytic cuts.  But, also, R/B really needs to be trained better to
+    # get rid of all of that, as a lot of these 26 are junk with high R/B.
+    #
+    # The source at 1619.24, 1881.37 is a real SN.  I am distressed that the position is 1 off
+    # from the zogy positions.  This is probably a bug in reading sextractor positions.
+    # See Issue #462
+    #
+    # ...visibly, I think the 1619.24, 1881.37 position is more correct!  So is the problem
+    # somewhere in zogy???
+    # ...yes!  Visual inspection shows that the residual in the difference image is shifted
+    # down and to the left from the search image!
+
+    expected = {
+        'x': np.array( [  593.75, 1358.50, 1358.13, 1265.51,  949.14,  903.47, 1752.72,  998.42,  983.28,
+                          1985.58, 1619.21, 1581.49, 1451.51, 1451.43, 1143.22, 1435.00, 1441.26, 1438.02,
+                          1185.98,  246.24, 1451.70, 1451.92, 1408.90, 1435.25, 1576.60, 1573.30 ] ),
+        'y': np.array( [ 3527.50, 3494.76, 3492.19, 3409.27, 2847.72, 2747.91, 2620.64, 2278.12, 2273.60,
+                         2026.23, 1881.41, 1665.81, 1632.57, 1627.75, 1571.47, 1464.65, 1466.73, 1465.25,
+                         1085.23,  933.89,  812.72,  809.64,  758.32,  477.55,  181.67,  180.33 ] ),
+        'gfit_x':      [  593.56, 1358.18, 1358.18, 1265.73,  949.17,  903.51, 1752.83,  998.43,  983.31,
+                         1987.86, 1619.22, 1581.51, 1450.86, 1450.86, 1143.42, 1438.10, 1438.10, 1438.10,
+                         1186.01,  246.33, 1451.50, 1451.50, 1408.65, 1435.30, 1576.84, 1575.26 ],
+        'gfit_y':      [ 3527.32, 3492.07, 3492.07, 3409.50, 2847.63, 2747.88, 2620.62, 2278.16, 2273.17,
+                         2026.20, 1881.32, 1665.88, 1628.53, 1628.53, 1571.61, 1465.25, 1465.25, 1465.25,
+                         1085.21,  933.92,  809.51,  809.51,  758.29,  477.70,  181.84,  180.84 ],
+        'major_width': [ 1.53, 9.73, 9.73, 4.68, 3.70, 2.19, 2.48, 3.53, 2.51,11.50, 3.91, 3.01, 7.61,
+                         7.60, 1.84, 8.30, 8.30, 8.30, 2.34, 2.08, 8.18, 8.18, 7.21, 1.40, 2.74, 6.30 ],
+        'minor_width': [ 0.58, 4.16, 4.16, 1.81, 1.41, 1.37, 1.56, 1.21, 1.04, 4.36, 3.18, 1.51, 6.78,
+                         6.78, 0.68, 7.47, 7.47, 7.47, 1.67, 1.53, 7.24, 7.24, 5.74, 0.96, 1.74, 2.94 ],
+        'neg_frac':      [ 0.227, 0.192, 0.179, 0.233, 0.152, 0.149, 0.133, 0.220, 0.116, 0.207, 0.095,
+                           0.106, 0.125, 0.091, 0.235, 0.064, 0.114, 0.077, 0.140, 0.214, 0.119, 0.109,
+                           0.173, 0.219, 0.059, 0.067 ],
+        'neg_flux_frac': [ 0.019, 0.158, 0.146, 0.019, 0.019, 0.020, 0.010, 0.031, 0.014, 0.214, 0.060,
+                           0.016, 0.053, 0.046, 0.021, 0.046, 0.066, 0.051, 0.021, 0.017, 0.045, 0.044,
+                           0.067, 0.016, 0.004, 0.005 ],
+        'psf_flux':      [   4039,    786,    818,  12910,   7402,   8255,  13014,   6465,   5639,   1103,
+                             2336,   8753,   4753,   9514,   6368,   2136,   1982,   3768,   8406,   9597,
+                             7772,  12470, 101766,   8022,  16498,  14251 ],
+        'psf_flux_err':  [     95,     86,     86,    113,    104,    106,    116,    102,     99,    107,
+                               96,    108,    124,    177,    104,    112,    103,    152,    108,    111,
+                              146,    219,    468,    109,    121,    116 ],
+        'aper_flux':     [   4703,    867,   1055,  13486,   5638,   6608,  11533,   5390,   5387,   1105,
+                             1901,   6789,   4690,   9141,   5909,   3242,   2420,   3661,   6383,   7292,
+                             7295,  10623,  82179,   9113,  16071,  14676 ],
+        'aper_flux_err': [    105,    100,    100,    115,    106,    107,    113,    105,    105,    119,
+                              105,    108,    151,    173,    107,    134,    124,    140,    107,    108,
+                              160,    192,    440,    110,    118,    116 ],
+        'rb': [ 0.637, 0.519, 0.404, 0.790, 0.779, 0.889, 0.852, 0.602, 0.614, 0.782, 0.780, 0.774, 0.551,
+                0.516, 0.837, 0.561, 0.537, 0.716, 0.840, 0.809, 0.601, 0.527, 0.537, 0.812, 0.815, 0.325 ]
+    }
+
+    try:
+        pipeline = Pipeline( subtraction={ 'method': 'hotpants',
+                                           'refset': 'test_refset_decam' },
+                             detection={ 'method': 'sextractor' } )
+        ds = pipeline.run( decam_exposure, decam_reference.image.section_id )
+        ds.save_and_commit()
+        check_full_run_results( ds, decam_exposure, decam_reference.image.section_id, decam_reference, expected )
+
+    finally:
+        if 'ds' in locals():
+            ds.delete_everything()
+
+
+@pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS') )
 def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
     """Test that the pipeline runs end-to-end.
 
     Also check that it regenerates things that are missing. The
     iteration of that makes this a slow test....
+
+    TODO : given test_full_run_zogy above, we should make a faster
+    version of this to check that things are regenerated or not as
+    expected, e.g. using a small sample image that will run through very
+    quickly.
 
     """
     exposure = decam_exposure
@@ -305,8 +498,8 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
             ds.delete_everything()
         # added this cleanup to make sure the temp data folder is cleaned up
         # this should be removed after we add datastore failure modes (issue #150)
-        shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
-        shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
+        # shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
+        # shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
 
 
 def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):

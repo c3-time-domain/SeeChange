@@ -297,12 +297,19 @@ class Detector:
                 if detections is None:
                     self.has_recalculated = True
 
+                    psf = ds.get_psf()
+                    if ( psf is None ) and ( self.pars.method == 'sextractor' ):
+                        raise RuntimeError( "detection on subtraction cannot proceed; datastore does "
+                                            "not have a psf, and the sextractor method requires one." )
+
                     # NOTE -- we're assuming that the sub image is
                     #  aligned with the new image here!  That assumption
                     #  is also implicitly built into measurements.py,
                     #  and in subtraction.py there is a RuntimeError if
                     #  you try to align to ref instead of new.
-                    detections, _, _, _ = self.extract_sources( ds.sub_image, None,
+                    detections, _, _, _ = self.extract_sources( ds.sub_image,
+                                                                None,
+                                                                psf=psf,
                                                                 wcs=ds.wcs,
                                                                 score=getattr( ds, 'zogy_score', None  ),
                                                                 zogy_alpha=getattr( ds, 'zogy_alpha', None ) )
@@ -403,7 +410,7 @@ class Detector:
                 ds.exceptions.append(e)
                 raise
 
-    def extract_sources(self, image, bg, wcs=None, score=None, zogy_alpha=None):
+    def extract_sources(self, image, bg, psf=None, wcs=None, score=None, zogy_alpha=None):
         """Calls one of the extraction methods, based on self.pars.method.
 
         Parameters
@@ -413,6 +420,14 @@ class Detector:
 
         bg : Background or None
           The Background object.  If not None, will be subtracted from the image before extraction.
+
+        psf : PSF or None
+          The PSF to use for PSF photometry, aperture size
+          determinations, and other things.  For methods other than
+          sextractor, this can (should?) be None.  For sextractor, if
+          self.pars.measure_psf is True, this should be None.  But, if
+          self.pars.measure_psf is False, then for method=sextractor
+          this is needed.
 
         wcs: WorldCoordiantes or None
           Needed if self.pars.method is 'filter'.  If self.pars.method
@@ -438,17 +453,24 @@ class Detector:
 
         """
         sources = None
+        input_psf = psf
         psf = None
         bkg = None
         bkgsig = None
         if self.pars.method == 'sep':
+            if input_psf is not None:
+                SCLogger.warning( "Passed an input_psf to extract_sources that won't be used." )
             sources = self.extract_sources_sep(image)
         elif self.pars.method == 'sextractor':
             if self.pars.subtraction:
-                sources, _, _, _ = self.extract_sources_sextractor(image, psffile=None)
+                sources, _, _, _ = self.extract_sources_sextractor(image, bg, psf=input_psf )
             else:
+                if input_psf is not None:
+                    SCLogger.warning( "Passed an input_psf to extract_sources that won't be used." )
                 sources, psf, bkg, bkgsig = self.extract_sources_sextractor(image, bg)
         elif self.pars.method == 'filter':
+            if input_psf is not None:
+                SCLogger.warning( "Passed an input_psf to extract_sources that won't be used." )
             if self.pars.subtraction:
                 if ( wcs is None ) or ( score is None ) or ( zogy_alpha is None ):
                     raise RuntimeError( '"filter" extraction requires wcs, score, and zogy_alpha' )
@@ -465,16 +487,19 @@ class Detector:
 
         return sources, psf, bkg, bkgsig
 
-    def extract_sources_sextractor( self, image, bg, psffile=None, wcs=None ):
+    def extract_sources_sextractor( self, image, bg, psf=None, wcs=None ):
         tempnamebase = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
         sourcepath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.fits'
-        psfpath = pathlib.Path( psffile ) if psffile is not None else None
-        psfxmlpath = None
+        delfiles = [ sourcepath ]
 
         try:  # cleanup at the end
             apers = np.array(self.pars.apers)
 
             if self.pars.measure_psf:
+                if psf is not None:
+                    raise ValueError( "psf is not None when self.pars.measure_psf is True" )
+                if self.pars.subtraction:
+                    raise ValueError( "measure_psf is True when running on a subtraction; you don't want this." )
                 # Run sextractor once without a psf to get objects from
                 # which to build the psf.
                 #
@@ -494,26 +519,32 @@ class Detector:
                 SCLogger.debug( "detection: determining psf" )
                 psf = self._run_psfex( tempnamebase, image, do_not_cleanup=True )
                 psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
-                psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
+                _psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
+
+            elif psf is not None:
+                psfpaths = psf.get_fullpath()
+                if psfpaths is None:
+                    # PSF not saved to disk yet, so write it to a temp file we can pass to sextractor
+                    barf = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
+                    saveto = str( pathlib.path( FileOnDiskMixin.temp_path ) / f'{barf}.psf' )
+                    psf.save( filename=saveto, filename_is_absolute=True, no_archive=True )
+                    psfpaths = [ f'{saveto}.fits', f'{saveto}.xml' ]
+                    delfiles = [ pathlib.Path(i) for i in psfpaths ]
+                psfpath = psfpaths[0]
+                _psfxmlpath = psfpaths[1]
+
             else:
-                psf = None
+                raise ValueError( "Must either have self.pars.measure_psf True, or must pass a psf" )
 
             if self.pars.aperunit == 'fwhm':
-                if psf is None:
-                    raise RuntimeError( "No psf measured or passed to extract_sources_sextractor, so apertures can "
-                                        "not be based on the FWHM." )
-                else:
-                    apers *= psf.fwhm_pixels
+                apers *= psf.fwhm_pixels
 
             # Now that we have a psf, run sextractor (maybe a second time)
             # to get the actual measurements.
             SCLogger.debug( "detection: running sextractor with psf to get final source list" )
 
-            if psf is not None:
-                psf_clip = psf.get_clip()
-                psf_norm = 1 / np.sqrt(np.sum(psf_clip ** 2))  # normalization factor for the sextractor thresholds
-            else:  # we don't have a psf for some reason, use the "good enough" approximation
-                psf_norm = 3.0
+            psf_clip = psf.get_clip()
+            psf_norm = 1 / np.sqrt(np.sum(psf_clip ** 2))  # normalization factor for the sextractor thresholds
 
             sources, bkg, bkgsig = self._run_sextractor_once(
                 image,
@@ -539,12 +570,8 @@ class Detector:
 
         finally:
             # Clean up the temporary files created (that weren't already cleaned up by _run_sextractor_once)
-            sourcepath.unlink( missing_ok=True )
-            if psffile is None:
-                if psfpath is not None:
-                    psfpath.unlink( missing_ok=True )
-                if psfxmlpath is not None:
-                    psfxmlpath.unlink( missing_ok=True )
+            for p in delfiles:
+                p.unlink( missing_ok=True )
 
         return sources, psf, bkg, bkgsig
 
