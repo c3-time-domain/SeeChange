@@ -496,10 +496,6 @@ def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, p
     finally:
         if 'ds' in locals():
             ds.delete_everything()
-        # added this cleanup to make sure the temp data folder is cleaned up
-        # this should be removed after we add datastore failure modes (issue #150)
-        # shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)
-        # shutil.rmtree(os.path.join(archive.test_folder_path, '115'), ignore_errors=True)
 
 
 def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
