@@ -89,6 +89,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
     p = pipeline_for_tests
     p.subtractor.pars.refset = 'test_refset_decam'
     p.pars.save_before_subtraction = True
+    p.pars.save_before_alerting = False
     p.pars.save_at_finish = False
     # make sure we get a random new provenance, not reuse any of the existing data
     p.preprocessor.pars.test_parameter = uuid.uuid4().hex
@@ -147,7 +148,7 @@ def test_measure_runtime_memory(decam_exposure, decam_reference, pipeline_for_te
         assert runtimes == ds.runtimes
         assert rep.process_memory == ds.memory_usages
         assert rep.progress_steps == ( 'preprocessing, extraction, astrocal, photocal, '
-                                       'subtraction, detection, cutting, measuring, scoring, finalize' )
+                                       'subtraction, detection, cutting, measuring, scoring, alerting, finalize' )
         assert rep.products_exist == ('image, sources, psf, bg, wcs, zp, '
                                       'sub_image, detections, cutouts, measurement_set, deepscore_set')
         assert rep.products_committed == 'image, sources, psf, bg, wcs, zp'  # we use intermediate save

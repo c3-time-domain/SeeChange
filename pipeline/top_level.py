@@ -537,7 +537,7 @@ class Pipeline:
 
                         # There are a couple of steps where we might want to save
                         #   before being completely finished
-                        if ( not everything_saved ) and ( stepi < len(steps) ):
+                        if ( not everything_saved ) and ( stepi < len(steps)-1 ):
                             if self.pars.save_before_subtraction and ( steps[stepi+1] == 'subtraction' ):
                                 self.save_data_products( 'save_before_subtraction', ds )
                                 everything_saved = True
