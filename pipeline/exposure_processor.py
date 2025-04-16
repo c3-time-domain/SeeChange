@@ -114,9 +114,6 @@ class ExposureProcessor:
             if len(rows) > 1:
                 raise RuntimeError( f"Error, multiple known exposures with instrument {self.instrument} "
                                     f"and identifier {self. identifier}; this should not happen" )
-            # if rows[0][0] != self.cluster_id:
-            #     raise ValueError ( f"Error, known exposure with instrument {self.instrument} and identifier "
-            #                        f"{self.identifier} is claimed by cluster {rows[0][0]}, not {self.cluster_id}" )
 
             cursor.execute( "UPDATE knownexposures SET cluster_id=%(cluster)s, "
                             "  node_id=%(node)s, machine_name=%(machine)s, start_time=%(t)s, "
