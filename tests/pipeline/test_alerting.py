@@ -85,16 +85,18 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
         #  for testing purposes should be close enough.  (It does mean if you
         #  leave a test environment open for a long time, stuff will build up
         #  on the test kafka server.)
-        topic = alerter.methods[0]['topic']
+        topic = alerter.methods['test_alert_stream']['topic']
         assert re.search( '^test_topic_[a-z]{6}$', topic )
 
         alerter.send( ds, skip_bad=skip_bad )
 
         groupid = f'test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
-        consumer = confluent_kafka.Consumer( { 'bootstrap.servers': test_config.value('alerts.methods.0.kafka_server'),
-                                               'auto.offset.reset': 'earliest',
-                                               'group.id': groupid } )
-        consumer.subscribe( [ alerter.methods[0]['topic'] ] )
+        consumer = confluent_kafka.Consumer(
+            { 'bootstrap.servers': test_config.value('alerts.methods.test_alert_stream.kafka_server'),
+              'auto.offset.reset': 'earliest',
+              'group.id': groupid }
+        )
+        consumer.subscribe( [ alerter.methods['test_alert_stream']['topic'] ] )
 
         # I have noticed that the very first time I run this test within a
         #   docker compose environment, and the very first time I send
@@ -127,7 +129,8 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
 
         measurements_seen = set()
         for msg in msgs:
-            alert = fastavro.schemaless_reader( io.BytesIO( msg.value() ), alerter.methods[0]['schema'] )
+            alert = fastavro.schemaless_reader( io.BytesIO( msg.value() ),
+                                                alerter.methods['test_alert_stream']['schema'] )
             dex = [ i for i in range(len(measurements))
                     if str( measurements[i].id ) == alert['diaSource']['diaSourceId'] ]
             assert len(dex) > 0

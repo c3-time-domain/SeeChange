@@ -181,7 +181,7 @@ class Alerting:
         #   flux_apertures does not.)
 
         if aperdex is None:
-            radfwhm = meas.aper_radii / ( img.fwhm_estimate / img.instrument_object.pixel_scale )
+            radfwhm = np.array(meas.aper_radii) / ( img.fwhm_estimate / img.instrument_object.pixel_scale )
             w = np.where( np.fabs( radfwhm - 1. ) < 0.01 )
             if len(w) == 0.:
                 raise RuntimeError( f"No 1FWHM aperture (have {radfwhm})" )
@@ -243,7 +243,7 @@ class Alerting:
                               f"This should never happen." )
 
         # Figure out which aperture is radius of 1 FWHM
-        radfwhm = measurements[0].aper_radii / ( image.fwhm_estimate / image.instrument_object.pixel_scale )
+        radfwhm = np.array(measurements[0].aper_radii) / ( image.fwhm_estimate / image.instrument_object.pixel_scale )
         w = np.where( np.fabs( radfwhm - 1. ) < 0.01 )
         if len(w[0]) == 0.:
             raise RuntimeError( f"No 1FWHM aperture (have {radfwhm})" )
