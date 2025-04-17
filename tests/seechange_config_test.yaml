@@ -96,4 +96,3 @@ fakeinjection:
   host_maxmag: 0.5
   host_distscale: 1.
   random_seed: 42
-
