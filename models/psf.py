@@ -201,7 +201,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
              it from the database.  Use this for efficiency, or if you
              know the image isn't yet in the database.
 
-          filenamer_is_absolute : bool, default False
+          filename_is_absolute : bool, default False
              If False (default), then filename is relative to the local
              store root.  If True, then filename is an absolute path
              (and must be specified).  In this case, the psf object's

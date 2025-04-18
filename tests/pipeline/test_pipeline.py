@@ -333,7 +333,7 @@ def test_full_run_zogy( decam_exposure, decam_reference, decam_default_calibrato
         'aper_flux':     [  5822, 10593,  3424,  9263,  1833,  1064,  2375, 26835 ],
         'aper_flux_err': [   107,   207,   146,   189,   106,   101,   150,   267 ],
         'rb': [ 0.778, 0.422, 0.536, 0.499, 0.784, 0.456, 0.628, 0.403 ]
-    }
+<<<    }
 
     try:
         # subtraction.method zogy and detection.method filter should already
