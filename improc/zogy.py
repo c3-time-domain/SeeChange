@@ -117,7 +117,7 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         the zeropoint!]
 
     flux_new : float
-        The flux-based zero point of the new image (the flux at which 
+        The flux-based zero point of the new image (the flux at which
         S/N=1). [WUT?]
 
     dx : float
@@ -170,26 +170,23 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     R = np.copy(image_ref)
 
     # Empirically, it seems we need a PSF centered at the pixel that is
-    #   up and to the right of the the center of the image.
-    #   For an even-length side, a PSF at the center would straddle
-    #      pixel len//2-1 and len//2; however, it seems that zogy
-    #      wants to have the psf centered in len//2.  This might
-    #      be worth understanding...!
-    #   For an odd-length side, a PSF at the center would be
-    #      in the center of the middle pixel, which is the pixel
-    #      at len//2.  However, zogy seems to want the psf
-    #      to be centered in pixel len//2+1.  Really weird!
-    Pn = psf_new.get_centered_psf( N.shape[1], N.shape[0] )
-    Pr = psf_ref.get_centered_psf( R.shape[1], R.shape[0] )
+    # up and to the right of the the center of the image.
+    #   * For an even-length side, a PSF at the center would straddle
+    #      pixel len//2-1 and len//2; however, it seems that zogy wants
+    #      to have the psf centered in len//2.  This might be worth
+    #      understanding...!
+    #   * For an odd-length side, a PSF at the center would be in the
+    #      center of the middle pixel, which is the pixel at len//2.
+    #      However, zogy seems to want the psf to be centered in pixel
+    #      len//2+1.  Really weird!
+    # I suspect that both of these have to do with the definition in
+    # numpy's fft routines as to where the zero-frequency pixel is,
+    # together with what fftshift does.
+    offx = 0.5 if N.shape[1] % 2 == 0. else 1.
+    offy = 0.5 if N.shape[0] % 2 == 0. else 1.
+    Pn = psf_new.get_centered_psf( N.shape[1], N.shape[0], offx=offx, offy=offy )
+    Pr = psf_ref.get_centered_psf( R.shape[1], R.shape[0], offx=offx, offy=offy )
 
-    # ****
-    # TESTING -- put in a delta function at "center" of image
-    # Pn = np.zeros_like( N )
-    # Pn[ N.shape[0]//2 - 1 , N.shape[1]//2 - 1 ] = 1
-    # Pr = np.zeros_like( R )
-    # Pr[ R.shape[0]//2 - 1, R.shape[1]//2 - 1 ] = 1
-    # ****
-    
     # make sure all masked pixels in one image are masked in the other
     nan_mask = np.isnan(R) | np.isnan(N)
     if np.sum(~nan_mask) == 0:
@@ -411,6 +408,7 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         translient_corr_sigma=translient_corr_sigma,
         zero_point=F_D
     )
+
 
 def zogy_add_weights_flags( ref_weight, new_weight, ref_flags, new_flags,
                             ref_zp, new_zp, sub_zp, ref_psf_fwhm, new_psf_fwhm ):

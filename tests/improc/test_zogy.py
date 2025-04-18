@@ -24,53 +24,69 @@ assert scipy.special.erfc(threshold / np.sqrt(2)) * imsize ** 2 < 1e-3
 def test_zogy_positioning():
     rng = np.random.default_rng( 31337 )
 
-    size = 255
+    sizes = [ 127, 128, 129, 130 ]
+    starxs = [ 87, 87.2, 87.5, 87.7 ]
+    starys = [ 28, 28.2, 28.5, 28.7 ]
+
     ref_skysig = 10.
     new_skysig = 40.
-    star_x = 137
-    star_y = 28
-    star_flux = 10000.
+    # Want really high s/n so centroids will be robust
+    star_flux = 1000000.
     starsig = 1.2
-    
-    # Make a black ref image and a new image with a single star at some random position.  Give
-    # them both the same psf.
-    refim = rng.normal( 0., ref_skysig, size=(size, size) )
-    refvar = np.full_like( refim, ref_skysig**2 )
-    newim = rng.normal( 0., new_skysig, size=(size, size) )
-    newvar = np.full_like( newim, new_skysig**2 )
-    mask = np.zeros_like( newim, dtype=np.int16 )
 
-    fwhm = 2.35482 * starsig
-    halfwid = int( 5. * fwhm + 0.5 )
-    fx = round(star_x) - star_x
-    fy = round(star_y) - star_y
-    xvals, yvals = np.meshgrid( np.arange( -halfwid+fx, halfwid+fx+1, 1. ),
-                                np.arange( -halfwid+fy, halfwid+fy+1, 1. ) )
-    star = star_flux / ( 2. * np.pi * starsig**2 ) * np.exp( -(xvals**2 + yvals**2) / ( 2. * starsig**2 ) )
-    newim[ star_x-halfwid:star_x+halfwid+1, star_y-halfwid:star_y+halfwid+1 ] += star
-    newvar[ star_x-halfwid:star_x+halfwid+1, star_y-halfwid:star_y+halfwid+1 ] += star
+    for size in sizes:
+        for star_x in starxs:
+            for star_y in starys:
+                # Make a blank ref image and a new image with a single star at some random position.  Give
+                # them both the same psf.
+                refim = rng.normal( 0., ref_skysig, size=(size, size) )
+                # refvar = np.full_like( refim, ref_skysig**2 )
+                newim = rng.normal( 0., new_skysig, size=(size, size) )
+                # newvar = np.full_like( newim, new_skysig**2 )
+                # mask = np.zeros_like( newim, dtype=np.int16 )
 
-    psf = PSF( format='delta', fwhm_pixels=fwhm )
-    gratuitous_zp = 10 ** ( 0.4 * 25 ) 
-    result = zogy_subtract( refim, newim, psf, psf, ref_skysig, new_skysig, gratuitous_zp, gratuitous_zp )
-    # Renormalize the sub image back to the new image
-    zp = 2.5 * np.log10( result['zero_point'] )
-    subim = result['sub_image'] * ( 10 ** ( 0.4 * ( 25. - zp ) ) )
-    
-    # ****
-    from astropy.io import fits
-    fits.writeto( 'zogynew.fits', newim, overwrite=True )
-    fits.writeto( 'zogyref.fits', refim, overwrite=True )
-    fits.writeto( 'zogysub.fits', subim, overwrite=True )
-    # ****
+                fwhm = 2.35482 * starsig
+                halfwid = int( 5. * fwhm + 0.5 )
+                x0 = int( np.floor( star_x + 0.5 ) ) - halfwid
+                x1 = int( np.floor( star_x + 0.5 ) ) + halfwid + 1
+                y0 = int( np.floor( star_y + 0.5 ) ) - halfwid
+                y1 = int( np.floor( star_y + 0.5 ) ) + halfwid + 1
+                fx = np.floor( star_x + 0.5 ) - star_x
+                fy = np.floor( star_y + 0.5 ) - star_y
+                xvals, yvals = np.meshgrid( np.arange( -halfwid+fx, halfwid+fx+1, 1. ),
+                                            np.arange( -halfwid+fy, halfwid+fy+1, 1. ) )
+                star = star_flux / ( 2. * np.pi * starsig**2 ) * np.exp( -(xvals**2 + yvals**2) / ( 2. * starsig**2 ) )
+                newim[ y0:y1, x0:x1 ] += star
+                # newvar[ y0:y1, x0:x1 ] += star
 
-    import pdb; pdb.set_trace()
-    pass
+                gratuitous_zp = 10 ** ( 0.4 * 25 )
 
-    
-    
-    
-    
+                # Subtract the two using a delta-function PSF so there will be no convolution
+                psf = PSF( format='delta', fwhm_pixels=fwhm )
+                result = zogy_subtract( refim, newim, psf, psf, ref_skysig, new_skysig, gratuitous_zp, gratuitous_zp )
+                # Renormalize the sub image back to the new image (so if we fits write it for viewing, it matches)
+                zp = 2.5 * np.log10( result['zero_point'] )
+                subim = result['sub_image'] * ( 10 ** ( 0.4 * ( 25. - zp ) ) )
+
+                # Make sure that the star shows up at the right spot on the sub image
+                cy, cx = scipy.ndimage.center_of_mass( subim[ y0:y1, x0:x1 ] )
+                assert cx + x0 == pytest.approx( star_x, abs=0.05 )
+                assert cy + y0 == pytest.approx( star_y, abs=0.05 )
+
+
+                # Now try using a Gaussian PSF that's different bewteen new and ref, so there will be convolution
+                newpsf = PSF( format='gaussian', fwhm_pixels=fwhm )
+                refpsf = PSF( format='gaussian', fwhm_pixels=2*fwhm )
+                result = zogy_subtract( refim, newim, refpsf, newpsf,
+                                        ref_skysig, new_skysig, gratuitous_zp, gratuitous_zp )
+                # Renormalize the sub image back to the new image (so if we fits write it for viewing, it matches)
+                zp = 2.5 * np.log10( result['zero_point'] )
+                subim = result['sub_image'] * ( 10 ** ( 0.4 * ( 25. - zp ) ) )
+
+                # Make sure that the star shows up at the right spot on the sub image
+                cy, cx = scipy.ndimage.center_of_mass( subim[ y0:y1, x0:x1 ] )
+                assert cx + x0 == pytest.approx( star_x, abs=0.05 )
+                assert cy + y0 == pytest.approx( star_y, abs=0.05 )
 
 
 def test_subtraction_no_stars():

@@ -245,7 +245,7 @@ class Subtractor:
             ref_image_flux_zp,
             new_image_flux_zp,
         )
-        
+
         # rename for compatibility
         output['outim'] = output.pop('sub_image')
         output['zogy_score_uncorrected'] = output.pop('score')

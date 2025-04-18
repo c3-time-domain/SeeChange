@@ -316,14 +316,14 @@ def blocking_plots():
     be closed before continuing with the tests.
 
     For test writers:
-    
+
     If a test only makes plots, it should be marked with
     @pytest.mark.skipif( not env_as_bool('MAKE_PLOTS'), reason='Set MAKE_PLOTS to run this test' )
 
     If a test does stuff you want run and *also* makes plots, it should
     wrap the plot-building in an if block that tests
     env_as_bool('MAKE_PLOTS').
-    
+
     Any tests that make plots should include this fixture.  They can
     optionally wrap any matplotlib show commands around an if on the
     value of this fixture, as it will be True only if INTERACTIVE is
