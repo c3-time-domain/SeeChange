@@ -324,7 +324,7 @@ def test_lim_mag_estimate( ptf_datastore_through_zp ):
     ds = ptf_datastore_through_zp
 
     # make and save a Magnitude vs SNR (limiting mag) plot
-    if env_as_bool('INTERACTIVE'):
+    if env_as_bool('MAKE_PLOTS'):
         limMagEst = ds.sources.estimate_lim_mag( aperture=1, zp=ds.zp,
                                                  savePlot=os.path.join(CODE_ROOT, 'tests/plots/snr_mag_plot.png' ) )
     else:

@@ -225,8 +225,6 @@ class Subtractor:
         """
         new_image_data = new_image.data - new_bg.counts
         ref_image_data = ref_image.data - ref_bg.counts
-        new_image_psf = new_psf.get_clip()
-        ref_image_psf = ref_psf.get_clip()
         new_image_noise = new_image.bkg_rms_estimate
         ref_image_noise = ref_image.bkg_rms_estimate
         new_image_flux_zp = 10 ** (0.4 * new_zp.zp)
@@ -240,13 +238,14 @@ class Subtractor:
         output = zogy_subtract(
             ref_image_data,
             new_image_data,
-            ref_image_psf,
-            new_image_psf,
+            ref_psf,
+            new_psf,
             ref_image_noise,
             new_image_noise,
             ref_image_flux_zp,
             new_image_flux_zp,
         )
+        
         # rename for compatibility
         output['outim'] = output.pop('sub_image')
         output['zogy_score_uncorrected'] = output.pop('score')
@@ -268,7 +267,6 @@ class Subtractor:
         )
         output['outwt'] = outwt
         output['outfl'] = outfl
-
 
         return output
 

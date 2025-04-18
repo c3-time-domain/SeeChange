@@ -8,6 +8,7 @@ import pathlib
 import subprocess
 
 import numpy as np
+import scipy.ndimage
 
 import sqlalchemy as sa
 import psycopg2.errors
@@ -121,7 +122,106 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
         archive.delete(psfxmlpath, okifmissing=True)
 
 
-def test_save_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
+def test_psfex_psf_positioning( ztf_filepaths_image_sources_psf ):
+    _, _, _, _, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
+    psf = PSF( format='psfex' )
+    psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
+
+    # In pratice the ZTF PSF seems to be slightly lopsided, so
+    #   centroids aren't showing up exactly where expected.
+    #   But, the general principle will work here -- making
+    #   sure that things at 0.5, 0.5 are up and to the right,
+    #   and things ath 0.51, 0.51 are down and to the left.
+    
+    # A PSF at a pixel position should be centered on the return image
+    img = psf.get_clip( 512, 512 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 7.0, abs=0.07 )
+    assert cy == pytest.approx( 7.0, abs=0.07 )
+
+    img = psf.get_clip( 5, 5 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 7.0, abs=0.07 )
+    assert cy == pytest.approx( 7.0, abs=0.08 )  #...close...
+
+    img = psf.get_clip( 999, 12 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 7.0, abs=0.07 )
+    assert cy == pytest.approx( 7.0, abs=0.07 )
+
+    # A PSF at a (integer+(0,0.5]) position should be centered up and to the right on the return image
+    img = psf.get_clip( 512.2, 512.2 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 7.2, abs=0.07 )
+    assert cy == pytest.approx( 7.2, abs=0.07 )
+
+    img = psf.get_clip( 512.5, 512.5 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 7.5, abs=0.07 )
+    assert cy == pytest.approx( 7.5, abs=0.07 )
+
+    img = psf.get_clip( 512.0, 512.5 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 7.0, abs=0.07 )
+    assert cy == pytest.approx( 7.5, abs=0.07 )
+
+    # A PSF at a (integer+(0.5,1.0)) position should be centered down and to the left on the return image
+    img = psf.get_clip( 512.9, 512.9 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 6.9, abs=0.07 )
+    assert cy == pytest.approx( 6.9, abs=0.07 )
+
+    img = psf.get_clip( 512.51, 512.51 )
+    assert img.shape == ( 15, 15 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 6.51, abs=0.07 )
+    assert cy == pytest.approx( 6.51, abs=0.07 )
+
+
+    # Make sure that get_centered_psf does the right thing
+    # If the return image has an odd size, then the psf should be
+    #   centered on the center pixel
+
+    img = psf.get_centered_psf( 999, 999 )
+    assert img.shape == ( 999, 999 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 499, abs=0.07 )
+    assert cy == pytest.approx( 499, abs=0.07 )
+
+    # If there return image has an even size, then the psf should
+    #   be centered on the corner of the four pixels at the center
+
+    img = psf.get_centered_psf( 1000, 1000 )
+    assert img.shape == ( 1000, 1000 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 499.5, abs=0.07 )
+    assert cy == pytest.approx( 499.5, abs=0.07 )
+
+    # Also make sure we didn't mix up x and y in our calculations
+    # (Especially since ndarrays are indexed [y, x])
+    
+    img = psf.get_centered_psf( 1000, 999 )
+    assert img.shape == ( 999, 1000 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 499.5, abs=0.07 )
+    assert cy == pytest.approx( 499, abs=0.07 )
+    
+    img = psf.get_centered_psf( 999, 1000 )
+    assert img.shape == ( 1000, 999 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 499, abs=0.07 )
+    assert cy == pytest.approx( 499.5, abs=0.07 )
+    
+    
+        
+def test_save_psfex_psf( ztf_datastore_uncommitted, provenance_base, provenance_extra ):
     try:
         im = ztf_datastore_uncommitted.image
         src = ztf_datastore_uncommitted.sources
@@ -276,3 +376,204 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     # PSF.get_resampled_psf (the **i and **j).
 
     assert chisq / n < 105.
+
+
+def test_delta_psf():
+    psf = PSF( format='delta' )
+
+    # Remember that numpy arrays are indexed [y, x]
+    
+    # Centered
+    clip = psf.get_clip( 5, 39 )
+    assert clip.shape == ( 5, 5 )
+    assert np.all( clip >= 0. )
+    assert clip.sum() == pytest.approx( 1., rel=1e-6 )
+    assert clip[2, 2] == pytest.approx( 1., rel=1e-6 )
+
+    # Offset up and right
+    clip = psf.get_clip( 1024.25, 3.25 )
+    assert np.all( clip >= 0. )
+    assert clip.sum() == pytest.approx( 1., rel=1e-6 )
+    assert clip[2, 2] == pytest.approx( 0.75 * 0.75, rel=1e-6 )
+    assert clip[3, 2] == pytest.approx( 0.75 * 0.25, rel=1e-6 )
+    assert clip[2, 3] == pytest.approx( 0.25 * 0.75, rel=1e-6 )
+    assert clip[3, 3] == pytest.approx( 0.25 * 0.25, rel=1e-6 )
+
+    clip = psf.get_clip( 1024.4, 3.1 )
+    assert np.all( clip >= 0. )
+    assert clip.sum() == pytest.approx( 1., rel=1e-6 )
+    assert clip[2, 2] == pytest.approx( 0.6 * 0.9, rel=1e-6 )
+    assert clip[3, 2] == pytest.approx( 0.6 * 0.1, rel=1e-6 )
+    assert clip[2, 3] == pytest.approx( 0.4 * 0.9, rel=1e-6 )
+    assert clip[3, 3] == pytest.approx( 0.4 * 0.1, rel=1e-6 )
+
+    # Offset down and right
+    clip = psf.get_clip( 512.4, 99.9 )
+    assert np.all( clip >= 0. )
+    assert clip.sum() == pytest.approx( 1., rel=1e-6 )
+    assert clip[2, 2] == pytest.approx( 0.6 * 0.9, rel=1e-6 )
+    assert clip[1, 2] == pytest.approx( 0.6 * 0.1, rel=1e-6 )
+    assert clip[2, 3] == pytest.approx( 0.4 * 0.9, rel=1e-6 )
+    assert clip[1, 3] == pytest.approx( 0.4 * 0.1, rel=1e-6 )
+
+    # Offset up and left
+    clip = psf.get_clip( 66.6, 300.1 )
+    assert np.all( clip >= 0. )
+    assert clip.sum() == pytest.approx( 1., rel=1e-6 )
+    assert clip[2, 2] == pytest.approx( 0.6 * 0.9, rel=1e-6 )
+    assert clip[3, 2] == pytest.approx( 0.6 * 0.1, rel=1e-6 )
+    assert clip[2, 1] == pytest.approx( 0.4 * 0.9, rel=1e-6 )
+    assert clip[3, 1] == pytest.approx( 0.4 * 0.1, rel=1e-6 )
+
+    # Offset down and left
+    clip = psf.get_clip( 1.6, 3.9 )
+    assert np.all( clip >= 0. )
+    assert clip.sum() == pytest.approx( 1., rel=1e-6 )
+    assert clip[2, 2] == pytest.approx( 0.6 * 0.9, rel=1e-6 )
+    assert clip[1, 2] == pytest.approx( 0.6 * 0.1, rel=1e-6 )
+    assert clip[2, 1] == pytest.approx( 0.4 * 0.9, rel=1e-6 )
+    assert clip[1, 1] == pytest.approx( 0.4 * 0.1, rel=1e-6 )
+
+
+    # Not tested, but maybe should be: flux, noisy, dtype, etc.  (Use
+    # case for the delta psf for all of those is dubous, though.
+
+                                        
+def test_gaussian_psf():
+    psf = PSF( format='gaussian', fwhm_pixels=3.2 )
+
+     # Mostly I'm just testing that I got my centering right...!
+    
+    clip = psf.get_clip( 512., 512. )
+    mid = clip.shape[0] // 2
+    assert clip.sum() == pytest.approx( 1., rel=1e-6 )
+    # Should be centered on the center pixel
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid, abs=0.01 )
+    assert cy == pytest.approx( mid, abs=0.01 )
+    assert clip[ mid, mid ] > clip[ mid-1, mid-1 ]
+    assert clip[ mid+1, mid+1 ] == pytest.approx( clip[ mid-1, mid-1 ], rel=1e-6 )
+    assert clip[ mid+1, mid-1 ] == pytest.approx( clip[ mid-1, mid-1 ], rel=1e-6 )
+    assert clip[ mid-1, mid+1 ] == pytest.approx( clip[ mid-1, mid-1 ], rel=1e-6 )
+    
+    clip = psf.get_clip( 512.5, 512.5 )
+    # Should be centered on the corner
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid+0.5, abs=0.01 )
+    assert cy == pytest.approx( mid+0.5, abs=0.01 )
+    assert clip[ mid, mid+1 ] == pytest.approx( clip[ mid, mid ], rel=1e-6 )
+    assert clip[ mid+1, mid ] == pytest.approx( clip[ mid, mid ], rel=1e-6 )
+    assert clip[ mid+1, mid+1 ] == pytest.approx( clip[ mid, mid ], rel=1e-6 )
+    
+    clip = psf.get_clip( 512.5, 512.6 )
+    # Should be centered on the half-pixel in x, lean down
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid+0.5, abs=0.01 )
+    assert cy == pytest.approx( mid-0.4, abs=0.01 )
+    assert clip[ mid, mid+1 ] == pytest.approx( clip[ mid, mid ], rel=1e-6 )
+    assert clip[ mid-1, mid+1 ] == pytest.approx( clip[ mid-1, mid], rel=1e-6 )
+    assert clip[ mid-1, mid ] < clip[ mid, mid ]
+    assert clip[ mid-1, mid ] > clip[ mid+1, mid ]
+
+    clip = psf.get_clip( 512.6, 512.5 )
+    # Should be centered on the half-pixel in y, lean left
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid-0.4, abs=0.01 )
+    assert cy == pytest.approx( mid+0.5, abs=0.01 )
+    assert clip[ mid+1, mid ] == pytest.approx( clip[ mid, mid ], rel=1e-6 )
+    assert clip[ mid+1, mid-1 ] == pytest.approx( clip[ mid, mid-1], rel=1e-6 )
+    assert clip[ mid, mid-1 ] < clip[ mid, mid ]
+    assert clip[ mid, mid-1 ] > clip[ mid, mid+1 ]
+
+    clip = psf.get_clip( 512.2, 512.8 )
+    # Should lean right, down
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid+0.2, abs=0.01 )
+    assert cy == pytest.approx( mid-0.2, abs=0.01 )
+    assert clip[ mid, mid+1 ] < clip[ mid, mid ]
+    assert clip[ mid, mid+1 ] > clip[ mid, mid-1 ]
+    assert clip[ mid-1, mid ] < clip[ mid, mid ]
+    assert clip[ mid-1, mid ] > clip[ mid+1, mid ]
+    assert clip[ mid-1, mid ] == pytest.approx( clip[ mid, mid+1 ], rel=1e-6 )
+    assert clip[ mid+1, mid ] == pytest.approx( clip[ mid, mid-1 ], rel=1e-6 )
+
+    clip = psf.get_clip( 512.8, 512.2 )
+    # Should lean left, up
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid-0.2, abs=0.01 )
+    assert cy == pytest.approx( mid+0.2, abs=0.01 )
+    assert clip[ mid, mid-1 ] < clip[ mid, mid ]
+    assert clip[ mid, mid-1 ] > clip[ mid, mid+1 ]
+    assert clip[ mid+1, mid ] < clip[ mid, mid ]
+    assert clip[ mid+1, mid ] > clip[ mid-1, mid ]
+    assert clip[ mid+1, mid ] == pytest.approx( clip[ mid, mid-1 ], rel=1e-6 )
+    assert clip[ mid-1, mid ] == pytest.approx( clip[ mid, mid+1 ], rel=1e-6 )
+
+    clip = psf.get_clip( 512.2, 512.2 )
+    # Should lean right, up
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid+0.2, abs=0.01 )
+    assert cy == pytest.approx( mid+0.2, abs=0.01 )
+    assert clip[ mid, mid+1 ] < clip[ mid, mid ]
+    assert clip[ mid, mid+1 ] > clip[ mid, mid-1 ]
+    assert clip[ mid+1, mid ] < clip[ mid, mid ]
+    assert clip[ mid+1, mid ] > clip[ mid-1, mid ]
+    assert clip[ mid+1, mid ] == pytest.approx( clip[ mid, mid+1 ], rel=1e-6 )
+    assert clip[ mid-1, mid ] == pytest.approx( clip[ mid, mid-1 ], rel=1e-6 )
+
+    clip = psf.get_clip( 512.8, 512.8 )
+    # Should lean left, down
+    cy, cx = scipy.ndimage.center_of_mass( clip )
+    assert cx == pytest.approx( mid-0.2, abs=0.01 )
+    assert cy == pytest.approx( mid-0.2, abs=0.01 )
+    assert clip[ mid, mid-1 ] < clip[ mid, mid ]
+    assert clip[ mid, mid-1 ] > clip[ mid, mid+1 ]
+    assert clip[ mid-1, mid ] < clip[ mid, mid ]
+    assert clip[ mid-1, mid ] > clip[ mid+1, mid ]
+    assert clip[ mid-1, mid ] == pytest.approx( clip[ mid, mid-1 ], rel=1e-6 )
+    assert clip[ mid+1, mid ] == pytest.approx( clip[ mid, mid+1 ], rel=1e-6 )
+
+
+def test_get_centered_psf_offset():
+    psf = PSF( format='gaussian', fwhm_pixels=3.2 )
+
+    # Even side length
+    
+    img = psf.get_centered_psf( 512, 512 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 255.5, abs=0.01 )
+    assert cy == pytest.approx( 255.5, abs=0.01 )
+
+    img = psf.get_centered_psf( 512, 512, offx=0.1, offy=0.1 )
+    cy,cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 255.6, abs=0.01 )
+    assert cy == pytest.approx( 255.6, abs=0.01 )
+    
+    img = psf.get_centered_psf( 512, 512, offx=0.501, offy=0.5 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 256., abs=0.01 )
+    assert cy == pytest.approx( 256., abs=0.01 )
+
+    img = psf.get_centered_psf( 512, 152, offx=-0.501, offy=-0.5 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 255., abs=0.1 )
+    assert cy == pytest.approx( 255., abs=0.1 )
+    
+    # Odd side length
+    
+    img = psf.get_centered_psf( 511, 511 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 255., abs=0.01 )
+    assert cy == pytest.approx( 255., abs=0.01 )
+
+    img = psf.get_centered_psf( 511, 511 , offx=0.5, offy=0.5 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 255.5, abs=0.01 )
+    assert cy == pytest.approx( 255.5, abs=0.01 )
+    
+    img = psf.get_centered_psf( 511, 511 , offx=-0.5, offy=-0.5 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 254.5, abs=0.01 )
+    assert cy == pytest.approx( 254.5, abs=0.01 )
+    
+    # ...probably ought to mix even/odd x/y

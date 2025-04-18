@@ -1,4 +1,5 @@
 import pathlib
+import numbers
 
 import numpy as np
 
@@ -44,7 +45,9 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         sa.SMALLINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( str(PSFFormatConverter.convert('psfex')) ),
-        doc='Format of the PSF file.  Currently only supports psfex.'
+        doc=( 'Format of the PSF.  Currently supports psfex, delta, and gaussian.  delta and gaussian '
+              'psfs are really just for test purposes.  gaussian samples, does not integrate, so is pretty '
+              'terrible for low-fwhm psfs.' )
     )
 
     @hybrid_property
@@ -372,7 +375,80 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return psfbase
 
-    def _get_clip_info( self ):
+
+    def get_centered_psf( self, nx, ny, x=None, y=None, offx=0., offy=0., flux=1.0,
+                          norm=True, noisy=False, gain=1., rng=None, dtype=np.float64 ):
+        """Get a full-size image with a centered PSF.
+
+        Parameters
+        -----------
+          nx : int
+            The x-size of the output image.  You usually want this to be
+            image.shape[1] if you're trying to get the centered psf for
+            image.
+
+          ny : int
+            The y-size of the output image; use image.shape[0].
+
+          (x, y) : float, float
+            The position, sort of, where to evalute the PSF.  If not given,
+            this will be at (nx/2, ny/2).  The PSF may be evaluted at up to
+            half a pixel off from this position, so as to really return a
+            centered PSF.  (E.g., if nx is odd, then the PSF will be
+            centered along the x-axis at the middle of a pixel; if nx is
+            even, it will be centered along the x-axis at the edge of a
+            pixel.)
+
+          (offx, offy) : float, float
+            If for some perverse reason you want the psf offset from the center (e.g.
+            zogy seems to need this...!), give that offset here.
+        
+          Other parameters are passed on as-is to get_clip
+
+          Returns
+          -------
+            An nx by ny image (i.e. with shape [ny,nx]) with a centered PSF.
+
+        """
+
+        if ( not isinstance( nx, numbers.Integral ) ) or not ( isinstance( ny, numbers.Integral ) ):
+            raise TypeError( f"nx and ny must be integers; got nx as a {type(nx)} and ny as a {type(ny)}" )
+
+        x = nx / 2. if x is None else x
+        y = ny / 2. if y is None else y
+        
+        # Figure out if we need centered or offset x or y PSF positions
+        x = ( round(x) if nx % 2 == 1 else round(x-0.5) + 0.5 ) + offx
+        y = ( round(y) if ny % 2 == 1 else round(y-0.5) + 0.5 ) + offy
+
+        psfclip = self.get_clip( x, y, flux=flux, norm=norm, noisy=noisy, gain=gain, rng=rng, dtype=dtype )
+
+        if ( nx < psfclip.shape[1] ) or ( ny < psfclip.shape[0] ):
+            raise ValueError( f"Asked for return image size {nx}×{ny} which is smaller than the PSF clip "
+                              f"{psfclip.shape[1]}×{psf.clip.shape[0]}" )
+        
+        retimg = np.zeros( (ny, nx), dtype=dtype )
+        
+        # Padding.  psfimg will have odd lengths.  If an image dimension has odd lengths, then
+        #   this is obvious : pad by the same amount on each side.  If an image dimension has
+        #   even lengths, because the PSF is centered up and to the right on psfclip, we want to
+        #   pad more on the upper side than the lower side to push the PSF back towards the center.
+        padlowx = ( nx // 2 ) - ( psfclip.shape[1] // 2 ) - ( 1 if nx % 2 == 0 else 0 )
+        padlowy = ( ny // 2 ) - ( psfclip.shape[0] // 2 ) - ( 1 if ny % 2 == 0 else 0 )
+        padhighx = padlowx + ( 1 if nx % 2 == 0 else 0 )
+        padhighy = padlowy + ( 1 if ny % 2 == 0 else 0 )
+
+        padlowx += round(offx)
+        padhighx -= round(offx)
+        padlowy += round(offy)
+        padhighy -= round(offy)
+
+        retimg[ padlowy:-padhighy, padlowx:-padhighx ] = psfclip
+
+        return retimg
+    
+    
+    def _get_psfex_clip_info( self ):
         psfwid = self.data.shape[1]
         if ( psfwid % 2 ) == 0:
             raise ValueError( f"Even psf width {psfwid}; should be odd.  This error should never happen." )
@@ -387,7 +463,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return psfwid, psfsamp, stampwid, psfdex1d
 
-    def get_clip( self, x=None, y=None, flux=1.0, norm=True, noisy=False, gain=1., rng=None, dtype=np.float64 ):
+    def get_clip( self, *args, **kwargs ):
         """Get an image clip with the psf.
 
         The clip will have the same pixel scale as the image.
@@ -397,38 +473,60 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
           x: float
             x-coordinate on the image the PSF was extracted for (0-offset)
             If None (default) will use the center of the image.
+
           y: float
             y-coordinate of the image the PSF was extracted from (0-offset)
             If None (default) will use the center of the image.
+
           flux: float
             Sum of the psf flux values over all pixels.
+
           norm: bool, default True
             Normalize the psf to 1.0, before adding noise if any.  (This
             seems to be necessary with PSFEx.)
+
           noisy: bool, default False
             If True, will also scatter the pixel values using
             Poisson statistics, assuming gain e-/adu.
+
           gain: float, default 1.
             Assumed e-/adu gain for calculating Poisson statistics if
             noisy is true.
+
           rng: numpy.random.Generator, default None
             If not None, will use this (already-seeded) random number
             generator (produced, for example, with numpy.default_rng) to
             generate the noise.  Pass this if you want reproducible
             noise for testing purposes.  If None, will use
             numpy.random.default_rng() (i.e. seeded from system entropy).
+
           dtype: type, default numpy.float64
             Type of the returned array; usually either numpy.float64 or numpy.float32
 
         Returns
         -------
-          2d numpy array
-
+          2d numpy array.
+            Will have an odd size, as this class enforces odd-sized
+            stamp widths for PSFs.  If x and y are integers, the PSF
+            will be centered on the center pixel of the return image.
+            If x and y are integers+(0.0,0.5], the PSF will be centered
+            up and to the right of the center pixel of the return
+            image.  If x and y integers+(0.5,1.0), the PSF will be
+            centered down and to the left of the center pixel of the
+            return image.
         """
 
-        if self.format != 'psfex':
-            raise NotImplementedError( "Only know how to get clip for psfex PSF files" )
+        if self.format == 'psfex':
+            return self.get_psfex_clip( *args, **kwargs )
+        elif self.format == 'delta':
+            return self.get_delta_clip( *args, **kwargs )
+        elif self.format == 'gaussian':
+            return self.get_gaussian_clip( *args, **kwargs )
+        else:
+            raise NotImplementedError( f"get_clip not implemented for PSF format {self.format}" )
+        
 
+    def get_psfex_clip( self, x=None, y=None, flux=1.0, norm=True, noisy=False, gain=1., rng=None, dtype=np.float64 ):
         if x is None:
             x = self.image_shape[1] / 2.
         if y is None:
@@ -494,6 +592,73 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return clip
 
+
+    def get_delta_clip( self, x=None, y=None, flux=1.0, norm=True, noisy=False, gain=1., rng=None, dtype=np.float64 ):
+        fx = x - round(x)
+        fy = y - round(y)
+
+        # Use a 5×5 clip because 3×3 is enough but I wanted more
+        clip = np.zeros( (5, 5), dtype=dtype )
+
+        if fx < 0:
+            if fy < 0:
+                clip[1, 1] = ( -fx ) * ( -fy )
+                clip[1, 2] = ( 1+fx ) * ( -fy )
+                clip[2, 1] = ( -fx ) * ( 1+fy )
+                clip[2, 2] = ( 1+fx ) * ( 1+fy )
+            else:
+                clip[2, 1] = ( -fx ) * ( 1-fy )
+                clip[2, 2] = ( 1+fx ) * ( 1-fy )
+                clip[3, 1] = ( -fx ) * ( fy )
+                clip[3, 2] = ( 1+fx ) * ( fy )
+        else:
+            if fy < 0:
+                clip[1, 2] = ( 1-fx ) * ( -fy )
+                clip[1, 3] = ( fx ) * ( -fy )
+                clip[2, 2] = ( 1-fx ) * ( 1+fy )
+                clip[2, 3] = ( fx ) * ( 1+fy )
+            else:
+                clip[2, 2] = ( 1-fx ) * ( 1-fy )
+                clip[2, 3] = ( fx ) * ( 1-fy )
+                clip[3, 2] = ( 1-fx ) * ( fy )
+                clip[3, 3] = ( fx )* ( fy )
+
+        clip *= flux
+
+        if noisy:
+            if rng is None:
+                rng = np.random.default_rng()
+            sig = np.sqrt( clip / gain )
+            clip = rng.normal( clip, sig )
+                
+        return clip
+
+    def get_gaussian_clip( self, x=None, y=None, flux=1.0, norm=True,
+                           noisy=False, gain=1., rng=None, dtype=np.float64 ):
+        # Sampling gaussian, not integrating gaussian, so not actually a good
+        #   consistent PSF for small values of self.fwhm_pixels.  (Should be at
+        #   least a few!)
+        fx = round(x) - x
+        fy = round(y) - y
+        halfwid = int( 5. * self.fwhm_pixels + 0.5 )
+        xvals, yvals = np.meshgrid( np.arange( -halfwid+fx, halfwid+fx+1, 1. ),
+                                    np.arange( -halfwid+fy, halfwid+fy+1, 1. ) )
+        sig = self.fwhm_pixels / 2.35482
+        clip = flux / ( 2. * np.pi * sig**2 ) * np.exp( -( xvals**2 + yvals**2 ) / ( 2. * sig**2 ) )
+
+        if norm:
+            clip /= clip.sum()
+
+        if noisy:
+            if rng is None:
+                rng = np.random.default_rng()
+            noise = np.sqrt( clip / gain )
+            clip = rn.normal( clip, noise )
+
+        return clip
+        
+        
+
     def add_psf_to_image( self, image, x, y, flux, norm=True, noisy=False, weight=None, gain=1., rng=None ):
         """Add a psf with indicated flux to the 2d image.
 
@@ -513,9 +678,6 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         For documentation on x, y, noisy, gain, and rng see PSFExReader.clip
 
         """
-
-        if self.format != 'psfex':
-            raise NotImplementedError( "Only know how to add psf to image for psfex PSF files" )
 
         if ( x < 0 ) or ( x >= image.shape[1] ) or ( y < 0 ) or ( y >= image.shape[0] ):
             SCLogger.warn( "Center of psf to be added to image is off of edge of image" )

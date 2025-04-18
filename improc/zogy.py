@@ -13,47 +13,71 @@ from util.logger import SCLogger
 def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, flux_ref, flux_new, dx=None, dy=None):
     """Perform ZOGY image subtraction.
 
-    This algorithm is based on Zackay et al. 2016 (https://ui.adsabs.harvard.edu/abs/2016ApJ...830...27Z/abstract).
-    It filters the new image with the PSF of the reference, and the reference image with the PSF of the new image
-    (which makes it symmetric for switching them) and divides by a normalization factor (in Fourier space)
-    that accounts for frequencies where there is less information.
-    This division makes sure the result is stable on all frequencies (no ringing as in deconvolution methods).
+    This algorithm is based on Zackay et al. 2016
+    (https://ui.adsabs.harvard.edu/abs/2016ApJ...830...27Z/abstract).
+    It filters the new image with the PSF of the reference, and the
+    reference image with the PSF of the new image (which makes it
+    symmetric for switching them) and divides by a normalization factor
+    (in Fourier space) that accounts for frequencies where there is less
+    information.  This division makes sure the result is stable on all
+    frequencies (no ringing as in deconvolution methods).
 
-    In addition to the subtracted image, it also calculates the subtraction PSF, and the "score" image,
-    which is the subtraction image match-filtered with its PSF. This image is normalized such that
-    any peak found in the score image has a value that is equivalent to the S/N of that detection.
+    In addition to the subtracted image, it also calculates the
+    subtraction PSF, and the "score" image, which is the subtraction
+    image match-filtered with its PSF. This image is normalized such
+    that any peak found in the score image has a value that is
+    equivalent to the S/N of that detection.
 
-    Besides the classical score image (which is optimal assuming background dominated noise), the function also
-    returns the corrected score image, which takes into account the noise from bright sources.
+    Besides the classical score image (which is optimal assuming
+    background dominated noise), the function also returns the corrected
+    score image, which takes into account the noise from bright sources.
 
-    The function also applies the astrometric noise correction when calculating score_corr, but only if
-    dx and dy are given (and if they are non-zero).
-    These values are... TODO: finish this
+    The function also applies the astrometric noise correction when
+    calculating score_corr, but only if dx and dy are given (and if they
+    are non-zero).  These values are... TODO: finish this
 
-    The last two outputs (alpha, alpha_std) represent a PSF-photometry measurement of the
-    flux in the subtracted image. This is equivalent to placing a PSF at each point of the image
-    and calculating the best fit normalization that fits the PSF to the pixel values.
+    The last two outputs (alpha, alpha_std) represent a PSF-photometry
+    measurement of the flux in the subtracted image. This is equivalent
+    to placing a PSF at each point of the image and calculating the best
+    fit normalization that fits the PSF to the pixel values.
 
-    Another way to think about the flux normalizations is as the flux-based zero-point of the image
-    (the transmission of atmosphere & optics, quantum efficiency, and exposure time).
-    In many cases the reference flux normalization would be 1.0, and used relative to the flux_new.
-    The new flux normalization will often be relative to the flux_ref (which is often set to 1.0)
-    and will be used to scale the overall brightness normalization between images.
-    E.g., if the reference has a total exposure time X and the new image has X/10 then we might set
-    flux_ref=1 and flux_new=1/10 (assume the same system and identical sky).
-    Measuring the relative flux normalization can be done, e.g., by cross matching stars in each image
-    and calculating the average ratio of their fluxes (hence, zero-point).
+    [ ROB DOES NOT UNDERSTAND THIS NEXT PARAGRAPH, AND ALSO DOESN'T
+    THINK IT'S CURRENT WITH THE CODE, AS ELSEWHERE WE MAKE SURE THAT THE
+    DIFFERENCE IMAGE WE USE IS NORMALIZED THE SAME AS THE NEW IMAGE. ]
+    Another way to think about the flux normalizations is as the
+    flux-based zero-point of the image (the transmission of atmosphere &
+    optics, quantum efficiency, and exposure time).  In many cases the
+    reference flux normalization would be 1.0, and used relative to the
+    flux_new.  The new flux normalization will often be relative to the
+    flux_ref (which is often set to 1.0) and will be used to scale the
+    overall brightness normalization between images.  E.g., if the
+    reference has a total exposure time X and the new image has X/10
+    then we might set flux_ref=1 and flux_new=1/10 (assume the same
+    system and identical sky).  Measuring the relative flux
+    normalization can be done, e.g., by cross matching stars in each
+    image and calculating the average ratio of their fluxes (hence,
+    zero-point).
 
     NOTES:
-     * images must be registered (aligned and distortion corrected to sub-pixel level). They must
-       have the same size (use NaNs to pad areas of the image that are not overlapping).
-     * They should also be background subtracted and gain corrected, i.e., in units of electrons,
-       such that the noise is Poissonian (the variance is equal to the value of each pixel).
-     * The background noise is input to this function (including the noise RMS of the sky and read noise,
-       but no source noise!).
-     * Users may input a scalar background RMS or a map of the background RMS with the same shape as the image.
-     * The "flux-based zero point" is the flux needed to provide a S/N=1, measure in a matched-filter image with
-       the correct PSF. For a sum(P)=1 normalized PSF, use 1/sqrt(sum(P**2)/B), where B is the background variance.
+
+     * images must be registered (aligned and distortion corrected to
+       sub-pixel level). They must have the same size (use NaNs to pad
+       areas of the image that are not overlapping).
+
+     * They should also be background subtracted and gain corrected,
+       i.e., in units of electrons, such that the noise is Poissonian
+       (the variance is equal to the value of each pixel).
+
+     * The background noise is input to this function (including the
+       noise RMS of the sky and read noise, but no source noise!).
+
+     * Users may input a scalar background RMS or a map of the
+       background RMS with the same shape as the image.
+
+     * The "flux-based zero point" is the flux needed to provide a
+       S/N=1, measure in a matched-filter image with the correct
+       PSF. For a sum(P)=1 normalized PSF, use 1/sqrt(sum(P**2)/B),
+       where B is the background variance.
 
     This function tries to be aggressive about deleting variables it
     doesn't need anymore.  Otherwise, it ends up with a few gig of
@@ -65,31 +89,47 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     Parameters
     ----------
     image_ref : numpy.ndarray
-        The reference image, background subtracted, in units of electrons (gain corrected).
+        The reference image, background subtracted, in units of
+        electrons (gain corrected).
+
     image_new : numpy.ndarray
-        The new image, background subtracted, in units of electrons (gain corrected).
-    psf_ref : numpy.ndarray
-        The PSF of the reference image. Must be normalized to have unit sum. Will be zero-padded to size of images.
-    psf_new : numpy.ndarray
-        The PSF of the new image. Must be normalized to have unit sum. Will be zero-padded to size of images.
+        The new image, background subtracted, in units of electrons
+        (gain corrected).  Must have the same shape as image_ref.
+
+    psf_ref : models.psf.PSF
+        The PSF of the reference image.
+
+    psf_new : models.psf.PSF
+        The PSF of the new image.
+
     noise_ref : float or numpy.ndarray
-        The noise RMS of the background in the reference image (given as a map or a single average value).
-        Does not include source noise!
+        The noise RMS of the background in the reference image (given as
+        a map or a single average value).  Does not include source
+        noise!
+
     noise_new : float or numpy.ndarray
-        The noise RMS of the background in the new image (given as a map or a single average value).
-        Does not include source noise!
+        The noise RMS of the background in the new image (given as a map
+        or a single average value).  Does not include source noise!
+
     flux_ref : float
-        The flux-based zero point of the reference (the flux at which S/N=1).  [WUT?  The flux at
-        which S/N=1 has nothing to do with the zeropoint!]
+        The flux-based zero point of the reference (the flux at which
+        S/N=1).  [WUT?  The flux at which S/N=1 has nothing to do with
+        the zeropoint!]
+
     flux_new : float
-        The flux-based zero point of the new image (the flux at which S/N=1).
+        The flux-based zero point of the new image (the flux at which 
+        S/N=1). [WUT?]
+
     dx : float
-        The measure of the uncertainty in the astrometric registration in the x direction.
-        This is in units of pixels. If given as None (default), will ignore astrometric noise.
+        The measure of the uncertainty in the astrometric registration
+        in the x direction. This is in units of pixels. If given as None
+        (default), will ignore astrometric noise.
+
     dy : float
-        The measure of the uncertainty in the astrometric registration in the y direction.
-        This is in units of pixels. If given as None (default), will use the value of dx,
-        which will be either None (so no astrometric noise correction) or a float value,
+        The measure of the uncertainty in the astrometric registration
+        in the y direction.  This is in units of pixels. If given as
+        None (default), will use the value of dx, which will be either
+        None (so no astrometric noise correction) or a float value,
         which is applied to both x and y equally.
 
     Returns
@@ -128,9 +168,28 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
     # make copies to avoid modifying the input arrays
     N = np.copy(image_new)
     R = np.copy(image_ref)
-    Pn = pad_to_shape(psf_new, N.shape)
-    Pr = pad_to_shape(psf_ref, R.shape)
 
+    # Empirically, it seems we need a PSF centered at the pixel that is
+    #   up and to the right of the the center of the image.
+    #   For an even-length side, a PSF at the center would straddle
+    #      pixel len//2-1 and len//2; however, it seems that zogy
+    #      wants to have the psf centered in len//2.  This might
+    #      be worth understanding...!
+    #   For an odd-length side, a PSF at the center would be
+    #      in the center of the middle pixel, which is the pixel
+    #      at len//2.  However, zogy seems to want the psf
+    #      to be centered in pixel len//2+1.  Really weird!
+    Pn = psf_new.get_centered_psf( N.shape[1], N.shape[0] )
+    Pr = psf_ref.get_centered_psf( R.shape[1], R.shape[0] )
+
+    # ****
+    # TESTING -- put in a delta function at "center" of image
+    # Pn = np.zeros_like( N )
+    # Pn[ N.shape[0]//2 - 1 , N.shape[1]//2 - 1 ] = 1
+    # Pr = np.zeros_like( R )
+    # Pr[ R.shape[0]//2 - 1, R.shape[1]//2 - 1 ] = 1
+    # ****
+    
     # make sure all masked pixels in one image are masked in the other
     nan_mask = np.isnan(R) | np.isnan(N)
     if np.sum(~nan_mask) == 0:
@@ -352,48 +411,6 @@ def zogy_subtract(image_ref, image_new, psf_ref, psf_new, noise_ref, noise_new, 
         translient_corr_sigma=translient_corr_sigma,
         zero_point=F_D
     )
-
-
-def pad_to_shape(arr, shape, value=0):
-    """Pad a given array to have the same shape as given, adding equal (up to off-by-one) padding on all sides.
-
-    Parameters
-    ----------
-    arr: numpy.ndarray
-        The array to pad
-    shape: tuple
-        The desired shape of the array
-    value: float
-        The value to use for padding. Default is 0.
-
-    Returns
-    -------
-    new_arr: numpy.ndarray
-        The padded array (the array is copied).
-    """
-
-    if len(shape) != len(arr.shape):
-        raise ValueError(
-            f"The shape must have the same number of dimensions as the shape of the array. "
-            f"Got {len(shape)} and {len(arr.shape)}."
-        )
-
-    if any(s < a for s, a in zip(shape, arr.shape)):
-        raise ValueError(
-            f"The shape must be larger/equal to the array shape on all dimensions. Got {shape} and {arr.shape}."
-        )
-
-    new_arr = np.full(shape, value, dtype=arr.dtype)
-
-    # calculate the padding on each side
-    pad = [(s - a) // 2 for s, a in zip(shape, arr.shape)]
-    pad_after = [s - a - p for s, a, p in zip(shape, arr.shape, pad)]
-
-    # pad the array
-    new_arr[tuple(slice(p, -pa) for p, pa in zip(pad, pad_after))] = arr
-
-    return new_arr
-
 
 def zogy_add_weights_flags( ref_weight, new_weight, ref_flags, new_flags,
                             ref_zp, new_zp, sub_zp, ref_psf_fwhm, new_psf_fwhm ):

@@ -13,7 +13,8 @@ from util.logger import SCLogger
 from util.util import env_as_bool
 
 
-@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
+# Uncomment this next ksip line to actually run this "test"
+@pytest.mark.skip( reason='Test is only for user inspection; uncomment the skip to run it' )
 def test_various_algorithms():
     rng = np.random.default_rng( 42 )
     seeingpix = 4.2

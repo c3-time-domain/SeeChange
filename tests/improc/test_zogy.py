@@ -8,6 +8,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from models.base import CODE_ROOT
+from models.psf import PSF
 from improc.simulator import Simulator
 from improc.zogy import zogy_subtract
 from util.util import env_as_bool
@@ -20,7 +21,58 @@ threshold = 6.01  # this should be high enough to avoid false positives at the 1
 assert scipy.special.erfc(threshold / np.sqrt(2)) * imsize ** 2 < 1e-3
 
 
-@pytest.mark.flaky(max_runs=5)
+def test_zogy_positioning():
+    rng = np.random.default_rng( 31337 )
+
+    size = 255
+    ref_skysig = 10.
+    new_skysig = 40.
+    star_x = 137
+    star_y = 28
+    star_flux = 10000.
+    starsig = 1.2
+    
+    # Make a black ref image and a new image with a single star at some random position.  Give
+    # them both the same psf.
+    refim = rng.normal( 0., ref_skysig, size=(size, size) )
+    refvar = np.full_like( refim, ref_skysig**2 )
+    newim = rng.normal( 0., new_skysig, size=(size, size) )
+    newvar = np.full_like( newim, new_skysig**2 )
+    mask = np.zeros_like( newim, dtype=np.int16 )
+
+    fwhm = 2.35482 * starsig
+    halfwid = int( 5. * fwhm + 0.5 )
+    fx = round(star_x) - star_x
+    fy = round(star_y) - star_y
+    xvals, yvals = np.meshgrid( np.arange( -halfwid+fx, halfwid+fx+1, 1. ),
+                                np.arange( -halfwid+fy, halfwid+fy+1, 1. ) )
+    star = star_flux / ( 2. * np.pi * starsig**2 ) * np.exp( -(xvals**2 + yvals**2) / ( 2. * starsig**2 ) )
+    newim[ star_x-halfwid:star_x+halfwid+1, star_y-halfwid:star_y+halfwid+1 ] += star
+    newvar[ star_x-halfwid:star_x+halfwid+1, star_y-halfwid:star_y+halfwid+1 ] += star
+
+    psf = PSF( format='delta', fwhm_pixels=fwhm )
+    gratuitous_zp = 10 ** ( 0.4 * 25 ) 
+    result = zogy_subtract( refim, newim, psf, psf, ref_skysig, new_skysig, gratuitous_zp, gratuitous_zp )
+    # Renormalize the sub image back to the new image
+    zp = 2.5 * np.log10( result['zero_point'] )
+    subim = result['sub_image'] * ( 10 ** ( 0.4 * ( 25. - zp ) ) )
+    
+    # ****
+    from astropy.io import fits
+    fits.writeto( 'zogynew.fits', newim, overwrite=True )
+    fits.writeto( 'zogyref.fits', refim, overwrite=True )
+    fits.writeto( 'zogysub.fits', subim, overwrite=True )
+    # ****
+
+    import pdb; pdb.set_trace()
+    pass
+
+    
+    
+    
+    
+
+
 def test_subtraction_no_stars():
     # this simulator creates images with the same b/g and seeing, so the stars will easily be subtracted
     sim = Simulator(
@@ -37,6 +89,7 @@ def test_subtraction_no_stars():
         pixel_qe_std=0,  # keep pixel QE constant between images
         gain_std=0,  # keep pixel gain constant between images
         star_number=0,
+        random_seed=42
     )
 
     sim.pars.seeing_mean = 2.5
@@ -84,8 +137,6 @@ def test_subtraction_no_stars():
     assert abs( np.max(abs(output['score_corr'])) - low_threshold ) < 1.5  # the peak should be near the low threshold
 
 
-# @pytest.mark.skip( reason="This test frequently fails even with the flaky.  Can we use a random seed?" )
-@pytest.mark.flaky(max_runs=5)
 def test_subtraction_no_new_sources():
     sim = Simulator(
         image_size_x=imsize,  # not too big, but allow some space for stars
@@ -99,6 +150,7 @@ def test_subtraction_no_new_sources():
         gain_std=0,  # keep pixel gain constant between images
         saturation_limit=1e9,  # make it impossible to saturate
         star_number=1000,
+        random_seed=42
     )
 
     seeing = np.arange(1.0, 3.0, 0.3)
@@ -158,7 +210,7 @@ def test_subtraction_no_new_sources():
     assert zogy_failures == 0
 
 
-@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('MAKE_PLOTS'), reason='Set MAKE_PLOTS to run this test' )
 def test_subtraction_snr_histograms(blocking_plots):
     background = 5.0
     seeing = 3.0
@@ -178,6 +230,7 @@ def test_subtraction_snr_histograms(blocking_plots):
         gain_std=0,  # keep pixel gain constant between images
         saturation_limit=1e9,  # make it impossible to saturate
         star_number=0,
+        random_seed=42
     )
 
     # add a few sources
@@ -247,8 +300,6 @@ def test_subtraction_snr_histograms(blocking_plots):
     plt.savefig(filename + ".pdf")
 
 
-# @pytest.mark.skip( reason="This test frequently fails even with the flaky.  Can we use a random seed?" )
-@pytest.mark.flaky(max_runs=5)
 def test_subtraction_new_sources_snr(blocking_plots):
     num_stars = 300
     sim = Simulator(
@@ -264,6 +315,7 @@ def test_subtraction_new_sources_snr(blocking_plots):
         gain_std=0,  # keep pixel gain constant between images
         saturation_limit=1e9,  # make it impossible to saturate
         star_number=num_stars,
+        random_seed=42
     )
 
     sim.pars.seeing_mean = 0.7  # good seeing reference image
@@ -335,8 +387,6 @@ def test_subtraction_new_sources_snr(blocking_plots):
         plt.show(block=True)
 
 
-# @pytest.mark.skip( reason="This test frequently fails even with the flaky.  Can we use a random seed?" )
-@pytest.mark.flaky(max_runs=5)
 def test_subtraction_seeing_background():
     num_stars = 300
     sim = Simulator(
@@ -352,6 +402,7 @@ def test_subtraction_seeing_background():
         gain_std=0,  # keep pixel gain constant between images
         saturation_limit=1e9,  # make it impossible to saturate
         star_number=num_stars,
+        random_seed=42
     )
     seeing_values = [2.0, 3.0, 5.0]
     background_values = [1.0, 3.0, 10.0]
@@ -434,7 +485,6 @@ def test_subtraction_seeing_background():
                             )
 
 
-@pytest.mark.flaky(max_runs=5)
 def test_subtraction_jitter_noise():
     num_stars = 300
     ref_seeing = 2.0
@@ -455,6 +505,7 @@ def test_subtraction_jitter_noise():
         gain_std=0,  # keep pixel gain constant between images
         saturation_limit=1e9,  # make it impossible to saturate
         star_number=num_stars,
+        random_seed=42
     )
 
     jitter_values = [0.0, 0.1, 0.25, 0.5]

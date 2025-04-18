@@ -14,7 +14,7 @@ from util.util import env_as_bool
 
 
 # TODO: This test fails right now, look into it
-@pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
+@pytest.mark.skipif( not env_as_bool('MAKE_PLOTS'), reason='Set MAKE_PLOTS to run this test' )
 def test_compare_sextr_photutils( decam_datastore ):
     plot_dir = os.path.join(CODE_ROOT, 'tests/plots/sextractor_comparison')
     os.makedirs( plot_dir, exist_ok=True)

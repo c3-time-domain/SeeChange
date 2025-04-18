@@ -10,8 +10,6 @@ from improc.tools import sigma_clipping, make_gaussian, make_cutouts
 
 from tests.conftest import SKIP_WARNING_TESTS
 
-# os.environ['INTERACTIVE'] = '1'  # for diagnostics only
-
 CUTOUT_SIZE = 15
 BIG_CUTOUT_SIZE = 51
 PSF_SIGMA = 1.5

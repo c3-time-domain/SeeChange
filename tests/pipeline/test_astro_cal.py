@@ -52,7 +52,9 @@ def test_solve_wcs_scamp( ztf_gaia_dr3_excerpt, ztf_datastore_uncommitted, astro
     ds = ztf_datastore_uncommitted
 
     # Make True for visual testing purposes
-    if env_as_bool('INTERACTIVE'):
+    # ...this doesn't actually make a plot, but writes
+    #  stuff you might want to use with ds9
+    if env_as_bool('MAKE_PLOTS'):
         basename = os.path.join(CODE_ROOT, 'tests/plots')
         catexp.ds9_regfile( os.path.join(basename, 'catexp.reg'), radius=4 )
         ds.sources.ds9_regfile( os.path.join(basename, 'sources.reg'), radius=3 )

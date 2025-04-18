@@ -312,7 +312,7 @@ def test_extract_sources_sextractor( decam_datastore_through_preprocessing,
     assert bkgsig == pytest.approx( 13.2673, abs=0.01 )
 
     # Make True to write some ds9 regions
-    if os.getenv('INTERACTIVE', False):
+    if os.getenv('MAKE_PLOTS', False):
         basepath = os.path.join(CODE_ROOT, 'tests/plots/test_sources')
         sources.ds9_regfile( basepath + '_stars.reg', color='green', radius=4, whichsources='stars' )
         sources.ds9_regfile( basepath + '_nonstars.reg', color='red', radius=4, whichsources='nonstars' )

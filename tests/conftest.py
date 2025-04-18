@@ -306,22 +306,35 @@ def data_dir():
 def blocking_plots():
     """Control how and when plots will be generated.
 
-    There are three options for the environmental variable "INTERACTIVE".
-     - It is not set: do not make any plots. blocking_plots returns False.
-     - It is set to a False value: make plots, but save them, and do not show on screen/block execution.
-       In this case the blocking_plots returns False, but the tests that skip if INTERACTIVE is None will run.
-     - It is set to a True value: make the plots, but stop the test execution until the figure is closed.
+    If the env var MAKE_PLOTS is True, then properly-written tests that
+    do nothing but make plots will be run, and plots will be saved to
+    tests/plots.
 
-    If a test only makes plots and does not test functionality, it should be marked with
-    @pytest.mark.skipif( not env_as_bool('INTERACTIVE'), reason='Set INTERACTIVE to run this test' )
+    If the env var MAKE_PLOTS is True, and the env var INTERACTIVE is
+    True, then properly written tests will both save plots to
+    tests/plots, and will show the plot on the screen, waiting for it to
+    be closed before continuing with the tests.
 
-    If a test makes a diagnostic plot, that is only ever used to visually inspect the results,
-    then it should be surrounded by an if blocking_plots: statement. It will only run in interactive mode.
+    For test writers:
+    
+    If a test only makes plots, it should be marked with
+    @pytest.mark.skipif( not env_as_bool('MAKE_PLOTS'), reason='Set MAKE_PLOTS to run this test' )
 
-    If a test makes a plot that should be saved to disk, it should either have the skipif mentioned above,
-    or have an if env_as_bool('INTERACTIVE'): statement surrounding the plot itself.
-    You may want to add plt.show(block=blocking_plots) to allow the figure to stick around in interactive mode,
-    on top of saving the figure at the end of the test.
+    If a test does stuff you want run and *also* makes plots, it should
+    wrap the plot-building in an if block that tests
+    env_as_bool('MAKE_PLOTS').
+    
+    Any tests that make plots should include this fixture.  They can
+    optionally wrap any matplotlib show commands around an if on the
+    value of this fixture, as it will be True only if INTERACTIVE is
+    set.
+
+    This fixture will also set the matplotlib backend to 'Agg' if
+    INTERACTIVE is false, so that matplotlib will never block on a show
+    call.  (If that really works, then it's not actually necessary to
+    wrap show statements in the if block described in the previous
+    paragraph.
+
     """
     import matplotlib
     backend = matplotlib.get_backend()
@@ -331,9 +344,6 @@ def blocking_plots():
         os.makedirs(os.path.join(CODE_ROOT, 'tests/plots'))
 
     inter = env_as_bool('INTERACTIVE')
-    if isinstance(inter, str):
-        inter = inter.lower() in ('true', '1', 'on', 'yes')
-
     if not inter:  # for non-interactive plots, use headless plots that just save to disk
         # ref: https://stackoverflow.com/questions/15713279/calling-pylab-savefig-without-display-in-ipython
         matplotlib.use("Agg")
