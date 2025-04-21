@@ -141,14 +141,14 @@ def check_example_psfex_psf_values( psf ):
 
 def test_read_psfex_psf( ztf_filepaths_image_sources_psf ):
     _, _, _, _, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
-    psf = PSF( format='psfex' )
+    psf = PSFExPSF()
     psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
     check_example_psfex_psf_values( psf )
 
 
 def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
     image, weight, flags, _, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
-    psf = PSF( format='psfex' )
+    psf = PSFExPSF()
     psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
 
     tempname = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
@@ -168,7 +168,7 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
         assert archive.get_info( psfxmlpath ) is not None
 
         # See if we can read the psf we wrote back in
-        psf = PSF( format='psfex' )
+        psf = PSFExPSF()
         psf.load( psfpath=psffullpath, psfxmlpath=psfxmlfullpath )
         check_example_psfex_psf_values( psf )
 
@@ -219,7 +219,7 @@ def test_write_psfex_psf( ztf_filepaths_image_sources_psf ):
 
 def test_psfex_psf_positioning( ztf_filepaths_image_sources_psf ):
     _, _, _, _, psfpath, psfxmlpath = ztf_filepaths_image_sources_psf
-    psf = PSF( format='psfex' )
+    psf = PSFExPSF()
     psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
 
     # In pratice the ZTF PSF seems to be slightly lopsided, so
@@ -230,66 +230,72 @@ def test_psfex_psf_positioning( ztf_filepaths_image_sources_psf ):
 
     # A PSF at a pixel position should be centered on the return image
     img = psf.get_clip( 512, 512 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 7.0, abs=0.07 )
-    assert cy == pytest.approx( 7.0, abs=0.07 )
+    assert cx == pytest.approx( 8.0, abs=0.07 )
+    assert cy == pytest.approx( 8.0, abs=0.07 )
 
     img = psf.get_clip( 5, 5 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 7.0, abs=0.07 )
-    assert cy == pytest.approx( 7.0, abs=0.08 )  #...close...
+    assert cx == pytest.approx( 8.0, abs=0.07 )
+    assert cy == pytest.approx( 8.0, abs=0.08 )  #...close...
 
     img = psf.get_clip( 999, 12 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 7.0, abs=0.07 )
-    assert cy == pytest.approx( 7.0, abs=0.07 )
+    assert cx == pytest.approx( 8.0, abs=0.07 )
+    assert cy == pytest.approx( 8.0, abs=0.07 )
 
     # A PSF at a (integer+(0,0.5)) position should be centered up and to the right on the return image
     img = psf.get_clip( 512.2, 512.2 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 7.2, abs=0.07 )
-    assert cy == pytest.approx( 7.2, abs=0.07 )
+    assert cx == pytest.approx( 8.2, abs=0.07 )
+    assert cy == pytest.approx( 8.2, abs=0.07 )
 
     # A PSF at a (integer+[0.5,1.0)) position should be centered down and to the left on the return image
     img = psf.get_clip( 512.5, 512.5 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
     assert cx == pytest.approx( 7.5, abs=0.07 )
     assert cy == pytest.approx( 7.5, abs=0.07 )
 
     img = psf.get_clip( 512.0, 512.5 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 7.0, abs=0.07 )
+    assert cx == pytest.approx( 8.0, abs=0.07 )
     assert cy == pytest.approx( 7.5, abs=0.07 )
 
     img = psf.get_clip( 512.9, 512.9 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 6.9, abs=0.07 )
-    assert cy == pytest.approx( 6.9, abs=0.07 )
+    assert cx == pytest.approx( 7.9, abs=0.07 )
+    assert cy == pytest.approx( 7.9, abs=0.07 )
+
+    img = psf.get_clip( 512.49, 512.49 )
+    assert img.shape == ( 17, 17 )
+    cy, cx = scipy.ndimage.center_of_mass( img )
+    assert cx == pytest.approx( 8.49, abs=0.07 )
+    assert cy == pytest.approx( 8.49, abs=0.07 )
 
     img = psf.get_clip( 512.51, 512.51 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 6.51, abs=0.07 )
-    assert cy == pytest.approx( 6.51, abs=0.07 )
+    assert cx == pytest.approx( 7.51, abs=0.07 )
+    assert cy == pytest.approx( 7.51, abs=0.07 )
 
     # Make sure that even/odd rounding conventions don't give inconsistent results at x.5
     img = psf.get_clip( 513.5, 513.5 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
     assert cx == pytest.approx( 7.5, abs=0.07 )
     assert cy == pytest.approx( 7.5, abs=0.07 )
 
     img = psf.get_clip( 513.0, 513.5 )
-    assert img.shape == ( 15, 15 )
+    assert img.shape == ( 17, 17 )
     cy, cx = scipy.ndimage.center_of_mass( img )
-    assert cx == pytest.approx( 7.0, abs=0.07 )
+    assert cx == pytest.approx( 8.0, abs=0.07 )
     assert cy == pytest.approx( 7.5, abs=0.07 )
 
     # ...the rest of this may be a bit gratuitous given
@@ -354,7 +360,7 @@ def test_save_psfex_psf( ztf_datastore_uncommitted, provenance_base, provenance_
         # TODO : make sure we can load the one we just saved
 
         # make a copy of the PSF (we will not be able to save it, with the same image_id and provenance)
-        psf2 = PSF(format='psfex')
+        psf2 = PSFExPSF()
         psf2._data = psf.data
         psf2._header = psf.header
         psf2._info = psf.info
@@ -489,7 +495,7 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
 
 
 def test_delta_psf():
-    psf = PSF( format='delta' )
+    psf = DeltaPSF()
 
     # Remember that numpy arrays are indexed [y, x]
 
@@ -550,7 +556,7 @@ def test_delta_psf():
 
 
 def test_gaussian_psf():
-    psf = PSF( format='gaussian', fwhm_pixels=3.2 )
+    psf = GaussianPSF( fwhm_pixels=3.2 )
 
      # Mostly I'm just testing that I got my centering right...!
 
@@ -645,7 +651,7 @@ def test_gaussian_psf():
 
 
 def test_get_centered_psf_offset():
-    psf = PSF( format='gaussian', fwhm_pixels=1.5 )
+    psf = GaussianPSF( fwhm_pixels=1.5 )
 
     # Try both even an odd side lengths
     # Try lengths that will have even and odd nx//2 to test 0.5 rounding edge cases
@@ -725,12 +731,12 @@ def test_write_some_fits_clips( ztf_filepaths_image_sources_psf ):
             hdul = fits.open( image )
             wid = hdul[0].header['NAXIS1']
             hei = hdul[0].header['NAXIS2']
-            psf = PSF( format='psfex' )
+            psf = PSFExPSF()
             psf.image_shape = ( hei, wid )
             psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
             prefix = "psfex"
         else:
-            psf = PSF( format="gaussian", fwhm_pixels=2.1 )
+            psf = GaussianPSF( fwhm_pixels=2.1 )
             psf.image_shape = ( 1024, 1024 )
             prefix = "gauss"
 

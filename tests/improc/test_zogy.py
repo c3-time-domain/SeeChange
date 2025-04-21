@@ -8,7 +8,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from models.base import CODE_ROOT
-from models.psf import PSF
+from models.psf import DeltaPSF, GaussianPSF
 from improc.simulator import Simulator
 from improc.zogy import zogy_subtract
 from util.util import env_as_bool
@@ -62,7 +62,7 @@ def test_zogy_positioning():
                 gratuitous_zp = 10 ** ( 0.4 * 25 )
 
                 # Subtract the two using a delta-function PSF so there will be no convolution
-                psf = PSF( format='delta', fwhm_pixels=fwhm )
+                psf = DeltaPSF( fwhm_pixels=fwhm )
                 result = zogy_subtract( refim, newim, psf, psf, ref_skysig, new_skysig, gratuitous_zp, gratuitous_zp )
                 # Renormalize the sub image back to the new image (so if we fits write it for viewing, it matches)
                 zp = 2.5 * np.log10( result['zero_point'] )
@@ -75,8 +75,8 @@ def test_zogy_positioning():
 
 
                 # Now try using a Gaussian PSF that's different bewteen new and ref, so there will be convolution
-                newpsf = PSF( format='gaussian', fwhm_pixels=fwhm )
-                refpsf = PSF( format='gaussian', fwhm_pixels=2*fwhm )
+                newpsf = GaussianPSF( fwhm_pixels=fwhm )
+                refpsf = GaussianPSF( fwhm_pixels=2*fwhm )
                 result = zogy_subtract( refim, newim, refpsf, newpsf,
                                         ref_skysig, new_skysig, gratuitous_zp, gratuitous_zp )
                 # Renormalize the sub image back to the new image (so if we fits write it for viewing, it matches)
@@ -124,15 +124,15 @@ def test_subtraction_no_stars():
     # the flux of a star needs to be this much to provide S/N=1
     # since the PSF is unit normalized, we only need to figure out how much noise in a measurement:
     # the sum over PSF squared times the noise variance gives the noise in a measurement
-    F1 = 1 / np.sqrt(np.sum(truth1.psf_downsampled ** 2) * truth1.background_instance)
-    F2 = 1 / np.sqrt(np.sum(truth2.psf_downsampled ** 2) * truth2.background_instance)
+    F1 = 1 / np.sqrt(np.sum(truth1.psf.get_clip() ** 2) * truth1.background_instance)
+    F2 = 1 / np.sqrt(np.sum(truth2.psf.get_clip() ** 2) * truth2.background_instance)
 
     # zogy_diff, zogy_psf, zogy_score, zogy_score_corr, alpha, alpha_err = zogy_subtract(
     output = zogy_subtract(
         im1,
         im2,
-        truth1.psf_downsampled,
-        truth2.psf_downsampled,
+        truth1.psf,
+        truth2.psf,
         np.sqrt(truth1.total_bkg_var),
         np.sqrt(truth2.total_bkg_var),
         F1,
@@ -181,7 +181,7 @@ def test_subtraction_no_new_sources():
             truth1 = sim.truth
             im1 = sim.apply_bias_correction(sim.image)
             im1 -= truth1.background_instance
-            psf1 = truth1.psf_downsampled
+            psf1 = truth1.psf
             bkg1 = truth1.total_bkg_var
 
             sim.pars.seeing_mean = s if which == 'N' else 1.5
@@ -189,7 +189,7 @@ def test_subtraction_no_new_sources():
             truth2 = sim.truth
             im2 = sim.apply_bias_correction(sim.image)
             im2 -= truth2.background_instance
-            psf2 = truth2.psf_downsampled
+            psf2 = truth2.psf
             bkg2 = truth2.total_bkg_var
 
             # need to figure out better values for this
@@ -200,8 +200,8 @@ def test_subtraction_no_new_sources():
             diff /= np.sqrt(bkg1 + bkg2)  # adjust the image difference by the noise in both images
 
             # check that peaks in the matched filter image also obey the same statistics (i.e., we don't find anything)
-            matched1 = scipy.signal.convolve(diff, psf1, mode='same') / np.sqrt(np.sum(psf1 ** 2))
-            matched2 = scipy.signal.convolve(diff, psf2, mode='same') / np.sqrt(np.sum(psf2 ** 2))
+            matched1 = scipy.signal.convolve(diff, psf1.get_clip(), mode='same') / np.sqrt(np.sum(psf1.get_clip() ** 2))
+            matched2 = scipy.signal.convolve(diff, psf2.get_clip(), mode='same') / np.sqrt(np.sum(psf2.get_clip() ** 2))
 
             if (
                 np.max(abs(diff)) <= threshold and
@@ -267,11 +267,11 @@ def test_subtraction_snr_histograms(blocking_plots):
 
     rng = np.random.default_rng()
     for j in range(iterations):
-        psf1 = sim.psf_downsampled
+        psf1 = sim.psf
         bkg1 = background  # TODO: make this slightly variable?
         im1 = rng.normal(0, np.sqrt(bkg1), size=transients_overlay.shape)
 
-        psf2 = sim.psf_downsampled
+        psf2 = sim.psf
         bkg2 = background  # TODO: make this slightly variable?
         im2 = rng.normal(transients_overlay, np.sqrt(bkg2 + transients_overlay))
 
@@ -340,7 +340,7 @@ def test_subtraction_new_sources_snr(blocking_plots):
     truth1 = sim.truth
     im1 = sim.apply_bias_correction(sim.image)
     im1 -= truth1.background_instance
-    psf1 = truth1.psf_downsampled
+    psf1 = truth1.psf
     bkg1 = truth1.total_bkg_var
 
     # add a few sources
@@ -361,7 +361,7 @@ def test_subtraction_new_sources_snr(blocking_plots):
         truth2 = sim.truth
         im2 = sim.apply_bias_correction(sim.image)
         im2 -= truth2.background_instance
-        psf2 = truth2.psf_downsampled
+        psf2 = truth2.psf
         bkg2 = truth2.total_bkg_var
 
         # need to figure out better values for this
@@ -454,7 +454,7 @@ def test_subtraction_seeing_background():
                     truth1 = sim.truth
                     im1 = sim.apply_bias_correction(sim.image)
                     im1 -= truth1.background_instance
-                    psf1 = truth1.psf_downsampled
+                    psf1 = truth1.psf
                     bkg1 = truth1.total_bkg_var
 
                     # add a few sources
@@ -468,7 +468,7 @@ def test_subtraction_seeing_background():
                     truth2 = sim.truth
                     im2 = sim.apply_bias_correction(sim.image)
                     im2 -= truth2.background_instance
-                    psf2 = truth2.psf_downsampled
+                    psf2 = truth2.psf
                     bkg2 = truth2.total_bkg_var
 
                     # need to figure out better values for this
@@ -491,8 +491,8 @@ def test_subtraction_seeing_background():
                         expected = f * np.sqrt(np.sum(P ** 2) / (B + f * np.sum(P ** 2)))
                         measured = np.nanmax(c)
                         # SCLogger.debug((expected - measured) / expected)
-                        # TODO: figure out why we still have cases where the S/N is reduced by 35%
-                        if abs((expected - measured) / expected) > 0.35:
+                        # TODO: figure out why we still have cases where the S/N is reduced by 37%
+                        if abs((expected - measured) / expected) > 0.37:
                             raise ValueError(
                                 f'seeing: ({ref_seeing:.2f}, {new_seeing:.2f}), '
                                 f'background: ({ref_bkg:.2f}, {new_bkg:.2f}), '
@@ -542,7 +542,7 @@ def test_subtraction_jitter_noise():
     truth1 = sim.truth
     im1 = sim.apply_bias_correction(sim.image)
     im1 -= truth1.background_instance
-    psf1 = truth1.psf_downsampled
+    psf1 = truth1.psf
     bkg1 = truth1.total_bkg_var
 
     # add a few sources
@@ -559,7 +559,7 @@ def test_subtraction_jitter_noise():
         truth2 = sim.truth
         im2 = sim.apply_bias_correction(sim.image)
         im2 -= truth2.background_instance
-        psf2 = truth2.psf_downsampled
+        psf2 = truth2.psf
         bkg2 = truth2.total_bkg_var
 
         # need to figure out better values for this

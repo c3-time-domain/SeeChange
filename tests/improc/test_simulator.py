@@ -15,7 +15,7 @@ from util.util import env_as_bool
 
 @pytest.mark.skipif( not env_as_bool('MAKE_PLOTS'), reason='Set MAKE_PLOTS to run this test' )
 def test_make_star_field(blocking_plots):
-    s = Simulator( image_size_x=256, star_number=1000, galaxy_number=0)
+    s = Simulator( image_size_x=256, star_number=1000, galaxy_number=0 )
     s.make_image()
     vmin = np.percentile(s.image, 1)
     vmax = np.percentile(s.image, 99)
@@ -59,7 +59,9 @@ def test_making_galaxy_in_image(exp_scale, blocking_plots):
     cos_i = 0.5
     cutoff_radius = exp_scale * 5.0
 
-    im1 = SimGalaxies.make_galaxy_image(
+    galsimmer = SimGalaxies( np.random.default_rng() )
+
+    im1 = galsimmer.make_galaxy_image(
         imsize=imsize,
         center_x=center_x,
         center_y=center_y,
@@ -73,7 +75,7 @@ def test_making_galaxy_in_image(exp_scale, blocking_plots):
     )
 
     im2 = np.zeros(imsize)
-    SimGalaxies.add_galaxy_to_image(
+    galsimmer.add_galaxy_to_image(
         image=im2,
         center_x=center_x,
         center_y=center_y,
@@ -173,7 +175,9 @@ def test_streak_images(blocking_plots):
         plt.show(block=True)
 
 
+# This test is broken; see comment on pylandau import at top of simulator.py
 @pytest.mark.skipif( not env_as_bool('MAKE_PLOTS'), reason='Set MAKE_PLOTS to run this test' )
+@pytest.mark.xfail( reason='pylandau broken' )
 def test_track_images(blocking_plots):
 
     # if blocking_plots:

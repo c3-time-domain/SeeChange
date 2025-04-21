@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from scipy.ndimage import gaussian_filter
 
+from models.psf import ImagePSF
 from util.logger import SCLogger
 
 # this is commented out as there are some problems installing it
@@ -332,7 +333,7 @@ class SimTruth:
 
         # the noise and PSF info used to make the image
         self.psf = None  # the PSF used to make this image
-        self.psf_downsampled = None  # the PSF, correctly downsampled as to retain the symmetric single peak pixel
+        # self.psf_downsampled = None  # the PSF, correctly downsampled as to retain the symmetric single peak pixel
         self.average_counts = None  # the final counts, not including noise
         self.noise_var_map = None  # the total variance from read, dark, sky b/g, and source noise
         self.total_bkg_var = None  # the total variance from read, dark, and sky b/g (not including source noise)
@@ -1500,7 +1501,7 @@ class Simulator:
         self.galaxy_f = None
 
         self.psf = None  # we are cheating because this includes both the optical and atmospheric PSFs
-        self.psf_downsampled = None  # the PSF, correctly downsampled as to retain the symmetric single peak pixel
+        # self.psf_downsampled = None  # the PSF, correctly downsampled as to retain the symmetric single peak pixel
         self.flux_top = None  # this is the mean number of photons hitting the top of the atmosphere
 
         # adding the sky into the mix
@@ -1837,18 +1838,26 @@ class Simulator:
                 SCLogger.debug(f'time to make cosmic rays: {time.time() - t0:.2f}s')
 
         # make a PSF
-        # fwhm = np.sqrt(self.camera.optic_psf_fwhm ** 2 + self.sky.seeing_instance ** 2)
-        # oversample_estimate = int(np.ceil(10 / fwhm))  # allow 10 pixels across the PSF's width
-        # oversample_estimate += (oversample_estimate + 1) % 2  # make sure the oversampling is an odd number
         self.camera.oversampling = self.pars.oversampling
         self.sky.oversampling = self.pars.oversampling
 
         # produce the atmospheric and optical PSF
         self.camera.make_optic_psf()
         self.sky.make_atmos_psf()
+        psfdata = scipy.signal.convolve(self.sky.atmos_psf_image, self.camera.optic_psf_image, mode='full')
+        psfdata /= np.sum( psfdata )
 
-        self.psf = scipy.signal.convolve(self.sky.atmos_psf_image, self.camera.optic_psf_image, mode='full')
-        self.psf /= np.sum(self.psf)
+        fwhm = np.sqrt(self.camera.optic_psf_fwhm ** 2 + self.sky.seeing_instance ** 2)
+        self.psf = ImagePSF( fwhm_pixels=fwhm )
+        self.psf.data = psfdata
+        self.psf.image_shape = self.pars.imsize
+        self.psf.oversampling_factor = 1. / self.pars.oversampling
+        if psfdata.shape[0] != psfdata.shape[1]:
+            raise RuntimeError( "Yikes... I can't assume square." )
+        self.psf.raw_clip_shape = psfdata.shape
+        clipsize = int( np.ceil( psfdata.shape[0] / self.pars.oversampling ) )
+        clipsize += 1 if clipsize % 2 == 0 else 0
+        self.psf.clip_shape = ( clipsize, clipsize )
 
         # stars:
 
@@ -1959,28 +1968,19 @@ class Simulator:
                 rotation=self.streaks.streak_angles[i],
             )
 
-        self.flux_top = scipy.signal.convolve(self.flux_top, self.psf, mode='same')
+        self.flux_top = scipy.signal.convolve(self.flux_top, self.psf.data, mode='same')
 
         # downsample back to pixel resolution
         if ovsmp > 1:
             # this convolution means that each new pixel is the SUM of all the pixels in the kernel
             kernel = np.ones((ovsmp, ovsmp), dtype=float)
-
-            # correctly downsample the PSF to retain the symmetric single peak pixel
-            psf_conv = scipy.signal.convolve(self.psf, kernel, mode='same')
-            peak_indices = np.unravel_index(np.argmax(psf_conv), psf_conv.shape)
-            offset = tuple(p % ovsmp for p in peak_indices)
-
-            self.psf_downsampled = self.psf[offset[0]::ovsmp, offset[1]::ovsmp].copy()
-            self.psf_downsampled /= np.sum(self.psf_downsampled)
-
-            # now downsample the flux image
             self.flux_top = scipy.signal.convolve(self.flux_top, kernel, mode='same')
             self.flux_top = self.flux_top[ovsmp // 2::ovsmp, ovsmp // 2::ovsmp].copy()
             self.flux_top = self.flux_top[buffer[0]:-buffer[0], buffer[1]:-buffer[1]].copy()
 
         else:
-            self.psf_downsampled = self.psf.copy()
+            # self.psf_downsampled = self.psf.copy()
+            pass
 
     def add_atmosphere(self):
         """Add the effects of the atmosphere, namely the sky background and transmission."""
@@ -2214,7 +2214,7 @@ class Simulator:
         t.tracks_rotations = self.cosmic_rays.track_rotations
 
         t.psf = self.psf
-        t.psf_downsampled = self.psf_downsampled
+        # t.psf_downsampled = self.psf_downsampled
         t.average_counts = self.average_counts
         t.noise_var_map = self.noise_var_map
         t.total_bkg_var = self.total_bkg_var

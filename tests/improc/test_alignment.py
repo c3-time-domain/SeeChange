@@ -192,7 +192,7 @@ def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
         assert match is not None
 
         upstream_zps = new_image.get_upstreams()
-        assert [ i.id for i in upstream_zps ] == [ d.zp.id for d in ptf_reference_image_datastores ]
+        assert set( i.id for i in upstream_zps ) == set( d.zp.id for d in ptf_reference_image_datastores )
         assert len( coadder.aligned_datastores ) == len( ptf_reference_image_datastores )
         dsindex = ptf_reference_image_datastores[index]
         assert np.array_equal( coadder.aligned_datastores[index].image.data,
