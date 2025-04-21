@@ -23,7 +23,7 @@ class SimPars(Parameters):
 
         # general parmeters
         self.random_seed = self.add_par( 'random_seed', None, (int, None), "Random seed" )
-        
+
         # sensor parameters
         self.image_size_x = self.add_par('image_size_x', 512, int, 'Image size in x')
         self.image_size_y = self.add_par('image_size_y', None, (int, None), 'Image size in y (assume square if None)')
@@ -622,7 +622,7 @@ class SimGalaxies:
         self.galaxy_exp_scale_ratios = None  # the length scale of the exponential profile relative to width, per galaxy
 
         self.rng = rng
-        
+
     def make_galaxy_list(self, imsize):
         """Make a field of galaxies.
 
@@ -826,9 +826,8 @@ class SimGalaxies:
 
         return self.galaxy_mean_fluxes  # do we ever need to add noise to this?
 
-    @classmethod
     def make_galaxy_image(
-            cls,
+            self,
             imsize=(100, 100),
             center_x=None,
             center_y=None,
@@ -894,33 +893,33 @@ class SimGalaxies:
         # regular coordinate grid
         t0 = time.time()
         x0, y0 = np.meshgrid(np.arange(imsize[1]), np.arange(imsize[0]))
-        cls.runtime['meshgrid'] += time.time() - t0
+        self.runtime['meshgrid'] += time.time() - t0
 
         # transform the coordinates using rotation and translation
         t0 = time.time()
         x = (x0 - center_x) * np.cos(rotation) + (y0 - center_y) * np.sin(rotation)
         y = (y0 - center_y) * np.cos(rotation) - (x0 - center_x) * np.sin(rotation)
         r = np.sqrt(x ** 2 + y ** 2)
-        cls.runtime['transform'] += time.time() - t0
+        self.runtime['transform'] += time.time() - t0
 
         # first make the bulge using a sersic profile
         t0 = time.time()
         r0 = sersic_scale
         bulge = np.exp( -7.67 * np.power(r / r0, 1 / 4) )
         bulge *= sersic_flux / np.sum(bulge)
-        cls.runtime['bulge'] += time.time() - t0
+        self.runtime['bulge'] += time.time() - t0
 
         # now make the disk
         t0 = time.time()
         r0 = exp_scale
         disk = np.exp(-1.67 * np.sqrt( (x / r0 / cos_i) ** 2 + (y / r0) ** 2) )
         disk *= exp_flux / np.sum(disk)
-        cls.runtime['disk'] += time.time() - t0
+        self.runtime['disk'] += time.time() - t0
 
         # add them together
         t0 = time.time()
         galaxy_image = bulge + disk
-        cls.runtime['add'] += time.time() - t0
+        self.runtime['add'] += time.time() - t0
 
         # add cutoff
         if cutoff_radius is not None:
@@ -929,13 +928,12 @@ class SimGalaxies:
             # use the disk scale as the length scale for the cutoff
             cutoff[r > cutoff_radius] = np.exp(-5.0 * (r[r > cutoff_radius] - cutoff_radius) / exp_scale)
             galaxy_image *= cutoff
-            cls.runtime['cutoff'] += time.time() - t0
+            self.runtime['cutoff'] += time.time() - t0
 
         return galaxy_image
 
-    @classmethod
     def add_galaxy_to_image(
-            cls,
+            self,
             image,
             center_x=None,
             center_y=None,
@@ -1014,7 +1012,7 @@ class SimGalaxies:
             use_assignment = True
 
         # make the galaxy image
-        galaxy_image = cls.make_galaxy_image(
+        galaxy_image = self.make_galaxy_image(
             imsize=imsize,
             center_x=new_center_x,
             center_y=new_center_y,
@@ -1096,8 +1094,7 @@ class SimStreaks:
         self.streak_lengths = self.rng.uniform(self.streak_min_length, self.streak_max_length, self.streak_number)
         self.streak_angles = self.rng.uniform(0, 360, self.streak_number)
 
-    @classmethod
-    def make_streak_image(cls, imsize=(100, 100), center_x=None, center_y=None, flux=1.0, length=10.0, rotation=None):
+    def make_streak_image(self, imsize=(100, 100), center_x=None, center_y=None, flux=1.0, length=10.0, rotation=None):
         """Make an image of a streak with a narrow (single pixel) profile
 
         Parameters
@@ -1150,9 +1147,8 @@ class SimStreaks:
 
         return streak_image
 
-    @classmethod
     def add_streak_to_image(
-            cls,
+            self,
             image,
             center_x=None,
             center_y=None,
@@ -1211,7 +1207,7 @@ class SimStreaks:
             use_assignment = True
 
         # make the streak image
-        streak_image = cls.make_streak_image(
+        streak_image = self.make_streak_image(
             imsize=imsize,
             center_x=new_center_x,
             center_y=new_center_y,
@@ -1263,8 +1259,7 @@ class SimCosmicRays:
     _landau = None
     _x = None
 
-    @classmethod
-    def get_landau_dist(cls):
+    def get_landau_dist(self):
         raise NotImplementedError( "See comment on pylandau import at top of file." )
         # if cls._x is None or cls._landau is None:
         #     cls._x = np.arange(-5, 20, 0.01)
@@ -1306,9 +1301,8 @@ class SimCosmicRays:
     def make_worm_list(self, imsize):
         pass
 
-    @classmethod
     def make_track_image(
-            cls,
+            self,
             imsize=(100, 100),
             center_x=None,
             center_y=None,
@@ -1362,7 +1356,7 @@ class SimCosmicRays:
         track_positions = (abs(y) < length + 0.5) & (abs(x) < 0.5)
         num_pixels = np.sum(track_positions)
         track_image = np.zeros(imsize)
-        x, landau = cls.get_landau_dist()
+        x, landau = self.get_landau_dist()
         track_image[track_positions] = self.rng.choice(x, size=num_pixels, p=landau) + energy
 
         # convolve with a narrow gaussian
@@ -1370,9 +1364,8 @@ class SimCosmicRays:
 
         return track_image
 
-    @classmethod
     def add_track_to_image(
-            cls,
+            self,
             image,
             center_x=None,
             center_y=None,
@@ -1431,7 +1424,7 @@ class SimCosmicRays:
             use_assignment = True
 
         # make the track image
-        track_image = cls.make_track_image(
+        track_image = self.make_track_image(
             imsize=imsize,
             center_x=new_center_x,
             center_y=new_center_y,

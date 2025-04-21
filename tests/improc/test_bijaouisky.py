@@ -10,7 +10,6 @@ from improc.sextrsky import sextrsky
 from improc.sextractor import run_sextractor
 from improc.tools import pepper_stars
 from util.logger import SCLogger
-from util.util import env_as_bool
 
 
 # Uncomment this next ksip line to actually run this "test"

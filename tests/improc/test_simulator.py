@@ -12,6 +12,7 @@ from improc.sky_flat import sigma_clipping
 from util.logger import SCLogger
 from util.util import env_as_bool
 
+
 @pytest.mark.skipif( not env_as_bool('MAKE_PLOTS'), reason='Set MAKE_PLOTS to run this test' )
 def test_make_star_field(blocking_plots):
     s = Simulator( image_size_x=256, star_number=1000, galaxy_number=0)
