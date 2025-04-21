@@ -10,7 +10,7 @@ from astropy.io import fits, votable
 from models.base import FileOnDiskMixin
 from models.image import Image
 from models.source_list import SourceList
-from models.psf import PSF
+from models.psf import PSFExPSF
 
 from pipeline.data_store import DataStore
 from pipeline.catalog_tools import fetch_gaia_dr3_excerpt
@@ -94,7 +94,7 @@ def ztf_datastore_uncommitted( ztf_filepaths_image_sources_psf ):
     ds.sources.num_sources = len( ds.sources.data )
     ds.sources.image_id = ds.image.id
 
-    ds.psf = PSF( filepath=str( psf.relative_to( FileOnDiskMixin.local_path ) ), format='psfex' )
+    ds.psf = PSFExPSF( filepath=str( psf.relative_to( FileOnDiskMixin.local_path ) ) )
     ds.psf.load( download=False, psfpath=psf, psfxmlpath=psfxml )
     bio = io.BytesIO( ds.psf.info.encode( 'utf-8' ) )
     tab = votable.parse( bio ).get_table_by_index( 1 )

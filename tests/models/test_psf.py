@@ -12,16 +12,110 @@ import scipy.ndimage
 
 import sqlalchemy as sa
 import psycopg2.errors
+import psycopg2.extras
 import astropy
 from astropy.io import fits
 
 from util.config import Config
-from util.util import env_as_bool
+from util.util import env_as_bool, asUUID
 from util.logger import SCLogger
-from models.base import SmartSession, FileOnDiskMixin, CODE_ROOT, get_archive_object
+from models.base import SmartSession, Psycopg2Connection, FileOnDiskMixin, CODE_ROOT, get_archive_object
 from models.provenance import Provenance
-from models.psf import PSF
+from models.psf import PSF, PSFExPSF, DeltaPSF, GaussianPSF, ImagePSF
+from models.enums_and_bitflags import PSFFormatConverter
 
+
+def test_psf_polymorphism( bogus_image_factory, bogus_sources_factory ):
+    # Make sure that SQLAlchmey writes things properly and
+    #   loads the right classes.
+
+    imgdel = []
+    srcdel = []
+    psfdel = []
+
+    try:
+        pimg = bogus_image_factory( uuid.uuid4(), "test_psf_poly_psfex" )
+        imgdel.append( pimg )
+        psrc = bogus_sources_factory( uuid.uuid4(), "test_psf_poly_psfex_sources.fits", pimg )
+        srcdel.append( psrc )
+        ppsf = PSFExPSF( fwhm_pixels=2., sources_id=psrc.id )
+        ppsf.filepath = 'test_psf_poly_psfex_psf.fits'
+        ppsf.md5sum_components = [ uuid.uuid4(), uuid.uuid4() ]
+        ppsf.insert()
+        psfdel.append( ppsf )
+
+        dimg = bogus_image_factory( uuid.uuid4(), "test_psf_poly_delta" )
+        imgdel.append( dimg )
+        dsrc = bogus_sources_factory( uuid.uuid4(), "test_psf_poly_delta_sources.fits", dimg )
+        srcdel.append( dsrc )
+        dpsf = DeltaPSF( fwhm_pixels=0., sources_id=dsrc.id )
+        dpsf.save()  # Doesn't really save any file
+        dpsf.insert()
+        psfdel.append( dpsf )
+
+        gimg = bogus_image_factory( uuid.uuid4(), "test_psf_poly_gaussian" )
+        imgdel.append( gimg )
+        gsrc = bogus_sources_factory( uuid.uuid4(), "test_psf_poly_gaussian_sources.fits", gimg )
+        srcdel.append( gsrc )
+        gpsf = GaussianPSF( fwhm_pixels=2.1, sources_id=gsrc.id )
+        gpsf.save()   # Doesn't really save any file
+        gpsf.insert()
+        psfdel.append( gpsf )
+
+        iimg = bogus_image_factory( uuid.uuid4(), "test_psf_poly_image" )
+        imgdel.append( iimg )
+        isrc = bogus_sources_factory( uuid.uuid4(), "test_psf_poly_image_sources.fits", iimg )
+        srcdel.append( isrc )
+        ipsf = ImagePSF( fwhm_pixels=0., sources_id=isrc.id )
+        ipsf.filepath = "test_psf_poly_image_psf.hdf5"
+        ipsf.md5sum = uuid.uuid4()
+        ipsf.insert()
+        psfdel.append( ipsf )
+
+        # Make sure that they all got stuck in the database
+        with Psycopg2Connection() as con:
+            cursor = con.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
+            cursor.execute( "SELECT * FROM psfs WHERE _id IN %(ids)s",
+                            { 'ids': ( ppsf.id, dpsf.id, gpsf.id, ipsf.id ) } )
+            psfs = cursor.fetchall()
+            assert len(psfs) == 4
+            for psf in psfs:
+                if asUUID(psf['_id']) == ppsf.id:
+                    assert PSFFormatConverter.to_string( psf['_format'] ) == 'psfex'
+                elif asUUID(psf['_id']) == dpsf.id:
+                    assert PSFFormatConverter.to_string( psf['_format'] ) == 'delta'
+                elif asUUID(psf['_id']) == gpsf.id:
+                    assert PSFFormatConverter.to_string( psf['_format'] ) == 'gaussian'
+                elif asUUID(psf['_id']) == ipsf.id:
+                    assert PSFFormatConverter.to_string( psf['_format'] ) == 'image'
+                else:
+                    raise RuntimeError( "This should never happen." )
+
+        # Make sure SQLAlchemy loads the right things
+        with SmartSession() as sess:
+            psfs = sess.query( PSF ).filter( PSF._id.in_( i.id for i in [ ppsf, dpsf, gpsf, ipsf ] ) ).all()
+            assert len( psfs ) == 4
+            for psf in psfs:
+                if psf.id == ppsf.id:
+                    assert isinstance( psf, PSFExPSF )
+                elif psf.id == dpsf.id:
+                    assert isinstance( psf, DeltaPSF )
+                elif psf.id == gpsf.id:
+                    assert isinstance( psf, GaussianPSF )
+                elif psf.id == ipsf.id:
+                    assert isinstance( psf, ImagePSF )
+                else:
+                    raise RuntimeError( "This should never happen." )
+
+    finally:
+        with Psycopg2Connection() as con:
+            cursor = con.cursor()
+            cursor.execute( "DELETE FROM psfs WHERE _id=ANY(%(id)s)", { 'id': ([i.id for i in psfdel],) } )
+            con.commit()
+        for src in srcdel:
+            src.delete_from_disk_and_database()
+        for img in imgdel:
+            img.delete_from_disk_and_database()
 
 
 def check_example_psfex_psf_values( psf ):

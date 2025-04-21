@@ -12,7 +12,7 @@ from improc.tools import pepper_stars
 from util.logger import SCLogger
 
 
-# Uncomment this next ksip line to actually run this "test"
+# Uncomment this next skip line to actually run this "test"
 @pytest.mark.skip( reason='Test is only for user inspection; uncomment the skip to run it' )
 def test_various_algorithms():
     rng = np.random.default_rng( 42 )

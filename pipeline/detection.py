@@ -22,7 +22,7 @@ from pipeline.backgrounding import Backgrounder
 from models.base import FileOnDiskMixin
 from models.image import Image  # noqa: F401
 from models.source_list import SourceList
-from models.psf import PSF
+from models.psf import PSFExPSF
 
 from improc.sextractor import run_sextractor
 from improc.tools import sigma_clipping
@@ -829,7 +829,7 @@ class Detector:
                         SCLogger.warning( f"psfex failed with fwhmmax={fwhmmax}, trying {fwhmmaxtotry[fwhmmaxdex+1]}" )
 
 
-            psf = PSF( format="psfex", fwhm_pixels=float(psfstats.array['FWHM_FromFluxRadius_Mean'][0]) )
+            psf = PSFExPSF( fwhm_pixels=float(psfstats.array['FWHM_FromFluxRadius_Mean'][0]) )
             psf.load( psfpath=psffile, psfxmlpath=psfxmlfile )
             psf.header['IMAXIS1'] = image.data.shape[1]
             psf.header['IMAXIS2'] = image.data.shape[0]

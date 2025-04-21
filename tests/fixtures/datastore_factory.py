@@ -17,7 +17,7 @@ from models.report import Report
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
-from models.psf import PSF
+from models.psf import PSFExPSF
 from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
@@ -451,7 +451,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 SCLogger.debug( f'make_datastore searching cache for psf {psf_cache_path}' )
                 if psf_cache_path.is_file():
                     SCLogger.debug('make_datastore loading PSF from cache')
-                    ds.psf = copy_from_cache(PSF, cache_dir, psf_cache_path, symlink=True)
+                    ds.psf = copy_from_cache(PSFExPSF, cache_dir, psf_cache_path, symlink=True)
                     ds.psf.sources_id = ds.sources.id
                     # make sure this is saved to the archive as well
                     ds.psf.load()
@@ -663,7 +663,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
 
                     ds.aligned_ref_sources = copy_from_cache( SourceList, cache_dir, aligned_ref_sources_cache_path,
                                                               symlink=True )
-                    ds.aligned_ref_psf = copy_from_cache( PSF, cache_dir, aligned_ref_psf_cache_path,
+                    ds.aligned_ref_psf = copy_from_cache( PSFExPSF, cache_dir, aligned_ref_psf_cache_path,
                                                           symlink=True )
                     ds.aligned_ref_bg = copy_from_cache( Background, cache_dir, aligned_ref_bg_cache_path,
                                                          symlink=True )

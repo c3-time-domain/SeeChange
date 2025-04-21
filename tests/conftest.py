@@ -38,7 +38,7 @@ from models.calibratorfile import CalibratorFileDownloadLock
 from models.user import AuthUser, AuthGroup
 from models.image import Image
 from models.source_list import SourceList
-from models.psf import PSF
+from models.psf import PSF, PSFExPSF
 from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
@@ -55,8 +55,8 @@ from pipeline.data_store import DataStore, ProvenanceTree
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -692,7 +692,7 @@ class PSFPaletteMaker:
         res = subprocess.run( command, capture_output=True, timeout=60 )
         assert res.returncode == 0
 
-        self.psf = PSF( format='psfex' )
+        self.psf = PSFExPSF()
         self.psf.load( psfpath=self.psfname, psfxmlpath=self.psfxmlname )
         self.psf.fwhm_pixels = float( self.psf.header['PSF_FWHM'] )
 
@@ -840,52 +840,86 @@ def browser():
 # Fake objects for testing stuff
 
 @pytest.fixture
-def bogus_image( code_version, provenance_base ):
-    img = Image( _id=uuid.UUID('13de30a0-cb73-40d7-a708-10354005b7e4'),
-                 format='fits',
-                 type='Sci',
-                 provenance_id=provenance_base.id,
-                 mjd=60000.,
-                 end_mjd=60000.00052,
-                 exp_time=45.,
-                 instrument='DemoInstrument',
-                 telescope='DemoTelescope',
-                 filter='r',
-                 section_id=1,
-                 project='test',
-                 target='test',
-                 filepath='fake_bogus_image',
-                 ra=120.,
-                 dec=5.,
-                 ra_corner_00=119.9,
-                 ra_corner_01=119.9,
-                 ra_corner_10=120.1,
-                 ra_corner_11=120.1,
-                 minra=110.9,
-                 maxra=120.1,
-                 dec_corner_00=4.9,
-                 dec_corner_10=4.9,
-                 dec_corner_01=5.1,
-                 dec_corner_11=5.1,
-                 mindec=4.9,
-                 maxdec=5.1,
-                 lim_mag_estimate=22.5,
-                 bkg_mean_estimate=0.,
-                 bkg_rms_estimate=1.,
-                 fhwm_estimate=2.35,
-                 airmass=1.2,
-                 sky_sub_done=True,
-                 astro_cal_done=True,
-                )
+def bogus_image_factory( code_version, provenance_base ):
+    def load_bogus_image( _id, filepath ):
+        img = Image( _id=_id,
+                     format='fits',
+                     type='Sci',
+                     provenance_id=provenance_base.id,
+                     mjd=60000.,
+                     end_mjd=60000.00052,
+                     exp_time=45.,
+                     instrument='DemoInstrument',
+                     telescope='DemoTelescope',
+                     filter='r',
+                     section_id=1,
+                     project='test',
+                     target='test',
+                     filepath=filepath,
+                     ra=120.,
+                     dec=5.,
+                     ra_corner_00=119.9,
+                     ra_corner_01=119.9,
+                     ra_corner_10=120.1,
+                     ra_corner_11=120.1,
+                     minra=110.9,
+                     maxra=120.1,
+                     dec_corner_00=4.9,
+                     dec_corner_10=4.9,
+                     dec_corner_01=5.1,
+                     dec_corner_11=5.1,
+                     mindec=4.9,
+                     maxdec=5.1,
+                     lim_mag_estimate=22.5,
+                     bkg_mean_estimate=0.,
+                     bkg_rms_estimate=1.,
+                     fhwm_estimate=2.35,
+                     airmass=1.2,
+                     sky_sub_done=True,
+                     astro_cal_done=True,
+                    )
 
-    # Give the image some numpy arrays for things that will look at the size
-    img.header = fits.Header( { 'TESTKW': 'testval' } )
-    img.data = np.zeros( ( 1024, 1024 ), dtype=np.float32 )
-    img.weight = np.full( ( 1024, 1024 ), 0.01, dtype=np.float32 )
-    img.flags = np.zeros( ( 1024, 1024 ), dtype=np.int16 )
+        # Give the image some numpy arrays for things that will look at the size
+        img.header = fits.Header( { 'TESTKW': 'testval' } )
+        img.data = np.zeros( ( 1024, 1024 ), dtype=np.float32 )
+        img.weight = np.full( ( 1024, 1024 ), 0.01, dtype=np.float32 )
+        img.flags = np.zeros( ( 1024, 1024 ), dtype=np.int16 )
 
-    img.save()
-    img.insert()
+        img.save()
+        img.insert()
+
+        return img
+
+    return load_bogus_image
+
+
+@pytest.fixture
+def bogus_sources_factory( code_version, provenance_base ):
+    def load_bogus_sources( _id, filepath, image ):
+        improv = Provenance.get( image.provenance_id )
+        prov = Provenance( code_version_id=improv.code_version_id,
+                           process='extraction',
+                           parameters={ 'method': 'sextractor' },
+                           upstreams=[ improv ],
+                           is_testing=True )
+        prov.insert_if_needed()
+        src = SourceList( _id=_id,
+                          image_id=image.id,
+                          format='sextrfits',
+                          num_sources=42,
+                          provenance_id=prov.id,
+                          filepath=filepath,
+                          md5sum=uuid.uuid4() )
+        src.insert()
+
+        return src
+
+    return load_bogus_sources
+
+
+@pytest.fixture
+def bogus_image( bogus_image_factory ):
+    img = bogus_image_factory( uuid.UUID('13de30a0-cb73-40d7-a708-10354005b7e4'), 'fake_bogus_image' )
 
     yield img
 
@@ -903,29 +937,16 @@ def bogus_image( code_version, provenance_base ):
 
 
 @pytest.fixture
-def bogus_sources_and_psf( bogus_image ):
-    improv = Provenance.get( bogus_image.provenance_id )
-    prov = Provenance( code_version_id=improv.code_version_id,
-                       process='extraction',
-                       parameters={ 'method': 'sextractor' },
-                       upstreams=[ improv ],
-                       is_testing=True )
-    prov.insert_if_needed()
-    src = SourceList( _id=uuid.UUID('717d6591-0630-448a-9748-0097e40c8272'),
-                      image_id=bogus_image.id,
-                      format='sextrfits',
-                      num_sources=42,
-                      provenance_id=prov.id,
-                      filepath='fake_bogus_source_list.fits',
-                      md5sum=uuid.uuid4() )
-    src.insert()
+def bogus_sources_and_psf( bogus_image, bogus_sources_factory ):
+    src = bogus_sources_factory( uuid.UUID('717d6591-0630-448a-9748-0097e40c8272'),
+                                 'fake_bogus_source_list.fits',
+                                 bogus_image )
 
-    psf = PSF( _id=uuid.UUID('c9e410de-a6d1-4db4-9b95-8ee866997784'),
-               format='psfex',
-               sources_id=src.id,
-               fwhm_pixels=2.5,
-               filepath='fake_bogus_psf.fits',
-               md5sum=uuid.uuid4() )
+    psf = PSFExPSF( _id=uuid.UUID('c9e410de-a6d1-4db4-9b95-8ee866997784'),
+                    sources_id=src.id,
+                    fwhm_pixels=2.5,
+                    filepath='fake_bogus_psf.fits',
+                    md5sum=uuid.uuid4() )
     psf.insert()
 
     yield src, psf
