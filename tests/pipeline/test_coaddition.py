@@ -174,7 +174,7 @@ def test_zogy_simulation(coadder, blocking_plots):
         flags.append(np.zeros_like(sim.image, dtype=np.int16))
         flags[-1][100, 100] = 1  # just to see what happens to a flagged pixel
         truths.append(sim.truth)
-        psfs.append(sim.truth.psf_downsampled)
+        psfs.append(sim.truth.psf.get_clip())
         fwhms.append(sim.truth.atmos_psf_fwhm)
         zps.append(sim.truth.transmission_instance)
         bkg_means.append(sim.truth.background_instance)

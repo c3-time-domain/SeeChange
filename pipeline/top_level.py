@@ -483,6 +483,7 @@ class Pipeline:
         try:
             ds = self.setup_datastore(*args, **kwargs)
             stepstodo = self._get_stepstodo()
+            SCLogger.debug( f"Pipeline going to do steps: {stepstodo}" )
 
             if ds.image is not None:
                 SCLogger.info(f"Pipeline starting for image {ds.image.id} ({ds.image.filepath}), "
