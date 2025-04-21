@@ -396,9 +396,9 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         newpsf._format = self._format
         newpsf.sources_id = self.sources_id
         newpsf.fwhm_pixels = self.fwhm_pixels
-        newpsf._data = self._data
-        newpsf._header = self._header
-        newpsf._info = self._info
+        newpsf.data = self.data
+        newpsf.header = self.header
+        newpsf.info = self.info
         newpsf._image_shape = self._image_shape
         newpsf._raw_clip_shape = self._raw_clip_shape
         newpsf._clip_shape = self._clip_shape
