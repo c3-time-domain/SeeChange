@@ -393,6 +393,9 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
     def copy( self ):
         """Make a shallow copy of a PSF.  WARNING : will point to same data blocks!"""
         newpsf = self.__class__()
+        newpsf._format = self._format
+        newpsf.sources_id = self.sources_id
+        newpsf.fwhm_pixels = self.fwhm_pixels
         newpsf._data = self._data
         newpsf._header = self._header
         newpsf._info = self._info

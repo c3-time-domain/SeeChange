@@ -755,9 +755,6 @@ class ImageAligner:
                 warped_bg.variance = source_bg.variance              # note: is a reference, not a copy...
 
             warped_psf = source_psf.copy()
-            warped_psf.data = source_psf.data
-            warped_psf.info = source_psf.info
-            warped_psf.header = source_psf.header
             warped_psf.sources_id = warped_sources.id
             warped_psf.filepath = None
             warped_psf.md5sum = None

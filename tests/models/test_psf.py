@@ -222,11 +222,11 @@ def test_psfex_psf_positioning( ztf_filepaths_image_sources_psf ):
     psf = PSFExPSF()
     psf.load( psfpath=psfpath, psfxmlpath=psfxmlpath )
 
-    # In pratice the ZTF PSF seems to be slightly lopsided, so
-    #   centroids aren't showing up exactly where expected.
-    #   But, the general principle will work here -- making
-    #   sure that things at 0.5, 0.5 are up and to the right,
-    #   and things ath 0.51, 0.51 are down and to the left.
+    # In pratice the ZTF PSF seems to be slightly lopsided, so centroids
+    #   aren't showing up exactly where expected.  But, the general
+    #   principle will work here -- making sure that things at
+    #   (x.49,y.49) are up and to the right, and things at (x.50,y.50)
+    #   are down and to the left.
 
     # A PSF at a pixel position should be centered on the return image
     img = psf.get_clip( 512, 512 )

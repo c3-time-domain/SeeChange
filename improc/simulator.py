@@ -333,7 +333,6 @@ class SimTruth:
 
         # the noise and PSF info used to make the image
         self.psf = None  # the PSF used to make this image
-        # self.psf_downsampled = None  # the PSF, correctly downsampled as to retain the symmetric single peak pixel
         self.average_counts = None  # the final counts, not including noise
         self.noise_var_map = None  # the total variance from read, dark, sky b/g, and source noise
         self.total_bkg_var = None  # the total variance from read, dark, and sky b/g (not including source noise)
@@ -1501,7 +1500,6 @@ class Simulator:
         self.galaxy_f = None
 
         self.psf = None  # we are cheating because this includes both the optical and atmospheric PSFs
-        # self.psf_downsampled = None  # the PSF, correctly downsampled as to retain the symmetric single peak pixel
         self.flux_top = None  # this is the mean number of photons hitting the top of the atmosphere
 
         # adding the sky into the mix
@@ -1978,9 +1976,6 @@ class Simulator:
             self.flux_top = self.flux_top[ovsmp // 2::ovsmp, ovsmp // 2::ovsmp].copy()
             self.flux_top = self.flux_top[buffer[0]:-buffer[0], buffer[1]:-buffer[1]].copy()
 
-        else:
-            # self.psf_downsampled = self.psf.copy()
-            pass
 
     def add_atmosphere(self):
         """Add the effects of the atmosphere, namely the sky background and transmission."""
@@ -2214,7 +2209,6 @@ class Simulator:
         t.tracks_rotations = self.cosmic_rays.track_rotations
 
         t.psf = self.psf
-        # t.psf_downsampled = self.psf_downsampled
         t.average_counts = self.average_counts
         t.noise_var_map = self.noise_var_map
         t.total_bkg_var = self.total_bkg_var
