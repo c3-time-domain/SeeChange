@@ -448,7 +448,7 @@ def test_psfex_rendering( psf_palette ): # round_psf_palette ):
     assert resamp.shape == ( 31, 31 )
 
     clip = psf.get_clip( 512., 512., 1., dtype=np.float64 )
-    assert clip.shape == ( 23, 23 )
+    assert clip.shape == ( 25, 25 )
     assert clip.sum() == pytest.approx( 1., abs=1e-5 )
 
     with fits.open( psf_palette.imagename ) as ifp:

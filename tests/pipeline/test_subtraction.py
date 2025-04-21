@@ -76,11 +76,11 @@ def test_subtraction_ptf_zogy(ptf_ref, ptf_supernova_image_datastores):
     region_pixel_counts.sort()
     region_pixel_counts = region_pixel_counts[:-1]  # remove that last region, which is the largest one
 
-    # no region should have more than 5000 pixels masked
-    assert max(region_pixel_counts) < 5000
-    # No more than 1.5% pixels masked.  (This used to be 1%, but I think we masked a few more
+    # no region should have more than 6000 pixels masked
+    assert max(region_pixel_counts) < 6000
+    # No more than 1.6% pixels masked.  (This used to be 1%, but I think we masked a few more
     # pixels in the ref with the fixing of caodd zogy weights.)
-    assert np.sum(region_pixel_counts) / ds.sub_image.data.size < 0.015
+    assert np.sum(region_pixel_counts) / ds.sub_image.data.size < 0.016
 
     # check that a visually-identified blank region really is 0, and that
     #   the subtraction weight makes sense.

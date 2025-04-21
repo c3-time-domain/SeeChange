@@ -21,6 +21,12 @@ from util.logger import SCLogger
 
 
 class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
+    """Encapsulates a PSF.
+
+    You should not instantiate this class directly, but rather one of
+    its subclasses.
+
+    """
     __tablename__ = 'psfs'
 
     @declared_attr
@@ -35,7 +41,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         sa.SMALLINT,
         nullable=False,
         server_default=sa.sql.elements.TextClause( str(PSFFormatConverter.convert('psfex')) ),
-        doc=( 'Format of the PSF.  Currently supports psfex, delta, and gaussian.  delta and gaussian '
+        doc=( 'Format of the PSF.  Currently supports psfex, delta, gaussian, and image.  delta and gaussian '
               'psfs are really just for test purposes.  gaussian samples, does not integrate, so is pretty '
               'terrible for low-fwhm psfs.' )
     )
@@ -253,6 +259,10 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         self._data = None
         self._table = None
         self._info = None
+        self._image_shape = None
+        self._raw_clip_shape = None
+        self._clip_shape = None
+        self._oversampling_factor = None
 
 
     def _determine_filepath( self, filename=None, image=None, sources=None, filename_is_absolute=False ):
@@ -380,6 +390,17 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         raise NotImplementedError( f"{self.__class__.__name__} needs to imlement load" )
 
+    def copy( self ):
+        """Make a shallow copy of a PSF.  WARNING : will point to same data blocks!"""
+        newpsf = self.__class__()
+        newpsf._data = self._data
+        newpsf._header = self._header
+        newpsf._info = self._info
+        newpsf._image_shape = self._image_shape
+        newpsf._raw_clip_shape = self._raw_clip_shape
+        newpsf._clip_shape = self._clip_shape
+        newpsf._oversampling_factor = self._oversampling_factor
+        return newpsf
 
     def free( self ):
         """Free loaded PSF memory.
@@ -442,16 +463,8 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         """
 
-        # if ( offx < 0 ) or ( offy < 0 ):
-        #     # Dealing with floor and round becomes complicated, especially
-        #     #   when you consider the edge cases in rounding 0.5
-        #     raise NotImplementedError( "Negative offsets aren't implemented." )
-
         if ( not isinstance( nx, numbers.Integral ) ) or not ( isinstance( ny, numbers.Integral ) ):
             raise TypeError( f"nx and ny must be integers; got nx as a {type(nx)} and ny as a {type(ny)}" )
-
-        if ( x is not None ) or ( y is not None ):
-            raise NotImplementedError( "x, y are not implemented" )
 
         # Figure out where the center is; if the side is even length, then it
         #    needs to be at the edge of a pixel; if it's odd length, then
@@ -518,8 +531,8 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         #   do with odd images, does the right thing here (since the //
         #   on the odd psfclip.shape will be on the low side).
         #
-        #   If there's an offset, we can always just floor(xpos-ctrx) to
-        #   the left padding.
+        #   If there's an offset, we can always just add
+        #   floor(xpos-ctrx) to the left padding.
 
         padlowx = nx // 2 - psfclip.shape[1] // 2 + int( np.floor( xpos-ctrx ) )
         padlowx += 1 if ( nx % 2 == 1) and ( (xpos-ctrx) - np.floor(xpos-ctrx) >= 0.5 ) else 0

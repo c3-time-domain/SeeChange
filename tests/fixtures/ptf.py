@@ -20,7 +20,7 @@ from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
-from models.psf import PSF
+from models.psf import PSFExPSF
 from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
@@ -397,7 +397,7 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
             ds.sources = copy_from_cache( SourceList, cache_dir, sourcesfile )
             ds.sources.provenance_id = warped_sources_prov.id
             ds.bg = copy_from_cache( Background, cache_dir, bgfile, add_to_dict={ 'image_shape': ds.image.data.shape } )
-            ds.psf = copy_from_cache( PSF, cache_dir, psffile )
+            ds.psf = copy_from_cache( PSFExPSF, cache_dir, psffile )
             ds.wcs = copy_from_cache( WorldCoordinates, cache_dir, wcsfile )
             ds.wcs.provenance_id = warped_wcs_prov.id
             ds.zp = copy_from_cache( ZeroPoint, cache_dir, imfile + '.zp' )
@@ -513,7 +513,7 @@ def ptf_ref(
             coadd_datastore.sources = copy_from_cache(
                 SourceList, ptf_cache_dir, cache_base_name + f'.sources_{refmaker.coadd_ex_prov.id[:6]}.fits'
             )
-            coadd_datastore.psf = copy_from_cache( PSF, ptf_cache_dir,
+            coadd_datastore.psf = copy_from_cache( PSFExPSF, ptf_cache_dir,
                                                    cache_base_name + f'.psf_{refmaker.coadd_ex_prov.id[:6]}' )
             coadd_datastore.bg = copy_from_cache( Background, ptf_cache_dir,
                                                   cache_base_name + f'.bg_{refmaker.coadd_ex_prov.id[:6]}.h5',

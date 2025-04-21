@@ -14,7 +14,7 @@ from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
-from models.psf import PSF
+from models.psf import PSFExPSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
@@ -410,7 +410,7 @@ def sim_image_list_datastores(
         ds.sources.provenance = provenance_extraction.id
         im.sources.image_id = im.id
         im.sources.save()
-        ds.psf = PSF(filepath=str(psf.relative_to(im.local_path)), format='psfex')
+        ds.psf = PSFExPSF( filepath=str(psf.relative_to(im.local_path)) )
         im.psf.load(download=False, psfpath=psf, psfxmlpath=psfxml)
         # must randomize to get different MD5sum
         ds.psf.data += rng.normal(0, 0.001, im.psf.data.shape)
