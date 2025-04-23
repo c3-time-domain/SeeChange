@@ -22,7 +22,7 @@ class SimPars(Parameters):
     def __init__(self, **kwargs):
         super().__init__()  # initialize base Parameters without passing arguments
 
-        # general parmeters
+        # general parameters
         self.random_seed = self.add_par( 'random_seed', None, (int, None), "Random seed" )
 
         # sensor parameters

@@ -1168,7 +1168,7 @@ class ImagePSF(PSF):
 
         with h5py.File( psfpath, 'r' ) as h5f:
             if 'psf' not in h5f:
-                raise ValueError( "No psf gropu found in the file" )
+                raise ValueError( "No psf group found in the file" )
 
             self._image_shape = ( h5f["psf"].attrs["image_shape_0"], h5f["psf"].attrs["image_shape_1"] )
             self._clip_shape = ( h5f["psf"].attrs["clip_shape_0"], h5f["psf"].attrs["clip_shape_1"] )
