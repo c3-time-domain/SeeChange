@@ -866,12 +866,6 @@ class PSFExPSF(PSF):
             psfpath = pathlib.Path( self.local_path ) / f'{filename}.fits'
             psfxmlpath = pathlib.Path( self.local_path ) / f'{filename}.xml'
 
-        # header0 = fits.Header( [ fits.Card( 'SIMPLE', 'T', 'This is a FITS file' ),
-        #                          fits.Card( 'BITPIX', 8 ),
-        #                          fits.Card( 'NAXIS', 0 ),
-        #                          fits.Card( 'EXTEND', 'T', 'This file may contain FITS extensions' ),
-        #                         ] )
-        # hdu0 = fits.PrimaryHDU( header=header0 )
         # The PSFEx format is a bit byzantine
         fitsshape = list( self._data.shape )
         fitsshape.reverse()
