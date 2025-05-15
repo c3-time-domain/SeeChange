@@ -18,7 +18,7 @@ _show_millisec = False
 
 
 class SCLogger:
-    """Holds a unified logging instance that can be used throughout SNPIT code.
+    """Holds a unified logging instance that can be used throughout SeeChange.
 
     Normal use: just call one of
 
