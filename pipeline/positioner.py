@@ -3,19 +3,24 @@ import pytz
 
 import numpy as np
 
+import astropy.time
+
 from models.provenance import Provenance
-from models.object import Object
+from models.object import Object, ObjectPosition
 from models.base import Psycopg2Connection, SmartSession
+from pipeline.parameters import Parameters
+
 
 class ParsPositioner(Parameters):
     def __init__( self, **kwargs ):
         super().__init__()
 
-        self.datetime = sef.add_par(
+        self.datetime = self.add_par(
             'datetime',
             '1970-01-01 00:00:00',
-            datetime.datetime,
-            'Only images from times before this will be included in the positioner run.'
+            str,
+            ( 'Only images from times before this will be included in the positioner run. '
+              'Must be in 8601 format (with a space in place of the T allowed).' )
         )
 
         self.sigma_clip = self.add_par(
@@ -31,7 +36,7 @@ class ParsPositioner(Parameters):
             float,
             "Throw out measurements with PSF S/N less than this cut.  Don't make this negative!"
         )
-        
+
         self.filter = self.add_par(
             'filter',
             'i',
@@ -45,7 +50,7 @@ class ParsPositioner(Parameters):
             str,
             'The ID of the measuring provenance to use for finding measurements to calculate the position.'
         )
-        
+
         self.use_obj_association = self.add_par(
             'use_obj_association',
             False,
@@ -73,7 +78,7 @@ class ParsPositioner(Parameters):
             bool,
             'See doc on current_position_provenance_id'
         )
-        
+
         self.radius = self.add_par(
             'radius',
             2.0,
@@ -83,11 +88,11 @@ class ParsPositioner(Parameters):
               'with this object!  Ignored if use_obj_association=True' )
         )
 
-        self._enforce_no_new_attrs( True )
+        self._enforce_no_new_attrs = True
         self.override( kwargs )
 
     def get_process_name( self ):
-        'positioning'
+        return 'positioning'
 
 
 class Positioner:
@@ -96,7 +101,11 @@ class Positioner:
         # TODO : override from config
 
     def run( self, object_id, **kwargs ):
-        """Run the positioner, updating the database if necessary.
+        """Run the positioner, adding a row to the database if necessary.
+
+        If an ObjectPosition for this object with the right provenance
+        alrady exists, just return that.  Otherwise, calculate the
+        position, save it to the database, and return it.
 
         Parameters
         ----------
@@ -112,12 +121,8 @@ class Positioner:
 
         self.has_recalculated = False
 
-        if not isinstance( measuring_provenance, Provenance ):
-            measuring_provenance = Provenance.get( measuring_provenance )
-        if isinstance( object_id, Object ):
-            obj = object_id
-        else:
-            obj = Object.get_by_id( object_id )
+        measuring_provenance = Provenance.get( self.pars.measuring_provenance_id )
+        obj = object_id if isinstance( object_id, Object ) else Object.get_by_id( object_id )
         if obj is None:
             raise ValueError( "Unknown object {object_id}" )
 
@@ -128,14 +133,14 @@ class Positioner:
         #   are perhaps a little cavalier.)
         with SmartSession() as sess:
             # Figure out the provenance we're working with
-            prov = Provenance( process = self.get_process_name(),
+            prov = Provenance( process = self.pars.get_process_name(),
                                # THIS NEXT ONE WILL NEED TO BE FIXED WITH THE NEW CODE VERSION SYSTEM
                                code_version_id = measuring_provenance.code_version_id,
-                               parameters = self.pars.get_critical_parametrs(),
+                               parameters = self.pars.get_critical_pars(),
                                upstreams = [ measuring_provenance ] )
             prov.insert_if_needed( session=sess )
 
-            exsiting = ( sess.query( ObjectPosition )
+            existing = ( sess.query( ObjectPosition )
                          .filter( ObjectPosition.object_id==obj._id )
                          .filter( ObjectPosition.provenance_id==prov._id )
                         ).all()
@@ -149,14 +154,14 @@ class Positioner:
         #   we're going to bump up against a unique constraint
         #   violation, and we'll just shrug and move on (thereby solving
         #   the race condition, which is why I called it sort of above).
-            
+
         # Get the cutoff mjd from the self.pars.datetime parameter.
         #   First, Make sure we have a timezone-aware datetime.  If a timezone isn't
         #   given, we assume UTC.
-        dt = self.pars.datetime
+        dt = datetime.datetime.fromisoformat( self.pars.datetime )
         if dt.tzinfo is None:
-            dt = pytz.utc.localize( t )
-        mjdcut = astropy.time.time( dt, format='datetime' ).mjd
+            dt = pytz.utc.localize( dt )
+        mjdcut = astropy.time.Time( dt, format='datetime' ).mjd
 
         with Psycopg2Connection() as con:
             cursor = con.cursor()
@@ -165,9 +170,9 @@ class Positioner:
 
             if self.pars.use_obj_association:
                 # Find all measurements in the current band already associated with the object
-                
+
                 q = ( "SELECT m.ra, m.dec, m.flux_psf, m.flux_psf_err FROM measurements m "
-                      "INNER JOIN cutouts cu ON ms.cutouts_id=cu._id "
+                      "INNER JOIN cutouts c ON ms.cutouts_id=c._id "
                       "INNER JOIN source_lists s ON c.sources_id=s._id "
                       "INNER JOIN images i ON s.image_id=i._id "
                       "WHERE i.filter=%(filt)s "
@@ -198,8 +203,8 @@ class Positioner:
                 # Find all measurements in the current band within radius of curra, curdec
 
                 q = ( "SELECT m.ra, m.dec, m.flux_psf, m.flux_psf_err FROM measurements m "
-                      "INNER JOIN measurement_sets ms ON m.mesurementset_id=ms._id "
-                      "INNER JOIN cutouts cu ON ms.cutouts_id=cu._id "
+                      "INNER JOIN measurement_sets ms ON m.measurementset_id=ms._id "
+                      "INNER JOIN cutouts c ON ms.cutouts_id=c._id "
                       "INNER JOIN source_lists s ON c.sources_id=s._id "
                       "INNER JOIN images i ON s.image_id=i._id "
                       "WHERE i.filter=%(filt)s "
@@ -221,7 +226,7 @@ class Positioner:
         srcdec = srcdec[ w ]
         srcflux = srcflux[ w ]
         srcdflux = srcdflux[ w ]
-        
+
         if len( srcra ) == 0:
             raise RuntimeError( f"No matching measurements with S/N>{self.pars.sncut} found for object {obj._id}" )
 
@@ -234,11 +239,11 @@ class Positioner:
         while len(srcra) < lastpass:
             lastpass = len( srcra )
             meanra = srcra.mean()
-            mandec = srcdec.mean()
+            meandec = srcdec.mean()
             sigra = srcra.std()
             sigdec = srcdec.std()
             w = ( ( np.fabs( srcra - meanra ) < self.sigma_clip * sigra ) &
-                  ( np.fabs( srdec - meandec ) < self.sigma_clip * sigdec ) )
+                  ( np.fabs( srcdec - meandec ) < self.sigma_clip * sigdec ) )
             srcra = srcra[ w ]
             srcdec = srcdec[ w ]
             srcflux = srcflux[ w ]
@@ -251,7 +256,7 @@ class Positioner:
                 #   sigma_clip low enough (like 1 or 2), but hopefully
                 #   nobody will set it that absurdly low.
                 raise RuntimeError( f"For object {obj._id}, sigma clipping reduced things to a single measurement!" )
-            
+
 
         # Do a S/N weighted mean of the things that passed the sigma cutting.
         # (Is S/N what we want?  Or should we do (S/N)² in analogy to doing vartiance-weighted stuff?)

@@ -535,7 +535,7 @@ class ObjectPosition( Base, UUIDMixin, SpatiallyIndexed ):
 
     """
 
-    __tablename__ == "object_positions"
+    __tablename__ = "object_positions"
 
     @declared_attr
     def __table_args__(cls):  # noqa: N805
@@ -553,7 +553,7 @@ class ObjectPosition( Base, UUIDMixin, SpatiallyIndexed ):
 
     provenance_id = sa.Column(
         sa.ForeignKey( 'provenances._id', ondelete='CASCADE', name='object_position_provenance_id_fkey' ),
-        nullabel=False,
+        nullable=False,
         index=True,
         doc=( "ID of the provenance of this object position." )
     )
@@ -561,6 +561,3 @@ class ObjectPosition( Base, UUIDMixin, SpatiallyIndexed ):
     dra = sa.Column( sa.REAL, nullable=False, doc="Uncertainty on RA" )
     ddec = sa.Column( sa.REAL, nullable=False, doc="Uncertainty on Dec" )
     ra_dec_cov = sa.Column( sa.REAL, nullable=True, doc="Covariance on RA/Dec if available" )
-        
-
-    
