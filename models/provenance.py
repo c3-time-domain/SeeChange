@@ -91,36 +91,11 @@ class CodeVersion(Base, UUIDMixin):
         "acquired" : (0,1,0),
         'fakeinjection' : (0,1,0),
         'exposure' : (0,1,0),
+        'positioning': (0,1,0),
     }
 
-    _code_version_cache = {
-        'preprocessing': None,
-        'extraction': None,
-        'astrocal' : None,
-        'photocal' : None,
-        'subtraction': None,
-        'detection': None,
-        'cutting': None,
-        'measuring': None,
-        'scoring': None,
-        'bg': None,
-        'wcs': None,
-        'zp': None,
-        'test_process' : None,
-        'referencing' : None,
-        'download': None,
-        'DECam Default Calibrator' : None,
-        'import_external_reference' : None,
-        'no_process' : None,
-        'alignment' : None,
-        'coaddition' : None,
-        'manual_reference' : None,
-        'gratuitous image' : None,
-        'gratuitous sources' : None,
-        "acquired" : None,
-        'fakeinjection' : None,
-        'exposure' : None,
-    }
+    _code_version_cache = None
+
 
     @classmethod
     def get_by_id( cls, cvid, session=None ):
@@ -409,6 +384,9 @@ class Provenance(Base):
         code_version: CodeVersion
             CodeVersion object
         """
+
+        if CodeVersion._code_version_cache is None:
+            CodeVersion._code_version_cache = { i: None for i in CodeVersion.CODE_VERSION_DICT }
 
         if CodeVersion._code_version_cache[process] is None:
 

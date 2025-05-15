@@ -136,8 +136,7 @@ class Positioner:
         with SmartSession() as sess:
             # Figure out the provenance we're working with
             prov = Provenance( process = self.pars.get_process_name(),
-                               # THIS NEXT ONE WILL NEED TO BE FIXED WITH THE NEW CODE VERSION SYSTEM
-                               code_version_id = measuring_provenance.code_version_id,
+                               code_version_id = Provenance.get_code_version(self.pars.get_process_name()).id,
                                parameters = self.pars.get_critical_pars(),
                                upstreams = [ measuring_provenance ] )
             prov.insert_if_needed( session=sess )

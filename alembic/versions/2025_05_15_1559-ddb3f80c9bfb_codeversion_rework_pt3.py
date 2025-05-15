@@ -1,7 +1,7 @@
 """codeversion rework pt3
 
 Revision ID: ddb3f80c9bfb
-Revises: eec1bc160d1f
+Revises: 5ef7f7c09451
 Create Date: 2025-05-15 15:59:10.278792
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = 'ddb3f80c9bfb'
-down_revision = 'eec1bc160d1f'
+down_revision = '5ef7f7c09451'
 branch_labels = None
 depends_on = None
 
