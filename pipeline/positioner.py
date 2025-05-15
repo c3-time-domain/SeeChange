@@ -100,7 +100,7 @@ class ParsPositioner(Parameters):
 class Positioner:
     def __init__( self, **kwargs ):
         self.pars = ParsPositioner( **kwargs )
-        # TODO : override from config
+        # TODO : override from config (Issue #475)
 
     def run( self, object_id, **kwargs ):
         """Run the positioner, adding a row to the database if necessary.
