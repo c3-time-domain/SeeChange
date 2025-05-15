@@ -497,7 +497,7 @@ class DECam(Instrument):
         from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
 
         cfg = Config.get()
-        cv = Provenance.get_code_version( session=session )
+        cv = Provenance.get_code_version( session=session, process='DECam Default Calibrator' )
         prov = Provenance( process='DECam Default Calibrator', code_version_id=cv.id )
         prov.insert_if_needed( session=session )
 

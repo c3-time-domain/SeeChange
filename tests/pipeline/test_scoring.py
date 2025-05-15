@@ -4,13 +4,12 @@ from models.provenance import Provenance
 from pipeline.scoring import Scorer
 
 
-def test_rbbot( decam_datastore_through_measurements, code_version ):
+def test_rbbot( decam_datastore_through_measurements ):
     ds = decam_datastore_through_measurements
     scorer = Scorer( algorithm='RBbot-quiet-shadow-131-cut0.55' )
     # Need to update the DataStore's provenance tree because
     #   it was created with a different scorer algorithm
-    scoreprov = Provenance( code_version_id=code_version.id,
-                            process='scoring',
+    scoreprov = Provenance( process='scoring',
                             parameters=scorer.pars.get_critical_pars(),
                             upstreams=[ ds.prov_tree['measuring'] ]
                            )

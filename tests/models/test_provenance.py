@@ -1,83 +1,51 @@
 import pytest
 import uuid
+import psycopg2
 
 import sqlalchemy as sa
-import psycopg2.errors
 
 from models.base import SmartSession
-from models.provenance import CodeHash, CodeVersion, Provenance, ProvenanceTag
-
-from util.util import get_git_hash
+from models.provenance import CodeVersion, Provenance, ProvenanceTag
 
 
-def test_code_versions( code_version ):
-    cv = code_version
-    git_hash = get_git_hash()
+def test_codeversion_uniqueness():
 
-    # These things won't work if get_git_hash() returns None, because it won't
-    #   have a hash to try to add.  So, only run these tests where they might actually pass.
-    if git_hash is not None:
-        # Make sure we can't update a cv that's not yet in the database
-        newcv = CodeVersion( id="this_code_version_does_not_exist_v0.0.1" )
-        with pytest.raises( psycopg2.errors.ForeignKeyViolation,
-                            match='insert or update on table "code_hashes" violates foreign key' ):
-            newcv.update()
+    with SmartSession() as session:
+        cv_count_initial = len(session.scalars(sa.select( CodeVersion )).all())
 
-        # Make sure we have a code hash associated with code_version
-        cv.update()
-        with SmartSession() as sess:
-            n1 = sess.query( CodeHash ).count()
-        # Make sure that we can run it again
-        cv.update()
-        with SmartSession() as sess:
-            n2 = sess.query( CodeHash ).count()
-        assert n2 == n1
-
-    hashes = cv.get_code_hashes()
-    assert set( [ i.id for i in cv.code_hashes ] ) == set( [ i.id for i in hashes ] )
-    assert hashes is not None
-    if git_hash is not None:
-        # There probably won't be a code_hash at all if get_git_hash didn't work.
-        #   (Certainly not if the tests started with a clean database as they were supposed to.)
-        assert len(hashes) == 1
-        assert hashes[0] is not None
-        assert isinstance(hashes[0].id, str)
-        assert len(cv.code_hashes[0].id) == 40
-
-    # add old hash
-    old_hash = '696093387df591b9253973253756447079cea61d'
     try:
-        with SmartSession() as session:
-            ch = session.scalars(sa.select(CodeHash).where(CodeHash._id == git_hash)).first()
-            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
-            assert cv is not None
-            assert cv.id == code_version.id
-            if git_hash is not None:
-                assert cv.code_hashes[0].id == ch.id
+        cv = CodeVersion( process='cv_test', version_major=-1, version_minor=-1, version_patch=-1)
+        cv.insert()
+        cv2 = CodeVersion( process='cv_test', version_major=-2, version_minor=-1, version_patch=-1)
+        cv2.insert()
+        cv3 = CodeVersion( process='cv_test', version_major=-1, version_minor=-2, version_patch=-1)
+        cv3.insert()
+        cv4 = CodeVersion( process='cv_test', version_major=-1, version_minor=-1, version_patch=-2)
+        cv4.insert()
 
-            ch2 = session.scalars(sa.select(CodeHash).where(CodeHash._id == old_hash)).first()
-            assert ch2 is None
-            ch2 = CodeHash( id=old_hash, code_version_id=code_version.id )
-            session.add( ch2 )
-            session.commit()
         with SmartSession() as session:
-            cv = session.scalars(sa.select(CodeVersion).where(CodeVersion._id == 'test_v1.0.0')).first()
-            assert ch2.id in [ h.id for h in cv.code_hashes ]
+            cv_count_final = len(session.scalars(sa.select( CodeVersion )).all())
+        assert cv_count_final - cv_count_initial == 4
+
+        with pytest.raises( psycopg2.errors.UniqueViolation,
+                           match='violates unique constraint "_codeversion_process_versions_uc"'):
+            cv5 = CodeVersion( process='cv_test', version_major=-1, version_minor=-1, version_patch=-1)
+            cv5.insert()
 
     finally:
-        # Remove the code hash we added
         with SmartSession() as session:
-            session.execute( sa.text( "DELETE FROM code_hashes WHERE _id=:hash" ), { 'hash': old_hash } )
+            session.execute( sa.text( "DELETE FROM code_versions WHERE process=:process" ), { 'process': 'cv_test' } )
+            session.commit()
 
 
-def test_provenances(code_version):
+def test_provenances():
     # cannot create a provenance without a process name
     with pytest.raises( ValueError, match="must have a process name" ):
         Provenance()
 
     # cannot create a provenance with a code_version of wrong type
-    with pytest.raises( ValueError, match="Code version must be a str" ):
-        Provenance(process='foo', code_version_id=123)
+    with pytest.raises( ValueError, match="Code version must be a uuid" ):
+        Provenance(process='foo', code_version_id="testvalue")
 
     pid1 = pid2 = None
 
@@ -86,7 +54,6 @@ def test_provenances(code_version):
         with SmartSession() as session:
             p = Provenance(
                 process="test_process",
-                code_version_id=code_version.id,
                 parameters={"test_parameter": "test_value1"},
                 upstreams=[],
                 is_testing=True,
@@ -99,7 +66,6 @@ def test_provenances(code_version):
             assert len(pid1) == 20
 
             p2 = Provenance(
-                code_version_id=code_version.id,
                 parameters={"test_parameter": "test_value2"},
                 process="test_process",
                 upstreams=[],
@@ -112,27 +78,16 @@ def test_provenances(code_version):
             assert len(p2.id) == 20
             assert pid2 != pid1
 
-            # Check automatic code version getting
-            p3 = Provenance(
-                parameters={ "test_parameter": "test_value2" },
-                process="test_process",
-                upstreams=[],
-                is_testing=True
-            )
-
-            assert p3.id == p2.id
-            assert p3.code_version_id == code_version.id
     finally:
         with SmartSession() as session:
             session.execute(sa.delete(Provenance).where(Provenance._id.in_([pid1, pid2])))
             session.commit()
 
 
-def test_unique_provenance_hash(code_version):
+def test_unique_provenance_hash():
     parameter = uuid.uuid4().hex
     p = Provenance(
         process='test_process',
-        code_version_id=code_version.id,
         parameters={'test_parameter': parameter},
         upstreams=[],
         is_testing=True,
@@ -147,7 +102,6 @@ def test_unique_provenance_hash(code_version):
 
         p2 = Provenance(
             process='test_process',
-            code_version_id=code_version.id,
             parameters={'test_parameter': parameter},
             upstreams=[],
             is_testing=True,
@@ -228,22 +182,22 @@ def test_upstream_relationship( provenance_base, provenance_extra ):
             assert cv is not None
 
 
-def test_provenance_tag( code_version ):
+def test_provenance_tag():
     delprovids = set()
 
     try:
         # These are not valid parameter lists for the various processes,
         # but ProvenanceTag doesn't know anyting about that, so this is
         # all good for the test.
-        allprovs = [ Provenance( code_version_id=code_version.id, process='preprocessing', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='extraction', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='subtraction', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='detection', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='cutting', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='measuring', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='scoring', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='referencing', parameters={'a': 1} ),
-                     Provenance( code_version_id=code_version.id, process='referencing', parameters={'a': 2} )
+        allprovs = [ Provenance( process='preprocessing', parameters={'a': 1} ),
+                     Provenance( process='extraction', parameters={'a': 1} ),
+                     Provenance( process='subtraction', parameters={'a': 1} ),
+                     Provenance( process='detection', parameters={'a': 1} ),
+                     Provenance( process='cutting', parameters={'a': 1} ),
+                     Provenance( process='measuring', parameters={'a': 1} ),
+                     Provenance( process='scoring', parameters={'a': 1} ),
+                     Provenance( process='referencing', parameters={'a': 1} ),
+                     Provenance( process='referencing', parameters={'a': 2} )
                     ]
 
         for p in allprovs:
@@ -252,7 +206,7 @@ def test_provenance_tag( code_version ):
 
         # Make sure we get yelled at if there is a duplicate process
         tmpprovs = allprovs.copy()
-        tmpprovs.append( Provenance( code_version_id=code_version.id, process='preprocessing', parameters={'a': 2} ) )
+        tmpprovs.append( Provenance( process='preprocessing', parameters={'a': 2} ) )
         tmpprovs[-1].insert_if_needed()
         delprovids.add( tmpprovs[-1].id )
         with pytest.raises( ValueError, match='Process preprocessing is in the list of provenances more than once!' ):
@@ -275,7 +229,7 @@ def test_provenance_tag( code_version ):
 
         # Make sure that if we try to add something that's inconsistent, nothing gets added
         tmpprovs = allprovs.copy()
-        tmpprovs[0] = Provenance( code_version_id=code_version.id, process='preprocessing', parameters={'a': 2} )
+        tmpprovs[0] = Provenance( process='preprocessing', parameters={'a': 2} )
         tmpprovs[0].insert_if_needed()
         delprovids.add( tmpprovs[0].id )
         with pytest.raises( RuntimeError,

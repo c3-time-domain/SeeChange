@@ -119,10 +119,9 @@ def decam_default_calibrators(cache_dir, data_dir):
 
 
 @pytest.fixture(scope='session')
-def provenance_decam_prep(code_version):
+def provenance_decam_prep():
     p = Provenance(
         process="preprocessing",
-        code_version_id=code_version.id,
         parameters={
             'steps': None,
             'calibset': None,
@@ -377,7 +376,7 @@ def decam_datastore(
         decam_exposure,
         'S2',
         cache_dir=decam_cache_dir,
-        cache_base_name='007/c4d_20211025_044847_S2_r_Sci_IDDLGQ',
+        cache_base_name='007/c4d_20211025_044847_S2_r_Sci_CYNFGI',
         overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
         save_original_image=True,
         provtag='decam_datastore'
@@ -434,7 +433,7 @@ def decam_partial_datastore_factory( datastore_factory, decam_cache_dir,
         mat = re.search( r'^c4d_(?P<yymmdd>\d{6})_(?P<hhmmss>\d{6})_ori\.fits\.fz$', str(exposure.filepath) )
         if mat is None:
             raise ValueError( f"Failed to match {exposure.filepath}" )
-        cache_base_name = f'007/c4d_20{mat.group("yymmdd")}_{mat.group("hhmmss")}_S2_r_Sci_IDDLGQ'
+        cache_base_name = f'007/c4d_20{mat.group("yymmdd")}_{mat.group("hhmmss")}_S2_r_Sci_CYNFGI'
 
         ds = datastore_factory(
             exposure,
@@ -559,13 +558,12 @@ def decam_fits_image_filename2(download_url, decam_cache_dir):
 
 
 @pytest.fixture
-def decam_elais_e1_two_refs_datastore( code_version, download_url, decam_cache_dir, data_dir, datastore_factory ):
+def decam_elais_e1_two_refs_datastore( download_url, decam_cache_dir, data_dir, datastore_factory ):
     SCLogger.debug( "Starting decam_elais_e1_two_refs_datastore fixture" )
 
     filebase = 'ELAIS-E1-r-templ'
 
     prov = Provenance(
-        code_version_id=code_version.id,
         process='import_external_reference',
         parameters={},
     )
@@ -722,10 +720,9 @@ def decam_reference( decam_elais_e1_two_references ):
 
 
 @pytest.fixture(scope='session')
-def get_cached_decam_image( code_version, decam_cache_dir, download_url, datastore_factory ):
+def get_cached_decam_image( decam_cache_dir, download_url, datastore_factory ):
     improv = Provenance( process="acquired",
                          parameters={},
-                         code_version_id=code_version.id,
                          upstreams=[],
                          is_testing=True )
     improv.insert_if_needed()
@@ -890,9 +887,8 @@ def decam_fakeset( decam_datastore_through_zp ):
 
 
 @pytest.fixture
-def decam_fakeset_loaded( decam_fakeset, code_version ):
-    prov = Provenance( code_version_id=code_version.id,
-                       process='fakeinjection',
+def decam_fakeset_loaded( decam_fakeset ):
+    prov = Provenance( process='fakeinjection',
                        parameters={ 'random_seed': decam_fakeset.random_seed },
                        upstreams=[ Provenance.get( decam_fakeset.zp.provenance_id ) ],
                        is_testing=True )

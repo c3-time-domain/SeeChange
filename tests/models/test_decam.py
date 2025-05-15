@@ -300,7 +300,7 @@ def test_add_to_known_exposures( decam_raw_origin_exposures ):
 
 @pytest.mark.skipif( env_as_bool('SKIP_NOIRLAB_DOWNLOADS'), reason="SKIP_NOIRLAB_DOWNLOADS is set" )
 def test_decam_download_and_commit_exposure(
-        decam_exposure, code_version, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive
+        decam_exposure, decam_raw_origin_exposures, cache_dir, data_dir, test_config, archive
 ):
     # This one does a raw exposure;
     # test_decam_download_and_commit_reduced_origin_exposures downloads one

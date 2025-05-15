@@ -307,8 +307,7 @@ class FakeInjector:
             params = self.pars.get_critical_pars()
             params['random_seed'] = random_seed
             zpprov = Provenance.get( zp.provenance_id )
-            prov = Provenance( code_version_id=Provenance.get_code_version().id,
-                               process=self.pars.get_process_name(),
+            prov = Provenance( process=self.pars.get_process_name(),
                                parameters=params,
                                upstreams=[zpprov] )
             prov.insert_if_needed()

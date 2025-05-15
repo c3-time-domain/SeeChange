@@ -285,7 +285,7 @@ def test_multiple_images_badness(
         assert ref.bitflag == sim_image2.bitflag
         sim_image4 = Image.from_new_and_ref( zp3, ref )
         improvs = Provenance.get_batch( [ refprov.id, sim_image3.provenance_id ] )
-        prov4 = Provenance( process='testsub',
+        prov4 = Provenance( process='test_process',
                             upstreams=improvs,
                             parameters={},
                             is_testing=True
@@ -332,7 +332,7 @@ def test_multiple_images_badness(
 
         sim_image7 = Image.from_ref_and_new( ref, zp5 )
         improvs = Provenance.get_batch( [ refprov.id, sim_image6.provenance_id ] )
-        prov7 = Provenance( process='testsub',
+        prov7 = Provenance( process='test_process',
                             upstreams=improvs,
                             parameters={},
                             is_testing=True
@@ -371,7 +371,7 @@ def test_multiple_images_badness(
         upprovs = Provenance.get_batch( [ zp1.provenance_id, zp2.provenance_id,
                                           zp3.provenance_id, zp5.provenance_id,
                                           zp6.provenance_id ] )
-        prov8 = Provenance( process='testcoadd',
+        prov8 = Provenance( process='test_process',
                             upstreams=upprovs,
                             parameters={},
                             is_testing=True

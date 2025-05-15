@@ -49,8 +49,10 @@ def test_webap_provtaginfo( webap_rkauth_client, provenance_base, provenance_ext
     assert res['status'] == 'ok'
     assert res['tag'] == 'plugh'
     assert len( res['_id'] ) == 2
-    for key in [ '_id', 'process', 'code_version_id', 'bad_comment' ]:
+    for key in [ '_id', 'process', 'bad_comment' ]:
         assert set( res[key] ) == { getattr( provenance_base, key ), getattr( provenance_extra, key ) }
+    key = 'code_version_id' # special case now that code_version_id is a UUID
+    assert set( res[key] ) == { str(getattr( provenance_base, key )), str(getattr( provenance_extra, key )) }
     for key in [ 'is_outdated', 'replaced_by', 'is_testing' ]:
         assert set( bool(r) for r in res[key] ) == { bool( getattr( provenance_base, key ) ),
                                                      bool( getattr( provenance_extra, key ) ) }
@@ -62,13 +64,12 @@ def test_webap_provtaginfo( webap_rkauth_client, provenance_base, provenance_ext
     assert len( res['_id'] ) == 0
 
 
-def test_webap_provinfo( webap_rkauth_client, provenance_base, provenance_extra, code_version ):
+def test_webap_provinfo( webap_rkauth_client, provenance_base, provenance_extra ):
     res = webap_rkauth_client.send( f"/provenanceinfo/{provenance_base.id}" )
     assert isinstance( res, dict )
     assert res['status'] == 'ok'
     assert res['_id'] == provenance_base.id
-    assert res['code_version_id'] == code_version.id
-    assert res['process'] == 'test_base_process'
+    assert res['process'] == 'test_process'
     assert res['parameters'] == provenance_base.parameters
     assert res['is_testing']
     assert not res['is_bad']
@@ -78,7 +79,7 @@ def test_webap_provinfo( webap_rkauth_client, provenance_base, provenance_extra,
     res = webap_rkauth_client.send( f"/provenanceinfo/{provenance_extra.id}" )
     assert len( res['upstreams']['_id'] ) == 1
     assert res['upstreams']['_id'][0] == provenance_base.id
-    assert res['upstreams']['process'][0] == 'test_base_process'
+    assert res['upstreams']['process'][0] == 'test_process'
 
 
 def test_webap_clone_provtag( webap_admin_client, provenance_base, provenance_extra, provenance_tags_loaded ):
@@ -197,7 +198,7 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
 
         # Create a throwaway provenance and provenance tag so we can test
         #  things *not* being found
-        cv = Provenance.get_code_version()
+        cv = Provenance.get_code_version( process='no_process' )
         junkprov = Provenance( process='no_process', code_version_id=cv.id, is_testing=True )
         junkprov.insert()
         ProvenanceTag.addtag( 'no_such_tag', [ junkprov ] )
