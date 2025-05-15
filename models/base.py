@@ -355,7 +355,7 @@ def get_all_database_objects(display=False, session=None):
         A dictionary with the object class names as keys and the IDs list as values.
 
     """
-    from models.provenance import Provenance, ProvenanceTag, CodeVersion, CodeHash
+    from models.provenance import Provenance, ProvenanceTag, CodeVersion
     from models.datafile import DataFile
     from models.knownexposure import KnownExposure, PipelineWorker
     from models.exposure import Exposure
@@ -376,7 +376,7 @@ def get_all_database_objects(display=False, session=None):
     from models.user import AuthUser, PasswordLink, AuthGroup
 
     models = [
-        CodeHash, CodeVersion, Provenance, ProvenanceTag, DataFile, Exposure, Image,
+        CodeVersion, Provenance, ProvenanceTag, DataFile, Exposure, Image,
         SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, DeepScore,
         Object, CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference,
         RefSet, SensorSection, AuthUser, AuthGroup, PasswordLink, KnownExposure, PipelineWorker

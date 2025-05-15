@@ -1,9 +1,7 @@
 import collections.abc
 
 import os
-import re
 import pathlib
-import git
 from datetime import datetime
 import dateutil.parser
 import uuid
@@ -118,56 +116,6 @@ def remove_empty_folders(path, remove_root=True):
             remove_empty_folders(subpath, remove_root=True)
         if remove_root and not any(path.iterdir()):
             path.rmdir()
-
-
-def get_git_hash():
-    """Get the commit hash of the current git repo.
-
-    Tries in order:
-      * the environment variable GITHUB_SHA
-      * the git commit hash of the repo of the current directory
-      * the variable __git_hash from the file util/githash.py
-
-    If none of those work, or if the last one doesn't return something
-    that looks like a valid git hash, return None.
-
-    """
-
-    # Start with the git_hash that github uses (which may not actually
-    #   the hash of this revision beuse of PR shenanigans, but on github
-    #   tests we don't care, we just need _something_).
-    git_hash = os.getenv('GITHUB_SHA')
-    if git_hash is None:
-        # If that didn't work, try to read the git-hash of the
-        #   git repo the current directory is in.
-        try:
-            repo = git.Repo(search_parent_directories=True)
-            git_hash = repo.head.object.hexsha
-        except Exception:
-            git_hash = None
-
-    if git_hash is None:
-        try:
-            # If that didn't work, read the git hash from
-            #   util/githash.py
-            import util.githash
-            git_hash = util.githash.__git_hash
-            # There are reasons why this might have gone haywire even if
-            #   import util.githash didn't throw an exception.
-            #   githash.py is a file automatically created in the
-            #   Makefile using "git rev-parse HEAD".  If for whatever
-            #   reason the make is run in a directory that's not a git
-            #   checkout (e.g. somebody downloaded a distribution
-            #   tarball), then there won't be a git hash; in that case,
-            #   if the make worked, the file will set __git_hash to "".
-            #   So, check to make sure that the git_hash we got at
-            #   least vaguely looks like a 40-character hash.
-            if re.search( '^[a-z0-9]{40}$', git_hash ) is None:
-                git_hash = None
-        except Exception:
-            git_hash = None
-
-    return git_hash
 
 
 def parse_dateobs(dateobs=None, output='datetime'):

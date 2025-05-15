@@ -13,97 +13,114 @@ from sqlalchemy.schema import UniqueConstraint
 import psycopg2.extras
 import psycopg2.errors
 
-from util.util import get_git_hash, NumpyAndUUIDJsonEncoder
+from util.util import NumpyAndUUIDJsonEncoder
 from util.logger import SCLogger
 
 from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession, Psycopg2Connection
 
 
-class CodeHash(Base):
-    __tablename__ = "code_hashes"
 
-    _id = sa.Column(sa.String, primary_key=True)
-
-    @property
-    def id( self ):
-        return self._id
-
-    @id.setter
-    def id( self, val ):
-        self._id = val
-
-    code_version_id = sa.Column(sa.String, sa.ForeignKey("code_versions._id",
-                                                         ondelete="CASCADE",
-                                                         name='code_hashes_code_version_id_fkey'),
-                                index=True )
-
-
-    @property
-    def code_version( self ):
-        raise RuntimeError( "CodeHash.code_version is deprecated, don't use it" )
-
-    @code_version.setter
-    def code_version( self, val ):
-        raise RuntimeError( "CodeHash.code_version is deprecated, don't use it" )
-
-
-
-
-class CodeVersion(Base):
+class CodeVersion(Base, UUIDMixin):
     __tablename__ = 'code_versions'
 
-    _id = sa.Column(
-        sa.String,
-        primary_key=True,
+    @declared_attr
+    def __table_args__( cls ):  # noqa: N805
+        return (
+            UniqueConstraint('process',
+                             'version_minor',
+                             'version_major',
+                             'version_patch',
+                             name='_codeversion_process_versions_uc'),
+        )
+
+    version_major = sa.Column(
+        sa.Integer,
         nullable=False,
-        doc='Version of the code. Can use semantic versioning or date/time, etc. '
+        doc='As per Semantic Versioning, the MAJOR category of MAJOR.MINOR.PATCH'
     )
 
-    @property
-    def id( self ):
-        return self._id
+    version_minor = sa.Column(
+        sa.Integer,
+        nullable=False,
+        doc='As per Semantic Versioning, the MINOR category of MAJOR.MINOR.PATCH'
+    )
 
-    @id.setter
-    def id( self, val ):
-        self._id = val
+    version_patch = sa.Column(
+        sa.Integer,
+        nullable=False,
+        doc='As per Semantic Versioning, the PATCH category of MAJOR.MINOR.PATCH'
+    )
 
+    process = sa.Column(
+        sa.String,
+        nullable=False,
+        doc='Process for this CodeVersion'
+    )
 
-    # There is a kind of race condition in making this property the way we do, that in practice
-    # is not going to matter.  Somebody else could add a new hash to this code version, and we
-    # wouldn't get that new hash if we'd called code_hashes before on this code_version object.
-    # Not worth worrying about.
-    @property
-    def code_hashes( self ):
-        if self._code_hashes is None:
-            self._code_hashes = self.get_code_hashes()
-        return self._code_hashes
+    # represents the versions of each process in the current repository
+    #     sometimes when changing certain values here, hardcoded provenances in ptf and decam fixtures
+    # will need to be updated or tests will fail (Check warnings for base path not matching)
+    #
+    #     NOTE: PATCH changes should never result in a change in any data produced, and can be changed without
+    #     affecting provenances. MINOR changes will result in some change in the data products, and MAJOR will
+    #     represent a major change in how they interact with other parts of the pipeline.
+    CODE_VERSION_DICT = {
+        'preprocessing': (0,1,0),
+        'extraction': (0,1,0),
+        'astrocal' : (0,1,0),
+        'photocal' : (0,1,0),
+        'subtraction': (0,1,0),
+        'detection': (0,1,0),
+        'cutting': (0,1,0),
+        'measuring': (0,1,0),
+        'scoring': (0,1,0),
+        'bg': (0,1,0),
+        'wcs': (0,1,0),
+        'zp': (0,1,0),
+        'test_process' : (0,1,0),
+        'referencing' : (0,1,0),
+        'download': (0,1,0),
+        'DECam Default Calibrator' : (0,1,0),
+        'import_external_reference' : (0,1,0),
+        'no_process' : (0,1,0),
+        'alignment' : (0,1,0),
+        'coaddition' : (0,1,0),
+        'manual_reference' : (0,1,0),
+        'gratuitous image' : (0,1,0),
+        'gratuitous sources' : (0,1,0),
+        "acquired" : (0,1,0),
+        'fakeinjection' : (0,1,0),
+        'exposure' : (0,1,0),
+    }
 
-    def update(self, session=None):
-        """Create a new CodeHash object associated with this CodeVersion using the current git hash.
-
-        Will do nothing if it already exists, or if the current git hash can't be determined.
-
-        """
-        git_hash = get_git_hash()
-
-        if git_hash is None:
-            return  # quietly fail if we can't get the git hash
-
-        hash_obj = CodeHash( _id=git_hash, code_version_id=self.id )
-        try:
-            hash_obj.insert( session=session )
-        except psycopg2.errors.UniqueViolation as ex:
-            if 'duplicate key value violates unique constraint "code_hashes_pkey"' in str(ex):
-                # It's already there, so we don't care.
-                pass
-            else:
-                raise
-
-    def get_code_hashes( self, session=None ):
-        """Return all CodeHash objects associated with this codeversion"""
-        with SmartSession( session ) as sess:
-            hashes = sess.query( CodeHash ).filter( CodeHash.code_version_id==self.id ).all()
-        return hashes
+    _code_version_cache = {
+        'preprocessing': None,
+        'extraction': None,
+        'astrocal' : None,
+        'photocal' : None,
+        'subtraction': None,
+        'detection': None,
+        'cutting': None,
+        'measuring': None,
+        'scoring': None,
+        'bg': None,
+        'wcs': None,
+        'zp': None,
+        'test_process' : None,
+        'referencing' : None,
+        'download': None,
+        'DECam Default Calibrator' : None,
+        'import_external_reference' : None,
+        'no_process' : None,
+        'alignment' : None,
+        'coaddition' : None,
+        'manual_reference' : None,
+        'gratuitous image' : None,
+        'gratuitous sources' : None,
+        "acquired" : None,
+        'fakeinjection' : None,
+        'exposure' : None,
+    }
 
     @classmethod
     def get_by_id( cls, cvid, session=None ):
@@ -111,16 +128,27 @@ class CodeVersion(Base):
             cv = sess.query( CodeVersion ).filter( CodeVersion._id == cvid ).first()
         return cv
 
+    @classmethod
+    def is_cv_newer( cls, cv1, cv2 ):
+        """Returns True if cv1 is newer than cv2"""
+        # check if it is strictly older
+        if cv1.version_major > cv2.version_major:
+            return True
+        if (cv1.version_major == cv2.version_major
+            and cv1.version_minor > cv2.version_minor):
+            return True
+        if (cv1.version_major == cv2.version_major
+            and cv1.version_minor == cv2.version_minor
+            and cv1.version_patch > cv2.version_patch):
+            return True
+        return False
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
-        self._code_hashes = None
-
-    @orm.reconstructor
-    def init_on_load( self ):
-        self._code_hashes = None
 
     def __repr__( self ):
-        return f"<CodeVersion {self.id}>"
+        return (f"<CodeVersion process: {self.process}, version: {self.version_major}" +
+                f".{self.version_minor}.{self.version_patch}, id: {self.id}>")
 
 
 provenance_self_association_table = sa.Table(
@@ -280,12 +308,12 @@ class Provenance(Base):
 
         if 'code_version_id' in kwargs:
             code_version_id = kwargs.get('code_version_id')
-            if not isinstance(code_version_id, str ):
-                raise ValueError(f'Code version must be a str. Got {type(code_version_id)}.')
+            if not isinstance(code_version_id, uuid.UUID ):
+                raise ValueError(f'Code version must be a uuid. Got {type(code_version_id)}.')
             else:
                 self.code_version_id = code_version_id
         else:
-            cv = Provenance.get_code_version()
+            cv = Provenance.get_code_version( process=self.process )
             self.code_version_id = cv.id
 
         self.parameters = kwargs.get('parameters', {})
@@ -329,7 +357,7 @@ class Provenance(Base):
 
     @classmethod
     def get( cls, provid, session=None ):
-        """Get a provenace given an id, or None if it doesn't exist."""
+        """Get a provenance given an id, or None if it doesn't exist."""
         with SmartSession( session ) as sess:
             return sess.query( Provenance ).filter( Provenance._id==provid ).first()
 
@@ -344,43 +372,31 @@ class Provenance(Base):
         if self.process is None or self.parameters is None or self.code_version_id is None:
             raise ValueError('Provenance must have process, code_version_id, and parameters defined. ')
 
+        # for hash get the static versions from codeversion rather than UUID which changes each run of tests
+        cv_string = None
+        if self.code_version_id is not None:
+            with SmartSession() as sess:
+                cv = sess.query( CodeVersion ).filter( CodeVersion._id == self.code_version_id ).first()
+                # Don't use patch because patch shouldn't change data thus require a provenance change
+                cv_string = f"{cv.version_major}.{cv.version_minor}"
+
         superdict = dict(
             process=self.process,
             parameters=self.parameters,
             upstream_hashes=[ u.id for u in self._upstreams ],  # this list is ordered by upstream ID
-            code_version=self.code_version_id
+            code_version=cv_string
         )
         json_string = json.dumps(superdict, sort_keys=True, cls=NumpyAndUUIDJsonEncoder)
 
         self._id = base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
 
-    @classmethod
-    def combined_upstream_hash( cls, upstreams ):
-        json_string = json.dumps( [ u.id for u in upstreams ], sort_keys=True, cls=NumpyAndUUIDJsonEncoder)
-        return base64.b32encode(hashlib.sha256(json_string.encode("utf-8")).digest()).decode()[:20]
-
-
-    def get_combined_upstream_hash(self):
-        """Make a single hash from the hashes of the upstreams.
-
-        This is useful for identifying RefSets.
-        """
-        return self.__class__.combined_upstream_hash( self.upsterams )
-
-
-    # This is a cache.  It won't change in one run, so we can save
-    #  querying the database repeatedly in get_code_version by saving
-    #  the result.
-    _current_code_version = None
 
     @classmethod
-    def get_code_version(cls, session=None):
+    def get_code_version(cls, process, session=None):
         """Get the most relevant or latest code version.
 
-        Tries to match the current git hash with a CodeHash
-        instance, but if that doesn't work (e.g., if the
-        code is running on a machine without git) then
-        the latest CodeVersion is returned.
+        Searches the DB to check if the codeversion matching the current
+        codebase already exists, then returns or creates-and-returns it.
 
         Parameters
         ----------
@@ -394,20 +410,39 @@ class Provenance(Base):
             CodeVersion object
         """
 
-        if Provenance._current_code_version is None:
-            code_version = None
-            with SmartSession( session ) as session:
-                code_hash = session.scalars(sa.select(CodeHash).where(CodeHash._id == get_git_hash())).first()
-                if code_hash is not None:
-                    code_version = session.scalars( sa.select(CodeVersion)
-                                                    .where( CodeVersion._id == code_hash.code_version_id ) ).first()
-                if code_version is None:
-                    code_version = session.scalars(sa.select(CodeVersion).order_by(CodeVersion._id.desc())).first()
-            if code_version is None:
-                raise RuntimeError( "There is no code_version in the database.  Put one there." )
-            Provenance._current_code_version = code_version
+        if CodeVersion._code_version_cache[process] is None:
 
-        return Provenance._current_code_version
+            # down the line may want to perform a comparison with the most recent using a search like this
+            # with SmartSession( session ) as session:
+            #     if code_version is None:
+            #         code_version = session.scalars(sa.select(CodeVersion)
+            #                                        .where( CodeVersion.process == process )
+            #                                        .order_by(CodeVersion.version_major.desc())
+            #                                        .order_by(CodeVersion.version_minor.desc())
+            #                                        .order_by(CodeVersion.version_patch.desc())).first()
+
+            # ISSUE consider raising exception if there exists a more up-to-date version than the hardcoded
+
+            codebase_semver = CodeVersion.CODE_VERSION_DICT[process]  # (major, minor, patch) eg. (2,0,1)
+            with SmartSession() as sess:
+                code_version = sess.scalars(sa.select(CodeVersion)
+                                               .where( CodeVersion.process == process )
+                                               .where( CodeVersion.version_major == codebase_semver[0] )
+                                               .where( CodeVersion.version_minor == codebase_semver[1] )
+                                               .where( CodeVersion.version_patch == codebase_semver[2] )).first()
+
+            if code_version is not None:
+                CodeVersion._code_version_cache[process] = code_version
+            else:
+                cv = CodeVersion( process=process,
+                                  version_major=codebase_semver[0],
+                                  version_minor=codebase_semver[1],
+                                  version_patch=codebase_semver[2]
+                )
+                cv.insert()  # should never collide here and need upsert due to above
+                CodeVersion._code_version_cache[process] = cv
+
+        return CodeVersion._code_version_cache[process]
 
 
     def insert( self, session=None, _exists_ok=False ):

@@ -161,13 +161,13 @@ def test_warp_decam( decam_datastore_through_zp, decam_reference ):
             warped.delete_from_disk_and_database()
 
 
-def test_alignment_in_image( ptf_reference_image_datastores, code_version ):
+def test_alignment_in_image( ptf_reference_image_datastores):
     try:  # cleanup at the end
         # ptf_reference_images = ptf_reference_images[:4]  # speed things up using fewer images
         coaddparams = { 'alignment': { 'method': 'swarp' }, 'alignment_index': 'last' }
 
         coadder = Coadder( **coaddparams )
-        prov, _ = coadder.get_coadd_prov( ptf_reference_image_datastores, code_version_id=code_version.id )
+        prov, _ = coadder.get_coadd_prov( ptf_reference_image_datastores )
         prov.insert_if_needed()
         if prov.parameters['alignment_index'] == 'last':
             index = -1

@@ -258,7 +258,7 @@ def test_upsert( provenance_base ):
 
 
 # This test also implicitly tests UUIDMixin.get_by_id and UUIDMixin.get_back_by_ids
-def test_upsert_list( code_version, provenance_base, provenance_extra ):
+def test_upsert_list( provenance_base, provenance_extra ):
     # Set the logger to show the SQL emitted by SQLAlchemy for this test.
     # (See comments in models/base.py UUIDMixin.upsert_list.)
     # See this with pytest --capture=tee-sys

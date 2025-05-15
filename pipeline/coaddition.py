@@ -771,7 +771,7 @@ class Coadder:
                 raise RuntimeError( "Coadder didn't find all the expected upstream provenances!" )
 
         if code_version_id is None:
-            code_version = Provenance.get_code_version()
+            code_version = Provenance.get_code_version( process='coaddition' )
         else:
             code_version = CodeVersion.get_by_id( code_version_id )
 

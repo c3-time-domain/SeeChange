@@ -1938,7 +1938,7 @@ class Instrument:
         """
 
         if code_version is None:
-            code_version = Provenance.get_code_version()
+            code_version = Provenance.get_code_version( process=process )
         provenance = Provenance(
             code_version_id=code_version.id,
             process=process,

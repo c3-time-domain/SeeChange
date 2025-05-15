@@ -387,14 +387,14 @@ def test_image_save_onlyimage( sim_image1 ):
         assert ifp.read() == "Hello, world."
 
 
-def test_image_save_fpack( code_version ):
+def test_image_save_fpack():
     saved_images = []
     prov = None
     rng = np.random.default_rng( 42 )
     origcfgobj = Config._configs[ Config._default ]
     try:
-        prov = Provenance( process="test", code_version_id=code_version.id, is_testing=True,
-                           parameters={"gratuitous": rng.normal() } )
+        prov = Provenance( process="test_process",
+                           is_testing=True, parameters={"gratuitous": rng.normal() } )
         prov.insert()
         # Unfortunately, the sim_image fixtures don't have high enough pixel
         #   values to give a good test of the fpacking.  (It manages to save

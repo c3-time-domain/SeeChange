@@ -28,7 +28,6 @@ def test_exposure_instrument_provenance(sim_exposure1):
         assert sim_exposure1.id is not None
         assert sim_exposure1.provenance_id is not None
         prov = Provenance.get( sim_exposure1.provenance_id )
-        assert prov.code_version_id == 'test_v1.0.0'
         assert prov.parameters == {'instrument': 'DemoInstrument', 'proc_type': 'raw'}
 
 

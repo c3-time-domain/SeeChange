@@ -14,7 +14,7 @@ from models.background import Background
 from models.source_list import SourceList
 
 
-def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code_version):
+def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance):
     image = decam_raw_image
     sources = None
     prov = None
@@ -25,7 +25,6 @@ def test_save_load_backgrounds(decam_raw_image, decam_raw_image_provenance, code
         image.insert()
 
         prov = Provenance(
-            code_version_id=code_version.id,
             process='extraction',
             parameters={'method': 'sep', 'format': 'scalar'},
             upstreams=[ decam_raw_image_provenance ],

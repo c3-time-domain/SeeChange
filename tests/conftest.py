@@ -29,7 +29,7 @@ from models.base import (
     get_archive_object
 )
 from models.knownexposure import KnownExposure, PipelineWorker
-from models.provenance import CodeVersion, CodeHash, Provenance
+from models.provenance import Provenance
 from models.catalog_excerpt import CatalogExcerpt
 from models.exposure import Exposure
 from models.object import Object
@@ -117,7 +117,7 @@ def pytest_sessionstart(session):
 def any_objects_in_database( dbsession ):
     """Look in the database, print errors and return False if things are left behind.
 
-    The "allowed" tables (CodeVersion, CodeHash, SensorSection,
+    The "allowed" tables (CodeVersion, SensorSection,
     CatalogExcerpt, Provenance, Object, PasswordLink) will not cause
     False to be returned, but will just print a debug message.
 
@@ -140,7 +140,7 @@ def any_objects_in_database( dbsession ):
         #    think the pipeline will automatically add provenances if
         #    they don't exist.  As such, the tests may implicitly
         #    add provenances they don't explicitly track.
-        if Class.__name__ in ['CodeVersion', 'CodeHash', 'SensorSection', 'CatalogExcerpt',
+        if Class.__name__ in ['CodeVersion', 'SensorSection', 'CatalogExcerpt',
                               'Provenance', 'Object', 'PasswordLink']:
             SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             continue
@@ -212,11 +212,19 @@ def pytest_sessionfinish(session, exitstatus):
                 dbsession.delete(prov)
         dbsession.commit()
 
+        # ISSUE 479 this will find and DEBUG report the codeversions that are about to get killed in the next line.
         any_objects = any_objects_in_database( dbsession )
 
-        # delete the CodeVersion object (this should remove all provenances as well,
+        # delete the CodeVersion objects (this should remove all provenances as well,
         # and that should cascade to almost everything else)
-        dbsession.execute(sa.delete(CodeVersion).where(CodeVersion._id == 'test_v1.0.0'))
+        dbsession.execute( sa.text( "TRUNCATE TABLE code_versions CASCADE" ) )
+        #   ISSUE: This is no longer quite so simple with provenances grabbing the current
+        # codeversion when making new objects and a process like 'testing' no longer making sense.
+        # It would be some effort to make a good testing-codeversions fixture and force all tests
+        # to only use those codeversions (potentially difficult as provenances are not coded totally
+        # consistently in the pipeline) however I am not sure I see great harm in using real codeversion
+        # objects given that the main information they contain is which version of the codebase the
+        # tests were run on.
 
         # remove any Object objects from tests, as these are not automatically cleaned up:
         dbsession.execute(sa.delete(Object).where(Object.is_test.is_(True)))
@@ -363,34 +371,10 @@ def test_config():
     return Config.get()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def code_version():
-    cv = CodeVersion( id="test_v1.0.0" )
-    # cv.insert()
-    # A test was failing on this line saying test_v1.0.0 already
-    # existed.  This happened on github actions, but *not* locally.  I
-    # can't figure out what's up.  So, for now, work around by just
-    # doing upsert.
-    cv.upsert()
-
-    with SmartSession() as session:
-        newcv = session.scalars( sa.select(CodeVersion ) ).first()
-        assert newcv is not None
-
-    yield cv
-
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM code_versions WHERE _id='test_v1.0.0'" ) )
-        # Verify that the code hashes got cleaned out too
-        them = session.query( CodeHash ).filter( CodeHash.code_version_id == 'test_v1.0.0' ).all()
-        assert len(them) == 0
-
-
 @pytest.fixture
-def provenance_base(code_version):
+def provenance_base():
     p = Provenance(
-        process="test_base_process",
-        code_version_id=code_version.id,
+        process="test_process",
         parameters={"test_parameter": uuid.uuid4().hex},
         upstreams=[],
         is_testing=True,
@@ -447,10 +431,9 @@ def provenance_tags_loaded( provenance_base, provenance_extra ):
 
 # use this to make all the pre-committed Image fixtures
 @pytest.fixture(scope="session")
-def provenance_preprocessing(code_version):
+def provenance_preprocessing():
     p = Provenance(
         process="preprocessing",
-        code_version_id=code_version.id,
         parameters={"test_parameter": "test_value"},
         upstreams=[],
         is_testing=True,
@@ -465,10 +448,9 @@ def provenance_preprocessing(code_version):
 
 
 @pytest.fixture(scope="session")
-def provenance_extraction(code_version):
+def provenance_extraction():
     p = Provenance(
         process="extraction",
-        code_version_id=code_version.id,
         parameters={"test_parameter": "test_value"},
         upstreams=[],
         is_testing=True,
@@ -840,7 +822,7 @@ def browser():
 # Fake objects for testing stuff
 
 @pytest.fixture
-def bogus_image_factory( code_version, provenance_base ):
+def bogus_image_factory( provenance_base ):
     def load_bogus_image( _id, filepath ):
         img = Image( _id=_id,
                      format='fits',
@@ -894,7 +876,7 @@ def bogus_image_factory( code_version, provenance_base ):
 
 
 @pytest.fixture
-def bogus_sources_factory( code_version, provenance_base ):
+def bogus_sources_factory( provenance_base ):
     def load_bogus_sources( _id, filepath, image ):
         improv = Provenance.get( image.provenance_id )
         prov = Provenance( code_version_id=improv.code_version_id,
