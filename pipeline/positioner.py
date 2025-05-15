@@ -2,13 +2,15 @@ import datetime
 import pytz
 
 import numpy as np
-
 import astropy.time
+import psycopg2.errors
 
 from models.provenance import Provenance
 from models.object import Object, ObjectPosition
 from models.base import Psycopg2Connection, SmartSession
 from pipeline.parameters import Parameters
+
+from util.logger import SCLogger
 
 
 class ParsPositioner(Parameters):
@@ -20,7 +22,7 @@ class ParsPositioner(Parameters):
             '1970-01-01 00:00:00',
             str,
             ( 'Only images from times before this will be included in the positioner run. '
-              'Must be in 8601 format (with a space in place of the T allowed).' )
+              'Must be in ISO 8601 format (with a space in place of the T allowed).' )
         )
 
         self.sigma_clip = self.add_par(
@@ -155,6 +157,8 @@ class Positioner:
         #   violation, and we'll just shrug and move on (thereby solving
         #   the race condition, which is why I called it sort of above).
 
+        self.has_recalculated = True
+
         # Get the cutoff mjd from the self.pars.datetime parameter.
         #   First, Make sure we have a timezone-aware datetime.  If a timezone isn't
         #   given, we assume UTC.
@@ -179,10 +183,10 @@ class Positioner:
                       "  AND m.object_id=%(objid)s" )
                 cursor.execute( q, { 'filt': self.pars.filter, 'objid': obj._id } )
                 rows = cursor.fetchall()
-                srcra = np.array( [ rows[0] for r in rows ] )
-                srcdec = np.array( [ rows[1] for r in rows ] )
-                srcflux = np.array( [ rows[2] for r in rows ] )
-                srcdflux = np.array( [ rows[3] for r in rows ] )
+                srcra = np.array( [ r[0] for r in rows ] )
+                srcdec = np.array( [ r[1] for r in rows ] )
+                srcflux = np.array( [ r[2] for r in rows ] )
+                srcdflux = np.array( [ r[3] for r in rows ] )
 
             else:
                 # Get the object's current position
@@ -191,17 +195,17 @@ class Positioner:
                 if self.pars.current_position_provenance_id is not None:
                     q = ( "SELECT ra, dec FROM object_positions "
                           "WHERE object_id=%(objid)s AND provenance_id=%(curposprov)s" )
-                    cursor.execute( q, { 'objid': obj._id, 'curpposprov': self.pars.current_position_provenance_id } )
+                    cursor.execute( q, { 'objid': obj._id, 'curposprov': self.pars.current_position_provenance_id } )
                     row = cursor.fetchone()
-                    if ( row is None ) and ( not self.pars.fall_back_object_position ):
-                        raise RuntimeError( f"Cannot find current position for object {obj._id} with position "
-                                            f"provenance {self.pars.current_position_provenance_id}" )
+                    if row is None:
+                        if not self.pars.fall_back_object_position:
+                            raise RuntimeError( f"Cannot find current position for object {obj._id} with position "
+                                                f"provenance {self.pars.current_position_provenance_id}" )
                     else:
                         curra = row[0]
                         curdec = row[1]
 
                 # Find all measurements in the current band within radius of curra, curdec
-
                 q = ( "SELECT m.ra, m.dec, m.flux_psf, m.flux_psf_err FROM measurements m "
                       "INNER JOIN measurement_sets ms ON m.measurementset_id=ms._id "
                       "INNER JOIN cutouts c ON ms.cutouts_id=c._id "
@@ -211,14 +215,18 @@ class Positioner:
                       "  AND i.mjd<=%(mjdcut)s "
                       "  AND ms.provenance_id=%(measprov)s "
                       "  AND q3c_radial_query( m.ra, m.dec, %(ra)s, %(dec)s, %(rad)s ) " )
-                cursor.execute( q, { 'filt': self.pars.filter, 'mjdcut': mjdcut,
-                                     'measprov': self.pars.measuring_provenance_id,
-                                     'ra': curra, 'dec': curdec, 'rad': self.pars.radius/3600. } )
+                subdict = { 'filt': self.pars.filter, 'mjdcut': mjdcut,
+                            'measprov': self.pars.measuring_provenance_id,
+                            'ra': curra, 'dec': curdec, 'rad': self.pars.radius/3600. }
+                SCLogger.debug( f"Running query: {cursor.mogrify(q, subdict)}" )
+                cursor.execute( q, subdict )
                 rows = cursor.fetchall()
-                srcra = np.array( [ rows[0] for r in rows ] )
-                srcdec = np.array( [ rows[1] for r in rows ] )
-                srcflux = np.array( [ rows[2] for r in rows ] )
-                srcdflux = np.array( [ rows[3] for r in rows ] )
+                srcra = np.array( [ r[0] for r in rows ] )
+                srcdec = np.array( [ r[1] for r in rows ] )
+                srcflux = np.array( [ r[2] for r in rows ] )
+                srcdflux = np.array( [ r[3] for r in rows ] )
+
+        nmatch = len(srcra )
 
         # Filter out measurements with S/N < 3
         w = srcflux / srcdflux > self.pars.sncut
@@ -226,6 +234,7 @@ class Positioner:
         srcdec = srcdec[ w ]
         srcflux = srcflux[ w ]
         srcdflux = srcdflux[ w ]
+        nhighsn = len(srcra)
 
         if len( srcra ) == 0:
             raise RuntimeError( f"No matching measurements with S/N>{self.pars.sncut} found for object {obj._id}" )
@@ -242,20 +251,25 @@ class Positioner:
             meandec = srcdec.mean()
             sigra = srcra.std()
             sigdec = srcdec.std()
-            w = ( ( np.fabs( srcra - meanra ) < self.sigma_clip * sigra ) &
-                  ( np.fabs( srcdec - meandec ) < self.sigma_clip * sigdec ) )
+            w = ( ( np.fabs( srcra - meanra ) < self.pars.sigma_clip * sigra ) &
+                  ( np.fabs( srcdec - meandec ) < self.pars.sigma_clip * sigdec ) )
             srcra = srcra[ w ]
             srcdec = srcdec[ w ]
             srcflux = srcflux[ w ]
             srcdflux = srcdflux[ w ]
             if len(srcra) == 0:
-                # ... this may not be formally possible unless somebody sets sigma_clip to 0 or negative.
-                raise RuntimeError( f"For object {obj._id}, noting passed the sigma clipping!" )
+                # This should only happen if somebody set sigmas_clip to something absurdly small.
+                # (Or if, somehow, the measurements saved to the database all came out exactly the same,
+                # so the stdev is 0.)
+                raise RuntimeError( f"For object {obj._id}, nothing passed the sigma clipping!" )
             if len(srcra) == 1:
                 # ... I think this formally possible if somebody sets
                 #   sigma_clip low enough (like 1 or 2), but hopefully
                 #   nobody will set it that absurdly low.
                 raise RuntimeError( f"For object {obj._id}, sigma clipping reduced things to a single measurement!" )
+
+        SCLogger.debug( f"{len(srcra)} passed the sigma clipping out of {nhighsn} S/N>3 sources, "
+                        f"out of {nmatch} sources close enough to the previous position." )
 
 
         # Do a S/N weighted mean of the things that passed the sigma cutting.
@@ -264,9 +278,9 @@ class Positioner:
         weightsum = weights.sum()
         meanra = ( weights * srcra ).sum() / weightsum
         meandec = ( weights * srcdec ).sum() / weightsum
-        ravar = ( weights * ( srcra - meanra )**2 ).sum() / weightsum
-        decvar = ( weights * ( srcdec - meandec )**2 ).sum() / weightsum
-        covar = ( weights * ( srcra - meanra ) * (srcdec - meandec ) ) / weightsum
+        ravar = ( weights**2 * ( srcra - meanra )**2 ).sum() / ( weightsum**2 )
+        decvar = ( weights**2 * ( srcdec - meandec )**2 ).sum() / ( weightsum**2 )
+        covar = ( weights**2 * ( srcra - meanra ) * (srcdec - meandec ) ).sum() / ( weightsum**2 )
 
         objpos = ObjectPosition( object_id=obj._id,
                                  provenance_id=prov._id,
@@ -276,7 +290,22 @@ class Positioner:
                                  ddec=np.sqrt(decvar),
                                  ra_dec_cov=covar )
         objpos.calculate_coordinates()
-        objpos.insert()
-        # TODO, catch existing error
+
+        try:
+            objpos.insert()
+        except psycopg2.errors.UniqueViolation():
+            # This means that somebody else calculated and saved this
+            # ObjectPosition between back when we made sure it didn't
+            # exist and now.  In that case, all is well, we just wasted
+            # a bit of effort.  Pull down the existing object and
+            # return that
+            existing = ( sess.query( ObjectPosition )
+                         .filter( ObjectPosition.object_id==obj._id )
+                         .filter( ObjectPosition.provenance_id==prov._id )
+                        ).all()
+            if len(existing) > 0:
+                return existing[0]
+            else:
+                raise RuntimeError( "This should never happen." )
 
         return objpos

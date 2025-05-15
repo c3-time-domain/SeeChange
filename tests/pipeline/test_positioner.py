@@ -1,7 +1,9 @@
 import pytest
 import uuid
+import datetime
 
 import numpy as np
+import astropy.time
 
 from models.object import Object, ObjectPosition
 from models.image import Image
@@ -18,14 +20,14 @@ def fake_data_for_position_tests( provenance_base ):
 
     # Might be worth thinking about the right way to scale position
     #   scatter with S/N, but for now, here's a cheesy one that will
-    #   give us a pos sigma of 0.1" at s/n 20 of higher, scaling up
+    #   give us a pos sigma of 0.1" at s/n 20 or higher, scaling up
     #   linearly to a pos sigma of 1.5" at s/n 3 (and more for worse)
-    possigma = lambda sn: min( 0.1, 1.5 - ( 1.4 * (sn-3)/17 ) )
+    possigma = lambda sn: max( 0.1, 1.5 - ( 1.4 * (sn-3)/17 ) ) / 3600.
 
     rng = np.random.default_rng( seed=42 )
 
     bands = [ 'g', 'r', 'i', 'z' ]
-    nimages = 40
+    nimages = 200
     images = []
     sourceses = []
     cutoutses = []
@@ -67,8 +69,8 @@ def fake_data_for_position_tests( provenance_base ):
                              provenance_id=provenance_base.id,
                              format="fits",
                              type="Diff",
-                             mjd=60000.,
-                             end_mjd=60000.000694,
+                             mjd=60000. + i,
+                             end_mjd=60000.000694 + i,
                              exp_time=60.,
                              instrument='DemoInstrument',
                              telescope='DemoTelescope',
@@ -135,39 +137,39 @@ def fake_data_for_position_tests( provenance_base ):
                     sn = rng.exponential( 10. )
                     flux = dflux * sn
 
-                ra += rng.normal( scale=possigma( sn ) )
-                dec += rng.norma( scale=possigma( sn ) )
+                    ra += rng.normal( scale=possigma( sn ) / np.cos( dec * np.pi / 180. ) )
+                    dec += rng.normal( scale=possigma( sn ) )
 
-                meas = Measurements( _id=uuid.uuid4(),
-                                     measurementset_id=mset.id,
-                                     index_in_sources=dex1,
-                                     flux_psf=flux,
-                                     flux_psf_err=dflux,
-                                     flux_apertures=[],
-                                     flux_apertures_err=[],
-                                     aper_radii=[],
-                                     ra=ra,
-                                     dec=dec,
-                                     object_id=obj.id,
-                                     # positioner doesn't use x/y, or the
-                                     #  other measurements, but they're
-                                     #  non-nullable, so just put stuff
-                                     #  there.
-                                     center_x_pixel=1024.,
-                                     center_y_pixel=1024.,
-                                     x=1024.,
-                                     y=1024.,
-                                     gfit_x=1024.,
-                                     gfit_y=1024.,
-                                     major_width=1.,
-                                     minor_width=1.,
-                                     position_angle=0.,
-                                     is_bad=False
-                                    )
-                meas.insert( session=sess )
-                measurementses.append( meas )
+                    meas = Measurements( _id=uuid.uuid4(),
+                                         measurementset_id=mset.id,
+                                         index_in_sources=dex,
+                                         flux_psf=flux,
+                                         flux_psf_err=dflux,
+                                         flux_apertures=[],
+                                         flux_apertures_err=[],
+                                         aper_radii=[],
+                                         ra=ra,
+                                         dec=dec,
+                                         object_id=obj.id,
+                                         # positioner doesn't use x/y, or the
+                                         #  other measurements, but they're
+                                         #  non-nullable, so just put stuff
+                                         #  there.
+                                         center_x_pixel=1024.,
+                                         center_y_pixel=1024.,
+                                         x=1024.,
+                                         y=1024.,
+                                         gfit_x=1024.,
+                                         gfit_y=1024.,
+                                         major_width=1.,
+                                         minor_width=1.,
+                                         position_angle=0.,
+                                         is_bad=False
+                                        )
+                    meas.insert( session=sess )
+                    measurementses.append( meas )
 
-            yield True
+            yield ra0, dec0
     finally:
         with Psycopg2Connection() as conn:
             cursor=conn.cursor()
@@ -189,20 +191,107 @@ def fake_data_for_position_tests( provenance_base ):
             conn.commit()
 
 
-def test_positioner( fake_data_for_position_tests, provenance_base ):
+def test_positioner( fake_data_for_position_tests, provenance_base, provenance_extra ):
+    ra0, dec0 = fake_data_for_position_tests
+
     with SmartSession() as sess:
         obj = sess.query( Object ).filter( Object.name=="HelloWorld" ).first()
         assert obj is not None
         objpos = sess.query( ObjectPosition ).filter( ObjectPosition.object_id==obj.id ).all()
         assert len(objpos) == 0
 
-    poser = Positioner( measuring_provenance_id=provenance_base.id )
-    poser.run( obj.id )
+    t1 = astropy.time.Time( 60100, format='mjd' ).to_datetime( datetime.UTC ).isoformat()
+    poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t1 )
+    retval = poser.run( obj.id )
+    assert poser.has_recalculated
 
+    # Make sure the database got loaded with the same ObjectPosition we got returned
     with SmartSession() as sess:
         objpos = sess.query( ObjectPosition ).filter( ObjectPosition.object_id==obj.id ).all()
         assert len(objpos) == 1
         objpos = objpos[0]
+        assert objpos.id == retval.id
+        assert objpos.ra == pytest.approx( retval.ra, rel=1e-9 )
+        assert objpos.dec == pytest.approx( retval.dec, rel=1e-9 )
+
+    # Make sure the position is within uncertainty of what's expected
+    assert objpos.ra == pytest.approx( ra0, abs=3. * objpos.dra )
+    assert objpos.dec == pytest.approx( dec0, abs=3. * objpos.ddec )
+    # TODO: rationalize these, right now they're just "what I got"
+    assert objpos.dra < 0.16
+    assert objpos.ddec < 0.16
+
+    # If we use an later time that includes more measurements, we should get a better position
+    t2 = astropy.time.Time( 69999, format='mjd' ).to_datetime( datetime.UTC ).isoformat()
+    poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t2 )
+    objpos2 = poser.run( obj.id )
+    assert poser.has_recalculated
+    assert objpos2.ra == pytest.approx( ra0, abs=3. * objpos2.dra )
+    assert objpos2.dec == pytest.approx( dec0, abs=3. * objpos2.ddec )
+    assert objpos2.dra < objpos.ra
+    assert objpos2.ddec < objpos.ddec
+
+    # Make sure it finds a pre-existing position
+    objpos3 = poser.run( obj.id )
+    assert not poser.has_recalculated
+    assert objpos3.id == objpos2.id
+
+    # This previous things used the ra and dec in the object table as a
+    # starting point.  Now try using a previous ObjectPosition as a
+    # starting point and see if we get a different answer.  Make the search
+    # radius small to increase the chance that we won't catch all the same stuff
+    # even when the search positions are not the same.
+    poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t1, radius=0.25 )
+    objpos3 = poser.run( obj.id )
+    assert poser.has_recalculated
+    assert objpos3.ra == pytest.approx( ra0, abs=3. * objpos3.dra )
+    assert objpos3.dec == pytest.approx( dec0, abs=3. * objpos3.ddec )
+    poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t1, radius=0.25,
+                        current_position_provenance_id=objpos2.provenance_id )
+    objpos4 = poser.run( obj.id )
+    assert poser.has_recalculated
+    assert objpos4.ra == pytest.approx( ra0, abs=3. * objpos3.dra )
+    assert objpos4.dec == pytest.approx( dec0, abs=3. * objpos3.ddec )
+    assert objpos4.ra != pytest.approx( objpos3.ra, abs=1e-5 )
+    assert objpos4.dec != pytest.approx( objpos3.dec, abs=1e-5 )
+
+    # Make sure that if we try to base a position on a previous position,
+    #  but no previous position with that provenance exists, it either
+    #  fails or falls back, based on configuration.
+    with pytest.raises( RuntimeError, match="Cannot find current position for object" ):
+        poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t1,
+                            current_position_provenance_id=provenance_extra.id,
+                            fall_back_object_position=False )
+        poser.run( obj.id )
+
+    poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t1,
+                        current_position_provenance_id=provenance_extra.id,
+                        fall_back_object_position=True )
+    objpos5 = poser.run( obj.id )
+    assert poser.has_recalculated
+    assert objpos5.ra == pytest.approx( ra0, abs=3. * objpos5.dra )
+    assert objpos5.dec == pytest.approx( dec0, abs=3. * objpos5.ddec )
+    # In fact, these positions should be the same as the origina objpos;
+    #   that was based off of object position, here we should have
+    #   fallen back to object position
+    assert objpos5.ra == pytest.approx( objpos.ra, rel=1e-9 )
+    assert objpos5.dec == pytest.approx( objpos.dec, rel=1e-9 )
+
+    # Give an absurd S/N to make sure it throws everything out
+    with pytest.raises( RuntimeError, match="No matching measurements with S/N>" ):
+        poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t2, sncut=1e10 )
+        poser.run( obj.id )
+
+    # Give an absurd sigma clipping cutoff to make sure it throws everything out
+    with pytest.raises( RuntimeError, match="For object .*, nothing passed the sigma clipping!" ):
+        poser = Positioner( measuring_provenance_id=provenance_base.id, datetime=t2, sigma_clip=0.01 )
+        poser.run( obj.id )
+
+    # I'd love to test that our handling of the race condition described
+    # in the comments in positioner.py::Positioner.run works, but to do
+    # that I'd have to put in various options for sleeps and such into
+    # that code, and I hate to mung up the code just for purposes of
+    # testing something that probably won't come up very often....
 
     import pdb; pdb.set_trace()
     pass
