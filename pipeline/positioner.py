@@ -258,7 +258,7 @@ class Positioner:
             srcflux = srcflux[ w ]
             srcdflux = srcdflux[ w ]
             if len(srcra) == 0:
-                # This should only happen if somebody set sigmas_clip to something absurdly small.
+                # This should only happen if somebody set sigma_clip to something absurdly small.
                 # (Or if, somehow, the measurements saved to the database all came out exactly the same,
                 # so the stdev is 0.)
                 raise RuntimeError( f"For object {obj._id}, nothing passed the sigma clipping!" )
