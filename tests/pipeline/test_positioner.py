@@ -292,6 +292,3 @@ def test_positioner( fake_data_for_position_tests, provenance_base, provenance_e
     # that I'd have to put in various options for sleeps and such into
     # that code, and I hate to mung up the code just for purposes of
     # testing something that probably won't come up very often....
-
-    import pdb; pdb.set_trace()
-    pass
