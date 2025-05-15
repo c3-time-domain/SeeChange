@@ -5,6 +5,7 @@ from collections import defaultdict
 
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.schema import UniqueConstraint
 
 from astropy.time import Time
 from astropy.coordinates import SkyCoord
@@ -490,3 +491,76 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             names.append( name )
 
         return names
+
+
+class ObjectPosition( Base, UUIDMixin, SpatiallyIndexed ):
+    """ObjectPosition stores a mean position of an object.
+
+    Because our objects are (mostly) supposed to be immutable once they
+    are created in the database, we aren't supposed to update the ra/dec
+    field of Object after it's first created.  However, as we get more
+    observations of a single object, we (in principle) have better
+    measurements of the position of that object.  Jibing that with the
+    provenance model is a bit challenging, though.  The provenance of an
+    object position depends on exactly which measurements went into it,
+    and because that comes from many different images, it's not as
+    simple as most of our provenance.
+
+    ObjectPositions are calculated by pipeline/positioner.py
+
+    To make this as reproducible as possible, object position provenance
+    will include a date_calculated parameter.  The idea is that when
+    calculating an object provenance, only images from before that date
+    will be included in the calculation.  This still isn't completely
+    reproducible, as it's entirely possible that images from earlier
+    dates will be added to the database *after* the object position is
+    calculated.  However, with some care from the people running the
+    pipeline, this can approximate that.  Certainly for things like Data
+    Releases, this is possible, as long as things are done in the same
+    order.
+
+    (Note that Objects themselves don't have provenance, but are global
+    things.  However, ObjectPosition does have a provenance.  At some
+    level, you can think of Object as putting a flag down saying "this
+    is the name of an object".  The ra/dec in the objects table is a
+    first approximation of the object's position (and, at least as of
+    this writing, is what's used for associating measurements).
+    ObjectPosition represents an actual measurement.)
+
+    (One might argue that ObjectPosition should be updated based on
+    position-variable forced photometry (if that's not an oxymoron), but
+    in practice basing it on DIA discoveries will give you pretty much
+    the same answer, and it's not worth getting fiddly about the
+    difference.)
+
+    """
+
+    __tablename__ == "object_positions"
+
+    @declared_attr
+    def __table_args__(cls):  # noqa: N805
+        return (
+            sa.Index(f"{cls.__tablename__}_q3c_ang2ipix_idx", sa.func.q3c_ang2ipix(cls.ra, cls.dec)),
+            UniqueConstraint( 'object_id', 'provenance_id', name='object_position_obj_prov_unique' ),
+        )
+
+    object_id = sa.Column(
+        sa.ForeignKey( 'objects._id', ondelete='CASCADE', name='object_position_object_id_fkey' ),
+        nullable=False,
+        index=True,
+        doc='ID of the object that this is the position for.'
+    )
+
+    provenance_id = sa.Column(
+        sa.ForeignKey( 'provenances._id', ondelete='CASCADE', name='object_position_provenance_id_fkey' ),
+        nullabel=False,
+        index=True,
+        doc=( "ID of the provenance of this object position." )
+    )
+
+    dra = sa.Column( sa.REAL, nullable=False, doc="Uncertainty on RA" )
+    ddec = sa.Column( sa.REAL, nullable=False, doc="Uncertainty on Dec" )
+    ra_dec_cov = sa.Column( sa.REAL, nullable=True, doc="Covariance on RA/Dec if available" )
+        
+
+    
