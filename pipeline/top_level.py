@@ -308,8 +308,7 @@ class Pipeline:
         try:  # create (and commit, if not existing) all provenances for the products
             provs = self.make_provenance_tree( ds,
                                                no_provtag=no_provtag,
-                                               ok_no_ref_prov=ok_no_ref_prov,
-                                               all_steps=self.pars.generate_report )
+                                               ok_no_ref_prov=ok_no_ref_prov )
         except Exception as e:
             raise RuntimeError( f'Failed to create the provenance tree: {str(e)}' ) from e
 
