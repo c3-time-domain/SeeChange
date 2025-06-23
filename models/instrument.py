@@ -502,12 +502,13 @@ class Instrument:
     def fetch_sections(self, session=None, dateobs=None):
         """Get the sensor section objects associated with this instrument.
 
-        TEMPORARILY REPLACED.  This was causing a gigantic performance
-        hit in searching for NOIRLab references.  Each exposure searched
-        was on a new dateobs, so was not in the section cache, so was
-        causing the database to be hit *every* *single* *time*... even
-        though we know for DECam that it was never ever loading anything
-        new.  So, currently, just ignore the database.
+        TEMPORARILY REPLACED.  See Issue #487.  This was causing a
+        gigantic performance hit in searching for NOIRLab references.
+        Each exposure searched was on a new dateobs, so was not in the
+        section cache, so was causing the database to be hit *every*
+        *single* *time*... even though we know for DECam that it was
+        never ever loading anything new.  So, currently, just ignore the
+        database.
 
         We should think about the concept of date-dependent sensor
         sections and do a better implemtnation of them than one that
