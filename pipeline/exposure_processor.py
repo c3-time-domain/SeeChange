@@ -3,7 +3,6 @@ import argparse
 import re
 import datetime
 import multiprocessing
-import multiprocessing.pool
 import logging
 import psutil
 
@@ -243,7 +242,7 @@ class ExposureProcessor:
 
             if self.numprocs > 1:
                 SCLogger.info( f"Creating pool of {self.numprocs} processes to do {len(chips)} chips" )
-                with multiprocessing.pool.Pool( self.numprocs, maxtasksperchild=1 ) as pool:
+                with multiprocessing.Pool( self.numprocs, maxtasksperchild=1 ) as pool:
                     for chip in chips:
                         pool.apply_async( self.processchip, ( chip, ), {}, self.collate )
 

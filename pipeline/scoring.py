@@ -15,6 +15,10 @@ from models.enums_and_bitflags import DeepscoreAlgorithmConverter
 from util.config import Config
 from util.logger import SCLogger
 
+# Make sure that pytorch doesn't try to run lots of threads.
+# Run this at module import to make sure it always happens.
+torch.set_num_threads( 1 )
+
 
 class ParsScorer(Parameters):
     def __init__(self, **kwargs):

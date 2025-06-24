@@ -232,7 +232,7 @@ RUN source /venv/bin/activate \
 
 # Pytorch
 RUN source /venv/bin/activate \
-    && uv pip install torch==2.3.0+cpu --find-links https://download.pytorch.org/whl/torch_stable.html
+    && uv pip install torch==2.3.1+cpu --find-links https://download.pytorch.org/whl/torch_stable.html
 
 # RBbot
 # Remove the requirements.txt file because it will install

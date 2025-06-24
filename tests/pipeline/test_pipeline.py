@@ -427,7 +427,7 @@ def test_full_run_hotpants( decam_exposure, decam_reference, decam_default_calib
 
 
 
-@pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TEST=1 to run this test" )
+@pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS=1 to run this test" )
 def test_data_flow(decam_exposure, decam_reference, decam_default_calibrators, pipeline_for_tests, archive):
     """Test that the pipeline runs end-to-end.
 
