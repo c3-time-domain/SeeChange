@@ -10,7 +10,7 @@ import json
 # Have to manually import any instrument modules
 #  we want to be able to find.  (Otherwise, they
 #  won't be found when models.instrument  is
-#  initialized.)
+#  initialized.)  See Issue #465.
 import models.decam   # noqa: F401
 from models.instrument import get_instrument_instance
 
@@ -108,29 +108,31 @@ class Updater:
                     # Got a message, parse it
                     conn, _ = sock.accept()
                     bdata = conn.recv( _max_message_size )
+                    _logger.debug( f"Got message {bdata.decode('utf-8')}" )
                     try:
                         msg = json.loads( bdata )
                     except Exception:
-                        _logger.error( f"Failed to parse json: {bdata}" )
+                        _logger.error( f"Failed to parse json: {bdata}, sending error back" )
                         conn.send( json.dumps( {'status': 'error',
                                                 'error': 'Error parsing message as json' } ) )
                         continue
 
+                    reply = None
                     if ( not isinstance( msg, dict ) ) or ( 'command' not in msg.keys() ):
                         _logger.error( f"Don't understand message {msg}" )
-                        conn.send( json.dumps( { 'status': 'error',
-                                                 'error': "Don't understand message {msg}" } ).encode( 'utf-8' ) )
+                        reply = json.dumps( { 'status': 'error',
+                                              'error': "Don't understand message {msg}" } ).encode( 'utf-8' )
 
                     elif msg['command'] == 'die':
                         _logger.info( "Got die, dying." )
-                        conn.send( json.dumps( { 'status': 'dying' } ).encode( 'utf-8' ) )
+                        reply = json.dumps( { 'status': 'dying' } ).encode( 'utf-8' )
                         done = True
 
                     elif msg['command'] == 'forceupdate':
                         # Forced update resets the timeout clock
                         self.lasttimeout = time.perf_counter()
                         self.run_update()
-                        conn.send( json.dumps( { 'status': 'forced update' } ).encode( 'utf-8' ) )
+                        reply = json.dumps( { 'status': 'forced update' } ).encode( 'utf-8' )
 
                     elif msg['command'] == 'updateparameters':
                         _logger.info( "Updating poll parameters" )
@@ -157,7 +159,7 @@ class Updater:
                             self.instrument_name = None
                             self.instrument = None
                             self.updateargs = None
-                            conn.send( json.dumps( { 'status': 'error', 'error': errmsg } ).encode( 'utf-8' ) )
+                            reply = json.dumps( { 'status': 'error', 'error': errmsg } ).encode( 'utf-8' )
                         else:
                             try:
                                 self.configchangetime = now()
@@ -166,36 +168,43 @@ class Updater:
                                     if self.instrument is None:
                                         raise RuntimeError( "Unknown instrument" )
                             except Exception:
-                                conn.send( json.dumps( { 'status': 'error',
-                                                         'error': f'Failed to find instrument {self.instrument_name}' }
-                                                      ).encode( 'utf-8' ) )
+                                reply = json.dumps( { 'status': 'error',
+                                                      'error': f'Failed to find instrument {self.instrument_name}' }
+                                                   ).encode( 'utf-8' )
                                 self.instrument_name = None
                                 self.instrument = None
                                 self.updateargs = None
                             else:
-                                conn.send( json.dumps( { 'status': 'updated',
-                                                         'instrument': self.instrument_name,
-                                                         'updateargs': self.updateargs,
-                                                         'hold': int(self.hold),
-                                                         'pause': int(self.pause),
-                                                         'timeout': self.timeout,
-                                                         'lastupdate': self.lastupdate,
-                                                         'configchangetime': self.configchangetime }
-                                                      ).encode( 'utf-8' ) )
+                                reply = json.dumps( { 'status': 'updated',
+                                                      'instrument': self.instrument_name,
+                                                      'updateargs': self.updateargs,
+                                                      'hold': int(self.hold),
+                                                      'pause': int(self.pause),
+                                                      'timeout': self.timeout,
+                                                      'lastupdate': self.lastupdate,
+                                                      'configchangetime': self.configchangetime }
+                                                   ).encode( 'utf-8' )
 
                     elif msg['command'] == 'status':
-                        conn.send( json.dumps( { 'status': 'status',
-                                                 'timeout': self.timeout,
-                                                 'instrument': self.instrument_name,
-                                                 'updateargs': self.updateargs,
-                                                 'hold': int(self.hold),
-                                                 'pause': int(self.pause),
-                                                 'lastupdate': self.lastupdate,
-                                                 'configchangetime': self.configchangetime } ).encode( 'utf-8' ) )
+                        reply= json.dumps( { 'status': 'status',
+                                             'timeout': self.timeout,
+                                             'instrument': self.instrument_name,
+                                             'updateargs': self.updateargs,
+                                             'hold': int(self.hold),
+                                             'pause': int(self.pause),
+                                             'lastupdate': self.lastupdate,
+                                             'configchangetime': self.configchangetime } ).encode( 'utf-8' )
                     else:
-                        conn.send( json.dumps( { 'status': 'error',
-                                                 'error': f"Unrecognized command {msg['command']}" }
-                                              ).encode( 'utf-8' ) )
+                        reply = json.dumps( { 'status': 'error',
+                                              'error': f"Unrecognized command {msg['command']}" }
+                                           ).encode( 'utf-8' )
+
+                    if reply is None:
+                        _logger.error( "reply is None; this shouldn't happen!" )
+                    else:
+                        _logger.debug( f"Sending reply {reply.decode('utf-8')}" )
+                        conn.send( reply )
+
             except Exception:
                 _logger.exception( "Exception in poll loop; continuing" )
 

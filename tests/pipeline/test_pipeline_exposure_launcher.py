@@ -112,6 +112,7 @@ def test_exposure_launcher_conductor_through_step( conductor_connector,
                                                    conductor_config_decam_pull_all_held,
                                                    decam_elais_e1_two_references,
                                                    user, admin_user ):
+    """Make sure ExposureLauncher stops where the conductor tells it to."""
     decam_exposure_name = 'c4d_230702_080904_ori.fits.fz'
 
     try:
@@ -151,6 +152,7 @@ def test_exposure_launcher_through_step( conductor_connector,
                                          conductor_config_decam_pull_all_held,
                                          decam_elais_e1_two_references,
                                          user, admin_user ):
+    """Make sure that if ExposureLauncher is told to stop at a step *earlier* than conductor, it stops there."""
     decam_exposure_name = 'c4d_230702_080904_ori.fits.fz'
 
     try:
