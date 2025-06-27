@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import shutil
 import pathlib
 import hashlib
@@ -247,6 +248,21 @@ def test_decam_download_and_commit_reduced_origin_exposure( decam_reduced_origin
         assert all( os.path.isfile(p) for p in fpaths )
         # Make sure it's actually in the database
         assert Exposure.get_by_id( exps[0].id ) is not None
+
+        # Make sure that if we try to download again with
+        #   skip_existing=True, it very quickly (defined here as 1
+        #   second, which is maybe too conservative) returns and does
+        #   not do anything.
+        t0 = time.perf_counter()
+        indexes, exps = decam_reduced_origin_exposures.download_exposures( indexes=[0], skip_existing=True )
+        assert time.perf_counter() - t0 < 1
+        assert len(indexes) == 0
+        assert len(exps) == 0
+        t0 = time.perf_counter()
+        exps = decam_reduced_origin_exposures.download_and_commit_exposures( indexes=[0], skip_existing=True )
+        assert time.perf_counter() - t0 < 1
+        assert len(exps) == 0
+
     finally:
         for e in exps:
             e.delete_from_disk_and_database()

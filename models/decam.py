@@ -1251,7 +1251,8 @@ class DECamOriginExposures:
 
 
     def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,
-                            clobber=False, existing_ok=False, skip_failures=False, session=None ):
+                            clobber=False, existing_ok=False, skip_existing=True,
+                            skip_failures=False, session=None ):
         """Download exposures, and maybe weight and data quality frames as well.
 
         Parameters
@@ -1283,6 +1284,15 @@ class DECamOriginExposures:
             extensions = expinfo.index.values
             fpaths = {}
             try:
+                if 'image' not in extensions:
+                    SCLogger.error( "There is no 'image' in extensions, I can't cope.  Skipping exposure." )
+                else:
+                    fname = pathlib.Path( self._frame.loc[ dex, 'image' ].archive_filename ).name
+                    with SmartSession(session) as sess:
+                        existing_exposures = sess.query( Exposure ).filter( Exposure.origin_identifier==fname ).first()
+                        if existing_exposures is not None:
+                            SCLogger.info( f"Exposure with origin_identifier {fname} already in database, skipping." )
+                            continue
                 for ext in extensions:
                     if onlyexposures and ext != 'image':
                         continue

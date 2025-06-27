@@ -2376,7 +2376,8 @@ class InstrumentOriginExposures:
 
 
     def download_exposures( self, outdir=".", indexes=None, onlyexposures=True,
-                            clobber=False, existing_ok=False, skip_failures=False, session=None ):
+                            clobber=False, existing_ok=False, skip_existing=True,
+                            skip_failures=False, session=None ):
         """Download exposures from the origin.
 
         Parameters
@@ -2401,7 +2402,15 @@ class InstrumentOriginExposures:
            otherwise will throw an exception.
 
         existing_ok: bool
-           Only matters if clobber=False (see above)
+           Only matters if clobber=False (see above).  Note that this is
+           a different thing from skip_existing; the parmaeter names are
+           perhaps unfortuate.
+
+        skip_existing: bool
+           If True, will silently skip downloading exposures that
+           already exist in the database.  If False, will raise an
+           exception on an attempt to load an exposure that already
+           exists in the database.
 
         session: Session
            Database session to use.  (A new one will be created if this
