@@ -353,138 +353,6 @@ seechange.Conductor = class
 
     // **********************************************************************
 
-    fill_known_exposures_table_header_row()
-    {
-        let self = this;
-        let subscripts = [ '₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉' ];
-
-        rkWebUtil.wipeDiv( this.known_exposures_table_header_row );
-        let th = rkWebUtil.elemaker( "th", this.known_exposures_table_header_row );
-        th = rkWebUtil.elemaker( "th", this.known_exposures_table_header_row, { "text": "held?" } );
-
-        for ( let field of [ 'instrument', 'identifier', 'mjd', 'target', 'ra', 'dec', 'b',
-                             'filter', 'exp_time', 'project', 'cluster', 'claim_time', 'release_time',
-                             'exposure' ] ) {
-            let th = rkWebUtil.elemaker( "th", this.known_exposures_table_header_row );
-
-            let clickfunc = (e) => {
-                if ( self.known_exposures_sort_order.indexOf( '+' + field ) >= 0 )
-                    self.resort_known_exposures_table_header_rows( field, false )
-                else
-                    self.resort_known_exposures_table_header_rows( field, true )
-            }
-
-            let span = rkWebUtil.elemaker( "span", th, { "text": field,
-                                                         "classes": [ "link" ],
-                                                         "click": clickfunc } );
-
-            let sortdex = this.known_exposures_sort_order.indexOf( '+' + field );
-            if ( sortdex == 0 ) {
-                th.appendChild( document.createTextNode( '▲' ) );
-            }
-            else if ( ( sortdex > 0 )  && ( sortdex <= 9 ) ) {
-                th.appendChild( document.createTextNode( '▵' + subscripts[sortdex] ) )
-            }
-            sortdex = this.known_exposures_sort_order.indexOf( '-' + field );
-            if ( sortdex == 0 ) {
-                th.appendChild( document.createTextNode( '▼' ) );
-            }
-            else if ( ( sortdex > 0 )  && ( sortdex <= 9 ) ) {
-                th.appendChild( document.createTextNode( '▿' + subscripts[sortdex] ) )
-            }
-        }
-    }
-
-    // **********************************************************************
-
-    resort_known_exposures_table_header_rows( field, increasing )
-    {
-        let self = this;
-
-        // Map of field name in header to property of this.known_exposures
-        let fieldmap = { 'instrument': 'instrument',
-                         'identifier': 'identifier',
-                         'mjd': 'mjd',
-                         'target': 'target',
-                         'ra': 'ra',
-                         'dec': 'dec',
-                         'b': 'gallat',
-                         'filter': 'filter',
-                         'exp_time': 'exp_time',
-                         'project': 'project',
-                         'cluster': 'cluster_id',
-                         'claim_time': 'claim_time',
-                         'release_time': 'release_time',
-                         'exposure': 'exposure_id',
-                       };
-
-        let sorter = (a, b) => {
-            for ( let field of self.known_exposures_sort_order ) {
-                let incr = ( field[0] == '+' );
-                let f = field.substring(1);
-                let aval = a[fieldmap[f]];
-                let bval = b[fieldmap[f]];
-                if ( typeof aval == 'string' ) aval = aval.toLowerCase();
-                if ( typeof bval == 'string' ) bval = bval.toLowerCase();
-
-                if ( aval > bval ) {
-                    if ( incr )
-                        return 1;
-                    else
-                        return -1
-                }
-                else if ( aval < bval ) {
-                    if ( incr )
-                        return -1;
-                    else
-                        return 1;
-                }
-            }
-            return 0;
-        }
-
-        // Remove field from the sort order if it's there
-        let i = 0;
-        while ( i < this.known_exposures_sort_order.length ) {
-            if ( this.known_exposures_sort_order[i].substring( 1 ) == field )
-                this.known_exposures_sort_order.splice( i, 1 );
-            else
-                i += 1;
-        }
-        // Add field to beginning of sort order
-        if ( increasing )
-            this.known_exposures_sort_order.splice( 0, 0, '+' + field )
-        else
-            this.known_exposures_sort_order.splice( 0, 0, '-' + field )
-
-        // Sort
-        this.known_exposures.sort( sorter );
-
-        // Redo table
-        rkWebUtil.wipeDiv( this.known_exposures_table );
-        this.known_exposures_table.appendChild( this.known_exposures_table_header_row );
-        this.fill_known_exposures_table_header_row();
-
-        let grey = 0;
-        let coln = 3;
-        for ( let ke of this.known_exposures ) {
-            if ( coln == 0 ) {
-                grey = 1 - grey;
-                coln = 3;
-            }
-            coln -= 1;
-
-            let tr = this.known_exposure_rows[ ke.id ];
-            tr.classList.remove( ...["greybg", "heldexposures"] );
-            if ( grey ) tr.classList.add( "greybg" );
-            if ( ke.hold ) tr.classList.add( "heldexposures" );
-            this.known_exposures_table.appendChild( tr );
-        }
-    }
-
-
-    // **********************************************************************
-
     show_known_exposures( data )
     {
         let self = this;
@@ -536,53 +404,38 @@ seechange.Conductor = class
         button = rkWebUtil.button( p, "Clear Cluster Claim", () => { self.clear_cluster_claim() } );
         button.classList.add( "hmargin" );
 
-        this.known_exposures_table = rkWebUtil.elemaker( "table",
-                                                         this.knownexpdiv,
-                                                         { "classes": [ "borderedcells" ] } );
-        this.known_exposures_table_header_row = rkWebUtil.elemaker( "tr", this.known_exposures_table );
-        this.fill_known_exposures_table_header_row();
-
-        let grey = 0;
-        let coln = 3;
         for ( let ke of data.knownexposures ) {
-            if ( coln == 0 ) {
-                grey = 1 - grey;
-                coln = 3;
-            }
-            coln -= 1;
-
             this.known_exposures.push( ke );
-
-            tr = rkWebUtil.elemaker( "tr", this.known_exposures_table );
-            if ( grey ) tr.classList.add( "greybg" );
-            if ( ke.hold ) tr.classList.add( "heldexposure" );
-            this.known_exposure_rows[ ke.id ] = tr;
-
+        }
+        
+        let rowrenderer = ( ke ) => {
+            tr = rkWebUtil.elemaker( "tr", null );
             td = rkWebUtil.elemaker( "td", tr );
-            this.known_exposure_checkboxes[ ke.id ] =
+            self.known_exposure_checkboxes[ ke.id ] =
                 rkWebUtil.elemaker( "input", td, { "attributes": { "type": "checkbox" } } );
             // (For debugging.)
-            // this.known_exposure_checkbox_manual_state[ ke.id ] = 0;
-            // this.known_exposure_checkboxes[ ke.id ].addEventListener(
+            // self.known_exposure_checkbox_manual_state[ ke.id ] = 0;
+            // self.known_exposure_checkboxes[ ke.id ].addEventListener(
             //     "click", () => {
             //         self.known_exposure_checkbox_manual_state[ ke.id ] =
             //             ( self.known_exposure_checkboxes[ ke.id ].checked ? 1 : 0 );
             //         console.log( "Setting " + ke.id + " to " + self.known_exposure_checkboxes[ ke.id ].checked );
             //     } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": ke.hold ? "***" : "" } );
-            this.known_exposure_hold_tds[ ke.id ] = td;
+            if ( ke.hold )
+                td = rkWebUtil.elemaker( "td", tr, { "text": "***", "classes": [ "heldexposures" ] } );
+            else
+                td = rkWebUtil.elemaker( "td", tr, { "text": "" } );
+            self.known_exposure_hold_tds[ ke.id ] = td;
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.instrument } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.identifier } );
-            if ( ! hide_exposure_details ) {
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": ke.target } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.ra ).toFixed( 5 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.dec ).toFixed( 5 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.gallat ).toFixed( 1 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": ke.filter } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).toFixed( 1 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": ke.project } );
-            }
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.target } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.ra ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.dec ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.gallat ).toFixed( 1 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.filter } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).toFixed( 1 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.project } );
             td = rkWebUtil.elemaker( "td", tr );
             span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ], "text": ke.cluster_id } );
             ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } )
@@ -594,7 +447,37 @@ seechange.Conductor = class
                                      { "text": ( ke.release_time == null ) ?
                                        "" : rkWebUtil.dateUTCFormat(rkWebUtil.parseDateAsUTC(ke.release_time)) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.exposure_id } );
+
+            return tr;
         }
+
+        let fields = [ '', 'held?', 'instrument', 'identifier', 'mjd', 'target', 'ra', 'dec', 'b',
+                       'filter', 'exp_time', 'project', 'cluster', 'claim_time', 'release_time',
+                       'exposure' ];
+        let nosortfields = [ '', 'held?' ];
+        let fieldmap = { 'instrument': 'instrument',
+                         'identifier': 'identifier',
+                         'mjd': 'mjd',
+                         'target': 'target',
+                         'ra': 'ra',
+                         'dec': 'dec',
+                         'b': 'gallat',
+                         'filter': 'filter',
+                         'exp_time': 'exp_time',
+                         'project': 'project',
+                         'cluster': 'cluster_id',
+                         'claim_time': 'claim_time',
+                         'release_time': 'release_time',
+                         'exposure': 'exposure_id',
+                       };
+        let tab = new rkWebUtil.SortableTable( this.known_exposures, rowrenderer, fields,
+                                               { 'fieldmap': fieldmap,
+                                                 'dictoflists': false,
+                                                 'nosortfields': nosortfields,
+                                                 'initsort': [ '+mjd' ],
+                                                 'colorclasses': [ 'bgfade', 'bgwhite' ],
+                                                 'colorlength': 3 } );
+        this.knownexpdiv.appendChild( tab.table );
     }
 
     // **********************************************************************
