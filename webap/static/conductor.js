@@ -64,8 +64,14 @@ seechange.Conductor = class
         rkWebUtil.button( p, "Refresh", () => { self.update_known_exposures(); } );
         p.appendChild( document.createTextNode( " known exposures taken from " ) );
         this.knownexp_mintwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
+        this.knownexp_mintwid.addEventListener( "blur", function(e) {
+            rkWebUtil.validateWidgetDateUTC( self.knownexp_mintwid )
+        } );
         p.appendChild( document.createTextNode( " to " ) );
         this.knownexp_maxtwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
+        this.knownexp_maxtwid.addEventListener( "blur", function(e) {
+            rkWebUtil.validateWidgetDateUTC( self.knownexp_maxtwid )
+        } );
         p.appendChild( document.createTextNode( " UTC (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)" ) );
 
         this.knownexpdiv = rkWebUtil.elemaker( "div", this.contentdiv );
