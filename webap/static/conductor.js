@@ -360,8 +360,9 @@ seechange.Conductor = class
 
         rkWebUtil.wipeDiv( this.known_exposures_table_header_row );
         let th = rkWebUtil.elemaker( "th", this.known_exposures_table_header_row );
+        th = rkWebUtil.elemaker( "th", this.known_exposures_table_header_row, { "text": "held?" } );
 
-        for ( let field of [ 'held?', 'instrument', 'identifier', 'mjd', 'target', 'ra', 'dec', 'b',
+        for ( let field of [ 'instrument', 'identifier', 'mjd', 'target', 'ra', 'dec', 'b',
                              'filter', 'exp_time', 'project', 'cluster', 'claim_time', 'release_time',
                              'exposure' ] ) {
             let th = rkWebUtil.elemaker( "th", this.known_exposures_table_header_row );
@@ -421,13 +422,18 @@ seechange.Conductor = class
             for ( let field of self.known_exposures_sort_order ) {
                 let incr = ( field[0] == '+' );
                 let f = field.substring(1);
-                if ( a[fieldmap[f]] > b[fieldmap[f]] ) {
+                let aval = a[fieldmap[f]];
+                let bval = b[fieldmap[f]];
+                if ( typeof aval == 'string' ) aval = aval.toLowerCase();
+                if ( typeof bval == 'string' ) bval = bval.toLowerCase();
+
+                if ( aval > bval ) {
                     if ( incr )
                         return 1;
                     else
                         return -1
                 }
-                else if ( a[fieldmap[f]] < b[fieldmap[f]] ) {
+                else if ( aval < bval ) {
                     if ( incr )
                         return -1;
                     else
