@@ -64,8 +64,14 @@ seechange.Conductor = class
         rkWebUtil.button( p, "Refresh", () => { self.update_known_exposures(); } );
         p.appendChild( document.createTextNode( " known exposures taken from " ) );
         this.knownexp_mintwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
+        this.knownexp_mintwid.addEventListener( "blur", function(e) {
+            rkWebUtil.validateWidgetDateUTC( self.knownexp_mintwid )
+        } );
         p.appendChild( document.createTextNode( " to " ) );
         this.knownexp_maxtwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
+        this.knownexp_maxtwid.addEventListener( "blur", function(e) {
+            rkWebUtil.validateWidgetDateUTC( self.knownexp_maxtwid )
+        } );
         p.appendChild( document.createTextNode( " UTC (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)" ) );
 
         this.knownexpdiv = rkWebUtil.elemaker( "div", this.contentdiv );
@@ -351,9 +357,10 @@ seechange.Conductor = class
     {
         let self = this;
 
-        let table, tr, td, th, p, button, span, ttspan, hide_exposure_details;
+        let tr, td, p, button, span, ttspan, hide_exposure_details;
 
         this.known_exposures = [];
+        this.known_exposures_sort_order = [ '+mjd' ];
         this.known_exposure_checkboxes = {};
         this.known_exposure_rows = {};
         this.known_exposure_hold_tds = {};
@@ -397,67 +404,38 @@ seechange.Conductor = class
         button = rkWebUtil.button( p, "Clear Cluster Claim", () => { self.clear_cluster_claim() } );
         button.classList.add( "hmargin" );
 
-        table = rkWebUtil.elemaker( "table", this.knownexpdiv, { "classes": [ "borderedcells" ] } );
-        tr = rkWebUtil.elemaker( "tr", table );
-        th = rkWebUtil.elemaker( "th", tr );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "held?" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "instrument" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "identifier" } );
-        if ( ! hide_exposure_details ) {
-            th = rkWebUtil.elemaker( "th", tr, { "text": "mjd" } );
-            th = rkWebUtil.elemaker( "th", tr, { "text": "target" } );
-            th = rkWebUtil.elemaker( "th", tr, { "text": "ra" } );
-            th = rkWebUtil.elemaker( "th", tr, { "text": "dec" } );
-            th = rkWebUtil.elemaker( "th", tr, { "text": "b" } );
-            th = rkWebUtil.elemaker( "th", tr, { "text": "filter" } );
-            th = rkWebUtil.elemaker( "th", tr, { "text": "exp_time" } );
-            th = rkWebUtil.elemaker( "th", tr, { "text": "project" } );
-        }
-        th = rkWebUtil.elemaker( "th", tr, { "text": "cluster" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "claim_time" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "relase_time" } );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "exposure" } );
-
-        let grey = 0;
-        let coln = 3;
         for ( let ke of data.knownexposures ) {
-            if ( coln == 0 ) {
-                grey = 1 - grey;
-                coln = 3;
-            }
-            coln -= 1;
-
             this.known_exposures.push( ke );
-
-            tr = rkWebUtil.elemaker( "tr", table );
-            if ( grey ) tr.classList.add( "greybg" );
-            if ( ke.hold ) tr.classList.add( "heldexposure" );
-            this.known_exposure_rows[ ke.id ] = tr;
-
+        }
+        
+        let rowrenderer = ( ke ) => {
+            tr = rkWebUtil.elemaker( "tr", null );
             td = rkWebUtil.elemaker( "td", tr );
-            this.known_exposure_checkboxes[ ke.id ] =
+            self.known_exposure_checkboxes[ ke.id ] =
                 rkWebUtil.elemaker( "input", td, { "attributes": { "type": "checkbox" } } );
-            // this.known_exposure_checkbox_manual_state[ ke.id ] = 0;
-            // this.known_exposure_checkboxes[ ke.id ].addEventListener(
+            // (For debugging.)
+            // self.known_exposure_checkbox_manual_state[ ke.id ] = 0;
+            // self.known_exposure_checkboxes[ ke.id ].addEventListener(
             //     "click", () => {
             //         self.known_exposure_checkbox_manual_state[ ke.id ] =
             //             ( self.known_exposure_checkboxes[ ke.id ].checked ? 1 : 0 );
             //         console.log( "Setting " + ke.id + " to " + self.known_exposure_checkboxes[ ke.id ].checked );
             //     } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": ke.hold ? "***" : "" } );
-            this.known_exposure_hold_tds[ ke.id ] = td;
+            if ( ke.hold )
+                td = rkWebUtil.elemaker( "td", tr, { "text": "***", "classes": [ "heldexposures" ] } );
+            else
+                td = rkWebUtil.elemaker( "td", tr, { "text": "" } );
+            self.known_exposure_hold_tds[ ke.id ] = td;
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.instrument } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.identifier } );
-            if ( ! hide_exposure_details ) {
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": ke.target } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.ra ).toFixed( 5 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.dec ).toFixed( 5 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.gallat ).toFixed( 1 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": ke.filter } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).toFixed( 1 ) } );
-                td = rkWebUtil.elemaker( "td", tr, { "text": ke.project } );
-            }
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.target } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.ra ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.dec ).toFixed( 5 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.gallat ).toFixed( 1 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.filter } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.exp_time ).toFixed( 1 ) } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.project } );
             td = rkWebUtil.elemaker( "td", tr );
             span = rkWebUtil.elemaker( "span", td, { "classes": [ "tooltipsource" ], "text": ke.cluster_id } );
             ttspan = rkWebUtil.elemaker( "span", span, { "classes": [ "tooltiptext" ] } )
@@ -469,7 +447,37 @@ seechange.Conductor = class
                                      { "text": ( ke.release_time == null ) ?
                                        "" : rkWebUtil.dateUTCFormat(rkWebUtil.parseDateAsUTC(ke.release_time)) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.exposure_id } );
+
+            return tr;
         }
+
+        let fields = [ '', 'held?', 'instrument', 'identifier', 'mjd', 'target', 'ra', 'dec', 'b',
+                       'filter', 'exp_time', 'project', 'cluster', 'claim_time', 'release_time',
+                       'exposure' ];
+        let nosortfields = [ '', 'held?' ];
+        let fieldmap = { 'instrument': 'instrument',
+                         'identifier': 'identifier',
+                         'mjd': 'mjd',
+                         'target': 'target',
+                         'ra': 'ra',
+                         'dec': 'dec',
+                         'b': 'gallat',
+                         'filter': 'filter',
+                         'exp_time': 'exp_time',
+                         'project': 'project',
+                         'cluster': 'cluster_id',
+                         'claim_time': 'claim_time',
+                         'release_time': 'release_time',
+                         'exposure': 'exposure_id',
+                       };
+        let tab = new rkWebUtil.SortableTable( this.known_exposures, rowrenderer, fields,
+                                               { 'fieldmap': fieldmap,
+                                                 'dictoflists': false,
+                                                 'nosortfields': nosortfields,
+                                                 'initsort': [ '+mjd' ],
+                                                 'colorclasses': [ 'bgfade', 'bgwhite' ],
+                                                 'colorlength': 3 } );
+        this.knownexpdiv.appendChild( tab.table );
     }
 
     // **********************************************************************

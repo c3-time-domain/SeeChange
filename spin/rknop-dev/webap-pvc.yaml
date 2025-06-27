@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: conductor-sessions-rknop-dev-20240612
+  name: webap-sessions-pvc
   namespace: ls4-rknop-dev
 spec:
   accessModes:

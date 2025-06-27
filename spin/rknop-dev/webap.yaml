@@ -20,11 +20,18 @@ spec:
     type: RollingUpdate
   template:
     metadata:
+      annotations:
+        nersc.gov/collab_uids: "103988"
+        nersc.gov/gid: "63477"
+        nersc.gov/gids: 63477,96414
+        nersc.gov/roles: user
+        nersc.gov/uid: "95089"
+        nersc.gov/username: raknop
       labels:
         workload.user.cattle.io/workloadselector: deployment-ls4-rknop-dev-webap
     spec:
       containers:
-      - image: registry.nersc.gov/m4616/seechange-webap:rknop-dev
+      - image: registry.nersc.gov/m4616/seechange-webap:rknop-dev_20250627
         imagePullPolicy: Always
         name: seechange-webap
         resources: {}
@@ -46,10 +53,14 @@ spec:
         volumeMounts:
         - mountPath: /secrets
           name: webap-secrets
+        - mountPath: /sessions
+          name: webap-sessions
         - mountPath: /archive
           name: seechange-archive-dir
-        # Comment the next two lines out to use the code baked into the Dockerfile
-        - mountPath: /code
+        # Comment the next four lines out to use the code baked into the Dockerfile
+        - mountPath: /seechange
+          name: seechange-install
+        - mountPath: /webap_code
           name: seechange-webap-code
       dnsConfig: {}
       dnsPolicy: ClusterFirst
@@ -66,14 +77,24 @@ spec:
           defaultMode: 256
           optional: false
           secretName: webap-secrets
-      - hostPath:
-          path: /global/cfs/cdirs/m4616/users/raknop/SeeChange-rknop-dev-webap-install
+      - name: webap-sessions
+        persistentVolumeClaim:
+          claimName: webap-sessions-pvc
+      - name: seechange-webap-code
+        hostPath:
+          # path: /global/cfs/cdirs/m4616/users/raknop/SeeChange-rknop-dev-webap-install
+          path: /global/cfs/cdirs/m2218/raknop/decat_wfd/rknop-dev-seechange-webap-install
           type: Directory
-        name: seechange-webap-code
-      - hostPath:
-          path: /global/cfs/cdirs/m4616/archive-rknop-dev
+      - name: seechange-install
+        hostPath:
+          # path: /global/cfs/cdirs/m4616/users/raknop/PUT_THE_RIGHT_THING_HERE
+          path: /global/cfs/cdirs/m2218/raknop/decat_wfd/rknop-dev-seechange-install
           type: Directory
-        name: seechange-archive-dir
+      - name: seechange-archive-dir
+        hostPath:
+          # path: /global/cfs/cdirs/m4616/archive-rknop-dev
+          path: /global/cfs/cdirs/m2218/decat-wfd/archive
+          type: Directory
 ---
 apiVersion: v1
 kind: Service
