@@ -68,7 +68,9 @@ seechange.ProvenanceTags = class
         for ( let i in data['_id'] ) {
             tr = rkWebUtil.elemaker( "tr", table );
             td = rkWebUtil.elemaker( "td", tr, { "text": data['process'][i] } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": data['code_version_id'][i] } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ( data['version_major'][i].toString() + '.' +
+                                                           data['version_minor'][i].toString() + '.' +
+                                                           data['version_patch'][i].toString() ) } );
             td = rkWebUtil.elemaker( "td", tr, { "classes": [ "monospace" ] } );
             a = rkWebUtil.elemaker( "a", td, { "text": data['_id'][i],
                                                "classes": [ "link" ],
@@ -96,7 +98,10 @@ seechange.ProvenanceTags = class
         rkWebUtil.wipeDiv( this.provinfodiv );
         rkWebUtil.elemaker( "h3", this.provinfodiv, { "text": "Provenance " + data._id } );
         rkWebUtil.elemaker( "p", this.provinfodiv, { "text": "Process: " + data.process } );
-        rkWebUtil.elemaker( "p", this.provinfodiv, { "text": "Code Version: " + data.code_version_id } );
+        rkWebUtil.elemaker( "p", this.provinfodiv, { "text": ( "Code Version: "  +
+                                                               data.version_major.toString() + '.' +
+                                                               data.version_minor.toString() + '.' +
+                                                               data.version_patch ) } );
         if ( data.is_bad )
             rkWebUtil.elemaker( "p", this.provinfodiv, { "text": "Is bad: " + data.bad_comment } );
         if ( data.is_testing )

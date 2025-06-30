@@ -21,7 +21,7 @@ seechange.Conductor = class
     {
         let self = this;
 
-        let p, h3, span, hbox, vbox, subhbox;
+        let p, h3, span, hbox, vbox, subhbox, table, tr, td;
 
         rkWebUtil.wipeDiv( this.div );
         this.frontpagediv = rkWebUtil.elemaker( "div", this.div );
@@ -61,7 +61,7 @@ seechange.Conductor = class
         rkWebUtil.elemaker( "hr", this.contentdiv );
 
         p = rkWebUtil.elemaker( "p", this.contentdiv );
-        rkWebUtil.button( p, "Refresh", () => { self.update_known_exposures(); } );
+        rkWebUtil.button( p, "Search", () => { self.update_known_exposures(); } );
         p.appendChild( document.createTextNode( " known exposures taken from " ) );
         this.knownexp_mintwid = rkWebUtil.elemaker( "input", p, { "attributes": { "size": 20 } } );
         this.knownexp_mintwid.addEventListener( "blur", function(e) {
@@ -73,6 +73,74 @@ seechange.Conductor = class
             rkWebUtil.validateWidgetDateUTC( self.knownexp_maxtwid )
         } );
         p.appendChild( document.createTextNode( " UTC (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)" ) );
+
+        p = rkWebUtil.elemaker( "p", this.contentdiv );
+        this.search_criteria_shown = false;
+        this.show_hide_search_criteria = rkWebUtil.button( p, "Show Additional Search Criteria",
+                                                           (e) => {
+                                                               if ( self.search_criteria_shown ) {
+                                                                   self.show_hide_search_criteria.value = (
+                                                                       "Show Additional Search Criteria" );
+                                                                   self.search_criteria_div.classList.remove(
+                                                                       "dispblock" );
+                                                                   self.search_criteria_div.classList.add(
+                                                                       "dispnone" );
+                                                                   self.search_criteria_shown = false;
+                                                               } else {
+                                                                   self.show_hide_search_criteria.value = (
+                                                                       "Hide Addditional Search Criteria" );
+                                                                   self.search_criteria_div.classList.remove(
+                                                                       "dispnone" );
+                                                                   self.search_criteria_div.classList.add(
+                                                                       "dispblock" );
+                                                                   self.search_criteria_shown = true;
+                                                               } } );
+        this.search_criteria_div = rkWebUtil.elemaker( "div", p,
+                                                       { "classes": [ "midborder", "dispnone" ] } );
+        table = rkWebUtil.elemaker( "table", this.search_criteria_div );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "instrument:" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.search_instrument = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "target:" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.search_target = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "filter:" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.search_filter = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "project:" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.search_project = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "exp time ≥" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.min_exp_time = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "claimed?" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.search_claimed = rkWebUtil.elemaker( "select", td );
+        rkWebUtil.elemaker( "option", this.search_claimed, { "text": "—",
+                                                             "attributes": { "value": "—", "selected": 1 } } );
+        rkWebUtil.elemaker( "option", this.search_claimed, { "text": "Yes", "attributes": { "value": "Yes" } } );
+        rkWebUtil.elemaker( "option", this.search_claimed, { "text": "No", "attributes": { "value": "No" } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "released?" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.search_released = rkWebUtil.elemaker( "select", td );
+        rkWebUtil.elemaker( "option", this.search_released, { "text": "—",
+                                                             "attributes": { "value": "—", "selected": 1 } } );
+        rkWebUtil.elemaker( "option", this.search_released, { "text": "Yes", "attributes": { "value": "Yes" } } );
+        rkWebUtil.elemaker( "option", this.search_released, { "text": "No", "attributes": { "value": "No" } } );
+        tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "claim time ≤" } );
+        td = rkWebUtil.elemaker( "td", tr );
+        this.max_claim_time = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
+        this.max_claim_time.addEventListener( "blur",
+                                              (e) => { rkWebUtil.validateWidgetDateUTC( self.max_claim_time ) } );
+
 
         this.knownexpdiv = rkWebUtil.elemaker( "div", this.contentdiv );
 
@@ -342,11 +410,39 @@ seechange.Conductor = class
         let url = "conductor/getknownexposures";
         if ( this.knownexp_mintwid.value.trim().length > 0 ) {
             let minmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( this.knownexp_mintwid.value ) );
-            url += "/minmjd=" + minmjd.toString();
+            url += "/minmjd=" + encodeURIComponent( minmjd.toString() );
         }
         if ( this.knownexp_maxtwid.value.trim().length > 0 ) {
             let maxmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( this.knownexp_maxtwid.value ) );
-            url += "/maxmjd=" + maxmjd.toString();
+            url += "/maxmjd=" + encodeURIComponent( maxmjd.toString() );
+        }
+        if ( this.search_instrument.value.trim().length > 0 ) {
+            url += "/instrument=" + encodeURIComponent( this.search_instrument.value.trim() )
+        }
+        if ( this.search_target.value.trim().length > 0 ) {
+            url += "/target=" + encodeURIComponent( this.search_target.value.trim() );
+        }
+        if ( this.search_filter.value.trim().length > 0 ) {
+            url += "/filter=" + encodeURIComponent( this.search_filter.value.trim() );
+        }
+        if ( this.search_project.value.trim().length > 0 ) {
+            url += "/project=" + encodeURIComponent( this.search_project.value.trim() );
+        }
+        if ( this.min_exp_time.value.trim().length > 0 ) {
+            url += "/minexptime=" + encodeURIComponent( this.min_exp_time.value.trim() );
+        }
+        if ( this.search_claimed.value == "Yes" ) {
+            url += "/claimed=1";
+        } else if ( this.search_claimed.value == "No" ) {
+            url += "/claimed=0";
+        }
+        if ( this.search_released.value == "Yes" ) {
+            url += "/released=1";
+        } else if ( this.search_released.value == "No" ) {
+            url += "/released=0";
+        }
+        if ( this.max_claim_time.value.trim().length > 0 ) {
+            url += "/maxclaimtime=" + encodeURIComponent( this.max_claim_time.value.trim() );
         }
         this.connector.sendHttpRequest( url, {}, (data) => { self.show_known_exposures(data); } );
     }
@@ -370,16 +466,17 @@ seechange.Conductor = class
 
         p = rkWebUtil.elemaker( "p", this.knownexpdiv );
 
-        if ( this.hide_exposure_details_checkbox == null ) {
-            this.hide_exposure_details_checkbox =
-                rkWebUtil.elemaker( "input", null,
-                                    { "change": () => { self.show_known_exposures( data ) },
-                                      "attributes": { "type": "checkbox",
-                                                      "id": "knownexp-hide-exposure-details-checkbox" } } );
-        }
-        p.appendChild( this.hide_exposure_details_checkbox );
-        p.appendChild( document.createTextNode( "Hide exposure detail columns    " ) );
-        hide_exposure_details = this.hide_exposure_details_checkbox.checked;
+        // Uncomment this (...or move it somewhere) when it's actually properly implemented
+        // if ( this.hide_exposure_details_checkbox == null ) {
+        //     this.hide_exposure_details_checkbox =
+        //         rkWebUtil.elemaker( "input", null,
+        //                             { "change": () => { self.show_known_exposures( data ) },
+        //                               "attributes": { "type": "checkbox",
+        //                                               "id": "knownexp-hide-exposure-details-checkbox" } } );
+        // }
+        // p.appendChild( this.hide_exposure_details_checkbox );
+        // p.appendChild( document.createTextNode( "Hide exposure detail columns    " ) );
+        // hide_exposure_details = this.hide_exposure_details_checkbox.checked;
 
         this.select_all_checkbox = rkWebUtil.elemaker( "input", p,
                                                        { "attributes": {
@@ -399,7 +496,7 @@ seechange.Conductor = class
         button.classList.add( "hmargin" );
         button = rkWebUtil.button( p, "Hold", () => { self.hold_release_exposures( true ); } );
         button.classList.add( "hmargin" );
-        button = rkWebUtil.button( p, "Release", () => { self.hold_release_exposures( false ); } );
+        button = rkWebUtil.button( p, "Clear Hold", () => { self.hold_release_exposures( false ); } );
         button.classList.add( "hmargin" );
         button = rkWebUtil.button( p, "Clear Cluster Claim", () => { self.clear_cluster_claim() } );
         button.classList.add( "hmargin" );
@@ -422,7 +519,7 @@ seechange.Conductor = class
             //         console.log( "Setting " + ke.id + " to " + self.known_exposure_checkboxes[ ke.id ].checked );
             //     } );
             if ( ke.hold )
-                td = rkWebUtil.elemaker( "td", tr, { "text": "***", "classes": [ "heldexposures" ] } );
+                td = rkWebUtil.elemaker( "td", tr, { "text": "held", "classes": [ "heldexposures" ] } );
             else
                 td = rkWebUtil.elemaker( "td", tr, { "text": "" } );
             self.known_exposure_hold_tds[ ke.id ] = td;
@@ -448,7 +545,7 @@ seechange.Conductor = class
                                        "" : rkWebUtil.dateUTCFormat(rkWebUtil.parseDateAsUTC(ke.release_time)) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.exposure_id } );
 
-            self.known_exposure_rows.push( tr );
+            self.known_exposure_rows[ ke.id ] = tr;
             return tr;
         }
 

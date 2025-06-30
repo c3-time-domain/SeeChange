@@ -61,9 +61,10 @@ class ProvTagInfo( BaseView ):
         cursor = self.conn.cursor()
         cursor.execute( 'SELECT p._id, p.process, p.code_version_id, p.parameters, '
                         '       p.is_bad, p.bad_comment, p.is_outdated, p.replaced_by, '
-                        '       p.is_testing '
+                        '       p.is_testing, c.version_major, c.version_minor, c.version_patch '
                         'FROM provenance_tags t '
                         'INNER JOIN provenances p ON t.provenance_id=p._id '
+                        'INNER JOIN code_versions c ON p.code_version_id=c._id '
                         'WHERE t.tag=%(tag)s ',
                         { 'tag': tag } )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
@@ -141,8 +142,10 @@ class ProvenanceInfo( BaseView ):
     def do_the_things( self, provid ):
         cursor = self.conn.cursor()
         cursor.execute( "SELECT p._id, p.process, p.code_version_id, p.parameters, "
-                        "       p.is_bad, p.bad_comment, p.is_outdated, p.replaced_by, p.is_testing "
+                        "       p.is_bad, p.bad_comment, p.is_outdated, p.replaced_by, p.is_testing, "
+                        "       c.version_major, c.version_minor, c.version_patch "
                         "FROM provenances p "
+                        "INNER JOIN code_versions c ON p.code_version_id=c._id "
                         "WHERE p._id=%(provid)s ",
                         { 'provid': provid } )
         columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
