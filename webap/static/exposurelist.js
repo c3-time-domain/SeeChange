@@ -245,6 +245,7 @@ seechange.ExposureList = class
                                                  'tableclasses': [ 'exposure_list_table' ],
                                                  'colorclasses': [ 'bgfade', 'bgwhite' ],
                                                  'colorlength': 3 } );
+        tab.table.id = 'exposure_list_table';
         this.listdiv.appendChild( tab.table );
 
     };
