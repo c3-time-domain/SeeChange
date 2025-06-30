@@ -574,12 +574,12 @@ class ExposureImages( BaseView ):
             if row[columns['fwhm_estimate']] is not None:
                 totfwhm += row[columns['fwhm_estimate']]
                 nfwhm += 1
-            if row[columns['lim_mag_estiamte']] is not None:
+            if row[columns['lim_mag_estimate']] is not None:
                 totlimmag += row[columns['lim_mag_estimate']]
                 nlimmag += 1
         exposure_info['seeingavg'] = None if nfwhm == 0 else totfwhm / nfwhm
         exposure_info['limmagavg'] = None if nlimmag == 0 else totlimmag / nlimmag
-        
+
         fields = ( '_id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
                    'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate',
                    'numsources', 'nummeasurements', 'subid',

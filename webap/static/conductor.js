@@ -543,8 +543,19 @@ seechange.Conductor = class
             td = rkWebUtil.elemaker( "td", tr,
                                      { "text": ( ke.release_time == null ) ?
                                        "" : rkWebUtil.dateUTCFormat(rkWebUtil.parseDateAsUTC(ke.release_time)) } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": ke.filepath } );
-
+            td = rkWebUtil.elemaker( "td", tr );
+            if ( ke.exposure_id != null ) {
+                let a = rkWebUtil.elemaker( "a", td,
+                                            { 'classes': [ "link" ],
+                                              'text': ke.filepath,
+                                              'click': (e) => {
+                                                  self.context.frontpagetabs.selectTab("exposuresearch");
+                                                  let el = self.context.exposuresearch.exposurelist;
+                                                  el.show_exposure( ke.exposure_id,
+                                                                    self.context.provtag_wid.value );
+                                              }
+                                            } );
+            }
             self.known_exposure_rows[ ke.id ] = tr;
             return tr;
         }

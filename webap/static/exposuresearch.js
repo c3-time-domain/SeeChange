@@ -44,11 +44,6 @@ seechange.ExposureSearch = class
         rkWebUtil.elemaker( "br", p );
         p.appendChild( document.createTextNode( "    (YYYY-MM-DD [HH:MM] — leave blank for no limit)" ) );
 
-        p = rkWebUtil.elemaker( "p", vbox, { "id": "exposureprovtagsearchdiv",
-                                             "text": "Search provenance tag: " } );
-        this.provtag_wid = rkWebUtil.elemaker( "select", p, { 'id': 'provtag_wid' } );
-        this.context.connector.sendHttpRequest( "provtags", {}, (data) => { self.populate_provtag_wid(data) } );
-
         vbox = rkWebUtil.elemaker( "div", hbox, { "classes": [ "vbox", "hmargin" ] } );
         vbox.appendChild( document.createTextNode( "Search projects:" ) );
         rkWebUtil.elemaker( "br", vbox );
@@ -63,15 +58,10 @@ seechange.ExposureSearch = class
 
         rkWebUtil.elemaker( "hr", this.div );
         this.subdiv = rkWebUtil.elemaker( "div", this.div, { "id": "exposuresearchsubdiv" } );
+        this.exposurelist = new seechange.ExposureList( this.context, this, this.subdiv );
+        this.exposurelist.render_page();
     }
 
-
-    populate_provtag_wid( data )
-    {
-        for ( let provtag of data.provenance_tags ) {
-            rkWebUtil.elemaker( "option", this.provtag_wid, { "text": provtag, "attributes": { "value": provtag } } );
-        }
-    };
 
     populate_project_wid( data )
     {
@@ -100,7 +90,7 @@ seechange.ExposureSearch = class
             console.log( "Exception parsing dates: " + ex.toString() );
             return;
         }
-        provtag = this.provtag_wid.value;
+        provtag = this.context.provtag_wid.value;
         if ( provtag == '<all>' ) provtag = null;
         projects = Array.from(this.project_wid.selectedOptions).map( ({ value }) => value );
         if ( projects.includes( '<all>' ) ) projects = null;
@@ -113,9 +103,10 @@ seechange.ExposureSearch = class
     {
         var self = this;
 
-        rkWebUtil.wipeDiv( this.subdiv );
-        rkWebUtil.elemaker( "p", this.subdiv, { "text": "Loading exposures...",
-                                                "classes": [ "warning", "bold", "italic" ] } );
+        this.exposurelist.tabbed.selectTab( "exposurelist" );
+        rkWebUtil.wipeDiv( this.exposurelist.listdiv );
+        rkWebUtil.elemaker( "p", this.exposurelist.listdiv, { "text": "Loading exposures...",
+                                                              "classes": [ "warning", "bold", "italic" ] } );
 
         this.context.connector.sendHttpRequest( "exposures",
                                                 { "startdate": startdate,
@@ -134,13 +125,11 @@ seechange.ExposureSearch = class
             window.alert( "Unexpected response from server when looking for exposures." );
             return
         }
-        let exps = new seechange.ExposureList( this.context, this, this.subdiv,
-                                               data["exposures"],
-                                               data["startdate"],
-                                               data["enddate"],
-                                               data["provenance_tag"],
-                                               data["projects"] );
-        exps.render_page();
+        this.exposurelist.new_exposure_list( data["exposures"],
+                                             data["startdate"],
+                                             data["enddate"],
+                                             data["provenance_tag"],
+                                             data["projects"] );
     };
 
 }

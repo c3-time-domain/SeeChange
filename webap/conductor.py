@@ -381,7 +381,7 @@ class GetKnownExposures( ConductorBaseView ):
         args['maxmjd'] = float( args['maxmjd'] ) if args['maxmjd'] is not None else None
         with Psycopg2Connection() as conn:
             cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
-            q = ( "SELECT ke.*,e.filepath FROM known exposures ke "
+            q = ( "SELECT ke.*,e.filepath FROM knownexposures ke "
                   "LEFT JOIN exposures e ON ke.exposure_id=e._id " )
             _and = "WHERE"
             subdict = {}
@@ -434,10 +434,11 @@ class GetKnownExposures( ConductorBaseView ):
 
             q += "ORDER BY mjd "
 
+            cursor.execute( q, subdict )
             rows = cursor.fetchall()
 
-        retvall = { 'status': 'ok',
-                    'knownexposures': rows }
+        retval = { 'status': 'ok',
+                   'knownexposures': rows }
         # Add the "id" field that's the same as "_id" for convenience,
         #   make the filter the short name, and strip off all
         #   but the filename of the filepath

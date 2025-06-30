@@ -87,6 +87,10 @@ seechange.Context = class
 
             this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv, { 'id': 'frontpagediv' } );
 
+            p = rkWebUtil.elemaker( "p", this.frontpagediv, { "text": "Use provenance tag: " } );
+            this.provtag_wid = rkWebUtil.elemaker( "select", p, { 'id': 'provtag_wid' } );
+            this.connector.sendHttpRequest( "provtags", {}, (data) => { self.populate_provtag_wid(data) } );
+
             this.frontpagetabs = new rkWebUtil.Tabbed( this.frontpagediv );
             this.frontpagetabs.div.setAttribute( 'id', 'frontpagetabs' );
 
@@ -121,6 +125,14 @@ seechange.Context = class
             alert( "Reinstalling frontpagediv" );
             rkWebUtil.wipeDiv( this.maindiv );
             this.maindiv.appendChild( this.frontpagediv );
+        }
+    };
+
+
+    populate_provtag_wid( data )
+    {
+        for ( let provtag of data.provenance_tags ) {
+            rkWebUtil.elemaker( "option", this.provtag_wid, { "text": provtag, "attributes": { "value": provtag } } );
         }
     };
 

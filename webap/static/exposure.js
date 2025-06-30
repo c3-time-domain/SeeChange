@@ -7,9 +7,10 @@ import { seechange } from "./seechange_ns.js";
 seechange.Exposure = class
 {
     // data is what is filled by the exposure_images/ api endpoint
-    //   (ExpousreImages in seechange_webap.py.)  It is a dictionary
+    //   (ExposureImages in seechange_webap.py.)  It is a dictionary
     //   with contents:
     //      status: 'ok',
+    //      exposure: dict with information about the exposure
     //      provenncetag: provenance tag (str)
     //      name: exposure name (str) -- this is the filepath in the database
     //      id: array of image uuids
@@ -37,21 +38,20 @@ seechange.Exposure = class
     //      process_setps_bitflag: bitflag of which pipeline steps completed
     //      products_exist_bitflag: bitflag of which data products were saved to database/archive
 
-    constructor( context, parentdiv, id, name, mjd, airmass, filter, seeingavg, limmagavg,
-                 target, project, exp_time, data )
+    constructor( context, parentdiv, data )
     {
         this.context = context;
         this.parentdiv = parentdiv;
-        this.id = id;
-        this.name = name;
-        this.mjd = mjd;
-        this.airmass = airmass;
-        this.filter = filter;
-        this.seeingavg = seeingavg;
-        this.limmagavg = limmagavg;
-        this.target = target;
-        this.project = project;
-        this.exp_time = exp_time;
+        this.id = data.exposure._id;
+        this.name = data.exposure.filepath;
+        this.mjd = data.exposure.mjd;
+        this.airmass = data.exposure.airmass;
+        this.filter = data.exposure.filter;
+        this.seeingavg = data.exposure.seeingavg;
+        this.limmagavg = data.exposure.limmagavg;
+        this.target = data.exposure.target;
+        this.project = data.exposure.project;
+        this.exp_time = data.exposure.exp_time;
         this.data = data;
         this.div = null;
         this.tabs = null;
