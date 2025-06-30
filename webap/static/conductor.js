@@ -543,7 +543,7 @@ seechange.Conductor = class
             td = rkWebUtil.elemaker( "td", tr,
                                      { "text": ( ke.release_time == null ) ?
                                        "" : rkWebUtil.dateUTCFormat(rkWebUtil.parseDateAsUTC(ke.release_time)) } );
-            td = rkWebUtil.elemaker( "td", tr, { "text": ke.exposure_id } );
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.filepath } );
 
             self.known_exposure_rows[ ke.id ] = tr;
             return tr;

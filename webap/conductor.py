@@ -379,42 +379,73 @@ class GetKnownExposures( ConductorBaseView ):
                                              } )
         args['minmjd'] = float( args['minmjd'] ) if args['minmjd'] is not None else None
         args['maxmjd'] = float( args['maxmjd'] ) if args['maxmjd'] is not None else None
-        with SmartSession() as session:
-            q = session.query( KnownExposure )
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
+            q = ( "SELECT ke.*,e.filepath FROM known exposures ke "
+                  "LEFT JOIN exposures e ON ke.exposure_id=e._id " )
+            _and = "WHERE"
+            subdict = {}
+
             if args['minmjd'] is not None:
-                q = q.filter( KnownExposure.mjd >= args['minmjd'] )
+                q += f"{_and} mjd >= %(minmjd)s "
+                subdict['minmjd'] = float( args['minmjd'] )
+                _and = "AND"
             if args['maxmjd'] is not None:
-                q = q.filter( KnownExposure.mjd <= args['maxmjd'] )
+                q += f"{_and} mjd <= %(maxmjd)s "
+                subdict['maxmjd'] = float( args['maxmjd'] )
+                _and = "AND"
             if args['instrument'] is not None:
-                q = q.filter( KnownExposure.instrument == args['instrument'] )
+                q += f"{_and} instrument = %(instr)s "
+                subdict['instr'] = args['instrument']
+                _and = "AND"
             if args['target'] is not None:
-                q = q.filter( KnownExposure.target == args['target'] )
+                q += f"{_and} target = %(target)s "
+                subdict['target'] = args['target']
+                _and = "AND"
             if args['project'] is not None:
-                q = q.filter( KnownExposure.project == args['project'] )
+                q += f"{_and} project = %(project)s "
+                subdict['project'] = args['project']
+                _and = "AND"
             if args['minexptime'] is not None:
-                q = q.filter( KnownExposure.exp_time >= float( args['minexptime'] ) )
-            if args['claimed'] == '1':
-                q = q.filter( KnownExposure.claim_time is not None )
-            elif args['claimed'] == '0':
-                q = q.filter( KnownExposure.claim_time is None )
-            if args['released'] == '1':
-                q = q.filter( KnownExposure.release_time is not None )
-            elif args['released'] == '0':
-                q = q.filter( KnownExposure.release_time is None )
+                q += f"{_and} exp_time >= %(minexp)s "
+                subdict['minexp'] = float( args['minexptime'] )
+                _and = "AND"
             if args['maxclaimtime'] is not None:
                 claimtime = datetime.datetime.fromisoformat( args['maxclaimtime'] )
                 if claimtime.tzinfo is None:
                     claimtime = pytz.utc.localize( claimtime )
-                q = q.filter( KnownExposure.claim_time <= claimtime )
-            q = q.order_by( KnownExposure.instrument, KnownExposure.mjd )
-            kes = q.all()
-        retval= { 'status': 'ok',
-                  'knownexposures': [ ke.to_dict() for ke in kes ] }
+                q += f"{_and} claim_time <= %(maxclaimtime)s "
+                subdict['maxclaimtime'] = claimtime
+                _and = "AND"
+
+            if args['claimed'] == '1':
+                q += f"{_and} claim_time IS NULL "
+                _and = "AND"
+            elif args['claimed'] == '0':
+                q += f"{_and} claim_time IS NOT NULL "
+                _and = "AND"
+
+            if args['released'] == '1':
+                q += f"{_and} release_time IS NULL "
+                _and = "AND"
+            elif args['released'] == '0':
+                q += f"{_and} release_time IS NOT NULL "
+                _and = "AND"
+
+            q += "ORDER BY mjd "
+
+            rows = cursor.fetchall()
+
+        retvall = { 'status': 'ok',
+                    'knownexposures': rows }
         # Add the "id" field that's the same as "_id" for convenience,
-        #   and make the filter the short name
+        #   make the filter the short name, and strip off all
+        #   but the filename of the filepath
         for ke in retval['knownexposures']:
             ke['id'] = ke['_id']
             ke['filter'] = get_instrument_instance( ke['instrument'] ).get_short_filter_name( ke['filter'] )
+            if ke['filepath'] is not None:
+                ke['filepath'] = pathlib.Path( ke['filepath'] ).name
         # We didn't search by filter because we want to make sure we're letting the user
         #   specify short filter names.  Filter by filter now.
         if args['filter'] is not None:

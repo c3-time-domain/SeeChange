@@ -422,6 +422,15 @@ class ExposureImages( BaseView ):
 
         subdict = { 'expid': str(expid), 'provtag': provtag }
 
+        # Step 0: Get exposure information
+        q = cursor.execute( "SELECT * FROM exposures WHERE _id=%(expid)s", subdict )
+        columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+        exposure_info = cursor.fetchone()
+        if exposure_info is None:
+            return { 'status': 'error',
+                     'error': f"Unknown exposure {str(expid)}" }
+        exposure_info = { c: exposure_info[columns[c]] for c in columns.keys() }
+
         # Step 1: collect image info into temp_exposure_images
         q = ( 'SELECT i._id, i.filepath, i.ra, i.dec, i.gallat, i.exposure_id, i.section_id, i.fwhm_estimate, '
               '       i.zero_point_estimate, i.lim_mag_estimate, i.bkg_mean_estimate, i.bkg_rms_estimate '
@@ -556,6 +565,21 @@ class ExposureImages( BaseView ):
         rows = cursor.fetchall()
         # app.logger.debug( f"exposure_images got {len(rows)} rows from the final query." )
 
+        # Calculate average seeing and average limiting magnitude
+        totfwhm = 0.
+        nfwhm = 0
+        totlimmag = 0.
+        nlimmag = 0
+        for row in rows:
+            if row[columns['fwhm_estimate']] is not None:
+                totfwhm += row[columns['fwhm_estimate']]
+                nfwhm += 1
+            if row[columns['lim_mag_estiamte']] is not None:
+                totlimmag += row[columns['lim_mag_estimate']]
+                nlimmag += 1
+        exposure_info['seeingavg'] = None if nfwhm == 0 else totfwhm / nfwhm
+        exposure_info['limmagavg'] = None if nlimmag == 0 else totlimmag / nlimmag
+        
         fields = ( '_id', 'ra', 'dec', 'gallat', 'section_id', 'fwhm_estimate', 'zero_point_estimate',
                    'lim_mag_estimate', 'bkg_mean_estimate', 'bkg_rms_estimate',
                    'numsources', 'nummeasurements', 'subid',
@@ -564,6 +588,7 @@ class ExposureImages( BaseView ):
 
         retval = { 'status': 'ok',
                    'provenancetag': provtag,
+                   'exposure': exposure_info,
                    'name': [] }
 
         for field in fields :
