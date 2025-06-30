@@ -407,7 +407,7 @@ seechange.Conductor = class
         for ( let ke of data.knownexposures ) {
             this.known_exposures.push( ke );
         }
-        
+
         let rowrenderer = ( ke ) => {
             tr = rkWebUtil.elemaker( "tr", null );
             td = rkWebUtil.elemaker( "td", tr );
@@ -448,6 +448,7 @@ seechange.Conductor = class
                                        "" : rkWebUtil.dateUTCFormat(rkWebUtil.parseDateAsUTC(ke.release_time)) } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.exposure_id } );
 
+            self.known_exposure_rows.push( tr );
             return tr;
         }
 

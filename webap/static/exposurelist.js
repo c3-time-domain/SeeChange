@@ -22,134 +22,134 @@ seechange.ExposureList = class
     };
 
 
+    // // **********************************************************************
+
+    // fill_exposure_list_table_header_row()
+    // {
+    //     let self = this;
+    //     let subscripts = [ '₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉' ];
+
+    //     rkWebUtil.wipeDiv( this.exposure_list_table_header_row );
+
+    //     for ( let field of [ 'Exposure', 'MJD', 'target', 'filter', 't_exp (s)', 'subs',
+    //                          'detections', 'sources', 'n_successim', 'n_errors' ] ) {
+    //         let th = rkWebUtil.elemaker( "th", this.exposure_list_table_header_row );
+
+    //         let clickfunc = (e) => {
+    //             if ( self.exposure_list_sort_order.indexOf( '+' + field ) >= 0 )
+    //                 self.resort_exposure_list_table( field, false );
+    //             else
+    //                 self.resort_exposure_list_table( field, true );
+    //         };
+
+    //         let span = rkWebUtil.elemaker( "span", th, { "text": field,
+    //                                                      "classes": [ "link" ],
+    //                                                      "click": clickfunc } );
+
+    //         let sortdex = this.exposure_list_sort_order.indexOf( '+' + field );
+    //         if ( sortdex == 0 ){
+    //             th.appendChild( document.createTextNode( '▲' ) );
+    //         }
+    //         else if ( ( sortdex > 0 )  && ( sortdex <= 9 ) ) {
+    //             th.appendChild( document.createTextNode( '▵' + subscripts[sortdex] ) )
+    //         }
+    //         sortdex = this.exposure_list_sort_order.indexOf( '-' + field );
+    //         if ( sortdex == 0 ) {
+    //             th.appendChild( document.createTextNode( '▼' ) );
+    //         }
+    //         else if ( ( sortdex > 0 )  && ( sortdex <= 9 ) ) {
+    //             th.appendChild( document.createTextNode( '▿' + subscripts[sortdex] ) )
+    //         }
+    //     }
+    // }
+
+    // // **********************************************************************
+
+    // resort_exposure_list_table( field, increasing )
+    // {
+    //     let self = this;
+
+    //     let fieldmap = { 'Exposure': "name",
+    //                      'MJD': "mjd",
+    //                      'target': "target",
+    //                      'filter': "filter",
+    //                      't_exp (s)': "exp_time",
+    //                      'subs': "n_subs",
+    //                      'detections': "n_sources",
+    //                      'sources': "n_measurements",
+    //                      'n_successim': "n_successim",
+    //                      'n_errors': "n_errors",
+    //                    };
+
+    //     let sorter = ( a, b ) => {
+    //         for ( let field of self.exposure_list_sort_order ) {
+    //             let incr = ( field[0] == '+' );
+    //             let f = field.substring(1);
+    //             let aval = this.exposures[fieldmap[f]][a];
+    //             let bval = this.exposures[fieldmap[f]][b];
+    //             if ( typeof aval == 'string' ) aval = aval.toLowerCase();
+    //             if ( typeof bval == 'string' ) bval = bval.toLowerCase();
+
+    //             if ( aval > bval ) {
+    //                 if ( incr )
+    //                     return 1;
+    //                 else
+    //                     return -1;
+    //             }
+    //             else if ( aval < bval ) {
+    //                 if ( incr )
+    //                     return -1;
+    //                 else
+    //                     return 1;
+    //             }
+    //         }
+    //         return 0;
+    //     };
+
+    //     // Remove field from the sort order if it's there
+    //     let i = 0;
+    //     while ( i < this.exposure_list_sort_order.length ) {
+    //         if ( this.exposure_list_sort_order[i].substring(1) == field )
+    //             this.exposure_list_sort_order.splice( i, 1 );
+    //         else
+    //             i += 1;
+    //     }
+    //     // Add field to beginning of sort order
+    //     if ( increasing )
+    //         this.exposure_list_sort_order.splice( 0, 0, '+' + field );
+    //     else
+    //         this.exposure_list_sort_order.splice( 0, 0, '-' + field );
+
+    //     // Get sorted list of indexes
+    //     let dexen = Array.from( Array( this.exposures["name"].length ).keys() );
+    //     dexen.sort( sorter );
+
+    //     // Redo table
+    //     rkWebUtil.wipeDiv( this.exposure_list_table );
+    //     this.exposure_list_table.appendChild( this.exposure_list_table_header_row );
+    //     this.fill_exposure_list_table_header_row()
+
+    //     let grey = 0;
+    //     let coln = 0;
+    //     for ( let i of dexen ) {
+    //         if ( coln == 0 ) {
+    //             grey = 1 - grey;
+    //             coln = 3;
+    //         }
+    //         coln -= 1;
+
+    //         let tr = this.tablerows[ this.exposures["name"][i] ];
+    //         tr.classList.remove( ...["bgfade", "bgwhite"] )
+    //         if ( grey )
+    //             tr.classList.add( "bgfade" )
+    //         else
+    //             tr.classList.add( "bgwhite" );
+    //         this.exposure_list_table.appendChild( tr );
+    //     }
+    // }
+
     // **********************************************************************
-    
-    fill_exposure_list_table_header_row()
-    {
-        let self = this;
-        let subscripts = [ '₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉' ];
 
-        rkWebUtil.wipeDiv( this.exposure_list_table_header_row );
-
-        for ( let field of [ 'Exposure', 'MJD', 'target', 'filter', 't_exp (s)', 'subs',
-                             'detections', 'sources', 'n_successim', 'n_errors' ] ) {
-            let th = rkWebUtil.elemaker( "th", this.exposure_list_table_header_row );
-
-            let clickfunc = (e) => {
-                if ( self.exposure_list_sort_order.indexOf( '+' + field ) >= 0 )
-                    self.resort_exposure_list_table( field, false );
-                else
-                    self.resort_exposure_list_table( field, true );
-            };
-
-            let span = rkWebUtil.elemaker( "span", th, { "text": field,
-                                                         "classes": [ "link" ],
-                                                         "click": clickfunc } );
-
-            let sortdex = this.exposure_list_sort_order.indexOf( '+' + field );
-            if ( sortdex == 0 ){
-                th.appendChild( document.createTextNode( '▲' ) );
-            }
-            else if ( ( sortdex > 0 )  && ( sortdex <= 9 ) ) {
-                th.appendChild( document.createTextNode( '▵' + subscripts[sortdex] ) )
-            }
-            sortdex = this.exposure_list_sort_order.indexOf( '-' + field );
-            if ( sortdex == 0 ) {
-                th.appendChild( document.createTextNode( '▼' ) );
-            }
-            else if ( ( sortdex > 0 )  && ( sortdex <= 9 ) ) {
-                th.appendChild( document.createTextNode( '▿' + subscripts[sortdex] ) )
-            }
-        }
-    }
-
-    // **********************************************************************
-    
-    resort_exposure_list_table( field, increasing )
-    {
-        let self = this;
-        
-        let fieldmap = { 'Exposure': "name",
-                         'MJD': "mjd",
-                         'target': "target",
-                         'filter': "filter",
-                         't_exp (s)': "exp_time",
-                         'subs': "n_subs",
-                         'detections': "n_sources",
-                         'sources': "n_measurements",
-                         'n_successim': "n_successim",
-                         'n_errors': "n_errors",
-                       };
-
-        let sorter = ( a, b ) => {
-            for ( let field of self.exposure_list_sort_order ) {
-                let incr = ( field[0] == '+' );
-                let f = field.substring(1);
-                let aval = this.exposures[fieldmap[f]][a];
-                let bval = this.exposures[fieldmap[f]][b];
-                if ( typeof aval == 'string' ) aval = aval.toLowerCase();
-                if ( typeof bval == 'string' ) bval = bval.toLowerCase();
-
-                if ( aval > bval ) {
-                    if ( incr )
-                        return 1;
-                    else
-                        return -1;
-                }
-                else if ( aval < bval ) {
-                    if ( incr )
-                        return -1;
-                    else
-                        return 1;
-                }
-            }
-            return 0;
-        };
-
-        // Remove field from the sort order if it's there
-        let i = 0;
-        while ( i < this.exposure_list_sort_order.length ) {
-            if ( this.exposure_list_sort_order[i].substring(1) == field )
-                this.exposure_list_sort_order.splice( i, 1 );
-            else
-                i += 1;
-        }
-        // Add field to beginning of sort order
-        if ( increasing )
-            this.exposure_list_sort_order.splice( 0, 0, '+' + field );
-        else
-            this.exposure_list_sort_order.splice( 0, 0, '-' + field );
-
-        // Get sorted list of indexes
-        let dexen = Array.from( Array( this.exposures["name"].length ).keys() );
-        dexen.sort( sorter );
-
-        // Redo table
-        rkWebUtil.wipeDiv( this.exposure_list_table );
-        this.exposure_list_table.appendChild( this.exposure_list_table_header_row );
-        this.fill_exposure_list_table_header_row()
-
-        let grey = 0;
-        let coln = 0;
-        for ( let i of dexen ) {
-            if ( coln == 0 ) {
-                grey = 1 - grey;
-                coln = 3;
-            }
-            coln -= 1;
-
-            let tr = this.tablerows[ this.exposures["name"][i] ];
-            tr.classList.remove( ...["bgfade", "bgwhite"] )
-            if ( grey )
-                tr.classList.add( "bgfade" )
-            else
-                tr.classList.add( "bgwhite" );
-            this.exposure_list_table.appendChild( tr );
-        }
-    }
-
-    // **********************************************************************
-    
     render_page()
     {
         let self = this;
@@ -170,18 +170,6 @@ seechange.ExposureList = class
         this.tabbed.addTab( "exposuredetail", "Exposure Details", this.exposurediv, false );
         rkWebUtil.elemaker( "p", this.exposurediv,
                             { "text": 'No exposure listed; click on an exposure in the "Exposure List" tab.' } );
-
-        var table, th, tr, td;
-
-        // let p = rkWebUtil.elemaker( "p", this.listdiv );
-        // rkWebUtil.elemaker( "span", p, { "text": "[Back to exposure search]",
-        //                                  "classes": [ "link" ],
-        //                                  "click": () => { self.context.render_page() } } );
-        // p.appendChild( document.createTextNode( "  —  " ) );
-        // rkWebUtil.elemaker( "span", p, { "text": "[Refresh]",
-        //                                  "classes": [ "link" ],
-        //                                  "click": () => { rkWebUtil.wipeDiv( self.div );
-        //                                                   self.context.show_exposures(); } } );
 
         let h2 = rkWebUtil.elemaker( "h2", this.listdiv, { "text": "Exposures" } );
         if ( ( this.fromtime == null ) && ( this.totime == null ) ) {
@@ -205,22 +193,9 @@ seechange.ExposureList = class
                             { "text": '"Detections" are everything found on subtratcions; ' +
                               '"Sources" are things that passed preliminary cuts.' } )
 
-        table = rkWebUtil.elemaker( "table", this.listdiv, { "classes": [ "exposurelist" ],
-                                                             "attributes": { "id": "exposure_list_table" } } );
-        this.exposure_list_table = table;
-        this.exposure_list_table_header_row = rkWebUtil.elemaker( "tr", table );
-        this.exposure_list_sort_order = [ '+MJD' ];
-        this.fill_exposure_list_table_header_row();
-
-        this.tablerows = {};
-        let exps = this.exposures;   // For typing convenience...
-        // Remember, in javascript, "i in x" is like python "i in range(len(x))" or "i in x.keys()"
-        let fade = 1;
-        let countdown = 3;
-        for ( let i in exps["name"] ) {
-            let row = rkWebUtil.elemaker( "tr", table, { "classes": [ fade ? "bgfade" : "bgwhite" ] } );
-            this.tablerows[ exps["name"][i] ] = row;
-            td = rkWebUtil.elemaker( "td", row );
+        let rowrenderer = (exps, i) => {
+            let row = rkWebUtil.elemaker( "tr", null );
+            let td = rkWebUtil.elemaker( "td", row );
             rkWebUtil.elemaker( "a", td, { "text": exps["name"][i],
                                            "classes": [ "link" ],
                                            "click": function() {
@@ -245,12 +220,31 @@ seechange.ExposureList = class
             td = rkWebUtil.elemaker( "td", row, { "text": exps["n_measurements"][i] } );
             td = rkWebUtil.elemaker( "td", row, { "text": exps["n_successim"][i] } );
             td = rkWebUtil.elemaker( "td", row, { "text": exps["n_errors"][i] } );
-            countdown -= 1;
-            if ( countdown == 0 ) {
-                countdown = 3;
-                fade = 1 - fade;
-            }
-        }
+            return row
+        };
+
+        let fields = [ "Exposure", "MJD", "target", "filter", "t_exp (s)",
+                       "subs", "detections", "sources", "n_successim", "n_errors" ];
+        let fieldmap = { 'Exposure': "name",
+                         'MJD': "mjd",
+                         'target': "target",
+                         'filter': "filter",
+                         't_exp (s)': "exp_time",
+                         'subs': "n_subs",
+                         'detections': "n_sources",
+                         'sources': "n_measurements",
+                         'n_successim': "n_successim",
+                         'n_errors': "n_errors",
+                       };
+        let tab = new rkWebUtil.SortableTable( this.exposures, rowrenderer, fields,
+                                               { 'fieldmap': fieldmap,
+                                                 'dictoflists': true,
+                                                 'initsort': [ '+MJD' ],
+                                                 'tableclasses': [ 'exposure_list_table' ],
+                                                 'colorclasses': [ 'bgfade', 'bgwhite' ],
+                                                 'colorlength': 3 } );
+        this.listdiv.appendChild( tab.table );
+
     };
 
 
