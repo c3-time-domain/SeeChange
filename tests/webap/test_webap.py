@@ -287,10 +287,11 @@ def test_webap( webap_browser_logged_in, webap_url, decam_datastore, admin_user 
 
         cols = rows[1].find_elements( By.XPATH, "./*" )
         assert cols[0].text == 'c4d_211025_044847_ori.fits.fz'
-        assert cols[2].text == 'ELAIS-E1'
-        assert cols[5].text == '1'    # n_images
-        assert cols[6].text == '261'  # detections
-        assert cols[7].text == '10'    # sources
+        assert cols[1].text == '2021B-0149'
+        assert cols[3].text == 'ELAIS-E1'
+        assert cols[6].text == '1'    # n_images
+        assert cols[7].text == '261'  # detections
+        assert cols[8].text == '10'    # sources
 
         # ======================================================================
         # ======================================================================
