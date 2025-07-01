@@ -685,7 +685,7 @@ seechange.Conductor = class
                 rkWebUtil.elemaker( "p", this.knownexpdiv,
                                     { "text": "Loading known exposures...",
                                       "classes": [ "warning", "bold", "italic" ] } );
-                this.connector.sendHttpRequest( "/conductor/clearclusterclaim",
+                this.connector.sendHttpRequest( "/conductor/fullyclearclusterclaim",
                                                 { 'knownexposure_ids': toclear },
                                                 (data) => { self.update_known_exposures() } );
             }

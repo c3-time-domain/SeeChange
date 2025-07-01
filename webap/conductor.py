@@ -455,6 +455,14 @@ class GetKnownExposures( ConductorBaseView ):
 
 # ======================================================================
 
+class SetExposureState( ConductorBaseView ):
+    def do_the_things( self ):
+        args = self.argstr_to_args( None, { 'knownexposure_ids': [],
+                                            'state': None } )
+        if ( args['state'] is None ):
+            raise ValueError, 
+            
+
 
 class HoldReleaseExposures( ConductorBaseView ):
     def hold_or_release( self, keids, hold ):
@@ -512,7 +520,7 @@ class DeleteKnownExposures( ConductorBaseView ):
 
 # ======================================================================
 
-class ClearClusterClaim( ConductorBaseView ):
+class FullyClearClusterClaim( ConductorBaseView ):
     def do_the_things( self ):
         args = flask.request.json
         if 'knownexposure_ids' not in args:
@@ -549,10 +557,9 @@ urls = {
     "/getworkers": GetWorkers,
     "/getknownexposures": GetKnownExposures,
     "/getknownexposures/<path:argstr>": GetKnownExposures,
-    "/holdexposures": HoldExposures,
-    "/releaseexposures": ReleaseExposures,
+    "/setexposurestate": SetExposureState,
     "/deleteknownexposures": DeleteKnownExposures,
-    "/clearclusterclaim": ClearClusterClaim,
+    "/fullyclearclusterclaim": FullyClearClusterClaim,
 }
 
 usedurls = {}

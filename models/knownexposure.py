@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
 from models.base import Base, UUIDMixin
+from models.enums_and_bitflags import KnownExposureStateConverter
 from util.radec import radec_to_gal_ecl
 
 
@@ -32,9 +33,25 @@ class KnownExposure(Base, UUIDMixin):
     params = sa.Column( JSONB, nullable=True,
                         doc='Additional instrument-specific parameters needed to pull this exposure' )
 
+    # TODO : delete this property once the _state property is fully working
     hold = sa.Column( 'hold', sa.Boolean, nullable=False, server_default='false',
                       doc="If True, conductor won't release this exposure for processing" )
 
+    _state = sa.Column( sa.SMALLINT, nullable=False, server_default=0, doc='0=held, 1=ready, 2=running, 3=done' )
+
+    @hybrid_property
+    def state(self):
+        return KnownExposureStateConverter.convert( self._state )
+
+    @state.inplace.expression
+    @classmethod
+    def state(cls):
+        return sa.case( KnownExposureStateConverter.dict, value=cls._state )
+
+    @state.inplace.setter
+    def state( self, value ):
+        self._state = KnownExposureStateConverter.convert( value )
+    
     exposure_id = sa.Column( 'exposure_id',
                              sqlUUID,
                              sa.ForeignKey( 'exposures._id', name='knownexposure_exposure_id_fkey' ),
