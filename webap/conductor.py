@@ -144,8 +144,8 @@ class ConductorBaseView( BaseView ):
 class GetStatus( ConductorBaseView ):
     def do_the_things( self ):
         status = self.get_updater_status()
-        status[ 'throughstep' ] = self.__class__.throughstep
-        status[ 'pickuppartial' ] = self.__class__.pickuppartial
+        status[ 'throughstep' ] = ConductorBaseView.throughstep
+        status[ 'pickuppartial' ] = ConductorBaseView.pickuppartial
         return status
 
 # ======================================================================
@@ -194,19 +194,19 @@ class UpdateParameters( ConductorBaseView ):
             return f"Unknown arguments to UpdateParameters: {unknown}", 500
 
         for att, val in clsatttoset.items():
-            setattr( self.__class__, att, val )
+            setattr( ConductorBaseView, att, val )
         # Bools will have been passed as ints through the web interface, so make
         #   sure they're really bools.  (This matters when passing to Postgres.)
-        self.__class__.pause_updates = bool( self.__class__.pause_updates )
-        self.__class__.hold_new_exposures = bool( self.__class__.hold_new_exposures )
-        self.__class__.pickuppartial = bool( self.__class__.pickuppartial )
+        ConductorBaseView.pause_updates = bool( ConductorBaseView.pause_updates )
+        ConductorBaseView.hold_new_exposures = bool( ConductorBaseView.hold_new_exposures )
+        ConductorBaseView.pickuppartial = bool( ConductorBaseView.pickuppartial )
 
         updaterargs['command'] = 'updateparameters'
         res = self.talk_to_updater( updaterargs )
         del curstatus['status']
         res['oldsconfig'] = curstatus
 
-        self.__class__.configchangetime = res['configchangetime']
+        ConductorBaseView.configchangetime = res['configchangetime']
         with Psycopg2Connection() as conn:
             cursor = conn.cursor()
             cursor.execute( "UPDATE conductor_config SET instrument_name=%(inst)s, updateargs=%(upda)s, "
@@ -219,8 +219,8 @@ class UpdateParameters( ConductorBaseView ):
                               'pause': bool( res['pause'] ),
                               'hold': bool( res['hold'] ),
                               't': res['configchangetime'],
-                              'through': self.__class__.throughstep,
-                              'partial': self.__class__.pickuppartial } )
+                              'through': ConductorBaseView.throughstep,
+                              'partial': ConductorBaseView.pickuppartial } )
             conn.commit()
 
         return res
@@ -341,14 +341,15 @@ class RequestExposure( ConductorBaseView ):
             cursor.execute( "LOCK TABLE knownexposures" )
             # Select the lowest-mjd exposure in the "ready" state (1)
             cursor.execute( "SELECT _id, cluster_id FROM knownexposures "
-                            "WHERE cluster_id IS NULL AND _state=1 "
+                            "WHERE _state=1 "
                             "ORDER BY mjd LIMIT 1" )
             rows = cursor.fetchall()
             if len(rows) > 0:
                 knownexp_id = rows[0]['_id']
                 # Set state to claimed (2), update the claim time and the cluster id
                 cursor.execute( "UPDATE knownexposures "
-                                "SET cluster_id=%(cluster_id)s, claim_time=NOW(), state=2 "
+                                "SET cluster_id=%(cluster_id)s, claim_time=NOW(), start_time=NULL, release_time=NULL, "
+                                "    _state=2, node_id=NULL, machine_name=NULL "
                                 "WHERE _id=%(id)s",
                                 { 'id': knownexp_id, 'cluster_id': args['cluster_id'] } )
                 cursor.execute( "SELECT throughstep FROM conductor_config" )

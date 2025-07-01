@@ -196,27 +196,15 @@ class ExposureLauncher:
                 # Run
                 exposure_processor = ExposureProcessor( knownexp.instrument,
                                                         knownexp.identifier,
-                                                        knownexp.params,
                                                         self.numprocs,
                                                         self.cluster_id,
                                                         self.node_id,
                                                         onlychips=self.onlychips,
                                                         through_step=through_step,
-                                                        verify=self.verify,
                                                         worker_log_level=self.worker_log_level )
-                exposure_processor.start_work()
-                SCLogger.info( f'Downloading and loading exposure {knownexp.identifier}...' )
-                exposure_processor.download_and_load_exposure()
+                exposure_processor.secure_exposure()
                 SCLogger.info( '...downloaded.  Launching process to handle all chips.' )
-
-                with SmartSession() as session:
-                    knownexp = ( session.query( KnownExposure )
-                                 .filter( KnownExposure._id==data['knownexposure_id'] ) ).first()
-                    knownexp.exposure_id = exposure_processor.exposure.id
-                    session.commit()
-
                 exposure_processor()
-                exposure_processor.finish_work()
                 SCLogger.info( f"Done processing exposure {exposure_processor.exposure.origin_identifier}" )
 
                 n_processed += 1

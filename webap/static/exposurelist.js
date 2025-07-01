@@ -12,9 +12,21 @@ seechange.ExposureList = class
         this.parentdiv = parentdiv;
         this.masterdiv = null;
         this.listdiv = null;
+        this.exposures = {};
         this.exposurediv = null;
         this.exposure_displays = {};
     };
+
+
+    // **********************************************************************
+
+    new_exposure_list( exposures, fromtime, totime, projects ) {
+        this.exposures = exposures;
+        this.fromtime = fromtime;
+        this.totime = totime;
+        this.projects = projects;
+        this.render_page();
+    }
 
 
     // **********************************************************************
@@ -52,11 +64,7 @@ seechange.ExposureList = class
                                                      + this.totime.toFixed(2) ) );
         }
 
-        if ( this.provtag == null ) {
-            h2.appendChild( document.createTextNode( " including all provenances" ) );
-        } else {
-            h2.appendChild( document.createTextNode( " with provenance tag " + this.provtag ) );
-        }
+        h2.appendChild( document.createTextNode( " with provenance tag " + this.cointext.provtag_wid.value ) );
 
         rkWebUtil.elemaker( "p", this.listdiv,
                             { "text": '"Detections" are everything found on subtratcions; ' +
@@ -113,7 +121,7 @@ seechange.ExposureList = class
     show_exposure( id, provtag=null )
     {
         let self = this;
-        if ( provtag == null ) provtag = this.provtag;
+        if ( provtag == null ) provtag = this.context.provtag_wid.value;
 
         this.tabbed.selectTab( "exposuredetail" );
 

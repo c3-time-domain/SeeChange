@@ -184,9 +184,15 @@ class ExposureProcessor:
             state = KnownExposureStateConverter.to_string( ke['_state'] )
 
             claim_time = ke['claim_time'] if ke['claim_time'] is not None else datetime.datetime.now( tz=datetime.UTC )
-            if any( [ ( ke['cluster_id'] != self.cluster_id ),
-                      ( ke['node_id'] != self.node_id ),
-                      ( ke['machine_name'] != self.machine_name ) ] ):
+            # We only verify cluster_id, not node_id and machine_name.  We're operating under
+            #   the assumption that the person running a single cluster is staying coordinated.
+            #   That may not be a great assumption.  If we wanted to also filter on the other two,
+            #   we'd have to update the /conductor/requestexposure endpoint to take a node_id
+            #   and machine_name, and we'd have to update pipeline_exposure_launcher to send it.
+            # if any( [ ( ke['cluster_id'] != self.cluster_id ),
+            #           ( ke['node_id'] != self.node_id ),
+            #           ( ke['machine_name'] != self.machine_name ) ] ):
+            if ke['cluster_id'] != self.cluster_id:
                 claim_time = datetime.datetime.now( tz=datetime.UTC )
                 if ( not assume_claimed ) and ( state not in ( 'ready', 'held', 'done' ) ):
                     raise RuntimeError( f"Exposure is in state {state}, isn't claimed by me, "

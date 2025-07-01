@@ -1,5 +1,5 @@
-import pytest
-import os
+# import pytest
+# import os
 import time
 import logging
 
@@ -26,13 +26,14 @@ def unhold_decam_exposure( conductor_connector, identifier ):
         if ke['identifier'] == identifier:
             idtodo = ke['id']
     assert idtodo is not None
-    conductor_connector.send( "conductor/releaseexposures/", { 'knownexposure_ids': [ idtodo ] } )
+    conductor_connector.send( "conductor/setknownexposurestate/",
+                              { 'knownexposure_ids': [ idtodo ], 'state': 'ready' } )
 
     # Make sure the right things are held
     with SmartSession() as session:
         kes = session.query( KnownExposure ).all()
-    assert all( [ ke.hold for ke in kes if str(ke.id) != idtodo ] )
-    assert all( [ not ke.hold for ke in kes if str(ke.id) == idtodo ] )
+    assert all( [ ke.state == 'held' for ke in kes if str(ke.id) != idtodo ] )
+    assert all( [ ke.state == 'ready' for ke in kes if str(ke.id) == idtodo ] )
 
     return idtodo
 
@@ -123,12 +124,30 @@ def test_exposure_launcher_conductor_through_step( conductor_connector,
             cursor = conn.cursor()
             cursor.execute( "SELECT throughstep FROM conductor_config" )
             assert cursor.fetchone()[0] == 'photocal'
+            cursor.execute( "SELECT _id FROM knownexposures WHERE instrument='DECam' AND identifier=%(iden)s",
+                            { "iden": decam_exposure_name } )
+            keid = cursor.fetchone()[0]
 
         elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'], verify=False,
                                     worker_log_level=logging.DEBUG )
         elaunch.register_worker()
         elaunch( max_n_exposures=1, die_on_exception=True )
         verify_exposure_image_etc( numimages=2, numsourcelists=2, numzps=2, numsubs=0 )
+        elaunch.unregister_worker()
+
+        # Reset the conductor through step to 'scoring', reset the known
+        #   exposure's state to "ready", then make a new exposure
+        #   launcher to make sure both that the conductor re-assigns the
+        #   ready exposure and that make sure the pipeline runs all the
+        #   way to the end.
+        conductor_connector.send( "/conductor/updateparameters/throughstep=scoring" )
+        conductor_connector.send( "/conductor/setknownexposurestate", { 'knownexposure_ids': [ keid ],
+                                                                        'state': 'ready' } )
+        elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'], verify=False,
+                                    worker_log_level=logging.DEBUG )
+        elaunch.register_worker()
+        elaunch( max_n_exposures=1, die_on_exception=True )
+        verify_exposure_image_etc( numimages=2, numsourcelists=2, numzps=2, numsubs=2 )
 
     finally:
         delete_exposure( decam_exposure_name )
@@ -208,7 +227,7 @@ def test_exposure_launcher_through_step( conductor_connector,
 # the test down significantly, but does mean that every time I want to
 # do this, I don't have to remember to put the users there in addition
 # to putting in the breakpoint.
-@pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
+# @pytest.mark.skipif( os.getenv('SKIP_BIG_MEMORY') is not None, reason="Uses too much memory for github actions" )
 def test_exposure_launcher( conductor_connector,
                             conductor_config_decam_pull_all_held,
                             decam_elais_e1_two_references,
@@ -225,7 +244,7 @@ def test_exposure_launcher( conductor_connector,
 
         # Make our launcher
         elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'],
-                                    worker_log_level=logging.DEBUG )
+                                    verify=False, worker_log_level=logging.DEBUG )
         elaunch.register_worker()
 
         # Make sure the worker got registered properly
