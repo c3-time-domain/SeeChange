@@ -64,7 +64,7 @@ seechange.ExposureList = class
                                                      + this.totime.toFixed(2) ) );
         }
 
-        h2.appendChild( document.createTextNode( " with provenance tag " + this.cointext.provtag_wid.value ) );
+        h2.appendChild( document.createTextNode( " with provenance tag " + this.context.provtag_wid.value ) );
 
         rkWebUtil.elemaker( "p", this.listdiv,
                             { "text": '"Detections" are everything found on subtratcions; ' +
