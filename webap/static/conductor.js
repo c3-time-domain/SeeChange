@@ -45,15 +45,6 @@ seechange.Conductor = class
                                                   "selected": ( step=='alerting' ) ? 1 : 0 } } );
         }
 
-        // UNCOMMENT ALL THIS WHEN IT'S ACTUALLY IMPLEMENTED -- see Issue #446
-        // The conductor doesn't currently consider this when choosing exposures to assign.
-        // p = rkWebUtil.elemaker( "p", vbox );
-        // this.pickup_partial_checkbox = rkWebUtil.elemaker( "input", p,
-        //                                                    { "attributes": { "type": "checkbox",
-        //                                                                      "id": "pickup_partial_checkbox",
-        //                                                                      "name": "pickup_partial_checkbox" } } );
-        // p.appendChild( document.createTextNode( " run partially completed exposures?" ) );
-
         hbox.appendChild( this.pipelineworkers.div );
 
         this.contentdiv = rkWebUtil.elemaker( "div", this.frontpagediv );
@@ -119,21 +110,15 @@ seechange.Conductor = class
         td = rkWebUtil.elemaker( "td", tr );
         this.min_exp_time = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
         tr = rkWebUtil.elemaker( "tr", table );
-        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "claimed?" } );
+        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "state:" } );
         td = rkWebUtil.elemaker( "td", tr );
-        this.search_claimed = rkWebUtil.elemaker( "select", td );
-        rkWebUtil.elemaker( "option", this.search_claimed, { "text": "—",
-                                                             "attributes": { "value": "—", "selected": 1 } } );
-        rkWebUtil.elemaker( "option", this.search_claimed, { "text": "Yes", "attributes": { "value": "Yes" } } );
-        rkWebUtil.elemaker( "option", this.search_claimed, { "text": "No", "attributes": { "value": "No" } } );
-        tr = rkWebUtil.elemaker( "tr", table );
-        td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "released?" } );
-        td = rkWebUtil.elemaker( "td", tr );
-        this.search_released = rkWebUtil.elemaker( "select", td );
-        rkWebUtil.elemaker( "option", this.search_released, { "text": "—",
-                                                             "attributes": { "value": "—", "selected": 1 } } );
-        rkWebUtil.elemaker( "option", this.search_released, { "text": "Yes", "attributes": { "value": "Yes" } } );
-        rkWebUtil.elemaker( "option", this.search_released, { "text": "No", "attributes": { "value": "No" } } );
+        for ( let i of [ "held", "ready", "claimed", "running", "done" ] ) {
+            this['search_state_' + i] =
+                rkWebUtil.elemaker( "input", td, { "attributes": { "type": "checkbox",
+                                                                   "id": "search_state_" + i,
+                                                                   "checked": 1 } } );
+            rkWebUtil.elemaker( "label", td, { "text": i, "attributess": { "for": "search_state_" + i } } );
+        }
         tr = rkWebUtil.elemaker( "tr", table );
         td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "claim time ≤" } );
         td = rkWebUtil.elemaker( "td", tr );
@@ -142,6 +127,7 @@ seechange.Conductor = class
                                               (e) => { rkWebUtil.validateWidgetDateUTC( self.max_claim_time ) } );
 
 
+        this.knownexp_notification_div = rkWebUtil.elemaker( "div", this.contentdiv );
         this.knownexpdiv = rkWebUtil.elemaker( "div", this.contentdiv );
 
         this.show_config_status();
@@ -292,7 +278,7 @@ seechange.Conductor = class
                                                                        "size": 20 } } );
         td = rkWebUtil.elemaker( "td", tr, { "text": " (MJD or YYYY-MM-DD HH:MM:SS)" } )
         tr = rkWebUtil.elemaker( "tr", table );
-        th = rkWebUtil.elemaker( "th", tr, { "text": "Max Exp. Time" } );
+        th = rkWebUtil.elemaker( "th", tr, { "text": "Min Exp. Time" } );
         td = rkWebUtil.elemaker( "td", tr );
         this.status_minexptime_wid = rkWebUtil.elemaker( "input", td,
                                                          { "attributes": { "value": minexptime,
@@ -431,18 +417,15 @@ seechange.Conductor = class
         if ( this.min_exp_time.value.trim().length > 0 ) {
             url += "/minexptime=" + encodeURIComponent( this.min_exp_time.value.trim() );
         }
-        if ( this.search_claimed.value == "Yes" ) {
-            url += "/claimed=1";
-        } else if ( this.search_claimed.value == "No" ) {
-            url += "/claimed=0";
-        }
-        if ( this.search_released.value == "Yes" ) {
-            url += "/released=1";
-        } else if ( this.search_released.value == "No" ) {
-            url += "/released=0";
-        }
         if ( this.max_claim_time.value.trim().length > 0 ) {
             url += "/maxclaimtime=" + encodeURIComponent( this.max_claim_time.value.trim() );
+        }
+        let searchstate = [];
+        for ( let i of [ "held", "ready", "claimed", "running", "done" ] ) {
+            if ( this['search_state_' + i].checked ) searchstate.push( i );
+        }
+        if ( searchstate.length > 0 ) {
+            url += "/state=" + encodeURIComponent( searchstate.join(",") );
         }
         this.connector.sendHttpRequest( url, {}, (data) => { self.show_known_exposures(data); } );
     }
@@ -459,7 +442,7 @@ seechange.Conductor = class
         this.known_exposures_sort_order = [ '+mjd' ];
         this.known_exposure_checkboxes = {};
         this.known_exposure_rows = {};
-        this.known_exposure_hold_tds = {};
+        this.known_exposure_state_tds = {};
         // this.known_exposure_checkbox_manual_state = {};
 
         rkWebUtil.wipeDiv( this.knownexpdiv );
@@ -492,14 +475,30 @@ seechange.Conductor = class
                 }
             } );
         p.appendChild( document.createTextNode( "      Apply to selected: " ) );
-        button = rkWebUtil.button( p, "Delete", () => { self.delete_known_exposures() } );
+        button = rkWebUtil.button( p, "Delete Selected", () => { self.delete_known_exposures() } );
         button.classList.add( "hmargin" );
-        button = rkWebUtil.button( p, "Hold", () => { self.hold_release_exposures( true ); } );
+        button = rkWebUtil.button( p, "Clear Cluster Claim On Selected", () => { self.clear_cluster_claim() } );
         button.classList.add( "hmargin" );
-        button = rkWebUtil.button( p, "Clear Hold", () => { self.hold_release_exposures( false ); } );
+        p.appendChild( document.createTextNode( "      " ) );
+        button = rkWebUtil.button( p, "Set", () => { self.set_exposure_state(); } )
         button.classList.add( "hmargin" );
-        button = rkWebUtil.button( p, "Clear Cluster Claim", () => { self.clear_cluster_claim() } );
-        button.classList.add( "hmargin" );
+        p.appendChild( document.createTextNode( "selected state to" ) );
+        this.set_known_exposure_state_to = rkWebUtil.elemaker( "select", p );
+        rkWebUtil.elemaker( "option", this.set_known_exposure_state_to,
+                            { "text": "—", "attributes": { "value": "—", "selected": 1 } } );
+        rkWebUtil.elemaker( "option", this.set_known_exposure_state_to,
+                            { "text": "held", "attributes": { "value": "held" } } );
+        rkWebUtil.elemaker( "option", this.set_known_exposure_state_to,
+                            { "text": "ready", "attributes": { "value": "ready" } } );
+        // Do we want to give the conductor user the ability to set the following three states???
+        // I'm inclined towards yes... it's an admin function, and as they say,
+        //   with great responsibility comes great power.  Or something.  (If only.)
+        rkWebUtil.elemaker( "option", this.set_known_exposure_state_to,
+                            { "text": "claimed", "attributes": { "value": "claimed" } } );
+        rkWebUtil.elemaker( "option", this.set_known_exposure_state_to,
+                            { "text": "running", "attributes": { "value": "running" } } );
+        rkWebUtil.elemaker( "option", this.set_known_exposure_state_to,
+                            { "text": "done", "attributes": { "value": "done" } } );
 
         for ( let ke of data.knownexposures ) {
             this.known_exposures.push( ke );
@@ -507,6 +506,8 @@ seechange.Conductor = class
 
         let rowrenderer = ( ke ) => {
             tr = rkWebUtil.elemaker( "tr", null );
+            if ( ke.state == "held" ) tr.classList.add( "heldexposure" );
+            else if ( ke.state == "ready" ) tr.classList.add( "readyexposure" );
             td = rkWebUtil.elemaker( "td", tr );
             self.known_exposure_checkboxes[ ke.id ] =
                 rkWebUtil.elemaker( "input", td, { "attributes": { "type": "checkbox" } } );
@@ -518,11 +519,8 @@ seechange.Conductor = class
             //             ( self.known_exposure_checkboxes[ ke.id ].checked ? 1 : 0 );
             //         console.log( "Setting " + ke.id + " to " + self.known_exposure_checkboxes[ ke.id ].checked );
             //     } );
-            if ( ke.hold )
-                td = rkWebUtil.elemaker( "td", tr, { "text": "held", "classes": [ "heldexposures" ] } );
-            else
-                td = rkWebUtil.elemaker( "td", tr, { "text": "" } );
-            self.known_exposure_hold_tds[ ke.id ] = td;
+            td = rkWebUtil.elemaker( "td", tr, { "text": ke.state, "classes": [ "state" + ke.state ] } );
+            self.known_exposure_state_tds[ ke.id ] = td;
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.instrument } );
             td = rkWebUtil.elemaker( "td", tr, { "text": ke.identifier } );
             td = rkWebUtil.elemaker( "td", tr, { "text": parseFloat( ke.mjd ).toFixed( 5 ) } );
@@ -560,10 +558,10 @@ seechange.Conductor = class
             return tr;
         }
 
-        let fields = [ '', 'held?', 'instrument', 'identifier', 'mjd', 'target', 'ra', 'dec', 'b',
+        let fields = [ '', 'state', 'instrument', 'identifier', 'mjd', 'target', 'ra', 'dec', 'b',
                        'filter', 'exp_time', 'project', 'cluster', 'claim_time', 'release_time',
                        'exposure' ];
-        let nosortfields = [ '', 'held?' ];
+        let nosortfields = [ '', 'state' ];
         let fieldmap = { 'instrument': 'instrument',
                          'identifier': 'identifier',
                          'mjd': 'mjd',
@@ -591,40 +589,42 @@ seechange.Conductor = class
 
     // **********************************************************************
 
-    hold_release_exposures( hold )
+    set_exposure_state()
     {
         let self = this;
-
-        let tohold = [];
+        let state = this.set_known_exposure_state_to.value;
+        let kexps = []
         for ( let ke of this.known_exposures ) {
             if ( this.known_exposure_checkboxes[ ke.id ].checked )
-                tohold.push( ke.id );
+                kexps.push( ke.id );
         }
-
-        if ( tohold.length > 0 ) {
-            let url = hold ? "conductor/holdexposures" : "conductor/releaseexposures"
-            this.connector.sendHttpRequest( url, { 'knownexposure_ids': tohold },
-                                            (data) => { self.process_hold_release_exposures(data, hold); } );
+        rkWebUtil.wipeDiv( this.knownexp_notification_div );
+        rkWebUtil.elemaker( "span", this.knownexp_notification_div,
+                            { "text": "Updating state of some known exposures...",
+                              "classes": [ "bold", "italic", "warning" ] } );
+        if ( kexps.length > 0 ) {
+            this.connector.sendHttpRequest( "conductor/setknownexposurestate",
+                                            { "state": state, "knownexposure_ids": kexps },
+                                            (data) => { self.process_set_exposure_state( data ) } );
         }
     }
 
     // **********************************************************************
 
-    process_hold_release_exposures( data, hold )
+    process_set_exposure_state( data )
     {
-        for ( let keid of data[ hold ? "held" : "released" ] ) {
+        for ( let keid of data.knownexposure_ids ) {
             if ( this.known_exposure_rows.hasOwnProperty( keid ) ) {
-                if ( hold ) {
-                    this.known_exposure_rows[ keid ].classList.add( "heldexposure" );
-                    this.known_exposure_hold_tds[ keid ].innerHTML = "***";
-                } else {
-                    this.known_exposure_rows[ keid ].classList.remove( "heldexposure" );
-                    this.known_exposure_hold_tds[ keid ].innerHTML = "";
-                }
+                this.known_exposure_rows[keid].classList.remove( ...[ "heldexposure", "readyexposure" ] )
+                if ( data.state == "held" ) this.known_exposure_rows[ keid ].classList.add( "heldexposure" );
+                else if ( data.state == "ready" ) this.known_exposure_rows[keid].classList.add( "readyexposure" );
+                for ( let i of [ "held", "ready", "claimed", "running", "done" ] )
+                    this.known_exposure_state_tds[ keid ].classList.remove( "state" + i );
+                this.known_exposure_state_tds[ keid ].innerHTML = data.state;
+                this.known_exposure_state_tds[ keid ].classList.add( "state" + data.state );
             }
         }
-        if ( data['missing'].length != 0 )
-            console.log( "WARNING : tried to hold/release the following unknown knownexposures: " + data['missing'] );
+        rkWebUtil.wipeDiv( this.knownexp_notification_div );
     }
 
     // **********************************************************************
@@ -663,7 +663,7 @@ seechange.Conductor = class
             this.known_exposure_rows[ keid ].parentNode.removeChild( this.known_exposure_rows[ keid ] );
             delete this.known_exposure_rows[ keid ];
             delete this.known_exposure_checkboxes[ keid ];
-            delete this.known_exposure_hold_tds[ keid ];
+            delete this.known_exposure_state_tds[ keid ];
         }
     }
 

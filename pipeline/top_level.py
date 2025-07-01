@@ -41,6 +41,7 @@ _PROCESS_OBJECTS = {
 
 # put all the top-level pipeline parameters in the init of this class:
 class ParsPipeline(Parameters):
+    """If you want to run from the command line, see exposure_processor.py."""
 
     def __init__(self, **kwargs):
         super().__init__()

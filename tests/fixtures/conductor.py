@@ -134,11 +134,11 @@ def conductor_config_for_decam_pull( conductor_connector, decam_raw_origin_expos
 def conductor_config_decam_pull_all_held( conductor_connector, conductor_config_for_decam_pull ):
     data = conductor_connector.send( "conductor/getknownexposures" )
     tohold = [ ke['id'] for ke in data['knownexposures'] ]
-    conductor_connector.send( "conductor/holdexposures/", { 'knownexposure_ids': tohold } )
+    conductor_connector.send( "conductor/setknownexposurestate/", { 'knownexposure_ids': tohold, 'state': 'held' } )
 
     # Make sure they all got held
     with SmartSession() as session:
         kes = session.query( KnownExposure ).all()
-    assert all( [ ke.hold for ke in kes ] )
+    assert all( [ ke.state =='held' for ke in kes ] )
 
     return True

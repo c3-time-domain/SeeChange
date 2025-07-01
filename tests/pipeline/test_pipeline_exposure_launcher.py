@@ -224,7 +224,7 @@ def test_exposure_launcher( conductor_connector,
         unhold_decam_exposure( conductor_connector, decam_exposure_name )
 
         # Make our launcher
-        elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'], verify=False,
+        elaunch = ExposureLauncher( 'testcluster', 'testnode', numprocs=2, onlychips=['S2', 'N16'],
                                     worker_log_level=logging.DEBUG )
         elaunch.register_worker()
 

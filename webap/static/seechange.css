@@ -18,6 +18,11 @@
     --good-color: #006000;
     --bad-color: #c00000;
     --warning-color: #c06040;
+    --held-color: #c00000;
+    --ready-color: #aa00aa;
+    --claimed-color: #aa5500;
+    --running-color: #0000c0;
+    --done-color: #006000;
 }
 
 body { color: var(--main-color);
@@ -27,6 +32,12 @@ body { color: var(--main-color);
 .good { color: var(--good-color) }
 .bad { color: var(--bad-color) }
 .warning { color: var(--warning-color) }
+
+.stateheld { color: var(--held-color) }
+.stateready { color: var(--ready-color) }
+.stateclaimed { color: var(--claimed-color) }
+.staterunning { color: var(--running-color) }
+.statedone { color: var(--done-color) }
 
 .italic { font-style: italic }
 .bold { font-weight: bold }
@@ -106,6 +117,7 @@ table.borderless td { border: none; padding: 0px }
 
 table.exposurelist td { border: 2px solid var(--half-faded-color); }
 tr.heldexposure { font-style: italic; color: var(--some-faded-color); }
+tr.readyexposure {}
 
 div.dispnone { display : none; }
 div.dispflex { display : flex; }

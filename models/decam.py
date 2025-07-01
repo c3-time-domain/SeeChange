@@ -1234,7 +1234,7 @@ class DECamOriginExposures:
                                              'obs_type': expinfo.obs_type,
                                              'proc_type': expinfo.proc_type,
                                              'preproc_bitflag': preproc_bitflag },
-                                    hold=hold,
+                                    state='held' if hold else 'ready',
                                     exp_time=expinfo.exposure,
                                     filter=expinfo.ifilter,
                                     project=expinfo.proposal,

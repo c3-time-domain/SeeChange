@@ -1,6 +1,7 @@
 import sqlalchemy as sa
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 
@@ -33,11 +34,7 @@ class KnownExposure(Base, UUIDMixin):
     params = sa.Column( JSONB, nullable=True,
                         doc='Additional instrument-specific parameters needed to pull this exposure' )
 
-    # TODO : delete this property once the _state property is fully working
-    hold = sa.Column( 'hold', sa.Boolean, nullable=False, server_default='false',
-                      doc="If True, conductor won't release this exposure for processing" )
-
-    _state = sa.Column( sa.SMALLINT, nullable=False, server_default=0, doc='0=held, 1=ready, 2=running, 3=done' )
+    _state = sa.Column( sa.SMALLINT, nullable=False, server_default='0', doc='0=held, 1=ready, 2=running, 3=done' )
 
     @hybrid_property
     def state(self):
@@ -51,7 +48,7 @@ class KnownExposure(Base, UUIDMixin):
     @state.inplace.setter
     def state( self, value ):
         self._state = KnownExposureStateConverter.convert( value )
-    
+
     exposure_id = sa.Column( 'exposure_id',
                              sqlUUID,
                              sa.ForeignKey( 'exposures._id', name='knownexposure_exposure_id_fkey' ),
@@ -83,9 +80,12 @@ class KnownExposure(Base, UUIDMixin):
     cluster_id = sa.Column( sa.Text, nullable=True, doc="ID of the cluster that has been assigned this exposure" )
     node_id = sa.Column( sa.Text, nullable=True, doc="ID of the node that has been assigned this exposure" )
     machine_name = sa.Column( sa.Text, nullable=True, doc="Name of the machine where the pipeline is running." )
-    claim_time = sa.Column( sa.DateTime, nullable=True, doc="Time when this exposure was assigned to cluster_id" )
-    start_time = sa.Column( sa.DateTime, nullable=True, doc="Time when the pipeline actually started" )
-    release_time = sa.Column( sa.DateTime, nullable=True, doc="Time when the cluster released this exposure" )
+    claim_time = sa.Column( sa.DateTime(timezone=True), nullable=True,
+                            doc="Time when this exposure was assigned to cluster_id" )
+    start_time = sa.Column( sa.DateTime(timezone=True), nullable=True,
+                            doc="Time when the pipeline actually started" )
+    release_time = sa.Column( sa.DateTime(timezone=True), nullable=True,
+                              doc="Time when the cluster released this exposure" )
     provenance_tag = sa.Column( sa.Text, nullable=True, doc="Provenance tag of process that claimed the exposure" )
     do_not_subtract = sa.Column( sa.Boolean, nullable=False, server_default='false',
                                  doc="If True, don't ever try to do subtraction or later steps on this exposure." )
