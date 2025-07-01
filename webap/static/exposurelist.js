@@ -40,23 +40,6 @@ seechange.ExposureList = class
         rkWebUtil.elemaker( "p", this.exposurediv,
                             { "text": 'No exposure listed; click on an exposure in the "Exposure List" tab.' } );
 
-    }
-
-
-    // **********************************************************************
-
-    new_exposure_list( exposures, fromtime, totime, provtag, projects )
-    {
-        let self = this;
-
-        this.exposures = exposures;
-        this.fromtime = fromtime;
-        this.totime = totime;
-        this.provtag = provtag;
-        this.projects = projects;
-
-        rkWebUtil.wipeDiv( this.listdiv );
-
         let h2 = rkWebUtil.elemaker( "h2", this.listdiv, { "text": "Exposures" } );
         if ( ( this.fromtime == null ) && ( this.totime == null ) ) {
             h2.appendChild( document.createTextNode( " from all time" ) );

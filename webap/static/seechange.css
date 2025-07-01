@@ -123,6 +123,10 @@ div.dispnone { display : none; }
 div.dispflex { display : flex; }
 div.dispblock { display : block; }
 
+div.dispnone { display : none; }
+div.dispflex { display : flex; }
+div.dispblock { display : block; }
+
 div.hbox { display: flex;
            flex-direction: row;
            min-width: 0;
