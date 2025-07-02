@@ -22,6 +22,7 @@ seechange.ExposureList = class
 
     new_exposure_list( exposures, fromtime, totime, projects ) {
         this.exposures = exposures;
+        this.masterdiv = null;
         this.fromtime = fromtime;
         this.totime = totime;
         this.projects = projects;

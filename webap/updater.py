@@ -90,6 +90,7 @@ class Updater:
 
         self.lasttimeout = time.perf_counter() - self.timeout
         done = False
+        _logger.info( "Updater to start listening" )
         while not done:
             try:
                 _logger.debug( f"self.timeout={self.timeout}, time.perf_counter={time.perf_counter()}, "
