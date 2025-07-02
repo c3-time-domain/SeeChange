@@ -233,14 +233,36 @@ def main():
                                       description='Ask the conductor for exposures to do, launch piplines to run them',
                                       formatter_class=ArgFormatter,
                                       epilog=
-
-        """pipeline_exposure_launcher.py
+"""pipeline_exposure_launcher.py
 
 Runs a process that regularly (by default, every 2 minutes) polls the
 SeeChange conductor to see if there are any exposures that need
 processing.  If given one by the conductor, will download the exposure
-and load it into the database, and then launch multiple processes with
-pipelines to process each of the chips in the exposure.
+and load it into the database, and run the pipeline on all chips in the exposure.
+
+Uses exposure_processor.py to actually do its dirty work.
+exposure_processor will launch multiple subprocesses; each subprocess
+will run chip of the exposure at a time.  (If there are enough
+subprocesses, then each subprocess will only one run chip.  If there are
+fewer subprocesses than chips, then as a subprocess finishes one chip,
+it will start one of the leftovers.)  Be careful not to oversubscribe
+your CPUs.  There are two ways this can happen.  First, you can just
+specify too many subprocesses.  Second, it's possible that some
+libraries may use OpenMP or similar internally.  If that's the case,
+make sure to set the appropriate environment variables to instruct them
+to only use one process (or as many as you can afford, if you have more
+CPUs than you intend to launch subprocesses).  As of this writing, the
+following environment varaibles should be set to 1 (or to the number of
+subprocesses you might want things to use):
+  OMP_NUM_THREADS
+  OPENBLAS_NUM_THREADS
+  MKL_NUM_THREADS
+  VECLIB_MAXIMUM_THREADS
+(Probably not all of the libraires referenced by these environment
+variables are actually used in SeeChange, but it won't hurt to set the
+environment variable anyway.)
+
+
 """
                                       )
     parser.add_argument( "-c", "--cluster-id", required=True, help="Name of the cluster where this is running" )

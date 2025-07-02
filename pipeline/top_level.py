@@ -41,7 +41,6 @@ _PROCESS_OBJECTS = {
 
 # put all the top-level pipeline parameters in the init of this class:
 class ParsPipeline(Parameters):
-    """If you want to run from the command line, see exposure_processor.py."""
 
     def __init__(self, **kwargs):
         super().__init__()
@@ -145,6 +144,23 @@ class ParsPipeline(Parameters):
 
 
 class Pipeline:
+    """Internal top-level pipeline code.  If you want to run from the command line, see exposure_processor.py.
+
+    A class that runs the whole pipeline on a single image (or, at
+    least, through the step given in the "through_step" parameter).
+    Instantiate to set parameters, and then call the object (or call the
+    "run" method) to run on a single image.  Can pass an exposure and a
+    section_id, or a datastore with an image already loaded into it.
+    (See "setup_datastore" for more information.)
+
+    Runs the whole pipeline in a single process, *ideally* not doing any
+    multiprocessing.  (It's possible that some libraries will use openmp
+    or similar internally.  If you're running lots of pipelines at once
+    and don't want to oversubscribe your CPU, make sure to set any
+    environment variables to tell those libraries only to use one CPU.)
+
+    """
+
     ALL_STEPS = [ 'preprocessing', 'extraction', 'astrocal', 'photocal', 'subtraction',
                   'detection', 'cutting', 'measuring', 'scoring', 'alerting' ]
 

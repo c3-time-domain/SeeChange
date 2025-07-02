@@ -7,12 +7,11 @@ import requests
 #  given that we're using a self-signed cert for the server in the test environment
 requests.packages.urllib3.disable_warnings()
 
-import sqlalchemy as sa
-
-from models.base import SmartSession
+from models.base import SmartSession, Psycopg2Connection
+from models.enums_and_bitflags import KnownExposureStateConverter
 from models.knownexposure import KnownExposure, PipelineWorker
 
-# TODO : write tests for hold/release
+# TODO : write tests for state changes
 
 
 def test_conductor_not_logged_in( conductor_url ):
@@ -85,7 +84,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
                 .filter( KnownExposure.mjd >= mjd0 )
                 .filter( KnownExposure.mjd <= mjd1 ) ).all()
         assert len(kes) == 18
-        assert all( [ not i.hold for i in kes ] )
+        assert all( [ i.state == 'ready' for i in kes ] )
         assert all( [ i.project == '2023A-716082' for i in kes ] )
         assert min( [ i.mjd for i in kes ] ) == pytest.approx( 60127.33894, abs=1e-5 )
         assert max( [ i.mjd for i in kes ] ) == pytest.approx( 60127.36287, abs=1e-5 )
@@ -157,7 +156,7 @@ def test_pull_decam( conductor_connector, conductor_config_for_decam_pull ):
                 .filter( KnownExposure.mjd >= mjd0 )
                 .filter( KnownExposure.mjd <= mjd1 ) ).all()
         assert len(kes) == 18
-        assert all( [ i.hold for i in kes ] )
+        assert all( [ i.state == 'held' for i in kes ] )
 
 
 def test_request_knownexposure_get_none( conductor_connector ):
@@ -183,9 +182,11 @@ def test_request_knownexposure( conductor_connector, conductor_config_for_decam_
 
     # Make sure that we don't get held exposures
 
-    with SmartSession() as session:
-        session.execute( sa.text( 'UPDATE knownexposures SET hold=true' ) )
-        session.commit()
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute( "Update knownexposures SET _state=%(state)s",
+                        { 'state': KnownExposureStateConverter.to_int("held") } )
+        conn.commit()
 
     data = conductor_connector.send( 'conductor/requestexposure/cluster_id=test_cluster' )
     assert data['status'] == 'not available'

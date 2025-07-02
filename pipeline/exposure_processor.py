@@ -382,29 +382,54 @@ class ExposureProcessor:
 def main():
     sys.stderr.write( f"exposure_processor starting at {datetime.datetime.now(tz=datetime.UTC).isoformat()}\n" )
 
-    parser = argparse.ArgumentParser( 'exposure_processor', 'Process a single known exposure',
+    parser = argparse.ArgumentParser( 'exposure_processor',
+                                      description="Process a single known exposure",
                                       formatter_class=argparse.RawDescriptionHelpFormatter,
-                                      epilog="""Process a single known exposure.
-
-This will process an exposure through the step specified by
---through-step (or all steps, if --through-step isn't given).  It will
-pick up exposures that have already been started partway, and do the
-rest of the processing on them.  The exposure must be in the
-knownexposures table.
+                                      epilog=
+"""Process a single known exposure.
 
 This is what you use to manually force the pipeline to run a specific
 exposure.  If you want to bulk process exposures specified by the
-conductor, instead use pipeline_exposure_launcher.
+conductor, instead use pipeline_exposure_launcher, or another utility
+designed for and launching slurm jobs (which is as of this writing under
+construction).
+
+This will process an exposure through the step specified by
+--through-step (or all steps, if --through-step isn't given).  The
+exposure must be in the knownexposures table.  If --cont is given, it
+will pick up an exposure that has already been started partway, and do
+the rest of the processing on it.
+
+exposure_processor will launch multiple subprocesses; each subprocess
+will run chip of the exposure at a time.  (If there are enough
+subprocesses, then each subprocess will only one run chip.  If there are
+fewer subprocesses than chips, then as a subprocess finishes one chip,
+it will start one of the leftovers.)  Be careful not to oversubscribe
+your CPUs.  There are two ways this can happen.  First, you can just
+specify too many subprocesses.  Second, it's possible that some
+libraries may use OpenMP or similar internally.  If that's the case,
+make sure to set the appropriate environment variables to instruct them
+to only use one process (or as many as you can afford, if you have more
+CPUs than you intend to launch subprocesses).  As of this writing, the
+following environment varaibles should be set to 1 (or to the number of
+subprocesses you might want things to use):
+  OMP_NUM_THREADS
+  OPENBLAS_NUM_THREADS
+  MKL_NUM_THREADS
+  VECLIB_MAXIMUM_THREADS
+(Probably not all of the libraires referenced by these environment
+variables are actually used in SeeChange, but it won't hurt to set the
+environment variable anyway.)
 
 TODO: provide a mechanism to run an exposure that's *not* in the
 knownexpsoures table.
 
 Warning: be careful.  exposure_processor does not contact the conductor,
-nor does it verify that another process isn't already working on this
-exposure.  It will just update the state in the knownexposures table
-without regard to what was there before.  If two processes work on the
-same exposure at the same time, you may make a tremendous mess.  To be
-safe, make sure that this exposure is in a state other than "ready"
+nor does it entirely verify that another process isn't already working
+on this exposure.  It will just update the state in the knownexposures
+table without regard to what was there before.  If two processes work on
+the same exposure at the same time, you may make a tremendous mess.  To
+be safe, make sure that this exposure is in a state other than "ready"
 (i.e. one of "held", "running", or "done") in the conductor.  If the
 current state is "running", make sure that it's not really running
 (i.e. the process that said it was running crashed).  If the current
@@ -423,7 +448,7 @@ to start it.
                          help="Machine name to mark as claiming the exposure in the knownexposures table" )
     parser.add_argument( '-n', '--numprocs', default=None, type=int,
                          help=( "Number of chip processors to run (defaults to number of physical "
-                                "system CPUs minus 1" ) )
+                                "system CPUs minus 1)" ) )
     parser.add_argument( '-t', '--through-step', default=None, help="Process through this step" )
     parser.add_argument( '--chips', default=None, nargs='+', help="Only do these sensor sections (defaults to all)" )
     parser.add_argument( '--cont', '--continue', default=False, action='store_true',
@@ -437,7 +462,8 @@ to start it.
     parser.add_argument( '-w', '--worker-log-level', default='warning',
                          help="Log level for the chip worker subprocesses (defaults to warning)" )
     parser.add_argument( '--assume-claimed', default=False, action='store_true',
-                         help=( "Normally, will object if somebody else has claimed this exposure. Set "
+                         help=( "Normally, will object if the exposure is in the claimed or running state, "
+                                "and it is not claimed by the cluster given in --cluster-id. Set "
                                 "this flag to True to ignore claims in the knownexposures table." ) )
 
     args = parser.parse_args()
