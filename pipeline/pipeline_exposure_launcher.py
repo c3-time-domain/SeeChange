@@ -199,7 +199,7 @@ class ExposureLauncher:
                             f"{self.cluster_id} and node {self.node_id}.  Running through step {through_step}." )
                 if self.onlychips is not None:
                     logtext += f"  Only doing chips {self.onlychips}."
-                SCLoggger.info( logtext )
+                SCLogger.info( logtext )
                 exposure_processor = ExposureProcessor( knownexp.instrument,
                                                         knownexp.identifier,
                                                         self.numprocs,
