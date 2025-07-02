@@ -158,6 +158,8 @@ class ExposureLauncher:
                 if data['status'] != 'available':
                     raise ValueError( f"Unexpected value of data['status']: {data['status']}" )
 
+                SCLogger.info( f"Conductor told me to do known exposure {data['knownexposure_id']} "
+                               f"through step {data['through_step']}; my own through_step is {self.through_step}" )
                 with SmartSession() as session:
                     knownexp = ( session.query( KnownExposure )
                                  .filter( KnownExposure._id==data['knownexposure_id'] ) ).all()
