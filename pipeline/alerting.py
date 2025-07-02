@@ -123,7 +123,7 @@ class Alerting:
 
         """
         if not self.send_alerts:
-            return
+            return ds
 
         t_start = time.perf_counter()
         try:

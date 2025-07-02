@@ -206,20 +206,16 @@ def test_exposure_launcher_through_step( conductor_connector,
         conductor_connector.send( "/conductor/updateparameters/throughstep=scoring" )
 
 
-# NOTE -- this next test gets killed on github actions; googling about a bit
-# suggests that it uses too much memory.  Given that it launches two
-# image processes tasks, and that we still are allocating more memory
-# than we think we should be, this is perhaps not a surprise.  Put in an
-# env var that will cause it to get skipped on github actions, but to be
-# run by default when run locally.  This env var is set in the github
-# actions workflows.
+# NOTE -- in the past, this next test was killed on github actions;
+# googling about a bit suggests that it uses too much memory.  This test
+# launches two pipeline subprocesses.  We've managed to reduce the total
+# amount of memory a subprocess uses, but it still goes up to ~3GB for a
+# 2k×4k chip.  Hopefully at this point the memory will squeeze into what
+# github actions can handle. If we see the tetst getting killed again,
+# uncomment the @pytest.mark.skipif, and that will make it be skipped on
+# github actions.  (The previous test may also need to be skipped in
+# that case, for the same reason.
 #
-# ...while the memory has been reduced a while back, for reasons I don't
-# understand, if you run this test in the context of all the other tests,
-# it hangs on the R/B step.  If you run this test all by itself, it
-# does not hang.  So, for now, keep skipping it on github, and run it
-# individually manually.
-
 # The user and admin_user fixtures are included not because they are needed,
 # but because setting a breakpoint at the end of this test and running it
 # is a convenient way to set something up for playing around with the
@@ -262,7 +258,9 @@ def test_exposure_launcher( conductor_connector,
         # Make sure that two subtractions were created, and extract them
         subs = verify_exposure_image_etc( numimages=2, numsourcelists=2, numzps=2, numsubs=2 )
 
-        # Find the exposure that got processed
+        # Find the exposure that got processed, and verify that the nubmer of
+        #   measurements saved for the two chips is what we expect (based
+        #   on previous runs).
         with SmartSession() as session:
             measq = ( session.query( Measurements )
                       .join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )

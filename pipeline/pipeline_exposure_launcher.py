@@ -194,6 +194,12 @@ class ExposureLauncher:
                     through_step = self.through_step
 
                 # Run
+                logtext = ( f"Creating an ExposureProcessor for instrument {knownexp.instrument} and "
+                            f"identifier {knownexp.identifier}, with {self.numprocs} subporcesses, for cluster "
+                            f"{self.cluster_id} and node {self.node_id}.  Running through step {through_step}." )
+                if self.onlychips is not None:
+                    logtext += f"  Only doing chips {self.onlychips}."
+                SCLoggger.info( logtext )
                 exposure_processor = ExposureProcessor( knownexp.instrument,
                                                         knownexp.identifier,
                                                         self.numprocs,
@@ -203,7 +209,7 @@ class ExposureLauncher:
                                                         through_step=through_step,
                                                         worker_log_level=self.worker_log_level )
                 exposure_processor.secure_exposure()
-                SCLogger.info( '...downloaded.  Launching process to handle all chips.' )
+                SCLogger.info( 'Exposure secured.  Launching process to handle all chips.' )
                 exposure_processor()
                 SCLogger.info( f"Done processing exposure {exposure_processor.exposure.origin_identifier}" )
 
