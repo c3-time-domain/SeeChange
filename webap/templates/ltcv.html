@@ -4,16 +4,19 @@
 <!-- <link rel="icon" type="image.png" href="static/favicon.png"> -->
 <link rel="stylesheet" href="static/seechange.css">
 <script src="static/seechange.js" type="module"></script>
-<script src="static/seechange_start.js" type="module"></script>
+<script src="static/seechange_ltcv_start.js" type="module"></script>
 {% endblock %}
 
-{% block title %}SeeChange Webap{% endblock %}
+{% block title %}SeeChange Webap Lightcurves{% endblock %}
 
 {% block content %}
   <div name="authdiv" id="authdiv" class="authdiv"></div>
 
-  <h1>SeeChange Webap</h1>
+  <h1>SeeChange Lightcurve</h1>
 
+  <input type="hidden" id="ltcv_initial_objid" value="{{objid}}" />
+  <input type="hidden" id="ltcv_initial_provtag" value="{{provtag}}" />
+  
   <div name="pagebody" id="pagebody">
   </div>
 {% endblock %}

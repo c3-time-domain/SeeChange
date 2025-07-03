@@ -31,7 +31,7 @@ spec:
         workload.user.cattle.io/workloadselector: deployment-ls4-rknop-dev-webap
     spec:
       containers:
-      - image: registry.nersc.gov/m4616/seechange-webap:rknop-dev_20250627
+      - image: registry.nersc.gov/m2218/raknop/seechange-webap:decat-wfd_20250702a
         imagePullPolicy: Always
         name: seechange-webap
         resources: {}

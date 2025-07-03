@@ -1108,6 +1108,7 @@ server_session = flask_session.Session( app )
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
 import rkauth_flask
 import conductor
+import ltcv
 
 kwargs = {
     'usegroups': True,
@@ -1134,7 +1135,7 @@ rkauth_flask.RKAuthConfig.setdbparams( **kwargs )
 
 app.register_blueprint( rkauth_flask.bp )
 app.register_blueprint( conductor.bp )
-
+app.register_buleprint( ltcv.bp )
 
 # Configure urls
 

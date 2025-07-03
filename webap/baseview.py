@@ -52,10 +52,11 @@ class BaseView( flask.views.View ):
         self.authenticated = ( 'authenticated' in flask.session ) and flask.session['authenticated']
         self.user = None
         if self.authenticated:
-            self.user = self.session.query( AuthUser ).filter( AuthUser.username==self.username ).first()
-            if self.user is None:
-                self.authenticated = False
-                raise ValueError( f"Error, failed to find user {self.username} in database" )
+            with SmartSession() as session:
+                self.user = self.session.query( AuthUser ).filter( AuthUser.username==self.username ).first()
+                if self.user is None:
+                    self.authenticated = False
+                    raise ValueError( f"Error, failed to find user {self.username} in database" )
         return self.authenticated
 
 
@@ -76,43 +77,32 @@ class BaseView( flask.views.View ):
 
 
     def dispatch_request( self, *args, **kwargs ):
-        # Webaps, where you expect the runtime to be short (ideally at
-        #  most seconds, or less!) is the use case where holding open a
-        #  database connection for the whole runtime actually might make
-        #  sense.
+        if not self.check_auth():
+            return "Not logged in", 500
+        if ( self._admin_required ) and ( 'root' not in self.user.groups ):
+            return "Action requires root", 500
+        if ( ( self._any_group_required is not None ) and
+             ( not any( [ g in self.user.groups for g in self._any_group_required ] ) )
+            ):
+            return ( f"Action requires user to be in one of the groups "
+                     f"{', '.join([str(g) for g in self._any_group_required])}", 500 )
 
-        with SmartSession() as session:
-            self.session = session
-            # Also get the raw psycopg2 connection, because we need it
-            #   to be able to avoid dealing with SA where possible.
-            self.conn = session.bind.raw_connection()
-
-            if not self.check_auth():
-                return "Not logged in", 500
-            if ( self._admin_required ) and ( 'root' not in self.user.groups ):
-                return "Action requires root", 500
-            if ( ( self._any_group_required is not None ) and
-                 ( not any( [ g in self.user.groups for g in self._any_group_required ] ) )
-                ):
-                return ( f"Action requires user to be in one of the groups "
-                         f"{', '.join([str(g) for g in self._any_group_required])}", 500 )
-
-            try:
-                retval = self.do_the_things( *args, **kwargs )
-                # Can't just use the default JSON handling, because it
-                #   writes out NaN which is not standard JSON and which
-                #   the javascript JSON parser chokes on.  Sigh.
-                if isinstance( retval, dict ) or isinstance( retval, list ):
-                    return ( simplejson.dumps( retval, ignore_nan=True, cls=MyParticularJSONEncoder ),
-                             200, { 'Content-Type': 'application/json' } )
-                elif isinstance( retval, str ):
-                    return retval, 200, { 'Content-Type': 'text/plain; charset=utf-8' }
-                elif isinstance( retval, tuple ):
-                    return retval
-                else:
-                    return retval, 200, { 'Content-Type': 'application/octet-stream' }
-            except BadUpdaterReturnError as ex:
-                return str(ex), 500
-            except Exception as ex:
-                flask.current_app.logger.exception( str(ex) )
-                return f"Exception handling request: {ex}", 500
+        try:
+            retval = self.do_the_things( *args, **kwargs )
+            # Can't just use the default JSON handling, because it
+            #   writes out NaN which is not standard JSON and which
+            #   the javascript JSON parser chokes on.  Sigh.
+            if isinstance( retval, dict ) or isinstance( retval, list ):
+                return ( simplejson.dumps( retval, ignore_nan=True, cls=MyParticularJSONEncoder ),
+                         200, { 'Content-Type': 'application/json' } )
+            elif isinstance( retval, str ):
+                return retval, 200, { 'Content-Type': 'text/plain; charset=utf-8' }
+            elif isinstance( retval, tuple ):
+                return retval
+            else:
+                return retval, 200, { 'Content-Type': 'application/octet-stream' }
+        except BadUpdaterReturnError as ex:
+            return str(ex), 500
+        except Exception as ex:
+            flask.current_app.logger.exception( str(ex) )
+            return f"Exception handling request: {ex}", 500
