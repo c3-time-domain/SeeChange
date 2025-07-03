@@ -53,7 +53,7 @@ class BaseView( flask.views.View ):
         self.user = None
         if self.authenticated:
             with SmartSession() as session:
-                self.user = self.session.query( AuthUser ).filter( AuthUser.username==self.username ).first()
+                self.user = session.query( AuthUser ).filter( AuthUser.username==self.username ).first()
                 if self.user is None:
                     self.authenticated = False
                     raise ValueError( f"Error, failed to find user {self.username} in database" )

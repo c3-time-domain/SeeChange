@@ -365,6 +365,7 @@ class Instrument:
         self.background_filt_size = getattr( self, 'background_filt_size', 3 ) # Filter size for sep background
 
         self.allowed_filters = getattr(self, 'allowed_filters', None)  # list of allowed filter (e.g., ['g', 'r', 'i'])
+                                                                       # Sort this the way they shoudl be displayed
 
         self.orientation_fixed = ( self, 'orientation_fixed', False ) # True if sensor never rotates
         self.orientation = ( self, 'orientation', None ) # If orientation_fixed is True, one of InstrumentOrientation

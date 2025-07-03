@@ -1,25 +1,27 @@
-{% extends 'base.html' %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- <link rel="icon" type="image.png" href="static/favicon.png"> -->
+  <link rel="stylesheet" href="/static/seechange.css">
+  <script src="/static/seechange.js" type="module"></script>
+  <script src="/static/seechange_ltcv_start.js" type="module"></script>
+  <title>SeeChange Webap Detection Lightcurve</title>
+</head>
+<body class="fillpage">
+  <div name="wrapperdiv" class="vbox100p">
+    <div name="authdiv" id="authdiv" class="authdiv"></div>
 
-{% block head %}
-<!-- <link rel="icon" type="image.png" href="static/favicon.png"> -->
-<link rel="stylesheet" href="static/seechange.css">
-<script src="static/seechange.js" type="module"></script>
-<script src="static/seechange_ltcv_start.js" type="module"></script>
-{% endblock %}
-
-{% block title %}SeeChange Webap Lightcurves{% endblock %}
-
-{% block content %}
-  <div name="authdiv" id="authdiv" class="authdiv"></div>
-
-  <h1>SeeChange Lightcurve</h1>
-
-  <input type="hidden" id="ltcv_initial_objid" value="{{objid}}" />
-  <input type="hidden" id="ltcv_initial_provtag" value="{{provtag}}" />
+    <input type="hidden" id="ltcv_initial_objid" value="{{objid}}" />
+    <input type="hidden" id="ltcv_initial_provtag" value="{{provtag}}" />
+    <input type="hidden" id="ltcv_initial_zp" value="{{zp}}" />
+    <input type="hidden" id="ltcv_initial_zpunits" value="{{zpunits}}" />
   
-  <div name="pagebody" id="pagebody">
+    <div name="pagebody" id="pagebody" class="vbox">
+    </div>
   </div>
-{% endblock %}
-
-{% block footer %}
-{% endblock %}
+  {% block footer %}
+  {% endblock %}
+</body>
+</html>
