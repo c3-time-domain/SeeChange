@@ -28,7 +28,32 @@ from baseview import BaseView
 
 # ======================================================================
 
-class Ltcv( BaseView ):
+class BaseLtcvView( BaseView ):
+    def _get_objid( self, objid_or_name, dbcon=None ):
+        objid = None
+        objname = None
+        try:
+            objid = asUUID( objid_or_name )
+        except ValueError:
+            objname = objid_or_name
+
+        with Psycopg2Connection( dbcon ) as conn:
+            cursor = conn.cursor()
+            if objid is not None:
+                cursor.execute( "SELECT _id FROM objects WHERE _id=%(id)s", { 'id': objid } )
+            elif objname is not None:
+                cursor.execute( "SELECT _id FROM objects WHERE name=%(name)s", { 'name': objname } )
+            else:
+                raise RuntimeError( "This should never happen." )
+            row = cursor.fetchone()
+            if row is None:
+                raise RuntimeError( f"Unknown object {objid_or_name}" )
+            return asUUID( row[0] )
+
+
+# ======================================================================
+
+class Ltcv( BaseLtcvView ):
     def dispatch_request( self, argstr=None ):
         args = self.argstr_to_args( argstr, { 'objid': "", 'provtag': "default", 'zp': 31.4, 'zpunits': 'nJy' } )
         return flask.render_template( "ltcv.html",
@@ -40,22 +65,12 @@ class Ltcv( BaseView ):
 
 # ======================================================================
 
-class ObjectInfo( BaseView ):
+class ObjectInfo( BaseLtcvView ):
     def do_the_things( self, objid_or_name ):
-        # Find out of objid_or_name is a uuid or not, so we can do the right query
-        objuuid = None
-        try:
-            objuuid = asUUID( objid_or_name )
-        except Exception:
-            pass
         with Psycopg2Connection() as conn:
+            objuuid = self._get_objid( objid_or_name, dbcon=conn )
             cursor = conn.cursor( cursor_factory=psycopg2.extras.RealDictCursor )
-            if objuuid is not None:
-                cursor.execute( "SELECT _id,name,ra,dec FROM objects WHERE _id=%(id)s OR name=%(id)s",
-                               { 'id': objuuid } )
-            else:
-                cursor.execute( "SELECT _id,name,ra,dec FROM objects WHERE name=%(id)s",
-                                { 'id': objid_or_name } )
+            cursor.execute( "SELECT _id,name,ra,dec FROM objects WHERE _id=%(id)s", { 'id': objuuid } )
             rows = cursor.fetchall()
             if len(rows) == 0:
                 return f"Error: unknown object {objid_or_name}", 500
@@ -71,11 +86,12 @@ class ObjectInfo( BaseView ):
 
 # ======================================================================
 
-class ObjectLtcv( BaseView ):
-    def do_the_things( self, objid, provtag, argstr=None ):
+class ObjectLtcv( BaseLtcvView ):
+    def do_the_things( self, objid_or_name, provtag, argstr=None ):
         args = self.argstr_to_args( argstr, { 'zp': 31.4,
                                               'zpunits': 'nJy' } )
         with Psycopg2Connection() as conn:
+            objid = self._get_objid( objid_or_name, dbcon=conn )
             cursor = conn.cursor()
             cursor.execute( "SELECT m._id,subim.instrument,subim.mjd,subim.filter,m.flux_psf,m.flux_psf_err,z.zp "
                             "FROM measurements m "
@@ -130,10 +146,11 @@ class ObjectLtcv( BaseView ):
 
 # ======================================================================
 
-class ObjectCutouts( BaseView ):
-    def do_the_things( self, objid, provtag ):
+class ObjectCutouts( BaseLtcvView ):
+    def do_the_things( self, objid_or_name, provtag ):
         cfg = Config.get()
         with Psycopg2Connection() as conn:
+            objid = self._get_objid( objid_or_name, dbcon=conn )
             cursor = conn.cursor()
             cursor.execute( "SELECT cu.filepath AS cutoutfilepath, "
                             "       m._id AS measid, m.index_in_sources, "
@@ -226,9 +243,9 @@ urls = {
     '/': Ltcv,
     '/<path:argstr>': Ltcv,
     '/objectinfo/<objid_or_name>': ObjectInfo,
-    '/objectltcv/<objid>/<provtag>': ObjectLtcv,
-    '/objectltcv/<objid>/<provtag>/<path:argstr>': ObjectLtcv,
-    '/objectcutouts/<objid>/<provtag>': ObjectCutouts,
+    '/objectltcv/<objid_or_name>/<provtag>': ObjectLtcv,
+    '/objectltcv/<objid_or_name>/<provtag>/<path:argstr>': ObjectLtcv,
+    '/objectcutouts/<objid_or_name>/<provtag>': ObjectCutouts,
 }
 
 usedurls = {}
