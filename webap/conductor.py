@@ -390,40 +390,40 @@ class GetKnownExposures( ConductorBaseView ):
             subdict = {}
 
             if args['minmjd'] is not None:
-                q += f"{_and} mjd >= %(minmjd)s "
+                q += f"{_and} ke.mjd >= %(minmjd)s "
                 subdict['minmjd'] = float( args['minmjd'] )
                 _and = "AND"
             if args['maxmjd'] is not None:
-                q += f"{_and} mjd <= %(maxmjd)s "
+                q += f"{_and} ke.mjd <= %(maxmjd)s "
                 subdict['maxmjd'] = float( args['maxmjd'] )
                 _and = "AND"
             if args['instrument'] is not None:
-                q += f"{_and} instrument = %(instr)s "
+                q += f"{_and} ke.instrument = %(instr)s "
                 subdict['instr'] = args['instrument']
                 _and = "AND"
             if args['target'] is not None:
-                q += f"{_and} target = %(target)s "
+                q += f"{_and} ke.target = %(target)s "
                 subdict['target'] = args['target']
                 _and = "AND"
             if args['project'] is not None:
-                q += f"{_and} project = %(project)s "
+                q += f"{_and} ke.project = %(project)s "
                 subdict['project'] = args['project']
                 _and = "AND"
             if args['minexptime'] is not None:
-                q += f"{_and} exp_time >= %(minexp)s "
+                q += f"{_and} ke.exp_time >= %(minexp)s "
                 subdict['minexp'] = float( args['minexptime'] )
                 _and = "AND"
             if args['state'] is not None:
-                q += f"{_and} _state IN %(state)s"
+                q += f"{_and} ke._state IN %(state)s"
                 subdict['state'] = tuple( KnownExposureStateConverter.to_int( s ) for s in args['state'].split(",") )
             if args['maxclaimtime'] is not None:
                 claimtime = datetime.datetime.fromisoformat( args['maxclaimtime'] )
                 if claimtime.tzinfo is None:
                     claimtime = pytz.utc.localize( claimtime )
-                q += f"{_and} claim_time <= %(maxclaimtime)s "
+                q += f"{_and} ke.claim_time <= %(maxclaimtime)s "
                 subdict['maxclaimtime'] = claimtime
                 _and = "AND"
-            q += "ORDER BY mjd "
+            q += "ORDER BY ke.mjd "
 
             cursor.execute( q, subdict )
             rows = cursor.fetchall()
