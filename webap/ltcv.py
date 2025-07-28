@@ -170,7 +170,7 @@ class ObjectCutouts( BaseView ):
                   }
 
         scaler = astropy.visualization.ZScaleInterval( contrast=0.02 )
-        
+
         for row in rows:
             with h5py.File( ( pathlib.Path( cfg.value( 'archive.local_read_dir' ) )
                               / row[columns['cutoutfilepath']] ), 'r' ) as h5:

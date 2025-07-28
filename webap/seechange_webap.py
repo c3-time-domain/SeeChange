@@ -718,7 +718,7 @@ class PngCutoutsForSubImage( BaseView ):
                 subids.append( exporsubid )
                 zps[exporsubid] = rows[0][cols['zp']]
                 dzps[exporsubid] = rows[0][cols['dzp']]
-                imageids[exporsubid] = rows[0][cols['imageid']]
+                imageids[exporsubid] = asUUID( rows[0][cols['imageid']] )
                 newbkgs[exporsubid] = rows[0][cols['bkg_mean_estimate']]
                 aperradses[exporsubid] = rows[0][cols['aper_cor_radii']]
                 apercorses[exporsubid] = rows[0][cols['aper_cors']]
@@ -730,7 +730,7 @@ class PngCutoutsForSubImage( BaseView ):
                 cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
                 rows = cursor.fetchall()
                 for row in rows:
-                    subid = row[cols['subid']]
+                    subid = asUUID( row[cols['subid']] )
                     if ( subid in subids ):
                         app.logger.error( f"subid {subid} showed up more than once in zp query" )
                         return { 'status': 'error',
@@ -738,7 +738,7 @@ class PngCutoutsForSubImage( BaseView ):
                     subids.append( subid )
                     zps[subid] = row[cols['zp']]
                     dzps[subid] = row[cols['dzp']]
-                    imageids[subid] = row[cols['imageid']]
+                    imageids[subid] = asUUID( row[cols['imageid']] )
                     newbkgs[subid] = row[cols['bkg_mean_estimate']]
                     aperradses[subid] = row[cols['aper_cor_radii']]
                     apercorses[subid] = row[cols['aper_cors']]
@@ -756,9 +756,9 @@ class PngCutoutsForSubImage( BaseView ):
             cursor.execute( q, { 'subids': tuple(subids), 'provtag': provtag } )
             cols = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
             rows = cursor.fetchall()
-            sectionids = { c[cols['subimageid']]: c[cols['section_id']] for c in rows }
-            cutoutsfiles = { c[cols['subimageid']]: c[cols['filepath']] for c in rows }
-            # sourcesfiles = { c[cols['subimageid']]: c[cols['sources_path']] for c in rows }
+            sectionids = { asUUID( c[cols['subimageid']] ): c[cols['section_id']] for c in rows }
+            cutoutsfiles = { asUUID( c[cols['subimageid']] ): c[cols['filepath']] for c in rows }
+            # sourcesfiles = { asUUID( c[cols['subimageid']] ): c[cols['sources_path']] for c in rows }
             app.logger.debug( f"Got: {cutoutsfiles}" )
 
             # app.logger.debug( f"Getting measurements for sub images {subids}" )
@@ -979,7 +979,7 @@ class PngCutoutsForSubImage( BaseView ):
             # First: put in all the measurements, in the order we got them
             already_done = set()
             for row in rows:
-                subid = row[cols['subid']]
+                subid = asUUID( row[cols['subid']] )
                 index_in_sources = row[ cols['index_in_sources'] ]
                 section_id = row[ cols['section_id'] ]
                 append_to_retval( subid, index_in_sources, section_id, row )
