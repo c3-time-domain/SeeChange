@@ -1,3 +1,4 @@
+import io
 import uuid
 import operator
 import numpy as np
@@ -16,7 +17,8 @@ from models.cutouts import Cutouts
 from models.source_list import SourceList
 from models.measurements import Measurements
 from util.config import Config
-
+from util.retrypost import retry_post
+from util.logger import SCLogger
 
 object_name_max_used = sa.Table(
     'object_name_max_used',
@@ -561,3 +563,230 @@ class ObjectPosition( Base, UUIDMixin, SpatiallyIndexed ):
     dra = sa.Column( sa.REAL, nullable=False, doc="Uncertainty on RA" )
     ddec = sa.Column( sa.REAL, nullable=False, doc="Uncertainty on Dec" )
     ra_dec_cov = sa.Column( sa.REAL, nullable=True, doc="Covariance on RA/Dec if available" )
+
+
+
+class ObjectLegacySurveyMatch(Base, UUIDMixin):
+    """Stores matches bewteen objects and Legacy Survey catalog sources.
+
+    WARNING.  Because this is stored in the databsae, changes to the
+    distance for parameter searches will not be applied to
+    already-existing objects without a massive database update procedure
+    (for which there is currently no code).
+
+    Liu et al., 2025, https://ui.adsabs.harvard.edu/abs/2025arXiv250517174L/abstract
+    (submitted to PASP)
+
+    Catalog and "xgboost" score is described in that paper.
+
+    """
+
+    __tablename__ = "object_legacy_survey_match"
+
+    object_id = sa.Column(
+        sa.ForeignKey('objects._id', ondelete='CASCADE', name='object_ls_match_object_id_fkey'),
+        nullable=False,
+        index=True,
+        doc="ID of the object this is a match for"
+    )
+
+    lsid = sa.Column( sa.BigInteger, nullable=False, index=False, doc="Legacy Survey ID" )
+    ra = sa.Column( sa.Double, nullable=False, index=False, doc="Legacy Survey object RA" )
+    dec = sa.Column( sa.Double, nullable=False, index=False, doc="Legacy Survey object Dec" )
+    dist = sa.Column( sa.Double, nullable=False, index=False, doc="Distance from obj to LS obj in arcsec" )
+    white_mag = sa.Column( sa.Double, nullable=False, index=False, doc="Legacy Survey object white magnitude" )
+    xgboost = sa.Column( sa.REAL, nullable=False, index=False, doc="Legacy Survey object xgboost statistic" )
+    is_star = sa.Column( sa.Boolean, nullable=False, index=False, doc="True if xgboost≥0.5, else False" )
+
+
+    @classmethod
+    def get_object_matches( cls, objid, con=None ):
+        """Pull object legacy survey matches from the database.
+
+        Parameters
+        ----------
+          objid : uuid
+            Object ID
+
+          con : Psycopg2Connection, default None
+            Database connection.  If not given, makes and closes a new one.
+
+        Returns
+        -------
+          list of ObjectLegacySurveyMatch
+
+        """
+        with Psycopg2Connection( con ) as dbcon:
+            # Check for existing matches:
+            cursor = dbcon.cursor()
+            cursor.execute( "SELECT _id,object_id, lsid, ra, dec, dist, white_mag, xgboost, is_star "
+                            "FROM object_legacy_survey_match "
+                            "WHERE object_id=%(objid)s",
+                            { 'objid': objid } )
+            columns = { cursor.description[i][0]: i for i in range( len(cursor.description) ) }
+            rows = cursor.fetchall()
+
+        olsms = []
+        for i in range( len(rows) ):
+            olsms.append( ObjectLegacySurveyMatch( **{ k: rows[i][v] for k, v in columns.items() } ) )
+
+        olsms.sort( key=lambda o: o.dist )
+        return olsms
+
+
+    @classmethod
+    def create_new_object_matches( cls, objid, ra, dec, con=None, commit=None, exist_ok=False,
+                                   verify_existing=True, **kwargs ):
+        """Create new object match entries.
+
+        Searches the liuserver for nearby objects, creates database
+        entries.  May or may not commit them.  (If you pass a
+        Psycopg2Connection in con and don't set commit=True, then
+        the added entries will *not* be committed to the database.)
+
+        Parameters
+        ----------
+          objid : uuid
+            ID of the object we're matching to
+
+          ra, dec : double
+            Coordinates of the object.  Nominally, this is redundant,
+            because we can get it from the database using objid, but
+            it's here for convenience.  (Also, so we can run this
+            routine in case the object isn't yet saved to the database.)
+
+          con : Psycopg2Connection, default None
+            Database connection to use.  If None, makes and closes a new one.
+
+          commit : boolean, default None
+            Should we commit the changes to the database?  If True, then commit,
+            if False, then don't.  If None, then if con is None, treat commit as
+            True; if con is not None, treat commit as False.
+
+          exist_ok : boolean, default False
+            If False, then raise an exception if the database already has matches
+            for this object.
+
+          verify_existing : boolean, default True
+            Ignored if exist_ok is False.  If exist_ok is True and if
+            verify_existing is False, then we just return what's already
+            in the database and don't search for new stuff.  This may be
+            a bad idea, though if you trust that things have already
+            worked, it may be what you want. If exist_ok is True and if
+            verify_existing is also True, then raise an exception if the
+            new stuff found doesn't match what's in the database.
+
+          retries, timeout0, timeoutfac, timeoutjitter : int, double, double, double
+            Passed on to util/retrypost.py::retry_post
+
+        Returns
+        -------
+          list of ObjectLegacySurveyMatch, sorted by dist
+
+        """
+
+        # Pull down things already in the database, and do checks if necessary
+
+        existing = cls.get_object_matches( objid, con=con )
+
+        if len( existing ) > 0:
+            if not exist_ok:
+                raise RuntimeError( f"Object {objid} already has {len(existing)} legacy survey matches in the "
+                                    f"object_legacy_survey_match table." )
+            if not verify_existing:
+                return existing
+
+        # Post to the liuserver to get LS object matches
+
+        cfg = Config.get()
+        server = cfg.value( "liumatch.server" )
+        radius = cfg.value( "liumatch.radius" )
+        commit = commit if commit is not None else ( con is None )
+
+        res = retry_post( f"{server}/getsources/{ra}/{dec}/{radius}", returnjson=True, **kwargs )
+
+        expected_keys = [ 'lsid', 'ra', 'dec', 'dist', 'white_mag', 'xgboost', 'is_star' ]
+        if ( ( not isinstance( res, dict ) ) or
+             ( any( k not in res.keys() for k in expected_keys ) )
+            ):
+            raise ValueError( f"Unexpected response from liuserver; expected a dict with keys {expected_keys}, but "
+                              f"got a {type(res)}{f' with keys {res.keys()}' if isinstance(res,dict) else ''}." )
+
+        olsms = []
+        for i in range( len( res['lsid'] ) ):
+            olsms.append( ObjectLegacySurveyMatch( _id=uuid.uuid4(),
+                                                   object_id=objid,
+                                                   lsid=res['lsid'][i],
+                                                   ra=res['ra'][i],
+                                                   dec=res['dec'][i],
+                                                   dist=res['dist'][i],
+                                                   white_mag=res['white_mag'][i],
+                                                   xgboost=res['xgboost'][i],
+                                                   is_star=res['is_star'][i] ) )
+        olsms.sort( key=lambda o: o.dist )
+
+        # If there are pre-existing matches in the variable existing,
+        #   verify that the things we got from the liuserver (now in
+        #   olsms) match them.  (If len(existing) is >0, we know that
+        #   verify_existing is True, because earlier we would have
+        #   already returned from this class method if len(existing) is
+        #   >0 and verify_existing is False.)
+
+        if len( existing ) > 0:
+            if len( existing ) != len( olsms ):
+                raise ValueError( f"Object {objid} has {len(existing)} legacy survey matches in the "
+                                  f"object_legacy_survey_match table, but I just found {len(olsms)}!" )
+
+            ok = True
+            for oldolsm, newolsm in zip( existing, olsms ):
+                cosdec = np.cos( oldolsm.dec * np.pi / 180. )
+                if any( [ oldolsm != newolsm.lsid,
+                          not np.isclose( oldolsm.ra, newolsm.ra, atol=2.8e-5/cosdec ),
+                          not np.isclose( oldolsm.dec, newolsm.dec, atol=2.8e-5 ),
+                          not np.isclose( oldolsm.dist, newolsm.dist, atol=0.1 ),
+                          not np.isclose( oldolsm.white_mag, newolsm.white_mag, atol=0.01 ),
+                          not np.isclose( oldolsm.xgboost, newolsm.xgboost, atol=0.001 ),
+                          oldolsm.is_star == newolsm.is_star ] ):
+                    ok = False
+                    break
+
+            if not ok:
+                strio = io.StringIO()
+                strio.write( f"Object {objid} already has legacy survey matches, "
+                             f"but they aren't the same as what I found:\n" )
+                strio.write( f"  {'Old LSID':20s} {'New LSID':20s}  {'Old RA':9s} {'New RA':9s}  "
+                             f"{'Old Dec':9s} {'New Dec':9s}  {'Old d':6s} {'New d':6s}  "
+                             f"{'Old m':5s} {'New m':5s}  {'Old xg':6s} {'New xg':6s}  "
+                             f"{'Old is':6s} {'New is':5s}\n" )
+                strio.write( "  ==================== ====================  ========= =========  "
+                             "========= =========  ====== ======  ===== =====  ====== ======  ====== ======\n" )
+                for oldolsm, newolsm in zip( existing, olsms ):
+                    strio.write( f"  {oldolsm.lsid:20d} {newolsm.lsid:20d}  "
+                                 f"{oldolsm.ra:9.5f} {newolsm.ra:9.5f}  "
+                                 f"{oldolsm.dec:9.5f} {newolsm.dec:9.5f}  "
+                                 f"{oldolsm.dist:6.2f} {newolsm.dist:6.2f}  "
+                                 f"{oldolsm.white_mag:5.2f} {newolsm.white_mag:5.2f}  "
+                                 f"{oldolsm.xgboost:6.3f} {newolsm.xgboost:6.3f}  "
+                                 f"{str(oldolsm.is_star):5s} {str(newolsm.is_star):5s}\n" )
+                SCLogger.error( strio.getvalue() )
+                raise ValueError( f"Object {objid} already has legacy survey matches, "
+                                  f"but they aren't the same as what I found." )
+
+            return existing
+
+        if len(olsms) == 0:
+            return []
+        else:
+            with Psycopg2Connection( con ) as dbcon:
+                cursor = dbcon.cursor()
+                for olsm in olsms:
+                    subdict = { k: getattr( olsm, k ) for k in expected_keys }
+                    subdict['object_id'] = olsm.object_id
+                    subdict['_id'] = olsm.id
+                    cursor.execute( f"INSERT INTO object_legacy_survey_match(_id,object_id,{','.join(expected_keys)}) "
+                                    f"VALUES(%(_id)s,%(object_id)s,{','.join(f'%({k})s' for k in expected_keys)})",
+                                    subdict )
+                if commit:
+                    dbcon.commit()
+
+            return olsms

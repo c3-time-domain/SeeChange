@@ -1,6 +1,7 @@
 import pytest
 import uuid
 
+import numpy as np
 import sqlalchemy as sa
 import psycopg2.errors
 
@@ -9,8 +10,8 @@ from astropy.time import Time
 from models.base import SmartSession, Psycopg2Connection
 from models.provenance import Provenance
 from models.measurements import Measurements
-from models.object import Object
-
+from models.object import Object, ObjectLegacySurveyMatch
+from util.util import asUUID
 
 
 def test_object_creation():
@@ -280,3 +281,96 @@ def test_filtering_measurements_on_object(sim_lightcurves):
         # get the new and only if not found go to the old
         found = obj.get_measurements_list(prov_hash_list=[prov.id, measurements[0].provenance.id])
         assert set([m.id for m in found]) == set(new_id_list)
+
+
+def test_object_legacy_survey_match():
+    objid = uuid.uuid4()
+    try:
+        obj = Object( _id=objid, ra=7.01241, dec=-42.96943, name='test_olsm_object',
+                      is_test=True, is_bad=False )
+        obj.calculate_coordinates()
+        with SmartSession() as sess:
+            # This is the RA and Dec of a known SN from DECAT-DDF, also used
+            #   in several other tests
+            sess.add( obj )
+            sess.commit()
+
+        # Try to find and commit new objects
+        firstmatches = ObjectLegacySurveyMatch.create_new_object_matches( obj.id, obj.ra, obj.dec )
+        assert len(firstmatches) == 4
+        assert all( asUUID(m.object_id) == asUUID(objid) for m in firstmatches )
+        assert firstmatches[0].lsid == 10995226531340506
+        assert firstmatches[0].dist == pytest.approx( 1.131, abs=0.01 )
+        assert firstmatches[0].white_mag == pytest.approx( 19.93, abs=0.01 )
+        assert not firstmatches[0].is_star
+        assert firstmatches[0].xgboost < 0.002
+
+        # See if we get the same matches when we ask for matches
+        matches = ObjectLegacySurveyMatch.get_object_matches( obj.id )
+        for first, mat in zip( firstmatches, matches ):
+            assert asUUID(first._id) == asUUID(mat._id)
+            assert first.lsid == mat.lsid
+            assert asUUID(first.object_id) == asUUID(mat.object_id)
+            assert first.ra == pytest.approx( mat.ra, abs=0.1/3600. / np.cos( first.dec * np.pi / 180. ) )
+            assert first.dec == pytest.approx( mat.dec, abs=0.1/3600. )
+            assert first.dist == pytest.approx( mat.dist, abs=0.01 )
+            assert first.xgboost == pytest.approx( mat.xgboost, abs=0.001 )
+            assert first.is_star == mat.is_star
+
+        # Make sure we get yelled at if we try to match when there are existing matches
+        with pytest.raises( RuntimeError, match="Object .* already has 4 legacy survey matches" ):
+            _ = ObjectLegacySurveyMatch.create_new_object_matches( obj.id, obj.ra, obj.dec )
+
+        # Twiddle one of the magnitudes and make sure we get yelled at if we try to verify_existing
+        with Psycopg2Connection() as con:
+            cursor = con.cursor()
+            cursor.execute( "UPDATE object_legacy_survey_match SET white_mag=19.90 "
+                            "WHERE object_id=%(oid)s AND lsid=%(lsid)s",
+                            { 'oid': objid, 'lsid': 10995226531340506 } )
+            con.commit()
+        with pytest.raises( ValueError, match="Object .* already has legacy survey matches, but they aren't" ):
+            _ = ObjectLegacySurveyMatch.create_new_object_matches( obj.id, obj.ra, obj.dec, exist_ok=True )
+
+        # But if we turn off verify_existing, we should get the thing I just munged
+        matches = ObjectLegacySurveyMatch.create_new_object_matches( obj.id, obj.ra, obj.dec,
+                                                                       exist_ok=True, verify_existing=False )
+        assert asUUID(matches[0]._id) == asUUID(firstmatches[0]._id)
+        assert matches[0].lsid == firstmatches[0].lsid
+        assert matches[0].white_mag != firstmatches[0].white_mag
+
+        # Unmung, and add a new match to verify that it yells at us if the number doesn't match
+        with Psycopg2Connection() as con:
+            cursor = con.cursor()
+            cursor.execute( "UPDATE object_legacy_survey_match SET white_mag=19.93 "
+                            "WHERE object_id=%(oid)s AND lsid=%(lsid)s",
+                            { 'oid': objid, 'lsid': 10995226531340506 } )
+            cursor.execute( "INSERT INTO object_legacy_survey_match(_id,object_id,lsid,ra,dec,dist,"
+                            "                                       white_mag,xgboost, is_star) "
+                            "VALUES(%(id)s,%(objid)s,%(lsid)s,%(ra)s,%(dec)s,%(dist)s,%(mag)s,%(xgb)s,%(iss)s)",
+                            { 'id': uuid.uuid4(),
+                              'objid': objid,
+                              'lsid': 666,
+                              'ra': obj.ra,
+                              'dec': obj.dec,
+                              'dist': 0.,
+                              'mag': 19.99,
+                              'xgb': 1.0,
+                              'iss': True } )
+            con.commit()
+
+        with pytest.raises( ValueError, match="Object .* has 5 legacy survey matches.*but I just found 4" ):
+            _ = ObjectLegacySurveyMatch.create_new_object_matches( obj.id, obj.ra, obj.dec, exist_ok=True )
+
+        # Make sure we get what I patched in if we don't verify existing:
+        matches = ObjectLegacySurveyMatch.create_new_object_matches( obj.id, obj.ra, obj.dec,
+                                                                       exist_ok=True, verify_existing=False )
+        assert len(matches) == 5
+        assert matches[0].white_mag == pytest.approx( 19.99, abs=0.01 )
+        assert matches[1].white_mag == pytest.approx( 19.93, abs=0.01 )
+
+    finally:
+        with Psycopg2Connection() as con:
+            cursor = con.cursor()
+            cursor.execute( "DELETE FROM object_legacy_survey_match WHERE object_id=%(id)s", { 'id': objid } )
+            cursor.execute( "DELETE FROM objects WHERE _id=%(id)s", { 'id': objid } )
+            con.commit()

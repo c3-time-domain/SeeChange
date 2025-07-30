@@ -553,7 +553,36 @@ alerts:
   #     auth_password: put_the_right_password_here
   #     topic: put_the_right_topic_here
   #     previous_source_days: 30
-      
+
+
+# ======================================================================
+# Legacy Survey Object Matching
+#
+# Legacy Survey objects are matched to a catalog built as described in
+# Liu et al., 2025, https://ui.adsabs.harvard.edu/abs/2025arXiv250517174L/abstract
+# (submitted to PASP).
+#
+#
+# liumatch.radius is the radius in arcseconds to find legacy survey objects
+#
+# WARNING.  If you start a database with one value of the
+# liumatch.radius parameter, and then change it later, your pipeline's
+# behavior will become inconsistent.  Reason: when an object is first
+# created (the first time a source for it is discovered), the Liu
+# catalog is searched and the matches stored.  So, the radius at the
+# time will thereafter be the matches that come up for the objec.t
+#
+# If you do want to change the radius, you will need to go through some
+# sort of manual procedure to make the database consistent.
+#
+# There is no provenance associated with this match because the match is
+# just relevant for alerts.
+
+liumatch:
+  radius: 10
+  server: https://ls-xgboost.lbl.gov
+
+
 # ======================================================================
 # Fake injection
 
