@@ -86,6 +86,12 @@ class Preprocessor:
         # the object did any work or just loaded from DB or datastore
         self.has_recalculated = False
 
+
+    def preprocessing_done_bitfield( self ):
+        strng = ','.join( self.pars.steps_required )
+        return string_to_bitflag( strng, image_preprocessing_inverse )
+
+
     def run( self, *args, **kwargs ):
         """Run preprocessing for a given exposure and section_identifier.
 
@@ -113,13 +119,17 @@ class Preprocessor:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-            if ( ds.exposure is None ) or ( ds.section_id is None ):
-                raise RuntimeError( "Preprocessing requires an exposure and a sensor section" )
+            if ds.image is not None:
+                baseobj = ds.image
+                ds.section_id = ds.image.section_id
+            else:
+                if ( ds.exposure is None ) or ( ds.section_id is None ):
+                    raise RuntimeError( "Preprocessing requires eitehr an image, or an exposure and a sensor section" )
 
             self.pars.do_warning_exception_hangup_injection_here()
 
-            if ( self.instrument is None ) or ( self.instrument.name != ds.exposure.instrument ):
-                self.instrument = ds.exposure.instrument_object
+            if ( self.instrument is None ) or ( self.instrument.name != baseobj.instrument ):
+                self.instrument = baseobj.instrument_object
 
             # check that all required steps can be done (or have been done) by the instrument:
             known_steps = self.instrument.preprocessing_steps_available
@@ -137,8 +147,8 @@ class Preprocessor:
             preprocparam = self.instrument.preprocessing_calibrator_files( self.pars.calibset,
                                                                            self.pars.flattype,
                                                                            ds.section_id,
-                                                                           ds.exposure.filter,
-                                                                           ds.exposure.mjd )
+                                                                           baseobj.filter,
+                                                                           baseobj.mjd )
 
             SCLogger.debug("preprocessing: got calibrator files")
 
@@ -164,9 +174,9 @@ class Preprocessor:
             # Needed steps started above at set(self.pars.steps_required).
             # Subtract off what is *always* done by this instrument.
             needed_steps -= set(self.instrument.preprocessing_steps_done)
-            filter_skips = self.instrument.preprocessing_step_skip_by_filter.get(ds.exposure.filter, [])
+            filter_skips = self.instrument.preprocessing_step_skip_by_filter.get(baseobj.filter, [])
             if not isinstance(filter_skips, list):
-                raise ValueError(f'Filter skips parameter for {ds.exposure.filter} must be a list')
+                raise ValueError(f'Filter skips parameter for {baseobj.filter} must be a list')
             filter_skips = set(filter_skips)
             needed_steps -= filter_skips
 
@@ -230,7 +240,7 @@ class Preprocessor:
                         raise RuntimeError( f"Can't find calibration file for preprocessing step {step}" )
 
                     if stepfileid is None:
-                        SCLogger.info(f"Skipping step {step} for filter {ds.exposure.filter} "
+                        SCLogger.info(f"Skipping step {step} for filter {baseobj.filter} "
                                          f"because there is no calibration file (this may be normal)")
                         # should we also mark it as having "done" this step? otherwise it will not know it's done
                         image.preproc_bitflag |= string_to_bitflag( step, image_preprocessing_inverse )
@@ -344,7 +354,8 @@ class Preprocessor:
 
             if image._upstream_bitflag is None:
                 image._upstream_bitflag = 0
-            image._upstream_bitflag |= ds.exposure.bitflag
+            if image_was_from_exposure:
+                image._upstream_bitflag |= ds.exposure.bitflag
 
             ds.image = image
 

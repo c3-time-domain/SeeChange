@@ -1,5 +1,5 @@
 import collections.abc
-
+import numbers
 import os
 import pathlib
 from datetime import datetime
@@ -311,3 +311,65 @@ def as_datetime( string ):
 def env_as_bool(varname):
     """Parse an environmental variable as a boolean."""
     return parse_bool(os.getenv(varname))
+
+
+def patch_image_overlap_limits( patchwid, x, y, imageshape ):
+    """Do the annoying calculation of handling all the edge cases to figure out a patch and image overlap.
+
+    Parameters
+    ----------
+      patchwid : int
+        The size of the patch.  Must be odd.
+
+      x, y : int
+        The coordinates on the image that correspond to the center pixel of the patch
+
+      imageshape : 2-element tuple of ints
+        The shape of the image (ny, nx)
+
+    Returns
+    -------
+       Two tuples of four integers: ( (px0, px1, py0, py1 ), ( ix0, ix1, iy0, iy1 ) )
+
+       The first is are the limits on the patch that correspond to
+       the limits on the image in the second tuple.  You probably want to do something like:
+
+         image[ iy0:iy1, ix0:iy1 ] += patch[ py0:py1, px0:px1 ]
+
+    """
+
+    if any( [ not isinstance( i, numbers.Integral ) for i in [ patchwid, x, y ] ] ):
+        raise TypeError( "patchwid, x, y must all be integers" )
+    if ( ( not isinstance( imageshape, collections.abc.Sequence ) )
+         or ( len(imageshape) !=2 )
+         or ( any( [ not isinstance( i, numbers.Integral ) for i in imageshape ] ) )
+        ):
+        raise TypeError( "imageshape must be a 2-element tuple (or list) of integers" )
+
+    if patchwid %2 == 0:
+        raise ValueError( "Patchwid must be odd" )
+
+    px0 = 0
+    px1 = patchwid
+    py0 = 0
+    py1 = patchwid
+
+    ix0 = x - patchwid // 2
+    ix1 = ix0 + patchwid
+    if ix0 < 0:
+        px0 -= ix0
+        ix0 = 0
+    if ix1 > imageshape[1]:
+        px1 -= ( ix1 - imageshape[1] )
+        ix1 = imageshape[1]
+
+    iy0 = y - patchwid // 2
+    iy1 = iy0 + patchwid
+    if iy0 < 0:
+        py0 -= iy0
+        iy0 = 0
+    if iy1 > imageshape[0]:
+        py1 -= ( iy1 - imageshape[0] )
+        iy1 = imageshape[0]
+
+    return ( (px0, px1, py0, py1), (ix0, ix1, iy0, iy1) )

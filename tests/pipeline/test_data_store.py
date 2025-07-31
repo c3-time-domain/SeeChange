@@ -16,7 +16,7 @@ from models.zero_point import ZeroPoint
 from models.cutouts import Cutouts
 from models.measurements import MeasurementSet, Measurements
 from models.deepscore import DeepScore, DeepScoreSet
-from models.provenance import Provenance, ProvenanceTag
+from models.provenance import Provenance, ProvenanceTag, CodeVersion
 
 from pipeline.data_store import DataStore, ProvenanceTree
 from pipeline.top_level import Pipeline
@@ -33,15 +33,20 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
 
         # Make sure it spits at us if paramteres are missing for a step
         with pytest.raises( ValueError, match="Step.*not in pars" ):
-            ds.make_prov_tree( ['foo', 'bar'], pars )
+            ds.make_prov_tree( pars, ['foo', 'bar'] )
 
         # Make sure it spits at us if we include referencing in steps
         with pytest.raises( ValueError, match="Steps must not include referencing" ):
-            ds.make_prov_tree( [ 'preprocessing', 'referencing' ], { 'preprocessing': {}, 'referencing': {} } )
+            ds.make_prov_tree( { 'preprocessing': {}, 'referencing': {} }, [ 'preprocessing', 'referencing' ] )
 
-        ds.make_prov_tree( Pipeline.ALL_STEPS, pars )
+        ds.make_prov_tree( pars, Pipeline.ALL_STEPS )
         # Don't delete the exposure or referencing provenances, they were created in a fixture
         provs_created = set( v for k, v in ds.prov_tree.items() if k not in ('referencing','starting_point') )
+
+        # Make sure all the provenances' code versions have the right process
+        for prov in ds.prov_tree.values():
+            cv = CodeVersion.get( prov.code_version_id )
+            assert cv.process == prov.process
 
         # Even though 'starting_point' and 'referencing' weren't in the list
         #   of steps, they should have been created
@@ -63,7 +68,7 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
             assert len(cursor.fetchall()) == 0
 
         # Make sure we can create the provenance tag
-        ds.make_prov_tree( Pipeline.ALL_STEPS, pars, provtag='test_data_store_test_make_prov_tree' )
+        ds.make_prov_tree( pars, Pipeline.ALL_STEPS, provtag='test_data_store_test_make_prov_tree' )
         for i, step in enumerate( Pipeline.ALL_STEPS ):
             # ...quick recheck, we already tested this above
             assert step in ds.prov_tree
@@ -77,7 +82,7 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
         # Make sure that the prov tree gets replaced and only some steps
         #   created if we give fewer than all steps
         somesteps = [ 'preprocessing', 'extraction', 'astrocal', 'photocal' ]
-        ds.make_prov_tree( somesteps, pars )
+        ds.make_prov_tree( pars, somesteps )
         assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
 
         # TODO : explicitly passing an upstream_steps
@@ -103,13 +108,13 @@ def test_make_prov_tree_no_ref_prov( decam_exposure ):
         ds = DataStore( decam_exposure, 'S2' )
 
         with pytest.raises( ValueError, match="No reference set with name test_refset_decam found in the database!" ):
-            ds.make_prov_tree( Pipeline.ALL_STEPS, pars )
+            ds.make_prov_tree( pars, Pipeline.ALL_STEPS )
 
         somesteps = [ 'preprocessing', 'extraction', 'astrocal', 'photocal' ]
-        ds.make_prov_tree( somesteps, pars )
+        ds.make_prov_tree( pars, somesteps )
         assert set( ds.prov_tree.keys() ) == set( ['starting_point'] + somesteps )
 
-        ds.make_prov_tree( Pipeline.ALL_STEPS, pars, ok_no_ref_prov=True )
+        ds.make_prov_tree( pars, Pipeline.ALL_STEPS, ok_no_ref_prov=True )
         assert set( ds.prov_tree.keys() ) == { 'starting_point', 'preprocessing', 'extraction', 'astrocal', 'photocal' }
 
     finally:

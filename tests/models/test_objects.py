@@ -1,5 +1,6 @@
 import pytest
 import uuid
+import re
 
 import numpy as np
 import sqlalchemy as sa
@@ -15,28 +16,32 @@ from util.util import asUUID
 
 
 def test_object_creation():
-    obj = Object(ra=1.0, dec=2.0, is_test=True, is_bad=False)
+    obj = Object(ra=7.01241, dec=-42.96943, is_test=True, is_bad=False)
 
-    with pytest.raises( psycopg2.errors.NotNullViolation, match='null value in column "name"' ):
+    try:
+        with pytest.raises( psycopg2.errors.NotNullViolation, match='null value in column "name"' ):
+            obj.insert()
+
+        obj.name = "foo"
         obj.insert()
 
-    obj.name = "foo"
-    obj.insert()
+        assert obj._id is not None
+        assert re.match( r'^obj\d{4}\w+$', obj.name )
 
-    assert obj._id is not None
-    # Fix this when object naming is re-implemented, if we
-    #   still have automatic object naming on creation.
-    # assert re.match(r'\w+\d{4}\w+', obj.name)    # assert obj.name is not None
-    # assert re.match(r'\w+\d{4}\w+', obj.name)
+        with SmartSession() as session:
+            obj2 = session.scalars(sa.select(Object).where(Object._id == obj.id)).first()
+            assert obj2.ra == 1.0
+            assert obj2.dec == 2.0
+            assert obj2.name is not None
+            assert obj2.name == obj.name
+            assert re.match( r'^obj\d{4}\w+$', obj.name )
 
-    with SmartSession() as session:
-        obj2 = session.scalars(sa.select(Object).where(Object._id == obj.id)).first()
-        assert obj2.ra == 1.0
-        assert obj2.dec == 2.0
-        assert obj2.name is not None
-        assert obj2.name == obj.name
-        # Fix this when object naming is re-implemented
-        # assert re.match(r'\w+\d{4}\w+', obj2.name)
+    finally:
+        if obj._id is not None:
+            with Psycopg2Connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute( "DELETE FROM objects WHERE _id=%(id)s", { 'id': obj._id } )
+                conn.commit()
 
 
 def test_generate_names():
@@ -82,6 +87,97 @@ def test_generate_names():
                             "                       OR name LIKE 'test_gen_name00%'"
                             "                       OR name LIKE 'test_gen_name01%'" )
             conn.commit()
+
+
+# This next test is a little weird, because the actual stuff
+#   that does the work is all in fixtures, and the fixtures do
+#   more than that.  But, object/measurement assocation requiers
+#   measurements, and measurements reuqire all kinds of previous
+#   data products, so we're stuck with either running a lot, or
+#   building a giant stack of fake data structures.  We'll run
+#   all this stuff off the simulated image, and probe around a bit
+#   to see if things look right.
+# (This is really sort of a test of the whole pipeline in the
+#   oversimplified case of the new images being perfectly aligned with
+#   the ref image and having exactly the same seeing.)
+def test_associate_measurements( sim_lightcurve_complete_dses,
+                                 sim_lightcurve_persistent_sources,
+                                 sim_lightcurve_image_parameters ):
+    _ref, refds, newdses = sim_lightcurve_complete_dses
+    sources = sim_lightcurve_persistent_sources
+
+    dses_detected_for_sources = []
+    sourceids_for_sources = []
+    allsourceids = set()
+    # Figure out which of the subtractions detected which of the sources
+    # (Ignoring cos(dec) since I know dec is -3.)
+    for source in sources:
+        thissourceids = set()
+        thisdet = []
+        for ds in newdses:
+            flux = source['maxflux'] * np.exp( -( ds.image.mjd - ( refds.image.mjd + source['mjdmaxoff'] ) )**2
+                                               / ( 2 * source['sigmadays']**2 ) )
+            found = False
+            for meas in ds.measurements:
+                if ( ( np.abs( meas.ra - source['ra'] ) < 1./3600. )
+                     and ( np.abs( meas.dec - source['dec'] ) < 1./3600. )
+                    ):
+                    assert asUUID( meas.id ) not in allsourceids
+                    thissourceids.add( asUUID( meas.id ) )
+                    allsourceids.add( asUUID( meas.id ) )
+                    found = True
+                    break
+            #  Image FWHM is 1.11 pixels.  That means that the
+            #    source is spread over ~4 pixels (for an aperture of r=1FWHM).
+            #  Sky noise is about 57 ADU.  So, noise in 1 aperture is about
+            #    115 ADU.  Ideally we'd detect things up to 5σ or 7σ,
+            #    but in practice we're getting 10σ. :(
+            assert found or ( flux < 1150 )
+            if found:
+                thisdet.append( ds )
+
+        dses_detected_for_sources.append( thisdet )
+        sourceids_for_sources.append( thissourceids )
+
+    # If Object.associate_measurements worked right, then all of each detection
+    #   will be associated with the same object, and that object will not
+    #   be associated with anything else.
+    # Start by going through sourcesdetected and checking those.
+
+    sourcesobjects = set()
+    objsourceids = set()
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+        for i, source in enumerate( sources ):
+            cursor.execute( "SELECT _id, name, ra, dec FROM objects "
+                            "WHERE q3c_radial_query( ra, dec, %(ra)s, %(dec)s, 1./3600. )",
+                            { 'ra': source['ra'], 'dec': source['dec'] } )
+            columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
+            rows = cursor.fetchall()
+            assert len(rows) == 1
+            objid = rows[0][columns['_id']]
+            sourcesobjects.add( objid )
+
+            cursor.execute( "SELECT _id FROM measurements WHERE object_id=%(objid)s", { 'objid': objid } )
+            rows = cursor.fetchall()
+            assert len(rows) == len( dses_detected_for_sources[i] )
+            cursourceids = set( asUUID(r[0]) for r in rows )
+            assert cursourceids == sourceids_for_sources[i]
+            objsourceids = objsourceids.union( cursourceids )
+
+        assert allsourceids == objsourceids
+        assert len( sourcesobjects ) == len( sources )
+
+        # Look at all the other objects and make sure that none of them are associated with
+        #   any of our measurements
+
+        cursor.execute( "SELECT _id FROM objects WHERE _id NOT IN %(objids)s", { 'objids': tuple( sourcesobjects ) } )
+        rows = cursor.fetchall()
+        assert len( rows ) > 0
+        for row in rows:
+            cursor.execute( "SELECT _id FROM measurements WHERE object_id=%(objid)s", { 'objid': rows[0] } )
+            meases = set( r[0] for r in cursor.fetchall() )
+            assert len( meases.intersection( objsourceids ) ) == 0
 
 
 # ...what does this next test have to do with Object?

@@ -5,7 +5,6 @@ import random
 import datetime
 
 import numpy as np
-import sqlalchemy as sa
 
 import fastavro
 import confluent_kafka
@@ -15,12 +14,7 @@ import hop.models
 
 from models.base import SmartSession
 from models.image import Image
-from models.reference import image_subtraction_components
-from models.source_list import SourceList
-from models.zero_point import ZeroPoint
-from models.cutouts import Cutouts
-from models.measurements import MeasurementSet, Measurements
-from models.deepscore import DeepScoreSet, DeepScore
+from models.deepscore import DeepScoreSet
 from models.object import Object
 from util.config import Config
 from util.logger import SCLogger
@@ -249,87 +243,56 @@ class Alerting:
             raise RuntimeError( f"No 1FWHM aperture (have {radfwhm})" )
         aperdex = w[0][0]
 
-        # We're going to use the standard SNANA zeropoint for no adequately explained reason
+        # Use 31.4 as the standard zeropoint (which is the AB magnitude nJy zeropoint).
         # (We *could* just store the image zeropoint in fluxZeroPoint.  However, it will be
         # more convenient for people if all of the flux values from all of the sources, previous
-        # sources, and previous forced sources are on the same scale.  We have to pick something,
-        # and SNANA is something.  So, there's an explanation; I don't know if it's an
+        # sources, and previous forced sources are on the same scale.)
         # adequate explanation.)
-        fluxscale = 10 ** ( ( zp.zp - 27.5 ) / -2.5 )
+        fluxscale = 10 ** ( ( zp.zp - 31.4 ) / -2.5 )
 
         alerts = []
 
         for meas, scr in zip( measurements, scores ):
-            # By default, no alerts for bad measurements
-            if skip_bad and meas.is_bad:
-                continue
-
-            # Make sure cutout data is big-endian floats and that
-            #  masked pixels are NaN
-            cdex = f'source_index_{meas.index_in_sources}'
-            newdata = cutouts.co_dict[cdex]['new_data'].astype(">f4", copy=True)
-            refdata = cutouts.co_dict[cdex]['ref_data'].astype(">f4", copy=True)
-            subdata = cutouts.co_dict[cdex]['sub_data'].astype(">f4", copy=True)
-            newdata[ cutouts.co_dict[cdex]['new_flags'] != 0 ] = np.nan
-            refdata[ cutouts.co_dict[cdex]['ref_flags'] != 0 ] = np.nan
-            subdata[ cutouts.co_dict[cdex]['sub_flags'] != 0 ] = np.nan
-
-            alert = { 'alertId': str(uuid.uuid4()),
-                      'diaSource': {},
-                      'prvDiaSources': [],
-                      'prvDiaForcedSources': None,
-                      'prvDiaNonDetectionLimits': [],
-                      'diaObject': {},
-                      'cutoutDifference': subdata.tobytes(),
-                      'cutoutScience': newdata.tobytes(),
-                      'cutoutTemplate': refdata.tobytes() }
-
-            alert['diaSource'] = self.dia_source_alert( meas, scr, image, deepscore_set,
-                                                        zp=zp, aperdex=aperdex, fluxscale=fluxscale )
-            alert['diaObject'] = self.dia_object_alert( Object.get_by_id( meas.object_id ) )
-
-            # In Image.from_new_and_ref, we set a lot of the sub image's properties (crucially,
-            #   filter and mjd) to be the same as the new image.  So, for what we need for
-            #   alerts, we can just use the sub image.
-
             with SmartSession() as sess:
-                # Get all previous sources with the same provenance.
-                # The cutouts parent is a SourceList that is
-                #   detections on the sub image, so it's parent
-                #   is the sub image.  We need that for mjd and filter.
-                # But, also, we need to get the sub image's parent
-                #   zeropoint, which is the zeropoint of the new
-                #   image that went into the sub image.  In subtraction,
-                #   we normalize the sub image so it has the same
-                #   zeropoint as the new image, so that's also the
-                #   right zeropoint to use with the Measurements
-                #   that we pull out.
-                # And, finally, we have to get the DeepScore objects
-                #   associated with the previous measurements.
-                #   That's not upstream of anything, so we have to
-                #   include the DeepScore provenance in the join condition.
+                # By default, no alerts for bad measurements
+                if skip_bad and meas.is_bad:
+                    continue
+
+                # Get the Object of this Measurements
+                objobj = Object.get_by_id( meas.object_id, session=sess )
+
+                # Make sure cutout data is big-endian floats and that
+                #  masked pixels are NaN
+                cdex = f'source_index_{meas.index_in_sources}'
+                newdata = cutouts.co_dict[cdex]['new_data'].astype(">f4", copy=True)
+                refdata = cutouts.co_dict[cdex]['ref_data'].astype(">f4", copy=True)
+                subdata = cutouts.co_dict[cdex]['sub_data'].astype(">f4", copy=True)
+                newdata[ cutouts.co_dict[cdex]['new_flags'] != 0 ] = np.nan
+                refdata[ cutouts.co_dict[cdex]['ref_flags'] != 0 ] = np.nan
+                subdata[ cutouts.co_dict[cdex]['sub_flags'] != 0 ] = np.nan
+
+                alert = { 'alertId': str(uuid.uuid4()),
+                          'diaSource': {},
+                          'prvDiaSources': [],
+                          'prvDiaForcedSources': None,
+                          'prvDiaNonDetectionLimits': [],
+                          'diaObject': {},
+                          'cutoutDifference': subdata.tobytes(),
+                          'cutoutScience': newdata.tobytes(),
+                          'cutoutTemplate': refdata.tobytes() }
+
+                alert['diaSource'] = self.dia_source_alert( meas, scr, image, deepscore_set,
+                                                            zp=zp, aperdex=aperdex, fluxscale=fluxscale )
+                alert['diaObject'] = self.dia_object_alert( objobj )
 
                 # TODO -- handle previous_sources_days
 
                 prvimgids = {}
-                q = ( sess.query( Measurements, DeepScore, Image, ZeroPoint )
-                      .join( MeasurementSet, Measurements.measurementset_id==Measurements._id )
-                      .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
-                      .join( SourceList, Cutouts.sources_id==SourceList._id )
-                      .join( Image, SourceList.image_id==Image._id )
-                      .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
-                      .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id )
-                      .join( DeepScoreSet, sa.and_( DeepScoreSet.measurementset_id==MeasurementSet._id,
-                                                    DeepScoreSet.provenance_id==deepscore_set.provenance_id ),
-                             isouter=True )
-                      .join( DeepScore, sa.and_( DeepScore.deepscoreset_id==DeepScoreSet._id,
-                                                 DeepScore.index_in_sources==Measurements.index_in_sources ),
-                             isouter=True )
-                      .filter( Measurements.object_id==meas.object_id )
-                      .filter( MeasurementSet.provenance_id==measurement_set.provenance_id )
-                      .filter( Measurements._id!=meas.id )
-                      .order_by( Image.mjd ) )
-                for prvmeas, prvscr, prvimg, prvzp in q.all():
+                # prvmess is a list of ( Measurements, DeepScore, Image, ZeroPoint )
+                prvmess = objobj.get_measurements_et_al( measurement_set.provenance_id,
+                                                         deepscore_set.provenance_id,
+                                                         omit_measurements=[ meas.id ] )
+                for prvmeas, prvscr, prvimg, prvzp in prvmess:
                     alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvscr, prvimg, zp=prvzp ) )
                     prvimgids.add( prvimg.id )
 

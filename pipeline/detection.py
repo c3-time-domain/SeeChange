@@ -255,12 +255,33 @@ class Detector:
         self.backgrounder = Backgrounder( **(self.pars.backgrounding) )
 
 
-    def run(self, *args, **kwargs):
+    def run(self, *args, input_psf=None, **kwargs):
         """Extract sources (and possibly a psf) from a regular image or a subtraction image.
 
-        Arguments are parsed by the DataStore.parse_args() method.
+        Paramters
+        ---------
+        Most arguments are parsed by the DataStore.parse_args() method.
 
+        input_psf : PSF, default None
+           Only pass this if self.pars.measure_psf is False.  In that case,
+           you can pass this in as the PSF that will be used to measure
+           stuff.
+
+           On a subtraction image, if input_psf is None, It will use the
+           psf object in the datastore.
+
+           On a regular image— you probably shouldn't as there you want
+           to measure the PSF.  However, for some tests, and efficiency,
+           we support this with a regular image.  In that case, the psf
+           that is "created" will be a copy of input_psf.  For a regular
+           image, if selfpars.measure_psf is False, then input_psf is
+           required.
+
+
+        Returns
+        -------
         Returns a DataStore object with the products of the processing.
+
         """
         self.has_recalculated = False
 
@@ -297,7 +318,7 @@ class Detector:
                 if detections is None:
                     self.has_recalculated = True
 
-                    psf = ds.get_psf()
+                    psf = ds.get_psf() if input_psf is None else input_psf
                     if ( psf is None ) and ( self.pars.method == 'sextractor' ):
                         raise RuntimeError( "detection on subtraction cannot proceed; datastore does "
                                             "not have a psf, and the sextractor method requires one." )
@@ -355,23 +376,23 @@ class Detector:
                 self.pars.do_warning_exception_hangup_injection_here()
 
                 if sources is None or psf is None:
-                    # TODO: when only one of these is not found (which is a strange situation)
-                    #  we may end up with a new version of the existing object
-                    #  (if sources is missing, we will end up with one sources and two psfs).
-                    #  This could get us in trouble when saving (the object will have the same provenance)
-                    #  Right now this is taken care of using "safe_merge" but I don't know if that's the right thing.
+                    # TODO: think about what it means when only one of these is set.
+                    #   That probably shouldn't happen, since both are determined
+                    #   at the same time!  It probably means database corruption.
                     self.has_recalculated = True
                     # use the latest image in the data store,
                     # or load using the provenance given in the
                     # data store's upstream_provs, or just use
                     # the most recent provenance for "preprocessing"
                     image = ds.get_image()
-
                     if image is None:
                         raise ValueError(f'Cannot find an image corresponding to the datastore inputs: '
                                          f'{ds.inputs_str}')
 
-                    sources, psf, _, _ = self.extract_sources( image, bg, wcs=ds.wcs )
+                    if ( not self.pars.measure_psf ) and ( input_psf is None ):
+                        raise ValueError( "self.pars.measure_psf is False you didn't give an input_psf." )
+
+                    sources, psf, _, _ = self.extract_sources( image, bg, psf=input_psf, wcs=ds.wcs )
 
                     sources.image_id = image.id
                     psf.sources_id = sources.id
@@ -465,9 +486,7 @@ class Detector:
             if self.pars.subtraction:
                 sources, _, _, _ = self.extract_sources_sextractor(image, bg, psf=input_psf )
             else:
-                if input_psf is not None:
-                    SCLogger.warning( "Passed an input_psf to extract_sources that won't be used." )
-                sources, psf, bkg, bkgsig = self.extract_sources_sextractor(image, bg)
+                sources, psf, bkg, bkgsig = self.extract_sources_sextractor(image, bg, psf=input_psf)
         elif self.pars.method == 'filter':
             if input_psf is not None:
                 SCLogger.warning( "Passed an input_psf to extract_sources that won't be used." )
@@ -520,18 +539,28 @@ class Detector:
                 psf = self._run_psfex( tempnamebase, image, do_not_cleanup=True )
                 psfpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf'
                 _psfxmlpath = pathlib.Path( FileOnDiskMixin.temp_path ) / f'{tempnamebase}.sources.psf.xml'
+                delfiles.extend( [ psfpath, _psfxmlpath ] )
 
             elif psf is not None:
+                # Make a copy of the psf and wipe out the id and the sources id so that
+                #   this will be saved to the database as a new psf object.
+                #   (Note: still pointing to the same data blocks, but that should be OK.)
+                psf = psf.copy()
+                psf.sources_id = None
+                psf._id = None
                 psfpaths = psf.get_fullpath()
                 if psfpaths is None:
                     # PSF not saved to disk yet, so write it to a temp file we can pass to sextractor
                     barf = ''.join( random.choices( 'abcdefghijklmnopqrstuvwxyz', k=10 ) )
-                    saveto = str( pathlib.path( FileOnDiskMixin.temp_path ) / f'{barf}.psf' )
+                    saveto = str( pathlib.Path( FileOnDiskMixin.temp_path ) / f'{barf}.psf' )
                     psf.save( filename=saveto, filename_is_absolute=True, no_archive=True )
                     psfpaths = [ f'{saveto}.fits', f'{saveto}.xml' ]
-                    delfiles = [ pathlib.Path(i) for i in psfpaths ]
+                    delfiles.extend( [ pathlib.Path(i) for i in psfpaths ] )
                 psfpath = psfpaths[0]
                 _psfxmlpath = psfpaths[1]
+                # Now wipe out the filepath, so that a new one will be generated when saving
+                #   this psf
+                psf.filepath = None
 
             else:
                 raise ValueError( "Must either have self.pars.measure_psf True, or must pass a psf" )

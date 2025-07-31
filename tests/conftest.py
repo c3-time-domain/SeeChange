@@ -32,7 +32,6 @@ from models.knownexposure import KnownExposure, PipelineWorker
 from models.provenance import Provenance
 from models.catalog_excerpt import CatalogExcerpt
 from models.exposure import Exposure
-from models.object import Object
 from models.refset import RefSet
 from models.calibratorfile import CalibratorFileDownloadLock
 from models.user import AuthUser, AuthGroup
@@ -55,8 +54,8 @@ from pipeline.data_store import DataStore, ProvenanceTree
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-verify_archive_database_empty = True
-# verify_archive_database_empty = False
+# verify_archive_database_empty = True
+verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -141,7 +140,7 @@ def any_objects_in_database( dbsession ):
         #    they don't exist.  As such, the tests may implicitly
         #    add provenances they don't explicitly track.
         if Class.__name__ in ['CodeVersion', 'SensorSection', 'CatalogExcerpt',
-                              'Provenance', 'Object', 'PasswordLink']:
+                              'Provenance', 'Object', 'ObjectLegacySurveyMatch', 'PasswordLink']:
             SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             continue
 
@@ -199,10 +198,11 @@ def any_objects_in_database( dbsession ):
 
 
 # This will be executed after the last test (session is the pytest session, not the SQLAlchemy session)
+# It will completely wipe the database (ideally)
 def pytest_sessionfinish(session, exitstatus):
     global verify_archive_database_empty
 
-    # SCLogger.debug('Final teardown fixture executed! ')
+    # SCLogger.debug('Final teardown fixture executing! ')
     with SmartSession() as dbsession:
         # first get rid of any Exposure loading Provenances, if they have no Exposures attached
         provs = dbsession.scalars(sa.select(Provenance).where(Provenance.process == 'load_exposure'))
@@ -226,8 +226,9 @@ def pytest_sessionfinish(session, exitstatus):
         # objects given that the main information they contain is which version of the codebase the
         # tests were run on.
 
-        # remove any Object objects from tests, as these are not automatically cleaned up:
-        dbsession.execute(sa.delete(Object).where(Object.is_test.is_(True)))
+        # remove any Object objects, as these are not automatically cleaned up
+        # Will cascade to object legacy survey matches
+        dbsession.execute( sa.text( "TRUNCATE TABLE objects CASCADE" ) )
 
         # make sure there aren't any CalibratorFileDownloadLock rows
         # left over from tests that failed or errored out

@@ -180,7 +180,11 @@ class Pipeline:
         # source detection ("extraction" for the regular image!)
         extraction_config = config.value('extraction', {})
         extraction_config.update(kwargs.get('extraction', {}))
-        extraction_config.update({'measure_psf': True})
+        # ...why was this line here?  Taking it out.  Normally
+        # we want this to be true, of course, but if you want
+        # to make a pipeline to use the extractor object
+        # and have measure_psf False, then this subverts that.
+        # extraction_config.update({'measure_psf': True})
         self.pars.add_defaults_to_dict(extraction_config)
         self.extractor = Detector(**extraction_config)
 
@@ -452,7 +456,7 @@ class Pipeline:
             stepstogenerateprov = self._get_stepstodo()
 
         parsdict = self.get_critical_pars_dicts()
-        ds.make_prov_tree( stepstogenerateprov, parsdict,
+        ds.make_prov_tree( parsdict, stepstogenerateprov,
                            provtag=None if no_provtag else self.pars.provenance_tag,
                            ok_no_ref_prov=ok_no_ref_prov )
 
@@ -535,6 +539,25 @@ class Pipeline:
                 # ...counting on python dictionaries being ordered...
                 steps = list( process_objects.keys() )
                 everything_saved = True
+
+                # SPECIAL CASE.  If preprocessing is done, then we don't
+                #   need to call the preprocessor.  This will be the
+                #   case when starting the pipeline with an image that
+                #   already has a provenance.  Ideally, we were
+                #   calledwith a datastore that had the image already in
+                #   place; in that case, the provenance tree building
+                #   will have already removed the preprocessing step,
+                #   and set the extraction's upstream to whatever the
+                #   image provenance is.  (If the image already has a
+                #   provenance but not all the steps are done, then
+                #   preprocessor is going to raise an exception.)
+                if ds.image is not None:
+                    ppbf = self.preprocessor.preprocessing_done_bitfield()
+                    if ( ds.image.preproc_bitflag & ppbf ) == ppbf:
+                        if 'preprocessing' in stepstodo:
+                            stepstodo.remove( 'preprocessing' )
+                        SCLogger.info( 'Image is already preprocessed, not doing preprocessing' )
+
 
                 for stepi, (step, procobj) in enumerate( process_objects.items() ):
                     if step in stepstodo:

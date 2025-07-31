@@ -428,6 +428,18 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             raise ValueError( "Source list doesn't have PSF photometry" )
         return self.data['FLUX_PSF'], self.data['FLUXERR_PSF']
 
+
+    def calc_aper_cors( self, min_stars=20 ):
+        """Return a list of aperture corrections to go with self.aper_rads"""
+        apercors = []
+        for i, rad in enumerate( self.aper_rads ):
+            if i == self.inf_aper_num:
+                apercors.append( 0. )
+            else:
+                apercors.append( self.calc_aper_cor( aper_num=i, min_stars=min_stars ) )
+        return apercors
+
+
     def calc_aper_cor( self, aper_num=0, inf_aper_num=None, min_stars=20 ):
         """Calculate an aperture correction based on the photometry in this source list.
 
@@ -785,7 +797,8 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         return arr
 
-    def ds9_regfile( self, regfile, color='green', radius=2, width=2, whichsources='all', clobber=True ):
+    def ds9_regfile( self, regfile, color='green', radius=2, width=2, whichsources='all',
+                     flagbit=0x10, clobber=True ):
         """Write a DS9 region file with circles on the sources.
 
         See https://ds9.si.edu/doc/ref/region.html for file format
@@ -804,10 +817,26 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         width: float
            The width of the circle line (in whatever unigs DS9 uses)
 
-        whichsources: str, one of 'all', 'stars', 'nonstars'
+        whichsources: str or list, including 'all', 'stars', 'nonstars', 'good', 'notgood', 'flagged'
            Which objects to write regions for.  If 'all', all of them.
            If 'stars', only the ones for which self.is_star is True.  If
            'nonstar', only the ones for which self.is_star is False.
+
+           If 'good', then all objects which are flagged as good; if
+           notgood, then all objects which are not flagged as good.
+
+           If 'flagged', then sources with flagbit set in
+           self.data['FLAGS'].  This probably only works for
+           sextractor-created sources.
+
+           Or, make this a list, and then the logical and of the
+           *rejection* criteria will be used.  It's easy to end up with
+           nothing doing this (e.g. whichsources=['stars', 'nonstars']).
+           If you pass an empty list, that's the same as passing "all".
+           Passing a list with "all" and something else is gratuitous.
+
+        flagbit : int
+           A bitfield to bitwise and with self.sources.data['FLAGS']
 
         clobber: bool, default True
            If the file exists, overwrite it
@@ -815,14 +844,25 @@ class SourceList(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """
         ensure_file_does_not_exist( regfile, delete=clobber )
 
-        if whichsources == 'stars':
-            which = self.is_star
-        elif whichsources == 'nonstars':
-            which = ~self.is_star
-        elif whichsources == 'all':
-            which = np.full( ( self.num_sources, ), True )
-        else:
-            raise ValueError( f'whichsources must be one of all, stars, or nonstars, not {whichsources}' )
+        if isinstance( whichsources, str ):
+            whichsources = [ whichsources ]
+
+        known = { 'all', 'stars', 'nonstars', 'good', 'notgood', 'notgood', 'flagged' }
+        if any( [ i not in known for i in whichsources ] ):
+            raise ValueError( f"whichsources can only include {known}" )
+
+        which = np.full_like( ( self.num_sources, ), True )
+
+        if 'stars' in whichsources:
+            which = which & self.is_star
+        if 'nonstars' in whichsources:
+            which = which & ( ~self.is_star )
+        if 'good' in whichsources:
+            which = which & self.good
+        if 'notgood' in whichsources:
+            which = which & ~self.good
+        if 'flagged' in whichsources:
+            which = which & ( ( self.data['FLAGS'] & flagbit ) != 0 )
 
         with open( regfile, "w" ) as ofp:
             for x, y, use in zip( self.x, self.y, which ):

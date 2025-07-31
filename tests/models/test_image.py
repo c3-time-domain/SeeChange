@@ -151,7 +151,7 @@ def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
         assert im.md5sum_components is None
 
         im.provenance_id = provenance_base.id
-        _ = ImageCleanup.save_image(im, archive=False)
+        _ = ImageCleanup.save_image(im, archive=False, seed=980325851)
 
         im.md5sum = None
 
@@ -159,7 +159,7 @@ def test_image_must_have_md5(sim_image_uncommitted, provenance_base):
             im.insert()
 
         # adding md5sums should fix this problem
-        _2 = ImageCleanup.save_image(im, archive=True)
+        _2 = ImageCleanup.save_image(im, archive=True, seed=1124859004)
         im.insert()
 
     finally:
@@ -321,7 +321,7 @@ def test_image_save_justheader( sim_image1 ):
 
         archive = sim_image1.archive
 
-        _ = ImageCleanup.save_image( sim_image1, archive=True )
+        _ = ImageCleanup.save_image( sim_image1, archive=True, seed=872529802 )
         names = sim_image1.get_fullpath( download=False )
         assert names[0].endswith('.image.fits')
         assert names[1].endswith('.flags.fits')
@@ -366,7 +366,7 @@ def test_image_save_onlyimage( sim_image1 ):
     sim_image1.flags = rng.integers(0, 100, size=sim_image1.data.shape, dtype=np.uint16)
     sim_image1.weight = np.full( (64, 32), 4., dtype=np.float32 )
 
-    _ = ImageCleanup.save_image( sim_image1, archive=False )
+    _ = ImageCleanup.save_image( sim_image1, archive=False, seed=342637704 )
     names = sim_image1.get_fullpath( download=False )
     assert names[0].endswith('.image.fits')
     assert names[1].endswith('.flags.fits')
@@ -935,11 +935,11 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
         im2.target = im1.target
 
         im1.provenance_id = provenance_base.id
-        _1 = ImageCleanup.save_image(im1)
+        _1 = ImageCleanup.save_image(im1, seed=1477663363)
         im1.insert()
 
         im2.provenance_id = provenance_base.id
-        _2 = ImageCleanup.save_image(im2)
+        _2 = ImageCleanup.save_image(im2, seed=45749471)
         im2.insert()
 
         # We're gonna (pretend to) do im2 - im1.  We need some (spoofed) image products
@@ -986,7 +986,7 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
         assert not im.is_coadd
 
         im.provenance_id = provenance_base.id
-        _3 = ImageCleanup.save_image(im)
+        _3 = ImageCleanup.save_image(im, seed=121135588)
         im.insert()
 
         # Reload from database, make sure all is well

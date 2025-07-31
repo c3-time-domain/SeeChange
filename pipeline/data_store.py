@@ -8,7 +8,7 @@ from util.util import listify, asUUID, env_as_bool
 from util.logger import SCLogger
 
 from models.base import SmartSession, FileOnDiskMixin, FourCorners
-from models.provenance import CodeVersion, Provenance, ProvenanceTag
+from models.provenance import Provenance, ProvenanceTag
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
@@ -570,24 +570,16 @@ class DataStore:
     def parse_args(self, *args, prov_tree=None ):
         """Parse the arguments to the DataStore constructor.
 
-        Can initialize based on exposure and section ids,
-        or give a specific image id or coadd id.
-
-        If given an Image that is already loaded with related products
-        (SourceList, PSF, etc.) then these will also be added to the
-        datastore's attributes, to be checked against Provenance in the
-        usual way when the relevant getter is called (e.g., get_sources).
-
         Parameters
         ----------
         args: list
             A list of arguments to parse.
             Possible argument combinations are:
-            - DataStore: makes a copy of the other DataStore's __dict__
-            - exposure_id, section_id: give two integers or integer and string
-            - Exposure, section_id: an Exposure object, and an integer or string
-            - Image: an Image object.
-            - image_id: give a single integer
+             - DataStore: makes a copy of the other DataStore's __dict__
+             - exposure_id, section_id: a uuid and a string
+             - Exposure, section_id: an Exposure object, and a string
+             - Image: an Image object.
+             - image_id: give a single uuid
 
         prov_tree : ProvenanceTree or None
            Initialize the DataStore's provenance tree (stored in the
@@ -645,7 +637,6 @@ class DataStore:
 
         self.prov_tree = None  # ProvenanceTree object
         self._provtag = None
-        self._code_version = None
 
         # these all need to be added to the products_to_save list
         self._image = None  # single image from one sensor section
@@ -711,19 +702,19 @@ class DataStore:
             self.report.upsert()
 
 
-    def make_prov_tree( self, steps, pars, provtag=None, ok_no_ref_prov=False, upstream_steps=None,
+    def make_prov_tree( self, pars, steps=None, provtag=None, ok_no_ref_prov=False, upstream_steps=None,
                         starting_point=None ):
         """Create the DataStore's provenance tree.
 
         Also creates provenances and saves them to the database if
         they're not there already.
 
-        Will base the provenance tree off of starting_point if that's
-        given, otherwise off of the provenance of self.exposure if
-        that's defined, otherwise off of the provenance of self.image.
+        Will, sort of, create a provenance for everything in the array
+        steps, plus, maybe, for referencing.  Why sort if?  It's all
+        complicated.
 
-        As a side effect, if 'subtraction' is in the steps, it tries to
-        identify a reference for the image based on
+        First of all, referencing.  If 'subtraction' is in the steps, it
+        tries to identify a reference for the image based on
         pars['subtraction']['refset'].  If a reference is not found,
         referencing and everything downstream from it will not have
         provenances identified or generated.  (This is necessary because
@@ -731,23 +722,90 @@ class DataStore:
         the provenance of the reference.  References are not built as
         part of the main pipeline, but external to the main pipeline.)
 
+        As for the "sort of", it depends on what is found in the
+        DataStore (which in turn depends on how the DataStore has been
+        constructed and what it's been used for so far).
+
+        * self.exposure exists and has a provenance_id
+             In this case, the 'starting_point' provenance (see
+             'upstream_steps' below) is the exposure's provenance.  This
+             should be the most usual case.
+
+        * self.exposure exists and has no provenance_id
+             In this case, you *must* supply Provenance in
+             starting_point, which is used as the starting point, and is
+             implicitly assumed to be the provenance of the exposure.
+             Only do this if you're playing some sort of game,
+             e.g. constructing a contrived test.  Normally, it makes
+             more sense for the exposure to have a provenance_id set.
+
+        * self.image exists and has a provenance_id
+             Because the image has a provenance_id, we're going to
+             assume that the image is correct for that provenance and is
+             either loaded into the database, or ready to be immediately
+             loaded into the database.  This means that preprocessing is
+             already done.  The image's provenance will be set as the
+             starting_point of the provenance tree, and 'preprocessing'
+             will be removed both from steps and from the provenance
+             tree.
+
+             Later, when you run preprocessing, if the image's
+             preproc_bitflag has everything set that the Preprocessor
+             thinks needs to be set, the Preprocessor won't do anything.
+             However, if they're not all set, then further preprocessing
+             steps will be run.  BE CAREFUL, as it's easy to do things
+             wrong, like flatfield twice, if you don't set things up all
+             right!  If it turns out that the provenance that the
+             Preprocessor would set does not match the image's already
+             existing provenance_id, then an exception will be raised by
+             the Preprocessor.
+
+        * self.image exists and has no provenance_id.
+            The image is assumed not to be in the database.  (This
+            should be a good assumption, because everything needs a
+            provenance_id before it's in the databse.  Just make sure
+            you haven't saved the image somewhere else, and then put the
+            smage image (i.e. same filepath, same data, etc.) in this
+            datastore without its provenance_id.
+
+            You must pass a starting_point provenance.  Exactly what
+            happens to this is scary.  When the Preprocessor runs, it
+            will perform steps based on what's already in the image's
+            preproc_bitflag, and at the end will assign the
+            preprocessing provenance to this image.  If it turns out
+            that the preprocessor did nothing, then you really want the
+            starting point provenance to be exactly the same as the
+            preprocessing provenance, which may not be possible given
+            how this function works....
+
+        * Neither self.image nor self.exposure exist
+            You must pass a "starting_point" provenance, which
+            everything else will build on.  This is what the coadd
+            pipeline does.
+
+
         Parameters
         ----------
-          steps : list of str The steps that we want to generate
-             provenances for.  Must be in order (i.e. anything later in
-             the list has all of its upstreams earlier in the list).
-             This list should *not* include "referencing"; that will be
-             added automatically if "subtraction" is in the list of
-             steps.
-
           pars : a dictionary of step -> dict
              The dictionary for a given step must be what you'd get from
              a call to get_critical_pars on an object that performs that
              step.  (The get_critical_pars_dicts method of a Pipeline
              object returns what's needed here.)
 
+          steps : list of str, default None
+             The steps that we want to generate provenances for.  Must
+             be in order (i.e. anything later in the list has all of its
+             upstreams earlier in the list).  This list should *not*
+             include "referencing"; that will be added automatically if
+             "subtraction" is in the list of steps.
+
+             If None, this will be set to
+             pipeline.top_level.Pipeline.ALL_STEPS, which is usually
+             what you want.  (There are a couple of cases, e.g. our
+             coadd pipeline, that need something else.)
+
           provtag : str or None
-             If not None, add all created provenances to this provenance tag
+             If not None, add all created provenances to this provenance tag.
 
           ok_no_ref_prov: bool, default False
              If True, and if 'subtraction' is in steps, and a reference isn't found,
@@ -755,24 +813,46 @@ class DataStore:
              just stop generating provenances at the step before subtraction.
 
           upstream_steps: dict or None
-             You usually don't want to specify this.  This a dict of
-             str: list.  Each key is the name of a process, the value is
-             a list of process names that are upstream to this process.
-             It must be ordered so that all of the upstream processes
-             are keys earlier in the dict.  There is a default built in
-             that is usually what you want to use.
+             You usually don't want to specify this.  It's necessary in
+             our coaddition pipeline, and in our ref maker; for
+             everything else, you want to use the default, which matches
+             the steps that will be run by
+             pipeline/top_level.py::Pipeline.run.  If you find yourself
+             using this parmaeter anywhere else, think long and hard
+             about your life choices.  This a dict of str: list.  Each
+             key is the name of a process, the value is a list of
+             process names that are upstream to this process.  It must
+             be ordered so that all of the upstream processes are keys
+             earlier in the dict.  There is a default built in that is
+             usually what you want to use.
 
           starting_point: Provenance or None
-             The provenance that the tree starts from; the first
-             step in steps will base put this into its upstreams.
+             The default provenance tree will start from this provenance
+             if specified; it will have no upstreams, and it will be the
+             upstream of the first step.  You usually don't want to
+             specify this argument, but sometimes we need to (e.g. in
+             our coadd pipeline, and maybe in some tests.).  If you
+             don't specify this, then the 'starting_point' provenance in
+             the ProvenanceTree will be figured out based on what's in
+             the datastore as described above.
+
+        Returns
+        -------
+          Nothing, but sets self.prov_tree to a new ProvenanceTree object
 
         """
 
+        # Get the steps
+
+        if steps is None:
+            import pipeline.top_level
+            steps = pipeline.top_level.Pipeline.ALL_STEPS
         # Make a copy of steps so we can modify it
         steps = steps.copy()
 
-        code_version = None
         is_testing = None
+
+        # Some parameter checking
 
         if not isinstance( pars, dict ):
             raise TypeError( "pars must be a dictionary" )
@@ -782,12 +862,6 @@ class DataStore:
         for step in steps:
             if step not in pars:
                 raise ValueError( f"Step {step} not in pars" )
-
-        if 'referencing' in steps:
-            raise ValueError( "Steps must not include referencing" )
-
-        provs = ProvenanceTree()
-
         if upstream_steps is not None:
             if ( ( not isinstance( upstream_steps, dict ) ) or
                  ( not all( isinstance( k, str ) for k in upstream_steps.keys() ) ) or
@@ -798,6 +872,17 @@ class DataStore:
             if upstream_steps[k0] != []:
                 ValueError( f"The first step in upstream_steps cannot have prerequisites! "
                             f"Got first step {k0} had prereqs {upstream_steps[k0]}" )
+
+        if 'referencing' in steps:
+            raise ValueError( "Steps must not include referencing" )
+
+        # Make the ProvenanceTree and assign the upstream_steps.  Also
+        # inject 'starting_point' as the first thing in the provenance
+        # tree if necessary.
+
+        provs = ProvenanceTree()
+
+        if upstream_steps is not None:
             provs.upstream_steps = upstream_steps.copy()
             if 'starting_point' not in provs.upstream_steps:
                 keyorder = ['starting_point'] + list( provs.upstream_steps.keys() )
@@ -824,26 +909,60 @@ class DataStore:
             # subtraction's upstreams will change to have a fake injector,
             # and we'll add a fake injector key.)
 
-        # Get started with the passed Exposure (usual case) or Image
-        if starting_point is not None:
-            if not isinstance( starting_point, Provenance ):
-                raise TypeError( f"starting_point must be a Provenance, not a {type(starting_point)}" )
-            provs['starting_point'] = starting_point
-        elif self.exposure is not None:
+        # Figure out where we are starting, and set the starting point appropriately
+
+        if self.exposure is not None:
             if not isinstance( self.exposure, Exposure ):
                 raise TypeError( f"DataStore's exposure field is a {type(self.exposure)}, not Exposure!" )
-            provs['starting_point'] = Provenance.get( self.exposure.provenance_id )
+
+            if self.exposure.provenance_id is None:
+                if starting_point is None:
+                    raise ValueError( "Passing an Exposure without a provenance requires a starting_point" )
+                provs[ 'starting_point' ] = starting_point
+            elif starting_point is not None:
+                raise ValueError( "Passed an Exposure with a provenance_id and also a starting_point, "
+                                  "I don't know what to do." )
+            else:
+                provs[ 'starting_point' ] = Provenance.get( self.exposure.provenance_id )
+
         elif self.image is not None:
+            # If the image is not completely preprocessed, then things are going to break later (Issue #512)
             if not isinstance( self.image, Image ):
                 raise TypeError( f"DataStore's image field is a {type(self.image)}, not Image!" )
-            provs['starting_point'] = Provenance.get( self.image.provenance_id )
-        else:
-            raise RuntimeError( "make_prov_tree requires either a starting_point, or the "
-                                "DataStore must have either an exposure or an image" )
-        code_version = CodeVersion.get_by_id( provs['starting_point'].code_version_id )
-        is_testing  = provs['starting_point'].is_testing
 
-        # Get the reference
+            if self.image.provenance_id is None:
+                if starting_point is None:
+                    raise ValueError( "Passing an Image without a provenance requires a starting_point" )
+                provs[ 'starting_point' ] = starting_point
+            else:
+                # Here's where things get scary.  Preprocessing is going
+                # to do nothing, so we're going to rip preprocessing out
+                # of the provenance tree, and make the image's
+                # provenance the upstream of the extraction.  (If the
+                # image has a provenance, then it's supposed to already
+                # be preprocessed.)  If the image's provenance_done
+                # bitflag doesn't indicate that all the necessary steps
+                # are done, then there are going to be errors later in
+                # preprocessing.  (Issue #512, but maybe it's not really
+                # an issue; we should be happy an exception is raised
+                # if things don't match up.)
+                provs[ 'starting_point' ] = Provenance.get( self.image.provenance_id )
+                if 'preprocessing' in provs.upstream_steps:
+                    del provs.upstream_steps['preprocessing']
+                if 'preprocessing' in steps:
+                    steps.remove( 'preprocessing' )
+                if 'extraction' in provs.upstream_steps:
+                    provs.upstream_steps[ 'extraction' ] = [ 'starting_point' ]
+
+        elif ( starting_point is not None ) and ( isinstance( starting_point, Provenance ) ):
+            provs['starting_point'] = starting_point
+
+        else:
+            raise ValueError( "A datastore without an image or an exposure requires a starting_point Provenance" )
+
+        is_testing = provs['starting_point'].is_testing
+
+        # Get the reference provenance
         ref_prov = None
         if 'subtraction' in steps:
             refset_name = pars['subtraction']['refset']
@@ -872,7 +991,7 @@ class DataStore:
             if isinstance( up_steps, str ):
                 up_steps = [ up_steps ]
             upstream_provs = [ provs[u] for u in up_steps ]
-            provs[step] = Provenance( code_version_id=code_version.id,
+            provs[step] = Provenance( code_version_id=Provenance.get_code_version( process=step ).id,
                                       process=step,
                                       parameters=pars[step],
                                       upstreams=upstream_provs,
@@ -885,7 +1004,6 @@ class DataStore:
             if self._provtag is not None:
                 ProvenanceTag.addtag( self._provtag, provs.values(), add_missing_processes_to_provtag=True )
 
-        self._code_version = code_version
         self.prov_tree = provs
 
 
@@ -949,7 +1067,6 @@ class DataStore:
                 raise ValueError( "params_dict must be None when passing a ProvenanceTree to edit_prov_tree" )
             self.prov_tree = step
             self._provtag = provtag
-            self._code_version = CodeVersion.get_by_id( ( next(iter(step.values())) ).code_version_id )
             return
 
         if self.prov_tree is None:
@@ -988,7 +1105,7 @@ class DataStore:
                     params = self.prov_tree[ curstep ].parameters
 
                 upstream_provs = [ self.prov_tree[u] for u in self.prov_tree.upstream_steps[curstep] ]
-                self.prov_tree[curstep] = Provenance( code_version_id=self._code_version.id,
+                self.prov_tree[curstep] = Provenance( code_version_id=Provenance.get_code_version( curstep ).id,
                                                       process=curstep,
                                                       parameters=params,
                                                       upstreams=upstream_provs )
@@ -2126,7 +2243,7 @@ class DataStore:
             commits.append( "fakeanal" )
 
 
-    def delete_everything(self):
+    def delete_everything( self, do_not_clear=False ):
         """Delete (almost) everything associated with this DataStore.
 
         All data products in the data store are removed from the DB,
@@ -2138,7 +2255,12 @@ class DataStore:
 
         For similar reasons, does not delete the reference either.
 
-        Clears out all data product fields in the datastore.
+        Parameters
+        ----------
+          do_not_clear : boolean, default False
+             Normally, clears out all data product fields in the
+             datastore.  Set this to True to keep all the data products
+             in the datastore.
 
         """
 
@@ -2168,7 +2290,8 @@ class DataStore:
                 else:
                     obj.delete_from_disk_and_database()
 
-        self.clear_products()
+        if not do_not_clear:
+            self.clear_products()
 
 
     def clear_products(self):

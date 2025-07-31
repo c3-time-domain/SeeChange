@@ -15,7 +15,10 @@ from models.base import Base, SeeChangeBase, SmartSession, Psycopg2Connection, U
 from models.image import Image
 from models.cutouts import Cutouts
 from models.source_list import SourceList
-from models.measurements import Measurements
+from models.zero_point import ZeroPoint
+from models.measurements import Measurements, MeasurementSet
+from models.deepscore import DeepScore, DeepScoreSet
+from models.reference import image_subtraction_components
 from util.config import Config
 from util.retrypost import retry_post
 from util.logger import SCLogger
@@ -70,7 +73,96 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
         self.calculate_coordinates()
 
-    def get_measurements_list(
+
+    def get_measurements_et_al( self, measurement_prov_id, deepscore_prov_id, omit_measurements=[],
+                                mjd_min=None, mjd_max=None, session=None ):
+        """Return a list of sundry objects for this Object.
+
+        Parameters
+        ----------
+        measurement_prov_id : str
+          ID of the Provenance of MeasurementSet to search
+
+        deepscore_prov_id : str
+          ID of the Provenance od DeepScoreSet to search, or None to omit deepscores.
+
+        omit_measurements : list of uuid, default None
+          IDs of measurements explicitly not to include in the list
+
+        mjd_min : float, default None
+          If given, minimum mjd of measurements to return
+
+        mjd_max : float, default None
+          If given, maximum mjd of measurements to return
+
+        Returns
+        -------
+          list of tuples of measurements of this object, sorted by image mjd
+
+          Each tuple has either 3 or 4 entries : Measurements, DeepScore, Image, ZeroPoint
+          If deepscore_prov_id is omitted, then it's just Measurements, Image, ZeroPoint
+
+          The Image is the *subtraction image*, not the original science image, of this measurement.
+          (The ZeroPoint applies to both.)
+
+        """
+        # In Image.from_new_and_ref, we set a lot of the sub image's
+        #   properties (crucially, filter and mjd) to be the same as the
+        #   new image.  So, for what we need for alerts, we can just use
+        #   the sub image.
+
+        # Get all previous sources with the same provenance.
+        # The cutouts parent is a SourceList that is
+        #   detections on the sub image, so it's parent
+        #   is the sub image.  We need that for mjd and filter.
+        # But, also, we need to get the sub image's parent
+        #   zeropoint, which is the zeropoint of the new
+        #   image that went into the sub image.  In subtraction,
+        #   we normalize the sub image so it has the same
+        #   zeropoint as the new image, so that's also the
+        #   right zeropoint to use with the Measurements
+        #   that we pull out.
+        # And, finally, we have to get the DeepScore objects
+        #   associated with the previous measurements.
+        #   That's not upstream of anything, so we have to
+        #   include the DeepScore provenance in the join condition.
+
+        with SmartSession( session ) as sess:
+            if deepscore_prov_id is not None:
+                q = sess.query( Measurements, DeepScore, Image, ZeroPoint )
+            else:
+                q = sess.query( Measurements, Image, ZeroPoint )
+
+            q = ( q.join( MeasurementSet, Measurements.measurementset_id==Measurements._id )
+                  .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
+                  .join( SourceList, Cutouts.sources_id==SourceList._id )
+                  .join( Image, SourceList.image_id==Image._id )
+                  .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
+                  .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id ) )
+
+            if deepscore_prov_id is not None:
+                q = ( q.join( DeepScoreSet, sa.and_( DeepScoreSet.measurementset_id==MeasurementSet._id,
+                                                     DeepScoreSet.provenance_id==deepscore_prov_id ),
+                              isouter=True )
+                      .join( DeepScore, sa.and_( DeepScore.deepscoreset_id==DeepScoreSet._id,
+                                                 DeepScore.index_in_sources==Measurements.index_in_sources ),
+                             isouter=True )
+                     )
+
+            q = q.filter( Measurements.object_id==self.id )
+            q = q.filter( MeasurementSet.provenance_id==measurement_prov_id )
+            if len( omit_measurements ) > 0:
+                q = q.filter( Measurements._id.not_in( omit_measurements ) )
+            if mjd_min is not None:
+                q = q.filter( Image.mjd >= mjd_min )
+            if mjd_max is not None:
+                q = q.filter( Image.mjd <= mjd_max )
+            q = q.order_by( Image.mjd )
+
+            return q.all()
+
+
+    def get_filtered_measurements_list(
             self,
             prov_hash_list=None,
             radius=2.0,
@@ -300,7 +392,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         return ra_mean, dec_mean
 
     @classmethod
-    def associate_measurements( cls, measurements, radius=None, year=None, no_new=False, is_testing=False ):
+    def associate_measurements( cls, measurements, radius=None, year=None, no_new=False,
+                                no_associate_legacy_survey=False, is_testing=False ):
         """Associate an object with each member of a list of measurements.
 
         Will create new objects (saving them to the database) unless
@@ -340,6 +433,11 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             database.  Set no_new to True to not create any new objects,
             but to leave the object_id field of unassociated
             Measurements objects as is (probably None).
+
+          no_associate_legacy_survey : bool, default False
+            Normally, when a new object is created, call
+            ObjectLegacySurveyMatch.create_new_object_matches on the
+            objec.t Set this to False to skip that step.
 
           is_testing : bool, default False
             Never use this.  If True, the only associate measurements
@@ -386,6 +484,9 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                                       "VALUES(%(id)s, %(ra)s, %(dec)s, %(name)s, %(testing)s, FALSE)" ),
                                     { 'id': objid, 'name': name, 'ra': m.ra, 'dec': m.dec, 'testing': is_testing } )
                     m.object_id = objid
+                    if not no_associate_legacy_survey:
+                        ObjectLegacySurveyMatch.create_new_object_matches( objid, m.ra, m.dec, con=conn )
+
                 conn.commit()
 
     @classmethod
@@ -569,7 +670,7 @@ class ObjectPosition( Base, UUIDMixin, SpatiallyIndexed ):
 class ObjectLegacySurveyMatch(Base, UUIDMixin):
     """Stores matches bewteen objects and Legacy Survey catalog sources.
 
-    WARNING.  Because this is stored in the databsae, changes to the
+    WARNING.  Because this is stored in the database, changes to the
     distance for parameter searches will not be applied to
     already-existing objects without a massive database update procedure
     (for which there is currently no code).

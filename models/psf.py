@@ -879,10 +879,11 @@ class PSFExPSF(PSF):
         with open( psfxmlpath, "w" ) as ofp:
             ofp.write( self._info )
 
-        # Save the file to the archive and update the database record
+        # Save the file to the archive and update the database record if appropriate
         # (From what we did above, the files are already in the right place in the local filestore.)
-        FileOnDiskMixin.save( self, psfpath, 'fits', **kwargs )
-        FileOnDiskMixin.save( self, psfxmlpath, 'xml', **kwargs )
+        if not filename_is_absolute:
+            FileOnDiskMixin.save( self, psfpath, 'fits', **kwargs )
+            FileOnDiskMixin.save( self, psfxmlpath, 'xml', **kwargs )
 
 
     def load( self, download=True, always_verify_md5=False, psfpath=None, psfxmlpath=None ):

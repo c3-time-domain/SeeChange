@@ -21,7 +21,7 @@ def test_preprocessing(
     preprocessor.pars.test_parameter = uuid.uuid4().hex  # make a new Provenance for this temporary image
     preprocessor.pars.purge_raw_data = False
     ds = DataStore( decam_exposure, 'S3' )
-    ds.make_prov_tree( ['preprocessing'], { 'preprocessing': preprocessor.pars.get_critical_pars() } )
+    ds.make_prov_tree( { 'preprocessing': preprocessor.pars.get_critical_pars() }, ['preprocessing']  )
     ds = preprocessor.run( ds )
     assert preprocessor.has_recalculated
 
@@ -99,7 +99,7 @@ def test_warnings_and_exceptions(decam_exposure, preprocessor, decam_default_cal
         preprocessor.pars.inject_warnings = 1
 
         ds = DataStore( decam_exposure, 'S3' )
-        ds.make_prov_tree( ['preprocessing'], { 'preprocessing': preprocessor.pars.get_critical_pars() } )
+        ds.make_prov_tree( [{ 'preprocessing': preprocessor.pars.get_critical_pars() }, 'preprocessing'] )
         with pytest.warns(UserWarning) as record:
             preprocessor.run(ds)
         assert len(record) > 0
@@ -109,7 +109,7 @@ def test_warnings_and_exceptions(decam_exposure, preprocessor, decam_default_cal
     preprocessor.pars.inject_warnings = 0
     preprocessor.pars.inject_exceptions = 1
     ds = DataStore( decam_exposure, 'S3' )
-    ds.make_prov_tree( ['preprocessing'], { 'preprocessing': preprocessor.pars.get_critical_pars() } )
+    ds.make_prov_tree( { 'preprocessing': preprocessor.pars.get_critical_pars() }, ['preprocessing'] )
     with pytest.raises(Exception) as excinfo:
         ds = preprocessor.run(ds)
         ds.reraise()
