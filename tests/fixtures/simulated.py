@@ -598,22 +598,26 @@ def sim_lightcurve_reference_image_unsaved( sim_lightcurve_image_parameters, sim
     ds.delete_everything()
 
 
+# Function used by the next two fixtures
+def _do_sim_lightcurve_reference( ds ):
+    ds.save_and_commit()
+    refprov = Provenance( process='referencing', code_version_id=Provenance.get_code_version('referencing').id,
+                          parameters={ 'description': 'sim_lightcurve fixture' } )
+    refprov.insert_if_needed()
+    ref = Reference( zp_id=ds.zp.id, provenance_id=refprov.id )
+    ref.insert()
+    refset = RefSet( name='sim_lightcurve_reference', provenance_id=refprov.id )
+    refset.insert()
+
+    return ref, ds
+
+
 # This saves the reference image and dataproducts, and creates a Reference object in the database
 @pytest.fixture
 def sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved ):
-    ds = sim_lightcurve_reference_image_unsaved
     ref = None
     try:
-        ds.save_and_commit()
-        refprov = Provenance( process='referencing', code_version_id=Provenance.get_code_version('referencing').id )
-        refprov.insert_if_needed()
-        ref = Reference( zp_id=ds.zp.id, provenance_id=refprov.id )
-        ref.insert()
-        refset = RefSet( name='sim_lightcurve_reference', provenance_id=refprov.id )
-        refset.insert()
-
-        yield ref, ds
-
+        yield _do_sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved )
     finally:
         if ref is not None:
             with Psycopg2Connection() as conn:
@@ -622,7 +626,24 @@ def sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved ):
                 cursor.execute( "DELETE FROM refs WHERE _id=%(id)s", { 'id': ref.id } )
                 conn.commit()
 
-        ds.delete_everything( do_not_clear=True )
+        sim_lightcurve_reference_image_unsaved.delete_everything( do_not_clear=True )
+
+
+# Same as previous fixture, but with module scope for efficiency
+@pytest.fixture( scope='module' )
+def sim_lightcurve_reference_module(  sim_lightcurve_reference_image_unsaved ):
+    ref = None
+    try:
+        yield _do_sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved )
+    finally:
+        if ref is not None:
+            with Psycopg2Connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute( "DELETE FROM refsets WHERE name='sim_lightcurve_reference'" )
+                cursor.execute( "DELETE FROM refs WHERE _id=%(id)s", { 'id': ref.id } )
+                conn.commit()
+
+        sim_lightcurve_reference_image_unsaved.delete_everything( do_not_clear=True )
 
 
 # Usually don't use this fixture directly, use the sim_lightcurve_new_ds_factory fixture
@@ -681,20 +702,8 @@ def sim_lightcurve_image_datastore_maker_factory( sim_lightcurve_image_parameter
         ds.delete_everything()
 
 
-# This is the fixture to run to actually get new image datastores...
-# But also probably don't run this directoy, use the sim_lightcurve_news fixture!
-@pytest.fixture
-def sim_lightcurve_new_ds_factory( sim_lightcurve_image_parameters,
-                                   sim_lightcurve_wcs_headers,
-                                   sim_lightcurve_reference,
-                                   sim_lightcurve_image_datastore_maker_factory,
-                                   sim_lightcurve_persistent_sources
-                                  ):
-    imageinfo, imageargs = sim_lightcurve_image_parameters
-    _, refds = sim_lightcurve_reference
-    sources = sim_lightcurve_persistent_sources
-    dsentodel = []
-
+# This function is used by the next two fixtures
+def _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, dsentodel ):
     def add_source_to_data( data, x0, y0, flux, seesig, patchwid ):
         ix0 = int( np.floor( x0 ) )
         iy0 = int( np.floor( y0 ) )
@@ -756,7 +765,46 @@ def sim_lightcurve_new_ds_factory( sim_lightcurve_image_parameters,
         dsentodel.append( ds )
         return ds
 
-    yield make_new_ds
+    return make_new_ds
+
+
+# This is the fixture to run to actually get new image datastores...
+# But also probably don't run this directly, use the sim_lightcurve_news fixture!
+@pytest.fixture
+def sim_lightcurve_new_ds_factory( sim_lightcurve_image_parameters,
+                                   sim_lightcurve_wcs_headers,
+                                   sim_lightcurve_reference,
+                                   sim_lightcurve_image_datastore_maker_factory,
+                                   sim_lightcurve_persistent_sources
+                                  ):
+    imageinfo, imageargs = sim_lightcurve_image_parameters
+    _, refds = sim_lightcurve_reference
+    sources = sim_lightcurve_persistent_sources
+    wcshdrs = sim_lightcurve_wcs_headers
+    dsentodel = []
+
+    yield _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, dsentodel )
+
+    for ds in dsentodel:
+        ds.delete_everything()
+
+
+# Same as previous fixture, but module scope for efficiency.
+# Don't use this, use sim_lightcurve_news_module.
+@pytest.fixture( scope="module" )
+def sim_lightcurve_new_ds_factory_module( sim_lightcurve_image_parameters,
+                                          sim_lightcurve_wcs_headers,
+                                          sim_lightcurve_reference_module,
+                                          sim_lightcurve_image_datastore_maker_factory,
+                                          sim_lightcurve_persistent_sources
+                                         ):
+    imageinfo, imageargs = sim_lightcurve_image_parameters
+    _, refds = sim_lightcurve_reference_module
+    sources = sim_lightcurve_persistent_sources
+    wcshdrs = sim_lightcurve_wcs_headers
+    dsentodel = []
+
+    yield _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, dsentodel )
 
     for ds in dsentodel:
         ds.delete_everything()
@@ -783,6 +831,23 @@ def sim_lightcurve_news( sim_lightcurve_new_ds_factory ):
     return dses
 
 
+# Same as previous fixture, but module scope
+@pytest.fixture( scope='module' )
+def sim_lightcurve_news_module( sim_lightcurve_new_ds_factory_module ):
+    rng = np.random.default_rng( seed=221084103 )
+
+    dses = []
+    mjdoffs = np.array( [ 30., 32., 37., 40., 45., 55. ] )
+    for mjdoff in mjdoffs:
+        nextrafluxes = rng.integers( 1, 4 )
+        extrafluxes = rng.uniform( 2000., 20000., size=nextrafluxes )
+        dses.append( sim_lightcurve_new_ds_factory_module( mjdoff, random_seed=rng.integers( 0, 2**31 ),
+                                                           extrarandsourcefluxes=extrafluxes ) )
+
+    # sim_lightcurve_new_ds_factory handles cleanup
+    return dses
+
+
 @pytest.fixture
 def sim_lightcurve_complete_dses( sim_lightcurve_reference, sim_lightcurve_news,
                                   sim_lightcurve_pipeline_parameters ):
@@ -796,341 +861,15 @@ def sim_lightcurve_complete_dses( sim_lightcurve_reference, sim_lightcurve_news,
     return ref, refds, newdsen
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# THE REMAINING FIXTURES IN THIS FILE NEED FIXING
-#
-# They have only partially been updated for the database refactor
-#   that happened a long time ago.  If we actually need them in
-#   any existing test, we should fix them.  Otherwise, eventually,
-#   we should delete them.
-
-# @pytest.fixture
-# def sim_image_list_datastores(
-#         provenance_preprocessing,
-#         provenance_extraction,
-#         provenance_extra,
-#         fake_sources_data,
-#         ztf_filepaths_image_sources_psf
-# ):
-#     rng = np.random.default_rng( seed=1981749530 )
-#     ra = rng.uniform(30, 330)
-#     dec = rng.uniform(-30, 30)
-#     num = 5
-#     width = 1.0
-#     # use the ZTF files to generate a legitimate PSF (that has get_clip())
-#     # TODO: remove this ZTF dependence when doing issue #242
-#     _, _, _, _, psf, psfxml = ztf_filepaths_image_sources_psf
-
-#     # make images with all associated data products
-#     dses = []
-
-#     for i in range(num):
-#         ds = DataStore()
-#         exp = make_sim_exposure( rng.integers( 0, 2**31 ) )
-#         ds.exposure = exp
-#         ds.exposure_id = exp.id
-#         add_file_to_exposure(exp)
-#         exp.update_instrument()
-
-#         im = Image.from_exposure(exp, section_id=0)
-#         ds.image = im
-#         im.data = np.float32(im.raw_data)  # this replaces the bias/flat preprocessing
-#         im.flags = rng.uniform(0, 1.01, size=im.raw_data.shape)  # 1% bad pixels
-#         im.flags = np.floor(im.flags).astype(np.uint16)
-#         im.weight = np.full(im.raw_data.shape, 4., dtype=np.float32)
-#         # TODO: remove ZTF depenedence and make a simpler PSF model (issue #242)
-
-#         # save the images to disk and database
-#         im.provenance_id = provenance_preprocessing.id
-
-#         # add some additional products we may need down the line
-#         ds.sources = SourceList(format='filter', data=fake_sources_data)
-#         # must randomize the sources data to get different MD5sum
-#         ds.sources.data['x'] += rng.normal(0, .1, len(fake_sources_data))
-#         ds.sources.data['y'] += rng.normal(0, .1, len(fake_sources_data))
-
-#         for j in range(len(ds.sources.data)):
-#             dx = ds.sources.data['x'][j] - ds.image.raw_data.shape[1] / 2
-#             dy = ds.sources.data['y'][j] - ds.image.raw_data.shape[0] / 2
-#             gaussian = make_gaussian(imsize=im.raw_data.shape, offset_x=dx, offset_y=dy, norm=1, sigma_x=width)
-#             gaussian *= rng.normal(ds.sources.data['flux'][j], ds.sources.data['flux_err'][j])
-#             im.data += gaussian
-
-#         im.save()
-
-#         ds.sources.provenance_id = provenance_extraction.id
-#         ds.sources.image_id = im.id
-#         ds.sources.filepath = ds.sources.invent_filepath( image=ds.image )
-#         ds.sources.save()
-#         ds.psf = PSFExPSF( filepath=str(psf.relative_to(im.local_path)) )
-#         ds.psf.load(download=False, psfpath=psf, psfxmlpath=psfxml)
-#         # must randomize to get different MD5sum
-#         ds.psf.data += rng.normal(0, 0.001, ds.psf.data.shape)
-#         ds.psf.info = ds.psf.info.replace('Emmanuel Bertin', uuid.uuid4().hex)
-
-#         ds.psf.fwhm_pixels = width * 2.3  # this is a fake value, but we need it to be there
-#         ds.psf.provenance_id = provenance_extraction.id
-#         ds.psf.sources_id = ds.sources.id
-#         ds.psf.save( image=ds.image, sources=ds.sources )
-#         ds.wcs = WorldCoordinates()
-#         ds.wcs.wcs = WCS()
-#         # hack the pixel scale to reasonable values (0.3" per pixel)
-#         ds.wcs.wcs.wcs.pc = np.array([[0.0001, 0.0], [0.0, 0.0001]])
-#         ds.wcs.wcs.wcs.crval = np.array([ra, dec])
-#         ds.wcs.provenance_id = provenance_extra.id
-#         ds.wcs.sources_id = ds.sources.id
-#         ds.wcs.save( image=ds.image )
-#         ds.zp = ZeroPoint()
-#         ds.zp.zp = rng.uniform(25, 30)
-#         ds.zp.dzp = rng.uniform(0.01, 0.1)
-#         ds.zp.aper_cor_radii = [1.0, 2.0, 3.0, 5.0]
-#         ds.zp.aper_cors = rng.normal(0, 0.1, len(ds.zp.aper_cor_radii))
-#         ds.zp.provenance_id = provenance_extra.id
-#         ds.zp.wcs_id = ds.wcs.id
-
-#         exp.insert()
-#         ds.image.insert()
-#         ds.sources.insert()
-#         ds.psf.insert()
-#         ds.wcs.insert()
-#         ds.zp.insert()
-
-#     yield dses
-
-#     for ds in dses:
-#         ds.delete_everything()
-#         exp.delete_from_disk_and_database()
-
-
-# @pytest.fixture
-# def provenance_subtraction(code_version, subtractor):
-#     with SmartSession() as session:
-#         prov = Provenance(
-#             code_version_id=code_version.id,
-#             process='subtraction',
-#             parameters=subtractor.pars.get_critical_pars(),
-#             upstreams=[],
-#             is_testing=True,
-#         )
-#         session.add(prov)
-#         session.commit()
-
-#     yield prov
-
-#     with SmartSession() as session:
-#         prov = session.merge(prov)
-#         if sa.inspect(prov).persistent:
-#             session.delete(prov)
-#             session.commit()
-
-
-# @pytest.fixture
-# def provenance_detection(code_version, detector):
-#     with SmartSession() as session:
-#         prov = Provenance(
-#             code_version_id=code_version.id,
-#             process='detection',
-#             parameters=detector.pars.get_critical_pars(),
-#             upstreams=[],
-#             is_testing=True,
-#         )
-#         session.add(prov)
-#         session.commit()
-
-#     yield prov
-
-#     with SmartSession() as session:
-#         prov = session.merge(prov)
-#         if sa.inspect(prov).persistent:
-#             session.delete(prov)
-#             session.commit()
-
-
-# @pytest.fixture
-# def provenance_cutting(code_version, cutter):
-#     with SmartSession() as session:
-#         prov = Provenance(
-#             code_version_id=code_version.id,
-#             process='cutting',
-#             parameters=cutter.pars.get_critical_pars(),
-#             upstreams=[],
-#             is_testing=True,
-#         )
-#         session.add(prov)
-#         session.commit()
-
-#     yield prov
-
-#     with SmartSession() as session:
-#         prov = session.merge(prov)
-#         if sa.inspect(prov).persistent:
-#             session.delete(prov)
-#             session.commit()
-
-
-# @pytest.fixture
-# def provenance_measuring(code_version, measurer):
-#     with SmartSession() as session:
-#         prov = Provenance(
-#             code_version_id=code_version.id,
-#             process='measuring',
-#             parameters=measurer.pars.get_critical_pars(),
-#             upstreams=[],
-#             is_testing=True,
-#         )
-#         session.add(prov)
-#         session.commit()
-
-#     yield prov
-
-#     with SmartSession() as session:
-#         prov = session.merge(prov)
-#         if sa.inspect(prov).persistent:
-#             session.delete(prov)
-#             session.commit()
-
-
-# @pytest.fixture
-# def fake_sources_data():
-#     num_x = 2
-#     num_y = 2
-#     size_x = DemoInstrument.fake_image_size_x
-#     size_y = DemoInstrument.fake_image_size_y
-
-#     x_list = np.linspace(size_x * 0.2, size_x * 0.8, num_x)
-#     y_list = np.linspace(size_y * 0.2, size_y * 0.8, num_y)
-
-#     rng = np.random.default_rng( seed=2031684533 )
-#     xx = np.array([rng.normal(x, 1) for x in x_list for _ in y_list]).flatten()
-#     yy = np.array([rng.normal(y, 1) for _ in x_list for y in y_list]).flatten()
-#     ra = rng.uniform(0, 360)
-#     ra = [x / 3600 + ra for x in xx]  # assume pixel scale is 1"/pixel
-#     dec = rng.uniform(-10, 10)  # make it close to the equator to avoid having to consider cos(dec)
-#     dec = [y / 3600 + dec for y in yy]  # assume pixel scale is 1"/pixel
-#     flux = rng.uniform(1000, 2000, num_x * num_y)
-#     flux_err = rng.uniform(100, 200, num_x * num_y)
-#     dtype = [('x', 'f4'), ('y', 'f4'), ('ra', 'f4'), ('dec', 'f4'), ('flux', 'f4'), ('flux_err', 'f4')]
-#     data = np.empty(len(xx), dtype=dtype)
-#     data['x'] = xx
-#     data['y'] = yy
-#     data['ra'] = ra
-#     data['dec'] = dec
-#     data['flux'] = flux
-#     data['flux_err'] = flux_err
-
-#     yield data
-
-
-# # You will have trouble if you try to use this fixture
-# #   at the same time as sim_image_list_datastores,
-# #   because this one just adds things to the former's
-# #   elements.
-# @pytest.fixture
-# def sim_sub_image_list_datastores(
-#         sim_image_list_datastores,
-#         sim_reference,
-#         fake_sources_data,
-#         cutter,
-#         provenance_subtraction,
-#         provenance_detection,
-#         provenance_measuring,
-# ):
-#     sub_dses = []
-#     rng = np.random.default_rng( seed=940905971 )
-#     for ds in sim_image_list_datastores:
-#         ds.reference = sim_reference
-#         ds.image.filter = ds.ref_image.filter
-#         ds.image.target = ds.ref_image.target
-#         ds.image.upsert()
-#         ds.sub_image = Image.from_ref_and_new( ds.ref_image, ds.image)
-#         assert ds.sub.is_sub == True
-#         # we are not actually doing any subtraction here, just copying the data
-#         # TODO: if we ever make the simulations more realistic we may want to actually do subtraction here
-#         ds.sub_image.data = ds.image.data.copy()
-#         ds.sub_image.flags = ds.image.flags.copy()
-#         ds.sub_image.weight = ds.image.weight.copy()
-#         ds.sub_image.insert()
-
-#         ds.detections = SourceList(format='filter', num_sources=len(fake_sources_data))
-#         ds.detections.provenance_id = provenance_detection.id
-#         ds.detections.image_id = ds.sub_image.id
-#         # must randomize the sources data to get different MD5sum
-#         fake_sources_data['x'] += rng.normal(0, 1, len(fake_sources_data))
-#         fake_sources_data['y'] += rng.normal(0, 1, len(fake_sources_data))
-#         ds.detections.data = fake_sources_data
-#         ds.detections.save()
-#         ds.detections.insert()
-
-#         # hack the images as though they are aligned
-#         # sim_reference.image.info['alignment_parameters'] = sub.provenance.parameters['alignment']
-#         # sim_reference.image.info['original_image_filepath'] = sim_reference.image.filepath
-#         # sim_reference.image.info['original_image_id'] = sim_reference.image.id
-#         # im.info['alignment_parameters'] = sub.provenance.parameters['alignment']
-#         # im.info['original_image_filepath'] = im.filepath
-#         # im.info['original_image_id'] = im.id
-
-#         # sub.aligned_images = [sim_reference.image, im]
-
-#         ds = cutter.run( ds )
-#         ds.cutouts.save()
-#         ds.cutouts.insert()
-
-#         sub_dses.append( ds )
-
-#     # The sim_image_list_datastores cleanup will clean our new mess up
-#     return sub_dses
-
-
-# @pytest.fixture
-# def sim_lightcurves(sim_sub_image_list_datastores, measurer):
-#     # a nested list of measurements, each one for a different part of the images,
-#     # for each image contains a list of measurements for the same source
-#     measurer.pars.thresholds['bad pixels'] = 100  # avoid losing measurements to random bad pixels
-#     measurer.pars.deletion_thresholds['bad pixels'] = 100
-#     measurer.pars.thresholds['offsets'] = 10  # avoid losing measurements to random offsets
-#     measurer.pars.deletion_thresholds['offsets'] = 10
-#     measurer.pars.association_radius = 5.0  # make it harder for random offsets to dis-associate the measurements
-#     lightcurves = []
-
-#     for ds in sim_sub_image_list_datastores:
-#         ds = measurer.run( ds )
-#         ds.save_and_commit()
-
-#         # grab all the measurements associated with each Object
-#         with SmartSession() as sess:
-#             for m in ds.measurements:
-#                 objobj = Object.get_by_id( m.object_id, session=sess )
-#                 lightcurves.append( objobj.get_measurements_et_al( m.provenance_id, None, session=sess ) )
-
-#     # sim_sub_image_list_datastores cleanup will clean up our mess too
-#     return lightcurves
+# Same as previous fixture, but module scope
+@pytest.fixture
+def sim_lightcurve_complete_dses_module( sim_lightcurve_reference, sim_lightcurve_news_module,
+                                         sim_lightcurve_pipeline_parameters ):
+    ref, refds = sim_lightcurve_reference
+    newdsen = []
+    for ds in sim_lightcurve_news_module:
+        pip = Pipeline( **sim_lightcurve_pipeline_parameters )
+        ds = pip.run( ds )
+        newdsen.append( ds )
+
+    return ref, refds, newdsen

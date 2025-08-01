@@ -148,7 +148,10 @@ def parse_dateobs(dateobs=None, output='datetime'):
         if dateobs == 'now':
             dateobs = Time.now()
         else:
-            dateobs = Time(dateobs)
+            # Not using astropy to parse the string here because it can't parse
+            #   '2025-03-10T00:00:00-08:00', which is a legal
+            #   ISO time!
+            dateobs = Time( dateutil.parser.parse( dateobs ) )
     elif isinstance(dateobs, datetime):
         dateobs = Time(dateobs)
     else:

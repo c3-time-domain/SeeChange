@@ -1,17 +1,18 @@
 import io
 import uuid
-import operator
 import numpy as np
-from collections import defaultdict
+import datetime
+import dateutil
+import pytz
 
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import UniqueConstraint
 
-from astropy.time import Time
 from astropy.coordinates import SkyCoord
 
 from models.base import Base, SeeChangeBase, SmartSession, Psycopg2Connection, UUIDMixin, SpatiallyIndexed
+from models.provenance import Provenance
 from models.image import Image
 from models.cutouts import Cutouts
 from models.source_list import SourceList
@@ -22,6 +23,7 @@ from models.reference import image_subtraction_components
 from util.config import Config
 from util.retrypost import retry_post
 from util.logger import SCLogger
+from util.util import parse_dateobs
 
 object_name_max_used = sa.Table(
     'object_name_max_used',
@@ -162,163 +164,93 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             return q.all()
 
 
-    def get_filtered_measurements_list(
-            self,
-            prov_hash_list=None,
-            radius=2.0,
-            thresholds=None,
-            mjd_start=None,
-            mjd_end=None,
-            time_start=None,
-            time_end=None,
-    ):
-        """Filter the measurements associated with this object.
+    def get_filtered_measurements_list( self,
+                                        measurement_prov,
+                                        deepscore_prov=None,
+                                        min_deepscore=None,
+                                        mjd_start=None,
+                                        mjd_end=None,
+                                        created_at_start=None,
+                                        created_at_end=None,
+                                        thresholds=None
+                                       ):
+        """Filter out measurements of this object that match given criteria.
+
+        Parmeters below that can have either datetime.datetime or str
+        values will, if given a str, be passed through
+        util.util.parse_dateobs.
 
         Parameters
         ----------
-        prov_hash_list: list of strings, optional
-            The prov_hash_list is used to choose only some measurements, if they have a matching provenance hash.
-            This list is ordered such that the first hash is the most preferred, and the last is the least preferred.
-            If not given, will default to the most recently added Measurements object's provenance.
-        radius: float, optional
-            Will use the radius parameter to narrow down to measurements within a certain distance of the object's
-            coordinates (can only narrow down measurements that are already associated with the object).
-            Default is to grab all pre-associated measurements.
-        thresholds: dict, optional
-            Provide a dictionary of thresholds to cut on the Measurements object's disqualifier_scores.
-            Can provide keys that match the keys of the disqualifier_scores dictionary, in which case the cuts
-            will be applied to any Measurements object that has the appropriate score.
-            Can also provide a nested dictionary, where the key is the provenance hash, in which case the value
-            is a dictionary with keys matching the disqualifier_scores dictionary of those specific Measurements
-            that have that provenance (i.e., you can give different thresholds for different provenances).
-            The specific provenance thresholds will override the general thresholds.
-            Note that if any of the disqualifier scores is not given, then the threshold saved
-            in the Measurements object's Provenance will be used (the original threshold).
-            If a disqualifier score is given but no corresponding threshold is given, then the cut will not be applied.
-            To override an existing threshold, provide a new value but set it to None.
-        mjd_start: float, optional
-            The minimum MJD to consider. If not given, will default to the earliest MJD.
-        mjd_end: float, optional
-            The maximum MJD to consider. If not given, will default to the latest MJD.
-        time_start: datetime.datetime or ISO date string, optional
-            The minimum time to consider. If not given, will default to the earliest time.
-        time_end: datetime.datetime or ISO date string, optional
-            The maximum time to consider. If not given, will default to the latest time.
+          measurement_prov : Provenance or str
+            The provenance, or id of the provenance, for MeasurementSets
+            to search.  Required.
+
+          deepscore_prov : Provenance or str
+            The provenance, or id of the provenance, for DeepScoreSets
+            to search.  Required if min_deepscore is non-None, else
+            ignored.
+
+          min_deepscore : float or None
+            Only return measurements with at least this deepscore value.
+            If None, then deepscore is not considered.
+
+          mjd_start : float, datetime.datetime, str, or None
+            If given, only return measurements whose images' mjd is at
+            least this.
+
+          mjd_end : float, datetime.datetime, str, or None
+            If given, only return measurements whose images' mjd is at
+            most this.
+
+          created_at_start : datetime.datetime, str, or None.
+            If given, only return measurements whose created_at is at
+            least this.
+
+          created_at_end : datetime.datetime, str, or None
+            If given, only return measurements whose created_at is at
+            most this.
+
+          thresholds : dict or None
+            NOT IMPLEMENTED.  The idea is that this is a threshold cut.
+            We need to move the treshold cutting code out of
+            pipeline/measuring.py into something this function could
+            call before we can reasonably implement this.
+
 
         Returns
         -------
-        list of Measurements
+          list of Measurements
+
         """
-        raise RuntimeError( "Issue #346" )
-        # this includes all measurements that are close to the discovery measurement
-        # measurements = session.scalars(
-        #     sa.select(Measurements).where(Measurements.cone_search(self.ra, self.dec, radius))
-        # ).all()
 
-        if time_start is not None and mjd_start is not None:
-            raise ValueError('Cannot provide both time_start and mjd_start. ')
-        if time_end is not None and mjd_end is not None:
-            raise ValueError('Cannot provide both time_end and mjd_end. ')
+        if thresholds is not None:
+            raise NotImplementedError( "thresholds isn't implemented yet" )
 
-        if time_start is not None:
-            mjd_start = Time(time_start).mjd
+        # Type conversions
+        if isinstance( measurement_prov, Provenance ):
+            measurement_prov = measurement_prov.id
 
-        if time_end is not None:
-            mjd_end = Time(time_end).mjd
+        if isinstance( deepscore_prov, Provenance ):
+            deepscore_prov = deepscore_prov.id
 
+        mjd_start = None if mjd_start is None else parse_dateobs( mjd_start, output='mjd' )
+        mjd_end = None if mjd_end is None else parse_dateobs( mjd_end, output='mjd' )
+        if created_at_start is not None:
+            created_at_start = ( created_at_start
+                                 if isinstance( created_at_start, datetime.datetime )
+                                 else dateutil.parser.parse( created_at_start ) )
+            if created_at_start.tzinfo is None:
+                created_at_start = pytz.utc.localize( created_at_start )
+        if created_at_end is not None:
+            created_at_end = ( created_at_end
+                               if isinstance( created_at_end, datetime.datetime )
+                               else dateutil.parser.parse( created_at_end ) )
+            if created_at_end.tzinfo is None:
+                created_at_end = pytz.utc.localize( created_at_end )
 
-        # IN PROGRESS.... MORE THOUGHT REQUIRED
-        # THIS WILL BE DONE IN A FUTURE PR  (Issue #346)
+        raise NotImplementedError( "This issue isn't complete yet." )
 
-        with SmartSession() as session:
-            q = session.query( Measurements, Image.mjd ).filter( Measurements.object_id==self._id )
-
-            if ( mjd_start is not None ) or ( mjd_end is not None ):
-                q = ( q.join( Cutouts, Measurements.cutouts_id==Cutouts._id )
-                      .join( SourceList, Cutouts.sources_id==SourceList._id )
-                      .join( Image, SourceList.image_id==Image.id ) )
-                if mjd_start is not None:
-                    q = q.filter( Image.mjd >= mjd_start )
-                if mjd_end is not None:
-                    q = q.filter( Image.mjd <= mjd_end )
-
-            if radius is not None:
-                q = q.filter( sa.func.q3c_radial_query( Measurements.ra, Measurements.dec,
-                                                        self.ra, self.dec,
-                                                        radius/3600. ) )
-
-            if prov_hash_list is not None:
-                q = q.filter( Measurements.provenance_id.in_( prov_hash_list ) )
-
-
-        # Further filtering based on thresholds
-
-        # if thresholds is not None:
-        # ....stopped here, more thought required
-
-
-        measurements = []
-        if radius is not None:
-            for m in self.measurements:  # include only Measurements objects inside the given radius
-                delta_ra = np.cos(m.dec * np.pi / 180) * (m.ra - self.ra)
-                delta_dec = m.dec - self.dec
-                if np.sqrt(delta_ra**2 + delta_dec**2) < radius / 3600:
-                    measurements.append(m)
-
-        if thresholds is None:
-            thresholds = {}
-
-        if prov_hash_list is None:
-            # sort by most recent first
-            last_created = max(self.measurements, key=operator.attrgetter('created_at'))
-            prov_hash_list = [last_created.provenance.id]
-
-        passed_measurements = []
-        for m in measurements:
-            local_thresh = m.provenance.parameters.get('thresholds', {}).copy()  # don't change provenance parameters!
-            if m.provenance.id in thresholds:
-                new_thresh = thresholds[m.provenance.id]  # specific thresholds for this provenance
-            else:
-                new_thresh = thresholds  # global thresholds for all provenances
-
-            local_thresh.update(new_thresh)  # override the Measurements object's thresholds with the new ones
-
-            for key, value in local_thresh.items():
-                if value is not None and m.disqualifier_scores.get(key, 0.0) >= value:
-                    break
-            else:
-                passed_measurements.append(m)  # only append if all disqualifiers are below the threshold
-
-        # group measurements into a dictionary by their MJD
-        measurements_per_mjd = defaultdict(list)
-        for m in passed_measurements:
-            measurements_per_mjd[m.mjd].append(m)
-
-        for mjd, m_list in measurements_per_mjd.items():
-            # check if a measurement matches one of the provenance hashes
-            for hash in prov_hash_list:
-                best_m = [m for m in m_list if m.provenance.id == hash]
-                if len(best_m) > 1:
-                    raise ValueError('More than one measurement with the same provenance. ')
-                if len(best_m) == 1:
-                    measurements_per_mjd[mjd] = best_m[0]  # replace a list with a single Measurements object
-                    break  # don't need to keep checking the other hashes
-            else:
-                # if none of the hashes match, don't have anything on that date
-                measurements_per_mjd[mjd] = None
-
-        # remove the missing dates
-        output = [m for m in measurements_per_mjd.values() if m is not None]
-
-        # remove measurements before mjd_start
-        if mjd_start is not None:
-            output = [m for m in output if m.mjd >= mjd_start]
-
-        # remove measurements after mjd_end
-        if mjd_end is not None:
-            output = [m for m in output if m.mjd <= mjd_end]
-
-        return output
 
     def get_mean_coordinates(self, sigma=3.0, iterations=3, measurement_list_kwargs=None):
         """Get the mean coordinates of the object.
