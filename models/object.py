@@ -172,7 +172,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                                         mjd_end=None,
                                         created_at_start=None,
                                         created_at_end=None,
-                                        thresholds=None
+                                        thresholds=None,
+                                        session=None
                                        ):
         """Filter out measurements of this object that match given criteria.
 
@@ -217,6 +218,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             pipeline/measuring.py into something this function could
             call before we can reasonably implement this.
 
+          session : Session
 
         Returns
         -------
@@ -249,7 +251,33 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             if created_at_end.tzinfo is None:
                 created_at_end = pytz.utc.localize( created_at_end )
 
-        raise NotImplementedError( "This issue isn't complete yet." )
+        with SmartSession( session ) as sess:
+            q = sess.query( Measurements )
+            if min_deepscore is not None:
+                q = ( q.join( DeepScoreSet, sa.and_( DeepScoreSet.measurementset_id==Measurements.measurementset_id,
+                                                     DeepScoreSet.provenance_id==deepscore_prov ) )
+                      .join( DeepScore, sa.and_( DeepScore.deepscoreset_id==DeepScoreSet._id,
+                                                 DeepScore.index_in_sources==Measurements.index_in_sources ) ) )
+            if ( mjd_start is not None ) or ( mjd_end is not None ):
+                # Going to use the mjd of the sub image because it will be the same as of the new image
+                q = ( q.join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
+                      .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
+                      .join( SourceList, Cutouts.sources_id==SourceList._id )
+                      .join( Image, SourceList.image_id==Image._id ) )
+
+            q = q.filter( Measurements.object_id==self.id )
+            if min_deepscore is not None:
+                q = q.filter( DeepScore.score>=min_deepscore )
+            if mjd_start is not None:
+                q = q.filter( Image.mjd>=mjd_start )
+            if mjd_end is not None:
+                q = q.filter( Image.mjd<=mjd_end )
+            if created_at_start is not None:
+                q = q.filter( Measurements.created_at>=created_at_start )
+            if created_at_end is not None:
+                q = q.filter( Measurements.created_at<=created_at_end )
+
+            return q.all()
 
 
     def get_mean_coordinates(self, sigma=3.0, iterations=3, measurement_list_kwargs=None):

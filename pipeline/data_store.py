@@ -1,6 +1,7 @@
 import io
 import datetime
 import sqlalchemy as sa
+import pathlib
 import uuid
 # import traceback
 
@@ -683,6 +684,9 @@ class DataStore:
         # These are flags that tell processes running the data store some things to do nor not do
         self.update_runtimes = True
         self.update_memory_usages = env_as_bool( 'SEECHANGE_TRACEMALLOC' )
+
+        # This is used in tests
+        self.please_delete_these_files = []
 
         self.parse_args(*args, **kwargs)
 
@@ -2291,6 +2295,11 @@ class DataStore:
                         o.delete_from_disk_and_database()
                 else:
                     obj.delete_from_disk_and_database()
+
+        # Also delete additional files.  (Used in tests where we save
+        # warped images that aren't saved in usual pipeline running.)
+        for f in self.please_delete_these_files:
+            pathlib.Path( f ).unlink( missing_ok=True )
 
         if not do_not_clear:
             self.clear_products()

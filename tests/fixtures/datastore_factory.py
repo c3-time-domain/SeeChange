@@ -462,7 +462,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 # try to get the background from the cache
                 bg_cache_path = ( cache_dir / cache_base_path.parent /
                                   f'{cache_base_path.name}.bg_{filename_barf}.h5.json' )
-                SCLogger.debug( 'make_datastore searching cache for bg {bg_cache_path}' )
+                SCLogger.debug( f'make_datastore searching cache for bg {bg_cache_path}' )
                 if bg_cache_path.is_file():
                     SCLogger.debug( 'make_datastore loading bg from cache' )
                     ds.bg = copy_from_cache( Background, cache_dir, bg_cache_path, symlink=True )
@@ -734,6 +734,13 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if outpath.resolve() != aligned_ref_bg_cache_path.resolve():
                         warnings.warn( f"Aligned ref bg cache path {outpath} "
                                        f"doesn't match expected {aligned_ref_bg_cache_path}" )
+
+            # These files won't normally get cleaned up by DataStore.delete_everything, because
+            #    they aren't usually saved.  Add them to a list so that DataStore will delete them
+            ds.please_delete_these_files.extend( ds.aligned_ref_image.get_fullpath(download=False, as_list=True) )
+            ds.please_delete_these_files.extend( ds.aligned_ref_sources.get_fullpath(download=False, as_list=True) )
+            ds.please_delete_these_files.extend( ds.aligned_ref_psf.get_fullpath(download=False, as_list=True) )
+            ds.please_delete_these_files.extend( ds.aligned_ref_bg.get_fullpath(download=False, as_list=True) )
 
         ############ detecting to create a source list ############
 

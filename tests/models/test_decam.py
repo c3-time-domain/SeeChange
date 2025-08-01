@@ -417,8 +417,6 @@ def test_decam_download_and_commit_exposure(
                     os.unlink(d['exposure'])
 
 
-# This test really isn't *that* slow.  Not compared to so many others nowadays.
-# @pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
 def test_get_default_calibrators( decam_default_calibrators ):
     sections, filters = decam_default_calibrators
     decam = get_instrument_instance( 'DECam' )

@@ -1985,7 +1985,7 @@ class Instrument:
 
         if code_version is None:
             code_version = Provenance.get_code_version( process='acquire_exposure' )
-        params = { 'instrument': self.name, 'proc_type': proc_type, method: 'download' }
+        params = { 'instrument': self.name, 'proc_type': proc_type, 'method': method }
         params.update( kwargs )
         provenance = Provenance(
             code_version_id=code_version.id,

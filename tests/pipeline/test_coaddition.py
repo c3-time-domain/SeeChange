@@ -145,7 +145,6 @@ def extract_psf_surrogate(data, sz=7, upsampling=50):
     return psf
 
 
-@pytest.mark.flaky(max_runs=3)
 def test_zogy_simulation(coadder, blocking_plots):
     num_images = 10
     sim = Simulator(
@@ -157,6 +156,7 @@ def test_zogy_simulation(coadder, blocking_plots):
         gain_std=0,  # leave the gain at 1.0
         read_noise=1,
         optic_psf_pars={'sigma': 0.1},  # make the optical PSF much smaller than the seeing
+        random_seed=1230622645
     )
     images = []
     weights = []

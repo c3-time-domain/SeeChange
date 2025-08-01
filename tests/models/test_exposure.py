@@ -28,7 +28,8 @@ def test_exposure_instrument_provenance(sim_exposure1):
         assert sim_exposure1.id is not None
         assert sim_exposure1.provenance_id is not None
         prov = Provenance.get( sim_exposure1.provenance_id )
-        assert prov.parameters == {'instrument': 'DemoInstrument', 'proc_type': 'raw'}
+        assert prov.process == 'acquire_exposure'
+        assert prov.parameters == { 'instrument': 'DemoInstrument', 'proc_type': 'raw', 'method': 'download' }
 
 
 def test_exposure_insert( unloaded_exposure ):
@@ -129,8 +130,8 @@ def test_exposure_no_null_values():
         exposure_id = e.id
         assert exposure_id is not None
         prov = Provenance.get( e.provenance_id )
-        assert prov.process == 'download'
-        assert prov.parameters == {'instrument': e.instrument, 'proc_type': 'raw'}
+        assert prov.process == 'acquire_exposure'
+        assert prov.parameters == {'instrument': e.instrument, 'proc_type': 'raw', 'method': 'download'}
 
     finally:
         # cleanup

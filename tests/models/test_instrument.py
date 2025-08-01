@@ -1,10 +1,7 @@
 import pytest
 import uuid
-import datetime
 
 import numpy as np
-
-import sqlalchemy as sa
 
 from models.base import SmartSession
 from models.image import Image  # noqa: F401
@@ -24,81 +21,6 @@ def test_base_instrument_not_implemented():
 
     with pytest.raises(NotImplementedError):
         inst.get_filename_regex()
-
-
-@pytest.mark.skip( "This is now obsolete given the current assumption sections are static.  See Issue #487." )
-def test_global_vs_sections_values():
-    inst = DemoInstrument()
-    inst.name = 'TestInstrument' + uuid.uuid4().hex
-    assert inst.gain == 2.0  # default value
-    assert inst.read_noise == 1.5  # default value
-
-    # make sure there are no sections matching this instrument on the DB
-    with SmartSession() as session:
-        sections = session.scalars(sa.select(SensorSection).where(SensorSection.instrument == inst.name)).all()
-        assert len(sections) == 0
-
-    # instrument is generated without any sections (use fetch_sections() to get them)
-    assert inst.sections is None
-
-    # cannot use get_property() without checking if there are SensorSections on the DB...
-    with pytest.raises(RuntimeError, match='No sections loaded for this instrument'):
-        inst.get_property(0, 'gain')
-
-    # generate a section with null values
-    with SmartSession() as session:
-        inst.fetch_sections(session=session)  # must generate a new section (there are none in the DB)
-
-    assert inst.sections is not None
-    assert len(inst.sections) == 1
-
-    # new section is created with null values
-    assert inst.sections['0'].gain is None
-    assert inst.sections['0'].read_noise is None
-    assert inst.get_property(0, 'gain') == 2.0
-    assert inst.get_property(0, 'read_noise') == 1.5
-
-    # now adjust the values on that section:
-    inst.sections['0'].gain = 2.5
-    inst.sections['0'].read_noise = 1.3
-    assert inst.get_property(0, 'gain') == 2.5
-    assert inst.get_property(0, 'read_noise') == 1.3
-
-    # add the new section to the DB:
-    with SmartSession() as session:
-        inst.commit_sections(session=session)
-        sections = session.scalars(sa.select(SensorSection).where(SensorSection.instrument == inst.name)).all()
-        assert len(sections) == 1  # now it is on the DB
-
-    # make a new instrument and fetch sections
-    inst2 = DemoInstrument()
-    inst2.name = inst.name
-    with SmartSession() as session:
-        inst2.fetch_sections(session=session)
-        assert inst2.get_property(0, 'gain') == 2.5
-        assert inst2.get_property(0, 'read_noise') == 1.3
-
-        t0 = datetime.datetime.utcnow()
-        # re-commit the section with a validity range
-        inst2.commit_sections(session=session, validity_start=t0, validity_end=t0 + datetime.timedelta(days=1))
-
-    # new instrument should be able to fetch that section TODAY
-    inst3 = DemoInstrument()
-    inst3.name = inst.name
-
-    with SmartSession() as session:
-        inst3.fetch_sections(session=session)
-        assert inst3.get_property(0, 'gain') == 2.5
-        assert inst3.get_property(0, 'read_noise') == 1.3
-
-    # but not if we ask for a date in the past (e.g., an image taken last week)
-    inst4 = DemoInstrument()
-    inst4.name = inst.name
-
-    with SmartSession() as session:
-        inst4.fetch_sections(session=session, dateobs=t0 - datetime.timedelta(days=7))
-        assert inst4.get_property(0, 'gain') == 2.0
-        assert inst4.get_property(0, 'read_noise') == 1.5
 
 
 def test_instrument_offsets_and_filter_array_index():
