@@ -119,7 +119,6 @@ class Preprocessor:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
-            import pdb; pdb.set_trace()
             self.pars.do_warning_exception_hangup_injection_here()
 
             if ds.image is not None:

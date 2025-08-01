@@ -81,22 +81,20 @@ class CodeVersion(Base, UUIDMixin):
         'referencing' : (0,1,0),
         'fakeinjection' : (0,1,0),
 
-        'test_image' : (0,1,0),
-
         'coaddition' : (0,1,0),
+        'alignment' : (0,1,0),    # If this changes, then coadd and subtraction versions should probably also change!
+
         'download': (0,1,0),
         'DECam Default Calibrator' : (0,1,0),
         'import_external_reference' : (0,1,0),
         'manual_reference' : (0,1,0),
 
+        # The remaining processes are just used in tests (I think)
         'no_process' : (0,1,0),
+        'test_image' : (0,1,0),
         'test_process' : (0,1,0),
-        'alignment' : (0,1,0),
-        'gratuitous image' : (0,1,0),
-        'gratuitous sources' : (0,1,0),
-        "acquired" : (0,1,0),
-        'exposure' : (0,1,0),
-        'positioning': (0,1,0),
+        'test_downstream_process': (0,1,0),
+        'test_extra_process': (0,1,0),
     }
 
     _code_version_cache = None

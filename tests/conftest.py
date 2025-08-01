@@ -31,7 +31,6 @@ from models.base import (
 from models.knownexposure import KnownExposure, PipelineWorker
 from models.provenance import Provenance
 from models.catalog_excerpt import CatalogExcerpt
-from models.exposure import Exposure
 from models.refset import RefSet
 from models.calibratorfile import CalibratorFileDownloadLock
 from models.user import AuthUser, AuthGroup
@@ -204,13 +203,14 @@ def pytest_sessionfinish(session, exitstatus):
 
     # SCLogger.debug('Final teardown fixture executing! ')
     with SmartSession() as dbsession:
-        # first get rid of any Exposure loading Provenances, if they have no Exposures attached
-        provs = dbsession.scalars(sa.select(Provenance).where(Provenance.process == 'load_exposure'))
-        for prov in provs:
-            exp = dbsession.scalars(sa.select(Exposure).where(Exposure.provenance_id == prov.id)).all()
-            if len(exp) == 0:
-                dbsession.delete(prov)
-        dbsession.commit()
+        # TODO : delete this next block if commenting it didn't cause errors
+        # # first get rid of any Exposure loading Provenances, if they have no Exposures attached
+        # provs = dbsession.scalars(sa.select(Provenance).where(Provenance.process == 'load_exposure'))
+        # for prov in provs:
+        #     exp = dbsession.scalars(sa.select(Exposure).where(Exposure.provenance_id == prov.id)).all()
+        #     if len(exp) == 0:
+        #         dbsession.delete(prov)
+        # dbsession.commit()
 
         # ISSUE 479 this will find and DEBUG report the codeversions that are about to get killed in the next line.
         any_objects = any_objects_in_database( dbsession )
@@ -943,19 +943,22 @@ def bogus_sources_and_psf( bogus_image, bogus_sources_factory ):
 @pytest.fixture
 def bogus_bg( bogus_sources_and_psf ):
     bogus_sources, _ = bogus_sources_and_psf
-    srcprov = Provenance.get( bogus_sources.provenance_id )
-    prov = Provenance( code_verson_id=srcprov.code_version_id,
-                       process='backgrounding',
-                       parameters={ 'format': 'scalar' },
-                       upstreams=[ srcprov ],
-                       is_testing=True )
-    prov.insert_if_needed()
+    # TODO : remove this next commented block, and the commented
+    #   line in the Background(...) below, if commenting this out
+    #   didn't break anything.
+    # srcprov = Provenance.get( bogus_sources.provenance_id )
+    # prov = Provenance( code_verson_id=srcprov.code_version_id,
+    #                    process='backgrounding',
+    #                    parameters={ 'format': 'scalar' },
+    #                    upstreams=[ srcprov ],
+    #                    is_testing=True )
+    # prov.insert_if_needed()
     bg = Background( format='scalar',
                      method='zero',
                      sources_id=bogus_sources.id,
                      value=0.,
                      noise=1.,
-                     provenance_id=prov.id,
+    #                 provenance_id=prov.id,
                      image_shape=(256,256),
                      filepath='fake_bogus_bg.h5',
                      md5sum=uuid.uuid4() )
