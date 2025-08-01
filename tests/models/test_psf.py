@@ -343,8 +343,8 @@ def test_save_psfex_psf( ztf_datastore_uncommitted, provenance_base, provenance_
         src = ztf_datastore_uncommitted.sources
         psf = ztf_datastore_uncommitted.psf
 
-        improv = Provenance( process='gratuitous image' )
-        srcprov = Provenance( process='gratuitous sources' )
+        improv = Provenance( process='test_image' )
+        srcprov = Provenance( process='extraction' )
         improv.insert()
         srcprov.insert()
 

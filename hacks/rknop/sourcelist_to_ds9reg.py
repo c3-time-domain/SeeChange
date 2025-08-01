@@ -9,6 +9,12 @@ parser.add_argument( "-c", "--color", default='green', help="Color (default: gre
 parser.add_argument( "-r", "--radius", default=None,
                      help='Radius of circle (default: 5 pix or 1"); in proper units (pixels or °)!' )
 parser.add_argument( "-m", "--maglimit", default=None, nargs=2, type=float, help="Only keep things in this mag range" )
+parser.add_argument( "-s", "--only-stars", default=False, action='store_true',
+                     help="Only keep things with CLASS_STAR>0.8"  )
+parser.add_argument( "-g", "--only-galaxies", default=False, action='store_true',
+                     help="Only keep things with CLASS_STAR<=0.8" )
+parser.add_argument( "-f", "--flag-bitmask", default=None, type=int,
+                     help="A bitmask to bitwise-AND the FLAGS with; if not 0, skip" )
 args = parser.parse_args()
 
 if args.radius is None:
@@ -36,8 +42,18 @@ else:
 
 with fits.open( args.filename, memmap=False ) as hdul:
     for row in hdul[2].data:
-        doprint = ( ( minmag is None ) or
-                    ( ( minmag is not None ) and
-                      ( row['MAG'] >= minmag ) and ( row['MAG'] <= maxmag ) ) )
-        if doprint:
-            print( f'{frame};circle({row[xfield]},{row[yfield]},{radius}) # color={args.color} width=2' )
+        if ( ( minmag is not None ) and
+             ( ( row['MAG'] < args.minmag ) or ( row['MAG'] > args.maxmag ) )
+            ):
+            continue
+
+        if args.only_stars and ( row['CLASS_STAR'] <= 0.8 ):
+            continue
+
+        if args.only_galaxies and ( row['CLASS_STAR'] > 0.8 ):
+            continue
+
+        if ( args.flag_bitmask is not None ) and ( ( row['FLAGS'] & args.flag_bitmask ) != 0 ):
+            continue
+
+        print( f'{frame};circle({row[xfield]},{row[yfield]},{radius}) # color={args.color} width=2' )

@@ -286,12 +286,7 @@ class PhotCalibrator:
                 zpval, dzpval = self._solve_zp( image, sources, wcs, bg, catexp )
 
                 # Add the aperture corrections
-                apercors = []
-                for i, rad in enumerate( sources.aper_rads ):
-                    if i == sources.inf_aper_num:
-                        apercors.append( 0. )
-                    else:
-                        apercors.append( sources.calc_aper_cor( aper_num=i ) )
+                apercors = sources.calc_aper_cors()
 
                 # Make the ZeroPoint object
                 ds.zp = ZeroPoint( sources_id=ds.sources.id, zp=zpval, dzp=dzpval,

@@ -79,7 +79,7 @@ alerts:
       method: kafka
       enabled: true
       deepcut: null
-      avro_schema: /seechange/share/avsc/ls4.v0_1.alert.avsc
+      avro_schema: /seechange/share/avsc/ls4.v0_2.alert.avsc
       kafka_server: kafka-server
       topic_pattern: "test_topic_{barf}"
       previous_source_days: 30

@@ -11,7 +11,6 @@ from improc.sky_flat import calc_sky_flat
 # from util.logger import SCLogger
 
 
-@pytest.mark.flaky(max_runs=6)
 @pytest.mark.parametrize("num_images", [10, 300])
 def test_simple_sky_flat(num_images):
     clear_cache = False  # cache the images from the simulator
@@ -25,6 +24,7 @@ def test_simple_sky_flat(num_images):
         gain_std=0,  # leave the gain at 1.0
         dark_current=0,  # simplify by having no dark current
         read_noise=0,  # simplify by having no read noise
+        random_seed=42*num_images
     )
 
     if os.path.isfile(filename) and not clear_cache:

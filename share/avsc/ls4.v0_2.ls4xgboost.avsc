@@ -1,0 +1,35 @@
+{ "type": "record",
+  "namespace": "ls4.v0_2",
+  "name": "ls4xgboost",
+  "fields": [
+    { "name": "lsid",
+      "type": "long",
+      "doc": "The ls_id from the Legacy Surveys"
+    },
+    { "name": "ra",
+      "type": "double",
+      "doc": "RA of LS object"
+    },
+    { "name": "dec",
+      "type": "double",
+      "doc": "Dec of LS object"
+    },
+    { "name": "dist",
+      "type": "float",
+      "doc": "Distance from diaObject to LS object in arcsec"
+    },
+    { "name": "white_mag",
+      "type": "float",
+      "doc": "The White Mag as defined in Liu et al. 2025"
+    },
+    { "name": "xgboost",
+      "type": "float",
+      "doc": "The xgboost statistic as defined in Liu et al. 2025"
+    },
+    { "name": "is_star",
+      "type": "boolean",
+      "doc": "True if xgboost>=0.5"
+    }
+  ]
+}
+  

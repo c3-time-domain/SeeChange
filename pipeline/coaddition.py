@@ -1016,6 +1016,9 @@ class CoaddPipeline:
             raise TypeError( "Must pass a list of DataStore objects to CoaddPipeline.run" )
 
         self.datastore = DataStore()
+        # We need to make the provenance tree *before* assigning the image
+        #   to the DataStore, so that it won't look the image's provenance
+        #   and do the wrong thing.
         self.make_provenance_tree( data_store_list )
 
         # check if this exact coadd image already exists in the DB
@@ -1069,7 +1072,7 @@ class CoaddPipeline:
         parses = { 'extraction': self.extractor.pars.get_critical_pars(),
                    'astrocal': self.astrometor.pars.get_critical_pars(),
                    'photocal': self.photometor.pars.get_critical_pars() }
-        self.datastore.make_prov_tree( steps, parses, upstream_steps=upstream_steps, starting_point=coadd_prov )
+        self.datastore.make_prov_tree( parses, steps, upstream_steps=upstream_steps, starting_point=coadd_prov )
 
         return self.datastore.prov_tree
 

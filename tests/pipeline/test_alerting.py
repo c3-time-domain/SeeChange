@@ -15,7 +15,7 @@ from pipeline.alerting import Alerting
 
 def test_build_avro_alert_structures( test_config, decam_datastore_through_scoring ):
     ds = decam_datastore_through_scoring
-    fluxscale = 10** ( ( ds.zp.zp - 27.5 ) / -2.5 )
+    fluxscale = 10** ( ( ds.zp.zp - 31.4 ) / -2.5 )
 
     alerter = Alerting()
     alerts = alerter.build_avro_alert_structures( ds, skip_bad=False )
@@ -31,7 +31,7 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
                 for a, m in zip( alerts, ds.measurements ) )
     assert all( a['diaSource']['dec'] == pytest.approx( m.dec, abs=0.1/3600. )
                 for a, m in zip( alerts, ds.measurements ) )
-    assert all( a['diaSource']['fluxZeroPoint'] == 27.5 for a in alerts )
+    assert all( a['diaSource']['fluxZeroPoint'] == pytest.approx( 31.4, rel=1e-5 ) for a in alerts )
     assert all( a['diaSource']['psfFlux'] == pytest.approx( m.flux_psf * fluxscale, rel=1e-5 )
                 for a, m in zip( alerts, ds.measurements ) if not np.isnan(m.flux_psf)  )
     assert all( a['diaSource']['psfFluxErr'] == pytest.approx( m.flux_psf_err * fluxscale, rel=1e-5 )
@@ -140,8 +140,8 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
             assert alert['diaSource']['MJD'] == pytest.approx( ds.image.mid_mjd, abs=0.0001 )
             assert alert['diaSource']['ra'] == pytest.approx( measurements[dex].ra, abs=0.1/3600. )
             assert alert['diaSource']['dec'] == pytest.approx( measurements[dex].dec, abs=0.1/3600. )
-            assert alert['diaSource']['fluxZeroPoint'] == 27.5
-            fluxscale = 10 ** ( ( ds.zp.zp - 27.5 ) / -2.5 )
+            assert alert['diaSource']['fluxZeroPoint'] == pytest.approx( 31.4, rel=1e-5 )
+            fluxscale = 10 ** ( ( ds.zp.zp - 31.4 ) / -2.5 )
             if not np.isnan( measurements[dex].flux_psf ):
                 assert alert['diaSource']['psfFlux'] == pytest.approx( measurements[dex].flux_psf * fluxscale,
                                                                        rel=1e-5 )
@@ -204,7 +204,7 @@ def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partia
     # ds2 = decam_partial_datastore_factory( exp2, 'scoring' )
     ds3 = decam_partial_datastore_factory( exp3, 'scoring' )
 
-    fluxscale = 10**( ( ds3.zp.zp - 27.5 ) / -2.5 )
+    fluxscale = 10**( ( ds3.zp.zp - 31.4 ) / -2.5 )
     alerter = Alerting()
     alerts = alerter.build_avro_alert_structures( ds3 )
 
@@ -219,7 +219,7 @@ def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partia
                 for a, m in zip( alerts, ds3.measurements ) )
     assert all( a['diaSource']['dec'] == pytest.approx( m.dec, abs=0.1/3600. )
                 for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['fluxZeroPoint'] == 27.5 for a in alerts )
+    assert all( a['diaSource']['fluxZeroPoint'] == pytest.approx( 31.4, rel=1e-5 ) for a in alerts )
     assert all( a['diaSource']['psfFlux'] == pytest.approx( m.flux_psf * fluxscale, rel=1e-5 )
                 for a, m in zip( alerts, ds3.measurements ) )
     assert all( a['diaSource']['psfFluxErr'] == pytest.approx( m.flux_psf_err * fluxscale, rel=1e-5 )

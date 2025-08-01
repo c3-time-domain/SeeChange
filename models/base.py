@@ -367,7 +367,7 @@ def get_all_database_objects(display=False, session=None):
     from models.cutouts import Cutouts
     from models.measurements import Measurements
     from models.deepscore import DeepScore
-    from models.object import Object
+    from models.object import Object, ObjectLegacySurveyMatch
     from models.calibratorfile import CalibratorFile, CalibratorFileDownloadLock
     from models.catalog_excerpt import CatalogExcerpt
     from models.reference import Reference
@@ -378,7 +378,7 @@ def get_all_database_objects(display=False, session=None):
     models = [
         CodeVersion, Provenance, ProvenanceTag, DataFile, Exposure, Image,
         SourceList, PSF, WorldCoordinates, ZeroPoint, Cutouts, Measurements, DeepScore,
-        Object, CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference,
+        Object, ObjectLegacySurveyMatch, CalibratorFile, CalibratorFileDownloadLock, CatalogExcerpt, Reference,
         RefSet, SensorSection, AuthUser, AuthGroup, PasswordLink, KnownExposure, PipelineWorker
     ]
 
@@ -1919,6 +1919,32 @@ class SpatiallyIndexed:
         self.gallat, self.gallon, self.ecllat, self.ecllon = radec_to_gal_ecl( self.ra, self.dec )
 
 
+    @classmethod
+    def at_ra_dec( cls, ra, dec, radius=1.0, session=None ):
+        """Return all objects that are within radius arcsecnds of (ra,dec).
+
+        Parmaeters
+        ----------
+          ra : float
+            RA of cone search.
+
+          dec : float
+            Dec of cone search
+
+          radius : float, default 1.0
+            Radius in arcseconds of cone search
+
+          session : Session or None
+
+        Returns
+        -------
+          list of Object
+
+        """
+        with SmartSession( session ) as sess:
+            return sess.query( cls ).filter( func.q3c_radial_query( cls.ra, cls.dec, ra, dec, radius / 3600. ) ).all()
+
+
     @hybrid_method
     def within( self, fourcorn ):
         """An SQLAlchemy filter to find all things within a FourCorners object
@@ -1942,7 +1968,7 @@ class SpatiallyIndexed:
 
     @classmethod
     def cone_search( cls, ra, dec, rad, radunit='arcsec', ra_col='ra', dec_col='dec' ):
-        """Find all objects of this class that are within a cone.
+        """An SQLalchemy clause to find all objects of this class that are within a cone.
 
         Parameters
         ----------

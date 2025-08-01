@@ -375,7 +375,7 @@ def decam_datastore(
         decam_exposure,
         'S2',
         cache_dir=decam_cache_dir,
-        cache_base_name='007/c4d_20211025_044847_S2_r_Sci_CYNFGI',
+        cache_base_name='007/c4d_20211025_044847_S2_r_Sci_JGZHA5',
         overrides={ 'subtraction': { 'refset': 'test_refset_decam' } },
         save_original_image=True,
         provtag='decam_datastore'
@@ -432,7 +432,7 @@ def decam_partial_datastore_factory( datastore_factory, decam_cache_dir,
         mat = re.search( r'^c4d_(?P<yymmdd>\d{6})_(?P<hhmmss>\d{6})_ori\.fits\.fz$', str(exposure.filepath) )
         if mat is None:
             raise ValueError( f"Failed to match {exposure.filepath}" )
-        cache_base_name = f'007/c4d_20{mat.group("yymmdd")}_{mat.group("hhmmss")}_S2_r_Sci_CYNFGI'
+        cache_base_name = f'007/c4d_20{mat.group("yymmdd")}_{mat.group("hhmmss")}_S2_r_Sci_JGZHA5'
 
         ds = datastore_factory(
             exposure,
@@ -563,7 +563,7 @@ def decam_elais_e1_two_refs_datastore( download_url, decam_cache_dir, data_dir, 
     filebase = 'ELAIS-E1-r-templ'
 
     prov = Provenance(
-        process='import_external_reference',
+        process='manual_reference',
         parameters={},
     )
     prov.insert_if_needed()
@@ -720,7 +720,7 @@ def decam_reference( decam_elais_e1_two_references ):
 
 @pytest.fixture(scope='session')
 def get_cached_decam_image( decam_cache_dir, download_url, datastore_factory ):
-    improv = Provenance( process="acquired",
+    improv = Provenance( process="test_image",
                          parameters={},
                          upstreams=[],
                          is_testing=True )

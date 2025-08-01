@@ -1,5 +1,5 @@
 { "type": "record",
-  "namespace": "ls4.v0_1",
+  "namespace": "ls4.v0_2",
   "name": "diaForcedSource",
   "fields": [
     { "name": "diaForcedSourceId",
