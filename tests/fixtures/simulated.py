@@ -703,7 +703,7 @@ def sim_lightcurve_image_datastore_maker_factory( sim_lightcurve_image_parameter
 
 
 # This function is used by the next two fixtures
-def _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, dsentodel ):
+def _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, maker, dsentodel ):
     def add_source_to_data( data, x0, y0, flux, seesig, patchwid ):
         ix0 = int( np.floor( x0 ) )
         iy0 = int( np.floor( y0 ) )
@@ -754,14 +754,14 @@ def _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcs
         image.flags = flags
         # Add some jitter to the WCS... I think scamp can still cope.
         # (Doing it here to test, but then just left it in.)
-        wcsparm = sim_lightcurve_wcs_headers.copy()
+        wcsparm = wcshdrs.copy()
         wcsparm['CRVAL1'] += rng.normal( 0., 20./3600. )
         wcsparm['CRVAL2'] += rng.normal( 0., 20./3600. )
         image._header = fits.Header( wcsparm )
         image.save()
         image.insert()
 
-        ds = sim_lightcurve_image_datastore_maker_factory( image )
+        ds = maker( image )
         dsentodel.append( ds )
         return ds
 
@@ -781,9 +781,10 @@ def sim_lightcurve_new_ds_factory( sim_lightcurve_image_parameters,
     _, refds = sim_lightcurve_reference
     sources = sim_lightcurve_persistent_sources
     wcshdrs = sim_lightcurve_wcs_headers
+    maker = sim_lightcurve_image_datastore_maker_factory
     dsentodel = []
 
-    yield _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, dsentodel )
+    yield _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, maker, dsentodel )
 
     for ds in dsentodel:
         ds.delete_everything()
@@ -802,9 +803,10 @@ def sim_lightcurve_new_ds_factory_module( sim_lightcurve_image_parameters,
     _, refds = sim_lightcurve_reference_module
     sources = sim_lightcurve_persistent_sources
     wcshdrs = sim_lightcurve_wcs_headers
+    maker = sim_lightcurve_image_datastore_maker_factory
     dsentodel = []
 
-    yield _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, dsentodel )
+    yield _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcshdrs, maker, dsentodel )
 
     for ds in dsentodel:
         ds.delete_everything()
@@ -873,3 +875,43 @@ def sim_lightcurve_complete_dses_module( sim_lightcurve_reference, sim_lightcurv
         newdsen.append( ds )
 
     return ref, refds, newdsen
+
+
+@pytest.fixture
+def sim_lightcurve_one_new( sim_lightcurve_new_ds_factory ):
+    rng = np.random.default_rng( seed=1708950305 )
+    nextrafluxes = rng.integers( 1, 4 )
+    extrafluxes = rng.uniform( 2000., 20000., size=nextrafluxes )
+    ds = sim_lightcurve_new_ds_factory( 30., random_seed=rng.integers( 0, 2**31 ),
+                                        extrarandsourcefluxes=extrafluxes )
+    return ds
+
+
+@pytest.fixture( scope="module" )
+def sim_lightcurve_one_new_module( sim_lightcurve_new_ds_factory_module ):
+    rng = np.random.default_rng( seed=1708950305 )
+    nextrafluxes = rng.integers( 1, 4 )
+    extrafluxes = rng.uniform( 2000., 20000., size=nextrafluxes )
+    ds = sim_lightcurve_new_ds_factory_module( 30., random_seed=rng.integers( 0, 2**31 ),
+                                               extrarandsourcefluxes=extrafluxes )
+    return ds
+
+
+@pytest.fixture
+def sim_lightcurve_one_complete_ds( sim_lightcurve_reference, sim_lightcurve_one_new,
+                                    sim_lightcurve_pipeline_parameters ):
+    ref, refds = sim_lightcurve_reference
+    ds = sim_lightcurve_one_new
+    pip = Pipeline( **sim_lightcurve_pipeline_parameters )
+    ds = pip.run( ds )
+    return ref, refds, ds, pip
+
+
+@pytest.fixture
+def sim_lightcurve_one_complete_ds_module( sim_lightcurve_reference, sim_lightcurve_one_new_module,
+                                           sim_lightcurve_pipeline_parameters ):
+    ref, refds = sim_lightcurve_reference
+    ds = sim_lightcurve_one_new
+    pip = Pipeline( **sim_lightcurve_pipeline_parameters )
+    ds = pip.run( ds )
+    return ref, refds, ds, pip

@@ -183,7 +183,7 @@ class Alerting:
         if fluxscale is None:
             if zp is None:
                 raise ValueError( "Must pass one of fluxscale or zp" )
-            fluxscale = 10 ** ( ( zp.zp - 27.5 ) / -2.5 )
+            fluxscale = 10 ** ( ( zp.zp - 31.4 ) / -2.5 )
 
         return { 'diaSourceId': str( meas.id ),
                  'diaObjectId': str( meas.object_id ),
@@ -194,7 +194,7 @@ class Alerting:
                  'decErr': None,
                  'ra_dec_Cov': None,
                  'band': img.filter,
-                 'fluxZeroPoint': 27.5,
+                 'fluxZeroPoint': 31.4,
                  'apFlux': meas.flux_apertures[ aperdex ] * fluxscale,
                  'apFluxErr': meas.flux_apertures_err[ aperdex ] * fluxscale,
                  'psfFlux': meas.flux_psf * fluxscale,

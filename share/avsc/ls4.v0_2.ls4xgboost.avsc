@@ -3,31 +3,31 @@
   "name": "ls4xgboost",
   "fields": [
     { "name": "lsid",
-      "type": { "type": "array", "items": "long" },
+      "type": "long",
       "doc": "The ls_id from the Legacy Surveys"
     },
     { "name": "ra",
-      "type": { "type": "array", "items": "double" },
+      "type": "double",
       "doc": "RA of LS object"
     },
     { "name": "dec",
-      "type": { "type": "array", "items": "double" },
+      "type": "double",
       "doc": "Dec of LS object"
     },
-    { "name", "dist",
-      "type": { "type": "array", "items": "float" },
+    { "name": "dist",
+      "type": "float",
       "doc": "Distance from diaObject to LS object in arcsec"
     },
-    { "name": "white_mag"
-      "type": { "type": "array", "items": "float" },
+    { "name": "white_mag",
+      "type": "float",
       "doc": "The White Mag as defined in Liu et al. 2025"
     },
     { "name": "xgboost",
-      "type": { "type": "array", "items": "float" },
+      "type": "float",
       "doc": "The xgboost statistic as defined in Liu et al. 2025"
     },
     { "name": "is_star",
-      "type": { "type": "array", "items": "boolean" },
+      "type": "boolean",
       "doc": "True if xgboost>=0.5"
     }
   ]

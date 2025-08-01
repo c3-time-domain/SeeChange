@@ -35,9 +35,10 @@
       "doc": "Covariance between ra and dec."
     },
     { "name": "xgmatchRadius",
-      "type": "float",
+      "type": [ "float", "null" ],
+      "default": null,
       "doc": "Radius in arcseconds of match to leagcy survey xgboost objects"
-    }
+    },
     { "name": "ls-xgboost",
       "type": [ { "type": "array", "items": "ls4.v0_2.ls4xgboost"}, "null" ],
       "default": null,

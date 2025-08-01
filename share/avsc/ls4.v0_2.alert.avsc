@@ -1,5 +1,5 @@
 { "type": "record",
-  "namespace": "ls4.v0_2,
+  "namespace": "ls4.v0_2",
   "name": "alert",
   "doc": "LS4 alert schema v0.2",
   "fields": [

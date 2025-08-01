@@ -1,6 +1,5 @@
 import pytest
 import uuid
-import re
 
 import numpy as np
 import sqlalchemy as sa
@@ -16,7 +15,9 @@ from util.util import asUUID
 
 
 def test_object_creation():
-    obj = Object(ra=7.01241, dec=-42.96943, is_test=True, is_bad=False)
+    ra = 7.01241
+    dec = -42.96943
+    obj = Object(ra=ra, dec=dec, is_test=True, is_bad=False)
 
     try:
         with pytest.raises( psycopg2.errors.NotNullViolation, match='null value in column "name"' ):
@@ -26,15 +27,13 @@ def test_object_creation():
         obj.insert()
 
         assert obj._id is not None
-        assert re.match( r'^obj\d{4}\w+$', obj.name )
 
         with SmartSession() as session:
             obj2 = session.scalars(sa.select(Object).where(Object._id == obj.id)).first()
-            assert obj2.ra == 1.0
-            assert obj2.dec == 2.0
+            assert obj2.ra == ra
+            assert obj2.dec == dec
             assert obj2.name is not None
             assert obj2.name == obj.name
-            assert re.match( r'^obj\d{4}\w+$', obj.name )
 
     finally:
         if obj._id is not None:

@@ -45,7 +45,7 @@ def test_make_prov_tree( decam_exposure, decam_reference ):
 
         # Make sure all the provenances' code versions have the right process
         for prov in ds.prov_tree.values():
-            cv = CodeVersion.get( prov.code_version_id )
+            cv = CodeVersion.get_by_id( prov.code_version_id )
             assert cv.process == prov.process
 
         # Even though 'starting_point' and 'referencing' weren't in the list

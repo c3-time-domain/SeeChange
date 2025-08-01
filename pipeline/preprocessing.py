@@ -119,6 +119,9 @@ class Preprocessor:
                 import tracemalloc
                 tracemalloc.reset_peak()  # start accounting for the peak memory usage from here
 
+            import pdb; pdb.set_trace()
+            self.pars.do_warning_exception_hangup_injection_here()
+
             if ds.image is not None:
                 baseobj = ds.image
                 ds.section_id = ds.image.section_id
@@ -126,8 +129,6 @@ class Preprocessor:
                 raise RuntimeError( "Preprocessing requires either an image, or an exposure and a sensor section" )
             else:
                 baseobj = ds.exposure
-
-            self.pars.do_warning_exception_hangup_injection_here()
 
             if ( self.instrument is None ) or ( self.instrument.name != baseobj.instrument ):
                 self.instrument = baseobj.instrument_object

@@ -155,7 +155,7 @@ class Cutter:
             else:
                 if cutouts.provenance_id != prov.id:
                     raise ValueError(
-                            f'Provenance mismatch for cutout {cutouts.provenance.id[:6]} '
+                            f'Provenance mismatch for cutout {cutouts.provenance_id[:6]} '
                             f'and preset provenance {prov.id[:6]}!'
                         )
 

@@ -817,12 +817,9 @@ def test_provenance_tree(pipeline_for_tests, decam_exposure, decam_datastore, de
         newp.make_provenance_tree( ds )
 
 
-# This test is really slow because it runs the pipeline repeatedly to test
-#   warnings and exceptions at each step.
-@pytest.mark.skipif( not env_as_bool('RUN_SLOW_TESTS'), reason="Set RUN_SLOW_TESTS to run this test" )
-def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_tests):
-    p = pipeline_for_tests
-    p.subtractor.pars.refset = 'test_refset_decam'
+def test_inject_warnings_errors( sim_lightcurve_one_complete_ds ):
+    ref, refds, ds, p = sim_lightcurve_one_complete_ds
+    p.subtractor.pars.refset = 'sim_lightcurve_reference'
 
     try:
         # This next dict and the code that uses it took me a while to
@@ -848,7 +845,16 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
         #   top_level.py
 
         obj_to_process_step = {
-            'preprocessor': 'preprocessing',
+            # This test no longer works on preprocessing because
+            #   top_level.py skips running the preprocessor if the
+            #   datastore already has an image and that image's
+            #   preproc_bitflag matches what the preprocessor would have
+            #   set.  (Search for comment "SPECIAL CASE" in
+            #   top_level.py.)
+            #   (This was also true before I changed the fixture from
+            #   decam to sim_lightcurve, as the decam fixture also has a
+            #   fully preprocessed image.)
+            # 'preprocessor': 'preprocessing',
             'extractor': 'extraction',
             'astrometor': 'astrocal',
             'photometor': 'photocal',
@@ -873,7 +879,7 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
                 getattr(p, obj).pars.inject_warnings = True
 
                 # run the pipeline
-                ds = p.run(decam_datastore)
+                ds = p.run( ds )
                 expected = ( f"{process_step}: <class 'UserWarning'> Warning injected by pipeline parameters "
                              f"in process '{process_name}'" )
                 assert expected in ds.report.warnings
@@ -891,7 +897,7 @@ def test_inject_warnings_errors(decam_datastore, decam_reference, pipeline_for_t
 
             with pytest.raises( RuntimeError,
                                 match=f"Exception injected by pipeline parameters in process '{process_name}'" ):
-                ds = p.run(decam_datastore)
+                ds = p.run( ds )
 
             # fetch the report object
             ds.update_report( process_step )
