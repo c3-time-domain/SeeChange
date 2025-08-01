@@ -122,9 +122,10 @@ class Preprocessor:
             if ds.image is not None:
                 baseobj = ds.image
                 ds.section_id = ds.image.section_id
+            elif ( ds.exposure is None ) or ( ds.section_id is None ):
+                raise RuntimeError( "Preprocessing requires either an image, or an exposure and a sensor section" )
             else:
-                if ( ds.exposure is None ) or ( ds.section_id is None ):
-                    raise RuntimeError( "Preprocessing requires eitehr an image, or an exposure and a sensor section" )
+                baseobj = ds.exposure
 
             self.pars.do_warning_exception_hangup_injection_here()
 
