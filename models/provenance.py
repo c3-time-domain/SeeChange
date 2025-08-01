@@ -65,6 +65,7 @@ class CodeVersion(Base, UUIDMixin):
     #     affecting provenances. MINOR changes will result in some change in the data products, and MAJOR will
     #     represent a major change in how they interact with other parts of the pipeline.
     CODE_VERSION_DICT = {
+        # The core processes of the pipeline
         'acquire_exposure': (0,1,0),
         'preprocessing': (0,1,1),
         'extraction': (0,1,0),
@@ -76,17 +77,24 @@ class CodeVersion(Base, UUIDMixin):
         'measuring': (0,1,0),
         'scoring': (0,1,0),
         'alerting': (0,1,0),
-        'bg': (0,1,0),
-        'wcs': (0,1,0),
-        'zp': (0,1,0),
-        'referencing' : (0,1,0),
         'fakeinjection' : (0,1,0),
 
+        # Other processes of associated pipelines
+        'referencing' : (0,1,0),
         'coaddition' : (0,1,0),
-        'alignment' : (0,1,0),    # If this changes, then coadd and subtraction versions should probably also change!
-                                  # Aligned images are never saved to the database, so this code version will
-                                  #   never be persisted.
+        'positioning': (0,1,0),
 
+        # The next couple are processes whose direct data products
+        #   are not saved to the database.  If their version change,
+        #   then probably the subtraction, and maybe the coadd,
+        #   version should chagne too, as changes in these processes
+        #   will affect both subtraction and coadd.
+        'alignment' : (0,1,0),
+        'inpainting' : (0,1,0),
+
+        # These are processes for downloading stuff
+        #   that we need either to do specific surveys,
+        #   or for specific instruments.,
         'DECam Default Calibrator' : (0,1,0),
         'manual_reference' : (0,1,0),
 

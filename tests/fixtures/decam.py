@@ -720,7 +720,7 @@ def decam_reference( decam_elais_e1_two_references ):
 
 @pytest.fixture(scope='session')
 def get_cached_decam_image( decam_cache_dir, download_url, datastore_factory ):
-    improv = Provenance( process="download",
+    improv = Provenance( process="test_image",
                          parameters={},
                          upstreams=[],
                          is_testing=True )

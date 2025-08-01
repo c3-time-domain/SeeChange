@@ -99,7 +99,7 @@ def test_warnings_and_exceptions(decam_exposure, preprocessor, decam_default_cal
         preprocessor.pars.inject_warnings = 1
 
         ds = DataStore( decam_exposure, 'S3' )
-        ds.make_prov_tree( [{ 'preprocessing': preprocessor.pars.get_critical_pars() }, 'preprocessing'] )
+        ds.make_prov_tree( { 'preprocessing': preprocessor.pars.get_critical_pars() }, [ 'preprocessing' ] )
         with pytest.warns(UserWarning) as record:
             preprocessor.run(ds)
         assert len(record) > 0

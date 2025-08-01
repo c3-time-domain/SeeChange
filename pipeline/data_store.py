@@ -710,7 +710,7 @@ class DataStore:
         they're not there already.
 
         Will, sort of, create a provenance for everything in the array
-        steps, plus, maybe, for referencing.  Why sort if?  It's all
+        steps, plus, maybe, for referencing.  Why sort of?  It's all
         complicated.
 
         First of all, referencing.  If 'subtraction' is in the steps, it
@@ -737,7 +737,9 @@ class DataStore:
              implicitly assumed to be the provenance of the exposure.
              Only do this if you're playing some sort of game,
              e.g. constructing a contrived test.  Normally, it makes
-             more sense for the exposure to have a provenance_id set.
+             more sense for the exposure to have a provenance_id set
+             (and, probably, for the exposure to already be loaded into
+             the database).
 
         * self.image exists and has a provenance_id
              Because the image has a provenance_id, we're going to

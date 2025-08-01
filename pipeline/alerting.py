@@ -247,7 +247,6 @@ class Alerting:
         # (We *could* just store the image zeropoint in fluxZeroPoint.  However, it will be
         # more convenient for people if all of the flux values from all of the sources, previous
         # sources, and previous forced sources are on the same scale.)
-        # adequate explanation.)
         fluxscale = 10 ** ( ( zp.zp - 31.4 ) / -2.5 )
 
         alerts = []

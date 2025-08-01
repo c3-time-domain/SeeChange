@@ -16,18 +16,15 @@ from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
-# from models.psf import PSFExPSF     # Remove if the commented-out fixtures at the bottom are removed
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
 from models.refset import RefSet
-from models.instrument import get_instrument_instance #, DemoInstrument    # Remove DemoInstrment if ....
-# from models.object import Object   # Remove if the commented-out fixtures at the bottom are removed
+from models.instrument import get_instrument_instance
 
 from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
 
-# from improc.tools import make_gaussian   # Remove if the commented-out fixtures at the bottom are remove
 from improc.simulator import Simulator
 
 from util.util import patch_image_overlap_limits
