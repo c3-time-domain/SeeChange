@@ -1,6 +1,5 @@
 import io
 import pathlib
-import warnings
 import shutil
 import pytest
 import datetime
@@ -237,9 +236,9 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 report_cache_path = cache_dir / cache_base_path.parent / f'{cache_base_path.name}.report.json'
                 ds.cache_base_path = cache_dir / cache_base_path
             elif new_cache_base_path != cache_base_path:
-                warnings.warn( f'Determined cache_base_path {new_cache_base_path} '
-                               f'from exposure/section_id, but it does not match the '
-                               f'pre-existing cache_base_path {cache_base_path}' )
+                SCLogger.warning( f'Determined cache_base_path {new_cache_base_path} '
+                                  f'from exposure/section_id, but it does not match the '
+                                  f'pre-existing cache_base_path {cache_base_path}' )
 
         # Try to read the report from the cache.  If it's there, then _hopefully_ everything
         # else is there.  (Report cache is written at the end, but it's possible that there
@@ -388,7 +387,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     if ( ( image_cache_path is not None ) and
                          ( output_path.resolve() != ( cache_dir / image_cache_path ).resolve() )
                         ):
-                        warnings.warn(f'cache path {image_cache_path} does not match output path {output_path}')
+                        SCLogger.warning(f'cache path {image_cache_path} does not match output path {output_path}')
                     else:
                         # Update some of the cache paths.  These may
                         #   have been None before, because they weren't
@@ -491,17 +490,17 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     _ = ds.sources.id
                     output_path = copy_to_cache(ds.sources, cache_dir)
                     if output_path.resolve() != sources_cache_path.resolve():
-                        warnings.warn(f'cache path {sources_cache_path} does not match output path {output_path}')
+                        SCLogger.warning(f'cache path {sources_cache_path} does not match output path {output_path}')
 
                     _ = ds.psf.id
                     output_path = copy_to_cache(ds.psf, cache_dir)
                     if output_path.resolve() != psf_cache_path.resolve():
-                        warnings.warn(f'cache path {psf_cache_path} does not match output path {output_path}')
+                        SCLogger.warning(f'cache path {psf_cache_path} does not match output path {output_path}')
 
                     _ = ds.bg.id
                     output_path = copy_to_cache( ds.bg, cache_dir )
                     if output_path.resolve() != bg_cache_path.resolve():
-                        warnings.warn( f'cache_path {bg_cache_path} does not match output path {output_path}' )
+                        SCLogger.warning( f'cache_path {bg_cache_path} does not match output path {output_path}' )
 
 
         ########## Astrometric calibration ##########
@@ -529,7 +528,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     _ = ds.wcs.id
                     output_path = copy_to_cache(ds.wcs, cache_dir)
                     if output_path.resolve() != wcs_cache_path.resolve():
-                        warnings.warn(f'cache path {wcs_cache_path} does not match output path {output_path}')
+                        SCLogger.warning(f'cache path {wcs_cache_path} does not match output path {output_path}')
 
         ########## Photometric calibration ##########
 
@@ -552,7 +551,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     _ = ds.zp.id
                     output_path = copy_to_cache(ds.zp, cache_dir, zp_cache_path)
                     if output_path.resolve() != zp_cache_path.resolve():
-                        warnings.warn(f'cache path {zp_cache_path} does not match output path {output_path}')
+                        SCLogger.warning(f'cache path {zp_cache_path} does not match output path {output_path}')
 
         ########### Done with image and image data products; save and commit #############
 
@@ -689,7 +688,7 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     output_path = copy_to_cache(ds.sub_image, cache_dir)
                     if output_path.resolve() != sub_cache_path.resolve():
                         raise ValueError( f'cache path {sub_cache_path} does not match output path {output_path}' )
-                        # warnings.warn(f'cache path {sub_cache_path} does not match output path {output_path}')
+                        # SCLogger.warning(f'cache path {sub_cache_path} does not match output path {output_path}')
                     if p.subtractor.pars.method == 'zogy':
                         np.save( zogy_score_cache_path, ds.zogy_score, allow_pickle=False )
                         np.save( zogy_alpha_cache_path, ds.zogy_alpha, allow_pickle=False )
@@ -706,34 +705,34 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     _ = ds.aligned_ref_image.id
                     outpath = copy_to_cache( ds.aligned_ref_image, cache_dir )
                     if outpath.resolve() != aligned_ref_cache_path.resolve():
-                        warnings.warn( f"Aligned ref cache path {outpath} "
-                                       f"doesn't match expected {aligned_ref_cache_path}" )
+                        SCLogger.warning( f"Aligned ref cache path {outpath} "
+                                          f"does not match expected {aligned_ref_cache_path}" )
                     ds.aligned_ref_sources.filepath = str( filename_aligned_ref_sources )
                     ds.aligned_ref_sources.save( no_archive=True )
                     _ = ds.aligned_ref_sources.id
                     outpath = copy_to_cache( ds.aligned_ref_sources, cache_dir,
                                              filepath=aligned_ref_sources_cache_path )
                     if outpath.resolve() != aligned_ref_sources_cache_path.resolve():
-                        warnings.warn( f"Aligned ref sources cache path {outpath} "
-                                       f"doesn't match expected {aligned_ref_sources_cache_path}" )
+                        SCLogger.warning( f"Aligned ref sources cache path {outpath} "
+                                          f"does not match expected {aligned_ref_sources_cache_path}" )
                     ds.aligned_ref_psf.save( no_archive=True, filename=str( filename_aligned_ref_psf ) )
                     _ = ds.aligned_ref_psf.id
                     outpath = copy_to_cache( ds.aligned_ref_psf, cache_dir,
                                              filepath=aligned_ref_psf_cache_path )
                     if outpath.resolve() != aligned_ref_psf_cache_path.resolve():
-                        warnings.warn( f"Aligned ref psf cache path {outpath} "
-                                       f"doesn't match expected {aligned_ref_psf_cache_path}" )
+                        SCLogger.warning( f"Aligned ref psf cache path {outpath} "
+                                          f"does not match expected {aligned_ref_psf_cache_path}" )
                     _ = ds.aligned_ref_zp.id
                     outpath = copy_to_cache( ds.aligned_ref_zp, cache_dir, filepath=aligned_ref_zp_cache_path )
                     if outpath.resolve() != aligned_ref_zp_cache_path.resolve():
-                        warnings.warn( f"Aligned ref zp cache path {outpath} "
-                                       f"doesn't match expected {aligned_ref_zp_cache_path}" )
+                        SCLogger.warning( f"Aligned ref zp cache path {outpath} "
+                                          f"does not match expected {aligned_ref_zp_cache_path}" )
                     ds.aligned_ref_bg.save( no_archive=True, filename=f'{ds.aligned_ref_image.filepath}_bg.h5' )
                     _ = ds.aligned_ref_bg.id
                     outpath = copy_to_cache( ds.aligned_ref_bg, cache_dir )
                     if outpath.resolve() != aligned_ref_bg_cache_path.resolve():
-                        warnings.warn( f"Aligned ref bg cache path {outpath} "
-                                       f"doesn't match expected {aligned_ref_bg_cache_path}" )
+                        SCLogger.warning( f"Aligned ref bg cache path {outpath} "
+                                          f"does not match expected {aligned_ref_bg_cache_path}" )
 
             # These files won't normally get cleaned up by DataStore.delete_everything, because
             #    they aren't usually saved.  Add them to a list so that DataStore will delete them
@@ -765,8 +764,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     _ = ds.detections.id
                     outpath = copy_to_cache( ds.detections, cache_dir, detection_cache_path )
                     if outpath.resolve() != detection_cache_path.resolve():
-                        warnings.warn( f"Detection cache path {outpath} "
-                                       f"doesn't match expected {detection_cache_path}" )
+                        SCLogger.warning( f"Detection cache path {outpath} "
+                                          f"does not match expected {detection_cache_path}" )
 
         ############ cutting to create cutouts ############
 
@@ -792,8 +791,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                     _ = ds.cutouts.id
                     outpath = copy_to_cache(ds.cutouts, cache_dir)
                     if outpath.resolve() != cutouts_cache_path.resolve():
-                        warnings.warn( f"Cutouts cache path {outpath} "
-                                       f"doesn't match expected {cutouts_cache_path}" )
+                        SCLogger.warning( f"Cutouts cache path {outpath} "
+                                          f"does not match expected {cutouts_cache_path}" )
 
         ############ measuring to create measurements ############
 
@@ -885,7 +884,8 @@ def datastore_factory(data_dir, pipeline_factory, request):
                 _ = ds.report.id
                 output_path = copy_to_cache( ds.report, cache_dir, report_cache_path )
                 if output_path.resolve() != report_cache_path.resolve():
-                    warnings.warn( f'report cache path {report_cache_path} does not match output path {output_path}' )
+                    SCLogger.warning( f'report cache path {report_cache_path} does not match '
+                                      f'output path {output_path}' )
             else:
                 SCLogger.warning( "Report not available!" )
 
