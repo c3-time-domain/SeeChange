@@ -179,7 +179,7 @@ class Alerting:
             w = np.where( np.fabs( radfwhm - 1. ) < 0.01 )
             if len(w) == 0.:
                 raise RuntimeError( f"No 1FWHM aperture (have {radfwhm})" )
-            aperdex = w[0]
+            aperdex = w[0][0]
         if fluxscale is None:
             if zp is None:
                 raise ValueError( "Must pass one of fluxscale or zp" )
@@ -286,14 +286,18 @@ class Alerting:
 
                 # TODO -- handle previous_sources_days
 
-                prvimgids = {}
+                prvimgids = set()
                 # prvmess is a list of ( Measurements, DeepScore, Image, ZeroPoint )
                 prvmess = objobj.get_measurements_et_al( measurement_set.provenance_id,
                                                          deepscore_set.provenance_id,
                                                          omit_measurements=[ meas.id ] )
-                for prvmeas, prvscr, prvimg, prvzp in prvmess:
-                    alert.prvDiaSources.append( self.dia_source_alert( prvmeas, prvscr, prvimg, zp=prvzp ) )
-                    prvimgids.add( prvimg.id )
+                for i in range( len( prvmess['measurements'] ) ):
+                    alert['prvDiaSources'].append( self.dia_source_alert( prvmess['measurements'][i],
+                                                                          prvmess['deepscores'][i],
+                                                                          prvmess['images'][i],
+                                                                          prvmess['deepscoresets'][i],
+                                                                          zp=prvmess['zeropoints'][i] ) )
+                    prvimgids.add( prvmess['images'][i].id )
 
             # Get all previous nondetections on subtractions of the same provenance.
             #   Note that in the subtraction code that exists right now, we set the

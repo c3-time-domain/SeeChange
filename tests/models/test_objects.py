@@ -6,7 +6,11 @@ import sqlalchemy as sa
 import psycopg2.errors
 
 from models.base import SmartSession, Psycopg2Connection
+from models.image import Image
+from models.zero_point import ZeroPoint
 from models.object import Object, ObjectLegacySurveyMatch
+from models.measurements import Measurements, MeasurementSet
+from models.deepscore import DeepScore, DeepScoreSet
 from util.util import asUUID
 
 
@@ -95,10 +99,10 @@ def test_generate_names():
 # (This is really sort of a test of the whole pipeline in the
 #   oversimplified case of the new images being perfectly aligned with
 #   the ref image and having exactly the same seeing.)
-def test_associate_measurements( sim_lightcurve_complete_dses,
+def test_associate_measurements( sim_lightcurve_complete_dses_module,
                                  sim_lightcurve_persistent_sources,
                                  sim_lightcurve_image_parameters ):
-    _ref, refds, newdses = sim_lightcurve_complete_dses
+    _ref, refds, newdses = sim_lightcurve_complete_dses_module
     sources = sim_lightcurve_persistent_sources
 
     dses_detected_for_sources = []
@@ -173,6 +177,94 @@ def test_associate_measurements( sim_lightcurve_complete_dses,
             cursor.execute( "SELECT _id FROM measurements WHERE object_id=%(objid)s", { 'objid': rows[0] } )
             meases = set( r[0] for r in cursor.fetchall() )
             assert len( meases.intersection( objsourceids ) ) == 0
+
+
+# This also has a quick test of Object.at_ra_dec
+# Interestingly, the function we're testing will have been called
+#   in all the fixtures because it's used to generate alerts,
+#   which we really don't need for this test, but, eh,
+#   it's part of the pipeline, so it's easier to just do it.
+def test_get_measurements_et_al( sim_lightcurve_complete_dses_module,
+                                 sim_lightcurve_persistent_sources,
+                                 sim_lightcurve_image_parameters ):
+    _ref, _refds, newdsen = sim_lightcurve_complete_dses_module
+    measprovid = newdsen[0].measurement_set.provenance_id
+    deepprovid = newdsen[0].deepscore_set.provenance_id
+
+    # Get the object of the 3rd injected persistent source
+    objobj = Object.at_ra_dec( sim_lightcurve_persistent_sources[2]['ra'],
+                               sim_lightcurve_persistent_sources[2]['dec'],
+                               1.0 )[0]
+    assert objobj.ra == pytest.approx( sim_lightcurve_persistent_sources[2]['ra'], abs=1./3600. )
+    assert objobj.dec == pytest.approx( sim_lightcurve_persistent_sources[2]['dec'], abs=1./3600. )
+
+    # Get all measurements for the object; there should be 6, ordered by mjd:
+    expected_mjd = np.array(  [ 60030.,    60032.,   60037.,    60040.,    60045.,    60055. ] )
+    expected_flux = np.array( [ 1613.0602, 1914.028, 2193.6316, 2734.4426, 2939.5178, 2692.7202 ] )
+    expected_rb = np.array(   [ 0.6149,    0.5408,   0.5471,    0.5510,    0.6644,    0.5116 ] )
+
+    import pdb; pdb.set_trace()
+    mess = objobj.get_measurements_et_al( measprovid )
+    assert len( mess['measurements'] ) == 6
+    assert all( isinstance( m, Measurements ) for m in mess['measurements'] )
+    assert all( isinstance( i, Image ) for i in mess['images'] )
+    assert all( isinstance( z, ZeroPoint ) for z in mess['zeropoints'] )
+    assert all( isinstance( m, MeasurementSet ) for m in mess['measurementsets'] )
+
+    oldmess = mess
+    mess = objobj.get_measurements_et_al( measprovid, deepprovid )
+    assert len( mess ) == 6
+    assert all( isinstance( d, DeepScore ) for d in mess['deepscores'] )
+    assert all( isinstance( d, DeepScoreSet ) for d in mess['deepscoresets'] )
+    assert all( o.id == m.id for o, m in zip ( oldmess['measurements'], mess['measurements'] ) )
+    assert all( o.id == m.id for o, m in zip ( oldmess['measurementsets'], mess['measurementsets'] ) )
+    assert all( o.id == m.id for o, m in zip ( oldmess['images'], mess['images'] ) )
+    assert all( o.id == m.id for o, m in zip ( oldmess['zeropoints'], mess['zeropoints'] ) )
+    mjds = np.array( [ m.mjd for m in mess['images'] ] )
+    fluxen = np.array( [ m.flux_psf for m in mess['measurements'] ] )
+    rbs = np.array( [ m.score for m in mess['deepscores'] ] )
+    assert np.all( np.isclose( mjds, expected_mjd, atol=0.1 ) )
+    assert np.all( np.isclose( fluxen, expected_flux, rtol=1e-6 ) )
+    assert np.all( np.isclose( rbs, expected_rb, atol=0.001 ) )
+
+    # Try to get everything between mjd 60035 and 60047
+    mess = objobj.get_measurements_et_al( measprovid, deepprovid, mjd_min=60035, mjd_max=60047 )
+    mjds = np.array( [ m.mjd for m in mess['images'] ] )
+    fluxen = np.array( [ m.flux_psf for m in mess['measurements'] ] )
+    rbs = np.array( [ m.score for m in mess['deepscores'] ] )
+    assert np.all( np.isclose( mjds, expected_mjd[[2,3,4]], atol=0.1 ) )
+    assert np.all( np.isclose( fluxen, expected_flux[[2,3,4]], rtol=1e-6 ) )
+    assert np.all( np.isclose( rbs, expected_rb[[2,3,4]], atol=0.001 ) )
+
+    # Try doing the same search only using datstrings
+    mess = objobj.get_measurements_et_al( measprovid, deepprovid, mjd_min='2023-04-01', mjd_max='2023-04-13' )
+    mjds = np.array( [ m.mjd for m in mess['images'] ] )
+    fluxen = np.array( [ m.flux_psf for m in mess['measurements'] ] )
+    rbs = np.array( [ m.score for m in mess['deepscores'] ] )
+    assert np.all( np.isclose( mjds, expected_mjd[[2,3,4]], atol=0.1 ) )
+    assert np.all( np.isclose( fluxen, expected_flux[[2,3,4]], rtol=1e-6 ) )
+    assert np.all( np.isclose( rbs, expected_rb[[2,3,4]], atol=0.001 ) )
+
+    # Try to get everything with r/b > 0.55
+    mess = objobj.get_measurements_et_al( measprovid, deepprovid, min_deepscore=0.55 )
+    mjds = np.array( [ m.mjd for m in mess['images'] ] )
+    fluxen = np.array( [ m.flux_psf for m in mess['measurements'] ] )
+    rbs = np.array( [ m.score for m in mess['deepscores'] ] )
+    assert np.all( np.isclose( mjds, expected_mjd[[0,3,4]], atol=0.1 ) )
+    assert np.all( np.isclose( fluxen, expected_flux[[0,3,4]], rtol=1e-6 ) )
+    assert np.all( np.isclose( rbs, expected_rb[[0,3,4]], atol=0.001 ) )
+
+    # Combine the previous two
+    mess = objobj.get_measurements_et_al( measprovid, deepprovid, mjd_min='2023-04-01', mjd_max='2023-04-13',
+                                          min_deepscore=0.55 )
+    mjds = np.array( [ m.mjd for m in mess['images'] ] )
+    fluxen = np.array( [ m.flux_psf for m in mess['measurements'] ] )
+    rbs = np.array( [ m.score for m in mess['deepscores'] ] )
+    assert np.all( np.isclose( mjds, expected_mjd[[3,4]], atol=0.1 ) )
+    assert np.all( np.isclose( fluxen, expected_flux[[3,4]], rtol=1e-6 ) )
+    assert np.all( np.isclose( rbs, expected_rb[[3,4]], atol=0.001 ) )
+
+    # TODO : test thresholds when those are implmeneted
 
 
 def test_object_legacy_survey_match():

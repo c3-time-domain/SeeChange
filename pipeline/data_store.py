@@ -1013,7 +1013,8 @@ class DataStore:
         self.prov_tree = provs
 
 
-    def edit_prov_tree( self, step, params_dict=None, prov=None, new_step=False, provtag=None, donotinsert=False ):
+    def edit_prov_tree( self, step, params_dict=None, prov=None,
+                        new_step=False, process=None, provtag=None, donotinsert=False ):
         """Update the DataStore's provenance tree.
 
         Parameters
@@ -1053,6 +1054,10 @@ class DataStore:
               the provenance tree's upstream_steps, and all of the
               upstreams of this provenance (as defined by the prov
               tree's upstream_steps) must already be in the prov tree.
+
+           process: str or None
+              The process of the provenance.  If None, will use the same
+              process as the provenance in the current tree for step.
 
            provtag: str or None
               This may only be passed if step is a ProvenanceTree.  In
@@ -1094,6 +1099,8 @@ class DataStore:
                                     f"already in the current prov tree." )
             self.prov_tree[ step ] = prov
 
+        process = self.prov_tree[ step ].process if process is None else process
+
         mustmodify = { step }
         for s, ups in self.prov_tree.upstream_steps.items():
             if any( i in mustmodify for i in ups ):
@@ -1102,16 +1109,18 @@ class DataStore:
         for curstep in self.prov_tree.keys():
             if curstep in mustmodify:
                 if curstep == step:
+                    curprocess = process
                     if prov is not None:
                         self.prov_tree[curstep] = prov
                         continue
                     else:
                         params = params_dict
                 else:
+                    curprocess = self.prov_tree[ curstep ].process
                     params = self.prov_tree[ curstep ].parameters
 
                 upstream_provs = [ self.prov_tree[u] for u in self.prov_tree.upstream_steps[curstep] ]
-                self.prov_tree[curstep] = Provenance( code_version_id=Provenance.get_code_version( curstep ).id,
+                self.prov_tree[curstep] = Provenance( code_version_id=Provenance.get_code_version( curprocess ).id,
                                                       process=curstep,
                                                       parameters=params,
                                                       upstreams=upstream_provs )

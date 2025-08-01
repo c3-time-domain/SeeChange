@@ -508,7 +508,8 @@ def sim_lightcurve_wcs_headers( sim_lightcurve_image_parameters ):
 
 @pytest.fixture( scope="session" )
 def sim_lightcurve_pipeline_parameters():
-    return { 'subtraction': { 'refset': 'sim_lightcurve_reference' },
+    return { 'pipeline': { 'provenance_tag': 'sim_lightcurve' },
+             'subtraction': { 'refset': 'sim_lightcurve_reference' },
              'extraction': { 'backgrounding': { 'format': 'map',
                                                 'method': 'sep',
                                                 'poly_order': 1,
@@ -530,7 +531,9 @@ def sim_lightcurve_pipeline_parameters():
 def sim_lightcurve_reference_image_unsaved( sim_lightcurve_image_parameters, sim_lightcurve_pipeline_parameters,
                                             sim_lightcurve_wcs_headers ):
     imageinfo, imageargs = sim_lightcurve_image_parameters
-    pip = Pipeline( **sim_lightcurve_pipeline_parameters )
+    parms = sim_lightcurve_pipeline_parameters.copy()
+    parms['provenance_tag'] = 'sim_lightcurve_reference'
+    pip = Pipeline( **parms )
 
     instr = get_instrument_instance( 'DemoInstrument' )
     s = Simulator( image_size_x=imageinfo['size'],
@@ -593,6 +596,10 @@ def sim_lightcurve_reference_image_unsaved( sim_lightcurve_image_parameters, sim
     # saved stuff cleaned up after itself.  But, just to be sure....
 
     ds.delete_everything()
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve_reference'" )
+        conn.commit()
 
 
 # Function used by the next two fixtures
@@ -785,6 +792,10 @@ def sim_lightcurve_new_ds_factory( sim_lightcurve_image_parameters,
 
     for ds in dsentodel:
         ds.delete_everything()
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve'" )
+        conn.commit()
 
 
 # Same as previous fixture, but module scope for efficiency.
@@ -807,6 +818,10 @@ def sim_lightcurve_new_ds_factory_module( sim_lightcurve_image_parameters,
 
     for ds in dsentodel:
         ds.delete_everything()
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve'" )
+        conn.commit()
 
 
 # This fixture still takes a minute or two to run.  Too much time is
@@ -861,10 +876,10 @@ def sim_lightcurve_complete_dses( sim_lightcurve_reference, sim_lightcurve_news,
 
 
 # Same as previous fixture, but module scope
-@pytest.fixture
-def sim_lightcurve_complete_dses_module( sim_lightcurve_reference, sim_lightcurve_news_module,
+@pytest.fixture( scope="module" )
+def sim_lightcurve_complete_dses_module( sim_lightcurve_reference_module, sim_lightcurve_news_module,
                                          sim_lightcurve_pipeline_parameters ):
-    ref, refds = sim_lightcurve_reference
+    ref, refds = sim_lightcurve_reference_module
     newdsen = []
     for ds in sim_lightcurve_news_module:
         pip = Pipeline( **sim_lightcurve_pipeline_parameters )
@@ -904,7 +919,7 @@ def sim_lightcurve_one_complete_ds( sim_lightcurve_reference, sim_lightcurve_one
     return ref, refds, ds, pip
 
 
-@pytest.fixture
+@pytest.fixture( scope="module" )
 def sim_lightcurve_one_complete_ds_module( sim_lightcurve_reference, sim_lightcurve_one_new_module,
                                            sim_lightcurve_pipeline_parameters ):
     ref, refds = sim_lightcurve_reference

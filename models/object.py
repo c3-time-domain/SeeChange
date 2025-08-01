@@ -1,9 +1,6 @@
 import io
 import uuid
 import numpy as np
-import datetime
-import dateutil
-import pytz
 
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declared_attr
@@ -12,7 +9,6 @@ from sqlalchemy.schema import UniqueConstraint
 from astropy.coordinates import SkyCoord
 
 from models.base import Base, SeeChangeBase, SmartSession, Psycopg2Connection, UUIDMixin, SpatiallyIndexed
-from models.provenance import Provenance
 from models.image import Image
 from models.cutouts import Cutouts
 from models.source_list import SourceList
@@ -76,9 +72,9 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         self.calculate_coordinates()
 
 
-    def get_measurements_et_al( self, measurement_prov_id, deepscore_prov_id, omit_measurements=[],
-                                mjd_min=None, mjd_max=None, session=None ):
-        """Return a list of sundry objects for this Object.
+    def get_measurements_et_al( self, measurement_prov_id, deepscore_prov_id=None, omit_measurements=[],
+                                mjd_min=None, mjd_max=None, min_deepscore=None, session=None ):
+        """Return lists of sundry objects for this Object.
 
         Parameters
         ----------
@@ -97,15 +93,20 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         mjd_max : float, default None
           If given, maximum mjd of measurements to return
 
+        min_deepscore : float, default None
+          If given, minimum deepscore of measurements to return
+
         Returns
         -------
-          list of tuples of measurements of this object, sorted by image mjd
-
-          Each tuple has either 3 or 4 entries : Measurements, DeepScore, Image, ZeroPoint
-          If deepscore_prov_id is omitted, then it's just Measurements, Image, ZeroPoint
-
-          The Image is the *subtraction image*, not the original science image, of this measurement.
-          (The ZeroPoint applies to both.)
+          dict of lists, all lists having the same length
+          First four keys are always there; last two only if deepscore_prov_id is not None
+           { 'measurements': list of Measurements,
+             'meaurementsets': list of MeasurementSet,
+             'images': list of Image (the difference images, *not* the original science image!),
+             'zeropoints': list of ZeroPoint,
+             'deepscores': list of DeepScore,
+             'deepspscoresets': list of DeepScoreSet
+           }
 
         """
         # In Image.from_new_and_ref, we set a lot of the sub image's
@@ -129,13 +130,20 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         #   That's not upstream of anything, so we have to
         #   include the DeepScore provenance in the join condition.
 
+        if ( min_deepscore is not None ) and ( deepscore_prov_id is None ):
+            raise ValueError( "Passing min_deepscore requires passing deepscore_prov_id" )
+
+        mjd_min = None if mjd_min is None else parse_dateobs( mjd_min, output='mjd' )
+        mjd_max = None if mjd_max is None else parse_dateobs( mjd_max, output='mjd' )
+
         with SmartSession( session ) as sess:
             if deepscore_prov_id is not None:
-                q = sess.query( Measurements, DeepScore, Image, ZeroPoint )
+                q = sess.query( Measurements, MeasurementSet, Image, ZeroPoint, DeepScore, DeepScoreSet )
             else:
-                q = sess.query( Measurements, Image, ZeroPoint )
+                q = sess.query( Measurements, MeasurementSet, Image, ZeroPoint )
 
-            q = ( q.join( MeasurementSet, Measurements.measurementset_id==Measurements._id )
+            q = ( q.join( MeasurementSet, sa.and_( Measurements.measurementset_id==MeasurementSet._id,
+                                                   MeasurementSet.provenance_id==measurement_prov_id ) )
                   .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
                   .join( SourceList, Cutouts.sources_id==SourceList._id )
                   .join( Image, SourceList.image_id==Image._id )
@@ -152,132 +160,27 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                      )
 
             q = q.filter( Measurements.object_id==self.id )
-            q = q.filter( MeasurementSet.provenance_id==measurement_prov_id )
             if len( omit_measurements ) > 0:
                 q = q.filter( Measurements._id.not_in( omit_measurements ) )
             if mjd_min is not None:
                 q = q.filter( Image.mjd >= mjd_min )
             if mjd_max is not None:
                 q = q.filter( Image.mjd <= mjd_max )
+            if min_deepscore is not None:
+                q = q.filter( DeepScore.score >= min_deepscore )
             q = q.order_by( Image.mjd )
 
-            return q.all()
+            mess = q.all()
 
+            retval = { 'measurements': [ m[0] for m in mess ],
+                       'measurementsets': [ m[1] for m in mess ],
+                       'images': [ m[2] for m in mess ],
+                       'zeropoints': [ m[3] for m in mess ] }
+            if deepscore_prov_id is not None:
+                retval['deepscores'] = [ m[4] for m in mess ]
+                retval['deepscoresets'] = [ m[5] for m in mess ]
 
-    def get_filtered_measurements_list( self,
-                                        measurement_prov,
-                                        deepscore_prov=None,
-                                        min_deepscore=None,
-                                        mjd_start=None,
-                                        mjd_end=None,
-                                        created_at_start=None,
-                                        created_at_end=None,
-                                        thresholds=None,
-                                        session=None
-                                       ):
-        """Filter out measurements of this object that match given criteria.
-
-        Parmeters below that can have either datetime.datetime or str
-        values will, if given a str, be passed through
-        util.util.parse_dateobs.
-
-        Parameters
-        ----------
-          measurement_prov : Provenance or str
-            The provenance, or id of the provenance, for MeasurementSets
-            to search.  Required.
-
-          deepscore_prov : Provenance or str
-            The provenance, or id of the provenance, for DeepScoreSets
-            to search.  Required if min_deepscore is non-None, else
-            ignored.
-
-          min_deepscore : float or None
-            Only return measurements with at least this deepscore value.
-            If None, then deepscore is not considered.
-
-          mjd_start : float, datetime.datetime, str, or None
-            If given, only return measurements whose images' mjd is at
-            least this.
-
-          mjd_end : float, datetime.datetime, str, or None
-            If given, only return measurements whose images' mjd is at
-            most this.
-
-          created_at_start : datetime.datetime, str, or None.
-            If given, only return measurements whose created_at is at
-            least this.
-
-          created_at_end : datetime.datetime, str, or None
-            If given, only return measurements whose created_at is at
-            most this.
-
-          thresholds : dict or None
-            NOT IMPLEMENTED.  The idea is that this is a threshold cut.
-            We need to move the treshold cutting code out of
-            pipeline/measuring.py into something this function could
-            call before we can reasonably implement this.
-
-          session : Session
-
-        Returns
-        -------
-          list of Measurements
-
-        """
-
-        if thresholds is not None:
-            raise NotImplementedError( "thresholds isn't implemented yet" )
-
-        # Type conversions
-        if isinstance( measurement_prov, Provenance ):
-            measurement_prov = measurement_prov.id
-
-        if isinstance( deepscore_prov, Provenance ):
-            deepscore_prov = deepscore_prov.id
-
-        mjd_start = None if mjd_start is None else parse_dateobs( mjd_start, output='mjd' )
-        mjd_end = None if mjd_end is None else parse_dateobs( mjd_end, output='mjd' )
-        if created_at_start is not None:
-            created_at_start = ( created_at_start
-                                 if isinstance( created_at_start, datetime.datetime )
-                                 else dateutil.parser.parse( created_at_start ) )
-            if created_at_start.tzinfo is None:
-                created_at_start = pytz.utc.localize( created_at_start )
-        if created_at_end is not None:
-            created_at_end = ( created_at_end
-                               if isinstance( created_at_end, datetime.datetime )
-                               else dateutil.parser.parse( created_at_end ) )
-            if created_at_end.tzinfo is None:
-                created_at_end = pytz.utc.localize( created_at_end )
-
-        with SmartSession( session ) as sess:
-            q = sess.query( Measurements )
-            if min_deepscore is not None:
-                q = ( q.join( DeepScoreSet, sa.and_( DeepScoreSet.measurementset_id==Measurements.measurementset_id,
-                                                     DeepScoreSet.provenance_id==deepscore_prov ) )
-                      .join( DeepScore, sa.and_( DeepScore.deepscoreset_id==DeepScoreSet._id,
-                                                 DeepScore.index_in_sources==Measurements.index_in_sources ) ) )
-            if ( mjd_start is not None ) or ( mjd_end is not None ):
-                # Going to use the mjd of the sub image because it will be the same as of the new image
-                q = ( q.join( MeasurementSet, Measurements.measurementset_id==MeasurementSet._id )
-                      .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
-                      .join( SourceList, Cutouts.sources_id==SourceList._id )
-                      .join( Image, SourceList.image_id==Image._id ) )
-
-            q = q.filter( Measurements.object_id==self.id )
-            if min_deepscore is not None:
-                q = q.filter( DeepScore.score>=min_deepscore )
-            if mjd_start is not None:
-                q = q.filter( Image.mjd>=mjd_start )
-            if mjd_end is not None:
-                q = q.filter( Image.mjd<=mjd_end )
-            if created_at_start is not None:
-                q = q.filter( Measurements.created_at>=created_at_start )
-            if created_at_end is not None:
-                q = q.filter( Measurements.created_at<=created_at_end )
-
-            return q.all()
+            return retval
 
 
     def get_mean_coordinates(self, sigma=3.0, iterations=3, measurement_list_kwargs=None):

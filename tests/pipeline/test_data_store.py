@@ -154,7 +154,7 @@ def test_edit_prov_tree():
 
     provstodel = { refimgprov, refsrcprov }
 
-    provs = { 'exposure': Provenance( process='download', parameters={} ) }
+    provs = { 'exposure': Provenance( process='acquire_exposure', parameters={} ) }
     provs['preprocessing'] = Provenance( process='preprocessing',
                                          upstreams=[ provs['exposure'] ],
                                          parameters={ 'a': 4, 'test_set_prov_tree': True } )
