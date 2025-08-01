@@ -73,10 +73,8 @@ class ProvTagInfo( BaseView ):
             columns = { cursor.description[i][0]: i for i in range(len(cursor.description)) }
             rows = cursor.fetchall()
 
-            provorder = { 'download': 0,
-                          'import': 0,
-                          'manual_import': 0,
-                          'import_external_reference': 0,
+            provorder = { 'acquire_exposure': 0,
+                          'manual_reference': 0,
                           'referencing': 1,
                           'preprocessing': 2,
                           'extraction': 3,

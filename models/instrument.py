@@ -1950,41 +1950,47 @@ class Instrument:
         """
         raise NotImplementedError( f"{self.__class__.__name__} needs to impldment linearity_correct" )
 
-    def get_exposure_provenance( self, process='download', proc_type='raw', code_version=None ):
+    def get_exposure_provenance( self, proc_type='raw', method='download', code_version=None, **kwargs ):
         """Get the provenance for an exposure from this instrument.
 
         Also makes sure it's in the database.
 
-        The process will have two parameters: proc_type and instrument.
-        The latter is so that images extracted from exposures of
-        different instruments will have different provenances (because
-        of upstreams) even though the preprocessing parameters may be
+        The process name will be "acquire_exposure".  The process will
+        have three parameters: proc_type, method, and instrument.  The
+        latter is so that images extracted from exposures of different
+        instruments will have different provenances (because of
+        upstreams) even though the preprocessing parameters may be
         exactly the same.
 
         Parameters
         ----------
-          process: str, default 'download'
-             Can be anything, but should be some indication of how the
-             exposure was produced. Default 'download' indicates it was
-             downloaded from some exposure source somewhere.
-
           proc_type: str, default 'raw'
              What processing has this exposure been through before
              loading.  Defaults to 'raw', which indicates it's a raw
              telescope exposure.  (For DECam, this could also be
              'instcal'.)
 
+          method: str, default 'download'
+             Can be anything, but should be some indication of how the
+             exposure was produced. Default 'download' indicates it was
+             downloaded from some exposure source somewhere.
+
          code_version: CodeVersion or None
-             If None, will use Provenance.get_code_version()
+             If None, will use Provenance.get_code_version().  This is
+             probably what you want, so generally don't specify this.
+
+         Additional parameters are added to the provenance parameters.
 
         """
 
         if code_version is None:
-            code_version = Provenance.get_code_version( process=process )
+            code_version = Provenance.get_code_version( process='acquire_exposure' )
+        params = { 'instrument': self.name, 'proc_type': proc_type, method: 'download' }
+        params.update( kwargs )
         provenance = Provenance(
             code_version_id=code_version.id,
-            process=process,
-            parameters={ 'instrument': self.name, 'proc_type': proc_type },
+            process='acquire_exposure',
+            parameters=params,
             upstreams=[],
         )
         provenance.insert_if_needed()

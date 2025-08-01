@@ -563,7 +563,7 @@ def decam_elais_e1_two_refs_datastore( download_url, decam_cache_dir, data_dir, 
     filebase = 'ELAIS-E1-r-templ'
 
     prov = Provenance(
-        process='import_external_reference',
+        process='manual_reference',
         parameters={},
     )
     prov.insert_if_needed()

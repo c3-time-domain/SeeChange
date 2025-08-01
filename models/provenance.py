@@ -65,6 +65,7 @@ class CodeVersion(Base, UUIDMixin):
     #     affecting provenances. MINOR changes will result in some change in the data products, and MAJOR will
     #     represent a major change in how they interact with other parts of the pipeline.
     CODE_VERSION_DICT = {
+        'acquire_exposure': (0,1,0),
         'preprocessing': (0,1,1),
         'extraction': (0,1,0),
         'astrocal' : (0,1,0),
@@ -83,10 +84,10 @@ class CodeVersion(Base, UUIDMixin):
 
         'coaddition' : (0,1,0),
         'alignment' : (0,1,0),    # If this changes, then coadd and subtraction versions should probably also change!
+                                  # Aligned images are never saved to the database, so this code version will
+                                  #   never be persisted.
 
-        'download': (0,1,0),
         'DECam Default Calibrator' : (0,1,0),
-        'import_external_reference' : (0,1,0),
         'manual_reference' : (0,1,0),
 
         # The remaining processes are just used in tests (I think)
