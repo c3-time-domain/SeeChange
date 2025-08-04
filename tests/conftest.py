@@ -13,6 +13,7 @@ import numpy as np
 from scipy.integrate import dblquad
 
 import sqlalchemy as sa
+import sqlalchemy.orm
 
 from astropy.io import fits
 
@@ -28,11 +29,8 @@ from models.base import (
     setup_warning_filters,
     get_archive_object
 )
-from models.knownexposure import KnownExposure, PipelineWorker
 from models.provenance import Provenance
 from models.catalog_excerpt import CatalogExcerpt
-from models.refset import RefSet
-from models.calibratorfile import CalibratorFileDownloadLock
 from models.user import AuthUser, AuthGroup
 from models.image import Image
 from models.source_list import SourceList
@@ -212,63 +210,79 @@ def pytest_sessionfinish(session, exitstatus):
         #         dbsession.delete(prov)
         # dbsession.commit()
 
+        import pdb; pdb.set_trace()
+
         # ISSUE 479 this will find and DEBUG report the codeversions that are about to get killed in the next line.
         any_objects = any_objects_in_database( dbsession )
 
+        # We'll need the catalog excerpts later after we delete the table
+        catexps = dbsession.scalars(sa.select(CatalogExcerpt)).all()
+
+    # ...SQLAlchemy sometimes seems determined to have dangling sessions
+    # even when I tell it to close them.  See long rant in comments in
+    # models/base.py::SmartSession.  To try to not make that hang when
+    # cleaning up tests, try to totally shut down sqlalchemy altogether
+    # and just use postgres directly.  (Honestly, we should never have
+    # used sqlalchemy in the first place, its benefits have come nowhere
+    # close to offsetting its headcaches.)
+    #
+    # Issue #516
+    sqlalchemy.orm.session.close_all_sessions()
+
+    with Psycopg2Connection() as conn:
+        cursor = conn.cursor()
+
         # delete the CodeVersion objects (this should remove all provenances as well,
-        # and that should cascade to almost everything else)
-        dbsession.execute( sa.text( "TRUNCATE TABLE code_versions CASCADE" ) )
-        #   ISSUE: This is no longer quite so simple with provenances grabbing the current
-        # codeversion when making new objects and a process like 'testing' no longer making sense.
-        # It would be some effort to make a good testing-codeversions fixture and force all tests
-        # to only use those codeversions (potentially difficult as provenances are not coded totally
-        # consistently in the pipeline) however I am not sure I see great harm in using real codeversion
-        # objects given that the main information they contain is which version of the codebase the
-        # tests were run on.
+        # and that should cascade to *almost* everything else)
+        cursor.execute( "TRUNCATE TABLE code_versions CASCADE" )
 
         # remove any Object objects, as these are not automatically cleaned up
         # Will cascade to object legacy survey matches
-        dbsession.execute( sa.text( "TRUNCATE TABLE objects CASCADE" ) )
+        cursor.execute( "TRUNCATE TABLE objects CASCADE" )
 
         # make sure there aren't any CalibratorFileDownloadLock rows
         # left over from tests that failed or errored out
-        dbsession.execute(sa.delete(CalibratorFileDownloadLock))
+        cursor.execute( "DELETE FROM calibfile_downloadlock" )
 
-        # remove RefSets, because those won't have been deleted by the provenance cascade
-        dbsession.execute(sa.delete(RefSet))
+        # remove SensorSections, though see Issue #487
+        cursor.execute( "DELETE FROM sensor_sections" )
+
+        # remove RefSets, because those won't have been deleted by the code version / provenance cascade
+        cursor.execute( "DELETE FROM refsets" )
 
         # remove any residual KnownExposures and PipelineWorkers
-        dbsession.execute( sa.delete( KnownExposure ) )
-        dbsession.execute( sa.delete( PipelineWorker ) )
+        cursor.execute( "DELETE FROM knownexposures" )
+        cursor.execute( "DELETE FROM pipelineworkers" )
 
-        dbsession.commit()
+        # remove database records for any catalog excerpts.  (We'll remove the files below.)
+        cursor.execute( "DELETE FROM catalog_excerpts" )
 
-        if any_objects and verify_archive_database_empty:
-            raise RuntimeError('There are objects in the database. Some tests are not properly cleaning up!')
+        conn.commit()
 
-        # remove empty folders from the archive
-        if ARCHIVE_PATH is not None:
-            # remove catalog excerpts manually, as they are meant to survive
-            with SmartSession() as session:
-                catexps = session.scalars(sa.select(CatalogExcerpt)).all()
-                for catexp in catexps:
-                    if os.path.isfile(catexp.get_fullpath()):
-                        os.remove(catexp.get_fullpath())
-                    archive_file = os.path.join(ARCHIVE_PATH, catexp.filepath)
-                    if os.path.isfile(archive_file):
-                        os.remove(archive_file)
+    # remove empty folders from the archive
+    if ARCHIVE_PATH is not None:
+        # remove catalog excerpts manually
+        for catexp in catexps:
+            if os.path.isfile(catexp.get_fullpath()):
+                os.remove(catexp.get_fullpath())
+            archive_file = os.path.join(ARCHIVE_PATH, catexp.filepath)
+            if os.path.isfile(archive_file):
+                os.remove(archive_file)
 
-            remove_empty_folders( ARCHIVE_PATH, remove_root=False )
+        remove_empty_folders( ARCHIVE_PATH, remove_root=False )
 
-            # check that there's nothing left in the archive after tests cleanup
-            if os.path.isdir(ARCHIVE_PATH):
-                files = list(pathlib.Path(ARCHIVE_PATH).rglob('*'))
+        # check that there's nothing left in the archive after tests cleanup
+        if os.path.isdir(ARCHIVE_PATH):
+            files = list(pathlib.Path(ARCHIVE_PATH).rglob('*'))
 
-                if len(files) > 0:
-                    if verify_archive_database_empty:
-                        raise RuntimeError(f'There are files left in the archive after tests cleanup: {files}')
-                    else:
-                        warnings.warn( f'There are files left in the archive after tests cleanup: {files}' )
+            if len(files) > 0:
+                if verify_archive_database_empty:
+                    raise RuntimeError(f'There are files left in the archive after tests cleanup: {files}')
+                else:
+                    warnings.warn( f'There are files left in the archive after tests cleanup: {files}' )
+
+    if any_objects and verify_archive_database_empty:
+        raise RuntimeError('There are objects in the database. Some tests are not properly cleaning up!')
 
 
 @pytest.fixture(scope='session')

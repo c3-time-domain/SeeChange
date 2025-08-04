@@ -562,7 +562,6 @@ alerts:
 # Liu et al., 2025, https://ui.adsabs.harvard.edu/abs/2025arXiv250517174L/abstract
 # (submitted to PASP).
 #
-#
 # liumatch.radius is the radius in arcseconds to find legacy survey objects
 #
 # WARNING.  If you start a database with one value of the

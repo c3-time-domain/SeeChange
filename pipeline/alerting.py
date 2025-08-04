@@ -15,7 +15,7 @@ import hop.models
 from models.base import SmartSession
 from models.image import Image
 from models.deepscore import DeepScoreSet
-from models.object import Object
+from models.object import Object, ObjectLegacySurveyMatch
 from util.config import Config
 from util.logger import SCLogger
 
@@ -204,15 +204,34 @@ class Alerting:
                  'rbtype': None if score is None else deepscore_set.algorithm
                 }
 
-    def dia_object_alert( self, obj ):
-        return { 'diaObjectId': str( obj.id ),
-                 'name': obj.name,
-                 'ra': obj.ra,
-                 'raErr': None,
-                 'dec': obj.dec,
-                 'decErr': None,
-                 'ra_dec_Cov': None,
-                }
+    def dia_object_alert( self, obj, session=None ):
+        cfg = Config.get()
+        objdict= { 'diaObjectId': str( obj.id ),
+                   'name': obj.name,
+                   'ra': obj.ra,
+                   'raErr': None,
+                   'dec': obj.dec,
+                   'decErr': None,
+                   'ra_dec_Cov': None,
+                   'xgmatchRadius': cfg.value( 'liumatch.radius' ),
+                   'ls-xgboost': []
+                  }
+        # NOTE!  It's possible this is inconsistent!  We're assuming
+        # that the liumatch.radius config value has not changed since
+        # the database object_legacy_survey_match table started getting
+        # populated.
+        with SmartSession( session ) as sess:
+            lsmatches = sess.query( ObjectLegacySurveyMatch ).filter( ObjectLegacySurveyMatch.object_id==obj.id ).all()
+        for lsmatch in lsmatches:
+            objdict['ls-xgboost'].append( { 'lsid': lsmatch.lsid,
+                                            'ra': lsmatch.ra,
+                                            'dec': lsmatch.dec,
+                                            'dist': lsmatch.dist,
+                                            'white_mag': lsmatch.white_mag,
+                                            'xgboost': lsmatch.xgboost,
+                                            'is_star': lsmatch.is_star } )
+
+        return objdict
 
 
     def build_avro_alert_structures( self, ds, skip_bad=True ):
@@ -282,7 +301,7 @@ class Alerting:
 
                 alert['diaSource'] = self.dia_source_alert( meas, scr, image, deepscore_set,
                                                             zp=zp, aperdex=aperdex, fluxscale=fluxscale )
-                alert['diaObject'] = self.dia_object_alert( objobj )
+                alert['diaObject'] = self.dia_object_alert( objobj, session=sess )
 
                 # TODO -- handle previous_sources_days
 

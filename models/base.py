@@ -258,6 +258,12 @@ def SmartSession(*args):
             session.close()
             session.invalidate()
 
+            # ...I found myself still left with a dangling session.  Not
+            # a case of an explicit table lock, but where I wanted to do
+            # something (truncate tables in test cleanup) that the
+            # dangling session wasn't letting me do.  OMG I hate
+            # sqlalchemy with a burning passion.
+
 
 @contextmanager
 def Psycopg2Connection( current=None ):

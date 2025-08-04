@@ -867,12 +867,14 @@ def sim_lightcurve_complete_dses( sim_lightcurve_reference, sim_lightcurve_news,
                                   sim_lightcurve_pipeline_parameters ):
     ref, refds = sim_lightcurve_reference
     newdsen = []
+    pips = []
     for ds in sim_lightcurve_news:
         pip = Pipeline( **sim_lightcurve_pipeline_parameters )
         ds = pip.run( ds )
         newdsen.append( ds )
+        pips.append( pip )
 
-    return ref, refds, newdsen
+    return ref, refds, newdsen, pips
 
 
 # Same as previous fixture, but module scope
@@ -881,12 +883,14 @@ def sim_lightcurve_complete_dses_module( sim_lightcurve_reference_module, sim_li
                                          sim_lightcurve_pipeline_parameters ):
     ref, refds = sim_lightcurve_reference_module
     newdsen = []
+    pips = []
     for ds in sim_lightcurve_news_module:
         pip = Pipeline( **sim_lightcurve_pipeline_parameters )
         ds = pip.run( ds )
         newdsen.append( ds )
+        pips.append( pip )
 
-    return ref, refds, newdsen
+    return ref, refds, newdsen, pips
 
 
 @pytest.fixture

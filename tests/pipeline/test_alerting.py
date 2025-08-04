@@ -8,8 +8,8 @@ import numpy as np
 import fastavro
 import confluent_kafka
 
-from models.object import Object
-from models.deepscore import DeepScore, DeepScoreSet
+from models.object import Object, ObjectLegacySurveyMatch
+from models.deepscore import DeepScoreSet
 from pipeline.alerting import Alerting
 
 
@@ -46,12 +46,26 @@ def test_build_avro_alert_structures( test_config, decam_datastore_through_scori
     assert all( a['diaSource']['rb'] == pytest.approx( s.score, rel=0.001 ) for a, s in zip( alerts, ds.deepscores ) )
 
     assert all( a['diaObject']['diaObjectId'] == str( m.object_id ) for a, m in zip( alerts, ds.measurements ) )
+    at_least_some_had_matches = False
     for a, m in zip( alerts, ds.measurements ):
         obj = Object.get_by_id( m.object_id )
+        lsmatches = ObjectLegacySurveyMatch.get_object_matches( obj.id )
+        if len(lsmatches) > 0:
+            at_least_some_had_matches = True
         assert a['diaObject']['name'] == obj.name
         assert a['diaObject']['ra'] == pytest.approx( obj.ra, abs=0.1/3600. )
         assert a['diaObject']['dec'] == pytest.approx( obj.dec, abs=0.1/3600. )
-
+        assert a['diaObject']['xgmatchRadius'] == test_config.value( 'liumatch.radius' )
+        # Matches should always be sorted by distance
+        zippy = zip( lsmatches, a['diaObject']['ls-xgboost'] )
+        assert all(m.lsid == am['lsid'] for m, am in zippy )
+        assert all(m.ra == pytest.approx( am['ra'], abs=0.1/3600 ) for m, am in zippy )
+        assert all(m.dec == pytest.approx( am['dec'], abs=0.1/3600 ) for m, am in zippy )
+        assert all(m.dist == pytest.approx( am['dist'], abs=0.1/3600 ) for m, am in zippy )
+        assert all(m.white_mag == pytest.approx( am['white_mag'], abs=0.001 ) for m, am in zippy )
+        assert all(m.xgboost == pytest.approx( am['ls-xbgoost'], abs=0.001 ) for m, am in zippy )
+        assert all(m.is_star == am['is_star'] for m, am in zippy )
+    assert at_least_some_had_matches
     assert all( len(a['cutoutScience']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutTemplate']) == 41 * 41 * 4 for a in alerts )
     assert all( len(a['cutoutDifference']) == 41 * 41 * 4 for a in alerts )
@@ -152,6 +166,15 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
                 assert alert['diaSource']['apFluxErr'] == pytest.approx( measurements[dex].flux_apertures_err[0]
                                                                          * fluxscale, rel=1e-5 )
             assert alert['diaObject']['diaObjectId'] == str( measurements[dex].object_id )
+            lsmatches = ObjectLegacySurveyMatch.get_object_matches( measurements[dex].object_id )
+            zippy = zip( lsmatches, alert['diaObject']['ls-xgboost'] )
+            assert all(m.lsid == am['lsid'] for m, am in zippy )
+            assert all(m.ra == pytest.approx( am['ra'], abs=0.1/3600 ) for m, am in zippy )
+            assert all(m.dec == pytest.approx( am['dec'], abs=0.1/3600 ) for m, am in zippy )
+            assert all(m.dist == pytest.approx( am['dist'], abs=0.1/3600 ) for m, am in zippy )
+            assert all(m.white_mag == pytest.approx( am['white_mag'], abs=0.001 ) for m, am in zippy )
+            assert all(m.xgboost == pytest.approx( am['ls-xbgoost'], abs=0.001 ) for m, am in zippy )
+            assert all(m.is_star == am['is_star'] for m, am in zippy )
 
             assert alert['diaSource']['rbtype'] == ds.deepscore_set.algorithm
             assert alert['diaSource']['rbcut'] == pytest.approx( DeepScoreSet.get_rb_cut( ds.deepscore_set.algorithm ),
@@ -177,69 +200,86 @@ def test_send_alerts( test_config, decam_datastore_through_scoring ):
     assert nalerts[True] <= nalerts[False]
 
 
-# This one takes a long time even if all the data is cached, because it
-#  takes a while (10s of seconds) to process all the *cached* data for a
-#  fully processed datastore (load it in, uplaod to archive, etc.), and
-#  now we're doing *three* datastores.
-#
-# Not doing the datastore construction in fixtures because we want to control
-#   the order in which they are run.  Making sure that none of these exposures
-#   are used anywhere in fixtures, so there won't be cached versions that were
-#   built at some other time.  (Yeah, yeah, I know, the "right" thing to do
-#   is to make three fixtures that depend on each other to make them run
-#   in the right order, but whatevs.)
-#
-# This isn't the greatest test of previous sources.  Right now, it only finds
-#   one previous source and one non-detection limit.  It'd be nice to test
-#   that it works with multiple of both, but that would be *even more* things
-#   to set up for the test.  A better way to test that would be to have some
-#   fixtures that create pre-canned things in all the tables, plus bogus
-#   cutouts files, but not bothering with all the image processing.
-@pytest.mark.skip( reason="See Issue #365" )
-def test_alerts_with_previous( test_config, decam_exposure_factory, decam_partial_datastore_factory ):
-    # exp1 = decam_exposure_factory( "c4d_210322_030920_ori.fits.fz" )
-    # exp2 = decam_exposure_factory( "c4d_230714_081145_ori.fits.fz" )
-    exp3 = decam_exposure_factory( "c4d_230726_091313_ori.fits.fz" )
-    # ds1 = decam_partial_datastore_factory( exp1, 'scoring' )
-    # ds2 = decam_partial_datastore_factory( exp2, 'scoring' )
-    ds3 = decam_partial_datastore_factory( exp3, 'scoring' )
+# The simulated lightcurve will have previous detections, so use that
+#  fixture here.  Think about Issue #367, but don't do anything about it.
+def test_alerts_with_previous( test_config, sim_lightcurve_complete_dses ):
+    # The fixture will have sent alerts
+    _ref, _refds, newdsen, pips = sim_lightcurve_complete_dses
 
-    fluxscale = 10**( ( ds3.zp.zp - 31.4 ) / -2.5 )
-    alerter = Alerting()
-    alerts = alerter.build_avro_alert_structures( ds3 )
+    # OK.  If I understand my fixture right, it will have run the
+    # pipelines on newdsen all the way through alerting.  So, the
+    # previous detections of a given object in alerts from a given ds
+    # should only be the ones from the newdsen earlier in the array.
 
-    assert len(alerts) == len(ds3.measurements)
-    assert all( isinstance( a['alertId'], str ) for a in alerts )
-    assert all( len(a['alertId']) == 36 for a in alerts )
+    some_did_have_previous = False
+    some_did_have_nondet = False
+    for curdex in range( len(newdsen) ):
+        pip = pips[ curdex ]
+        curds = newdsen[ curdex ]
+        topic = pip.alerter.methods['test_alert_stream']['topic']
+        groupid = f'test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
+        consumer = confluent_kafka.Consumer(
+            { 'bootstrap.servers': test_config.value('alerts.methods.test_alert_stream.kafka_server'),
+              'auto.offset.reset': 'earliest',
+              'group.id': groupid } )
+        consumer.subscribe( [ topic ] )
+        gotsome = False
+        done = False
+        msgs = []
+        while not done:
+            # Every ds' pipeline should have sent alerts, so this shouldn't be an infinite loop
+            newmsgs = consumer.consume( 100, timeout=1 )
+            if gotsome and ( len(newmsgs) == 0 ):
+                done = True
+            if len( newmsgs ) > 0:
+                msgs.extend( newmsgs )
+                gotsome = True
 
-    assert all( a['diaSource']['diaSourceId'] == str(m.id) for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['diaObjectId'] == str(m.object_id) for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['MJD'] == pytest.approx( ds3.image.mid_mjd, abs=0.0001 ) for a in alerts )
-    assert all( a['diaSource']['ra'] == pytest.approx( m.ra, abs=0.1/3600. )
-                for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['dec'] == pytest.approx( m.dec, abs=0.1/3600. )
-                for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['fluxZeroPoint'] == pytest.approx( 31.4, rel=1e-5 ) for a in alerts )
-    assert all( a['diaSource']['psfFlux'] == pytest.approx( m.flux_psf * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['psfFluxErr'] == pytest.approx( m.flux_psf_err * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['apFlux'] == pytest.approx( m.flux_apertures[0] * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds3.measurements ) )
-    assert all( a['diaSource']['apFluxErr'] == pytest.approx( m.flux_apertures_err[0] * fluxscale, rel=1e-5 )
-                for a, m in zip( alerts, ds3.measurements ) )
+        measfound = set()
+        for msg in msgs:
+            alert = fastavro.schemaless_reader( io.BytesIO( msg.value() ),
+                                                pip.alerter.methods['test_alert_stream']['schema'] )
+            # Figure out which measurement this alert goes with
+            dex = [ i for i in range( len(curds.measurements))
+                    if str( curds.measurements[i].id ) == alert['diaSource']['diaSourceId'] ]
+            assert len(dex) > 0
+            dex = dex[0]
+            measfound.add( curds.measurements[dex].id )
 
-    assert all( a['diaSource']['rbtype'] == s.algorithm for a, s in zip( alerts, ds3.scores ) )
-    assert all( a['diaSource']['rbcut'] == DeepScore.get_rb_cut( s.algorithm ) for a, s in zip( alerts, ds3.scores ) )
-    assert all( a['diaSource']['rb'] == pytest.approx( s.score, rel=0.001 ) for a, s in zip( alerts, ds3.scores ) )
+            oldmeas = []
+            nondet = []
+            for prevdex in range( 0, curdex ):
+                prevds = newdsen[ prevdex ]
+                thisoldmeas = [ m for m in prevds.measurements
+                                if str(m.object_id) == str(curds.measurements[dex].object_id) ]
+                assert len(thisoldmeas) < 2
+                if len(thisoldmeas) > 0:
+                    oldmeas.append( thisoldmeas[0] )
+                else:
+                    nondet.append( ( prevds.sub_image.mjd,
+                                     prevds.sub_image.filter,
+                                     prevds.sub_image.lim_mag_estimate ) )
 
-    assert all( a['diaObject']['diaObjectId'] == str( m.object_id ) for a, m in zip( alerts, ds3.measurements ) )
-    for a, m in zip( alerts, ds3.measurements ):
-        obj = Object.get_by_id( m.object_id )
-        assert a['diaObject']['name'] == obj.name
-        assert a['diaObject']['ra'] == pytest.approx( obj.ra, abs=0.1/3600. )
-        assert a['diaObject']['dec'] == pytest.approx( obj.dec, abs=0.1/3600. )
+            if len( oldmeas ) > 0 :
+                some_did_have_previous = True
+            if len( nondet ) > 0:
+                some_did_have_nondet = True
 
-    assert all( len(a['cutoutScience']) == 41 * 41 * 4 for a in alerts )
-    assert all( len(a['cutoutTemplate']) == 41 * 41 * 4 for a in alerts )
-    assert all( len(a['cutoutDifference']) == 41 * 41 * 4 for a in alerts )
+            # I'm depending on newdsen being sorted by mjd here, so that
+            #    the previous measurements and previous nondetections#
+            #    will be found in the same order as they arein the alerts.
+            zippy = zip( oldmeas, alert['prvDiaSources'] )
+            assert all( str(m.id) == a['diaSourceId'] for m, a in zippy )
+            # Can't compare flux directly without getting more stuff out of the
+            #   database; we'd need the sub image zeropoint.  (The alert has
+            #   converted to nJy.)  TODO, do this.
+            assert all( m.ra == pytest.approx( a['ra'], abs=0.1/3600. ) for m, a in zippy )
+            assert all( m.dec == pytest.approx( a['dec'], abs=0.1/3600. ) for m, a in zippy )
+
+            zippy = zip( nondet, alert['prvDiaNonDetectionLimits'] )
+            assert all( nondet[0] == pytest.approx( a['MJD'], abs=1./3600./24. ) for n, a in zippy )
+            assert all( nondet[1] == a['band'] for n, a in zippy )
+            assert all( nondet[2] == pytest.approx( a['limitingMag'], abs=0.01 ) for n, a in zippy )
+
+    assert some_did_have_previous
+    assert some_did_have_nondet

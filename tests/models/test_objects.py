@@ -102,7 +102,7 @@ def test_generate_names():
 def test_associate_measurements( sim_lightcurve_complete_dses_module,
                                  sim_lightcurve_persistent_sources,
                                  sim_lightcurve_image_parameters ):
-    _ref, refds, newdses = sim_lightcurve_complete_dses_module
+    _ref, refds, newdses, _pips = sim_lightcurve_complete_dses_module
     sources = sim_lightcurve_persistent_sources
 
     dses_detected_for_sources = []
@@ -187,7 +187,7 @@ def test_associate_measurements( sim_lightcurve_complete_dses_module,
 def test_get_measurements_et_al( sim_lightcurve_complete_dses_module,
                                  sim_lightcurve_persistent_sources,
                                  sim_lightcurve_image_parameters ):
-    _ref, _refds, newdsen = sim_lightcurve_complete_dses_module
+    _ref, _refds, newdsen, _pips = sim_lightcurve_complete_dses_module
     measprovid = newdsen[0].measurement_set.provenance_id
     deepprovid = newdsen[0].deepscore_set.provenance_id
 
