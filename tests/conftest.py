@@ -51,8 +51,8 @@ from pipeline.data_store import DataStore, ProvenanceTree
 #   at the end of tests.  In general, we want this to be True, so we can make sure
 #   that our tests are properly cleaning up after themselves.  However, the errors
 #   from this can hide other errors and failures, so when debugging, set it to False.
-# verify_archive_database_empty = True
-verify_archive_database_empty = False
+verify_archive_database_empty = True
+# verify_archive_database_empty = False
 
 
 pytest_plugins = [
@@ -138,7 +138,8 @@ def any_objects_in_database( dbsession ):
         #    add provenances they don't explicitly track.
         if Class.__name__ in ['CodeVersion', 'SensorSection', 'CatalogExcerpt',
                               'Provenance', 'Object', 'ObjectLegacySurveyMatch', 'PasswordLink']:
-            SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
+            if len(ids) > 0:
+                SCLogger.debug(f'There are {len(ids)} {Class.__name__} objects in the database. These are OK to stay.')
             continue
 
         # Special case handling for the 'current' Provenance Tag, which may have
@@ -201,15 +202,6 @@ def pytest_sessionfinish(session, exitstatus):
 
     # SCLogger.debug('Final teardown fixture executing! ')
     with SmartSession() as dbsession:
-        # TODO : delete this next block if commenting it didn't cause errors
-        # # first get rid of any Exposure loading Provenances, if they have no Exposures attached
-        # provs = dbsession.scalars(sa.select(Provenance).where(Provenance.process == 'load_exposure'))
-        # for prov in provs:
-        #     exp = dbsession.scalars(sa.select(Exposure).where(Exposure.provenance_id == prov.id)).all()
-        #     if len(exp) == 0:
-        #         dbsession.delete(prov)
-        # dbsession.commit()
-
         # ISSUE 479 this will find and DEBUG report the codeversions that are about to get killed in the next line.
         any_objects = any_objects_in_database( dbsession )
 
@@ -275,12 +267,17 @@ def pytest_sessionfinish(session, exitstatus):
 
             if len(files) > 0:
                 if verify_archive_database_empty:
-                    raise RuntimeError(f'There are files left in the archive after tests cleanup: {files}')
+                    strio = io.StringIO()
+                    strio.write( f'There are files left in the archive after tests cleanup: {files}' )
+                    if any_objects:
+                        strio.write('\nThere are objects left in the database.  '
+                                    'Some tests are not properly cleaning up')
+                    raise RuntimeError( strio.getvalue() )
                 else:
                     warnings.warn( f'There are files left in the archive after tests cleanup: {files}' )
 
     if any_objects and verify_archive_database_empty:
-        raise RuntimeError('There are objects in the database. Some tests are not properly cleaning up!')
+        raise RuntimeError('There are objects in the database.  Some tests are not properly cleaning up!')
 
 
 @pytest.fixture(scope='session')
@@ -955,22 +952,11 @@ def bogus_sources_and_psf( bogus_image, bogus_sources_factory ):
 @pytest.fixture
 def bogus_bg( bogus_sources_and_psf ):
     bogus_sources, _ = bogus_sources_and_psf
-    # TODO : remove this next commented block, and the commented
-    #   line in the Background(...) below, if commenting this out
-    #   didn't break anything.
-    # srcprov = Provenance.get( bogus_sources.provenance_id )
-    # prov = Provenance( code_verson_id=srcprov.code_version_id,
-    #                    process='backgrounding',
-    #                    parameters={ 'format': 'scalar' },
-    #                    upstreams=[ srcprov ],
-    #                    is_testing=True )
-    # prov.insert_if_needed()
     bg = Background( format='scalar',
                      method='zero',
                      sources_id=bogus_sources.id,
                      value=0.,
                      noise=1.,
-    #                 provenance_id=prov.id,
                      image_shape=(256,256),
                      filepath='fake_bogus_bg.h5',
                      md5sum=uuid.uuid4() )

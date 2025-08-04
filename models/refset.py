@@ -56,3 +56,7 @@ class RefSet(Base, UUIDMixin):
     def init_on_load(self):
         SeeChangeBase.init_on_load(self)
         self._provenance = None
+
+
+    def __repr__( self ):
+        return f"RefSet(id: {self.id}, name: {self.name}, provenance_id: {self.provenance_id})"

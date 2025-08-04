@@ -463,6 +463,11 @@ def sim_lightcurve_image_parameters():
 
 @pytest.fixture( scope="session" )
 def sim_lightcurve_persistent_sources():
+    # These positions were chosen visually to be near galaxies on the
+    #   generated image.  If the simulator code is edited at all, it's
+    #   possible that the image generated with the same random seed
+    #   will look nothing like the image that was used to choose these
+    #   positions.  (But, the tests should still work....)
     sources = [
         { 'ra': 123.46525473,   # At x=56.2, y=76.9
           'dec': -3.14735274,
@@ -621,7 +626,8 @@ def _do_sim_lightcurve_reference( ds ):
 def sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved ):
     ref = None
     try:
-        yield _do_sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved )
+        ref, ds = _do_sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved )
+        yield ref, ds
     finally:
         if ref is not None:
             with Psycopg2Connection() as conn:
@@ -638,7 +644,8 @@ def sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved ):
 def sim_lightcurve_reference_module(  sim_lightcurve_reference_image_unsaved ):
     ref = None
     try:
-        yield _do_sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved )
+        ref, ds = _do_sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved )
+        yield ref, ds
     finally:
         if ref is not None:
             with Psycopg2Connection() as conn:
