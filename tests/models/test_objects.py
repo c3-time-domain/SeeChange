@@ -203,7 +203,6 @@ def test_get_measurements_et_al( sim_lightcurve_complete_dses_module,
     expected_flux = np.array( [ 1613.0602, 1914.028, 2193.6316, 2734.4426, 2939.5178, 2692.7202 ] )
     expected_rb = np.array(   [ 0.6149,    0.5408,   0.5471,    0.5510,    0.6644,    0.5116 ] )
 
-    import pdb; pdb.set_trace()
     mess = objobj.get_measurements_et_al( measprovid )
     assert len( mess['measurements'] ) == 6
     assert all( isinstance( m, Measurements ) for m in mess['measurements'] )

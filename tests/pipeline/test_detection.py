@@ -68,7 +68,7 @@ def make_template_bank(imsize=15, psf_sigma=1.0):
 
 def test_detection_ptf_supernova(detector, ptf_subtraction1_datastore, blocking_plots, cache_dir):
     ds = ptf_subtraction1_datastore
-    ds.edit_prov_tree( 'detection', detector.pars.get_critical_pars(), new_step=True )
+    ds.edit_prov_tree( 'detection', params_dict=detector.pars.get_critical_pars(), process='detection', new_step=True )
     ds = detector.run( ds )
 
     try:

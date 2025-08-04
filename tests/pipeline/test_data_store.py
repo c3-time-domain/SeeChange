@@ -174,12 +174,17 @@ def test_edit_prov_tree():
     provs['cutting'] = Provenance( process='cutting',
                                    upstreams=[ provs['detection' ] ],
                                    paramters={ 'e': 42, 'test_set_prov_tree': True } )
-    provs['measuring'] = Provenance( process='measuring',
-                                     upstreams=[ provs['cutting' ] ],
-                                     parameters={ 'f': 49152, 'test_set_prov_tree': True } )
+    measuring_prov = Provenance( process='measuring',
+                                 upstreams=[ provs['cutting' ] ],
+                                 parameters={ 'f': 49152, 'test_set_prov_tree': True } )
+    scoring_prov = Provenance( process='scoring',
+                               upstreams=[ measuring_prov ],
+                               parameters= { 'g': 64738, 'test_set_prov_tree': True } )
 
     for p in provs.values():
         provstodel.add( p )
+    provstodel.add( measuring_prov )
+    provstodel.add( scoring_prov )
 
     upstreams = { 'exposure': [],
                   'preprocessing': ['exposure'],
@@ -188,7 +193,8 @@ def test_edit_prov_tree():
                   'subtraction': ['referencing', 'preprocessing', 'extraction'],
                   'detection': ['subtraction'],
                   'cutting': ['detection'],
-                  'measuring': ['cutting'] }
+                  'measuring': ['cutting'],
+                  'scoring': ['measuring'] }
 
     refimgprov.insert_if_needed()
     refsrcprov.insert_if_needed()
@@ -202,35 +208,72 @@ def test_edit_prov_tree():
     with pytest.raises(TypeError, match="Can't edit provenance tree, DataStore doesn't have one yet."):
         ds.edit_prov_tree( provs )
 
+    # Set the initial provenance tree
     ds.edit_prov_tree( ProvenanceTree( provs, upstreams ) )
 
+    # Make sure it got set right
     assert all( [ prov.id == provs[process].id for process, prov in ds.prov_tree.items() ] )
 
-    with pytest.raises(RuntimeError, match=("Can't modify provenance for step anisotropisization, "
+    # Test lots of failures
+    for args, kwargs in zip( [ [ 'preprocessing', ],
+                               [ 'scoring', ],
+                               [ 'cutting', ]
+                              ],
+                             [ {},
+                               { 'params_dict': { 'foo': 'bar' } },
+                               { 'process': { 'cutting' } }
+                              ] ):
+        with pytest.raises(ValueError, match=( "When not passing a whole new ProvenanceTree to edit_prov_tree, " ) ):
+            ds.edit_prov_tree( *args, **kwargs )
+
+    with pytest.raises(RuntimeError, match=("Can't modify provenance for step measuring, "
                                             "it's not in the current prov tree." ) ):
-        ds.edit_prov_tree( 'anisotropisization', { 'foo': 'bar' } )
+        ds.edit_prov_tree( 'measuring', params_dict={ 'foo': 'bar' }, process='measuring' )
 
-    with pytest.raises(ValueError, match=( "Can't edit provenance for step preprocessing, "
-                                           "no params_dict nor prov passed" ) ):
-        ds.edit_prov_tree( 'preprocessing' )
+    with pytest.raises(RuntimeError, match=("Can't modify provenance for step scoring, its upstreams "
+                                            "aren't already in the current prov tree." ) ):
+        ds.edit_prov_tree( 'scoring', prov=prov, new_step=True )
+    with pytest.raises(RuntimeError, match=("Can't modify provenance for step scoring, its upstreams "
+                                            "aren't already in the current prov tree." ) ):
+        ds.edit_prov_tree( 'scoring', params_dict=scoring_prov.parameters, process='scoring', new_step=True )
 
-    # Verify that only downstreams get modified if we edit an upstream
-    for i, process in enumerate( provs.keys() ):
+
+    # Reset the provenance tree, adding 'scoring' to the upstreams
+    upstreams['scoring'] = [ 'measuring' ]
+    ds.edit_prov_tree( ProvenanceTree( provs, upstreams ) )
+
+    # Make sure we can add a provenance by specifying it directly
+    provs['measuring'] = measuring_prov
+    with pytest.raises( RuntimeError, match=( "Can't modify provenance for step measuring, "
+                                              "it's not in the current prov tree." ) ):
+        ds.edit_prov_tree( 'measuring', prov=provs['measuring'] )
+    ds.edit_prov_tree( 'measuring', prov=provs['measuring'], new_step=True )
+    assert all( [ prov.id == provs[process].id for process, prov in ds.prov_tree.items() ] )
+
+    # Make sure we can add a provenance by specifying parameters, and that the id comes out right
+    provs['scoring'] = scoring_prov
+    with pytest.raises( RuntimeError, match=( "Can't modify provenance for step scoring, "
+                                              "it's not in the current prov tree." ) ):
+        ds.edit_prov_tree( 'scoring', process='scoring', params_dict=provs['scoring'].parameters )
+    ds.edit_prov_tree( 'scoring', process='scoring', params_dict=provs['scoring'].parameters, new_step=True )
+    assert all( [ prov.id == provs[process].id for process, prov in ds.prov_tree.items() ] )
+
+    # Make sure we can edit the parmaeters of a process, and that only downstreams get modified if we edit an upstream
+    for i, step in enumerate( provs.keys() ):
         last_provs = ds.prov_tree.copy()
-        params_dict = provs[process].parameters.copy()
+        params_dict = provs[step].parameters.copy()
         params_dict['new_parameter'] = 'foo'
-        ds.edit_prov_tree( process, params_dict )
+        ds.edit_prov_tree( step, process=provs[step].process, params_dict=params_dict )
         assert ds.prov_tree.keys() == last_provs.keys()
-        assert ds.prov_tree[process].parameters['new_parameter'] == 'foo'
+        assert ds.prov_tree[step].parameters['new_parameter'] == 'foo'
         for j, newproc in enumerate( provs.keys() ):
             provstodel.add( ds.prov_tree[newproc] )
-            if ( j < i ) or ( ( process != 'referencing' ) and ( newproc == 'referencing' ) ):
+            if ( j < i ) or ( ( step != 'referencing' ) and ( newproc == 'referencing' ) ):
                 assert last_provs[newproc].id == ds.prov_tree[newproc].id
             else:
                 assert last_provs[newproc].id != ds.prov_tree[newproc].id
 
     # TODO:
-    #   Passing a Provenance to edit_prov_tree
     #   Verify that provenance tag gets set?
 
     # Clean up

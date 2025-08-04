@@ -100,7 +100,10 @@ class DataStore:
     pipeline/top_level.py) and run pipeline.make_provenance_tree().  You
     can also use the make_prov_tree() method of DataStore, but in that
     case you must also build up a proper set of dictionaries of critical
-    parameters yourself.
+    parameters yourself.  Usually, the right way to change a DataStore's
+    provenance tree is with the method edit_prov_tree.  Be careful with this,
+    though, as it doesn't verify or clean out data products in the DataStore
+    that don't match updated provenance trees!
 
     You can get the provenances from a DataStore with get_provenance.
 
@@ -1013,8 +1016,8 @@ class DataStore:
         self.prov_tree = provs
 
 
-    def edit_prov_tree( self, step, params_dict=None, prov=None,
-                        new_step=False, process=None, provtag=None, donotinsert=False ):
+    def edit_prov_tree( self, step, prov=None, params_dict=None, process=None,
+                        new_step=False, provtag=None, donotinsert=False ):
         """Update the DataStore's provenance tree.
 
         Parameters
@@ -1036,17 +1039,31 @@ class DataStore:
               anticipated use for edit_prov_tree is really in tests
               where we haven't set a provenance tag.)
 
+              If step is a string, then one of the following three must
+              be true:
+               * You specify prov
+               * You specify params_dict, and a provenance for step
+                    already exists in the DataStore's provenance tree
+               * You specify both params_dict and process
+
+           prov: Provenance or None
+              The provenance for this step.  WARNING: this function does
+              not verify that the upstreams of this provenance are
+              correct!  It's up to you to make sure you pass in a valid
+              provenance.  (Downstream provenances will be still
+              recreated using this as the upstream.)
+
            params_dict: dict
               A parameters dictionary for step, such as is produced by
               Parameters.get_critical_pars().  Ignored if prov is not
               None.
 
-           prov: Provenance or None
-              The provenance for this step.  WARNING: this code does
-              not verify that the upstreams of this provenance are
-              correct!  It's up to you to make sure you pass in a valid
-              provenance.  (Downstream provenances will be still
-              recreated using this as the upstream.)
+           process: str or None
+              The process of the provenance.  Ignored if prov is not
+              None.  If prov and process are both None, will use the
+              same process as the provenance in the current tree for
+              step; in this case, if the step doesn't currently exist,
+              that's an error.
 
            new_step: bool, default False
               If True, then this may be new step that doesn't currently
@@ -1054,10 +1071,6 @@ class DataStore:
               the provenance tree's upstream_steps, and all of the
               upstreams of this provenance (as defined by the prov
               tree's upstream_steps) must already be in the prov tree.
-
-           process: str or None
-              The process of the provenance.  If None, will use the same
-              process as the provenance in the current tree for step.
 
            provtag: str or None
               This may only be passed if step is a ProvenanceTree.  In
@@ -1074,8 +1087,9 @@ class DataStore:
         """
 
         if isinstance( step, ProvenanceTree ):
-            if params_dict is not None:
-                raise ValueError( "params_dict must be None when passing a ProvenanceTree to edit_prov_tree" )
+            if ( params_dict is not None ) or ( process is not None ):
+                raise ValueError( "params_dict and process must be None when passing "
+                                  "a ProvenanceTree to edit_prov_tree" )
             self.prov_tree = step
             self._provtag = provtag
             return
@@ -1086,16 +1100,30 @@ class DataStore:
         if provtag is not None:
             raise ValueError( "Can't pass a provtag unless step is a ProvenanceTree" )
 
-        if ( params_dict is None ) and ( prov is None ):
-            raise ValueError( f"Can't edit provenance for step {step}, no params_dict nor prov passed." )
+        # Make sure we've got what we need
+        if prov is not None:
+            if not isinstance( prov, Provenance ):
+                raise TypeError( f"prov must be a Provenance, not a {type(prov)}" )
+        elif ( params_dict is not None ) and ( step in self.prov_tree ):
+            if not isinstance( params_dict, dict ):
+                raise TypeError( f"params_dict must be a dict, not a {type(params_dict)}" )
+        elif ( params_dict is not None ) and ( process is not None ):
+            if ( not isinstance( params_dict, dict ) ) or ( not isinstance( process, str ) ):
+                raise TypeError( f"params_dict must be a dict, not a {type(params_dict)}; "
+                                 f"and process must be a str, not a {type(process)}" )
+        else:
+            raise ValueError( "When not passing a whole new ProvenanceTree to edit_prov_tree, one of the "
+                              "following three must be true: 1. you pass a prov; 2. you pass a params_dict "
+                              "and step is already in the DataStore's provenance tree; 3. you pass a "
+                              "params_dict and a process." )
 
         if step not in self.prov_tree:
             if not new_step:
                 raise RuntimeError( f"Can't modify provenance for step {step}, it's not in the current prov tree." )
             if step not in self.prov_tree.upstream_steps:
-                raise RuntimeError( f"Can't add provenance for step {step}, it's not a known step." )
+                raise RuntimeError( f"Can't modify provenance for step {step}, it's not a known step." )
             if not all( s in self.prov_tree for s in self.prov_tree.upstream_steps[step] ):
-                raise RuntimeError( f"Can't add provenance for step {step}, it's upstreams aren't "
+                raise RuntimeError( f"Can't modify provenance for step {step}, its upstreams aren't "
                                     f"already in the current prov tree." )
             self.prov_tree[ step ] = prov
 
@@ -1121,7 +1149,7 @@ class DataStore:
 
                 upstream_provs = [ self.prov_tree[u] for u in self.prov_tree.upstream_steps[curstep] ]
                 self.prov_tree[curstep] = Provenance( code_version_id=Provenance.get_code_version( curprocess ).id,
-                                                      process=curstep,
+                                                      process=curprocess,
                                                       parameters=params,
                                                       upstreams=upstream_provs )
         if ( len(mustmodify) > 0 ) and ( not donotinsert ):
