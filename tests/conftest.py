@@ -210,8 +210,6 @@ def pytest_sessionfinish(session, exitstatus):
         #         dbsession.delete(prov)
         # dbsession.commit()
 
-        import pdb; pdb.set_trace()
-
         # ISSUE 479 this will find and DEBUG report the codeversions that are about to get killed in the next line.
         any_objects = any_objects_in_database( dbsession )
 
