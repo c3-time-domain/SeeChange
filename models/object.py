@@ -1,6 +1,9 @@
 import io
 import uuid
 import numpy as np
+import numbers
+
+import numpy as np
 
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declared_attr
@@ -255,8 +258,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         return ra_mean, dec_mean
 
     @classmethod
-    def associate_measurements( cls, measurements, radius=None, year=None, no_new=False,
-                                no_associate_legacy_survey=False, is_testing=False ):
+    def associate_measurements( cls, measurements, radius=None, year=None, month=None, day=None,
+                                no_new=False, no_associate_legacy_survey=False, is_testing=False ):
         """Associate an object with each member of a list of measurements.
 
         Will create new objects (saving them to the database) unless
@@ -283,10 +286,11 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             If None, will be set to measuring.association_radius in the
             config.
 
-          year : int, default None
-            The year of the time of exposure of the image from which the
-            measurements come.  Needed to generate object names, so it
-            may be omitted if no_new is True.
+          year, month, day : int, default None
+            The UTC date of the time of exposure of the image from which
+            the measurements come.  May be needed to generate object
+            names based on the format configured in object.namefmt in
+            the config yaml.  May always be omitted if no_new is True.
 
           no_new : bool, default False
             Normally, if an existing object is not wthin radius of one
@@ -311,12 +315,6 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
         """
 
-        if not no_new:
-            if year is None:
-                raise ValueError( "Need to pass a year unless no_new is true" )
-            else:
-                year = int( year )
-
         if radius is None:
             radius = Config.get().value( "measurements.association_radius" )
         else:
@@ -325,6 +323,17 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         with Psycopg2Connection() as conn:
             neednew = []
             cursor = conn.cursor()
+            # We have to lock the object table for this entire process.
+            #   Otherwise, there is a race condition where two processes
+            #   with a source at the same RA/Dec (within uncertainty)
+            #   generate object names at the same time, and we end up
+            #   with two different objects that should only have been
+            #   one.
+            # This does mean we have to make sure *not* to commit the
+            #   database inside any functions called from this function.
+            #   (In practice, that is Object.generate_names.)
+            if not no_new:
+                cursor.execute( "LOCK TABLE objects" )
             for m in measurements:
                 cursor.execute( ( "SELECT _id  FROM objects WHERE "
                                   "  q3c_radial_query( ra, dec, %(ra)s, %(dec)s, %(radius)s ) "
@@ -337,10 +346,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                     neednew.append( m )
 
             if ( not no_new ) and ( len(neednew) > 0 ):
-                names = cls.generate_names( number=len(neednew), year=year, connection=conn )
-                # Rollback in order to remove the lock generate_names claimed on object_name_max_used
-                conn.rollback()
-                cursor = conn.cursor()
+                names = cls.generate_names( number=len(neednew), year=year, month=month, day=day,
+                                            ra=m.ra, dec=m.dec, verifyunique=True, connection=conn )
                 for name, m in zip( names, neednew ):
                     objid = uuid.uuid4()
                     cursor.execute( ( "INSERT INTO objects(_id,ra,dec,name,is_test,is_bad) "
@@ -352,44 +359,123 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
                 conn.commit()
 
+
     @classmethod
-    def generate_names( cls, number=1, year=0, month=0, day=0, formatstr=None, connection=None ):
+    def generate_names( cls, number=1, formatstr=None,  year=None, month=None, day=None, ra=None, dec=None,
+                        verifyunique=False, seed=None, connection=None, nocommit=True ):
         """Generate one or more names for an object based on the time of discovery.
 
         Valid things in format specifier that will be replaced are:
-          %y - 2-digit year
-          %Y - 4-digit year
-          %m - 2-digit month (not supported)
-          %d - 2-digit day (not supported)
-          %a - set of lowercase letters, starting with a..z, then aa..az..zz, then aaa..aaz..zzz, etc.
-          %A - set of uppercase letters, similar
-          %n - an integer that starts at 0 and increments with each object added
-          %l - a randomly generated letter
+          %y - 2-digit year.  If you use this, then you hate everybody.
+          %Y - 4-digit year.
+          %m - 2-digit month.
+          %d - 2-digit day.
+          %R - RA (using format "08.4f").
+          %D - dec (using format "+08.4f").
+          %a - set of lowercase letters, starting with a..z, then aa..az..zz, then aaa..aaz..zzz, etc.  (Sorta.)
+          %A - set of uppercase letters, similar.
+          %n - an integer that starts at 0 and increments with each object added.
+          %l - a randomly generated lowercase letter.  Should probably be used more than once if used at all.
+          %% - a literal %.
 
         It doesn't make sense to use more than one of (%a, %A, %n).
+
+        All of (%a, %A, %n) look at the passed year.  They start over
+        for each year, and look at the table object_name_max_used in the
+        database to figure out which names have been used for the passed
+        year. (That table is locked while in use to guarantee that
+        multiple processes won't generate the same name at the same
+        time.)
+
+        Parameters
+        ----------
+          number : int, default 1
+            Number of names to generate
+
+          formatstr: str, default None.
+            See above.  If None, defaults to Config.get().value(
+            'object.namefmt' ), which is usually what you want.
+
+          year : int
+            The year in which the object was discovered.  Required if the
+            format string includes %y, %Y, %a, %A, or %n.
+
+          month: int
+            The month in which the object was discovered.  Required if
+            the format string includes %m.
+
+          day: int
+            The UTC day of the month on which the object was
+            discovered. Required if the format string includes %d.
+
+          verifyunique : bool, default False
+            Verify that generated object names don't already exist in
+            the database.  Defaults to False, because if you're using a
+            %A- or %a-based name, the way the code works guarantees that
+            already.  But, if you're doing things like ra and dec, you
+            might want this just to be sure.
+        
+          seed : random seed for %l in the format string.  Never use
+            this (unless you're writing a test and need reproducible
+            results).
+        
+          connection : psycopg2 Connection or None
+            Database connection.  Only used if %A, %a, or %n is in the
+            format string, or if verifyunique is True.  If %A, %a, or %n
+            is in the format string, the connection will be comitted.
+            If no connection is passed and one is needed, then a new
+            connection will be created and then closed (perhaps twice).
+
+          nocommit : boolean, default True
+            Don't commit to the database even if changes are made.  For
+            normal use case, you want to leave this as True.  The reason
+            to leave this true is that if you commit, you will lose any
+            table locks.  Normal use of this function is from
+            Object.associate_measurements(), which acquires a table lock
+            on the objects table; committing would lose that.  This does
+            mean that you need to make sure to commit to the databse in
+            the function that called this; otherwise, any modifications
+            made to the object_name_max_used table will get lost.
+        
+        Returns
+        -------
+           list of str
 
         """
 
         if formatstr is None:
             formatstr = Config.get().value( 'object.namefmt' )
 
-        if ( ( ( ( "%y" in formatstr ) or ( "%Y" in formatstr ) ) and ( year <= 0 ) )
+        if ( ( ( "%y" in formatstr ) and ( ( not isinstance( year, numbers.Integral ) )
+                                           or ( year < 2000 ) or ( year > 2099 ) ) )
              or
-             ( ( "%m" in formatstr ) and ( year <= 0 ) )
+             ( ( "%Y" in formatstr ) and ( ( not isinstance( year, numbers.Integral ) )
+                                           or ( year <= 0 ) or ( year > 9999 ) ) )
              or
-             ( ( "%d" in formatstr ) and ( day <= 0 ) ) ):
+             ( ( "%m" in formatstr ) and ( ( not isinstance( month, numbers.Integral ) )
+                                           or ( month <= 0 ) or ( month > 12 ) ) )
+             or
+             ( ( "%d" in formatstr ) and ( ( not isinstance( day, numbers.Integral ) )
+                                           or ( day <= 0 ) or ( day > 31 ) ) )
+            ):
+            # We're not going to bother figuring out if the day makes sense for the particular
+            #  month.  Let the user claim something happened on February 30 if they want.
             raise ValueError( f"Invalid year/month/day {year}/{month}/{day} given format string {formatstr}" )
 
-        if ( "%m" in formatstr ) or ( "%d" in formatstr ):
-            raise NotImplementedError( "Month and day in format string not supported." )
-
-        if ( "%l" in formatstr ):
-            raise NotImplementedError( "%l isn't implemented" )
-
+        if ( ( ( "%R" in formatstr ) and ( ( not isinstance( ra, numbers.Real ) )
+                                           or ( ra < 0. ) or ( ra >= 360. ) ) )
+             or
+             ( ( "%D" in formatstr ) and ( ( not isinstance( dec, numbers.Real ) )
+                                           or ( dec < -90. ) or ( dec > 90. ) ) )
+            ):
+            raise ValueError( f"Invalid ra/dec {ra}/{dec} given format string {formatstr}" )
+        
+        # Figure out incrementing numbers (including letter sequences)
+        # by locking the database table and claiming enough new numbers
         firstnum = None
         if ( ( "%a" in formatstr ) or ( "%A" in formatstr ) or ( "%n" in formatstr ) ):
-            if year <= 0:
-                raise ValueError( "Use of %a, %A, or %n requires year > 0" )
+            if not isinstance( year, numbers.Integral ):
+                raise ValueError( "Use of %a, %A, or %n requires integer year" )
             with Psycopg2Connection( connection ) as conn:
                 cursor = conn.cursor()
                 cursor.execute( "LOCK TABLE object_name_max_used" )
@@ -405,57 +491,91 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                     firstnum = rows[0][1] + 1
                     cursor.execute( "UPDATE object_name_max_used SET maxnum=%(num)s WHERE year=%(year)s",
                                     { 'year': year, 'num': firstnum + number - 1 } )
-                conn.commit()
+                if not nocommit:
+                    conn.commit()
 
+        # Make a rng if we need it for random letters
+        rng = None
+        alphabet = "abcdefghijklmnopqrstuvwxyz"
+        if  "%l" in formatstr:
+            rng = np.random.default_rng( seed )
+                
         names = []
 
-        for num in range( firstnum, firstnum + number ):
-            # Convert the number to a sequence of letters.  This is not
-            # exactly base 26, mapping 0=a to 25=z in each place,
-            # beacuse leading a's are *not* leading zeros.  aa is not
-            # 00, which is what a straight base26 number using symbols a
-            # through z would give.  aa is the first thing after z, so
-            # aa is 26.
-            # The first 26 work:
-            #     a = 0*26⁰
-            #     z = 25*26⁰
-            # but then:
-            #    aa = 1*26¹ + 0*26⁰
-            # not 0*26¹ + 0*26⁰.  It gets worse:
-            #    za = 26*26¹ + 0*26⁰ = 1*26² + 0*26¹ + 0*26⁰
-            # and
-            #    zz = 26*26¹ + 25*26⁰ = 1*26² + 0*26¹ + 25*26⁰
-            # The sadness only continues:
-            #   aaa = 1*26² + 1*26¹ + 0*26⁰
-            #   azz = 1*26² + 26*26² + 25*26⁰ = 2*26² + 0*26¹ + 25*26⁰
-            #   baa = 2*26² + 1*26¹ + 0*26⁰
-            # ... so it's not really a base 26 number.
-            #
-            # To deal with this, we're not going to use all the
-            # available namespace.  who cares, right?  If somebody
-            # cares, they can deal with it.  We're just never going to
-            # have a leading a.  So, afer z comes ba.  There is no aa
-            # through az.  Except for the very first a, there will never
-            # be a leading a.
+        for i in range( number) ):
+            if firstnum is not None:
+                num = firstnum + i
+                # Convert the number to a sequence of letters.  This is not
+                # exactly base 26, mapping 0=a to 25=z in each place,
+                # beacuse leading a's are *not* leading zeros.  aa is not
+                # 00, which is what a straight base26 number using symbols a
+                # through z would give.  aa is the first thing after z, so
+                # aa is 26.
+                # The first 26 work:
+                #     a = 0*26⁰
+                #     z = 25*26⁰
+                # but then:
+                #    aa = 1*26¹ + 0*26⁰
+                # not 0*26¹ + 0*26⁰.  It gets worse:
+                #    za = 26*26¹ + 0*26⁰ = 1*26² + 0*26¹ + 0*26⁰
+                # and
+                #    zz = 26*26¹ + 25*26⁰ = 1*26² + 0*26¹ + 25*26⁰
+                # The sadness only continues:
+                #   aaa = 1*26² + 1*26¹ + 0*26⁰
+                #   azz = 1*26² + 26*26² + 25*26⁰ = 2*26² + 0*26¹ + 25*26⁰
+                #   baa = 2*26² + 1*26¹ + 0*26⁰
+                # ... so it's not really a base 26 number.
+                #
+                # To deal with this, we're not going to use all the
+                # available namespace.  Who cares, right?  If somebody
+                # cares, they can deal with it.  We're just never going to
+                # have a leading a.  So, afer z comes ba.  There is no aa
+                # through az.  Except for the very first a, there will never
+                # be a leading a.
 
-            letters = ""
-            letnum = num
-            while letnum > 0:
-                dig26it = letnum % 26
-                thislet = "abcdefghijklmnopqrstuvwxyz"[ dig26it ]
-                letters = thislet + letters
-                letnum //= 26
-            letters = letters if len(letters) > 0 else 'a'
+                letters = ""
+                letnum = num
+                while letnum > 0:
+                    dig26it = letnum % 26
+                    thislet = "abcdefghijklmnopqrstuvwxyz"[ dig26it ]
+                    letters = thislet + letters
+                    letnum //= 26
+                letters = letters if len(letters) > 0 else 'a'
 
             name = formatstr
+            repl = "_percent_"
+            while repl in name:
+                repl = f"_{repl}_"
+            name = name.replace( "%%", repl )
             name = name.replace( "%y", f"{year%100:02d}" )
             name = name.replace( "%Y", f"{year:04d}" )
+            name = name.replace( "%m", f"{month:02d}" )
+            name = name.replace( "%d", f"{day:02d}" )
+            name = name.replace( "%R", f"{ra:08.4f}" )
+            name = name.replace( "%D", f"{dec:+08.4f}" )
             name = name.replace( "%n", f"{num}" )
             name = name.replace( "%a", letters )
             name = name.replace( "%A", letters.upper() )
+            while "%l" in name:
+                name = name.replace( "%", alphabet[ rng.integers(26) ], 1 )
+            name = name.replace( repl, "%" )
 
             names.append( name )
 
+        if verifyunique:
+            # First stupid thing, make sure all the generated names are unique
+            if  len( set(names) ) != len( names ):
+                raise ValueError( f"Newly generated names contain duplicates: {names}" )
+
+            # Make sure none of the names are already in the database.
+            with Psycopg2Connection( connection ) as conn:
+                cursor = conn.cursor()
+                cursor.execute( "SELECT name FROM objects WHERE name IN %(names)s", { 'names': tuple(names) } )
+                rows = cursor.fetchall()
+                if len(rows) != 0:
+                    raise ValueError( f"{len(rows)} of {len(names)} newly generated names already exist in the "
+                                      f"database: {[r[0] for r in rows]}" )
+            
         return names
 
 
