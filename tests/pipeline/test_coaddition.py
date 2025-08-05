@@ -361,6 +361,16 @@ def test_coaddition_run(coadder, ptf_reference_image_datastores, ptf_aligned_ima
         ref_image.md5sum = uuid.uuid4()
         ref_image.insert()
         upstrzps = ref_image.get_upstreams()
+        # ****
+        if not [ i.id for i in upstrzps ] == [ d.zp.id for d in ptf_reference_image_datastores ]:
+            import io
+            strio = io.StringIO()
+            strio.write( "MISMATCH BETWEEN UPSTREAM ZPS AND EXPECTED:\n" )
+            strio.write( f"  {'upstrzps':36s)   {'d.zp.id':36s}\n" )
+            for u, d in zip( upstrzps, ptf_reference_image_datastores ):
+                strio.write( f"  {str(u.id):36s}  {d.zip.id:36s}\n" )
+            SCLogger.info( strio.getvalue() )
+        # ****
         assert [ i.id for i in upstrzps ] == [ d.zp.id for d in ptf_reference_image_datastores ]
         assert ref_image.coadd_alignment_target == refimlast.id
         assert ref_image.is_coadd
