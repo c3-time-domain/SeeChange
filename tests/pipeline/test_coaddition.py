@@ -22,6 +22,7 @@ from pipeline.data_store import DataStore
 from pipeline.coaddition import Coadder, CoaddPipeline
 
 from util.util import env_as_bool
+from util.logger import SCLogger
 
 
 def estimate_psf_width(data, sz=7, upsampling=50, num_stars=20):
