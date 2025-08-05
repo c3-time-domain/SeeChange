@@ -1534,9 +1534,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         Returns
         -------
         upstreams: list of objects
-            The upstream Exposure, ZeroPoint, and Reference
-            objects that were used to create this image.  For most
-            images, it will be (at most) a single Exposure.
+            The upstream Exposure, ZeroPoint, and Reference objects that
+            were used to create this image.  For most images, it will be
+            (at most) a single Exposure.  For coadds, it will be a bunch
+            of ZeroPoints.  For a subtraction, will be one ZeroPoint and
+            one Reference.
 
         """
 
