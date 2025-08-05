@@ -46,30 +46,32 @@ def test_object_creation():
 
 
 def test_generate_names():
+    ra0 = 87.5873836658953
+    dec0 = 72.93697309565587
     try:
         # make sure that things in the year range 3500 aren't in the object_name_max_used table
         with Psycopg2Connection() as conn:
             cursor = conn.cursor()
-            cursor.execute( "SELECT * FROM object_name_max_used WHERE year>=3500 AND year<3600" )
+            cursor.execute( "SELECT * FROM object_name_max_used WHERE year>=2090 AND year<3600" )
             rows = cursor.fetchall()
             if len(rows) > 0:
                 raise RuntimeError( "object_name_max_used table has rows in the range [3500,3600). "
                                     "This shouldn't be.  Make sure another test isn't doing this." )
 
-        names = Object.generate_names( number=3, year=3500, formatstr="test_gen_name%y%a" )
-        assert names == [ "test_gen_name00a", "test_gen_name00b", "test_gen_name00c" ]
-        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%y%a" )
-        assert names == [ "test_gen_name01a", "test_gen_name01b", "test_gen_name01c" ]
-        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%Y%a" )
-        assert names == [ "test_gen_name3501d", "test_gen_name3501e", "test_gen_name3501f" ]
-        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%Y%a" )
-        assert names == [ "test_gen_name3501g", "test_gen_name3501h", "test_gen_name3501i" ]
-        names = Object.generate_names( number=3, year=3501, formatstr="test_gen_name%Y_%n" )
-        assert names == [ "test_gen_name3501_9", "test_gen_name3501_10", "test_gen_name3501_11" ]
-        names = Object.generate_names( number=1, year=3502, formatstr="test_gen_name%Y%A" )
+        names = Object.generate_names( number=3, year=2090, formatstr="test_gen_name%y%a", nocommit=False )
+        assert names == [ "test_gen_name90a", "test_gen_name90b", "test_gen_name90c" ]
+        names = Object.generate_names( number=3, year=2091, formatstr="test_gen_name%y%a", nocommit=False )
+        assert names == [ "test_gen_name91a", "test_gen_name91b", "test_gen_name91c" ]
+        names = Object.generate_names( number=3, year=2091, formatstr="test_gen_name%Y%a", nocommit=False )
+        assert names == [ "test_gen_name2091d", "test_gen_name2091e", "test_gen_name2091f" ]
+        names = Object.generate_names( number=3, year=2091, formatstr="test_gen_name%Y%a", nocommit=False )
+        assert names == [ "test_gen_name2091g", "test_gen_name2091h", "test_gen_name2091i" ]
+        names = Object.generate_names( number=3, year=2091, formatstr="test_gen_name%Y_%n", nocommit=False )
+        assert names == [ "test_gen_name2091_9", "test_gen_name2091_10", "test_gen_name2091_11" ]
+        names = Object.generate_names( number=1, year=3502, formatstr="test_gen_name%Y%A", nocommit=False )
         assert names == [ "test_gen_name3502A" ]
 
-        names = Object.generate_names( number=26**3, year=3503, formatstr="test_gen_name%Y%a" )
+        names = Object.generate_names( number=26**3, year=3503, formatstr="test_gen_name%Y%a", nocommit=False )
         assert names[0] == "test_gen_name3503a"
         assert names[25] == "test_gen_name3503z"
         assert names[1*26 + 0] == "test_gen_name3503ba"
@@ -80,13 +82,49 @@ def test_generate_names():
         assert names[25*(26**2) + 0*26 + 0] ==  "test_gen_name3503zaa"
         assert names[25*(26**2) + 25*26 + 25] == "test_gen_name3503zzz"
 
+        names = Object.generate_names( number=1, year=3503, month=6, day=26, formatstr="test_gen_names_%Y_%m_%d" )
+        assert names == [ 'test_gen_names_3503_06_26' ]
+
+        names = Object.generate_names( number=1, ra=ra0, dec=dec0, formatstr="test_gen_names_%R_%D" )
+        assert names == [ 'test_gen_names_087.5874_+72.9370' ]
+
+        names = Object.generate_names( number=2, formatstr="test_gen_name_%l%l", seed=42 )
+        assert names == [ 'test_gen_name_cu', 'test_gen_name_rl' ]
+
+        names = Object.generate_names( number=2, formatstr="test_gen_name_%Y_%a_%%", year=3505, nocommit=False )
+        assert names == [ "test_gen_name_3505_a_%", "test_gen_name_3505_b_%" ]
+
+        # Test name collisions
+        with pytest.raises( ValueError, match=( r"Newly generated names contain duplicates: "
+                                                r"\['test_gen_names', 'test_gen_names'\]" ) ):
+            names = Object.generate_names( number=2, formatstr="test_gen_names", verifyunique=True )
+
+        objobj = Object( name="test_gen_names", ra=ra0, dec=dec0, is_bad=False )
+        objobj.calculate_coordinates()
+        objobj.insert()
+
+        with pytest.raises( ValueError, match=( r"1 of 1 newly generated names already exist in the database: "
+                                                r"\['test_gen_names'\]" ) ):
+            names = Object.generate_names( number=1, formatstr="test_gen_names", verifyunique=True )
+
+        with pytest.raises( ValueError, match="1 of 1 newly generated names already exist in the database: " ):
+            for i in range(27):
+                names = Object.generate_names( number=1, formatstr="test_gen_names_%Y_%l",
+                                               year=3504, verifyunique=True )
+                objobj = Object( name=names[0], ra=ra0+i*0.01, dec=dec0+i*0.01, is_bad=False )
+                objobj.calculate_coordinates()
+                objobj.insert()
+
+        with pytest.raises( ValueError, match="Newly generated names contain duplicates: " ):
+            names = Object.generate_names( number=27, formatstr="test_gen_name_%Y_%l", year=3505, verifyunique=True )
+
+        # TODO: test more failures?
+
     finally:
         with Psycopg2Connection() as conn:
             cursor = conn.cursor()
-            cursor.execute( "DELETE FROM object_name_max_used WHERE year>=3500 AND year<3600" )
-            cursor.execute( "DELETE FROM objects WHERE name LIKE 'test_gen_name35%' "
-                            "                       OR name LIKE 'test_gen_name00%'"
-                            "                       OR name LIKE 'test_gen_name01%'" )
+            cursor.execute( "DELETE FROM object_name_max_used WHERE year>=2090 AND year<3600" )
+            cursor.execute( "DELETE FROM objects WHERE name LIKE 'test_gen_name%'" )
             conn.commit()
 
 
@@ -101,10 +139,13 @@ def test_generate_names_race_condition():
 
     def associator():
         with Psycopg2Connection() as conn:
-            Object.associate_measurements( [ measur ], connection=conn, nocommit=True )
+            Object.associate_measurements( [ measur ], year=2025, connection=conn, nocommit=True )
             # Put a sleep here in order to trigger the race condition if
             #   the table lock in associated_measurements is commented
-            #   out.
+            #   out.  (I have verified that in fact the
+            #     assert newnobj == orignobj + 1
+            #   below fails if the table lock is commented out;
+            #   there are two new objects in that case.)
             time.sleep(1)
             conn.commit()
 
@@ -131,11 +172,12 @@ def test_generate_names_race_condition():
             cursor.execute( "SELECT COUNT(*) FROM objects" )
             newnobj = cursor.fetchone()[0]
 
-        assert newnobj = orignobj + 1
+        # Only one object should have been created by the two processes.
+        assert newnobj == orignobj + 1
 
     finally:
         # Delete the objects we created
-        with Psycopg2Connectio() as conn:
+        with Psycopg2Connection() as conn:
             cursor = conn.cursor()
             cursor.execute( "DELETE FROM objects WHERE q3c_radial_query(ra, dec, %(ra)s, %(dec)s, 1./3600.)",
                             { "ra": ra, "dec": dec } )

@@ -327,7 +327,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         """
 
         if radius is None:
-            radius = Config.get().value( "measurements.association_radius" )
+            radius = Config.get().value( "measuring.association_radius" )
         else:
             radius = float( radius )
 
@@ -343,8 +343,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             # This does mean we have to make sure *not* to commit the
             #   database inside any functions called from this function.
             #   (In practice, that is Object.generate_names.)
-            # if not no_new:
-            #     cursor.execute( "LOCK TABLE objects" )
+            if not no_new:
+                cursor.execute( "LOCK TABLE objects" )
             for m in measurements:
                 cursor.execute( ( "SELECT _id  FROM objects WHERE "
                                   "  q3c_radial_query( ra, dec, %(ra)s, %(dec)s, %(radius)s ) "
@@ -514,7 +514,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
         names = []
 
-        for i in range( number) ):
+        for i in range( number ):
             if firstnum is not None:
                 num = firstnum + i
                 # Convert the number to a sequence of letters.  This is not
@@ -559,17 +559,26 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             while repl in name:
                 repl = f"_{repl}_"
             name = name.replace( "%%", repl )
-            name = name.replace( "%y", f"{year%100:02d}" )
-            name = name.replace( "%Y", f"{year:04d}" )
-            name = name.replace( "%m", f"{month:02d}" )
-            name = name.replace( "%d", f"{day:02d}" )
-            name = name.replace( "%R", f"{ra:08.4f}" )
-            name = name.replace( "%D", f"{dec:+08.4f}" )
-            name = name.replace( "%n", f"{num}" )
-            name = name.replace( "%a", letters )
-            name = name.replace( "%A", letters.upper() )
+            if "%y" in formatstr:
+                name = name.replace( "%y", f"{year%100:02d}" )
+            if "%Y" in formatstr:
+                name = name.replace( "%Y", f"{year:04d}" )
+            if "%m" in formatstr:
+                name = name.replace( "%m", f"{month:02d}" )
+            if "%d" in formatstr:
+                name = name.replace( "%d", f"{day:02d}" )
+            if "%R" in formatstr:
+                name = name.replace( "%R", f"{ra:08.4f}" )
+            if "%D" in formatstr:
+                name = name.replace( "%D", f"{dec:+08.4f}" )
+            if "%n" in formatstr:
+                name = name.replace( "%n", f"{num}" )
+            if "%a" in formatstr:
+                name = name.replace( "%a", letters )
+            if "%A" in formatstr:
+                name = name.replace( "%A", letters.upper() )
             while "%l" in name:
-                name = name.replace( "%", alphabet[ rng.integers(26) ], 1 )
+                name = name.replace( "%l", alphabet[ rng.integers(26) ], 1 )
             name = name.replace( repl, "%" )
 
             names.append( name )
