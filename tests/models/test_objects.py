@@ -1,5 +1,7 @@
 import pytest
 import uuid
+import time
+from multiprocessing import Process
 
 import numpy as np
 import sqlalchemy as sa
@@ -88,6 +90,57 @@ def test_generate_names():
             conn.commit()
 
 
+def test_generate_names_race_condition():
+    # If this ra and dec is used in any other test
+    #   and they leave behind an object, it will
+    #   break this test, and also that object
+    #   will get deleted by cleanup of this test.
+    ra=154.4032444540051
+    dec=-15.32714749020748
+    measur = Measurements( ra=ra, dec=dec  )
+
+    def associator():
+        with Psycopg2Connection() as conn:
+            Object.associate_measurements( [ measur ], connection=conn, nocommit=True )
+            # Put a sleep here in order to trigger the race condition if
+            #   the table lock in associated_measurements is commented
+            #   out.
+            time.sleep(1)
+            conn.commit()
+
+    try:
+        # Count how many objects there are before we begin
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "SELECT COUNT(*) FROM objects" )
+            orignobj = cursor.fetchone()[0]
+
+        # Have two different processes try to generate an object at the same time for
+        #   a measurement at the same ra/dec.
+
+        p1 = Process( target=associator )
+        p2 = Process( target=associator )
+        p1.start()
+        p2.start()
+        p1.join()
+        p2.join()
+
+        # Count how many objects there are now
+        with Psycopg2Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "SELECT COUNT(*) FROM objects" )
+            newnobj = cursor.fetchone()[0]
+
+        assert newnobj = orignobj + 1
+
+    finally:
+        # Delete the objects we created
+        with Psycopg2Connectio() as conn:
+            cursor = conn.cursor()
+            cursor.execute( "DELETE FROM objects WHERE q3c_radial_query(ra, dec, %(ra)s, %(dec)s, 1./3600.)",
+                            { "ra": ra, "dec": dec } )
+            conn.commit()
+
 # This next test is a little weird, because the actual stuff
 #   that does the work is all in fixtures, and the fixtures do
 #   more than that.  But, object/measurement assocation requiers
@@ -104,7 +157,6 @@ def test_associate_measurements( sim_lightcurve_complete_dses_module,
                                  sim_lightcurve_image_parameters ):
     _ref, refds, newdses, _pips = sim_lightcurve_complete_dses_module
     sources = sim_lightcurve_persistent_sources
-
     dses_detected_for_sources = []
     sourceids_for_sources = []
     allsourceids = set()

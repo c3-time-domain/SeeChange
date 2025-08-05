@@ -259,7 +259,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
 
     @classmethod
     def associate_measurements( cls, measurements, radius=None, year=None, month=None, day=None,
-                                no_new=False, no_associate_legacy_survey=False, is_testing=False ):
+                                no_new=False, no_associate_legacy_survey=False, is_testing=False,
+                                connection=None, nocommit=False ):
         """Associate an object with each member of a list of measurements.
 
         Will create new objects (saving them to the database) unless
@@ -313,6 +314,16 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             parameter is used in some of our tests, but should not be
             used outside of that context.)
 
+          connection : psycopg2 Connection
+            Database connection.  Will create and close one if this is
+            None.
+
+          nocommit : bool, default False
+            Do not commit to the database at the end of doing all the
+            things.  You really want to leave this at False; it's here
+            for test_generate_names_race_condition in
+            tests/models/test_objects.py
+
         """
 
         if radius is None:
@@ -320,7 +331,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         else:
             radius = float( radius )
 
-        with Psycopg2Connection() as conn:
+        with Psycopg2Connection( connection ) as conn:
             neednew = []
             cursor = conn.cursor()
             # We have to lock the object table for this entire process.
@@ -332,8 +343,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             # This does mean we have to make sure *not* to commit the
             #   database inside any functions called from this function.
             #   (In practice, that is Object.generate_names.)
-            if not no_new:
-                cursor.execute( "LOCK TABLE objects" )
+            # if not no_new:
+            #     cursor.execute( "LOCK TABLE objects" )
             for m in measurements:
                 cursor.execute( ( "SELECT _id  FROM objects WHERE "
                                   "  q3c_radial_query( ra, dec, %(ra)s, %(dec)s, %(radius)s ) "
@@ -357,7 +368,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                     if not no_associate_legacy_survey:
                         ObjectLegacySurveyMatch.create_new_object_matches( objid, m.ra, m.dec, con=conn )
 
-                conn.commit()
+                if not nocommit:
+                    conn.commit()
 
 
     @classmethod
@@ -414,11 +426,11 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             %A- or %a-based name, the way the code works guarantees that
             already.  But, if you're doing things like ra and dec, you
             might want this just to be sure.
-        
+
           seed : random seed for %l in the format string.  Never use
             this (unless you're writing a test and need reproducible
             results).
-        
+
           connection : psycopg2 Connection or None
             Database connection.  Only used if %A, %a, or %n is in the
             format string, or if verifyunique is True.  If %A, %a, or %n
@@ -436,7 +448,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             mean that you need to make sure to commit to the databse in
             the function that called this; otherwise, any modifications
             made to the object_name_max_used table will get lost.
-        
+
         Returns
         -------
            list of str
@@ -469,7 +481,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                                            or ( dec < -90. ) or ( dec > 90. ) ) )
             ):
             raise ValueError( f"Invalid ra/dec {ra}/{dec} given format string {formatstr}" )
-        
+
         # Figure out incrementing numbers (including letter sequences)
         # by locking the database table and claiming enough new numbers
         firstnum = None
@@ -499,7 +511,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         alphabet = "abcdefghijklmnopqrstuvwxyz"
         if  "%l" in formatstr:
             rng = np.random.default_rng( seed )
-                
+
         names = []
 
         for i in range( number) ):
@@ -575,7 +587,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                 if len(rows) != 0:
                     raise ValueError( f"{len(rows)} of {len(names)} newly generated names already exist in the "
                                       f"database: {[r[0] for r in rows]}" )
-            
+
         return names
 
 
