@@ -372,7 +372,8 @@ def test_coaddition_run(coadder, ptf_reference_image_datastores, ptf_aligned_ima
                 strio.write( f"  {str(u.id):36s}  {str(d.zp.id):36s}\n" )
             SCLogger.info( strio.getvalue() )
         # ****
-        assert [ i.id for i in upstrzps ] == [ d.zp.id for d in ptf_reference_image_datastores ]
+        # set() because the database might not have returned stuff in the same order
+        assert set( [ i.id for i in upstrzps ] ) == set( [ d.zp.id for d in ptf_reference_image_datastores ] )
         assert ref_image.coadd_alignment_target == refimlast.id
         assert ref_image.is_coadd
         assert not ref_image.is_sub
