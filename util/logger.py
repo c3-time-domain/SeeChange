@@ -3,8 +3,8 @@ import re
 import multiprocessing
 import logging
 
-# _default_log_level = logging.INFO
-_default_log_level = logging.DEBUG
+_default_log_level = logging.INFO
+# _default_log_level = logging.DEBUG
 
 # NOTE : tests/test_logger.py assumes this default date format is '%Y-%m-%d %H:%M:%S'
 _default_datefmt = '%Y-%m-%d %H:%M:%S'

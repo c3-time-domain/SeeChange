@@ -101,11 +101,11 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
           dict of lists, all lists having the same length
           First four keys are always there; last two only if deepscore_prov_id is not None
            { 'measurements': list of Measurements,
-             'meaurementsets': list of MeasurementSet,
+             'measurementsets': list of MeasurementSet,
              'images': list of Image (the difference images, *not* the original science image!),
              'zeropoints': list of ZeroPoint,
              'deepscores': list of DeepScore,
-             'deepspscoresets': list of DeepScoreSet
+             'deepscoresets': list of DeepScoreSet
            }
 
         """
