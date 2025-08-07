@@ -183,6 +183,7 @@ def test_generate_names_race_condition():
                             { "ra": ra, "dec": dec } )
             conn.commit()
 
+
 # This next test is a little weird, because the actual stuff
 #   that does the work is all in fixtures, and the fixtures do
 #   more than that.  But, object/measurement assocation requiers
