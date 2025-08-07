@@ -382,8 +382,8 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
           %Y - 4-digit year.
           %m - 2-digit month.
           %d - 2-digit day.
-          %R - RA (using format "08.4f").
-          %D - dec (using format "+08.4f").
+          %R - RA in degrees (using format "08.4f").
+          %D - dec in degrees (using format "+08.4f").
           %a - set of lowercase letters, starting with a..z, then aa..az..zz, then aaa..aaz..zzz, etc.  (Sorta.)
           %A - set of uppercase letters, similar.
           %n - an integer that starts at 0 and increments with each object added.
@@ -549,7 +549,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
                 letnum = num
                 while letnum > 0:
                     dig26it = letnum % 26
-                    thislet = "abcdefghijklmnopqrstuvwxyz"[ dig26it ]
+                    thislet = alphabet[ dig26it ]
                     letters = thislet + letters
                     letnum //= 26
                 letters = letters if len(letters) > 0 else 'a'
@@ -557,6 +557,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
             name = formatstr
             repl = "_percent_"
             while repl in name:
+                # Really make sure we're not using a placeholder string that's already there
                 repl = f"_{repl}_"
             name = name.replace( "%%", repl )
             if "%y" in formatstr:

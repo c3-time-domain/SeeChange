@@ -141,7 +141,7 @@ def test_generate_names_race_condition():
         with Psycopg2Connection() as conn:
             Object.associate_measurements( [ measur ], year=2025, connection=conn, nocommit=True )
             # Put a sleep here in order to trigger the race condition if
-            #   the table lock in associated_measurements is commented
+            #   the table lock in associate_measurements is commented
             #   out.  (I have verified that in fact the
             #     assert newnobj == orignobj + 1
             #   below fails if the table lock is commented out;
@@ -199,6 +199,7 @@ def test_associate_measurements( sim_lightcurve_complete_dses_module,
                                  sim_lightcurve_image_parameters ):
     _ref, refds, newdses, _pips = sim_lightcurve_complete_dses_module
     sources = sim_lightcurve_persistent_sources
+
     dses_detected_for_sources = []
     sourceids_for_sources = []
     allsourceids = set()
