@@ -1017,7 +1017,7 @@ class DataStore:
 
 
     def edit_prov_tree( self, step, prov=None, params_dict=None, process=None,
-                        new_step=False, provtag=None, donotinsert=False ):
+                        new_step=False, provtag=None, newprovtag=None, donotinsert=False ):
         """Update the DataStore's provenance tree.
 
         Parameters
@@ -1079,6 +1079,11 @@ class DataStore:
               the user to ensure that's the case.)  Save this in the
               DataStore, so that future provenances created with
               edit_prov_tree will be tagged with this provenance tag.
+
+          newprovtag: str or None
+              Be very careful using this.  This is used by some of our
+              tests.  What it does is tag all provenances with this new
+              tag (creating it if it doesn't exist).
 
           donotinsert: bool, default False
               If True, don't insert any newly created Provenances into
@@ -1157,6 +1162,9 @@ class DataStore:
                 for curstep in self.prov_tree.keys():
                     if curstep in mustmodify:
                         self.prov_tree[curstep].insert_if_needed( session=sess )
+
+        if newprovtag is not None:
+            self._provtag = newprovtag
 
         if self._provtag is not None:
             ProvenanceTag.addtag( self._provtag, self.prov_tree.values(), add_missing_processes_to_provtag=True )

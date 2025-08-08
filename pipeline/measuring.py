@@ -37,7 +37,7 @@ class ParsMeasurer(Parameters):
         )
 
         self.use_annulus_bg_on_sub = self.add_par(
-            'annulus_bg_on_sub',
+            'use_annulus_bg_on_sub',
             False,
             bool,
             ( 'Use an annulus background for measurements on the sub image.  Defaults to '
@@ -48,8 +48,8 @@ class ParsMeasurer(Parameters):
             'diag_box_halfsize',
             2.,
             float,
-            ( 'The diagnostic box used for counting bad pixels and negative pixels will be '
-              '2 * diag_box_halfsize + 1 on a side.  (Think of this as a radius.)' )
+            ( 'The diagnostic box, in fwhm, used for counting bad pixels and negative pixels will be '
+              '2 * round(diag_box_halfsize_pixels) + 1 on a side.  (Think of this as a radius.)' )
         )
 
         self.diag_box_halfsize_unit = self.add_par(
@@ -69,7 +69,8 @@ class ParsMeasurer(Parameters):
 
         self.bad_thresholds = self.add_par(
             'bad_thresholds',
-            { 'psf_fit_flags_bitmask': 0x2e,
+            { 'sn': 5.,
+              'psf_fit_flags_bitmask': 0x2e,
               'detection_dist': 5.,
               'gaussfit_dist': 5.,
               'elongation': 3.,
@@ -86,7 +87,8 @@ class ParsMeasurer(Parameters):
 
         self.deletion_thresholds = self.add_par(
             'deletion_thresholds',
-            { 'psf_fit_flags_bitmask': 0x2e,
+            { 'sn': 5.,
+              'psf_fit_flags_bitmask': 0x2e,
               'detection_dist': 5.,
               'gaussfit_dist': 5.,
               'elongation': 3.,
@@ -276,6 +278,12 @@ class Measurer:
                 for m in all_measurements:
                     is_bad = False
                     keep = True
+
+                    # Look at the psf photometry S/N
+                    if ( badthresh['sn'] is not None ) and ( m.flux_psf / m.flux_psf_err < badthresh['sn'] ):
+                        is_bad = True
+                    if ( delthresh['sn'] is not None ) and ( m.flux_psf / m.flux_psf_err < delthresh['sn'] ):
+                        keep = False
 
                     # Chuck it if the psf fit failed
                     if ( ( badthresh['psf_fit_flags_bitmask'] is not None )

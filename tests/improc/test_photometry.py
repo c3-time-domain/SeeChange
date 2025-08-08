@@ -103,7 +103,7 @@ def test_photometry_and_diagnostics( psf_palette ):
     assert all( [ np.abs( m.position_angle - b.position_angle ) < 1e-5 for m, b in zip( meas, bgmeas ) ] )
 
 
-def test_diagnostics():
+def test_diagnostics( diagnostic_injections ):
     # Make a noise image, and add certain specific failure modes to make sure the diagnostics
     #   that we expect to catch these do in fact catch these.
     # Note that widths and position angles were tested with all our gaussians
@@ -115,134 +115,31 @@ def test_diagnostics():
     noise = np.full_like( image, skynoise )
     mask = np.full_like( image, False, dtype=bool )
 
-    # We'll be working in 51 by 51 patches, so it's a little bigger than the 41x41 patch
-    #   that we'll be cutting out
+    # We'll be working in 51 by 51 patches, so it's a little bigger than
+    #   the 41x41 patch that we'll be cutting out.  These are all
+    #   created in the diagnostic_injections fixture function.
 
-    _sqrt2 = np.sqrt(2.)
-    _2sqrt2ln2 = 2. * np.sqrt( 2. * np.log( 2. ) )
-    wid = 51
-    xvals, yvals = np.meshgrid( np.array(range(wid)) - wid // 2, np.array(range(wid)) - wid // 2 )
     sigma = 2.0
-    fwhm = _2sqrt2ln2 * sigma
-    flux = 20000.
+    fwhm = 4.70964
     inner = 4. * fwhm
     outer = 5. * fwhm
-    ringarea = np.pi * ( outer**2 - inner**2 )
+    # Note!  slow_but_right here is actually not right, because the
+    #   image simulator created its psfs using gaussian sampling rather
+    #   than gaussian integration.  So, we're better approximating those
+    #   psfs with slow_but_right=false!  Good news, because it's faster
+    #   that way.
+    images, masks, positions, expected = diagnostic_injections( sigma, wid=51, slow_but_right=False )
+    for im, ma, po in zip( images, masks, positions ):
+        image[ po[1]:po[1]+51, po[0]:po[0]+51 ] += im
+        mask[ po[1]:po[1]+51, po[0]:po[0]+51 ] = mask[ po[1]:po[1]+51, po[0]:po[0]+51 ] | ma
 
-    positions = []
-    expected = []
-
-    # At 100, 100 : a normal psf
-    x0 = 100 - wid // 2
-    y0 = 100 - wid // 2
-    image[ y0:y0+wid, x0:x0+wid ] += ( flux / ( 2. * np.pi * sigma**2 )
-                                       * np.exp( -( xvals**2 + yvals**2 ) / ( 2. * sigma**2 ) ) )
-    positions.append( (x0 + wid//2, y0 + wid//2) )
-    expected.append( { 'flux': pytest.approx( flux, abs=3. * np.sqrt(2*np.pi) * fwhm * skynoise ),
-                       'center_x_pixel': 100,
-                       'center_y_pixel': 100,
-                       'bkg_per_pix': pytest.approx( bg, abs=3. * ( skynoise / np.sqrt(ringarea) ) ),
-                       'x': pytest.approx( 100, abs=0.05 ),
-                       'y': pytest.approx( 100, abs=0.05 ),
-                       'gfit_x': pytest.approx( 100, abs=0.05 ),
-                       'gfit_y': pytest.approx( 100, abs=0.05 ),
-                       'major_width': pytest.approx( fwhm, rel=0.01 ),
-                       'minor_width': pytest.approx( fwhm, rel=0.01 ),
-                       'psf_fit_flags': 0,
-                       'nbadpix': 0,
-                       'negfrac': ( "lt", 0.05 ),
-                       'negfluxfrac': ( "lt", 0.05 )
-                      } )
-
-
-
-    # At 100, 200 : a negative psf
-    x0 = 100 - wid // 2
-    y0 = 200 - wid // 2
-    image[ y0:y0+wid, x0:x0+wid ] -= ( flux / ( 2. * np.pi * sigma**2 )
-                                       * np.exp( -( xvals**2 + yvals**2 ) / ( 2. * sigma**2 ) ) )
-    positions.append( (x0, y0) )
-    expected.append( { 'psf_fit_flags': ( "and", 4 ),
-                       'negfrac': ( "gt", 0.75 ),
-                       'negfluxfrac': ( "gt", 0.75 ) } )
-
-
-    # At 100, 300 : a dipole with 1/2 the flux negative, separated by 1σ
-    x0 = 100 - wid // 2
-    y0 = 300 - wid // 2
-    image[ y0:y0+wid, x0:x0+wid ] += ( flux / ( 2. * np.pi * sigma**2 )
-                                       * np.exp( -( xvals**2 + yvals**2 ) / ( 2. * sigma**2 ) )
-                                       -
-                                       flux / ( 4. * np.pi * sigma**2 )
-                                       * np.exp( -( (xvals - sigma/_sqrt2)**2 + (yvals - sigma/_sqrt2)**2 )
-                                                 / ( 2. * sigma**2 ) ) )
-    positions.append( (x0 + wid//2, y0 + wid//2) )
-    expected.append( { 'psf_fit_flags': 0,
-                       'negfrac': ( "gt", 0.45 ),
-                       'negfluxfrac': ( "gt", 0.1 ) } )
-
-    # At 100, 400 : a dipole with full flux negative, separated by 2.5σ
-    x0 = 100 - wid // 2
-    y0 = 400 - wid // 2
-    image[ y0:y0+wid, x0:x0+wid ] += ( flux / ( 2. * np.pi * sigma**2 )
-                                       * np.exp( -( xvals**2 + yvals**2 ) / ( 2. * sigma**2 ) )
-                                       -
-                                       flux / ( 2. * np.pi * sigma**2 )
-                                       * np.exp( -( (xvals - sigma/(2.5*_sqrt2))**2 +
-                                                    (yvals - sigma/(2.5*_sqrt2))**2 )
-                                                 / ( 2. * sigma**2 ) ) )
-    positions.append( (x0 + wid//2, y0 + wid//2) )
-    expected.append( { 'psf_fit_flags': ( "notand", 1 & 2 & 32 ),
-                       'negfrac': pytest.approx( 1.0, rel=0.1 ),
-                       'negfluxfrac': pytest.approx( 1.0, rel=0.1 ) } )
-
-    # At 100, 500 : a normal psf, but with some masked pixels
-    x0 = 100 - wid // 2
-    y0 = 500 - wid // 2
-    image[ y0:y0+wid, x0:x0+wid ] += ( flux / ( 2. * np.pi * sigma**2 )
-                                       * np.exp( -( xvals**2 + yvals**2 ) / ( 2. * sigma**2 ) ) )
-    mask[ y0+wid//2, x0+wid//2-1:x0+wid//2+2 ] = True
-    positions.append( (x0 + wid//2, y0 + wid//2) )
-    expected.append( { 'psf_fit_flags': ( "and", 1 ),
-                       'flux': pytest.approx( flux, abs=3. * np.sqrt(2*np.pi) * fwhm * skynoise ),
-                       'x': pytest.approx( 100, abs=0.05 ),
-                       'y': pytest.approx( 500, abs=0.05 ),
-                       'major_width': pytest.approx( fwhm, rel=0.01 ),
-                       'minor_width': pytest.approx( fwhm, rel=0.01 ),
-                       'negfrac': ( "lt", 0.05 ),
-                       'negfluxfrac': ( "lt", 0.05 ),
-                       'nbadpix': 3 } )
-
-    # A big blob at 100, 600
-    x0 = 100 - wid // 2
-    y0 = 600 - wid // 2
-    image[ y0:y0+wid, x0:x0+wid ] += ( flux / ( 2. * np.pi * (3.*sigma)**2 )
-                                       * np.exp( -( xvals**2 + yvals**2 ) / ( 2. * (3.*sigma)**2 ) ) )
-    positions.append( (x0 + wid//2, y0 + wid//2) )
-    expected.append( { 'psf_fit_flags': 0,
-                       'center_x_pixel': 100,
-                       'center_y_pixel': 600,
-                       'gfit_x': pytest.approx( 100, abs=0.1 ),
-                       'gfit_y': pytest.approx( 600, abs=0.1 ),
-                       'bkg_per_pix': pytest.approx( bg, abs=3. * ( skynoise / np.sqrt(ringarea) ) ),
-                       'x': pytest.approx( 100, abs=1. ),       # fit of 1fwhm gaussian won't be so good
-                       'y': pytest.approx( 600, abs=1. ),
-                       'negfrac': ( "lt", 0.05 ),
-                       'negfluxfrac': ( "lt", 0.05 ),
-                       'nbadpix': 0,
-                       'major_width': pytest.approx( 3*fwhm, rel=0.03 ),
-                       'minor_width': pytest.approx( 3*fwhm, rel=0.03 ) } )
-
-
-    # TODO : more!
-    #   * vertical and/or horizontal streak (1-pixel wide)
-    #   * streak at an angle
-
+    # Need positions at center of clips for use in photometry_and_diagnostics
+    positions = [ ( i+51//2, j+51//2 ) for (i,j) in positions ]
     psf = photutils.psf.CircularGaussianPSF( flux=1., fwhm=fwhm )
     measurements = photometry_and_diagnostics( image, noise, mask, positions, [ fwhm, 2*fwhm ],
                                                photutils_psf=psf, fwhm_pixels=fwhm,
                                                dobgsub=True, innerrad=inner, outerrad=outer )
-    for exp, m in zip( expected, measurements ):
+    for i, (exp, m) in enumerate( zip( expected, measurements ) ):
         for attr, val in exp.items():
             m_attr = getattr( m, attr )
             if isinstance( val, tuple ):

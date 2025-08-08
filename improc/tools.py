@@ -1,7 +1,8 @@
 # various functions and tools used for image processing
+import re
 
 import numpy as np
-import re
+import scipy.integrate
 
 
 def sigma_clipping(values, nsigma=3.0, iterations=5, axis=None, median=False):
@@ -229,7 +230,8 @@ def pepper_stars( xsize=2048, ysize=2048, skynoise=42., seeing=4.2, gain=1.,
     return image, var
 
 
-def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotation=0.0, norm=1, imsize=None):
+def make_gaussian( sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotation=0.0, norm=1, imsize=None,
+                   slow_but_right=False ):
 
     """Create a small image of a Gaussian centered around the middle of the image.
 
@@ -238,30 +240,47 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
     sigma_x: float
         The sigma width parameter.
         If sigma_x and sigma_y are specified, this will be for the x-axis.
+
     sigma_y: float or None
         The sigma width parameter.
         If None, will use sigma_x for both axes.
+
     offset_x: float
         The offset in the x direction.
+
     offset_y: float
         The offset in the y direction.
+
     rotation: float
         The rotation angle in degrees.
         The Gaussian will be rotated counter-clockwise by this angle.
         If sigma_y is equal to sigma_x (or None) this has no effect.
-    norm: int
+
+    norm: int, default 1
         Normalization of the Gaussian. Choose value:
         0- do not normalize, peak will have a value of 1.0
         1- normalize so the sum of the image is equal to 1.0
         2- normalize the squares: the sqrt of the sum of squares is equal to 1.0
+        3­ normalize naturally, i.e. the gaussian is 1/(2π σ_x σ_y) * exp( -(x^2/2σ_x^2 + y^2/2σ_y^2) )
+
     imsize: int or 2-tuple of ints (optional)
         Number of pixels on a side for the output.
         If None, will automatically choose the smallest odd integer that is larger than max(sigma_x, sigma_y) * 10.
+
+    slow_but_right : bool, default False
+        Normally, we just sample the Gaussian.  If sigma is big enough
+        (mumble mumble nyquist mumble mumble), then this should be
+        pretty close.  However, for small sigma, this is going to not
+        give the right pixel values.  The right way to do it is to
+        integrate the gaussian over pixels and use that as the flux for
+        each pixel.  Set this parameter to True to do it that way.
+        (It's a lot slower.)
 
     Returns
     -------
     output: array
         A 2D array of the Gaussian.
+
     """
     if sigma_y is None:
         sigma_y = sigma_x
@@ -274,8 +293,10 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
     if isinstance(imsize, int):
         imsize = (imsize, imsize)
 
-    if norm not in [0, 1, 2]:
-        raise ValueError('norm must be 0, 1, or 2')
+    if norm not in [0, 1, 2, 3]:
+        raise ValueError('norm must be 0, 1, 2, or 3')
+
+    fac = 1 / (2 * np.pi * sigma_x * sigma_y ) if norm == 3 else 1.
 
     x = np.arange(imsize[1])
     y = np.arange(imsize[0])
@@ -293,12 +314,28 @@ def make_gaussian(sigma_x=2.0, sigma_y=None, offset_x=0.0, offset_y=0.0, rotatio
     x_rot = x * np.cos(rotation) - y * np.sin(rotation)
     y_rot = x * np.sin(rotation) + y * np.cos(rotation)
 
-    output = np.exp(-0.5 * (x_rot ** 2 / sigma_x ** 2 + y_rot ** 2 / sigma_y ** 2))
+    if slow_but_right:
+        # There may be some fancy interpolation formula that does a good approximation of this, but for now
+        #   just do it really slow with for loops.
+        def gauss( y, x ):
+            return fac * np.exp( -0.5 * ( x**2 / sigma_x**2 + y**2 / sigma_y**2 ) )
+
+        output = np.zeros( imsize, dtype=np.float64 )
+        for j in range( imsize[0] ):
+            for i in range( imsize[1] ):
+                res = scipy.integrate.dblquad( gauss,
+                                               x_rot[j][i]-0.5, x_rot[j][i]+0.5,
+                                               y_rot[j][i]-0.5, y_rot[j][i]+0.5 )
+                output[ j, i ] = res[0]
+    else:
+        output = fac * np.exp(-0.5 * (x_rot ** 2 / sigma_x ** 2 + y_rot ** 2 / sigma_y ** 2))
 
     if norm == 1:
         output /= np.sum(output)
     elif norm == 2:
         output /= np.sqrt(np.sum(output ** 2))
+    elif norm not in (0, 3):
+        raise ValueError( f"Unknown value {norm} for norm, must be 0, 1, or 2" )
 
     return output
 
