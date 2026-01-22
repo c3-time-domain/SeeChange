@@ -576,7 +576,7 @@ class Measurements(Base, UUIDMixin, SpatiallyIndexed, HasBitFlagBadness):
 
         detections: SourceList or None
             The detections associated with cutouts.  Needed because
-            laod_all_co_data needs sources.  If you leave this at None,
+            load_all_co_data needs sources.  If you leave this at None,
             it will try to load the SourceList from the database.  Pass
             this for efficiency, or if the cutouts or detections aren't
             already in the database.

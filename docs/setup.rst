@@ -1,4 +1,186 @@
-## Setting up a SeeChange instance
+.. toctree::
+
+*******************************
+Setting up a SeeChange instance
+*******************************
+
+While it is probably possible to set up an environment on any machine to run SeeChange, all of our development and testing, and the production running for LS4, is done in a Dockerized environment.  As such, that is all that is documented here.
+
+Most of these instructions assume you're setting up a SeeChange instance to hook into an existing installation.  If you want to start a local isolated environment for development and testing, see :doc:`development`.  If, however, you're setting up an all new installation of SeeChange that's going to run on a survey that somebody hasn't already set up for you, see :ref:`full-server-setup` below.
+
+Checking out the code
+=====================
+
+You can pull the code with::
+
+   git clone https://github.com/c3-time-domain/SeeChange.git
+   git submodule update --init
+
+(The second command is needed to pull embedded git archives within SeeChange.)  If you're developing the code, you may want to pull it differently; see (TODO reference).
+
+.. _docker-image:
+Acquiring or Building the Docker Image
+======================================
+
+A "current" docker image for SeeChange can be pulled (with ``docker pull``) from the following locations (where YYYMMDD are used for different releases; sometimes there may be an "a", "b", etc. after YYYYMMDD if we uploaded multiple versions in one day).  It should usually be safe to use the "latest" version, but you might want to pull a specific dated version for reproducibility.  The ``_nocode`` docker images do *not* actually include the SeeChange code, just the necessary environment.  To use this image, you will need to bind-mount an installation of SeeChange (see below).  This is what you want to use for development (and, right now, SeeChange is under heavy development).
+
+ - ``docker.io/rknop/seechange:YYYYMMDD``
+ - ``docker.io/rknop/seechange:latest``
+ - ``docker.io/rknop/seechange_nocode:YYYYMMDD``
+ - ``docker.io/rknop/seechange_nocode:latest``
+ - ``registry.nersc.gov/m4616/seechange:YYYYMMDD``
+ - ``registry.nersc.gov/m4616/seechange:latest``
+ - ``registry.nersc.gov/m4616/seechange_nocode:YYYYMMDD``
+ - ``registry.nersc.gov/m4616/seechange_nocode:latest``
+
+**NOTE**: Currently, these images are only for the ``x86_64`` architecture.  If you are on an ARM machine (which is the case for all recent Macs), you may be able to use these images, but they could be very inefficient.
+
+Pulling the docker image on NERSC
+---------------------------------
+
+On NERSC, use ``podman-hpc`` instead of ``docker``.  You pull the image with ``podman-hpc pull <imagename>``.  (Do **not** do ``podman-hpc image pull ...``, as that will seem to work, but not pull the images in such a way that they will work on any node other than the one you pulled it on.  If you do ``podman-hpc pull <imagename>``, the image will be available on all nodes.)
+
+Building the Docker Image
+-------------------------
+
+If you need to build the docker image yourself, you should be able to accomplish this by running the following in the top level of the SeeChange checkout::
+
+   docker build --target included_code -t seechange:<tag> -f docker/application/Dockerfile .
+
+Replace ``<tag>`` with whatever you want (this is just part of the name of the docker image you are building); if you omit ``:<tag>``, then the "latest" image will be build.  This command will build a docker image that has the version of the code in the checkout included in the image.  If you want to build an image that doesn't include the code, and plan to bind-mount the code yourself, then replace ``included_code`` with ``bindmount_code``.  If you want to be able to run all of the tests, instead use ``--target test_included`` or ``--target test_bindmount`` in place of ``--target included_code``.  (The reason to have a separate image for tests is that they require several additional things that bloats the docker image.  The non-test versions of the image are slightly smaller, though still distressingly large.)
+
+.. _dirs:
+Setting up necessary directories
+================================
+
+For an installation of SeeChange that is hooking into a pre-existing database, you need to identify the following directories:
+
+- A working directory; below we'll call this ``workdir``.  This is where you will store configuration files, and where you may store other things.
+- A "local file store" for data; below we'll call this ``data_root``.  This should be on a fast disk, and should have a lot of space.  E.g., in NERSC, this should be somewhere under your scratch space.
+- A temporary directory; below will call this ``data_temp``.  This is where temporary files are written (and, currently, not cleaned up often enough).  If no code is running and you find files here, it's safe to delete them.  To be safe, this directory should have at least a few hundred GB of space availble.
+
+Optionally, if you aren't using the docker image with the code included, you may also need to set up an install directory; see :ref:`installing-code` below.
+
+If you're setting up a whole new installation of SeeChange, there are additional directories and servers you will need; see (TODO reference).
+
+
+.. _installing-code:
+Installing the code
+===================
+
+**Note**: This step is unnecessary if you're using a docker image with the SeeChange code included (see :ref:`docker-image`).
+
+Get the latest "production" version of the code by cloning the ``main`` branch of this archive: https://github.com/c3-time-domain/SeeChange/
+
+This can (and should?) be done outside of the docker image.  Pick a location for the code to be installed, and run, at the top level of a SeeChange checkout::
+
+   ./configure --with-installdir=<installdir>
+   make install
+
+
+If that fails, try running::
+
+   autoreconf
+   ./configure --with-installdir=<installdir>
+   make install
+
+You will then need to add ``<installdir>`` to your ``PYTHONPATH``.  (Instructions for doing this in the Docker environment are included below.)
+
+Instead of installing the code, it is *probably* possible to just run the code in place, and just add the top level of your SeeChange checkout to your ``PYTHONPATH``.  (This is how our tests usually work.)
+
+.. _config:
+Creating a configuration file
+=============================
+
+SeeChange depends on a configuration file to tell it where the database is, where necessary external servers are, where it can read and write images and other data products, and, last but not least, the parameters to use when running the various steps of the pipeline.  You can find a default configuration file in ``default_config.yaml`` in the top level of the git checkout.
+
+If you're just going to be running tests or doing local development, you mostly don't need to worry about this, but can use the configuration file that is automatically set up by the tests or the dvelopment environment.
+
+To make your own configuration file, we actually do not recommend editing ``default_config.yaml``.  Rather, just copy it exactly as it is to (or, better, make a symbolic in) your work directory (which may well be the top level of your SeeChange checkout, in which case no coyping is needed).  If you look near the top of ``default_config.yaml``, you'll see that it refers to two files ``local_overrides.yaml`` and ``local_augments.yaml``.  These are the ones we recommend you edit.  Easiest is just to leave ``local_augments.yaml`` alone, and only edit ``local_overrides.yaml``.  In ``local_overrides.yaml``, you can override any config values from the default file with your own versions.  At runtime, your own versions will be used.
+
+There are a few things you definitely need to set.  If you're hooking into an existing SeeChange instance, then you need to point to the right web application server, archive server, and database.  This means setting all the right values underneath ``db``, ``archive``, ``conductor``, and ``webap``.  You may also need to make sure you have any standard configuration values that this existing SeeChange instance uses.  Hopefully, the person who maintains this existing SeeChange instance will have a configuration file to give you with these values; below, we'll call that ``<survey_config>.yaml``.  Stick this file in your working directory.  Set yourself up to read this survey config by putting the following at the top of your ``local_overrides.yaml``::
+
+  preloads:
+    - <survey_config>.yaml
+
+replacing ``<survey_config>`` with whatever is right for the file you are given.
+
+Next, you need to add ``path`` section to your ``local_overrides.yaml`` file::
+
+  path:
+    data_root: /data_root
+    data_temp: /data_temp
+
+The directories in this code snippit are exactly what you'll use if you follow the instructions for running the docker container below.  You can, of course, use different directories if you know what you're doing.
+
+Ideally, again assuming you were given a configuration file for the survey you are hooking into, this is everything you need to do.  However, you may wish to make other changes.  You might want to be trying actual different things in the pipeline, in which case hopefully you know what you're doing.  You may also want to enable or disable things relative to what's the survey config (e.g. the sending of alerts).
+
+Running the Docker Container
+============================
+
+Assuming you're using the included-code version, cd into your ``workdir`` and run the docker container with::
+
+   docker run -it \
+      --mount type=bind,source=<workdir>,target=/workdir \
+      --mount type=bind,source=<data_root>,target=/data_root \
+      --mount type=bind,source=<data_temp>,target=/data_temp \
+      --env SEECHANGE_CONFIG=/workdir/default_config.yaml \
+      <image> /bin/bash
+
+Replacing ``<workdir>``, ``<data_root>``, and ``<data_temp>`` with the directories you identified above in :ref:`dirs`.
+Replace ``<image>`` with the name of your docker image (which you built or pulled above in :ref:`docker-image`).  This command assumes that you're using an included-code image; see "Bind-mounting the code" below otherwise.
+
+This docker command will give you a shell inside the container.  (You probably want to ``cd /workdir`` once you're inside the container.)  If you're on NERSC, you should be able to just replace ``docker`` with ``podman-hpc`` above.  Notice that this sets the environment variable ``SEECHANGE_CONFIG`` to point at the config file we recommended in :ref:`config` above.  If you are using a configuration file somewhere else, replace ``/workdir/default_config.yaml`` with the *in-container* location of your actual configuration file.
+
+You can verify that things are working by running a python interactive session and trying to import something from SeeChange::
+
+  root@3b6df0c581ff:/seechange# python
+  Python 3.13.5 (main, Jun 25 2025, 18:55:22) [GCC 14.2.0] on linux
+  Type "help", "copyright", "credits" or "license" for more information.
+  >>> from util.config import Config
+  >>> cfg = Config.get()
+  >>> print( cfg.value( 'path.data_root' ) )
+  /data_root
+
+If all is well, you won't get any error messages doing this.
+
+Bind-mounting the code
+----------------------
+
+If you're developing, and you're going to be editing the code, you probably don't want to have to rebuild the docker image every time you change the code.  In this case, you should either bind mount the place where you [installed the code](#installing-code), or the top level of your SeeChange checkout.  Do this by two more arguments to the ``docker`` command::
+
+   docker run -it \
+      --mount type=bind,source=<workdir>,target=/workdir \
+      --mount type=bind,source=<data_root>,target=/data_root \
+      --mount type=bind,source=<data_temp>,target=/data_temp \
+      --mount type=bind,source=<install_dir>,target=/seechange \
+      --env SEECHANGE_CONFIG=/workdir/default_config.yaml \
+      --env PYTHONPATH=/seechange \
+      <image> /bin/bash
+
+where `<install_dir>` is where the seechange code is located-- either the place you installed it, or the top level of the SeeChange checkout.  (For development, the latter is probably more convenient.)  In this case, ``<image>`` should be one of the ``_nocode`` images from :ref:`docker-image`.
+
+
+.. _full-server-setup:
+Full Server Setup
+=================
+
+In addition to the running SeeChange code, there are a few servers that need to be set up and run.  This includes at the very least PostgreSQL database server.  You probably also want to set up a web application server, and an archive server.
+
+TODO DOCUMENT THIS
+
+
+
+
+
+
+
+
+----
+
+OLD
+
+
 
 ### Installing using Docker
 
@@ -7,6 +189,10 @@ At the moment, some of the things below will not work if you install Docker Desk
 - Installing Docker Engine : https://docs.docker.com/engine/install/
 
 - Setting up rootless mode (so you don't have to sudo everything) : https://docs.docker.com/engine/security/rootless/ (There is some indication that this is difficult to get working; you may be happier just installing docker engine and adding yourself to the `docker` group in `/etc/group`.)
+
+In order to actually _use_ the installation, you need to have a configuration file that points to the database, file store, and webap server relevant for what you're doing.  (TODO: document for LS4.)
+
+
 
 .. _dev_shell_local_database:
 #### Development shell — local transient database

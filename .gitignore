@@ -40,24 +40,18 @@ util/githash.py
 #   want to drop that requirement, then we
 #   need to remove some of these following lines
 Makefile
-Makefile.in
 aclocal.m4
 autom4te.cache/
 config.log
 config.status
 configure
 improc/Makefile
-improc/Makefile.in
 install-sh
 missing
 models/Makefile
-models/Makefile.in
 pipeline/Makefile
-pipeline/Makefile.in
 share/Makefile
-share/Makefile.in
 util/Makefile
-util/Makefile.in
 
 
 ### Environments

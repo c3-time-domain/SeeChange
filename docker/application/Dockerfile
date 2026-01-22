@@ -16,7 +16,7 @@
 # image every time you edit a line of code.
 #
 # The targets with selenium included (the "test_*" environments) add
-# ~0.7GB to the image because web browsers are gigantic unwieldy beasts.
+# ~0.5GB to the image because web browsers are gigantic unwieldy beasts.
 # We need that for our tests, but it is not needed for a production
 # environment, and (may) not be needed for a dev environment (depending
 # on what you're working on).
@@ -32,21 +32,21 @@
 #     webap
 #   bindmount_code
 #   base_selenium
-#     test_included    ** Image used in tests to run the tests
-#     test_bindmount
+#     test_included
+#     test_bindmount    ** Image used in github CI tests
 #
-# As of 2025-01-15, the sizes of images from the various stages are as follows:
-#   base                0.89GB
-#   build               3.35GB
-#   included_code_build 3.45GB
-#   webap_build
-#   build_selenium      3.43GB
-#   included_code       2.52GB
-#   webap
-#   bindmount_code      2.52GB
-#   base_selenium       1.24GB
-#   test_bindmount      2.92GB
-#   test_included       2.92GB
+# As of 2026-01-08, the sizes of images from the various stages are as follows:
+#   base                0.79GB
+#   build               3.46GB
+#   included_code_build 3.59GB
+#   webap_build         3.59GB
+#   build_selenium      3.53GB
+#   included_code       2.56GB
+#   webap               2.56GB
+#   bindmount_code      2.55GB
+#   base_selenium       1.17GB
+#   test_bindmount      2.98GB
+#   test_included       2.99GB
 #
 # The "smallest usable image" is bindmount_code, as it includes all the
 # pip requirements, but does not include firefox or selenium.
@@ -58,7 +58,7 @@
 # The base target defines the base system that all other images
 #   will be built on top of.
 
-FROM rknop/devuan-daedalus-rknop AS base
+FROM debian:trixie-20251229 AS base
 
 LABEL maintainer="Rob Knop <raknop@lbl.gov>"
 
@@ -82,6 +82,7 @@ RUN apt-get update && \
       libcfitsio-bin \
       libfftw3-bin \
       liblapack3 \
+      less \
       locales \
       missfits \
       netcat-openbsd \
@@ -148,9 +149,9 @@ ENV LESS=-XLRi
 #   needed for compilation and the like while building things,
 #   but don't include those packages in the final Docker image.
 #   This saves about ~0.5GB from the final Docker image.
-#   (Alas, the pip requirements eat up ~1GB, and there's not a lot we
+#   (Alas, the pip requirements eat up >1GB, and there's not a lot we
 #   can do about that because a big fraction of that is stuff like
-#   scipy, astropy.)
+#   scipy, astropy, and espeically pytorch (650MB all by itself).)
 
 FROM base AS build
 
@@ -232,7 +233,7 @@ RUN source /venv/bin/activate \
 
 # Pytorch
 RUN source /venv/bin/activate \
-    && uv pip install torch==2.3.1+cpu --find-links https://download.pytorch.org/whl/torch_stable.html
+    && uv pip install torch==2.5.0+cpu --find-links https://download.pytorch.org/whl/torch
 
 # RBbot
 # Remove the requirements.txt file because it will install

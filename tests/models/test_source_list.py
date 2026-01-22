@@ -310,14 +310,12 @@ def test_write_sextractor(archive):
 def test_calc_apercor( decam_datastore ):
     sources = decam_datastore.get_sources()
 
-    # These numbers are when you don't use is_star at all:
-    # We should think again about using CLASS_STAR once we address Issue #381.
-    assert sources.calc_aper_cor() == pytest.approx(-0.2642, abs=0.01)
-    assert sources.calc_aper_cor(aper_num=1) == pytest.approx(-0.0686, abs=0.01)
-    assert sources.calc_aper_cor(inf_aper_num=3) == pytest.approx(-0.2642, abs=0.01)
-    assert sources.calc_aper_cor(inf_aper_num=1) == pytest.approx(-0.2032, abs=0.01)
-    assert sources.calc_aper_cor(aper_num=2) == pytest.approx(-0.0255, abs=0.01)
-    assert sources.calc_aper_cor(aper_num=2, inf_aper_num=3) == pytest.approx(-0.0255, abs=0.01)
+    assert sources.calc_aper_cor() == pytest.approx(-0.2476, abs=0.01)
+    assert sources.calc_aper_cor(aper_num=1) == pytest.approx(-0.0589, abs=0.01)
+    assert sources.calc_aper_cor(inf_aper_num=3) == pytest.approx(-0.2476, abs=0.01)
+    assert sources.calc_aper_cor(inf_aper_num=1) == pytest.approx(-0.1879, abs=0.01)
+    assert sources.calc_aper_cor(aper_num=2) == pytest.approx(-0.0190, abs=0.01)
+    assert sources.calc_aper_cor(aper_num=2, inf_aper_num=3) == pytest.approx(-0.0190, abs=0.01)
 
 
 def test_lim_mag_estimate( ptf_datastore_through_zp ):

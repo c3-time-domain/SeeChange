@@ -284,7 +284,7 @@ def test_edit_prov_tree():
 
 # The fixture gets us a datastore with everything saved and committed
 # The fixture takes some time to build (even from cache), so glom
-# all the tests together in one function.
+# a whole bunch of tests together in one function.
 
 # (TODO: think about test fixtures, see if we could easily (without too
 # much repeated code) have module scope (and even session scope)
@@ -408,6 +408,25 @@ def test_data_store( decam_datastore ):
             for subprop in sourcesiblings:
                 setattr( ds, subprop, origprops[ subprop ] )
     setattr( ds, props[-1], origprops[ props[-1] ] )
+
+
+    # Test load_prov_tree
+    # (Just tests that it works once, doesn't test failure modes, and doesn't stress it.
+    #  probably more test code should be written.)
+
+    ds2 = DataStore( ds.exposure_id, ds.section_id )
+    assert ds2.prov_tree is None
+    ds2.load_prov_tree( 'decam_datastore' )
+    assert len( ds2.prov_tree.keys() ) == len( ds.prov_tree.keys() )
+    # There is this weirdness that the datastore built in the factory has "starting_point"
+    #   as a process, but the actual process in the database is "acquire_exposure", and
+    #   that's what gets loaded in load_prov_tree.  Probably things should be refactored
+    #   to handle starting point more elegantly?
+    for key in ds.prov_tree.keys():
+        if key == 'starting_point':
+            assert ds2.prov_tree['acquire_exposure'].id == ds.prov_tree[key].id
+        else:
+            assert ds2.prov_tree[key].id == ds.prov_tree[key].id
 
 
     # MORE

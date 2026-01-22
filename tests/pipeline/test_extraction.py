@@ -269,14 +269,14 @@ def test_run_psfex( decam_datastore_through_extraction, extractor ):
         extractor.pars.subtraction = False
         extractor.pars.threshold = 4.5
         psf = extractor._run_psfex( tempname, ds.image )
-        assert psf._header['PSFAXIS1'] == 27
-        assert psf._header['PSFAXIS2'] == 27
+        assert psf._header['PSFAXIS1'] == 25
+        assert psf._header['PSFAXIS2'] == 25
         assert psf._header['PSFAXIS3'] == 6
-        assert psf._header['PSF_SAMP'] == pytest.approx( 0.90, abs=0.01 )
+        assert psf._header['PSF_SAMP'] == pytest.approx( 0.91, abs=0.01 )
         assert psf._header['CHI2'] == pytest.approx( 0.97, abs=0.1 )
         bio = io.BytesIO( psf._info.encode( 'utf-8' ) )
         psfstats = votable.parse( bio ).get_table_by_index(1)
-        assert psfstats.array['FWHM_FromFluxRadius_Max'] == pytest.approx( 4.204, abs=0.01 )
+        assert psfstats.array['FWHM_FromFluxRadius_Max'] == pytest.approx( 4.276, abs=0.01 )
         assert not tmppsffile.exists()
         assert not tmppsfxmlfile.exists()
 

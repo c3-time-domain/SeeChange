@@ -63,11 +63,12 @@ class CodeVersion(Base, UUIDMixin):
     #     NOTE: PATCH changes should never result in a change in any data produced, and can be changed without
     #     affecting provenances. MINOR changes will result in some change in the data products, and MAJOR will
     #     represent a major change in how they interact with other parts of the pipeline.
+    #     (Technically, you're allowed to violate this as long as MAJOR is 0.)
     CODE_VERSION_DICT = {
         # The core processes of the pipeline
         'acquire_exposure': (0,1,0),
         'preprocessing': (0,1,1),
-        'extraction': (0,1,0),
+        'extraction': (0,2,0),
         'astrocal' : (0,1,0),
         'photocal' : (0,1,0),
         'subtraction': (0,1,0),
@@ -238,7 +239,7 @@ class Provenance(Base):
         return self._upstreams
 
 
-    def __init__(self, **kwargs):
+    def __init__(self, dont_update_id=False, _id=None, **kwargs):
         """Create a provenance object.
 
         Parameters
@@ -278,8 +279,25 @@ class Provenance(Base):
         replaced_by: int
             ID of the Provenance object that replaces this one.
 
+        dont_update_id: bool, default False
+            Usually you want this to be False.  If this is False, at the
+            end of the constructor, the update_id() method is called to
+            make sure the id field is correct.  However, if you are
+            playing games like creating a Provenance but planning to
+            manually set the _upstreams field later (don't do that
+            unless you really know what you're doing!!!), then you may
+            need to set this to True.  In that case, you must either have
+            passed an _id argument to the constructor, or you must be sure
+            to call update_id() yourself.
+
+        _id: string, default None
+            You usually do NOT want to send this, you want to let
+            provenacne automatically set it.  Only use this if you
+            really know what you're doing.
+
         """
         SeeChangeBase.__init__(self)
+        self._id = _id
 
         if kwargs.get('process') is None:
             raise ValueError('Provenance must have a process name. ')
@@ -316,7 +334,8 @@ class Provenance(Base):
         self.bad_comment = kwargs.get('bad_comment', None)
         self.is_testing = kwargs.get('is_testing', False)
 
-        self.update_id()  # too many times I've forgotten to do this!
+        if not dont_update_id:
+            self.update_id()
 
     @orm.reconstructor
     def init_on_load( self ):
@@ -353,7 +372,61 @@ class Provenance(Base):
         with SmartSession( session ) as sess:
             return sess.query( Provenance ).filter( Provenance._id.in_( provids ) ).all()
 
+    @classmethod
+    def get_for_tag( cls, tag, process=None, conn=None ):
+        """Return either the provenance for a tag and process, or all provenances for a tag.
+
+        Parameters
+        ----------
+          tag : string
+            The provenance-tag you want provenances for.
+
+          process : string, default None
+             The process you want the provenance for.  If omitted, you
+             will get the provenances for all processes defined for the
+             tag.
+
+          conn : psycopg.connection or None
+             If given, use this connection to the database.  Otherwise,
+             a new connection will be created and closed in this
+             function.
+
+        Returns
+        -------
+          Provenance, None, or dict of Provenance
+
+          If process is not None, you will get back a single Provenance
+          object, or None if there isn't one that matches the given tag
+          and process.  If process is none, you will get a dictionary of
+          process(string): Provenance (which will be empty if the
+          provenance tag is not defined).
+
+        """
+        with PsycopgConnection( conn ) as conn:
+            cursor = conn.cursor( row_factory=psycopg.rows.dict_row )
+            q = ( "SELECT p.* FROM provenances "
+                  "INNER JOIN provenance_tags t ON p._id=t.provenance_id "
+                  "WHERE t.tag=%(tag)s" )
+            if process is not None:
+                q+= " AND p.process=%(process)s"
+            cursor.execute( q, { 'tag': tag, 'process': process } )
+            rows = cursor.fetchall()
+
+        if process is not None:
+            if len(rows) > 1:
+                raise ValueError( f"Database corruption!  There are multiple provenances for "
+                                  f"tag {tag} and process {process}." )
+            elif len(rows) == 0:
+                return None
+            else:
+                return Provenance( dont_update_id=True, **rows[0] )
+
+        else:
+            return { r['process']: Provenance( dont_update_id=True, **r ) for r in rows }
+
+
     def update_id(self):
+
         """Update the id using the code_version, process, parameters and upstream_hashes."""
         if self.process is None or self.parameters is None or self.code_version_id is None:
             raise ValueError('Provenance must have process, code_version_id, and parameters defined. ')

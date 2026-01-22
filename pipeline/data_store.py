@@ -1,14 +1,16 @@
 import io
 import datetime
-import sqlalchemy as sa
 import pathlib
 import uuid
 # import traceback
 
+import sqlalchemy as sa
+import psycopg
+
 from util.util import listify, asUUID, env_as_bool
 from util.logger import SCLogger
 
-from models.base import SmartSession, FileOnDiskMixin, FourCorners
+from models.base import SmartSession, PsycopgConnection, FileOnDiskMixin, FourCorners
 from models.provenance import Provenance, ProvenanceTag
 from models.exposure import Exposure
 from models.image import Image
@@ -707,6 +709,136 @@ class DataStore:
             self.report.success = True
             self.report.finish_time = datetime.datetime.now( datetime.UTC )
             self.report.upsert()
+
+
+    def load_prov_tree( self, provenance_tag, dbcon=None ):
+        """Load the DataStore's provenance tree with all provenance in the database matching provenance_tag.
+
+        Will destroy the existing provenance tree.
+
+        WARNING.  It's easy to misuse this!  Make sure that the
+        provenance tag you're loading is consistent with the provenance
+        image or exposure used to initialize the database.
+
+        Parameters
+        ----------
+          provenance_tag : str
+            The provenance tag to load.  All provenances associated with
+            this tag will be loaded, and (hopefully!) the provenacne
+            tree will be properly populated.
+
+          dbcon : psycopg.Connection or None
+            Database connection.  If None, a new one will be made and
+            closed in this function.
+
+        """
+
+        with PsycopgConnection( dbcon ) as con:
+            cursor = con.cursor( row_factory=psycopg.rows.dict_row )
+            cursor.execute( "SELECT p._id FROM provenances p "
+                            "INNER JOIN provenance_tags t ON t.provenance_id=p._id "
+                            "WHERE t.tag=%(tag)s",
+                            { 'tag': provenance_tag } )
+            rows = cursor.fetchall()
+            provids = set()
+            newprovids = set( [ r['_id'] for r in rows ] )
+
+            # As in make_prov_tree, the "referencing" process is a special case.  We do NOT
+            #   want to include the referencing upstreams in our list of provenances,
+            #   unless they would have otherwise been included.  Use provstoinclude
+            #   to keep track of this.
+            provstoinclude = set()
+            newprovidstoinclude = newprovids
+
+            # Make sure we have all the upstreams for all the provenances.  It's possible that
+            #   a given provenance tag will have upstreams that aren't part of that provenance tag,
+            #   so we might not have all of them yet.
+            upstreams = {}
+            iters = 0
+            while len(newprovids) > 0:
+                provids = provids.union( newprovids )
+                provstoinclude = provstoinclude.union( newprovidstoinclude )
+                iters += 1
+                if iters > 20:
+                    raise RuntimeError( "Absurd number of iterations finding upstream provenances, "
+                                        "something is wrong." )
+
+                cursor.execute( "SELECT pu.downstream_id, pu.upstream_id, p.process "
+                                "FROM provenance_upstreams pu "
+                                "INNER JOIN provenances p ON pu.downstream_id=p._id "
+                                "WHERE pu.downstream_id=ANY(%(ids)s) "
+                                "ORDER BY pu.downstream_id, pu.upstream_id ",
+                                { 'ids': list(newprovids) } )
+                rows = cursor.fetchall()
+
+                for row in rows:
+                    # Stupid quick check that all our set games are working right
+                    if row['downstream_id'] in upstreams:
+                        raise RuntimeError( "This should never happen." )
+
+                newprovidstoinclude = set()
+                for row in rows:
+                    if row['downstream_id'] not in upstreams:
+                        upstreams[ row['downstream_id'] ] = []
+                    upstreams[ row['downstream_id'] ].append( row['upstream_id'] )
+                    if row['process'] != 'referencing':
+                        newprovidstoinclude.add( row['upstream_id'] )
+
+                newprovids = set( [ r['upstream_id'] for r in rows ] ) - provids
+
+            # Create the provenance objects, including setting upstreams (without repeated database hitting)
+            cursor.execute( "SELECT * FROM provenances WHERE _id=ANY(%(ids)s)", { 'ids': list(provids) } )
+            rows = cursor.fetchall()
+            provs = { r['_id']: Provenance( dont_update_id=True, **r ) for r in rows }
+            for prov in provs.values():
+                if prov.id in upstreams:
+                    # A little bit naughty because we're accessing an underscore property,
+                    #    but this allows us to create all the provenances without multiple
+                    #    database queries.
+                    prov._upstreams = [ provs[i] for i in upstreams[prov.id] ]
+                    prov._upstreams.sort( key=lambda x: x.id )
+
+            # Verify process uniqueness
+            dupes = set()
+            found = set()
+            for provid in provstoinclude:
+                prov = provs[ provid ]
+                if prov.process in found:
+                    dupes.add( prov.process )
+                found.add( prov.process )
+            if len(dupes) > 0:
+                raise RuntimeError( f"Some processes were found more than once!  This isn't supposed to happen!  "
+                                    f"Duplicated processes: {', '.join(dupes)}" )
+
+            # Here's the annoying thing: ProvenanceTree assumes that upstream_steps is ordered so that
+            #   everything in the values shows up as an earlier key.  So we have to do that sorting.
+            #   Just sort the provenances themselves so that we're going from upstream to downstream.
+            #   There is probably a more elegant way than the manual insertion sort I've written here.
+
+            def isupstream( provdown, provup ):
+                for up in provdown.upstreams:
+                    if provup.id == up.id:
+                        return True
+                    if isupstream( up, provup ):
+                        return True
+                return False
+
+            allprovs = [ provs[i] for i in provstoinclude ]
+            sortedprovs = [ allprovs[0] ]
+            for prov in allprovs[1:]:
+                did = False
+                for dex in range( len(sortedprovs) ):
+                    if isupstream( prov, sortedprovs[dex] ):
+                        sortedprovs.insert( dex, prov )
+                        did = True
+                        break
+                if not did:
+                    sortedprovs.append( prov )
+
+            # Finally make the provenance tree
+            processprovdict = { p.process: p for p in sortedprovs }
+            upstream_steps = { p.process: [ provs[u.id].process for u in p.upstreams ] for p in sortedprovs }
+            self.prov_tree = ProvenanceTree( processprovdict, upstream_steps )
 
 
     def make_prov_tree( self, pars, steps=None, provtag=None, ok_no_ref_prov=False, upstream_steps=None,

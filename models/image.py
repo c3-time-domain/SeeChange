@@ -1779,6 +1779,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # return_zeropoints: bool, default False
         #     If True, return ZeroPoints of the images in addition to the
         #     Images.  This requires provenance_ids_are_zp to be True.
+        #     (NOT CURRENTLY SUPPORTED.)
 
         Returns
         -------
