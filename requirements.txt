@@ -41,7 +41,7 @@ tables==3.10.2
 urllib3==2.6.3
 uv==0.9.22
 wget==3.2
-kete==2.1.3 
+kete==2.1.5 
 
 # NOTE : pytorch is also required, but I haven't figured out how to get
 # a CPU-only version of pytorch from PyPi.  (The GPU version adds 5GB to
