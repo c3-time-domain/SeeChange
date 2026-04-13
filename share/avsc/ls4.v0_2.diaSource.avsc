@@ -1,5 +1,5 @@
 { "type": "record",
-  "namespace": "ls4.v0_2",
+  "namespace": "ls4.v0_3",
   "name": "diaSource",
   "fields": [
     { "name": "diaSourceId",
@@ -39,6 +39,11 @@
       "type": [ "float", "null" ],
       "default": null,
       "doc": "Covariance between ra and dec."
+    },
+    { "name": "mpcDesignation",
+      "type": [ "string", "null" ],
+      "default": null,
+      "doc": "MPC designation of nearby objects, if any."
     },
     { "name": "band",
       "type": [ "string", "null" ],
