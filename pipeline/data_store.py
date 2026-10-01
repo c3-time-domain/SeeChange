@@ -23,6 +23,7 @@ from models.reference import Reference, image_subtraction_components
 from models.cutouts import Cutouts
 from models.measurements import Measurements, MeasurementSet
 from models.deepscore import DeepScore, DeepScoreSet
+from models.asteroid_match import AsteroidMatchSet
 from models.refset import RefSet
 from models.fakeset import FakeSet, FakeAnalysis
 
@@ -41,6 +42,7 @@ _PROCESS_PRODUCTS = {
     'cutting': 'cutouts',
     'measuring': 'measurements',
     'scoring': 'scores',
+    'asteroid_checking': 'asteroid_match_set',
 }
 
 
@@ -124,6 +126,7 @@ class DataStore:
         'cutouts',
         'measurement_set',
         'deepscore_set',
+        'asteroid_match_set',
         'fakes',
         'fakeanal'
     ]
@@ -465,6 +468,7 @@ class DataStore:
         if val is None:
             self._measurement_set = None
             self.deepscore_set = None
+            self.asteroid_match_set = None
         else:
             if self._cutouts is None:
                 raise RuntimeError( "Can't set DataStore measurement_set until it has a cutouts" )
@@ -472,6 +476,8 @@ class DataStore:
                 raise TypeError( f"Datastore.measurement_set must be a MeasurementSet, not a {type(val)}" )
             if ( self._deepscore_set is not None ) and ( self._deepscore_set.measurementset_id != val.id ):
                 raise ValueError( "Can't set a measurement_set inconsistent with deepscore_set" )
+            if self.asteroid_match_set is not None and self.asteroid_match_set.measurementset_id != val.id:
+                self.asteroid_match_set = None
             self._measurement_set = val
             self._measurement_set.cutouts_id = self._cutouts.id
 
@@ -480,6 +486,20 @@ class DataStore:
         if self.measurement_set is None:
             return None
         return self.measurement_set.measurements
+
+
+    @property
+    def asteroid_match_set(self):
+        return self._asteroid_match_set
+
+    @asteroid_match_set.setter
+    def asteroid_match_set(self, val):
+        if val is not None:
+            if not isinstance(val, AsteroidMatchSet):
+                raise TypeError('asteroid_match_set must be an AsteroidMatchSet')
+            if self.measurement_set is None or val.measurementset_id != self.measurement_set.id:
+                raise ValueError('Asteroid annotations must belong to the current measurement set')
+        self._asteroid_match_set = val
 
 
     @property
@@ -655,6 +675,7 @@ class DataStore:
         self._sub_image = None  # subtracted image
         self._detections = None  # a SourceList object for sources detected in the subtraction image
         self._cutouts = None  # cutouts around sources
+        self._asteroid_match_set = None
         self._measurement_set = None  # photometry and other measurements for each source
         self._deepscore_set = None  # a list of r/b and ML/DL scores for Measurements
         self._fakes = None
@@ -1043,6 +1064,7 @@ class DataStore:
                 'cutting': ['detection'],
                 'measuring': ['cutting'],
                 'scoring': ['measuring'],
+                'asteroid_checking': ['measuring', 'astrocal'],
                 'alerting': []
             }
             # Put code here to modify upstream_steps based on things in pars
@@ -2015,6 +2037,28 @@ class DataStore:
                                        "measuring", is_list=False, provenance=provenance, reload=reload,
                                        session=session  )
 
+    def get_asteroid_match_set(self, provenance=None, reload=False, session=None):
+        """Load annotations for the current measurement set and checking provenance."""
+        if (provenance is None and (self.prov_tree is None or 'asteroid_checking' not in self.prov_tree)
+                and self.asteroid_match_set is None):
+            return None
+        expected = provenance
+        if expected is None and self.prov_tree is not None:
+            expected = self.prov_tree.get('asteroid_checking')
+        if (self.asteroid_match_set is not None and expected is not None
+                and self.asteroid_match_set.provenance_id != expected.id):
+            self.asteroid_match_set = None
+        return self._get_data_product('asteroid_match_set', AsteroidMatchSet, 'measurement_set',
+                                      AsteroidMatchSet.measurementset_id, 'asteroid_checking',
+                                      provenance=provenance, reload=reload, session=session)
+
+    def get_mpc_designations(self, session=None):
+        """Compatibility accessor aligned to the current measurements, not catalog ordering."""
+        match_set = self.get_asteroid_match_set(session=session)
+        if match_set is None:
+            return None
+        return [match_set.annotation(m)['mpcDesignation'] for m in self.measurements]
+
     def get_deepscore_set( self, provenance=None, reload=False, session=None ):
         """Get the DeepScore set, either from memory or from the database."""
         return self._get_data_product( "deepscore_set", DeepScoreSet, "measurement_set",
@@ -2088,7 +2132,7 @@ class DataStore:
         """
         attributes = [] if omit_exposure else [ '_exposure' ]
         attributes.extend( [ 'image', 'sources', 'psf', 'bg', 'wcs', 'zp', 'sub_image',
-                             'detections', 'cutouts', 'measurements', 'scores' ] )
+                             'detections', 'cutouts', 'measurements', 'scores', 'asteroid_match_set' ] )
         result = {att: getattr(self, att) for att in attributes}
         if output == 'dict':
             return result
@@ -2132,7 +2176,8 @@ class DataStore:
         self.get_cutouts( reload=reload )
         self.get_measurement_set( reload=reload )
         _ = self.measurement_set.measurements   # Force the measurements to load
-        self.get_deespcore_set( reload=reload )
+        self.get_deepscore_set( reload=reload )
+        self.get_asteroid_match_set(reload=reload)
         _ = self.deepscore_set.deepscores       # Force the deepscores to load
 
 
@@ -2397,6 +2442,10 @@ class DataStore:
                     d.deepscoreset_id = self.deepscore_set.id
                 DeepScore.upsert_list( self.deepscore_set.deepscores, load_defaults=True )
             commits.append( 'deepscore_set' )
+
+        if self.asteroid_match_set is not None:
+            self.asteroid_match_set.upsert(load_defaults=True)
+            commits.append('asteroid_match_set')
 
         self.products_committed = ",".join( commits )
 

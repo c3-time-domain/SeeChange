@@ -13,6 +13,7 @@ from pipeline.cutting import Cutter
 from pipeline.measuring import Measurer
 from pipeline.scoring import Scorer
 from pipeline.alerting import Alerting
+from pipeline.asteroid_checker import AsteroidChecker
 from pipeline.fakeinjection import FakeInjector
 
 from models.exposure import Exposure
@@ -35,6 +36,7 @@ _PROCESS_OBJECTS = {
     'cutting': 'cutter',
     'measuring': 'measurer',
     'scoring': 'scorer',
+    'asteroid_checking': 'asteroid_checker',
     'alerting': 'alerter',
 }
 
@@ -111,7 +113,7 @@ class ParsPipeline(Parameters):
             ( None, str ),
             "Stop after this step.  None = run the whole pipeline.  String values can be "
             "any of preprocessing, extraction, astrocal, photocal, subtraction, detection, "
-            "cutting, measuring, scoring.  (See Pipeline.ALL_STEPS)",
+            "cutting, measuring, scoring, asteroid_checking, alerting.  (See Pipeline.ALL_STEPS)",
             critical=False
         )
 
@@ -162,7 +164,7 @@ class Pipeline:
     """
 
     ALL_STEPS = [ 'preprocessing', 'extraction', 'astrocal', 'photocal', 'subtraction',
-                  'detection', 'cutting', 'measuring', 'scoring', 'alerting' ]
+                  'detection', 'cutting', 'measuring', 'scoring', 'asteroid_checking', 'alerting' ]
 
     def __init__(self, **kwargs):
         config = Config.get()
@@ -230,6 +232,11 @@ class Pipeline:
         scoring_config.update(kwargs.get('scoring', {}))
         self.pars.add_defaults_to_dict(scoring_config)
         self.scorer = Scorer(**scoring_config)
+
+        asteroid_config = config.value('asteroid_checking', {})
+        asteroid_config.update(kwargs.get('asteroid_checking', {}))
+        self.pars.add_defaults_to_dict(asteroid_config)
+        self.asteroid_checker = AsteroidChecker(**asteroid_config)
 
         # send alerts
         # Can't override alerting parameters at runtime; the Alerting
@@ -374,6 +381,7 @@ class Pipeline:
                  'cutting': self.cutter.pars.get_critical_pars(),
                  'measuring': self.measurer.pars.get_critical_pars(),
                  'scoring': self.scorer.pars.get_critical_pars(),
+                 'asteroid_checking': self.asteroid_checker.pars.get_critical_pars(),
                  'alerting': {},
                  'report': {}
                 }
@@ -534,6 +542,7 @@ class Pipeline:
                                     'cutting': self.cutter,
                                     'measuring': self.measurer,
                                     'scoring': self.scorer,
+                                    'asteroid_checking': self.asteroid_checker,
                                     'alerting': self.alerter,
                                    }
                 # ...counting on python dictionaries being ordered...

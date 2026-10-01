@@ -47,8 +47,6 @@ class Alerting:
         self.send_alerts = cfg.value( 'alerts.send_alerts' ) if send_alerts is None else send_alerts
         self.methods = cfg.value( 'alerts.methods' ) if methods is None else methods
 
-        import pdb; pdb.set_trace()
-
         if ( not isinstance( self.methods, dict ) ):
             raise TypeError( "Alerting: methods must be a dict." )
 
@@ -166,7 +164,8 @@ class Alerting:
                 ds.memory_usages['alerting'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
 
 
-    def dia_source_alert( self, meas, score, img, deepscore_set, zp=None, aperdex=None, fluxscale=None, mpc_designation=None ):
+    def dia_source_alert( self, meas, score, img, deepscore_set, zp=None, aperdex=None, fluxscale=None,
+                          mpc_designation=None, mpc_annotation=None ):
         # For snr, we're going to assume that the detection was approximately
         #   detection in a 1-FWHM aperture.  This isn't really right, but
         #   it should be approximately right.
@@ -187,7 +186,7 @@ class Alerting:
                 raise ValueError( "Must pass one of fluxscale or zp" )
             fluxscale = 10 ** ( ( zp.zp - 31.4 ) / -2.5 )
 
-        return { 'diaSourceId': str( meas.id ),
+        srcdict = { 'diaSourceId': str( meas.id ),
                  'diaObjectId': str( meas.object_id ),
                  'MJD': img.mid_mjd,
                  'ra': meas.ra,
@@ -206,6 +205,12 @@ class Alerting:
                  'rbcut': None if score is None else DeepScoreSet.get_rb_cut( deepscore_set.algorithm ),
                  'rbtype': None if score is None else deepscore_set.algorithm
                 }
+        srcdict.update(mpc_annotation or {
+            'mpcMatches': [], 'mpcMatchStatus': 'unavailable',
+            'mpcCatalogVersion': None, 'mpcCatalogEpoch': None,
+        })
+        return srcdict
+
 
     def dia_object_alert( self, obj, session=None ):
         cfg = Config.get()
@@ -243,7 +248,7 @@ class Alerting:
         zp = ds.get_zp()
         detections = ds.get_detections()
         measurement_set = ds.get_measurement_set()
-        mpc_designations = ds.get_mpc_designations()
+        asteroid_match_set = ds.get_asteroid_match_set()
         measurements = measurement_set.measurements
         cutouts = ds.get_cutouts()
         cutouts.load_all_co_data( sources=detections )
@@ -274,7 +279,7 @@ class Alerting:
 
         alerts = []
 
-        for i, ( meas, scr ) in enumerate( zip( measurements, scores ) ):
+        for meas, scr in zip(measurements, scores):
             with SmartSession() as sess:
                 # By default, no alerts for bad measurements
                 if skip_bad and meas.is_bad:
@@ -303,10 +308,10 @@ class Alerting:
                           'cutoutScience': newdata.tobytes(),
                           'cutoutTemplate': refdata.tobytes() }
 
-                mpc_desig = mpc_designations[i] if mpc_designations is not None else None
+                mpc_annotation = asteroid_match_set.annotation(meas) if asteroid_match_set is not None else None
                 alert['diaSource'] = self.dia_source_alert( meas, scr, image, deepscore_set,
                                                             zp=zp, aperdex=aperdex, fluxscale=fluxscale,
-                                                            mpc_designation=mpc_desig )
+                                                            mpc_annotation=mpc_annotation )
                 alert['diaObject'] = self.dia_object_alert( objobj, session=sess )
 
                 # TODO -- handle previous_sources_days

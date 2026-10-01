@@ -45,6 +45,55 @@
       "default": null,
       "doc": "MPC designation of nearby objects, if any."
     },
+    {
+      "name": "mpcMatches",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "mpcNeighbor",
+          "fields": [
+            {
+              "name": "designation",
+              "type": "string"
+            },
+            {
+              "name": "distanceArcsec",
+              "type": "double"
+            }
+          ]
+        }
+      },
+      "default": [],
+      "doc": "All known MPC asteroids within the matching radius, sorted by angular distance; does not affect alert selection."
+    },
+    {
+      "name": "mpcMatchStatus",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "doc": "checked, disabled, unavailable, or stale. Empty mpcMatches means no neighbor only when checked."
+    },
+    {
+      "name": "mpcCatalogVersion",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "doc": "Version of the orbit snapshot used for checking."
+    },
+    {
+      "name": "mpcCatalogEpoch",
+      "type": [
+        "double",
+        "null"
+      ],
+      "default": null,
+      "doc": "Orbit snapshot epoch, in TDB Julian Date."
+    },
     { "name": "band",
       "type": [ "string", "null" ],
       "default": null,
