@@ -76,7 +76,6 @@ class CodeVersion(Base, UUIDMixin):
         'cutting': (0,1,0),
         'measuring': (0,1,0),
         'scoring': (0,1,0),
-        'asteroid_checking': (0,1,0),
         'alerting': (0,1,0),
         'fakeinjection' : (0,1,0),
 

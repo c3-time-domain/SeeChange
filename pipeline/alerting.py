@@ -12,6 +12,8 @@ import hop
 import hop.auth
 import hop.models
 
+from pipeline.asteroid_checker import AsteroidChecker
+
 from models.base import SmartSession
 from models.image import Image
 from models.deepscore import DeepScoreSet
@@ -46,6 +48,7 @@ class Alerting:
         cfg = Config.get()
         self.send_alerts = cfg.value( 'alerts.send_alerts' ) if send_alerts is None else send_alerts
         self.methods = cfg.value( 'alerts.methods' ) if methods is None else methods
+        self.asteroid_checker = AsteroidChecker()
 
         if ( not isinstance( self.methods, dict ) ):
             raise TypeError( "Alerting: methods must be a dict." )
@@ -165,7 +168,7 @@ class Alerting:
 
 
     def dia_source_alert( self, meas, score, img, deepscore_set, zp=None, aperdex=None, fluxscale=None,
-                          mpc_designation=None, mpc_annotation=None ):
+                          mpc_annotation=None ):
         # For snr, we're going to assume that the detection was approximately
         #   detection in a 1-FWHM aperture.  This isn't really right, but
         #   it should be approximately right.
@@ -194,7 +197,6 @@ class Alerting:
                  'dec': meas.dec,
                  'decErr': None,
                  'ra_dec_Cov': None,
-                 'mpcDesignation': mpc_designation,
                  'band': img.filter,
                  'fluxZeroPoint': 31.4,
                  'apFlux': meas.flux_apertures[ aperdex ] * fluxscale,
@@ -206,11 +208,9 @@ class Alerting:
                  'rbtype': None if score is None else deepscore_set.algorithm
                 }
         srcdict.update(mpc_annotation or {
-            'mpcMatches': [], 'mpcMatchStatus': 'unavailable',
-            'mpcCatalogVersion': None, 'mpcCatalogEpoch': None,
+            'mpcDesignation': None, 'mpcMatches': [], 'mpcMatchStatus': 'unavailable',
         })
         return srcdict
-
 
     def dia_object_alert( self, obj, session=None ):
         cfg = Config.get()
@@ -248,7 +248,6 @@ class Alerting:
         zp = ds.get_zp()
         detections = ds.get_detections()
         measurement_set = ds.get_measurement_set()
-        asteroid_match_set = ds.get_asteroid_match_set()
         measurements = measurement_set.measurements
         cutouts = ds.get_cutouts()
         cutouts.load_all_co_data( sources=detections )
@@ -277,9 +276,10 @@ class Alerting:
         # sources, and previous forced sources are on the same scale.)
         fluxscale = 10 ** ( ( zp.zp - 31.4 ) / -2.5 )
 
+        mpc_annotations = self.asteroid_checker.check(ds)
         alerts = []
 
-        for meas, scr in zip(measurements, scores):
+        for meas, scr in zip( measurements, scores ):
             with SmartSession() as sess:
                 # By default, no alerts for bad measurements
                 if skip_bad and meas.is_bad:
@@ -308,10 +308,9 @@ class Alerting:
                           'cutoutScience': newdata.tobytes(),
                           'cutoutTemplate': refdata.tobytes() }
 
-                mpc_annotation = asteroid_match_set.annotation(meas) if asteroid_match_set is not None else None
                 alert['diaSource'] = self.dia_source_alert( meas, scr, image, deepscore_set,
                                                             zp=zp, aperdex=aperdex, fluxscale=fluxscale,
-                                                            mpc_annotation=mpc_annotation )
+                                                            mpc_annotation=mpc_annotations[str(meas.id)] )
                 alert['diaObject'] = self.dia_object_alert( objobj, session=sess )
 
                 # TODO -- handle previous_sources_days
@@ -321,13 +320,13 @@ class Alerting:
                 prvmess = objobj.get_measurements_et_al( measurement_set.provenance_id,
                                                          deepscore_set.provenance_id,
                                                          omit_measurements=[ meas.id ] )
-                for j in range( len( prvmess['measurements'] ) ):
-                    alert['prvDiaSources'].append( self.dia_source_alert( prvmess['measurements'][j],
-                                                                          prvmess['deepscores'][j],
-                                                                          prvmess['images'][j],
-                                                                          prvmess['deepscoresets'][j],
-                                                                          zp=prvmess['zeropoints'][j] ) )
-                    prvimgids.add( prvmess['images'][j].id )
+                for i in range( len( prvmess['measurements'] ) ):
+                    alert['prvDiaSources'].append( self.dia_source_alert( prvmess['measurements'][i],
+                                                                          prvmess['deepscores'][i],
+                                                                          prvmess['images'][i],
+                                                                          prvmess['deepscoresets'][i],
+                                                                          zp=prvmess['zeropoints'][i] ) )
+                    prvimgids.add( prvmess['images'][i].id )
 
             # Get all previous nondetections on subtractions of the same provenance.
             #   Note that in the subtraction code that exists right now, we set the

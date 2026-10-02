@@ -95,13 +95,10 @@ class MeasurementSet( Base, UUIDMixin, HasBitFlagBadness ):
 
         """
         from models.deepscore import DeepScoreSet
-        from models.asteroid_match import AsteroidMatchSet
         with SmartSession( session ) as session:
             downstreams = list( session.scalars( sa.Select( DeepScoreSet )
                                                  .where( DeepScoreSet.measurementset_id == self.id )
                                                 ).all() )
-            downstreams.extend(session.scalars(sa.select(AsteroidMatchSet)
-                                               .where(AsteroidMatchSet.measurementset_id == self.id)).all())
             downstreams.extend( list( session.scalars( sa.Select( Measurements )
                                                        .where( Measurements.measurementset_id == self.id )
                                                       ).all() ) )

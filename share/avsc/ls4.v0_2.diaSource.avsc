@@ -1,5 +1,5 @@
 { "type": "record",
-  "namespace": "ls4.v0_3",
+  "namespace": "ls4.v0_2",
   "name": "diaSource",
   "fields": [
     { "name": "diaSourceId",
@@ -43,7 +43,7 @@
     { "name": "mpcDesignation",
       "type": [ "string", "null" ],
       "default": null,
-      "doc": "MPC designation of nearby objects, if any."
+      "doc": "MPC designation of the nearest asteroid within the matching radius, or null."
     },
     {
       "name": "mpcMatches",
@@ -75,24 +75,6 @@
       ],
       "default": null,
       "doc": "checked, disabled, unavailable, or stale. Empty mpcMatches means no neighbor only when checked."
-    },
-    {
-      "name": "mpcCatalogVersion",
-      "type": [
-        "string",
-        "null"
-      ],
-      "default": null,
-      "doc": "Version of the orbit snapshot used for checking."
-    },
-    {
-      "name": "mpcCatalogEpoch",
-      "type": [
-        "double",
-        "null"
-      ],
-      "default": null,
-      "doc": "Orbit snapshot epoch, in TDB Julian Date."
     },
     { "name": "band",
       "type": [ "string", "null" ],

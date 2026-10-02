@@ -555,7 +555,6 @@ process_steps_dict = {
     10: 'scoring',        # creates DeepScore from Measurements
     11: 'fakeanalysis',   # inject fakes, resubtract, tabluate what's found
     12: 'alerting',       # send alerts
-    13: 'asteroid_checking',
     30: 'finalize'
 }
 process_steps_inverse = {EnumConverter.c(v): k for k, v in process_steps_dict.items()}
@@ -574,7 +573,6 @@ pipeline_products_dict = {
     9: 'cutouts',
     10: 'measurement_set',
     11: 'deepscore_set',
-    12: 'asteroid_match_set',
     25: 'fakes',
     26: 'fakeanal'
 }

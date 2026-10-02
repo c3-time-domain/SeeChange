@@ -1,11 +1,6 @@
 import sqlalchemy as sa
-from sqlalchemy import orm
-from sqlalchemy.schema import UniqueConstraint
-from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.declarative import declared_attr
-
 from models.base import Base
+
 
 class MPCTable(Base):
 
@@ -22,9 +17,9 @@ class MPCTable(Base):
     jd = sa.Column(
         sa.Double,
         nullable=False,
-        doc=("Julian Date of the observation.")
+        doc=("Orbit epoch, as a TDB Julian Date.")
     )
-    
+
     ra = sa.Column(
         sa.Double,
         nullable=False,
@@ -52,38 +47,35 @@ class MPCTable(Base):
     position_x = sa.Column(
         sa.Double,
         nullable=False,
-        doc=("X coordinate of the position (in AU for equatorial coordinates).")
+        doc=("X coordinate of the position (in AU in the heliocentric ecliptic frame).")
     )
 
     position_y = sa.Column(
         sa.Double,
         nullable=False,
-        doc=("Y coordinate of the position (in AU for equatorial coordinates).")
+        doc=("Y coordinate of the position (in AU in the heliocentric ecliptic frame).")
     )
 
     position_z = sa.Column(
         sa.Double,
         nullable=False,
-        doc=("Z coordinate of the position (in AU for equatorial coordinates).")
-    )   
+        doc=("Z coordinate of the position (in AU in the heliocentric ecliptic frame).")
+    )
 
     velocity_x = sa.Column(
         sa.Double,
         nullable=False,
-        doc=("X coordinate of the velocity (in AU per day for equatorial coordinates).")
+        doc=("X coordinate of the velocity (in AU per day in the heliocentric ecliptic frame).")
     )
 
     velocity_y = sa.Column(
         sa.Double,
         nullable=False,
-        doc=("Y coordinate of the velocity (in AU per day for equatorial coordinates).")
+        doc=("Y coordinate of the velocity (in AU per day in the heliocentric ecliptic frame).")
     )
 
     velocity_z = sa.Column(
         sa.Double,
         nullable=False,
-        doc=("Z coordinate of the velocity (in AU per day for equatorial coordinates).")
+        doc=("Z coordinate of the velocity (in AU per day in the heliocentric ecliptic frame).")
     )
-
-
-    
