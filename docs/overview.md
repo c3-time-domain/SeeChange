@@ -1,48 +1,32 @@
-********
-Overview
-********
+## Overview
 
 SeeChange is designed to be used as a pipeline and archiving tool for imaging sky surveys, primarily for the La Silla Schmidt Southern Survey (LS4).
 
 SeeChange consists of a main pipeline that takes raw images and produces a few data products:
+ - Calibrated images (after preprocessing such as bias, flat, etc).
 
-* Calibrated images (after preprocessing such as bias, flat, etc).
+ - Source catalogs (after source detection and photometry).
 
-* Source catalogs (after source detection and photometry).
+ - Point Spread Function (PSF) for the image.
 
-* Point Spread Function (PSF) for the image.
+ - Calibrations of the sources to external catalogs: astrometric calibration in the form of a World Coordinate System (WCS) and a photometric calibration in the form of a magnitude zero point (ZP).
 
-* Calibrations of the sources to external catalogs: astrometric calibration in the form of a World Coordinate System (WCS) and a photometric calibration in the form of a magnitude zero point (ZP).
+ - Difference images.
 
-* Difference images.
+ - Source catalogs from the difference images
+   (dubbed "detections" as we are mostly interested in transients).
 
-* Source catalogs from the difference images (dubbed "detections" as we are mostly interested in transients).
+ - Cutouts around the sources detected in the difference images, along with the corresponding image cutouts from the reference and the newly acquired images.
 
-* Cutouts around the sources detected in the difference images, along with the corresponding image cutouts from the reference and the newly acquired images.
+ - Measurements on those cutouts, including the photometric flux, the shapes, and some metrics that indicate if the source is astronomical or an artefact (using analytical cuts).
 
-* Measurements on those cutouts, including the photometric flux, the shapes, and some metrics that indicate if the source is astronomical or an artefact (using analytical cuts).
+Additional pipelines for making bias frames, flat frames, and to produce deep coadded references are described separately.  The coadd pipeline is described in :doc:`references`.
 
-* "Deep Scores", a Real/Bogus score based on a ML algorithm running inferrence on the cutouts (where a high value means it's likely an astrophysical transient, and a low value means it's likely an artifact).
+Data is saved into a database, on the local filesystem, and on a data archive (usually this is a remote server).  Saving and loading data from these locations is described in :doc:`data_storage`.
 
-* Alerts: AVRO alerts generated as the pipeline disocvers transients, and which are sent to external kafka servers.
+To read more about developing and contributing to the project, see :doc:`contribution` and :doc:`testing`.  To set up an instance of the pipeline to run on a local machine or on a remote server, see :doc:`setup`.
 
-Additional pipelines for making bias frames, flat frames, and to produce deep coadded references are described separately.
-
-To get set up with an instance of SeeChange, either to run the pipeline, or to use it to find and examine the data produced preivously by the pipeline, see :doc:`setup`.
-
-To understand the data model and data storage model, see :doc:`data_storage`.
-
-For information about running the pipeline, either to discover new transients, or to access data products produced previously by the pipeline, see :doc:`usage`.
-
-For a more technical description of what the pipeline does, see :doc:`pipeline`.
-
-To read more about developing and contributing to the project, see :doc:`development`.
-
-----
-
-TODO: EVERYTHING BELOW IS OLD, AND SHOULD EITHER BE DELETED, OR MOVED SOMEWHERE ELSE
-
-### Subdirectories
+### Project architecture
 
 The project is organized around two main subdirectories, `models` and `pipeline`.  `models` contains the objects that represent the data products, most of which are mapped (using SQL Alchemy) to a PostgreSQL database. `pipeline` contains the code that runs the analysis and processing required to produce the data products.
 
@@ -50,7 +34,7 @@ Additional folders include:
 
  - `alembic`: for migrating the database.
 
- - `webap`: A web application that has a few functions.  It includes the "conductor" which keeps track of what exposures are available for acquisition and processing; this allows multiple instances of the pipeline can run on different clusters and all work on the same survey.  Additionally, the webap includes a UI for browsing the database.
+ - `conductor`: The conductor is a web application that lives on a server somewhere and keeps track of what exposures are available for acquisition and processing.  It exists so that multiple instances of the pipeline can run on different clusters and all work on the same survey.
 
  - `data`: for storing local data, either from the tests or from the actual pipeline (not to be confused with the long term storing of data on the "archive").  (You probably don't really want to store data here, as your code is likely to be checked out on a filesystem that's different from the most efficient large-file storage system on your machine.  The actual data storage location is configured in a YAML file.)
 

@@ -320,13 +320,13 @@ class Alerting:
                 prvmess = objobj.get_measurements_et_al( measurement_set.provenance_id,
                                                          deepscore_set.provenance_id,
                                                          omit_measurements=[ meas.id ] )
-                for i in range( len( prvmess['measurements'] ) ):
-                    alert['prvDiaSources'].append( self.dia_source_alert( prvmess['measurements'][i],
-                                                                          prvmess['deepscores'][i],
-                                                                          prvmess['images'][i],
-                                                                          prvmess['deepscoresets'][i],
-                                                                          zp=prvmess['zeropoints'][i] ) )
-                    prvimgids.add( prvmess['images'][i].id )
+                for j in range( len( prvmess['measurements'] ) ):
+                    alert['prvDiaSources'].append( self.dia_source_alert( prvmess['measurements'][j],
+                                                                          prvmess['deepscores'][j],
+                                                                          prvmess['images'][j],
+                                                                          prvmess['deepscoresets'][j],
+                                                                          zp=prvmess['zeropoints'][j] ) )
+                    prvimgids.add( prvmess['images'][j].id )
 
             # Get all previous nondetections on subtractions of the same provenance.
             #   Note that in the subtraction code that exists right now, we set the
