@@ -12,6 +12,8 @@ import hop
 import hop.auth
 import hop.models
 
+from pipeline.asteroid_checker import AsteroidChecker
+
 from models.base import SmartSession
 from models.image import Image
 from models.deepscore import DeepScoreSet
@@ -46,8 +48,7 @@ class Alerting:
         cfg = Config.get()
         self.send_alerts = cfg.value( 'alerts.send_alerts' ) if send_alerts is None else send_alerts
         self.methods = cfg.value( 'alerts.methods' ) if methods is None else methods
-
-        import pdb; pdb.set_trace()
+        self.asteroid_checker = AsteroidChecker()
 
         if ( not isinstance( self.methods, dict ) ):
             raise TypeError( "Alerting: methods must be a dict." )
@@ -166,7 +167,8 @@ class Alerting:
                 ds.memory_usages['alerting'] = tracemalloc.get_traced_memory()[1] / 1024 ** 2 # in MB
 
 
-    def dia_source_alert( self, meas, score, img, deepscore_set, zp=None, aperdex=None, fluxscale=None, mpc_designation=None ):
+    def dia_source_alert( self, meas, score, img, deepscore_set, zp=None, aperdex=None, fluxscale=None,
+                          mpc_annotation=None ):
         # For snr, we're going to assume that the detection was approximately
         #   detection in a 1-FWHM aperture.  This isn't really right, but
         #   it should be approximately right.
@@ -187,7 +189,7 @@ class Alerting:
                 raise ValueError( "Must pass one of fluxscale or zp" )
             fluxscale = 10 ** ( ( zp.zp - 31.4 ) / -2.5 )
 
-        return { 'diaSourceId': str( meas.id ),
+        srcdict = { 'diaSourceId': str( meas.id ),
                  'diaObjectId': str( meas.object_id ),
                  'MJD': img.mid_mjd,
                  'ra': meas.ra,
@@ -195,7 +197,6 @@ class Alerting:
                  'dec': meas.dec,
                  'decErr': None,
                  'ra_dec_Cov': None,
-                 'mpcDesignation': mpc_designation,
                  'band': img.filter,
                  'fluxZeroPoint': 31.4,
                  'apFlux': meas.flux_apertures[ aperdex ] * fluxscale,
@@ -206,6 +207,10 @@ class Alerting:
                  'rbcut': None if score is None else DeepScoreSet.get_rb_cut( deepscore_set.algorithm ),
                  'rbtype': None if score is None else deepscore_set.algorithm
                 }
+        srcdict.update(mpc_annotation or {
+            'mpcDesignation': None, 'mpcMatches': [], 'mpcMatchStatus': 'unavailable',
+        })
+        return srcdict
 
     def dia_object_alert( self, obj, session=None ):
         cfg = Config.get()
@@ -243,7 +248,6 @@ class Alerting:
         zp = ds.get_zp()
         detections = ds.get_detections()
         measurement_set = ds.get_measurement_set()
-        mpc_designations = ds.get_mpc_designations()
         measurements = measurement_set.measurements
         cutouts = ds.get_cutouts()
         cutouts.load_all_co_data( sources=detections )
@@ -272,9 +276,10 @@ class Alerting:
         # sources, and previous forced sources are on the same scale.)
         fluxscale = 10 ** ( ( zp.zp - 31.4 ) / -2.5 )
 
+        mpc_annotations = self.asteroid_checker.check(ds)
         alerts = []
 
-        for i, ( meas, scr ) in enumerate( zip( measurements, scores ) ):
+        for meas, scr in zip( measurements, scores ):
             with SmartSession() as sess:
                 # By default, no alerts for bad measurements
                 if skip_bad and meas.is_bad:
@@ -303,10 +308,9 @@ class Alerting:
                           'cutoutScience': newdata.tobytes(),
                           'cutoutTemplate': refdata.tobytes() }
 
-                mpc_desig = mpc_designations[i] if mpc_designations is not None else None
                 alert['diaSource'] = self.dia_source_alert( meas, scr, image, deepscore_set,
                                                             zp=zp, aperdex=aperdex, fluxscale=fluxscale,
-                                                            mpc_designation=mpc_desig )
+                                                            mpc_annotation=mpc_annotations[str(meas.id)] )
                 alert['diaObject'] = self.dia_object_alert( objobj, session=sess )
 
                 # TODO -- handle previous_sources_days

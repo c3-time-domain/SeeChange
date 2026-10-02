@@ -525,6 +525,15 @@ object:
 #   to a git archive!
 #
 
+# Asteroid annotations never change which alerts are sent. Refresh the orbit cache
+# separately with python -m pipeline.refresh_asteroid_catalog (see docs/asteroids.md).
+asteroid_checking:
+  enabled: true
+  radius_arcsec: 30.0
+  max_epoch_distance_days: 3.0
+  prefilter_padding_deg: 1.0
+  observatory_code: null  # Earth center; set the instrument's MPC code for topocentric positions.
+
 alerts:
   send_alerts: true
   methods: {}
